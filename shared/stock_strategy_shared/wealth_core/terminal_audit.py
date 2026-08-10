@@ -152,17 +152,50 @@ def _notional(shares: Optional[int], price: Optional[float]) -> Optional[float]:
     return _money(int(shares) * float(price))
 
 
-def settlement_kind_for(event_kind: Optional[str],
-                        settlement_price: Optional[float]) -> str:
-    """What the holder received, from the ACTION type and the price together.
+#: Settlement methods that can only ever pay CASH. A proxy settlement values the
+#: position and credits proceeds; it cannot deliver shares of another issuer,
+#: because nothing in the corpus states an exchange ratio. Only EXACT_TERMS
+#: carries the terms that make a share delivery expressible at all.
+_PROXY_METHODS = frozenset({
+    "LAST_TRUSTWORTHY_MARK", "EXECUTABLE_PRINT", "PENDING_TERMS"})
 
-    The action type alone is not enough: every corpus-sourced termination is a
-    CASH_MERGER whose consideration is unreadable, and it settles at a cash
-    PROXY — so it is `cash` despite its terms being incomplete. And the price
-    alone is not enough either, which is the whole point: a CONVERSION has no
-    cash price because it was paid in shares, while a blocked event has no price
-    because nothing settled. Those must not collapse.
+
+def settlement_kind_for(event_kind: Optional[str],
+                        settlement_price: Optional[float],
+                        settlement_method: Optional[str] = None) -> str:
+    """What the holder ACTUALLY RECEIVED — from the SETTLEMENT, not the notice.
+
+    THE METHOD DOMINATES THE ANNOUNCED ACTION, and getting that backwards was a
+    real defect (found in the 2021-2023 rehearsal, 2026-08-09). Every one of the
+    eight terminal episodes settled via LAST_TRUSTWORTHY_MARK — a cash proxy —
+    but five of them had been ANNOUNCED as conversions, so typing off
+    `event_kind` filed them as `non_cash`. They were then bucketed out of the
+    cash reconciliation, and `reconcile` reported `residual: 0.00` and
+    `unreconciled_episodes: []` while covering only 3 of 8 episodes and
+    $132,057 of $342,137.
+
+    That is the exact failure `unreconciled_episodes` exists to prevent,
+    arriving through the classifier instead of through a missing field: an
+    episode is hardest to notice when it has been confidently put in the wrong
+    place rather than left out.
+
+    An ANNOUNCEMENT describes what was intended. Only the SETTLEMENT says what
+    happened, and a documented conversion whose terms were never readable
+    settles at a cash proxy exactly like any other unreadable termination.
+
+    `settlement_method` defaults to None for callers that predate it; with no
+    method the announced action is all there is, which is the old behaviour and
+    is correct only when the terms were exact.
     """
+    if settlement_method in _PROXY_METHODS:
+        # A proxy pays cash — or nothing, which is still a cash outcome of zero.
+        if settlement_price is not None and float(settlement_price) == 0.0:
+            return KIND_ZERO
+        return KIND_CASH
+    if settlement_method == "ZERO_ORPHAN":
+        return KIND_ZERO
+    # EXACT_TERMS (or an unstated method): the action type is now authoritative,
+    # because stated terms are the only thing that can deliver shares.
     if event_kind == "CONVERSION":
         return KIND_NON_CASH
     if event_kind == "CASH_PLUS_STOCK":
@@ -209,7 +242,7 @@ def episode_audit(*, security_id: str, ticker: Optional[str],
     carry_price = c.get("carry_price")
     carry_notional = _notional(shares_at_carry, carry_price)
     settlement_notional = _notional(shares_at_settlement, settlement_price)
-    kind = settlement_kind_for(event_kind, settlement_price)
+    kind = settlement_kind_for(event_kind, settlement_price, settlement_method)
 
     # A CASH delta only where the settlement IS cash. On a conversion the holder
     # received shares, so differencing "nothing" against the carry would report a
@@ -409,6 +442,16 @@ def reconcile(audits, *, carried_only: bool = True) -> dict:
              "cash_in_lieu": a.get("cash_in_lieu"),
              "episode_continues": a.get("episode_continues")}
             for a in sorted(non_cash, key=lambda x: x["security_id"])],
+        # THE COVERAGE FRACTION, reported unconditionally. `residual: 0.00` and
+        # `unreconciled_episodes: []` were both true while the cash bucket held
+        # 3 of 8 episodes and $132k of $342k — every green light on, and most of
+        # the money outside the check. A reconciliation must state how much of
+        # the population it actually reconciled, or "it balances" is a claim
+        # about an unstated subset.
+        "carried_notional_all_kinds": _money(
+            sum(a["carry_notional"] or 0.0 for a in rows)),
+        "cash_coverage_fraction": (
+            round(len(cash) / len(rows), 4) if rows else None),
         "uncarried_settlements": len(uncarried),
         "episodes_with_a_price_move": sum(
             1 for a in rows if a.get("grace_prints")),

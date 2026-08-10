@@ -464,3 +464,102 @@ class TestTheFieldSetIsFinal:
         assert settlement_kind_for("CASH_PLUS_STOCK", 5.0) == "mixed"
         assert settlement_kind_for("WRITE_OFF", None) == "zero"
         assert settlement_kind_for(None, 0.0) == "zero"      # C2 orphan
+
+
+class TestTheSETTLEMENT_MethodDominatesTheAnnouncedAction:
+    """Found in the 2021-2023 rehearsal output, 2026-08-09.
+
+    All eight terminal episodes settled via LAST_TRUSTWORTHY_MARK — a cash
+    proxy — but five had been ANNOUNCED as conversions. Typing off `event_kind`
+    filed those five as `non_cash`, which bucketed them OUT of the cash
+    reconciliation. `reconcile` then reported:
+
+        residual              0.00
+        unreconciled_episodes []
+
+    while covering 3 of 8 episodes and $132,057 of $342,137. Every green light
+    on, and 61% of the money outside the check.
+
+    That is the exact failure `unreconciled_episodes` exists to prevent,
+    arriving through the CLASSIFIER rather than through a missing field. An
+    episode is hardest to notice when it has been confidently filed in the wrong
+    place rather than left out.
+
+    An ANNOUNCEMENT says what was intended; only the SETTLEMENT says what
+    happened. A documented conversion whose terms were never readable settles at
+    a cash proxy exactly like any other unreadable termination — and only
+    EXACT_TERMS can deliver shares, because nothing else states a ratio.
+    """
+
+    def test_a_CONVERSION_settled_at_a_PROXY_is_cash(self):
+        from stock_strategy_shared.wealth_core.terminal_audit import (
+            settlement_kind_for)
+        assert settlement_kind_for("CONVERSION", 92.0,
+                                   "LAST_TRUSTWORTHY_MARK") == "cash"
+        assert settlement_kind_for("CONVERSION", 92.0,
+                                   "EXECUTABLE_PRINT") == "cash"
+
+    def test_a_CONVERSION_on_EXACT_TERMS_is_still_non_cash(self):
+        from stock_strategy_shared.wealth_core.terminal_audit import (
+            settlement_kind_for)
+        assert settlement_kind_for("CONVERSION", None,
+                                   "EXACT_TERMS") == "non_cash"
+        assert settlement_kind_for("CASH_PLUS_STOCK", 5.0,
+                                   "EXACT_TERMS") == "mixed"
+
+    def test_a_proxy_settling_at_ZERO_is_still_zero(self):
+        from stock_strategy_shared.wealth_core.terminal_audit import (
+            settlement_kind_for)
+        assert settlement_kind_for("CONVERSION", 0.0,
+                                   "LAST_TRUSTWORTHY_MARK") == "zero"
+        assert settlement_kind_for(None, 0.0, "ZERO_ORPHAN") == "zero"
+
+    def test_the_REHEARSAL_population_reconciles_in_ONE_bucket(self):
+        """The rehearsal's shape, reconstructed: eight episodes, all settled at
+        the last trustworthy mark, five announced as conversions. Every one must
+        land in the cash bucket, and the deltas must sum to the reported
+        difference rather than to a fraction of it."""
+        audits = []
+        for i in range(8):
+            audits.append(episode_audit(
+                security_id=f"P:{i}", ticker=f"T{i}", event_session="d1",
+                event_kind=("CONVERSION" if i < 5 else "CASH_MERGER"),
+                carry={"carry_session": "d1", "shares_at_carry": 100,
+                       "carry_price": 90.0},
+                settlement_session="q9",
+                settlement_method="LAST_TRUSTWORTHY_MARK",
+                shares_at_settlement=100, settlement_price=91.0))
+        rec = reconcile(audits)
+        assert rec["cash_settled_episodes"] == 8, (
+            "episodes announced as conversions but settled at a cash proxy were "
+            "bucketed out of the reconciliation")
+        assert rec["non_cash_episodes"] == 0
+        assert rec["cash_coverage_fraction"] == 1.0
+        assert rec["notional_delta_total"] == pytest.approx(8 * 100 * 1.0)
+        assert rec["residual"] == pytest.approx(0.0)
+
+    def test_reconcile_REPORTS_how_much_it_actually_covered(self):
+        """`residual: 0.00` is a claim about whatever ended up in the cash
+        bucket. Without a coverage figure it is a statement about an unstated
+        subset, which is how a reconciliation covering 3 of 8 episodes read as
+        complete."""
+        cashy = episode_audit(
+            security_id="A", ticker="A", event_session="d1",
+            event_kind="CASH_MERGER",
+            carry={"shares_at_carry": 10, "carry_price": 90.0},
+            settlement_session="q", settlement_method="LAST_TRUSTWORTHY_MARK",
+            shares_at_settlement=10, settlement_price=91.0)
+        conv = episode_audit(
+            security_id="B", ticker="B", event_session="d1",
+            event_kind="CONVERSION",
+            carry={"shares_at_carry": 10, "carry_price": 90.0},
+            settlement_session="q", settlement_method="EXACT_TERMS",
+            shares_at_settlement=10, settlement_price=None,
+            delivered_security_id="C", shares_delivered=14,
+            episode_continues=True)
+        rec = reconcile([cashy, conv])
+        assert rec["cash_coverage_fraction"] == 0.5
+        assert rec["carried_notional_all_kinds"] == pytest.approx(1800.0)
+        assert rec["carried_notional_total"] == pytest.approx(900.0), (
+            "the cash total must remain the CASH total; the all-kinds figure is "
+            "what shows the reader the difference")
