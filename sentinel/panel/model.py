@@ -178,7 +178,8 @@ def exposure_row(*, exposure: float, controller_active: bool) -> Row:
 
 def feed_row(*, frontier: Optional[str], sessions_behind: Optional[int],
              ready: Optional[bool], checks_passed: int, checks_total: int,
-             as_of: Optional[datetime], error: Optional[str] = None) -> Row:
+             as_of: Optional[datetime], error: Optional[str] = None,
+             ingest_running: bool = False) -> Row:
     """The data contract, not a row count.
 
     §8 is explicit that "126 rows" is not the test, so this reports the contract
@@ -186,6 +187,16 @@ def feed_row(*, frontier: Optional[str], sessions_behind: Optional[int],
     sessions stale supports no decision, and a row count would call it healthy.
     """
     if error:
+        # A frontier that will not answer WHILE A SEED IS WRITING THAT TABLE is
+        # a feed mid-ingest, not an unreadable one. Calling it UNREADABLE was
+        # technically true and operationally wrong: the corpus is being built,
+        # which the row below already says, and an alarm here would fire for
+        # hours every time a seed runs. The ingest row is authoritative during
+        # an ingest; this row defers to it.
+        if ingest_running:
+            return Row("feed", "Feed", "BUILDING", PENDING,
+                       f"frontier not readable during an ingest — {error}",
+                       as_of)
         return Row("feed", "Feed", "UNREADABLE", UNKNOWN,
                    f"could not read the feed — {error}", as_of)
     if frontier is None:

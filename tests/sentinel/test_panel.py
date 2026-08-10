@@ -299,6 +299,25 @@ class TestItCannotHang:
         ok, err2 = _read(conn, lambda _c: "still works", 100)
         assert ok == "still works" and err2 is None
 
+    def test_a_frontier_timeout_DURING_AN_INGEST_reads_as_BUILDING(self):
+        """Reported in use: the panel showed `FEED UNREADABLE — frontier timed
+        out` while a healthy seed was writing that very table.
+
+        Technically true and operationally wrong. The frontier is `MAX(session)`
+        over `sentinel_bars`, and a seed is bulk-loading `sentinel_bars`, so the
+        corpus is BUILDING — which the ingest row already says. An alarm here
+        would fire for the several hours a seed takes, every time.
+        """
+        r = model.feed_row(frontier=None, sessions_behind=None, ready=None,
+                           checks_passed=0, checks_total=0, as_of=NOW,
+                           error="frontier timed out", ingest_running=True)
+        assert r.status is model.PENDING and r.value == "BUILDING"
+        # With NO ingest running, the same timeout IS a real unknown.
+        idle = model.feed_row(frontier=None, sessions_behind=None, ready=None,
+                              checks_passed=0, checks_total=0, as_of=NOW,
+                              error="frontier timed out", ingest_running=False)
+        assert idle.status is model.UNKNOWN and idle.value == "UNREADABLE"
+
     def test_a_timed_out_FRONTIER_is_not_a_source_failure(self):
         """`source_errors` is the banner meaning "the panel could not read the
         world". One slow scan does not qualify: the rows say so themselves, in

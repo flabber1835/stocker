@@ -36,7 +36,12 @@ DEFAULT_SLOTS = 25
 #: and does it precisely when the system is busiest — which is exactly when
 #: someone opens the panel. Every source here must answer or be cut off.
 CONNECT_TIMEOUT_SECONDS = 4
-STATEMENT_TIMEOUT_MS = 3_000
+#: 8s, not 3s. The frontier is `MAX(session)` over an INDEXED column, so it is a
+#: backwards index scan and ought to be instant — but on a NAS saturated by a
+#: bulk COPY it still missed a 3s budget, because the pages it reads are the
+#: ones being written. The panel is not latency-critical; the CONNECT timeout is
+#: what bounds a genuine hang, and this only bounds a slow answer.
+STATEMENT_TIMEOUT_MS = 8_000
 
 #: The readiness contract is the EXPENSIVE read and the least urgent one: it
 #: scans the corpus, and during an ingest it can legitimately take minutes. It
@@ -192,7 +197,8 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                            sessions_behind=behind, ready=ready,
                            checks_passed=passed, checks_total=total,
                            as_of=_utc(run.get("updated_at")),
-                           error=(f"frontier {front_err}" if front_err else None)),
+                           error=(f"frontier {front_err}" if front_err else None),
+                           ingest_running=(run.get("status") == "running")),
             model.ingest_row(kind=run.get("kind"), status=run.get("status"),
                              chunks_done=int(run.get("chunks_done") or 0),
                              chunks_total=int(run.get("chunks_total") or 0),
