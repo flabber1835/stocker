@@ -209,3 +209,92 @@ class TestTheCanonicalDSNUsesADriverTheImageHAS:
         i = body.index("BT_DATABASE_URL=")
         assert "127.0.0.1:5434" in body[i:i + 200]
         assert "--network host" in body[:i]
+
+
+class TestChunkingDoesNotWeakenTheCHECK:
+    """The whole-window form was OOM-killed on the NAS at 2021-2023.
+
+    Silently: SIGKILL leaves no traceback, and the harness had already
+    truncated the evidence file, so a three-year comparison surfaced as an
+    empty JSON beside a message telling you to read it.
+
+    The cost is not the two loaded windows. `compare` builds a dict keyed
+    `(session, security_id)` per side — ~4.5M entries each over three years —
+    then materialises two set differences and a `sorted(set & set)` list over
+    every shared key. Peak is a multiple of the data and grows with the window,
+    which is why a one-month probe survives and the certification window does
+    not.
+
+    Chunking is only legitimate if the verdict is unchanged, so that is what is
+    asserted here rather than that it merely completes."""
+
+    @staticmethod
+    def bar(session, sid, **over):
+        from types import SimpleNamespace
+        d = dict(security_id=sid, ticker="AAA", raw_close=10.0, raw_open=9.0,
+                 volume=100.0, split_ratio=1.0, dividend_per_share=0.0,
+                 tradeable=True)
+        d.update(over)
+        return SimpleNamespace(**d)
+
+    def frames(self):
+        """Two months, with a divergence and a membership gap in EACH, so a
+        merge that dropped a chunk could not accidentally agree."""
+        mine, theirs = {}, {}
+        for month, day in (("2021-01", "04"), ("2021-02", "04")):
+            s = f"{month}-{day}"
+            mine[s] = [self.bar(s, "S1"), self.bar(s, "S2", raw_close=11.0),
+                       self.bar(s, "EXTRA")]
+            theirs[s] = [self.bar(s, "S1"), self.bar(s, "S2"),
+                         self.bar(s, "MISSING")]
+        return mine, theirs
+
+    def test_a_merged_pair_equals_the_single_pass(self):
+        mine, theirs = self.frames()
+        whole = CP.compare(mine, theirs, window=("2021-01-01", "2021-02-28"))
+
+        halves = [CP.compare({k: v for k, v in mine.items() if k.startswith(m)},
+                             {k: v for k, v in theirs.items() if k.startswith(m)},
+                             window=(m + "-01", m + "-28"))
+                  for m in ("2021-01", "2021-02")]
+        merged = CP.merge(halves, window=("2021-01-01", "2021-02-28"))
+
+        assert merged.field_divergences == whole.field_divergences
+        assert sorted(merged.missing_from_sentinel) == \
+            sorted(whole.missing_from_sentinel)
+        assert sorted(merged.extra_in_sentinel) == sorted(whole.extra_in_sentinel)
+        assert merged.sentinel_bars == whole.sentinel_bars
+        assert merged.canonical_bars == whole.canonical_bars
+        assert merged.agrees == whole.agrees is False
+
+    def test_an_UNAVAILABLE_chunk_poisons_the_whole_verdict(self):
+        """A window where one chunk could not be read was not compared. Merging
+        the readable parts would report a partial comparison as a complete
+        one — the same 'absent is not equal' rule the rest of the harness runs
+        on."""
+        ok = CP.compare({}, {}, window=("2021-01-01", "2021-01-31"))
+        bad = CP.ParityReport(window=("2021-02-01", "2021-02-28"),
+                              unavailable="connection lost")
+        merged = CP.merge([ok, bad], window=("2021-01-01", "2021-02-28"))
+        assert merged.unavailable == "connection lost"
+        assert merged.agrees is False
+
+    def test_the_chunks_TILE_the_window_exactly(self):
+        """No gap and no overlap: a gap silently skips sessions, an overlap
+        double-counts divergences."""
+        from datetime import date, timedelta
+        chunks = list(CP._chunks("2021-01-04", "2023-12-29", 92))
+        assert chunks[0][0] == "2021-01-04"
+        assert chunks[-1][1] == "2023-12-29"
+        for (_, prev_end), (nxt_start, _) in zip(chunks, chunks[1:]):
+            assert date.fromisoformat(nxt_start) - \
+                date.fromisoformat(prev_end) == timedelta(days=1)
+
+    def test_a_single_day_window_still_yields_one_chunk(self):
+        assert list(CP._chunks("2021-01-04", "2021-01-04", 92)) == \
+            [("2021-01-04", "2021-01-04")]
+
+    def test_the_certification_step_does_not_pin_chunking_off(self):
+        body = (REPO / "scripts" / "sentinel-certify.sh").read_text()
+        assert "--chunk-days 0" not in body, (
+            "chunking disabled in the harness puts the OOM back")

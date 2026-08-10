@@ -219,6 +219,82 @@ def run(sentinel_conn, *, start: str, end: str,
                    max_report=max_report)
 
 
+def _chunks(start: str, end: str, days: int):
+    """Split a window into consecutive [a, b] date pairs, inclusive."""
+    from datetime import date, timedelta
+    a = date.fromisoformat(start)
+    last = date.fromisoformat(end)
+    while a <= last:
+        b = min(a + timedelta(days=days - 1), last)
+        yield a.isoformat(), b.isoformat()
+        a = b + timedelta(days=1)
+
+
+def merge(reports, *, window, max_report: int = 25) -> ParityReport:
+    """Fold per-chunk reports into one verdict for the whole window.
+
+    Sessions never span a chunk boundary and bars are keyed by
+    `(session, security_id)`, so the union of the parts IS the whole: no bar
+    can be missing in one chunk and present in another.
+
+    The first `unavailable` wins and short-circuits — if one chunk could not be
+    read, the window was not compared, and merging the rest would report a
+    partial comparison as a complete one.
+    """
+    out = ParityReport(window=tuple(window))
+    for rep in reports:
+        if rep.unavailable:
+            return ParityReport(window=tuple(window), unavailable=rep.unavailable)
+        out.sentinel_bars += rep.sentinel_bars
+        out.canonical_bars += rep.canonical_bars
+        out.missing_from_sentinel.extend(rep.missing_from_sentinel)
+        out.extra_in_sentinel.extend(rep.extra_in_sentinel)
+        for f, n in rep.field_divergences.items():
+            out.field_divergences[f] = out.field_divergences.get(f, 0) + n
+        for ex in rep.examples:
+            if len(out.examples) < max_report:
+                out.examples.append(ex)
+            else:
+                out.truncated += 1
+        out.truncated += rep.truncated
+    return out
+
+
+def run_chunked(sentinel_conn, *, start: str, end: str,
+                bt_database_url: Optional[str] = None,
+                max_report: int = 25, chunk_days: int = 92) -> ParityReport:
+    """`run`, but with PEAK MEMORY bounded by the chunk rather than the window.
+
+    The whole-window form was killed by the OOM reaper on a 7.7 GiB machine —
+    silently, because SIGKILL leaves no traceback and the harness had already
+    truncated the evidence file, so a three-year comparison reported as an
+    empty JSON and a message telling you to read it.
+
+    The cost is not the two loaded windows alone. `compare` builds a dict keyed
+    `(session, security_id)` for each side — on 2021-2023 that is roughly 4.5M
+    entries apiece — and then materialises THREE more collections over them:
+    two set differences and a `sorted(set & set)` list of every shared key. The
+    peak is several times the data, and it grows with the window, which is why
+    a one-month probe survives and the certification window does not.
+
+    Chunking is not a weaker check. Sessions do not span a boundary and bars
+    are keyed by session, so the union of the chunks is exactly the window;
+    `merge` sums the counters and keeps the same capped examples. A quarter is
+    the default because it is ~63 sessions — small enough to bound the peak,
+    large enough that the per-chunk query overhead stays irrelevant against a
+    three-year run.
+    """
+    reports = []
+    for a, b in _chunks(start, end, chunk_days):
+        reports.append(run(sentinel_conn, start=a, end=b,
+                           bt_database_url=bt_database_url,
+                           max_report=max_report))
+    if not reports:
+        return ParityReport(window=(start, end),
+                            unavailable=f"empty window {start}..{end}")
+    return merge(reports, window=(start, end), max_report=max_report)
+
+
 def main(argv=None) -> int:
     import argparse
     import json
@@ -234,6 +310,10 @@ def main(argv=None) -> int:
     ap.add_argument("--sentinel-url", default=None,
                     help="defaults to $SENTINEL_DATABASE_URL")
     ap.add_argument("--max-report", type=int, default=25)
+    # 0 disables chunking and restores the single-pass form — kept so the two
+    # can be compared on a small window, which is how the chunked path is
+    # proven to give the same answer rather than merely a survivable one.
+    ap.add_argument("--chunk-days", type=int, default=92)
     args = ap.parse_args(argv)
 
     url = args.sentinel_url or os.environ.get("SENTINEL_DATABASE_URL")
@@ -243,8 +323,16 @@ def main(argv=None) -> int:
 
     conn = feed_store.connect(url)
     try:
-        rep = run(conn, start=args.start, end=args.end,
-                  bt_database_url=args.bt_url, max_report=args.max_report)
+        runner = run if args.chunk_days <= 0 else None
+        if runner is not None:
+            rep = runner(conn, start=args.start, end=args.end,
+                         bt_database_url=args.bt_url,
+                         max_report=args.max_report)
+        else:
+            rep = run_chunked(conn, start=args.start, end=args.end,
+                              bt_database_url=args.bt_url,
+                              max_report=args.max_report,
+                              chunk_days=args.chunk_days)
     finally:
         conn.close()
 
@@ -264,7 +352,7 @@ def main(argv=None) -> int:
 
 
 __all__ = ["COMPARED_FIELDS", "ParityReport", "TOLERANCE", "compare", "main",
-           "run"]
+           "merge", "run", "run_chunked"]
 
 if __name__ == "__main__":                                   # pragma: no cover
     raise SystemExit(main())

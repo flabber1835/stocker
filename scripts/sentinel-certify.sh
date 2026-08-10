@@ -420,11 +420,30 @@ docker run --rm --network host --entrypoint python \
   sentinel-test:latest -m tools.corpus_parity \
   --start "${START}" --end "${END}" \
   > "${ART}/corpus-parity-${RUNSTAMP}.json" \
-  || fail "the seeded corpus does not match the canonical Wealth Core corpus,
+  2> "${ART}/corpus-parity-${RUNSTAMP}.err" \
+  || {
+  # A KILLED step leaves an EMPTY report, because `>` truncates before the
+  # process runs. The OOM reaper did exactly that here: SIGKILL writes no
+  # traceback, so a three-year comparison surfaced as a zero-byte JSON beside a
+  # message instructing the operator to read it. Say which happened.
+  PARITY_RC=$?
+  if [ ! -s "${ART}/corpus-parity-${RUNSTAMP}.json" ]; then
+    echo "  the report is EMPTY — the tool produced no output at all." >&2
+    if [ -s "${ART}/corpus-parity-${RUNSTAMP}.err" ]; then
+      echo "  stderr:" >&2
+      sed 's/^/    /' "${ART}/corpus-parity-${RUNSTAMP}.err" >&2
+    fi
+    if [ "${PARITY_RC}" -ge 128 ]; then
+      echo "  exit ${PARITY_RC} = signal $((PARITY_RC - 128)). 137 is an OOM" >&2
+      echo "  kill: the comparison ran out of memory, it did not disagree." >&2
+    fi
+  fi
+  fail "the seeded corpus does not match the canonical Wealth Core corpus,
   or the comparison could not be run at all. Read
   ${ART}/corpus-parity-${RUNSTAMP}.json — membership differences FIRST, then
   split_ratio, then dividends. If BT_DATABASE_URL is unset, set it: not having
   run this check is not the same as passing it."
+  }
 
 # ── 9. the record ────────────────────────────────────────────────────────────
 step "9/9  recording the rehearsal identity"
