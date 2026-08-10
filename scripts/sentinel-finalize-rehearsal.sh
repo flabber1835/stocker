@@ -52,7 +52,7 @@ fail() { printf '\n\033[31mFINALIZATION BLOCKED: %s\033[0m\n' "$*" >&2; exit 1; 
 mkdir -p "${ART}"
 
 # ── 1. extract the book the RUN emitted ──────────────────────────────────────
-step "1/4  extracting the book from the rehearsal"
+step "1/4  extracting and AUTHENTICATING the rehearsal"
 if [ -n "${FROM_JSON}" ]; then
   SRC="${FROM_JSON}"
 else
@@ -61,86 +61,21 @@ else
   # already uses — no shared docker network, so Sentinel's isolation from the
   # retired stack is unchanged.
   [ -n "${BT_DATABASE_URL:-}" ] || fail "BT_DATABASE_URL is unset, so the
-  rehearsal row cannot be read. Export it, or pass --from-json with a summary
-  you exported yourself."
-  # AUTHENTICATE THE RUN, not just its book. The book's window rules out the
-  # wrong date range and nothing else: a DIFFERENT chain rehearsal, over exactly
-  # the same dates under altered configuration, would pass a window check and
-  # the manifest would close around its hashes. So the row's own claims are
-  # checked before its summary is believed.
-  python3 - "${RUN_ID}" "${SRC}" "${START}" "${END}" <<'PY' || fail "the rehearsal row was refused"
-import json, os, sys
-import psycopg
-run_id, out, start, end = sys.argv[1:5]
-with psycopg.connect(os.environ["BT_DATABASE_URL"]) as c, c.cursor() as cur:
-    cur.execute("SELECT mode, spec, status, summary, parity_hashes, started_at,"
-                " completed_at FROM bt_wealth_core_runs WHERE run_id = %s",
-                (run_id,))
-    row = cur.fetchone()
-if not row:
-    sys.exit(f"no run {run_id}")
-mode, spec, status, summary, parity, started, completed = row
-spec = spec or {}
-
-problems = []
-if status != "success":
-    problems.append(f"status is {status!r}, not 'success' — a run that did not "
-                    f"complete cannot certify an interval")
-if mode != "chain_rehearsal":
-    problems.append(f"mode is {mode!r}, not 'chain_rehearsal'. Only the chain "
-                    f"rehearsal proves the session-by-session path reproduces "
-                    f"the bulk replay, which is what the hashes below mean")
-if str(spec.get("start_date")) != start or str(spec.get("end_date")) != end:
-    problems.append(
-        f"the run covered {spec.get('start_date')}..{spec.get('end_date')} and "
-        f"you are finalizing {start}..{end}")
-if not summary:
-    problems.append("the row carries no summary")
-if not parity:
-    problems.append("the row carries no parity_hashes — nothing to bind the "
-                    "manifest to")
-if problems:
-    for p in problems:
-        print(f"  REFUSED: {p}", file=sys.stderr)
-    sys.exit(1)
-
-# The spec is recorded ALONGSIDE the summary, so the manifest can name the
-# configuration the rehearsal actually ran under rather than the one someone
-# believes it ran under.
-open(out, "w").write(json.dumps(
-    {"run_id": run_id, "mode": mode, "status": status, "spec": spec,
-     "parity_hashes": parity,
-     "started_at": str(started), "completed_at": str(completed),
-     **summary}, indent=2, sort_keys=True, default=str))
-print(f"  run {run_id}  mode={mode}  status={status}")
-print(f"  spec {spec.get('start_date')}..{spec.get('end_date')} "
-      f"retention={spec.get('retention_mode')}")
-print(f"  -> {out}")
-PY
+  rehearsal row cannot be read. Export it, or pass --from-json with an
+  envelope EXPORTED BY THIS SCRIPT — not an arbitrary summary."
+  python3 scripts/sentinel_rehearsal.py export --run-id "${RUN_ID}" --out "${SRC}" \
+    || fail "the rehearsal row could not be exported"
 fi
 
-python3 - "${SRC}" "${BOOK}" "${START}" "${END}" <<'PY' || fail "the book could not be extracted"
-import json, sys
-src, out, start, end = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
-summary = json.load(open(src))
-book = summary.get("book_artifact")
-if not book:
-    sys.exit(
-        "the rehearsal summary carries NO book_artifact. An older engine "
-        "produced this run — one that had the RunResult in hand and discarded "
-        "it. Re-run the rehearsal on the current image rather than writing the "
-        "book by hand: a hand-written book is exactly what this removes.")
-w = book.get("window") or {}
-if (w.get("start"), w.get("end")) != (start, end):
-    sys.exit(
-        f"the rehearsal covered {w.get('start')}..{w.get('end')} and you are "
-        f"finalizing {start}..{end}. Refused: a book for a different window "
-        f"omits every name held outside it, and a refused row on one of those "
-        f"would then be cleared by admission floors that do not govern it.")
-open(out, "w").write(json.dumps(book, indent=2, sort_keys=True))
-print(f"  held={len(book['held'])} pending_terminal={len(book['pending_terminal'])}")
-print(f"  -> {out}")
-PY
+# ONE VALIDATOR, BOTH PATHS. `--from-json` used to skip the authentication
+# entirely and go straight to reading `book_artifact`, so a hand-written file
+# with the right window and fabricated equivalence/reconciliation fields
+# bypassed every check the --run-id path had just gained. A second entrance
+# with weaker locks is not a second entrance, it is the entrance.
+python3 scripts/sentinel_rehearsal.py authenticate \
+  --envelope "${SRC}" --book-out "${BOOK}" \
+  --start "${START}" --end "${END}" \
+  || fail "the rehearsal envelope was REFUSED"
 
 # ── 2. the REAL rejection audit ──────────────────────────────────────────────
 step "2/4  the rejection audit, against the REALISED book"
@@ -202,10 +137,14 @@ def _img(ref):
     return {"ref": ref,
             "id": sh("docker", "image", "inspect", ref, "--format", "{{.Id}}")}
 
-m["bt_engine_image"] = _img(os.environ.get("BT_ENGINE_IMAGE", "stocker-bt-engine:latest"))
-if not m["bt_engine_image"]["id"]:
-    print(f"  WARNING: {m['bt_engine_image']['ref']} could not be inspected — "
-          f"set BT_ENGINE_IMAGE to the image that ran the rehearsal")
+# RECORDED BY THE RUN, at start, not inspected afterwards. Inspecting a
+# mutable `:latest` tag at finalization answers "what does the tag point at
+# NOW" — rebuild it between the run and this step and the manifest names the
+# wrong image, with nothing about it looking wrong.
+ident = (summary.get("spec") or {}).get("engine_identity") or {}
+m["bt_engine_identity"] = ident or None
+m["bt_engine_image"] = _img(os.environ.get("BT_ENGINE_IMAGE",
+                                           "stocker-bt-engine:latest"))
 
 mp.write_text(json.dumps(m, indent=2, sort_keys=True))
 
@@ -236,9 +175,46 @@ elif round(float(residual), 2) != 0.0:
 # COVERAGE. `residual: 0.00` and `unreconciled_episodes: []` were both true
 # while the cash bucket held 3 of 8 episodes and $132k of $342k — every green
 # light on, and most of the money outside the check.
+# COVERAGE MUST BE 1.0, not merely present. Checking only for the field's
+# EXISTENCE proves nothing and reproduces the exact failure this gate was added
+# for: `residual: 0.00` and both episode lists empty were true while the cash
+# bucket held 3 of 8 episodes and $132k of $342k. Every green light on, and most
+# of the money outside the check.
+#
+# If exact-terms NON-CASH settlement is ever supported, the general rule is an
+# ACCOUNTED coverage fraction spanning both buckets. For THIS certification the
+# accepted gate is 100% of the population inside the cash reconciliation.
 cov = tr.get("cash_coverage_fraction")
 if cov is None:
     failures.append("terminal_reconciliation.cash_coverage_fraction is MISSING")
+elif float(cov) != 1.0:
+    failures.append(
+        f"terminal_reconciliation.cash_coverage_fraction = {cov}, not 1.0 — "
+        f"{tr.get('cash_settled_episodes')} of {tr.get('episodes')} episodes "
+        f"are inside the reconciliation, so 'residual == 0' is a claim about a "
+        f"subset. Non-cash episodes: {tr.get('non_cash_episodes')}, carried "
+        f"{tr.get('non_cash_carried_notional')}")
+
+# THE ENGINE THAT PRODUCED THE NUMBERS, bound to the one being certified.
+# `sentinel:latest` carries a Wealth Core source tree; the rehearsal imported
+# one. If they differ, the manifest describes an engine that did not produce
+# these results — the single most consequential mismatch in the record, because
+# it is about economics rather than packaging.
+if not ident:
+    failures.append(
+        "bt_engine_identity is MISSING — the rehearsal did not record what "
+        "engine ran it, so its numbers cannot be bound to any Wealth Core "
+        "source. Re-run on the current bt-engine image")
+else:
+    ran = ident.get("wealth_core_source_hash")
+    certified = m.get("wealth_core_source_hash")
+    if not ran:
+        failures.append("bt_engine_identity carries no wealth_core_source_hash")
+    elif certified and ran != certified:
+        failures.append(
+            f"the rehearsal ran Wealth Core {ran[:16]} and the certified image "
+            f"carries {certified[:16]}. These numbers were produced by a "
+            f"different engine than the one being certified")
 
 missing = [k for k in ("corpus_hash", "book_artifact_sha256",
                        "rejection_audit_sha256", "rehearsal_hashes")

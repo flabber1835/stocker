@@ -533,9 +533,26 @@ manifest would close around its hashes. So `status`, `mode`, `spec.start_date`,
 spec is recorded in the manifest — the configuration the rehearsal *ran under*,
 not the one someone believes it ran under.
 
-**The bt-engine image is in the chain too.** `sentinel:latest` produces the
-Sentinel corpus; the three-year Wealth Core rehearsal is executed by bt-engine.
-Set `BT_ENGINE_IMAGE` to the image that ran it.
+**The engine that ran it is RECORDED BY THE RUN, and bound to the certified
+image.** bt-engine writes `spec.engine_identity` at run start — interpreter,
+the Wealth Core source hash it imported, and an injected image id when the
+deploy supplies one. Inspecting a mutable `:latest` tag at finalization answers
+a different question: what the tag points at NOW. Rebuild it between the run and
+the finalization and the manifest names the wrong image, with nothing about it
+looking wrong.
+
+The load-bearing field is `wealth_core_source_hash`. The manifest records the
+Wealth Core source the CERTIFIED image carries; the run records the one it
+actually imported. If they differ the numbers came from a different engine, and
+finalization BLOCKS. A missing `engine_identity` blocks too — it is a hole, not
+a formality. `BT_ENGINE_IMAGE` still names the image for the record.
+
+**Both entry paths authenticate.** `--from-json` used to skip the run checks
+entirely and go straight to reading `book_artifact`, so a hand-written file with
+the right window and fabricated equivalence and reconciliation fields bypassed
+everything `--run-id` had. `scripts/sentinel_rehearsal.py` is now the single
+validator both paths call, and it requires an ENVELOPE it exported — an old
+summary export is refused with the remedy.
 
 **The certification conditions are GATES, not narration.** These were recorded
 and then described to the operator, so a run with unreconciled episodes printed
@@ -546,8 +563,16 @@ equivalence.state_hash_matches / ledger_hash_matches / final_cash_matches
 terminal_reconciliation.unreconciled_episodes == []
 terminal_reconciliation.unexplained_episodes  == []
 terminal_reconciliation.residual              == 0
-terminal_reconciliation.cash_coverage_fraction present
+terminal_reconciliation.cash_coverage_fraction == 1.0
 ```
+
+**Coverage is compared against 1.0, not merely checked for presence.** Verifying
+the field EXISTS proves nothing, and a present-but-partial coverage is precisely
+the historical failure: `residual: 0.00` with both episode lists empty while the
+cash bucket held 3 of 8 episodes and $132k of $342k. If exact-terms non-cash
+settlement is ever supported, the general rule becomes an ACCOUNTED coverage
+fraction spanning both buckets; for this certification the accepted gate is 100%
+of the population inside the cash reconciliation.
 
 A MISSING field fails the same way a violated one does: absent and `== []` are
 different statements, and only one of them is a reconciliation. On failure the

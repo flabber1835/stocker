@@ -355,15 +355,22 @@ class TestTheFinalizerClosesTheLoop:
         assert "bt_wealth_core_runs" in body, (
             "the book is still expected to arrive as a file someone produced")
 
+    VALIDATOR = ROOT / "scripts" / "sentinel_rehearsal.py"
+
     def test_it_REFUSES_a_summary_with_no_book(self):
         """An older engine produced the run — one that had the RunResult and
-        discarded it. Writing the book by hand is exactly what this removes."""
-        assert "carries NO book_artifact" in self.FINAL.read_text()
+        discarded it. Writing the book by hand is exactly what this removes.
+
+        The check moved into the shared validator when both entry paths were
+        converged; `tests/sentinel/test_rehearsal_envelope.py` exercises it
+        directly rather than by reading a script."""
+        assert "no book_artifact" in self.VALIDATOR.read_text()
 
     def test_it_checks_the_WINDOW_of_the_extracted_book(self):
-        """A rehearsal over a different span omits every name held outside it."""
-        body = self.FINAL.read_text()
-        assert "the rehearsal covered" in body and "Refused" in body
+        """A rehearsal over a different span omits every name held outside it.
+        Checked in the validator, on BOTH entry paths."""
+        body = self.VALIDATOR.read_text()
+        assert "the run covered" in body and "the book covers" in body
 
     def test_it_reruns_the_audit_with_the_REAL_book(self):
         body = self.FINAL.read_text()
@@ -411,11 +418,25 @@ class TestTheFinalizerClosesTheLoop:
         different chain rehearsal over exactly the same dates under altered
         configuration would pass a window check, and the manifest would close
         around its hashes."""
-        body = self.FINAL.read_text()
+        body = self.VALIDATOR.read_text()
         for claim in ("status", "chain_rehearsal", "start_date", "end_date",
-                      "parity_hashes"):
+                      "parity_hashes", "engine_identity"):
             assert claim in body, claim
         assert "mode is" in body and "not 'chain_rehearsal'" in body
+
+    def test_BOTH_entry_paths_reach_the_validator(self):
+        """`--from-json` used to skip the authentication entirely, so a
+        hand-written file with the right book window bypassed every check the
+        `--run-id` path had just gained."""
+        body = self.FINAL.read_text()
+        code = [l for l in body.splitlines()
+                if l.strip() and not l.lstrip().startswith("#")]
+        auth = [i for i, l in enumerate(code) if "authenticate" in l]
+        assert len(auth) == 1, "the validator is invoked more than once"
+        branch_end = next(i for i, l in enumerate(code) if l.strip() == "fi")
+        assert auth[0] > branch_end, (
+            "the validator runs inside the --run-id branch, so --from-json "
+            "still bypasses it")
 
     def test_it_records_the_SPEC_the_run_actually_used(self):
         assert "rehearsal_spec" in self.FINAL.read_text()

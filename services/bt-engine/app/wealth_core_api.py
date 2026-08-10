@@ -94,6 +94,37 @@ WEALTH_CORE_DDL = [
 #: Trading sessions of price history the signal needs BEFORE the first measured
 #: session. `REQUIRED_CLOSES` is 127 (LONG_LOOKBACK_SESSIONS + 1), so 126 prior
 #: sessions plus the first measured one satisfies it on day one.
+def _engine_identity() -> dict:
+    """What the RUNNING ENGINE can attest to about itself.
+
+    Deliberately NOT an image id: a container has no reliable way to discover
+    the image it was started from, and inventing one would be worse than
+    admitting the gap. `BT_ENGINE_IMAGE_ID` is here so a deploy that DOES know
+    (compose can inject it) can say so; absent, it is null and the finalizer
+    treats that as a hole rather than a pass.
+
+    `wealth_core_source_hash` is the field that does the real work. The
+    certification manifest records the Wealth Core source Sentinel's image
+    carries; this records the one the rehearsal actually imported. Comparing
+    them proves the numbers came from the engine being certified — which
+    inspecting a mutable `:latest` tag after the fact cannot, because the tag
+    may have been rebuilt in between.
+    """
+    import platform
+
+    from stock_strategy_shared import identity_hashes  # noqa: PLC0415
+
+    return {
+        "python": platform.python_version(),
+        "wealth_core_source_hash": identity_hashes.wealth_core_source_hash(),
+        "bt_engine_app_source_hash": identity_hashes.package_source_hash(
+            os.path.dirname(os.path.abspath(__file__))),
+        # Injected by the deploy when it knows; null otherwise, never guessed.
+        "image_id": os.getenv("BT_ENGINE_IMAGE_ID") or None,
+        "image_ref": os.getenv("BT_ENGINE_IMAGE") or None,
+    }
+
+
 WARMUP_SESSIONS = REQUIRED_CLOSES - 1
 
 #: Calendar days queried back to FIND those sessions. 126 sessions is ~183
@@ -647,11 +678,28 @@ async def start_wealth_core_job(req: WealthCoreJobRequest,
         busy = await running_job_kind(conn)
         if busy:
             raise HTTPException(409, busy_detail(busy))
+        # THE ENGINE'S OWN IDENTITY, recorded AT START.
+        #
+        # The finalizer used to name the bt-engine image by inspecting whatever
+        # `stocker-bt-engine:latest` pointed at when IT ran — which is a
+        # different question from what ran the rehearsal. Rebuild the tag
+        # between the run and finalization and the manifest names the wrong
+        # image, silently and with no way to detect it afterwards.
+        #
+        # A container cannot discover its own image id, so this records what
+        # the PROCESS can actually attest to: the interpreter, the Wealth Core
+        # source tree it imported, and the image reference injected by the
+        # deploy if there is one. `wealth_core_source_hash` is the load-bearing
+        # field — it lets certification prove the rehearsal ran the SAME engine
+        # source the manifest names, which is the binding that matters for
+        # economics.
+        spec_json = json.loads(req.model_dump_json())
+        spec_json["engine_identity"] = _engine_identity()
         await conn.execute(text(
             "INSERT INTO bt_wealth_core_runs (run_id, mode, spec) VALUES "
             "(CAST(:r AS UUID), :m, CAST(:s AS JSONB))"),
             {"r": run_id, "m": req.mode,
-             "s": req.model_dump_json()})
+             "s": json.dumps(spec_json, sort_keys=True)})
     # Logged at START, unconditionally, for every mode. The retention setting was
     # invisible for the whole time it was wrong: nothing printed it, the run row
     # recorded a request that did not carry it, and "full" had to be inferred
