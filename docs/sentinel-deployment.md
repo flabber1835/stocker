@@ -600,6 +600,43 @@ does not: the manifest would name an artefact nobody ran and every later
 comparison against it would pass. The falsifier is a compose fixture whose
 project name is deliberately not the directory's.
 
+**Both branches answer in that same order**, and that is where the rule was
+broken twice. `docker compose config` is authoritative when it runs; the file,
+parsed exactly with PyYAML, answers when it does not. The first version read
+only the top-level `name:` with a regex and derived `<project>-<service>`,
+skipping the explicit-image step entirely — so a service that had declared its
+image outright got a derived name. It passed its own test because that test ran
+wherever Compose was available and therefore never exercised the degraded path
+it was silent about. Every resolution test is now parametrised over both.
+
+The authoritative branch had the same bug from the other side: **a
+profile-gated service is OMITTED from `docker compose config`**, and reading
+that absence as "declares no image" derives a name for a service that has one.
+`docker-compose.sentinel.yml` is exactly this case — `sentinel` sits behind
+`profiles: ["cli"]` and declares `image: sentinel:latest` — and the resolver
+answered `sentinel-sentinel`. A service missing from the rendered model now
+falls through to the file rather than being derived.
+
+What the file cannot settle, it refuses over, because reading a compose file is
+not the same as reading Compose's resolved application model:
+
+```text
+no PyYAML / unparseable      cannot attribute image: to a service      REFUSE
+service not in the file      absent is not "has no explicit image"     REFUSE
+image: contains ${...}       uninterpolated; Compose would expand it   REFUSE
+extends:                     image or build may come from elsewhere    REFUSE
+neither image: nor build:    no artefact for a derived name to name    REFUSE
+```
+
+The `${...}` rule is checked on BOTH branches, not just the file one: Compose
+interpolates an UNSET variable to the empty string, so `image: thing:${TAG}`
+renders as `thing:` — malformed, non-empty, and otherwise about to be written
+into the manifest as the name of an artefact.
+
+A standing test resolves EVERY service in both real compose files down both
+branches and requires the answers to be identical. One resolver stopped the two
+scripts disagreeing; this stops the two branches inside it disagreeing.
+
 ### The base is rebuilt before the engine, and then verified
 
 `services/bt-engine/Dockerfile` begins `FROM stocker-base:latest` — a MUTABLE
