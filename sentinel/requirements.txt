@@ -1,0 +1,49 @@
+# Sentinel's runtime dependencies, PINNED EXACTLY.
+#
+# WHY EXACT, AND WHY THIS IS NOT PACKAGE HYGIENE. The exchange calendar decides
+# what "the next valid trading session" means, and Sentinel snaps every
+# corporate-action ex-date forward to that session. So the calendar's answer
+# places dividend cash and share entitlements — it is part of the DATA CONTRACT
+# the strategy is certified against, not an implementation detail underneath it.
+# A floating `>=` makes a readiness PASS and a rehearsal result reproducible
+# only by accident: the same source, the same corpus and the same command can
+# return a different book after an unrelated `docker build` picks up a new
+# holiday rule.
+#
+# The same argument reaches one layer down. `exchange_calendars` computes its
+# session index THROUGH pandas and numpy and consults tzdata, and its lunar and
+# Hebrew holiday helpers come from `pyluach` / `korean_lunar_calendar` — not
+# used by XNYS today, but pinning only the packages currently believed to matter
+# is how the next divergence gets in. Everything that can move a session
+# boundary is pinned.
+#
+# The remaining packages (psycopg, httpx, fastapi, uvicorn) cannot move a
+# session, and are pinned anyway so the certified image is one artefact rather
+# than a family of them.
+#
+# TO CHANGE A PIN: change it deliberately, rebuild, and re-run the rehearsal.
+# `sentinel.identity` records what actually loaded at runtime and
+# `tests/sentinel/test_dependency_pins.py` fails if the two disagree, so a pin
+# that drifts is a test failure rather than a footnote in a result nobody
+# re-derives.
+
+# ── the session calendar and everything that can move a session boundary ─────
+exchange_calendars==4.13.2
+pandas==3.0.5
+numpy==2.4.6
+pyluach==2.3.0
+toolz==1.1.0
+tzdata==2026.3
+korean_lunar_calendar==0.4.0
+python-dateutil==2.9.0.post0
+
+# ── the Postgres driver ──────────────────────────────────────────────────────
+# [binary] so there is no libpq or build-essential in the runtime image.
+psycopg[binary]==3.3.4
+
+# ── the HTTP client, reachable from the corpus fetch AND the broker adapter ──
+httpx==0.28.1
+
+# ── the read-only panel ──────────────────────────────────────────────────────
+fastapi==0.141.1
+uvicorn==0.52.1

@@ -401,6 +401,46 @@ NAV, pending actions, state hashes, ledger hashes, decision hashes
 Any unexplained divergence blocks a Wealth Core paper-parity claim. A CAGR that
 looks reasonable is not evidence; the settlement counters and the hashes are.
 
+### 10a. A result is evidence only if the environment is NAMED
+
+Once corporate actions are placed through an exchange calendar, "the same code
+and the same corpus" no longer identifies the computation. The calendar decides
+what the next valid session is; that placement decides which session a dividend
+or a split lands on; that lands cash and shares in the book. **The calendar
+implementation is part of the strategy's data contract**, and so is the
+interpreter that runs it and the base image that carries both.
+
+So every certified run records, before it starts:
+
+```text
+python version                    exact, and whether it is the certified one
+base image digest                 Dockerfile.sentinel pins by @sha256, not by tag
+exchange_calendars, pandas,       exact, from sentinel/requirements.txt, with any
+numpy, tzdata, and the rest       DRIFT from the pin file named per package
+calendar exchange + version       the authority the sessions came from
+sentinel source hash              hashed separately from Wealth Core: they are
+wealth core source hash           certified against different things
+vendor corpus hash                sentinel_actions + sentinel_universe
+normalised corpus hash            sentinel_bars over the certified interval
+```
+
+```bash
+docker compose -f docker-compose.sentinel.yml run --rm sentinel \
+  identity --require-certified --start 2021-01-04 --end 2023-12-29
+```
+
+`--require-certified` exits non-zero when the interpreter or any pin differs, so
+a rehearsal script refuses to produce evidence from an environment it cannot
+name. `identity_hash` covers the environment and the source; `corpus_hash`
+covers the data. They are separate on purpose — the same environment with a
+different corpus is a data finding, the same corpus on a different environment
+is a machine finding, and one combined hash cannot tell them apart.
+
+The corpus digests are FULL SCANS of the interval, not samples or counts. A
+vendor restating a price in place changes neither the row count nor the date
+span; only reading the values detects it. That is the exact failure the Stocker
+factor cache shipped for months, which is why `bt_data_version` exists.
+
 ## 11. `execution_model` activation is a versioned operational event
 
 If enabling the Wealth Core / Sentinel path requires changing a protected

@@ -204,6 +204,39 @@ def cmd_check_data(config: SentinelConfig, today: str | None) -> int:
     return EXIT_NOT_ESTABLISHED
 
 
+def cmd_identity(config: SentinelConfig, args) -> int:
+    """What this environment and corpus ARE. Read-only; no broker, no writes.
+
+    Exit code is the point: `--require-certified` returns non-zero when the
+    interpreter or any pin differs from the certified one, so a rehearsal script
+    can refuse to produce evidence from an environment it cannot name. Without
+    the flag it simply describes, because the moment you most want to compare
+    two environments is when one of them is wrong.
+    """
+    from sentinel import identity as ident
+    from sentinel.feed import store as feed_store
+
+    conn = None
+    try:
+        if args.start and args.end and config.database_url:
+            conn = feed_store.connect(config.database_url)
+            feed_store.ensure_schema(conn)
+        rec = ident.rehearsal_identity(conn, start=args.start, end=args.end)
+    finally:
+        if conn is not None:
+            conn.close()
+
+    print(json.dumps(rec, indent=2, default=str))
+    if args.require_certified and not rec["environment"]["certified"]:
+        drift = rec["environment"]["pin_drift"]
+        print(f"REFUSED: this is not the certified environment — python "
+              f"{rec['environment']['python']} (certified "
+              f"{ident.CERTIFIED_PYTHON}), {len(drift)} pin(s) adrift: "
+              f"{sorted(drift)}", file=sys.stderr)
+        return EXIT_NOT_ESTABLISHED
+    return EXIT_OK
+
+
 def cmd_feed(config: SentinelConfig, args) -> int:
     """Run an ingest. Progress is committed per chunk, so watch it from another
     shell with `feed-status` rather than by staring at this one."""
@@ -380,6 +413,15 @@ def main(argv: list[str] | None = None) -> int:
     cd = sub.add_parser("check-data",
                         help="the Wealth Core data contract, per CHECK")
     cd.add_argument("--today", default=None)
+    idp = sub.add_parser("identity",
+                         help="what this environment and corpus ARE — the "
+                              "record a certified run is reproducible from")
+    idp.add_argument("--start", default=None,
+                     help="hash the corpus over this window (with --end)")
+    idp.add_argument("--end", default=None)
+    idp.add_argument("--require-certified", action="store_true",
+                     help="exit non-zero unless the interpreter and every "
+                          "dependency pin are the certified ones")
     sub.add_parser("plan", help="observe and print the plan; submits nothing")
     est = sub.add_parser("establish-ownership", help="remove the legacy book")
     est.add_argument("--max-cycles", type=int, default=None)
@@ -408,6 +450,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_feed_status(config, args.limit)
         if args.command in ("feed-seed", "feed-daily"):
             return cmd_feed(config, args)
+        if args.command == "identity":
+            return cmd_identity(config, args)
         if args.command == "check-data":
             return cmd_check_data(config, args.today)
         if args.command == "target-book":

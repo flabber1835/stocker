@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -105,15 +106,37 @@ def _reachable_third_party() -> dict[str, set[str]]:
 
 
 def _pip_installs(dockerfile: Path) -> str:
-    """Every `pip install` line, with `\\` continuations joined first.
+    """Everything the image installs, wherever the names are actually written.
 
-    A line-based filter misses a package on the second line of a wrapped
-    install, and reports a dependency as missing when it is present — which is
-    how this test failed the moment the install list grew past one line. The
-    guard has to read the Dockerfile the way Docker does.
+    Two ways the reading has been wrong, both of which reported a present
+    dependency as missing:
+
+    ```text
+    line-based filtering    missed a package on the second line of a wrapped
+                            install. Fixed by joining `\\` continuations, the
+                            way Docker reads it.
+    reading only the RUN    the install moved to `-r requirements.txt` when the
+                            lines               pins became exact, so the names
+                            left the Dockerfile entirely and every dependency
+                            read as absent.
+    ```
+
+    Both are the same mistake — inferring what an image contains from one
+    convenient surface — so this follows the `-r` to the file and reads that
+    too.
     """
     text = dockerfile.read_text().replace("\\\n", " ")
-    return "\n".join(l for l in text.splitlines() if "pip install" in l)
+    parts = [l for l in text.splitlines() if "pip install" in l]
+    for line in list(parts):
+        for token in re.findall(r"-r\s+(\S+)", line):
+            # The path is the IMAGE's (`/tmp/requirements.txt`); resolve it via
+            # the COPY that put it there rather than guessing a repo location.
+            for src, dst in _copy_directives(dockerfile):
+                if dst.rstrip("/") == token or dst == token:
+                    p = ROOT / src
+                    if p.exists():
+                        parts.append(p.read_text())
+    return "\n".join(parts)
 
 
 def _copy_directives(dockerfile: Path) -> list[tuple[str, str]]:
