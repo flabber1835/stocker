@@ -566,3 +566,48 @@ class TestNoRepoFileIsReadThroughROOT:
             "these read a file the image places under /work/repo, but through "
             "ROOT (=/work in the image), so they raise FileNotFoundError "
             f"there: {offenders}")
+
+
+class TestEveryBinaryTheSuiteShellsOutToIsInstalled:
+    """A missing binary is a FAILURE in this image, never a skip.
+
+    `git` was not installed, so the manifest test that drives
+    `sentinel_manifest.py` against a repository dirty by construction raised
+    FileNotFoundError at step 5 — after eight minutes of suite — while passing
+    on every host, where git is simply present.
+
+    Same shape as the PostgreSQL binaries the image already installs: the test
+    image is a lens on the artefact, and a lens missing a tool reports on
+    something it could not see. Checked statically so a new `subprocess.run`
+    fails here rather than 500 seconds into the certified run."""
+
+    #: Interpreters and helpers that are guaranteed by construction.
+    EXEMPT = {"python", "python3", "pytest", "pip"}
+
+    @staticmethod
+    def apt_packages() -> set[str]:
+        body = (ROOT / "Dockerfile.sentinel-test").read_text()
+        i = body.index("apt-get install")
+        chunk = body[i:body.index("rm -rf", i)]
+        return {tok for tok in chunk.replace("\\", " ").split()
+                if tok not in {"apt-get", "install", "-y",
+                               "--no-install-recommends", "&&"}}
+
+    def invoked(self) -> set[str]:
+        import re
+        out = set()
+        for f in sorted(pathlib.Path(__file__).resolve().parent.glob("*.py")):
+            for m in re.finditer(r'subprocess\.run\(\s*\[\s*"([a-zA-Z0-9_.-]+)"',
+                                 f.read_text()):
+                out.add(m.group(1))
+        return out - self.EXEMPT
+
+    def test_the_parser_sees_the_install_line(self):
+        pkgs = self.apt_packages()
+        assert "postgresql" in pkgs, pkgs
+
+    def test_every_invoked_binary_is_installed(self):
+        missing = sorted(b for b in self.invoked() if b not in self.apt_packages())
+        assert not missing, (
+            "the suite shells out to these and the certified test image does "
+            f"not install them, so they FAIL there rather than skip: {missing}")

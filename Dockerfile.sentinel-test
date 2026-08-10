@@ -40,8 +40,15 @@ FROM ${SENTINEL_IMAGE}
 # database-backed test SKIPS, and a suite that skipped is not a suite that
 # passed — `scripts/sentinel-certify.sh` treats any skip in this image as a
 # failure for exactly that reason.
+# git is here for the same reason, and only that reason: the manifest tests
+# drive `scripts/sentinel_manifest.py` against a repository dirty by
+# construction, and without the binary that test ERRORS in this image while
+# passing on every host. It is not in `sentinel:latest` and must not be — the
+# runtime artefact has no business running git — but a skip HERE is a
+# certification failure, so the lens has to carry what the suite needs.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends postgresql postgresql-client \
+ && apt-get install -y --no-install-recommends \
+      postgresql postgresql-client git \
  && rm -rf /var/lib/apt/lists/*
 
 # PINNED like everything else — a test runner that floats can change a verdict
