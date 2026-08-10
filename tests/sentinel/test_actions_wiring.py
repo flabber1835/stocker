@@ -378,3 +378,79 @@ class TestTheInputOrderIsENFORCED:
                 {"date": "2024-06-03", "ticker": "AAA"}]
         assert [(r["date"], r["ticker"]) for r in I._sorted_sep(rows)] == [
             ("2024-06-03", "AAA"), ("2024-06-03", "ZZZ"), ("2024-06-04", "BBB")]
+
+
+# ── 7. the snap must not destroy the cross-check ─────────────────────────────
+
+class TestTheDisagreementCheckSurvivesSNAPPING:
+    """`split_ratio_from_domains` snaps its inference to a near-integer so the
+    FALLBACK produces a reconcilable share count. That snap was also feeding the
+    cross-check, and it destroys it in both directions."""
+
+    def rep(self, **kw):
+        from sentinel.feed import domains
+        r = domains.NormalisationReport()
+        for k, v in kw.items():
+            setattr(r, k, v)
+        return r
+
+    def test_THE_FALSIFIER_a_derived_1_48_against_a_stated_1_5(self):
+        """1.48 snaps to 1.0 — the NO SPLIT value — so the derived side
+        recorded nothing and a stated 1.5 had nothing to disagree with. The
+        check silently stopped checking on exactly the ratios it exists for."""
+        from sentinel.feed import domains
+        assert domains.split_ratio_from_domains(100.0, 148.0, 100.0, 100.0) == 1.0
+
+        r = self.rep(derived_splits={},
+                     derived_splits_unsnapped={("AAA", "2024-06-03"): 1.48})
+        bad = A.split_disagreements(r, {("AAA", "2024-06-03"): 1.5})
+        assert bad and bad[0]["derived"] == pytest.approx(1.48)
+        assert bad[0]["derived_source"] == "unsnapped"
+
+    def test_a_LEGITIMATE_3_for_2_is_NOT_reported(self):
+        """The other direction, and it would have been constant noise:
+        `round(1.5)` is 2, so every real 3:2 read as a disagreement."""
+        r = self.rep(derived_splits={("AAA", "2024-06-03"): 2.0},
+                     derived_splits_unsnapped={("AAA", "2024-06-03"): 1.5})
+        assert A.split_disagreements(r, {("AAA", "2024-06-03"): 1.5}) == []
+
+    def test_a_REAL_disagreement_is_still_reported(self):
+        r = self.rep(derived_splits={("AAA", "2024-06-03"): 2.0},
+                     derived_splits_unsnapped={("AAA", "2024-06-03"): 2.0})
+        assert A.split_disagreements(r, {("AAA", "2024-06-03"): 1.5})
+
+    def test_the_unsnapped_ratio_is_RECORDED_by_the_normaliser(self):
+        from sentinel.feed import domains
+        rep = domains.NormalisationReport()
+        rows = [{"date": "2024-06-03", "ticker": "AAA", "close": 100.0,
+                 "closeunadj": 148.0, "open": 99.0, "volume": 1e6},
+                {"date": "2024-06-04", "ticker": "AAA", "close": 100.0,
+                 "closeunadj": 100.0, "open": 99.0, "volume": 1e6}]
+        list(domains.normalise_sep_rows(rows, report=rep))
+        assert rep.derived_splits_unsnapped[("AAA", "2024-06-04")] \
+            == pytest.approx(1.48)
+        assert ("AAA", "2024-06-04") not in rep.derived_splits, (
+            "the snapped map should still say 'no split' — that is what the "
+            "FALLBACK would use, and it is why it cannot also be the check")
+
+    def test_the_unsnapped_helper_returns_None_on_unusable_input(self):
+        from sentinel.feed import domains
+        assert domains.unsnapped_split_ratio(None, 1.0, 1.0, 1.0) is None
+        assert domains.unsnapped_split_ratio(0.0, 1.0, 1.0, 1.0) is None
+
+    def test_the_SNAPPED_value_is_unchanged_for_a_clean_2_for_1(self):
+        """The fallback's behaviour must not move: this is a share count."""
+        from sentinel.feed import domains
+        assert domains.split_ratio_from_domains(
+            100.0, 200.0, 100.0, 100.0) == pytest.approx(2.0)
+
+    def test_a_disagreement_reaches_the_ANOMALY_table_through_ingest(self, conn):
+        day = sess()[15]
+        load(conn, vendor(split_at=day, ratio=2.0, actions=[
+            {"ticker": "AAA", "date": day, "action": "split", "value": 1.5,
+             "contraticker": None}]))
+        with conn.cursor() as cur:
+            cur.execute("SELECT kind, ticker, detail FROM sentinel_corpus_anomalies"
+                        " WHERE kind = 'SPLIT_DISAGREEMENT'")
+            rows = cur.fetchall()
+        assert rows and rows[0][1] == "AAA"

@@ -429,6 +429,31 @@ docker compose -f docker-compose.sentinel.yml run --rm sentinel \
   identity --require-certified --start 2021-01-04 --end 2023-12-29
 ```
 
+**The database is part of the certified environment.** With a corpus requested,
+`--require-certified` REFUSES a Postgres that is not the pinned 16.14 — the
+corpus digests are produced by reading rows back out of that server, so a minor
+upgrade can move `corpus_hash` without a single row changing. A warning would
+have been the wrong shape: it prints, and then the run proceeds.
+
+**The whole dependency closure is fingerprinted, and should also be LOCKED.**
+`requirements.txt` pins the direct dependencies; pip resolves everything
+underneath them, so two builds can declare identical versions and install
+different closures. `identity` therefore hashes every installed distribution and
+folds it into `identity_hash` — two differing closures can never be mistaken for
+one environment. That makes them *distinguishable*; `sentinel/requirements.lock`
+is what makes them *reproducible*:
+
+```bash
+scripts/sentinel-lock.sh          # read the closure OUT of a real build
+git add sentinel/requirements.lock && git commit
+# rebuild — the Dockerfile prefers the lock — and confirm distributions_hash
+# is unchanged. If it moved, do NOT edit the lock to agree.
+```
+
+The lock cannot exist before the first Python 3.12.13 build produces it, so the
+Dockerfile falls back to `requirements.txt` and says loudly that the build is
+not reproducible.
+
 `--require-certified` exits non-zero when the interpreter or any pin differs, so
 a rehearsal script refuses to produce evidence from an environment it cannot
 name. `identity_hash` covers the environment and the source; `corpus_hash`
@@ -503,6 +528,29 @@ checks became a no-op on the certification path. Before the first bootstrap the
 book genuinely is empty; say so with `--assert-no-holdings`. **After the
 rehearsal, re-run the audit with the realised book** — the pre-seed assertion
 was true then and is not true of the interval the rehearsal traded.
+
+**The realised book is EMITTED BY THE RUN, never typed by a human.**
+`sentinel.core.book_artifact.write(result, path, start=…, end=…)` derives it
+from the `RunResult`: the union, over the whole interval, of every raw ticker
+the ledger names and every ticker with a terminal event the run carried or
+resolved. `--book` then consumes it. A person retyping a ticker list sits in the
+evidentiary chain, and a typo there does not error — it produces a CLEAN
+certification.
+
+The union is deliberately **over-inclusive**, and the asymmetry is the design:
+
+```text
+a ticker wrongly PRESENT   an irrelevant rejection is called MATERIAL. The
+                           interval refuses, a human looks, and says so.
+                           Costly, visible, safe
+a ticker wrongly ABSENT    a rejection on a security the run HELD is judged by
+                           the admission floors, which do not govern an open
+                           position at all. Free, invisible, wrong
+```
+
+`book_artifact.load` refuses a file missing either key. `.get("pending_terminal",
+[])` would turn a book naming only `held` into the claim "nothing was pending" —
+silently, on the field most likely to be forgotten.
 
 Three further things block an interval, all of them recorded during ingest
 because a warning that scrolled past during a six-hour seed is not something a

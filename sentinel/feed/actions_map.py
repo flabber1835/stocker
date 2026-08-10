@@ -147,15 +147,30 @@ def split_disagreements(report, authoritative: Mapping[tuple[str, str], float],
     inputs is wrong about this security, and that is a fact about the corpus an
     operator has to see. Silently preferring either one turns a data problem
     into a share count nobody questions.
+
+    THE UNSNAPPED DERIVED RATIO IS THE ONE COMPARED, and that is the fix for a
+    real blind spot. `split_ratio_from_domains` snaps its inference to a
+    near-integer so the FALLBACK produces a reconcilable share count — but 1.48
+    snaps to 1.0, which is the "no split" value, so the derived side recorded
+    nothing and a stated 1.5 had nothing to disagree with. The check silently
+    stopped checking on exactly the ratios it was added for. Snapping is also
+    wrong in the other direction here: `round(1.5)` is 2, so every legitimate
+    3:2 would have read as a disagreement.
     """
     out = []
+    unsnapped = getattr(report, "derived_splits_unsnapped", None) or {}
+    snapped = getattr(report, "derived_splits", None) or {}
     for (ticker, session), stated in sorted(authoritative.items()):
-        derived = (report.derived_splits or {}).get((ticker, session))
+        derived = unsnapped.get((ticker, session))
+        source = "unsnapped"
+        if derived is None:
+            derived, source = snapped.get((ticker, session)), "snapped"
         if derived is None:
             continue
         if abs(float(derived) - float(stated)) > tolerance:
             out.append({"ticker": ticker, "session": session,
-                        "stated": float(stated), "derived": float(derived)})
+                        "stated": float(stated), "derived": float(derived),
+                        "derived_source": source})
     return out
 
 

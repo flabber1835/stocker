@@ -39,8 +39,29 @@ RUN sed -i 's/MinProtocol = TLSv1.2/MinProtocol = TLSv1.2\nMaxProtocol = TLSv1.2
 # most load-bearing libraries in the Wealth Core config path could move without
 # appearing anywhere in the identity record that claims to name the
 # environment. They are pinned in requirements.txt for exactly that reason.
-COPY sentinel/requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+#
+# THE LOCK WINS WHEN IT EXISTS. `requirements.txt` pins the DIRECT
+# dependencies; pip resolves everything underneath them freely, so two builds a
+# month apart can declare the same versions and install different closures.
+# `sentinel/requirements.lock` is that closure read back OUT of a real build by
+# `scripts/sentinel-lock.sh`. It does not exist until the first Python 3.12.13
+# build has happened — which is why this falls back rather than requiring it,
+# and why the fallback prints loudly instead of passing quietly.
+#
+# `identity` fingerprints the installed set either way, so an unlocked build
+# can never be MISTAKEN for a locked one; the lock is what makes it
+# REPRODUCIBLE.
+COPY sentinel/requirements*.* /tmp/req/
+RUN if [ -f /tmp/req/requirements.lock ]; then \
+        echo "installing the RESOLVED CLOSURE (requirements.lock)"; \
+        pip install --no-cache-dir -r /tmp/req/requirements.lock; \
+    else \
+        echo "*** NO requirements.lock — installing from requirements.txt and"; \
+        echo "*** letting pip resolve the transitive closure. This build is"; \
+        echo "*** NOT reproducible. Run scripts/sentinel-lock.sh against it,"; \
+        echo "*** commit the lock, and rebuild before certifying anything."; \
+        pip install --no-cache-dir -r /tmp/req/requirements.txt; \
+    fi
 
 COPY shared/ /shared/
 RUN pip install --no-cache-dir --no-deps /shared/

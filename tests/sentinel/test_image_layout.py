@@ -134,13 +134,18 @@ def _pip_installs(dockerfile: Path) -> str:
     parts = [l for l in text.splitlines() if "pip install" in l]
     for line in list(parts):
         for token in re.findall(r"-r\s+(\S+)", line):
-            # The path is the IMAGE's (`/tmp/requirements.txt`); resolve it via
-            # the COPY that put it there rather than guessing a repo location.
-            for src, dst in _copy_directives(dockerfile):
-                if dst.rstrip("/") == token or dst == token:
-                    p = ROOT / src
-                    if p.exists():
-                        parts.append(p.read_text())
+            # The path is the IMAGE's (`/tmp/req/requirements.txt`). Resolved by
+            # BASENAME against the repo rather than by matching the COPY
+            # destination exactly: the copy is a GLOB into a directory, because
+            # requirements.lock does not exist until the first real build and
+            # `COPY` fails on a missing source. Matching literal destinations
+            # would silently find nothing again.
+            # Trailing shell punctuation: the install now sits inside an
+            # `if ... fi` block, so the token arrives as `...requirements.txt;`.
+            name = Path(token.strip(";&|\"'")).name
+            for cand in ROOT.rglob(name):
+                if cand.is_file():
+                    parts.append(cand.read_text())
     return "\n".join(parts)
 
 
@@ -166,6 +171,19 @@ class TestTheImageLayout:
         app = tmp_path / "app"          # the image's /app
         app.mkdir()
         for src, dst in _copy_directives(DOCKERFILE):
+            # A GLOB source is resolved rather than failed on: the pin file and
+            # the lock are copied with one wildcard because the lock does not
+            # exist until the first real build.
+            if any(ch in src for ch in "*?["):
+                matches = sorted(ROOT.glob(src))
+                if not matches:
+                    pytest.fail(f"Dockerfile.sentinel COPYs {src!r}, which "
+                                f"matches nothing")
+                for m in matches:
+                    tgt = tmp_path / dst.strip("/") / m.name
+                    tgt.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(m, tgt)
+                continue
             source = ROOT / src.rstrip("/")
             if not source.exists():
                 pytest.fail(f"Dockerfile.sentinel COPYs {src!r}, which does not exist")

@@ -134,3 +134,34 @@ class TestItStaysOutOfTheRUNTIMEImage:
         account — `test_image_layout` caught it when this file briefly did."""
         assert not (ROOT / "sentinel" / "corpus_parity.py").exists()
         assert (ROOT / "tools" / "corpus_parity.py").exists()
+
+
+class TestTheCanonicalPathIsIMPORTABLE:
+    """The tool did `from app import wealth_core_replay`, and `app` is a
+    top-level package INSIDE services/backtester — so being under /work was not
+    enough and the real-window parity step would have died on
+    ModuleNotFoundError the first time anyone ran it. Fail-closed rather than
+    false-green, and still a stop at the last gate before the reseed."""
+
+    def test_the_tool_puts_the_backtester_ON_the_path_itself(self):
+        import sys
+        CP._add_backtester_to_path()
+        assert any(p.endswith("services/backtester") for p in sys.path), (
+            "the tool relies entirely on an environment variable set by one "
+            "specific image, so it fails anywhere else")
+
+    def test_the_canonical_module_then_imports(self):
+        CP._add_backtester_to_path()
+        try:
+            from app import wealth_core_replay  # noqa: F401
+        except ModuleNotFoundError as exc:
+            if "sqlalchemy" in str(exc):
+                pytest.skip("sqlalchemy absent in this checkout (it is pinned "
+                            "in the certification image, not the runtime one)")
+            raise
+
+    def test_the_TEST_image_also_sets_it_on_PYTHONPATH(self):
+        """Belt and braces, and the belt is the one that matters at 8b: the
+        tool is invoked as `python -m tools.corpus_parity` inside that image."""
+        text = (ROOT / "Dockerfile.sentinel-test").read_text().replace("\\\n", " ")
+        assert "/work/services/backtester" in text

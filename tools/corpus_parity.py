@@ -110,6 +110,23 @@ class ParityReport:
                 "agrees": self.agrees}
 
 
+#: Where `app.wealth_core_replay` can be found, in the two layouts that exist:
+#: a repository checkout, and the certification image (which copies the
+#: backtester to /work/services/backtester).
+_BACKTESTER_DIRS = ("services/backtester", "/work/services/backtester")
+
+
+def _add_backtester_to_path() -> None:
+    import sys
+    from pathlib import Path
+
+    here = Path(__file__).resolve().parents[1]
+    for cand in (here / _BACKTESTER_DIRS[0], Path(_BACKTESTER_DIRS[1])):
+        p = str(cand)
+        if cand.exists() and p not in sys.path:
+            sys.path.insert(0, p)
+
+
 def _close(a, b) -> bool:
     if a is None or b is None:
         return a is None and b is None
@@ -168,6 +185,12 @@ def run(sentinel_conn, *, start: str, end: str,
             "BT_DATABASE_URL is unset, so the canonical Sharadar corpus could "
             "not be read. This is NOT a pass: the comparison did not happen."))
 
+    # `app` is a top-level package INSIDE services/backtester, so that
+    # directory has to be on the path in its own right — being under /work is
+    # not enough. Inserted here as well as set in the image's PYTHONPATH,
+    # because a tool that only works under one specific container's environment
+    # is a tool that fails the first time anyone runs it anywhere else.
+    _add_backtester_to_path()
     try:
         import sqlalchemy as sa                              # noqa: PLC0415
         from app import wealth_core_replay as bt             # noqa: PLC0415

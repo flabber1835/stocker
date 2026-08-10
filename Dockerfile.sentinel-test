@@ -72,7 +72,12 @@ COPY docker-compose.sentinel.yml /work/repo/docker-compose.sentinel.yml
 
 # /work carries `tests` and `services`. `sentinel` resolves from /app and
 # `stock_strategy_shared` from site-packages — the artefact, in both cases.
-ENV PYTHONPATH=/work:/app \
+# /work/services/backtester is on the path because the canonical Wealth Core
+# data path is `app.wealth_core_replay` — `app` is a top-level package INSIDE
+# that directory, so /work alone resolves nothing and `tools.corpus_parity`
+# would die on ModuleNotFoundError at the real-window parity step. It shadows
+# nothing: the runtime image has no `app` package.
+ENV PYTHONPATH=/work:/work/services/backtester:/app \
     SENTINEL_REPO_ROOT=/work/repo \
     SENTINEL_IN_IMAGE=1 \
     SENTINEL_STATE_DIR=/tmp/sentinel-test-state
@@ -80,10 +85,12 @@ ENV PYTHONPATH=/work:/app \
 # BEFORE any test runs. If the imports resolve to the wrong place the suite is
 # measuring the wrong thing, and a failure here is far cheaper than a green run
 # that certified a checkout.
-RUN python -c "import sentinel, stock_strategy_shared.wealth_core as wc, sys; \
+RUN python -c "import sentinel, stock_strategy_shared.wealth_core as wc; \
+    from app import wealth_core_replay as bt; \
+    import tools.corpus_parity; \
     assert sentinel.__file__.startswith('/app/'), sentinel.__file__; \
     assert '/work' not in wc.__file__, wc.__file__; \
-    print('runtime imports OK:', sentinel.__file__, wc.__file__)"
+    print('runtime imports OK:', sentinel.__file__, wc.__file__, bt.__file__)"
 
 # Overrides the runtime ENTRYPOINT, whose purpose is to refuse to be started
 # casually. A test image needs a plain interpreter.

@@ -173,8 +173,11 @@ step "7/9  refused rows over ${START}..${END} — fail closed"
 # quietly assuming an empty intersection — which is precisely the defect this
 # flag exists to make impossible to reintroduce.
 #
-# AFTER the rehearsal, re-run this with the realised book:
-#   sentinel rejection-audit --start ... --end ... --book artifacts/.../book.json
+# AFTER the rehearsal, re-run this with the book the RUN ITSELF emitted:
+#   sentinel rejection-audit --start ... --end ... --book <book.json>
+# `sentinel.core.book_artifact.write()` produces that file from the RunResult —
+# no human retypes a ticker list into the evidentiary chain, where a typo would
+# not error but would produce a CLEAN certification.
 ${RUN} rejection-audit --start "${START}" --end "${END}" --assert-no-holdings \
   > "${ART}/rejection-audit-${RUNSTAMP}.json" \
   || fail "refused price rows in the interval are unexplained. Read
@@ -228,6 +231,21 @@ if c.get("postgres_certified") is False:
           "claims")
 PY
 
+# ── the closure lock, checked rather than assumed ────────────────────────────
+if [ ! -f sentinel/requirements.lock ]; then
+  printf '\n\033[33mNO DEPENDENCY LOCK\033[0m\n'
+  echo "  sentinel/requirements.txt pins the DIRECT dependencies; pip resolved"
+  echo "  the transitive closure freely for this build, so it is NOT"
+  echo "  reproducible. identity_hash still separates two different closures —"
+  echo "  they can never be mistaken for one — but you cannot rebuild this one."
+  echo
+  echo "  Freeze it now, before the reseed:"
+  echo "    scripts/sentinel-lock.sh            # read the closure OUT of the image"
+  echo "    git add sentinel/requirements.lock && git commit"
+  echo "    scripts/sentinel-certify.sh --verify-only --start ${START} --end ${END}"
+  echo "  and confirm distributions_hash is unchanged across the rebuild."
+fi
+
 printf '\n\033[32mREADY FOR THE REHEARSAL\033[0m — %s..%s\n' "${START}" "${END}"
 echo "  evidence retained in ${ART}/ :"
 ls -1 "${ART}" | sed 's/^/    /'
@@ -237,7 +255,8 @@ echo "settlement counters and the per-episode terminal audit before any"
 echo "performance number — a CAGR without them cannot say how much of the book"
 echo "was valued rather than realised."
 echo
-echo "AFTER it completes, re-run the rejection audit with the REALISED book:"
+echo "AFTER it completes, re-run the rejection audit with the book the RUN"
+echo "EMITTED (sentinel.core.book_artifact.write, never hand-written):"
 echo "  sentinel rejection-audit --start ${START} --end ${END} --book <book.json>"
 echo "The pre-seed run asserted an empty book, which was true then and is not"
 echo "true of the interval the rehearsal actually traded."

@@ -127,6 +127,25 @@ class TestPytestImportsTheRUNTIMECode:
             f"from the repository it was built from ({checkout['files']} "
             f"files) — rebuild before certifying anything")
 
+    def test_WEALTH_CORE_also_matches_its_checkout(self):
+        """The same check on the OTHER tree, and the more consequential one:
+        Wealth Core is the engine whose golden hash is about to be re-pinned.
+        A stale pip-installed copy would let the rehearsal run different
+        economics than the source under review, and the identity record would
+        faithfully report the hash of the wrong code."""
+        import stock_strategy_shared.wealth_core as wc
+        runtime = ident.source_hash(Path(wc.__file__).resolve().parent)
+        checkout = ident.source_hash(
+            REPO / "shared" / "stock_strategy_shared" / "wealth_core")
+        assert checkout["hash"], (
+            "the inspection copy of shared/ is missing, so this check silently "
+            "verified nothing")
+        assert runtime["hash"] == checkout["hash"], (
+            f"the INSTALLED Wealth Core ({runtime['files']} files) differs from "
+            f"the repository it was built from ({checkout['files']} files) — "
+            f"the pip install is stale, and the rehearsal would run different "
+            f"economics than the source under review")
+
     def test_the_environment_reports_itself_CERTIFIED(self):
         env = ident.environment()
         assert env["certified"] is True, env["pin_drift"] or env
@@ -157,6 +176,10 @@ class TestTheGateIsNotVacuous:
         assert not importable, (
             f"runtime code is copied to an importable path: {importable}. "
             f"Pytest would then prove the checkout rather than the artefact.")
-        assert "PYTHONPATH=/work:/app" in text.replace("\\\n", " "), (
+        joined = text.replace("\\\n", " ")
+        assert "/app" in joined and "PYTHONPATH=/work" in joined, (
             "the runtime image's /app must be on the path for `sentinel` to "
             "resolve to the artefact")
+        assert "/work/services/backtester" in joined, (
+            "`app.wealth_core_replay` is a top-level package inside that "
+            "directory, so the real-window parity step cannot import it")

@@ -445,3 +445,81 @@ class TestTheEvidenceRowCarriesPriceAndVolume:
         v = one(conn)
         assert v.reasons == [RA.NO_IDENTITY, RA.NO_RAW_CLOSE]
         assert v.rows == 6 and v.sessions == 3
+
+
+# ── 6. the DATABASE is part of the certified environment ─────────────────────
+
+class TestTheCertifiedPostgresIsAGateNotAWarning:
+    """`corpus.postgres_certified` was recorded, printed as a warning by the
+    harness, and then followed by READY FOR THE REHEARSAL. The digests in that
+    record are produced by reading rows back OUT of the server, so a minor
+    upgrade can move `corpus_hash` without a single row changing — that is a
+    refusal, not a footnote."""
+
+    def parse(self, argv, monkeypatch, capsys, rec):
+        import sentinel.__main__ as M
+        from sentinel import identity as ident
+
+        monkeypatch.setattr(ident, "rehearsal_identity",
+                            lambda *a, **kw: rec)
+        monkeypatch.setattr(M, "EXIT_NOT_ESTABLISHED", 2)
+
+        class _Cfg:
+            database_url = "postgresql://x/y"
+        monkeypatch.setattr(
+            "sentinel.feed.store.connect", lambda *_a, **_k: _FakeConn())
+        monkeypatch.setattr(
+            "sentinel.feed.store.ensure_schema", lambda *_a, **_k: None)
+        p = M.build_parser() if hasattr(M, "build_parser") else None
+        assert p is None or p  # the CLI is exercised via cmd_identity directly
+        args = type("A", (), dict(zip(
+            ("start", "end", "require_certified"), argv)))()
+        return M.cmd_identity(_Cfg(), args)
+
+    def rec(self, *, certified=True, pg_ok=True):
+        return {"environment": {"certified": certified, "pin_drift": {},
+                                "python": "3.12.13"},
+                "identity_hash": "x",
+                "corpus": {"postgres_certified": pg_ok,
+                           "postgres_server_version": "17.2"}}
+
+    def test_a_WRONG_postgres_version_REFUSES(self, monkeypatch, capsys):
+        rc = self.parse(("2024-01-01", "2024-12-31", True), monkeypatch, capsys,
+                        self.rec(pg_ok=False))
+        assert rc == 2
+        assert "not the certified" in capsys.readouterr().err
+
+    def test_the_CERTIFIED_version_passes(self, monkeypatch, capsys):
+        assert self.parse(("2024-01-01", "2024-12-31", True), monkeypatch,
+                          capsys, self.rec(pg_ok=True)) == 0
+
+    def test_it_is_only_checked_when_a_CORPUS_was_requested(self, monkeypatch,
+                                                            capsys):
+        """Without --start/--end no database was consulted at all, so there is
+        no server version to be wrong about."""
+        rec = self.rec()
+        rec.pop("corpus")
+        assert self.parse((None, None, True), monkeypatch, capsys, rec) == 0
+
+
+class _FakeConn:
+    def cursor(self):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def execute(self, *a, **kw):
+        return None
+
+    def fetchall(self):
+        return []
+
+    def fetchone(self):
+        return None
+
+    def close(self):
+        pass

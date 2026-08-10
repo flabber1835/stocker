@@ -68,8 +68,12 @@ class TestEveryDependencyIsPinnedExactly:
     def test_the_dockerfile_INSTALLS_the_pin_file(self):
         """A pin file the image does not read is a document, not a control."""
         text = DOCKERFILE.read_text()
-        assert "sentinel/requirements.txt" in text
-        assert "-r /tmp/requirements.txt" in text
+        assert "sentinel/requirements" in text
+        assert "-r /tmp/req/requirements.txt" in text, (
+            "the declared pins are not installed at all")
+        assert "-r /tmp/req/requirements.lock" in text, (
+            "the RESOLVED CLOSURE is never preferred, so a rebuild re-resolves "
+            "the transitive set and is not reproducible")
         assert not re.search(r'pip install[^\n]*"[a-zA-Z_\-]+>=', text), (
             "a package is still installed with a floating version on the "
             "command line, bypassing the pin file entirely")
@@ -166,3 +170,58 @@ class TestInsideTheCertifiedImage:
 
     def test_the_environment_reports_itself_CERTIFIED(self):
         assert ident.environment()["certified"] is True
+
+
+class TestTheWHOLECLOSUREIsFingerprinted:
+    """`requirements.txt` pins the DIRECT dependencies; pip resolves everything
+    underneath them. Two images could therefore carry the same declared
+    versions, the same source and the same interpreter — and different
+    transitive closures — while `pin_drift()` reported nothing, because it only
+    compares what the pin file names."""
+
+    def test_every_installed_distribution_is_recorded(self):
+        dists = dict(ident.installed_distributions())
+        assert len(dists) > len(ident.pinned_requirements()), (
+            "only the direct pins were recorded, so a transitive difference is "
+            "invisible to the identity record")
+        for name in ("exchange-calendars", "pandas"):
+            assert name in dists
+
+    def test_the_closure_is_INSIDE_the_identity_hash(self, monkeypatch):
+        """The property that matters: two different closures cannot produce one
+        identity_hash. Without it, results from two environments could be
+        mistaken for results from one."""
+        before = ident.rehearsal_identity()["identity_hash"]
+        real = ident.installed_distributions
+        monkeypatch.setattr(ident, "installed_distributions",
+                            lambda: real() + [["ghost-package", "9.9.9"]])
+        assert ident.rehearsal_identity()["identity_hash"] != before
+
+    def test_a_VERSION_change_anywhere_in_the_closure_moves_it(self, monkeypatch):
+        before = ident.environment()["distributions_hash"]
+        real = ident.installed_distributions()
+        bumped = [[n, v + ".1"] if i == 0 else [n, v]
+                  for i, (n, v) in enumerate(real)]
+        monkeypatch.setattr(ident, "installed_distributions", lambda: bumped)
+        assert ident.environment()["distributions_hash"] != before
+
+    def test_the_record_says_whether_a_LOCK_was_used(self):
+        """An unlocked build must be distinguishable from a locked one. It is
+        not a refusal — the lock cannot exist before the first build produces
+        it — but it must be visible in the record."""
+        assert "lock_present" in ident.environment()
+
+    def test_the_lock_if_present_COVERS_every_declared_pin(self):
+        """A lock that omits a pinned package would let that package float
+        while the record claimed a frozen closure."""
+        lock = REPO / "sentinel" / "requirements.lock"
+        if not lock.exists():
+            pytest.skip("no lock yet — produced by the first real build")
+        locked = {}
+        for line in lock.read_text().splitlines():
+            if "==" in line and not line.strip().startswith("#"):
+                n, _, v = line.strip().partition("==")
+                locked[n.lower().replace("_", "-")] = v
+        for name, version in ident.pinned_requirements().items():
+            assert locked.get(name) == version, (
+                f"{name} is pinned {version} and locked {locked.get(name)}")

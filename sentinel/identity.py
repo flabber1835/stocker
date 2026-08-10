@@ -79,6 +79,11 @@ CERTIFIED_POSTGRES_VERSION = "16.14"
 
 _REQUIREMENTS = Path(__file__).resolve().parent / "requirements.txt"
 
+#: The COMPLETE resolved closure, produced from a real build by
+#: `scripts/sentinel-lock.sh` and committed. Absent until the first Python
+#: 3.12.13 build exists — see the file's own header for the bootstrap.
+_LOCK = Path(__file__).resolve().parent / "requirements.lock"
+
 
 def _imported_package_root(module_name: str) -> Optional[Path]:
     """Where Python ACTUALLY imported a package from.
@@ -141,6 +146,40 @@ def installed_versions(names: Iterable[str]) -> dict[str, Optional[str]]:
     return out
 
 
+def installed_distributions() -> list[list[str]]:
+    """EVERY installed distribution and its version, sorted. Not just the pins.
+
+    `requirements.txt` pins the DIRECT dependencies. pip is still free to
+    resolve everything underneath them, so two images could carry the same
+    `pinned_requirements` — the same declared versions, the same source, the
+    same interpreter — and different transitive closures, and nothing in the
+    record would separate them. `pin_drift()` cannot see that by construction:
+    it only compares what the pin file names.
+
+    So the record fingerprints the CLOSURE. This does not make a build
+    reproducible on its own — `sentinel/requirements.lock` is what does that —
+    but it makes two differing closures produce different `identity_hash`
+    values, which is the property a certification actually needs: results from
+    two different environments can never be mistaken for results from one.
+    """
+    import importlib.metadata as md                          # noqa: PLC0415
+
+    seen: dict[str, str] = {}
+    for dist in md.distributions():
+        try:
+            name = (dist.metadata["Name"] or "").lower().replace("_", "-")
+            version = dist.version or ""
+        except Exception:                                    # noqa: BLE001
+            continue
+        if name:
+            # A duplicate name means two installs of one distribution are
+            # visible. Recording BOTH versions is the honest answer; silently
+            # keeping one would hide a broken environment.
+            seen[name] = version if name not in seen \
+                else f"{seen[name]}|{version}"
+    return [[k, seen[k]] for k in sorted(seen)]
+
+
 def pin_drift() -> dict[str, dict]:
     """Where the environment disagrees with the pin file.
 
@@ -189,6 +228,7 @@ def environment() -> dict:
     except Exception as exc:                                  # noqa: BLE001
         calendar_version = f"unavailable: {exc}"
 
+    dists = installed_distributions()
     sentinel_src = source_hash(_imported_package_root("sentinel"))
     wc_src = source_hash(_imported_package_root(
         "stock_strategy_shared.wealth_core"))
@@ -210,6 +250,14 @@ def environment() -> dict:
         "packages": installed_versions(pinned_requirements()),
         "pin_drift": drift,
         "pins_match": not drift,
+        # THE WHOLE CLOSURE, not only the direct pins. Two images with
+        # identical declared versions and different transitive resolutions must
+        # not be able to share an identity_hash — which they could, because
+        # `pin_drift` compares only what the pin file names.
+        "distributions_count": len(dists),
+        "distributions_hash": _sha(json.dumps(dists, sort_keys=True).encode()),
+        "distributions": dists,
+        "lock_present": _LOCK.exists(),
         "sentinel_source": sentinel_src,
         "wealth_core_source": wc_src,
         "sources_known": sources_known,
@@ -281,6 +329,17 @@ def corpus(conn, *, start: str, end: str) -> dict:
         "SELECT session, ticker, kind, detail FROM sentinel_corpus_anomalies"
         " WHERE session BETWEEN %s AND %s"
         " ORDER BY session, ticker, kind", (start, end))
+    # TRUNCATION IS PART OF THE EVIDENCE STATE. A corpus whose refusal evidence
+    # was capped is not the same corpus as one whose was complete, even when
+    # every stored row is identical — the second can be certified and the first
+    # cannot. Leaving it out of the hash would let those two digest the same.
+    # Overlap, not containment, to match how the audit reads it.
+    truncation = _digest_query(
+        conn,
+        "SELECT window_start, window_end, chunk, retained, truncated"
+        " FROM sentinel_rejection_truncation"
+        " WHERE window_start <= %s AND window_end >= %s"
+        " ORDER BY window_start, chunk", (end, start))
     with conn.cursor() as cur:
         cur.execute("SELECT MIN(session), MAX(session),"
                     " COUNT(DISTINCT session), COUNT(DISTINCT security_id)"
@@ -303,10 +362,12 @@ def corpus(conn, *, start: str, end: str) -> dict:
         "vendor_universe": universe,
         "refusals": rejections,
         "anomalies": anomalies,
+        "refusal_truncation": truncation,
     }
     out["corpus_hash"] = _sha(json.dumps(
         {k: out[k] for k in ("normalised_bars", "vendor_actions",
-                             "vendor_universe", "refusals", "anomalies")},
+                             "vendor_universe", "refusals", "anomalies",
+                             "refusal_truncation")},
         sort_keys=True).encode())
     return out
 

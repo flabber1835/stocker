@@ -235,6 +235,22 @@ def cmd_identity(config: SentinelConfig, args) -> int:
               f"{ident.CERTIFIED_PYTHON}), {len(drift)} pin(s) adrift: "
               f"{sorted(drift)}", file=sys.stderr)
         return EXIT_NOT_ESTABLISHED
+    # THE DATABASE IS PART OF THE CERTIFIED ENVIRONMENT, so a wrong server is a
+    # REFUSAL rather than a printed warning. The corpus digests in this record
+    # are produced by reading rows back out of that server; a minor upgrade can
+    # change collation and float text output, which moves `corpus_hash` without
+    # a single row changing. Only checked when a corpus was actually requested,
+    # because without --start/--end no database was consulted at all.
+    corpus = rec.get("corpus")
+    if args.require_certified and corpus is not None \
+            and not corpus.get("postgres_certified"):
+        print(f"REFUSED: the corpus was read from PostgreSQL "
+              f"{corpus.get('postgres_server_version')}, not the certified "
+              f"{ident.CERTIFIED_POSTGRES_VERSION} "
+              f"({ident.CERTIFIED_POSTGRES_DIGEST}). The digests in this "
+              f"record were produced by a different server than the record "
+              f"claims.", file=sys.stderr)
+        return EXIT_NOT_ESTABLISHED
     return EXIT_OK
 
 
@@ -260,10 +276,14 @@ def cmd_rejection_audit(config: SentinelConfig, args) -> int:
     # silent no-op on the certification path.
     held = pending = None
     if args.book:
+        # `book_artifact.load` REFUSES a partial file. A `.get(key, [])` here
+        # would turn a book naming only `held` into the claim "nothing was
+        # pending terminal settlement" — silently, on the field most likely to
+        # be forgotten, and contradicting the half-supplied-is-UNKNOWN rule the
+        # audit enforces everywhere else.
+        from sentinel.core import book_artifact
         try:
-            book = json.loads(Path(args.book).read_text())
-            held = [str(t).upper() for t in book.get("held", [])]
-            pending = [str(t).upper() for t in book.get("pending_terminal", [])]
+            held, pending = book_artifact.load(args.book)
         except Exception as exc:                            # noqa: BLE001
             print(f"REFUSED: --book could not be read: {exc}", file=sys.stderr)
             return EXIT_CONFIG

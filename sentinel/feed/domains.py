@@ -89,20 +89,41 @@ def split_ratio_from_domains(
     after/before, which points the share count the wrong way and halves a
     position on a 2:1.
     """
-    vals = (prev_close, prev_raw, close, raw)
-    if any(v is None or v <= 0 for v in vals):
-        return 1.0
-    before = prev_raw / prev_close
-    after = raw / close
-    if after <= 0:
-        return 1.0
-    ratio = before / after
-    if abs(ratio - 1.0) <= tolerance:
+    ratio = unsnapped_split_ratio(prev_close, prev_raw, close, raw)
+    if ratio is None or abs(ratio - 1.0) <= tolerance:
         return 1.0
     # Splits are near-integral ratios or their reciprocals. Snapping keeps a
     # 1.9997 from becoming a share count nobody can reconcile.
     snapped = round(ratio) if ratio >= 1.0 else 1.0 / round(1.0 / ratio)
     return float(snapped) if snapped > 0 else 1.0
+
+
+def unsnapped_split_ratio(
+    prev_close: Optional[float], prev_raw: Optional[float],
+    close: Optional[float], raw: Optional[float],
+) -> Optional[float]:
+    """The RAW domain ratio, before any snapping. None when incomputable.
+
+    This exists because the snap DESTROYS the cross-check it is supposed to
+    feed. A genuine 3:2 shows a domain ratio near 1.5; snapping sends it to 1.0
+    or 2.0, and at 1.48 it lands on 1.0 — which is the "no split" value, so the
+    derived side records nothing at all and a stated 1.5 has nothing to
+    disagree with. The corpus still takes the authoritative 1.5 and is correct,
+    but "a material disagreement fails loudly" quietly stopped being true.
+
+    The snap is right for the FALLBACK — a share count has to be reconcilable —
+    and wrong for the COMPARISON, which is asking whether two sources describe
+    the same event. Two different questions, so two different values, and the
+    snapping one is no longer allowed to answer both.
+    """
+    vals = (prev_close, prev_raw, close, raw)
+    if any(v is None or v <= 0 for v in vals):
+        return None
+    before = prev_raw / prev_close
+    after = raw / close
+    if after <= 0:
+        return None
+    return before / after
 
 
 def _f(v) -> Optional[float]:
@@ -197,7 +218,17 @@ class NormalisationReport:
     # when an authoritative ACTIONS value overrides it. Two independent sources
     # agreeing is worth more than one asserting, and a disagreement is a fact
     # about the corpus that has to be reportable rather than resolved in silence.
+    #
+    # SNAPPED — this is the value the fallback would use, so it is what a
+    # fallback-path audit needs to see.
     derived_splits: dict = field(default_factory=dict)
+    # (ticker, session) -> the SAME inference BEFORE snapping, recorded whenever
+    # it is materially away from 1.0. The comparison uses this one: snapping a
+    # 1.48 to 1.0 makes it indistinguishable from "no split", so a stated 1.5
+    # had nothing to disagree with and the cross-check silently stopped
+    # cross-checking. It also stops every legitimate 3:2 reading as a
+    # disagreement, since `round(1.5)` is 2.
+    derived_splits_unsnapped: dict = field(default_factory=dict)
 
     #: Cap on RETAINED rejection rows. The count is unbounded and exact; only
     #: the per-row detail is capped.
@@ -302,6 +333,12 @@ def normalise_sep_rows(
         ratio = split_ratio_from_domains(p_close, p_raw, close, raw)
         if ratio != 1.0:
             rep.derived_splits[(ticker, session)] = ratio
+        # Recorded SEPARATELY and BEFORE the snap, because the snap is what the
+        # comparison cannot survive: 1.48 becomes 1.0, which is the "no split"
+        # value, so a stated 1.5 finds nothing to disagree with.
+        unsnapped = unsnapped_split_ratio(p_close, p_raw, close, raw)
+        if unsnapped is not None and abs(unsnapped - 1.0) > SPLIT_TOLERANCE:
+            rep.derived_splits_unsnapped[(ticker, session)] = unsnapped
         if authoritative_splits is not None:
             # ACTIONS decides when present; the derived ratio stays as the
             # cross-check. Two independent sources agreeing is worth more than
