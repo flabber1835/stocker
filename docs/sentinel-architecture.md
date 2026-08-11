@@ -1,6 +1,19 @@
 # Sentinel — architecture and build plan
 
-**Status: DESIGN ONLY. Nothing in this document is implemented.**
+**Status: DESIGN ONLY for the STRATEGY layer. Nothing in §§1-12 about the
+controller, the shadow or `run_until` is implemented.**
+
+> **THE EXECUTION LAYER BELOW "execution projection" IS NOW BUILT**, and its
+> rules live in `docs/sentinel-execution-contract.md` — command identity, the
+> UNKNOWN state, observation completeness, corporate actions before
+> foreign-activity classification, account binding and takeover epochs, the
+> missed-open asymmetry, and backup restore as an operating mode. That document
+> adds invariants 15-30, continuing §12 here. It does not change anything in
+> this file; it fills the layer this one leaves open.
+>
+> Also note: **invariant #3 (`data_version`) was adopted here and unimplemented
+> in the feed for as long as this document has existed.** It is implemented now,
+> at the DETECTION tier only — see the contract §8.
 
 > **SUPERSEDED IN PLACES — read `docs/sentinel-deployment.md` FIRST.** As of
 > 2026-08-09 the direction is set: Stocker is retired as a runtime, Sentinel is

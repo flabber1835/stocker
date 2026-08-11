@@ -60,7 +60,12 @@ The LLM must **never** directly submit trades or bypass deterministic validation
 
 **Read `docs/sentinel-deployment.md` FIRST — it is the operational ground truth
 (direction set 2026-08-09) and supersedes parts of the architecture doc. Then
-read `docs/sentinel-architecture.md` before any new architectural work.**
+read `docs/sentinel-architecture.md` before any new architectural work, and
+`docs/sentinel-execution-contract.md` before touching ANYTHING under
+`sentinel/execution/`, `sentinel/binding.py`, `sentinel/handover.py` or the
+feed's publication/repair modules — it carries the command-identity, UNKNOWN,
+observation-completeness, corporate-action and backup-restore rules, and every
+one of them has a falsifier in `tests/sentinel/`.**
 
 Stocker is no longer the production runtime. Do NOT add operational behaviour to
 Stocker services, and do NOT design anything that depends on Stocker continuing

@@ -1,6 +1,7 @@
 # Sentinel — the execution and recovery contract
 
-> **Status: DESIGN SETTLED, implementation in progress.** This document is the
+> **Status: DESIGN SETTLED, BUILT AND TESTED — against a simulator and an
+> ephemeral PostgreSQL, never against a live broker.** This document is the
 > source of truth for how Sentinel talks to a broker, what it persists before it
 > does, and how it recovers when any of it goes wrong. It supersedes nothing in
 > `sentinel-architecture.md`; it fills the layer that document leaves open below
@@ -9,6 +10,40 @@
 > Read `docs/sentinel-deployment.md` first for operational ground truth, then
 > `docs/sentinel-architecture.md` for the strategy/controller architecture, then
 > this.
+
+## Implementation status
+
+```text
+sentinel/execution/identity.py       derived client keys, takeover fencing
+sentinel/execution/states.py         command state machine + permission kernel
+sentinel/execution/contract.py       typed port, capabilities, completeness
+sentinel/execution/commands.py       exact-delta sizing, dust, authorisation
+sentinel/execution/recovery.py       send / resolve / confirm primitives
+sentinel/execution/journal.py        durable journal + single-writer lock
+sentinel/execution/reconcile.py      the ordered sequence, actions before blame
+sentinel/execution/plan.py           immutable plans, economic fingerprint
+sentinel/execution/projection.py     shadow x exposure -> whole shares
+sentinel/execution/executor.py       the session loop
+sentinel/execution/simulator.py      the conformance ORACLE
+sentinel/execution/alpaca.py         Alpaca mapped onto the contract
+sentinel/execution/certification.py  which adapters are certified, and why not
+sentinel/binding.py                  account binding + takeover epoch
+sentinel/handover.py                 the administrative migration
+sentinel/schema.py                   behavioural state DDL
+sentinel/feed/publication.py         corpus versions (DETECTION tier)
+sentinel/feed/repair.py              split-ratio audit and repair
+```
+
+**NOT DONE, and none of it should be inferred from the green suite:**
+
+```text
+no live or paper broker has ever been contacted by this code
+the Sentinel controller (§7 of the architecture doc) is not wired to it
+Wealth Core is not wired to the projection — `desired` is still an argument
+the RECONSTRUCTION tier of corpus versioning is deferred
+crash injection is logical (state, journal), not process-level SIGKILL
+the resource limits are declared, not yet MEASURED against a real run
+```
 
 The architecture document settles what Sentinel *decides*. This one settles what
 happens between a decision and a share moving, and — more importantly — what
