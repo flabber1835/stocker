@@ -866,6 +866,12 @@ DENOMINATOR   the frozen fractions divide by the position-panel ROW COUNT for
               right denominator every frozen fraction resolves to an integer
               count of positions
 GREEN         own_dd >= -7.5% AND r21 >= 0 AND r63 >= 0
+              ^^ INCOMPLETE. See docs/sentinel-controller-certification.md
+              §7b. The recovered standalone says `own_dd > -0.075 AND r21 > 0
+              AND (age < 63 OR r63 > 0)` — strict comparisons, and an AGE
+              ESCAPE absent here that makes every holding younger than 63
+              sessions green with no r63 test. The source is authoritative;
+              this line is orientation
               exact on 90.27% of 7,061 sessions, mean error 0.119 positions
 DAMAGED core  own_dd <= -10% OR r21 <= -3%
               exact on 69.69%, and it NEVER over-predicts — short by 0.403

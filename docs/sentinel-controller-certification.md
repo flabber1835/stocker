@@ -212,3 +212,107 @@ NEW SYSTEM-LEVEL SIMULATION, which no artefact can answer
 These are frozen evidence from the research process. Asserting against them is
 stronger than reproducing the experiments, because a re-run can only ever agree
 with the code that produced it.
+
+
+---
+
+## 7. Step 2, revised: work FORWARD from raw data (decided 2026-08-11)
+
+The earlier plan made the corrected 406-day reference the thing to reproduce.
+That is the weaker construction, and the revision is right: an implementation
+whose objective is to match a tape can be tuned until it matches a tape.
+
+```text
+raw Sharadar  ->  recovered breadth classifier  ->  SPY regime  ->  frozen rule
+                                                                        |
+                                                                        v
+                                       the corrected reference is the FALSIFIER
+```
+
+Each stage is a deterministic algorithm recovered or frozen independently. If
+the chain reproduces the corrected lineage without having been aimed at it, the
+agreement is evidence. If it is aimed at it, the agreement is a tautology.
+
+### 7a. The recovered breadth classifier IS in the repository
+
+`09_GAPS` records the classifier as NOT FOUND, and that was true of the handoff
+bundle. It is present in `docs/sentinel-reference-implementation/
+sentinel_1p1_standalone.py`, labelled in the source as *"Exact recovered breadth
+classifier, computed directly from current shadow holdings"*:
+
+```text
+own_dd  = signal_close / episode_peak_signal - 1
+r21     = 21-session signal return
+r63     = signal_close / signal_close[t-63] - 1
+age     = sessions since entry
+
+green   = own_dd > -0.075  AND  r21 > 0  AND  (age < 63 OR r63 > 0)
+red     = own_dd <= -0.10  AND  r21 < 0
+
+sstress = reds_in_sector / held_in_sector          # per GICS sector
+amber   = own_dd <= -0.10  OR  r21 <= -0.03  OR  (sstress >= 0.50 AND NOT green)
+
+green_b   = greens / len(held)
+damaged_b = ambers / len(held)
+```
+
+Three properties that are not obvious and are silent if got wrong:
+
+```text
+RED FEEDS ONLY SECTOR STRESS. It never enters green_b or damaged_b directly;
+    its entire role is the per-sector denominator behind `sstress`
+
+AMBER IS NOT THE COMPLEMENT OF GREEN. The two are disjoint, but they do not
+    partition the book — green_b + damaged_b need not sum to 1, and a
+    classifier that forces them to has changed the strategy
+
+THE DENOMINATOR IS len(held), the CURRENT shadow holdings, which matches the
+    forensic finding that the frozen fractions divide by the position-panel row
+    count rather than a `holdings` column
+```
+
+### 7b. CORRECTION — §8 of the architecture doc states GREEN incompletely
+
+`sentinel-architecture.md` §8's forensic note says:
+
+> GREEN `own_dd >= -7.5% AND r21 >= 0 AND r63 >= 0`
+
+The recovered code says:
+
+> `own_dd > -0.075 AND r21 > 0 AND (age < 63 OR r63 > 0)`
+
+Two differences, both material:
+
+```text
+STRICTNESS   `>` and `>=` differ exactly at the threshold, and a book marked
+             precisely at its peak (own_dd == 0) is common, not exotic
+
+THE AGE ESCAPE  a holding younger than 63 sessions is GREEN with NO r63 test
+             at all. That clause is absent from the prose entirely, and it
+             governs every newly admitted position — 4% of equity each, one
+             per session, so a fresh book is mostly positions in that band
+```
+
+An implementation built from §8's summary would misclassify young holdings and
+shift `green_b` on exactly the sessions after a recovery, when the book is being
+rebuilt. This is the hazard §7 names — *re-inferring Sentinel from prose* —
+found in the document's own summary of the code. **The standalone source is
+authoritative; §8's prose is orientation.**
+
+### 7c. What the NAS run must therefore do
+
+```text
+1  implement the recovered classifier from the STANDALONE SOURCE, not from any
+   prose summary, and reproduce the frozen breadth tape before anything
+   downstream is accepted — the frozen rule's own precondition
+2  compute the SPY regime series: closeadj, rolling std of DAILY RETURNS,
+   ddof=1, vol5/vol20 - 1
+3  narrow the closeadj guard to a named regime-data module, with its own test
+4  run the whole chain forward and compare on DECISION basis against the
+   corrected reference: 406 severe days including 2025-04-08 .. 2025-05-06
+5  any mismatch is a certification failure, not a tolerance to widen
+```
+
+The `decide` seam stays empty until step 4 passes. Wiring a driver before the
+upstream signal chain is certified would mean choosing an implementation to fill
+it on the strength of the part that is not yet proven.
