@@ -48,6 +48,21 @@ import stat
 import sys
 from pathlib import Path
 
+#: This runs on the HOST interpreter, not the 3.12 runtime image — it produces
+#: the `.env` that compose needs, so it cannot run inside a container that does
+#: not exist yet. The NAS ships whatever Synology ships. Keep this file inside
+#: the floor below; `tests/scripts/test_env_from_stocker.py` enforces it, and
+#: the first real invocation on the NAS died on a 3.9-only `str.removeprefix`.
+MIN_PYTHON = (3, 7)
+if sys.version_info < MIN_PYTHON:                       # pragma: no cover
+    sys.stderr.write(
+        "REFUSED: this needs Python %d.%d or newer; this interpreter is "
+        "%d.%d.\n  It runs on the HOST, before any image exists. Try a newer "
+        "python3 explicitly:\n    python3.11 %s --from ...\n"
+        % (MIN_PYTHON[0], MIN_PYTHON[1], sys.version_info[0],
+           sys.version_info[1], sys.argv[0]))
+    raise SystemExit(2)
+
 #: Read by Sentinel, and carried across if present. The comment on each is why
 #: it survives — verified against the source, not against the old .env.example,
 #: which still describes the deleted runtime.
@@ -117,7 +132,12 @@ def parse_env(path: Path) -> dict[str, str]:
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        line = line.removeprefix("export ").lstrip()
+        # NOT `.removeprefix`, which is 3.9+. This script runs on the HOST
+        # python, before any image exists — it produces the .env that compose
+        # needs, so it cannot run inside the 3.12 runtime. A Synology NAS ships
+        # an older interpreter and the first real invocation died here.
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
         if "=" not in line:
             continue
         key, _, val = line.partition("=")

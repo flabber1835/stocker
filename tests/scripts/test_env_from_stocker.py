@@ -225,3 +225,93 @@ class TestItFailsClosed:
         seen = d1.read_text()
         _, d2 = run(tmp_path, OLD, "--force")
         assert d2.read_text() != seen
+
+
+class TestItRunsOnTheHostInterpreter:
+    """It cannot run inside the 3.12 image, so it cannot assume 3.12.
+
+    This script produces the `.env` that compose reads, which means it runs
+    BEFORE any image exists — on whatever python3 the NAS ships. The first real
+    invocation died on `str.removeprefix`, which is 3.9+, with an
+    AttributeError three lines into parsing. Nothing here caught it because
+    every check ran on this repository's 3.12.
+
+    `scripts/sentinel-measure.sh` has the same exposure: it is host-side too,
+    and its inline python blocks are checked below for the same reason.
+    """
+
+    FLOOR = (3, 7)
+
+    #: Names that exist only above the floor and would raise at RUN time, so a
+    #: syntax check cannot see them. Extended when one bites, which is how
+    #: `removeprefix` got here.
+    GATED = {
+        "removeprefix": (3, 9), "removesuffix": (3, 9),
+        "itertools.pairwise": (3, 10), "graphlib": (3, 9),
+        "zoneinfo": (3, 9), "tomllib": (3, 11),
+        "functools.cache": (3, 9), "ExceptionGroup": (3, 11),
+    }
+
+    MEASURE = REPO / "scripts" / "sentinel-measure.sh"
+
+    def host_python_sources(self):
+        """(label, source) for every python that runs on the HOST."""
+        import re as _re
+        out = [(SCRIPT.name, SCRIPT.read_text())]
+        sh = self.MEASURE.read_text()
+        for i, code in enumerate(_re.findall(r"<<'PY'\n(.*?)\nPY\b", sh, _re.S)):
+            out.append((f"{self.MEASURE.name}:heredoc{i}", code))
+        for i, code in enumerate(_re.findall(r"python3 -c '\n(.*?)\n'", sh, _re.S)):
+            out.append((f"{self.MEASURE.name}:inline{i}", code))
+        return out
+
+    def test_the_scan_finds_the_blocks(self):
+        """Guard the guard: a regex that matched nothing would pass every
+        assertion below."""
+        got = self.host_python_sources()
+        assert len(got) >= 4, [n for n, _ in got]
+
+    def test_the_SYNTAX_parses_at_the_floor(self):
+        import ast
+        bad = []
+        for name, code in self.host_python_sources():
+            try:
+                ast.parse(code, feature_version=self.FLOOR)
+            except SyntaxError as e:
+                bad.append(f"{name}: {e}")
+        assert not bad, (
+            f"host-side python must parse on {self.FLOOR}: {bad}")
+
+    def test_no_METHOD_newer_than_the_floor_is_CALLED(self):
+        """Syntax parsing cannot see these — `s.removeprefix(x)` is valid
+        syntax on 3.7 and an AttributeError at run time."""
+        bad = []
+        for name, code in self.host_python_sources():
+            # Comments are stripped: the fix for removeprefix NAMES it while
+            # explaining why it is not used, and a substring check would fire
+            # on the explanation. Same trap as the fetchall() docstring.
+            body = "\n".join(l.split("#", 1)[0] for l in code.splitlines())
+            for gated, ver in self.GATED.items():
+                needle = gated if "." in gated else f".{gated}("
+                if needle in body:
+                    bad.append(f"{name}: {gated} needs {ver[0]}.{ver[1]}")
+        assert not bad, bad
+
+    def test_the_gated_list_would_actually_MATCH(self):
+        """The scan strips comments and looks for `.name(`. If that shape were
+        wrong the check would be silently empty forever."""
+        probe = "x = s.removeprefix('a')\n"
+        assert ".removeprefix(" in probe
+        commented = "# do not use s.removeprefix('a')\n"
+        assert ".removeprefix(" not in \
+            "\n".join(l.split("#", 1)[0] for l in commented.splitlines())
+
+    def test_it_REFUSES_clearly_below_the_floor(self, mod):
+        """Rather than dying on whatever construct happens to be first."""
+        body = SCRIPT.read_text()
+        assert "MIN_PYTHON" in body
+        assert mod.MIN_PYTHON == self.FLOOR
+        assert "sys.version_info < MIN_PYTHON" in body
+        # The message has to say what to DO. "REFUSED" alone strands somebody
+        # on a NAS whose default python3 is old but which has a newer one.
+        assert "python3.11" in body or "newer python3" in body
