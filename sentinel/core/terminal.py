@@ -311,9 +311,17 @@ def _corpus_tickers(conn, start: str, end: str) -> set:
     test of an impossible production condition. The falsifier has to run through
     `ingest.seed`/`ingest.daily`.
     """
+    from sentinel.feed.publication import visible_predicate
+
     with conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT ticker FROM sentinel_bars"
-                    " WHERE session BETWEEN %s AND %s", (start, end))
+        # THE SAME VISIBILITY RULE THE LOADER APPLIES. If a bar is hidden
+        # because its ingest never published, the security was not priced as far
+        # as any decision is concerned — and reading the two tables under
+        # different rules is how "absent from the corpus" would start excluding
+        # terminations of securities the book can actually see.
+        cur.execute("SELECT DISTINCT ticker FROM sentinel_bars b"
+                    " WHERE session BETWEEN %s AND %s"
+                    f"   AND {visible_predicate('b')}", (start, end))
         priced = {str(t[0]).upper() for t in cur.fetchall() if t[0]}
     try:
         from sentinel.feed import store as feed_store
@@ -340,10 +348,17 @@ def load_terminal_events(conn, *, start: str, end: str,
     match no holding, so the action would silently return NOT_HELD and the
     termination would be invisible rather than refused.
     """
+    from sentinel.feed.publication import visible_predicate
+
     with conn.cursor() as cur:
+        # PUBLISHED ONLY, exactly as the bars are. A corpus that hides the
+        # prices of an unpublished ingest while exposing its TERMINATIONS is
+        # worse than one that hides neither: a terminal event would be applied
+        # to a book marked from a different generation of the data.
         cur.execute(
             "SELECT ticker, session, action, value, contraticker"
-            " FROM sentinel_actions WHERE session BETWEEN %s AND %s"
+            " FROM sentinel_actions a WHERE session BETWEEN %s AND %s"
+            f"   AND {visible_predicate('a')}"
             " ORDER BY session, ticker, action", (start, end))
         rows = cur.fetchall()
 

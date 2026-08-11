@@ -34,6 +34,24 @@ services:
     # records `SHOW server_version` and flags a mismatch.
     image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
     restart: unless-stopped
+    # ABOVE DOCKER'S 64MB DEFAULT, and this is not a tuning knob — it is a
+    # defect that has already been paid for once. PostgreSQL puts a parallel
+    # query's per-worker segments in /dev/shm, and on a corpus this size any
+    # parallel plan wants more than 64MiB. The failure is
+    #
+    #     could not resize shared memory segment "/PostgreSQL.3229497642"
+    #     to 67128672 bytes: No space left on device
+    #
+    # which reads like a full disk and is not one; 67128672 IS 64MiB, and that
+    # number is the only tell. It cost a long detour through query plans and
+    # index checks before anything pointed at shared memory.
+    #
+    # This container now holds what bt-postgres used to (the ~35M-row Sharadar
+    # corpus every window scan reads), so it inherits bt-postgres's 1gb rather
+    # than the live stack's 512mb. The guard that would have caught the omission
+    # named the two compose files the retirement deleted — see
+    # tests/test_postgres_shm.py, which now discovers them instead.
+    shm_size: 1gb
     # SET EARLY AND GENEROUSLY, tightened to the measured envelope later. The
     # value is not the point yet; ENFORCEMENT is. Nothing should ever be
     # certified in an unbounded environment — that is how the 8b OOM ended up

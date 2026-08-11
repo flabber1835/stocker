@@ -39,18 +39,31 @@ def parse_size(v) -> int:
 
 
 def postgres_services():
+    """EVERY Postgres service in EVERY compose file, discovered.
+
+    This used to name `docker-compose.yml` and `docker-compose.backtest.yml`
+    literally. Both were deleted with the Stocker runtime, so the guard stopped
+    collecting — and `sentinel-postgres`, which now holds the corpus those two
+    files' databases used to, was created with no `shm_size` at all. The invariant
+    did not lapse because anyone decided it should; it lapsed because it was
+    pinned to filenames rather than to the property.
+
+    Discovery also means the next compose file is covered on the day it is
+    written, which a literal list can never be.
+    """
     out = []
-    for f in ("docker-compose.yml", "docker-compose.backtest.yml"):
-        doc = yaml.safe_load((ROOT / f).read_text())
+    for f in sorted(ROOT.glob("docker-compose*.yml")):
+        doc = yaml.safe_load(f.read_text()) or {}
         for name, svc in (doc.get("services") or {}).items():
             if str(svc.get("image", "")).startswith("postgres"):
-                out.append((f, name, svc))
+                out.append((f.name, name, svc))
     return out
 
 
 def test_there_are_postgres_services_to_check():
-    """Guards the parametrisation below: if the image name changes, every test
-    would silently pass on an empty list."""
+    """Guards the parametrisation below: if the image name changes — or every
+    compose file is renamed, which is exactly what happened — each test would
+    silently pass on an empty list."""
     assert postgres_services()
 
 
@@ -65,9 +78,17 @@ def test_shm_size_is_raised_above_the_docker_default(f, name, svc):
         f"value that caused the failure")
 
 
-def test_the_backtest_corpus_gets_the_larger_allowance():
-    """bt-postgres holds the 35M-row price corpus every backtest scans; the
-    live tables are far smaller."""
+def test_the_corpus_database_gets_at_least_the_allowance_that_was_needed():
+    """1gb, the value bt-postgres was raised to when the failure was diagnosed.
+
+    `sentinel-postgres` inherited that role — it holds the Sharadar corpus every
+    window load scans — so it inherits the number. Asserted absolutely rather
+    than relatively: the old form compared bt-postgres against the live stack,
+    and with one database left there is nothing to compare against, so the
+    relative form would pass on any value at all.
+    """
     sizes = {name: parse_size(svc["shm_size"])
              for _, name, svc in postgres_services()}
-    assert sizes["bt-postgres"] >= sizes["postgres"]
+    assert sizes.get("sentinel-postgres", 0) >= 1024 ** 3, (
+        "sentinel-postgres holds the corpus; 1gb is the measured requirement, "
+        "not a guess")

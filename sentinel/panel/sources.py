@@ -174,7 +174,13 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
         # is already secured before anything expensive is attempted.
         runs, run_err = _read(conn, lambda c: feed_store.run_status(c, limit=1),
                               STATEMENT_TIMEOUT_MS, default=[])
-        frontier, front_err = _read(conn, feed_store.latest_session,
+        # THE VISIBLE frontier, deliberately — the newest session a DECISION may
+        # read, not the newest row physically present. The panel exists to
+        # answer "is the data current?", and reporting a date the engine refuses
+        # to load would make an ingest that committed rows and then failed to
+        # publish them look like a healthy fetch. Showing the published frontier
+        # makes the same failure read as "we are a day behind", which is true.
+        frontier, front_err = _read(conn, feed_store.latest_visible_session,
                                     STATEMENT_TIMEOUT_MS, default=None)
 
         # The contract check is the expensive read and the least urgent, so it

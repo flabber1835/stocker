@@ -70,6 +70,12 @@ class TargetBook:
     terminal_events: int = 0
     # S4 conservation: discovered == excluded + resolved + unresolved.
     terminal_accounting: dict = field(default_factory=dict)
+    #: Architecture invariant #3. The corpus generation this book was decided
+    #: against, read from `sentinel_corpus_publications` — and TRUE, not
+    #: approximately true, because `load_window` cannot see a row belonging to
+    #: an ingest that publication does not represent. None only on a corpus that
+    #: has never been published, which readiness reports in its own right.
+    data_version: Optional[int] = None
     caveats: list[str] = field(default_factory=list)
 
     @property
@@ -79,6 +85,7 @@ class TargetBook:
     def to_dict(self) -> dict:
         return {
             "session": self.session,
+            "data_version": self.data_version,
             "exposure": self.exposure,
             "n_positions": self.n_positions,
             "cash_weight": round(self.cash_weight, 6),
@@ -105,6 +112,21 @@ def bootstrap(conn, *, start: str, end: str, starting_cash: float,
     """Warm the feed over [start, end), then decide on `end`."""
     cfg = cfg or WealthCoreConfig()
     elig = eligibility_cfg or EligibilityConfig()
+
+    # FAIL CLOSED BEFORE READING. The loader already refuses to SEE rows from an
+    # unpublished ingest, so the book would be correct either way — this is
+    # about the other failure mode, which is silence: a publication that failed
+    # on Tuesday freezes the corpus at Monday, and a frozen corpus plans a
+    # perfectly coherent, perfectly stale book every evening for a week without
+    # a single thing looking wrong.
+    version: Optional[int] = None
+    if conn is not None:
+        from sentinel.feed import publication
+
+        publication.assert_coherent(conn)
+        pub = publication.current(conn)
+        version = pub.version if pub else None
+
     w = window or load_window(conn, start=start, end=end)
     if not w.sessions:
         raise RuntimeError(
@@ -144,6 +166,7 @@ def bootstrap(conn, *, start: str, end: str, starting_cash: float,
     )
 
     book = _book_from_result(result, decide_on[-1], w, len(warmup))
+    book.data_version = version
     book.terminal_events = len(events)
     if terminal_load is not None:
         book.terminal_accounting = terminal_load.to_dict()

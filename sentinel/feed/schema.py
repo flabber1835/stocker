@@ -180,6 +180,11 @@ DDL = [
     # never published. Cheap to detect precisely because the link is explicit.
     """CREATE INDEX IF NOT EXISTS idx_sentinel_publications_prev
         ON sentinel_corpus_publications (previous_version)""",
+    # PUBLISHED IS WHAT READABLE MEANS. Every corpus read carries
+    # `publication.visible_predicate()`, whose EXISTS probes this column on a
+    # table the planner would otherwise seq-scan once per query plan.
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_publications_run
+        ON sentinel_corpus_publications (run_id)""",
 
     # WHICH INGEST LAST TOUCHED THIS ROW. Nearly free — `write_bars` already
     # runs inside an `IngestRun` — and it answers "which ingest produced this
@@ -191,6 +196,18 @@ DDL = [
         ADD COLUMN IF NOT EXISTS last_written_run_id UUID""",
     """ALTER TABLE sentinel_actions
         ADD COLUMN IF NOT EXISTS last_written_run_id UUID""",
+    # PARTIAL, on the non-NULL rows only. The coherence check asks "how many
+    # rows belong to these unpublished runs?", and the answer is normally zero —
+    # which an index turns into a lookup and a bare scan turns into reading
+    # tens of millions of rows to prove a negative. NULLs are excluded because
+    # they are the pre-provenance majority in an upgraded corpus and are never
+    # the subject of the question.
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_bars_written_by
+        ON sentinel_bars (last_written_run_id)
+        WHERE last_written_run_id IS NOT NULL""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_actions_written_by
+        ON sentinel_actions (last_written_run_id)
+        WHERE last_written_run_id IS NOT NULL""",
 
     """CREATE TABLE IF NOT EXISTS feed_ingest_runs (
         run_id        UUID PRIMARY KEY,

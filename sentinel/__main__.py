@@ -106,7 +106,9 @@ async def _migration_plan(config: SentinelConfig, args) -> int:
 
     from sentinel.core.bootstrap import bootstrap
     from sentinel.core.migration import plan_migration
+    from sentinel.feed import readiness
     from sentinel.feed import store as feed_store
+    from sentinel.feed.publication import visible_predicate
 
     if not config.database_url:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
@@ -119,14 +121,33 @@ async def _migration_plan(config: SentinelConfig, args) -> int:
     conn = feed_store.connect(config.database_url)
     try:
         feed_store.ensure_schema(conn)
-        frontier = feed_store.latest_session(conn)
+        # GATED ON THE DATA CONTRACT, like `target-book` — and this command has
+        # the stronger claim to it. `target-book` prints a book; this prints the
+        # TAKEOVER, the plan that decides what an existing account sells. It
+        # gating less than the read-only command was an inversion.
+        state = readiness.check_readiness(conn)
+        if not state.ready:
+            print("REFUSED: the data contract is not satisfied — run "
+                  "`check-data`. A migration planned on it would sell real "
+                  "positions against a confident wrong target:", file=sys.stderr)
+            for c in state.failures:
+                print(f"  - {c.name}: {c.detail}", file=sys.stderr)
+            return EXIT_NOT_ESTABLISHED
+
+        # THE VISIBLE frontier. `latest_session` is the ingest RESUME point and
+        # is deliberately unfiltered; planning against it would mark the book on
+        # a session `load_window` refuses to read.
+        frontier = feed_store.latest_visible_session(conn)
         with conn.cursor() as cur:
             cur.execute("SELECT MIN(session) FROM (SELECT DISTINCT session"
-                        " FROM sentinel_bars ORDER BY session DESC LIMIT %s) s",
+                        " FROM sentinel_bars b"
+                        f" WHERE {visible_predicate('b')}"
+                        " ORDER BY session DESC LIMIT %s) s",
                         (args.sessions,))
             start = str(cur.fetchone()[0])
-            cur.execute("SELECT ticker, close_unadjusted FROM sentinel_bars"
-                        " WHERE session = %s", (frontier,))
+            cur.execute("SELECT ticker, close_unadjusted FROM sentinel_bars b"
+                        f" WHERE session = %s AND {visible_predicate('b')}",
+                        (frontier,))
             marks = {str(t): float(p) for t, p in cur.fetchall() if p}
         book = bootstrap(conn, start=start, end=frontier,
                          starting_cash=float(getattr(account, "equity", 0.0) or 0.0))
@@ -174,10 +195,14 @@ def cmd_target_book(config: SentinelConfig, args) -> int:
                 print(f"  - {c.name}: {c.detail}", file=sys.stderr)
             return EXIT_NOT_ESTABLISHED
 
-        frontier = feed_store.latest_session(conn)
+        from sentinel.feed.publication import visible_predicate
+
+        frontier = feed_store.latest_visible_session(conn)
         with conn.cursor() as cur:
             cur.execute("SELECT MIN(session) FROM (SELECT DISTINCT session"
-                        " FROM sentinel_bars ORDER BY session DESC LIMIT %s) s",
+                        " FROM sentinel_bars b"
+                        f" WHERE {visible_predicate('b')}"
+                        " ORDER BY session DESC LIMIT %s) s",
                         (args.sessions,))
             start = str(cur.fetchone()[0])
         book = bootstrap(conn, start=start, end=frontier,

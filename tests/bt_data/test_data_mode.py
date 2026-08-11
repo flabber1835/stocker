@@ -137,14 +137,3 @@ class TestFrozenCorpus:
             c.verify_data_mode()
         assert "frozen" in str(exc.value)
         assert "cancelling" in str(exc.value).lower()
-
-
-def test_the_scheduler_skips_topup_on_a_frozen_corpus():
-    """Otherwise it POSTs a topup every day forever and logs a refusal — noise
-    that trains the operator to ignore the log."""
-    from pathlib import Path
-    body = (Path(__file__).resolve().parents[2] / "services" / "bt-scheduler"
-            / "app" / "main.py").read_text()
-    assert 'data_mode") == "frozen"' in body
-    i = body.index("if (not frozen and not running")
-    assert i > 0, "the topup fire is not gated on frozen"

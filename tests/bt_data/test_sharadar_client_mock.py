@@ -2,22 +2,45 @@
 backfill, the data-depth report, and the engine can run end-to-end before the real
 Sharadar subscription is live (BT_MOCK_DATA / no SHARADAR_API_KEY)."""
 import asyncio
-import os
+import importlib
 
-os.environ["BT_MOCK_DATA"] = "true"
+import pytest
 
-from app.sharadar_client import fetch_table, is_mock  # noqa: E402
+import app.sharadar_client as client  # noqa: E402
 from app.sharadar_adapter import map_sep_row, map_sf1_row, map_tickers_row  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def mock_mode(monkeypatch):
+    """Select the mode and RELOAD, rather than setting os.environ at import.
+
+    The client reads its mode into MODULE CONSTANTS at import time, so the old
+    module-level `os.environ["BT_MOCK_DATA"] = "true"` only worked while this
+    file happened to be the first thing to import it. `test_data_mode.py` sorts
+    earlier and reloads the module with the mode deleted; monkeypatch restores
+    the environment afterwards but cannot restore the module, so in a
+    whole-suite run these tests ran against the REAL client and issued outbound
+    HTTPS requests to data.nasdaq.com — from the test suite, on every run, with
+    an empty api_key. They passed in isolation the entire time.
+
+    Reloading on the way out too, so this file cannot do to the next one what
+    was being done to it.
+    """
+    monkeypatch.setenv("BT_DATA_MODE", "mock")
+    importlib.reload(client)
+    yield
+    monkeypatch.undo()
+    importlib.reload(client)
 
 
 def _collect(table, **kw):
     async def run():
-        return [r async for r in fetch_table(table, **kw)]
+        return [r async for r in client.fetch_table(table, **kw)]
     return asyncio.run(run())
 
 
 def test_is_mock_true_without_key():
-    assert is_mock() is True
+    assert client.is_mock() is True
 
 
 def test_mock_sep_rows_map_cleanly():

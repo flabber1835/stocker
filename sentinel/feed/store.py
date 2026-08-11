@@ -64,10 +64,16 @@ _BAR_UPSERT = """
 """
 
 _ACTION_UPSERT = """
-    INSERT INTO sentinel_actions (ticker, session, action, value, contraticker)
-    VALUES (%s, %s, %s, %s, %s)
+    INSERT INTO sentinel_actions (ticker, session, action, value, contraticker,
+        last_written_run_id)
+    VALUES (%s, %s, %s, %s, %s, %s)
     ON CONFLICT (ticker, session, action) DO UPDATE SET
-        value = EXCLUDED.value, contraticker = EXCLUDED.contraticker
+        value = EXCLUDED.value, contraticker = EXCLUDED.contraticker,
+        -- COALESCE, exactly as the bar upsert does it: a caller that supplies
+        -- no run must not erase the provenance an ingest recorded, or a repair
+        -- tool would silently make published rows unattributable.
+        last_written_run_id = COALESCE(EXCLUDED.last_written_run_id,
+                                       sentinel_actions.last_written_run_id)
 """
 
 
@@ -86,6 +92,42 @@ def connect(dsn: str):
     except ModuleNotFoundError:
         import psycopg2                  # noqa: PLC0415
         return psycopg2.connect(dsn)
+
+
+@contextmanager
+def streaming_cursor(conn, sql: str, params=(), *, batch: int = 5000):
+    """A SERVER-SIDE cursor. Rows arrive in batches and are never all resident.
+
+    `cur.fetchall()` materialises the entire result client-side, and every caller
+    in this codebase then walks it to build a second complete object graph — so
+    both representations coexist at peak, on the machine whose memory ceiling is
+    the binding constraint for the whole deployment. `fetchmany` on an ordinary
+    cursor does not help: the driver has already buffered everything.
+
+    A NAMED cursor is what actually changes the arithmetic, and both drivers
+    spell it the same way (`conn.cursor(name=...)` plus `itersize`), so this
+    needs no version branch. The connection is opened with `autocommit=False`,
+    which is the condition a portal requires.
+
+    FALLS BACK to a client-side cursor when the driver refuses a named one — an
+    unnamed-cursor read is slower on memory but still CORRECT, and a loader that
+    raises because a fake connection in a test cannot declare a portal would
+    trade a real property for a synthetic one.
+    """
+    name = f"sentinel_stream_{uuid.uuid4().hex}"
+    try:
+        cur = conn.cursor(name=name)
+        cur.itersize = batch
+    except Exception:                                         # noqa: BLE001
+        cur = conn.cursor()
+    try:
+        cur.execute(sql, params)
+        yield cur
+    finally:
+        try:
+            cur.close()
+        except Exception:                                     # noqa: BLE001
+            pass
 
 
 def ensure_schema(conn) -> None:
@@ -237,9 +279,19 @@ def write_bars(conn, bars: Iterable[Any], *, run_id=None,
     return written
 
 
-def write_actions(conn, rows: Sequence[Any]) -> int:
+def write_actions(conn, rows: Sequence[Any], *, run_id=None) -> int:
+    """Upsert corporate actions, stamped with the ingest that wrote them.
+
+    Stamped for the same reason bars are: visibility is derived from
+    publication, and a corpus where the prices of an unpublished run are hidden
+    while its TERMINATIONS are visible is worse than one where neither is. A
+    terminal event applied against a book priced from a different generation is
+    the failure the versioning contract exists to prevent, arriving through the
+    half nobody filtered.
+    """
     payload = [
-        (r["ticker"], r["date"], r["action"], r.get("value"), r.get("contraticker"))
+        (r["ticker"], r["date"], r["action"], r.get("value"),
+         r.get("contraticker"), str(run_id) if run_id else None)
         for r in rows
     ]
     if not payload:
@@ -367,9 +419,39 @@ def previous_observations(conn, before_session: str) -> dict:
 
 
 def latest_session(conn) -> Optional[str]:
-    """The newest session in the corpus — where an incremental fetch resumes."""
+    """The newest session PHYSICALLY present — where an incremental fetch resumes.
+
+    DELIBERATELY UNFILTERED, and the pair with `latest_visible_session` below is
+    the point. A writer and a reader want different answers here:
+
+    ```text
+    ingest resume point   the newest row that EXISTS, published or not. Filtering
+                          would re-fetch an unpublished ingest's window every
+                          evening, forever, and never notice
+    reader frontier       the newest row a decision may READ. Publication decides
+    ```
+
+    One function answering both is how the two views silently diverge.
+    """
     with conn.cursor() as cur:
         cur.execute("SELECT MAX(session) FROM sentinel_bars")
+        row = cur.fetchone()
+    return None if not row or row[0] is None else str(row[0])
+
+
+def latest_visible_session(conn) -> Optional[str]:
+    """The newest session a DECISION may read. See `latest_session` above.
+
+    Used wherever a frontier is reported to a human or fed to the engine, so the
+    number on the page is the number the loader will actually use. Reporting the
+    physical frontier while reading the published one is the same
+    two-views-of-one-fact defect the ownership readers had.
+    """
+    from sentinel.feed.publication import visible_predicate
+
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT MAX(session) FROM sentinel_bars b"
+                    f" WHERE {visible_predicate('b')}")
         row = cur.fetchone()
     return None if not row or row[0] is None else str(row[0])
 

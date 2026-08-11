@@ -225,7 +225,8 @@ def seed(conn, *, date_from: str = DEFAULT_SEED_START, date_to: Optional[str] = 
     with run.chunk("actions"):
         rows = list(fetch(sharadar.ACTIONS,
                           sharadar.date_params(date_from, date_to)))
-        run.progress.rows_written += feed_store.write_actions(conn, rows)
+        run.progress.rows_written += feed_store.write_actions(
+            conn, rows, run_id=run.progress.run_id)
 
     # Built ONCE from what was just stored, then reused for every year. Rebuilding
     # per chunk would be correct and would re-read the whole universe 29 times.
@@ -334,7 +335,8 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
 
     with run.chunk("actions"):
         rows = list(fetch(sharadar.ACTIONS, sharadar.date_params(start, to)))
-        run.progress.rows_written += feed_store.write_actions(conn, rows)
+        run.progress.rows_written += feed_store.write_actions(
+            conn, rows, run_id=run.progress.run_id)
 
     with run.chunk("prices"):
         report = domains.NormalisationReport()

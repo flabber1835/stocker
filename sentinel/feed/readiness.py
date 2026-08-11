@@ -27,6 +27,10 @@ identity            securities resolve to permatickers; unresolved bars are
 issuer keys         an issuer group per security, or the GOOG/GOOGL defect
                     cannot be detected at all
 actions             corporate actions present near the frontier
+corpus version      a published version exists for a decision to RECORD
+corpus coherence    no committed rows belong to an ingest nothing published —
+                    those are invisible to every reader, and a corpus quietly
+                    frozen at last Tuesday looks identical to a healthy one
 ```
 
 `WARN` exists for the one case that is genuinely a judgement call — coverage
@@ -41,6 +45,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from sentinel.feed import calendar as _cal
+from sentinel.feed import publication as _publication
 from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
 from stock_strategy_shared.wealth_core.signals import (
     LONG_LOOKBACK_SESSIONS,
@@ -62,6 +67,13 @@ PREFERRED_SESSIONS = 252
 MAX_FRONTIER_AGE_DAYS = 4
 
 PASS, WARN, FAIL = "PASS", "WARN", "FAIL"
+
+#: PUBLISHED IS WHAT READABLE MEANS, and readiness must measure what a reader
+#: sees. Bound once, from the single definition in `publication`, and
+#: interpolated into every query below: two hand-written copies of a visibility
+#: rule is how a report starts describing a corpus the engine cannot load.
+_VISIBLE_BARS = _publication.visible_predicate("b")
+_VISIBLE_ACTIONS = _publication.visible_predicate("a")
 
 
 def _window_start(frontier: str) -> str:
@@ -112,6 +124,70 @@ def _q1(conn, sql, params=()):
     return row[0] if row else None
 
 
+def _add_version_checks(conn, r: "Readiness") -> None:
+    """`corpus version` and `corpus coherence` — two faults, two verdicts.
+
+    Deliberately NOT one check. They have different causes and different
+    remedies: a missing version means nothing has ever been published (a corpus
+    built by hand, or one predating provenance), while an incoherence means a
+    specific ingest committed rows and then failed to publish them. Folding them
+    together would let the common one mask the dangerous one.
+    """
+    publication = _publication
+    try:
+        report = publication.coherence(conn)
+    except Exception as exc:                              # noqa: BLE001
+        # FAIL, never skip. A visibility rule that cannot be evaluated has not
+        # been satisfied, and every count in this report is scoped by it.
+        r.add("corpus coherence", FAIL,
+              f"corpus coherence could not be evaluated: {exc!r}. Every other "
+              f"check here measures the PUBLISHED corpus, so none of them can "
+              f"be trusted until this one answers.", None)
+        return
+
+    if report.coherent:
+        r.add("corpus coherence", PASS,
+              "every committed row belongs to a published ingest", 0)
+    else:
+        r.add("corpus coherence", FAIL,
+              f"{report.unpublished_rows:,} committed row(s) belong to "
+              f"{len(report.unpublished_runs)} ingest run(s) that never "
+              f"published: {list(report.unpublished_runs)}. Those rows are "
+              f"INVISIBLE to every reader, so the corpus is frozen at the last "
+              f"published version while the fetch appears to be working. "
+              f"Publish them — the rows are committed and the upserts are "
+              f"idempotent, so no re-ingest is needed.",
+              report.to_dict())
+
+    published = publication.current(conn)
+    if published is not None:
+        r.add("corpus version", PASS,
+              f"v{published.version} (previous "
+              f"{published.previous_version})", published.version)
+        return
+
+    stamped = _q1(conn, "SELECT COUNT(*) FROM sentinel_bars"
+                        " WHERE last_written_run_id IS NOT NULL") or 0
+    if stamped:
+        # Covered by the coherence FAIL above; named separately so the operator
+        # sees the consequence as well as the cause.
+        r.add("corpus version", FAIL,
+              "the corpus has never been published, so no decision can record "
+              "a data_version — and a divergence report could not then tell a "
+              "replay disagreement apart from a vendor restatement.", None)
+    else:
+        # A corpus written entirely without provenance: a hand-built fixture, or
+        # one loaded before `last_written_run_id` existed. Every row is visible
+        # and the corpus is usable; what is missing is the ability to STAMP a
+        # decision. WARN rather than FAIL — refusing here would make an upgrade
+        # look like data loss, which is the same reason NULL rows stay visible.
+        r.add("corpus version", WARN,
+              "no corpus version has ever been published and no row carries an "
+              "ingest id. The corpus is readable, but a decision made on it "
+              "cannot record a data_version. Run an ingest to publish one.",
+              None)
+
+
 def check_readiness(conn, *, today: Optional[str] = None,
                     cfg: EligibilityConfig | None = None) -> Readiness:
     """Every clause of the §8 contract, against Sentinel's own corpus."""
@@ -119,7 +195,18 @@ def check_readiness(conn, *, today: Optional[str] = None,
     r = Readiness()
     today = today or _dt.date.today().isoformat()
 
-    frontier = _q1(conn, "SELECT MAX(session) FROM sentinel_bars")
+    # ── the corpus version, BEFORE anything is measured ──────────────────────
+    # Every number below describes what a READER sees, and what a reader sees is
+    # decided by publication. Measuring first and versioning afterwards would
+    # report a frontier the engine cannot load.
+    _add_version_checks(conn, r)
+
+    # THE VISIBLE frontier, not the physical one. `latest_session` answers where
+    # an ingest RESUMES and is deliberately unfiltered; using it here would print
+    # a date the loader will not read and make an unpublished ingest look like a
+    # healthy fetch.
+    frontier = _q1(conn, "SELECT MAX(session) FROM sentinel_bars b"
+                         f" WHERE {_VISIBLE_BARS}")
     if frontier is None:
         r.add("sessions", FAIL,
               "the corpus is EMPTY. Run `feed-seed`; Wealth Core cannot plan "
@@ -128,7 +215,8 @@ def check_readiness(conn, *, today: Optional[str] = None,
         return r
     frontier = str(frontier)
 
-    total = _q1(conn, "SELECT COUNT(DISTINCT session) FROM sentinel_bars")
+    total = _q1(conn, "SELECT COUNT(DISTINCT session) FROM sentinel_bars b"
+                      f" WHERE {_VISIBLE_BARS}")
     r.add("sessions", PASS, f"{total:,} distinct sessions to {frontier}", total)
 
     # ── continuity, against an INDEPENDENT calendar ──────────────────────────
@@ -151,8 +239,9 @@ def check_readiness(conn, *, today: Optional[str] = None,
     # every evening between the close and the ingest — and the whole unbuilt
     # history during a seed — as missing.
     with conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT session FROM sentinel_bars"
-                    " WHERE session >= %s ORDER BY session",
+        cur.execute("SELECT DISTINCT session FROM sentinel_bars b"
+                    " WHERE session >= %s"
+                    f"   AND {_VISIBLE_BARS} ORDER BY session",
                     (_window_start(frontier),))
         actual = [str(x[0]) for x in cur.fetchall()]
 
@@ -268,8 +357,9 @@ def check_readiness(conn, *, today: Optional[str] = None,
                   round(share, 4))
 
     # ── identity ─────────────────────────────────────────────────────────────
-    securities = _q1(conn, "SELECT COUNT(DISTINCT security_id) FROM sentinel_bars"
-                           " WHERE session >= %s", (window_start,))
+    securities = _q1(conn, "SELECT COUNT(DISTINCT security_id)"
+                           " FROM sentinel_bars b WHERE session >= %s"
+                           f"   AND {_VISIBLE_BARS}", (window_start,))
     listed = _q1(conn, "SELECT COUNT(DISTINCT permaticker) FROM sentinel_universe")
     if not listed:
         r.add("identity", FAIL,
@@ -296,8 +386,10 @@ def check_readiness(conn, *, today: Optional[str] = None,
               f"{with_related:,} securities carry related tickers", with_related)
 
     # ── corporate actions ────────────────────────────────────────────────────
-    recent_actions = _q1(conn, "SELECT COUNT(*) FROM sentinel_actions"
-                               " WHERE session >= %s", (window_start,)) or 0
+    recent_actions = _q1(conn, "SELECT COUNT(*) FROM sentinel_actions a"
+                               " WHERE session >= %s"
+                               f"   AND {_VISIBLE_ACTIONS}",
+                         (window_start,)) or 0
     if recent_actions == 0:
         r.add("actions", FAIL,
               f"no corporate actions since {window_start}. Over a window this "
@@ -427,7 +519,8 @@ def _domain_coverage(conn, column: str, start: str, end: str) -> tuple[int, int]
     # reason interpolating it here is not an injection.
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT COUNT(*), COUNT({column}) FROM sentinel_bars"
-            " WHERE session BETWEEN %s AND %s", (start, end))
+            f"SELECT COUNT(*), COUNT({column}) FROM sentinel_bars b"
+            f" WHERE session BETWEEN %s AND %s AND {_VISIBLE_BARS}",
+            (start, end))
         n, present = cur.fetchone()
     return int(n or 0), int(present or 0)

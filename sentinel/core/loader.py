@@ -66,30 +66,47 @@ class CorpusWindow:
 
 
 def load_window(conn, *, start: str, end: str) -> CorpusWindow:
-    """Read one date range into engine shapes, ordered by (session, security)."""
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT session, security_id, ticker, close_unadjusted,"
-            " open_unadjusted, volume, split_ratio, dividend_per_share"
-            " FROM sentinel_bars WHERE session BETWEEN %s AND %s"
-            " ORDER BY session, security_id", (start, end))
-        rows = cur.fetchall()
+    """Read one date range into engine shapes, ordered by (session, security).
+
+    **Only PUBLISHED rows.** `visible_predicate` hides bars written by an ingest
+    no corpus publication represents. Without it, an ingest that committed its
+    rows and then failed to publish left the physical corpus AHEAD of its own
+    version number, so a decision would read those bars and stamp itself with
+    the PREVIOUS `data_version` — destroying the one thing that field exists for,
+    which is telling a replay divergence apart from a data restatement. A corpus
+    behind its version is detectable; one ahead of it is not.
+
+    **STREAMED.** The rows are read through a server-side cursor rather than
+    `fetchall()`, so the tuple buffer and the `VendorBar` graph built from it do
+    not both hold a full window at once.
+    """
+    from sentinel.feed.publication import visible_predicate
+    from sentinel.feed.store import streaming_cursor
+
+    sql = ("SELECT session, security_id, ticker, close_unadjusted,"
+           " open_unadjusted, volume, split_ratio, dividend_per_share"
+           " FROM sentinel_bars b WHERE session BETWEEN %s AND %s"
+           f"   AND {visible_predicate('b')}"
+           " ORDER BY session, security_id")
 
     bars_by_session: dict[str, list[VendorBar]] = {}
-    for (session, sid, ticker, raw_close, raw_open, volume, ratio, div) in rows:
-        close, vol = _f(raw_close), _f(volume)
-        bars_by_session.setdefault(str(session), []).append(VendorBar(
-            session=str(session), security_id=str(sid), ticker=str(ticker),
-            raw_close=close, raw_open=_f(raw_open), volume=vol,
-            split_ratio=float(ratio or 1.0),
-            dividend_per_share=float(div or 0.0),
-            # DERIVED here rather than stored, from the same two values the
-            # canonical loader derives it from. `VendorBar.tradeable` defaults
-            # to True, so omitting it declared every bar in the corpus fillable
-            # — a session on which nobody traded the security included. Derived
-            # rather than persisted because a stored flag can drift from the
-            # values it summarises, and there is nothing it could add.
-            tradeable=bool(close and vol)))
+    with streaming_cursor(conn, sql, (start, end)) as cur:
+        for (session, sid, ticker, raw_close, raw_open, volume, ratio,
+             div) in cur:
+            close, vol = _f(raw_close), _f(volume)
+            bars_by_session.setdefault(str(session), []).append(VendorBar(
+                session=str(session), security_id=str(sid), ticker=str(ticker),
+                raw_close=close, raw_open=_f(raw_open), volume=vol,
+                split_ratio=float(ratio or 1.0),
+                dividend_per_share=float(div or 0.0),
+                # DERIVED here rather than stored, from the same two values the
+                # canonical loader derives it from. `VendorBar.tradeable`
+                # defaults to True, so omitting it declared every bar in the
+                # corpus fillable — a session on which nobody traded the
+                # security included. Derived rather than persisted because a
+                # stored flag can drift from the values it summarises, and there
+                # is nothing it could add.
+                tradeable=bool(close and vol)))
 
     return CorpusWindow(sessions=sorted(bars_by_session),
                         bars_by_session=bars_by_session,
