@@ -1,0 +1,32 @@
+name: certification-fuzz
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [audit/fuzz-campaign]
+    paths:
+      - 'tests/fuzz/**'
+      - '.github/workflows/fuzz-campaign.yml'
+      - 'sentinel/**'
+      - 'shared/**'
+
+jobs:
+  pure-financial-properties:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install fuzz test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+          pip install -r sentinel/requirements.txt
+          pip install -e shared
+      - name: Run deterministic adversarial properties
+        env:
+          PYTHONPATH: .:shared
+        run: |
+          pytest -q tests/fuzz/test_financial_properties.py --tb=short
