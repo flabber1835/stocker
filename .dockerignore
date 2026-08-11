@@ -11,6 +11,24 @@ verify_run_button.py
 
 # Documentation
 docs/
+# ...EXCEPT the three handoff directories the CODE reads at runtime.
+#
+# `sentinel/controller/frozen_rule.py` LOADS its thresholds from
+# FROZEN_SENTINEL_1P1_RULE.json and verifies them against SHA256SUMS.txt — it
+# raises FrozenRuleMissing rather than falling back to transcribed constants —
+# and tests/sentinel's controller certification reads the frozen oracle tapes.
+#
+# Without these negations the test image collects an ImportError, and
+# `sentinel-certify.sh` discovers it at STEP 5, after step 4's hours-long
+# re-seed. The script's own step 2b says a refusal is only a refusal if it comes
+# before the irreversible step; this keeps that true for a dependency added
+# after it was written.
+#
+# NARROW ON PURPOSE: 3.6M of the handoff's 16M. The PDFs, prospectuses and
+# source archives are evidence for humans and no code reads them.
+!docs/sentinel-handoff/00_README/
+!docs/sentinel-handoff/02_SENTINEL_1P1_FROZEN_ORACLE/
+!docs/sentinel-handoff/04_BREADTH_ORACLES/
 
 # Runtime artifacts (written at runtime, not part of any build)
 artifacts/

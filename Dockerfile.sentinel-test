@@ -73,6 +73,16 @@ COPY scripts/ /work/repo/scripts/
 
 # INSPECTION ONLY. Never on sys.path — these are the inputs to assertions about
 # the image, and importing them is precisely what this file exists to prevent.
+# THE FROZEN HANDOFF ARTEFACTS. Both the code and the suite read them:
+# `frozen_rule` loads its thresholds from the rule JSON and verifies the digest
+# against SHA256SUMS.txt, and the controller certification replays the 5,032-
+# session oracle tape. Copied to BOTH roots because the two resolve differently
+# — tests are at /work/tests (parents[2] = /work) and the package at
+# /work/repo/sentinel (parents[2] = /work/repo).
+COPY docs/sentinel-handoff/00_README/ /work/docs/sentinel-handoff/00_README/
+COPY docs/sentinel-handoff/02_SENTINEL_1P1_FROZEN_ORACLE/ /work/docs/sentinel-handoff/02_SENTINEL_1P1_FROZEN_ORACLE/
+COPY docs/sentinel-handoff/04_BREADTH_ORACLES/ /work/docs/sentinel-handoff/04_BREADTH_ORACLES/
+COPY docs/sentinel-handoff/00_README/ /work/repo/docs/sentinel-handoff/00_README/
 COPY sentinel/ /work/repo/sentinel/
 COPY shared/ /work/repo/shared/
 COPY Dockerfile.sentinel /work/repo/Dockerfile.sentinel

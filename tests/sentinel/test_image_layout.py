@@ -387,12 +387,21 @@ class TestTheBuildContextCarriesWhatTheDockerfilesCOPY:
     and what the ignore file removes, and needs neither.
 
     The matcher below implements a deliberate SUBSET of Docker's pattern rules:
-    exact names, directory prefixes, and `**/` globs, which is everything this
-    repo's ignore file uses. It errs toward reporting a path as EXCLUDED, so it
-    cannot go quiet by failing to understand a pattern.
+    exact names, directory prefixes, `**/` globs, and `!` exceptions, which is
+    everything this repo's ignore file uses. It errs toward reporting a path as
+    EXCLUDED, so it cannot go quiet by failing to understand a pattern.
     """
 
     IGNORE = ROOT / ".dockerignore"
+
+    @staticmethod
+    def _matches(pattern: str, path: str) -> bool:
+        """Does `pattern` cover `path`, as a file or as a parent directory?"""
+        import fnmatch
+        p = pattern.rstrip("/")
+        if p == path or path.startswith(p + "/"):
+            return True
+        return fnmatch.fnmatch(path, p) or fnmatch.fnmatch(path, p + "/*")
 
     @staticmethod
     def copy_sources() -> list[tuple[Path, str]]:
@@ -416,19 +425,36 @@ class TestTheBuildContextCarriesWhatTheDockerfilesCOPY:
         return out
 
     def excluded_by(self, path: str) -> str | None:
-        """The .dockerignore pattern that removes `path`, if any."""
-        import fnmatch
+        """The .dockerignore pattern that removes `path`, if any.
+
+        LAST MATCH WINS, which is Docker's rule and not git's. `docs/` followed
+        by `!docs/sentinel-handoff/00_README/` excludes the tree and re-includes
+        that subdirectory; the earlier version of this method skipped every `!`
+        line, so it read the negated path as excluded and failed a build that
+        works. (Docker re-includes beneath an excluded parent — the archiver
+        keeps descending into a skipped directory whenever any exception pattern
+        exists. Git does not, and conflating the two is why the `!` lines look
+        wrong to a reader who knows .gitignore.)
+
+        A negation NESTED under the queried path counts as well: `COPY docs/`
+        with only `!docs/x/` re-included still succeeds, because the context
+        carries `docs/x`. Reporting the partial case as broken would be a false
+        failure of exactly the kind that gets a guard deleted.
+        """
         norm = path.rstrip("/").lstrip("./")
+        hit: str | None = None
         for raw in self.IGNORE.read_text().splitlines():
             pat = raw.strip()
-            if not pat or pat.startswith("#") or pat.startswith("!"):
+            if not pat or pat.startswith("#"):
                 continue
-            p = pat.rstrip("/")
-            if p == norm or norm.startswith(p + "/"):
-                return pat
-            if fnmatch.fnmatch(norm, p) or fnmatch.fnmatch(norm, p + "/*"):
-                return pat
-        return None
+            if pat.startswith("!"):
+                body = pat[1:].strip().rstrip("/")
+                if self._matches(body, norm) or body.startswith(norm + "/"):
+                    hit = None                     # re-included, wholly or partly
+                continue
+            if self._matches(pat, norm):
+                hit = pat
+        return hit
 
     def test_there_are_copies_to_check(self):
         """Guard the guard: a parser that silently found nothing would pass.
@@ -475,6 +501,34 @@ class TestTheBuildContextCarriesWhatTheDockerfilesCOPY:
         for pat in (".git", "**/__pycache__", "artifacts/"):
             assert pat in body
 
+    def test_the_matcher_understands_re_inclusion(self):
+        """Guard the guard, on the half that can only fail SILENTLY.
+
+        `excluded_by` returning None too eagerly turns the class above into a
+        test that passes for every input. Both directions are pinned against
+        the live ignore file: `docs/` excludes, and the negations beneath it
+        re-include — which is Docker's rule and NOT git's, so a reviewer who
+        knows .gitignore would reasonably expect the opposite.
+
+        The question this method answers is narrow and worth stating: "would a
+        COPY of this path FAIL?" — not "is every byte under it present". So a
+        directory with anything re-included beneath it is reported as fine,
+        because Docker copies the surviving subtree and the build succeeds.
+        """
+        # Re-included, exactly and beneath.
+        assert self.excluded_by("docs/sentinel-handoff/00_README/") is None
+        assert self.excluded_by("docs/sentinel-handoff/00_README/"
+                                "FROZEN_SENTINEL_1P1_RULE.json") is None
+        # Parents of a re-inclusion survive as a COPY source, partially filled.
+        assert self.excluded_by("docs/") is None
+        assert self.excluded_by("docs/sentinel-handoff/") is None
+        # But a leaf with NO negation beneath it is still gone. Without these
+        # the three above are equally satisfied by "any `!` line disables the
+        # pattern", which is the way this method fails silently.
+        assert self.excluded_by("docs/wealth-core-v1.md") == "docs/"
+        assert self.excluded_by("docs/sentinel-handoff/09_GAPS/") == "docs/"
+        assert self.excluded_by("artifacts/run-1.json") == "artifacts/"
+
     def test_no_dockerfile_copies_the_whole_context(self):
         """The premise the fix rests on.
 
@@ -484,6 +538,249 @@ class TestTheBuildContextCarriesWhatTheDockerfilesCOPY:
                      for df, src in self.copy_sources()
                      if src in (".", "./")]
         assert not offenders, offenders
+
+
+# ── every repo path the code NAMES must be in the image that reads it ────────
+
+def _repo_paths_named_by(tree_dir: str) -> list[tuple[str, int, str]]:
+    """(file, line, repo-relative path) for every repo file the code names.
+
+    Two extractors, because the code writes these two ways and either alone
+    leaves a hole:
+
+    ```text
+    AST      module-level `X = Path(__file__).resolve().parents[N] / "a" / "b"`,
+             following names already bound in the same module, so `RULE_PATH =
+             _HANDOFF / "00_README" / "..."` resolves through `_HANDOFF`
+    regex    inline `ROOT / "scripts" / "sentinel-certify.sh"` inside a function
+    ```
+
+    Both are conservative in the same direction: an expression they cannot
+    resolve is DROPPED, never guessed. That makes this a lower bound on what
+    the code reads, which is why `test_the_extractor_still_finds_the_known_ones`
+    exists below — a lower bound of zero is a test that always passes.
+    """
+    import ast
+
+    root = ROOT / tree_dir
+    if not root.is_dir():                              # narrower image layout
+        return []
+
+    def _resolve(node: ast.AST, f: Path, syms: dict[str, Path]) -> Path | None:
+        """Evaluate a path expression to an ABSOLUTE path, or give up.
+
+        Absolute rather than repo-relative throughout, because `.parent` and
+        `parents[N]` are only meaningful against a real location. The first
+        version carried repo-relative strings and got `HERE.parents[1]` wrong
+        by one — it assumed every `parents[N]` hung off `Path(__file__)`, so a
+        base that was already a directory resolved one level too deep and
+        `conftest.ROOT` came out as `tests/`.
+        """
+        if isinstance(node, ast.Name):
+            # `__file__` is a NAME, not a string constant. Reading it as one
+            # made every `Path(__file__)` unresolvable and the whole walk
+            # returned an empty set — which is precisely the vacuous pass
+            # `test_the_extractor_still_finds_the_known_ones` is here to catch.
+            return f if node.id == "__file__" else syms.get(node.id)
+        if isinstance(node, ast.Attribute):
+            base = _resolve(node.value, f, syms)
+            if base is not None and node.attr == "parent":
+                return base.parent
+            return None
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute) \
+                and node.value.attr == "parents" \
+                and isinstance(node.slice, ast.Constant) \
+                and isinstance(node.slice.value, int):
+            base = _resolve(node.value.value, f, syms)
+            if base is None:
+                return None
+            for _ in range(node.slice.value + 1):
+                base = base.parent
+            return base
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            left = _resolve(node.left, f, syms)
+            if left is not None and isinstance(node.right, ast.Constant) \
+                    and isinstance(node.right.value, str):
+                return left / node.right.value
+            return None
+        # `os.environ.get("SENTINEL_REPO_ROOT") or Path(...).parents[N]` — the
+        # env override names the SAME repo root, so the literal branch stands in.
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
+            for v in node.values:
+                r = _resolve(v, f, syms)
+                if r is not None:
+                    return r
+            return None
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id == "Path" \
+                    and node.args:
+                return _resolve(node.args[0], f, syms)
+            if isinstance(node.func, ast.Attribute) and node.func.attr == "resolve":
+                return _resolve(node.func.value, f, syms)
+        return None
+
+    def _rel(p: Path) -> str | None:
+        try:
+            return p.resolve().relative_to(ROOT).as_posix()
+        except ValueError:                             # escapes the repository
+            return None
+
+    #: Inline uses, resolved through the module's OWN bindings rather than
+    #: assumed to hang off the repo root — `_HANDOFF / "00_README" / ...` is
+    #: two levels down, and reading it as repo-relative invented a path that
+    #: has never existed.
+    inline = re.compile(
+        r'\b([A-Z_][A-Z_0-9]*)\s*/\s*'
+        r'"([\w.\-]+)"(?:\s*/\s*"([\w.\-]+)")?(?:\s*/\s*"([\w.\-]+)")?')
+
+    out: list[tuple[str, int, str]] = []
+    for f in sorted(root.rglob("*.py")):
+        body = f.read_text()
+        rel_f = f.relative_to(ROOT).as_posix()
+        syms: dict[str, Path] = {}
+        for stmt in ast.parse(body).body:
+            if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 \
+                    and isinstance(stmt.targets[0], ast.Name):
+                p = _resolve(stmt.value, f, syms)
+                if p is None:
+                    continue
+                syms[stmt.targets[0].id] = p
+                r = _rel(p)
+                if r is not None:
+                    out.append((rel_f, stmt.lineno, r))
+        for i, line in enumerate(body.splitlines(), 1):
+            m = inline.search(line)
+            # A name this module never bound to a path is somebody else's `/`.
+            if not m or m.group(1) not in syms:
+                continue
+            # `assert not (REPO / ... ).exists()` is a deliberate assertion of
+            # ABSENCE — `test_corpus_parity` pins that the SQLAlchemy-importing
+            # parity tool stayed out of the runtime image. Naming a path in
+            # order to require it gone is not reading it.
+            if "assert not" in line:
+                continue
+            p = syms[m.group(1)]
+            for seg in (g for g in m.groups()[1:] if g):
+                p = p / seg
+            r = _rel(p)
+            if r is not None:
+                out.append((rel_f, i, r))
+    # The repo root itself is not a COPY source and needs no checking.
+    return [(f, n, p) for f, n, p in out if p not in ("", ".", "./")]
+
+
+class TestEveryRepoPathTheCodeREADS_IsCopiedIn:
+    """`.dockerignore` said `docs/`, and nothing noticed for a week.
+
+    `sentinel/controller/frozen_rule.py` LOADS the certified thresholds from
+    `docs/sentinel-handoff/00_README/` and raises rather than falling back to
+    transcribed constants — deliberately, because a Sentinel on unverified
+    numbers is an uncertified strategy wearing a certified name. That made a
+    documentation directory a RUNTIME dependency, and the ignore file had
+    excluded documentation since long before the loader existed. Neither image
+    copied it, so:
+
+    ```text
+    sentinel:latest       every controller call raises FrozenRuleMissing
+    sentinel-test:latest  test_system_simulation binds CFG = frozen_rule.load()
+                          at MODULE level -> collection error, ~40 tests never
+                          run, and in that image a skip is already a failure
+    ```
+
+    `sentinel-certify.sh` would have found it at STEP 5 — after step 4's
+    hours-long re-seed. Step 2b puts the dependency-closure check ahead of the
+    first destructive step precisely because a refusal is only a refusal if it
+    arrives before the irreversible thing; this restores that property for a
+    dependency added after that script was written.
+
+    The class above checks the OTHER direction — a COPY whose source is ignored
+    — and passed throughout, because the failure here was an absence. Nobody
+    copied `docs/`, so there was no COPY line to catch. Hence this: start from
+    what the CODE names and require the image to carry it.
+    """
+
+    #: Every path the production image can read, as build-context sources.
+    #: `sentinel/` runs from /app with the repo absent, so this set is the
+    #: whole of its filesystem.
+    @staticmethod
+    def _copy_sources(dockerfile: str) -> list[str]:
+        return [src.rstrip("/") for df, src in
+                TestTheBuildContextCarriesWhatTheDockerfilesCOPY.copy_sources()
+                if df.name == dockerfile]
+
+    @staticmethod
+    def _uncovered(named, sources) -> list[str]:
+        bad = []
+        for f, line, rel in named:
+            rel = rel.rstrip("/")
+            # A named path is carried when a COPY source IS it, CONTAINS it, or
+            # lies beneath it. The last case is `ROOT / "services"` against
+            # `COPY services/bt-data/`: partially present, and the callers that
+            # do that already branch on what exists.
+            if any(rel == s or rel.startswith(s + "/") or s.startswith(rel + "/")
+                   for s in sources):
+                continue
+            bad.append(f"{f}:{line} reads {rel!r}")
+        return bad
+
+    def test_the_extractor_still_finds_the_known_ones(self):
+        """Guard the guard. Both assertions below are vacuous if the walk
+        returns nothing, and an AST walk is exactly the sort of thing that
+        quietly returns nothing after a refactor.
+
+        Pinned to the four artefacts whose absence is a certification failure
+        rather than to a count, so ordinary churn does not touch this."""
+        pkg = {p for _, _, p in _repo_paths_named_by("sentinel")}
+        assert "docs/sentinel-handoff/00_README/FROZEN_SENTINEL_1P1_RULE.json" in pkg
+        assert "docs/sentinel-handoff/00_README/SHA256SUMS.txt" in pkg
+
+        suite = {p for _, _, p in _repo_paths_named_by("tests/sentinel")}
+        assert ("docs/sentinel-handoff/04_BREADTH_ORACLES/"
+                "sentinel_1p1_exact_daily_with_breadth.csv") in suite
+        assert ("docs/sentinel-handoff/02_SENTINEL_1P1_FROZEN_ORACLE/"
+                "02_recovery_gate_flags.csv") in suite
+
+    def test_the_RUNTIME_image_carries_every_path_sentinel_reads(self):
+        bad = self._uncovered(_repo_paths_named_by("sentinel"),
+                              self._copy_sources("Dockerfile.sentinel"))
+        assert not bad, (
+            "sentinel/ names these repo paths and Dockerfile.sentinel copies "
+            "none of them, so they are absent from /app at run time: "
+            + "; ".join(bad))
+
+    def test_the_TEST_image_carries_every_path_the_suite_reads(self):
+        bad = self._uncovered(_repo_paths_named_by("tests/sentinel"),
+                              self._copy_sources("Dockerfile.sentinel-test"))
+        assert not bad, (
+            "tests/sentinel names these repo paths and Dockerfile.sentinel-test "
+            "copies none of them, so the certified run fails on them at step 5, "
+            "after the re-seed: " + "; ".join(bad))
+
+    def test_the_runtime_paths_also_resolve_under_the_TEST_image_repo_root(self):
+        """`SENTINEL_REPO_ROOT=/work/repo` and `sentinel/` is copied there for
+        inspection, so the reconstruction in `test_sentinel_runs_with_the_repo_ABSENT`
+        reads Dockerfile.sentinel's COPY sources out of /work/repo. A path
+        present at /work but not /work/repo fails there and nowhere else."""
+        repo_side = [src.rstrip("/") for line in
+                     (ROOT / "Dockerfile.sentinel-test").read_text().splitlines()
+                     for m in [re.match(r"^COPY\s+(\S+)\s+/work/repo/", line.strip())]
+                     if m for src in [m.group(1)]]
+        bad = self._uncovered(_repo_paths_named_by("sentinel"), repo_side)
+        assert not bad, (
+            "Dockerfile.sentinel-test does not mirror these under /work/repo, "
+            "so the image-layout reconstruction cannot find them: " + "; ".join(bad))
+
+    def test_every_named_path_actually_EXISTS(self):
+        """The cheapest half, and it catches a different mistake: a COPY set
+        that covers a path which is not there. Skipped for anything under
+        `sentinel/requirements.lock`, the one file that does not exist until
+        the first real build."""
+        named = (_repo_paths_named_by("sentinel")
+                 + _repo_paths_named_by("tests/sentinel"))
+        missing = sorted({f"{f}:{n} -> {p}" for f, n, p in named
+                          if not (ROOT / p).exists()
+                          and not p.endswith("requirements.lock")})
+        assert not missing, missing
 
 
 class TestNoRepoFileIsReadThroughROOT:

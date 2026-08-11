@@ -96,6 +96,13 @@ RUN pip install --no-cache-dir --no-deps /shared/
 # ordinary package hygiene. The install itself happens ABOVE, before `shared/`,
 # so that package cannot resolve its own dependency ranges.
 
+# THE FROZEN RULE. `sentinel/controller/frozen_rule.py` loads its thresholds
+# from here and RAISES if absent — it will not fall back to transcribed
+# constants, because a Sentinel running on numbers nobody verified is an
+# uncertified strategy wearing a certified name. Only the rule and its digest
+# manifest; the oracle tapes are certification evidence and belong to the test
+# image.
+COPY docs/sentinel-handoff/00_README/ ./docs/sentinel-handoff/00_README/
 COPY sentinel/ /app/sentinel/
 
 # The ownership log lives HERE and this path must be a mounted volume — see
