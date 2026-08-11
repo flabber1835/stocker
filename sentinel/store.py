@@ -154,6 +154,67 @@ class FileOwnershipStore:
         return out
 
 
+class PostgresOwnershipStore:
+    """The AUTHORITATIVE ownership log. Same Protocol, different durability.
+
+    `FileOwnershipStore` was correct when Sentinel had no database and the
+    ownership decision had to outlive the process before one existed. It now has
+    one, and the file's remaining property is the dangerous one: losing it
+    re-arms classification of a Sentinel-owned book as legacy, and it sits on a
+    different volume from PostgreSQL, so a restore can recover the database and
+    lose the file.
+
+    The two write in the SAME transaction as the account binding when used
+    through `sentinel.migration`, which is the point — a handover that recorded
+    the events but not the binding, or the reverse, is the inconsistency the
+    file could never rule out.
+
+    Append-only by application convention. Nothing here rewrites a row; nothing
+    at the DATABASE level prevents it. Stated rather than implied — Stocker's
+    `intent_proposals` earned that note and the same caveat applies.
+    """
+
+    def __init__(self, conn) -> None:
+        self.conn = conn
+
+    def append(self, event: OwnershipEvent) -> None:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_ownership_events (state, at, detail)"
+                " VALUES (%s,%s,%s)",
+                (event.state.value, event.at, json.dumps(event.detail,
+                                                         sort_keys=True)))
+        self.conn.commit()
+
+    def events(self) -> list:
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT state, at, detail FROM sentinel_ownership_events"
+                        " ORDER BY seq")
+            rows = cur.fetchall()
+        out = []
+        for state, at, detail in rows:
+            payload = detail if isinstance(detail, dict) else json.loads(detail or "{}")
+            out.append(OwnershipEvent(state=OwnershipState(state), at=at,
+                                      detail=payload))
+        return out
+
+
+def mirror_to_file(store: OwnershipStore, path) -> int:
+    """Copy the authoritative log out to JSONL as AUDIT evidence.
+
+    One direction only, and never read back as authority. The file is convenient
+    for an operator with a shell and no psql, and that is all it is now — the
+    moment it can answer "has this account been migrated?" it can also answer it
+    WRONGLY by being absent.
+    """
+    target = FileOwnershipStore(path)
+    existing = len(target.events())
+    events = store.events()
+    for event in events[existing:]:
+        target.append(event)
+    return len(events) - existing
+
+
 def record(store: OwnershipStore, state: OwnershipState, **detail: Any) -> OwnershipEvent:
     event = OwnershipEvent(state=state, at=datetime.now(timezone.utc), detail=detail)
     store.append(event)

@@ -147,26 +147,61 @@ class TestPlanIsReadOnly:
         assert out["ownership_established"] is True
 
 
-class TestEstablishExitCodes:
-    def test_an_incomplete_handover_exits_2(self, monkeypatch, tmp_path):
-        """Wealth Core must not bootstrap; a supervisor keys off this code."""
-        broker = FakeBroker({"AAPL": 10}, fail_close={"AAPL"})
+class TestEstablishOwnershipIsRetired:
+    """The subcommand survives ONLY to refuse and to name its replacement.
+
+    It used to classify an account as a legacy Stocker book whenever a JSONL
+    file said nothing, so losing one file on one volume re-armed a liquidation
+    against a Wealth Core book. Deleting the subcommand outright would leave a
+    stale runbook — or a `restart: unless-stopped` service definition someone
+    adds later — with a bare argparse error and no idea what to run instead, on
+    the one command whose history is that it could liquidate an account it
+    should not have.
+
+    The handover's own exit codes are covered in test_binding_and_handover.py,
+    against a real database, because the binding is database state now.
+    """
+
+    def test_it_refuses(self, monkeypatch, tmp_path):
         for k, v in env(SENTINEL_STATE_DIR=str(tmp_path)).items():
             monkeypatch.setenv(k, v)
-        monkeypatch.setattr(cli, "build_broker", lambda cfg: broker)
+        assert cli.main(["establish-ownership"]) == cli.EXIT_CONFIG
 
-        rc = cli.main(["establish-ownership", "--max-cycles", "2", "--poll-seconds", "0"])
-        assert rc == cli.EXIT_NOT_ESTABLISHED
-        assert ownership_established(FileOwnershipStore(tmp_path / "ownership.jsonl")) is False
-
-    def test_a_clean_handover_exits_0_and_records_ownership(self, monkeypatch, tmp_path):
+    def test_it_liquidates_NOTHING(self, monkeypatch, tmp_path):
         broker = FakeBroker({"AAPL": 10})
         for k, v in env(SENTINEL_STATE_DIR=str(tmp_path)).items():
             monkeypatch.setenv(k, v)
         monkeypatch.setattr(cli, "build_broker", lambda cfg: broker)
 
-        assert cli.main(["establish-ownership", "--poll-seconds", "0"]) == cli.EXIT_OK
-        assert ownership_established(FileOwnershipStore(tmp_path / "ownership.jsonl")) is True
+        cli.main(["establish-ownership", "--poll-seconds", "0"])
+        assert broker.closes == []
+        assert ownership_established(
+            FileOwnershipStore(tmp_path / "ownership.jsonl")) is False
+
+    def test_it_names_the_replacement(self, monkeypatch, tmp_path, capsys):
+        for k, v in env(SENTINEL_STATE_DIR=str(tmp_path)).items():
+            monkeypatch.setenv(k, v)
+        cli.main(["establish-ownership"])
+        assert "migrate-account" in capsys.readouterr().err
+
+    def test_migrate_account_refuses_without_a_database(self, monkeypatch, tmp_path):
+        """The binding is database state; there is no file fallback, because a
+        file fallback is what made absence dangerous."""
+        for k, v in env(SENTINEL_STATE_DIR=str(tmp_path)).items():
+            monkeypatch.setenv(k, v)
+        monkeypatch.delenv("SENTINEL_DATABASE_URL", raising=False)
+        assert cli.main(["migrate-account", "--deployment-id", "nas-1"]) \
+            == cli.EXIT_CONFIG
+
+    def test_adoption_requires_the_human_assertion(self, monkeypatch, tmp_path,
+                                                   capsys):
+        """Nothing observable from this host distinguishes 'the old appliance is
+        stopped' from 'unreachable from here', so the fence is procedural."""
+        for k, v in env(SENTINEL_STATE_DIR=str(tmp_path),
+                        SENTINEL_DATABASE_URL="postgresql://x/y").items():
+            monkeypatch.setenv(k, v)
+        assert cli.main(["adopt-restored-account"]) == cli.EXIT_CONFIG
+        assert "revoked" in capsys.readouterr().err
 
 
 class TestRedaction:

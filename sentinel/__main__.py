@@ -499,30 +499,119 @@ async def _plan(config: SentinelConfig) -> int:
     return EXIT_OK
 
 
-async def _establish(config: SentinelConfig) -> int:
+async def _migrate_account(config: SentinelConfig, args) -> int:
+    """The one-time handover. ADMINISTRATIVE, and it cannot re-arm.
+
+    Replaces `establish-ownership`, and the rename is the point rather than
+    tidiness: the old command read a JSONL file and, if the file said nothing,
+    classified whatever the account held as a legacy book and started closing
+    positions. A Wealth Core book's safety rested on a file being present. This
+    one refuses outright against a bound account, and the binding lives in
+    PostgreSQL beside the state it protects.
+    """
+    from sentinel import binding as binding_mod
+    from sentinel import handover, schema
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset. The ownership binding "
+              "is database state now, not a file.", file=sys.stderr)
+        return EXIT_CONFIG
     config.assert_credentials()
-    broker = build_broker(config)
-    store = FileOwnershipStore(config.ownership_log)
+
     log = logging.getLogger("sentinel")
     log.info("sentinel: config %s", json.dumps(config.redacted()))
-
+    conn = feed_store.connect(config.database_url)
     try:
-        result = await establish_ownership(
-            broker=broker,
-            store=store,
-            max_cycles=config.max_cycles,
-            poll_seconds=config.poll_seconds,
-        )
+        schema.ensure_schema(conn)
+        result = await handover.migrate_account(
+            broker=build_broker(config), conn=conn,
+            deployment_id=args.deployment_id,
+            expected_account=args.expect_account,
+            max_cycles=config.max_cycles, poll_seconds=config.poll_seconds,
+            notes=args.notes or "")
+    except (handover.MigrationRefused, binding_mod.AlreadyBound) as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return EXIT_NOT_ESTABLISHED
     except OwnershipNotEstablished as exc:
         log.error("sentinel: HANDOVER INCOMPLETE — %s", exc)
         return EXIT_NOT_ESTABLISHED
+    finally:
+        conn.close()
 
-    log.info(
-        "sentinel: %s after %d cycle(s) — %s",
-        result.state.value, result.cycles, result.detail,
-    )
-    assert result.state is OwnershipState.WEALTH_CORE_BOOTSTRAP_ALLOWED
+    print(json.dumps({"migrated": True, "cycles": result.cycles,
+                      "binding": result.binding.to_dict()}, indent=2))
     return EXIT_OK
+
+
+async def _adopt_restored(config: SentinelConfig, args) -> int:
+    """Increment the takeover epoch for a REPLACEMENT host.
+
+    Prints the credential-revocation obligation every time, because it is the
+    step that actually fences the old appliance off and this command cannot
+    verify it. The epoch makes the new appliance's command keys disjoint from
+    its predecessor's, which bounds and attributes the damage if the step was
+    skipped — it does not prevent it.
+    """
+    from sentinel import binding as binding_mod, schema
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    if not args.confirm_old_credentials_revoked:
+        print("REFUSED: pass --confirm-old-credentials-revoked. Nothing "
+              "observable from this host distinguishes 'the previous appliance "
+              "is stopped' from 'the previous appliance is unreachable from "
+              "here', so the fence is procedural and has to be asserted by a "
+              "human. See docs/sentinel-execution-contract.md §11.1.",
+              file=sys.stderr)
+        return EXIT_CONFIG
+
+    conn = feed_store.connect(config.database_url)
+    try:
+        schema.ensure_schema(conn)
+        before = binding_mod.require(conn)
+        after = binding_mod.adopt_restored(conn, notes=args.notes or "")
+        if config.alpaca_key:
+            # Verify AFTER the bump rather than before: the point of adoption is
+            # that this host now speaks for the account, so the check that
+            # matters is whether the account it can actually reach is the bound
+            # one.
+            binding_mod.verify(conn, await build_broker(config).account())
+    except binding_mod.AccountNotBound as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return EXIT_NOT_ESTABLISHED
+    except binding_mod.AccountMismatch as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return EXIT_NOT_ESTABLISHED
+    finally:
+        conn.close()
+
+    print(json.dumps({"adopted": True,
+                      "takeover_epoch": [before.takeover_epoch,
+                                         after.takeover_epoch],
+                      "binding": after.to_dict()}, indent=2))
+    return EXIT_OK
+
+
+async def _establish(config: SentinelConfig) -> int:
+    """RETIRED. Kept so the old invocation fails loudly rather than mysteriously.
+
+    Deleting the subcommand outright would give an operator (or a stale runbook,
+    or a `restart: unless-stopped` service definition someone adds later) an
+    argparse error with no explanation of what to run instead — on the command
+    whose whole history is that it could liquidate an account it should not have.
+    """
+    print("REFUSED: `establish-ownership` has been retired.\n\n"
+          "  It classified an account as a legacy Stocker book whenever a JSONL\n"
+          "  file said nothing, so losing one file on one volume re-armed a\n"
+          "  liquidation against a Wealth Core book. Ordinary startup now has no\n"
+          "  liquidation path at all.\n\n"
+          "  First handover:      sentinel migrate-account --deployment-id <id>\n"
+          "  Replacement host:    sentinel adopt-restored-account\n",
+          file=sys.stderr)
+    return EXIT_CONFIG
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -587,7 +676,25 @@ def main(argv: list[str] | None = None) -> int:
                      help="exit non-zero unless the interpreter and every "
                           "dependency pin are the certified ones")
     sub.add_parser("plan", help="observe and print the plan; submits nothing")
-    est = sub.add_parser("establish-ownership", help="remove the legacy book")
+    mig = sub.add_parser("migrate-account",
+                         help="ONE-TIME administrative handover: remove the "
+                              "legacy book and BIND this account")
+    mig.add_argument("--deployment-id", required=True,
+                     help="stable identity for this appliance; it is hashed "
+                          "into every command key, so changing it later "
+                          "orphans in-flight commands")
+    mig.add_argument("--expect-account", default=None,
+                     help="refuse unless the broker reports this account id")
+    mig.add_argument("--notes", default=None)
+    mig.add_argument("--max-cycles", type=int, default=None)
+    mig.add_argument("--poll-seconds", type=float, default=None)
+    ado = sub.add_parser("adopt-restored-account",
+                         help="increment the takeover epoch on a REPLACEMENT "
+                              "host (revoke the old credentials FIRST)")
+    ado.add_argument("--confirm-old-credentials-revoked", action="store_true")
+    ado.add_argument("--notes", default=None)
+    est = sub.add_parser("establish-ownership",
+                         help="RETIRED — use migrate-account")
     est.add_argument("--max-cycles", type=int, default=None)
     est.add_argument("--poll-seconds", type=float, default=None)
 
@@ -600,7 +707,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return EXIT_CONFIG
 
-    if args.command == "establish-ownership":
+    if args.command in ("establish-ownership", "migrate-account"):
         from dataclasses import replace
         if args.max_cycles is not None:
             config = replace(config, max_cycles=args.max_cycles)
@@ -628,6 +735,10 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(_migration_plan(config, args))
         if args.command == "plan":
             return asyncio.run(_plan(config))
+        if args.command == "migrate-account":
+            return asyncio.run(_migrate_account(config, args))
+        if args.command == "adopt-restored-account":
+            return asyncio.run(_adopt_restored(config, args))
         return asyncio.run(_establish(config))
     except MissingCredentials as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
