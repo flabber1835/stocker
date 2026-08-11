@@ -185,8 +185,17 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     # the appliance could de-risk but never re-risk. Surfaced by the adversarial
     # scenario, where a stale restore left a correctly-attributed position
     # permanently unexplained.
+    adoption_conflicts = []
     for order in recovered:
-        journal.adopt_recovered_order(conn, order, deployment=deployment)
+        try:
+            journal.adopt_recovered_order(conn, order, deployment=deployment)
+        except journal.RecoveredOrderConflict as exc:
+            # Not fatal to the reconciliation: the rest of the book still needs
+            # to be established, and the conflicting security is caught below as
+            # foreign activity, which blocks increases. Louder than that would
+            # stop the appliance from de-risking, which is the wrong direction.
+            log.error("sentinel: %s", exc)
+            adoption_conflicts.append(order)
     if recovered:
         log.info("sentinel: adopted %d recovered order(s) from the broker: %s",
                  len(recovered), ", ".join(o.client_key for o in recovered))

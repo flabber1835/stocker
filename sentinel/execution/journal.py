@@ -249,24 +249,48 @@ def adopt_recovered_order(conn, order, *, deployment: DeploymentIdentity) -> Non
     protection against that is the one-appliance-one-account binding, not this
     function.
     """
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO sentinel_commands (client_key, plan_id, security_id,"
-            " revision, symbol, broker_instrument_id, side, quantity, state,"
-            " broker_order_id, filled_quantity, detail, recovered)"
-            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)"
-            " ON CONFLICT (client_key) DO NOTHING",
-            (order.client_key, RECOVERED_PLAN_ID, order.instrument.security_id,
-             0, order.instrument.symbol, order.instrument.broker_id,
-             order.side.value, str(order.quantity), order.state.value,
-             order.broker_order_id, str(order.filled_quantity),
-             "adopted from the broker after a restore"))
-        cur.execute(
-            "INSERT INTO sentinel_command_events (client_key, from_state,"
-            " to_state, filled_quantity, detail) VALUES (%s,NULL,%s,%s,%s)",
-            (order.client_key, order.state.value, str(order.filled_quantity),
-             "recovered: present at the broker, absent from the journal"))
-    conn.commit()
+    # IN A SAVEPOINT. `ON CONFLICT (client_key)` covers a repeat adoption, but
+    # not the PARTIAL UNIQUE INDEX on in-flight security_id — and two live
+    # Sentinel-keyed orders for one security is precisely a condition worth
+    # surfacing rather than crashing on. A raised constraint violation poisons
+    # the whole transaction, so the rest of the reconciliation would fail with
+    # an error about the wrong thing. Same lesson as Stocker's intent shadow.
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SAVEPOINT adopt_recovered")
+            cur.execute(
+                "INSERT INTO sentinel_commands (client_key, plan_id, security_id,"
+                " revision, symbol, broker_instrument_id, side, quantity, state,"
+                " broker_order_id, filled_quantity, detail, recovered)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)"
+                " ON CONFLICT (client_key) DO NOTHING",
+                (order.client_key, RECOVERED_PLAN_ID,
+                 order.instrument.security_id, 0, order.instrument.symbol,
+                 order.instrument.broker_id, order.side.value,
+                 str(order.quantity), order.state.value, order.broker_order_id,
+                 str(order.filled_quantity),
+                 "adopted from the broker after a restore"))
+            cur.execute(
+                "INSERT INTO sentinel_command_events (client_key, from_state,"
+                " to_state, filled_quantity, detail) VALUES (%s,NULL,%s,%s,%s)",
+                (order.client_key, order.state.value, str(order.filled_quantity),
+                 "recovered: present at the broker, absent from the journal"))
+            cur.execute("RELEASE SAVEPOINT adopt_recovered")
+        conn.commit()
+    except Exception as exc:                                  # noqa: BLE001
+        with conn.cursor() as cur:
+            cur.execute("ROLLBACK TO SAVEPOINT adopt_recovered")
+        conn.commit()
+        raise RecoveredOrderConflict(
+            f"could not adopt {order.client_key} for "
+            f"{order.instrument.security_id}: {exc}. The broker is reporting a "
+            f"Sentinel-keyed order this appliance cannot place beside what it "
+            f"already holds in flight for that security — two live orders on one "
+            f"intent, which needs a human rather than a retry.") from exc
+
+
+class RecoveredOrderConflict(RuntimeError):
+    """A recovered order cannot coexist with what the journal already holds."""
 
 
 #: Plan id given to adopted rows. A real plan id would be a lie — the plan that

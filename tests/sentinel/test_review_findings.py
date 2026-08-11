@@ -422,6 +422,58 @@ class TestR7Transactionality:
         assert PostgresOwnershipStore(conn).events() == []
 
 
+class TestRecoveredOrderAdoption:
+    """Adoption is what makes recovery converge — and it has to fail safely."""
+
+    def test_a_recovered_order_is_written_into_the_journal(self, conn):
+        b = broker()
+        result = go(b, conn, {"SEC-AAA": D(10)})
+        key = result.submitted[0].client_key
+
+        with conn.cursor() as cur:                 # the stale restore, minimally
+            cur.execute("DELETE FROM sentinel_commands")
+        conn.commit()
+
+        run(R.reconcile(broker=b, conn=conn, binding=None, deployment=DEPLOY))
+        stored = journal.load_commands(conn, DEPLOY)
+        assert [c.client_key for c in stored] == [key]
+        assert stored[0].is_recovered
+        assert stored[0].identity.plan_id == journal.RECOVERED_PLAN_ID, (
+            "a real plan id would be a lie — the plan is what the restore lost")
+
+    def test_a_CONFLICTING_recovered_order_does_not_poison_the_transaction(
+            self, conn):
+        """`ON CONFLICT (client_key)` covers a repeat adoption; it does NOT
+        cover the partial unique index on in-flight security_id. Two live
+        Sentinel-keyed orders for one security is a condition for a human, and a
+        raised constraint violation mid-reconcile would fail the rest of the
+        pass with an error about the wrong thing."""
+        b = broker()
+        result = go(b, conn, {"SEC-AAA": D(10)})   # broker order #1, in journal
+
+        # A SECOND Sentinel-keyed working order for the same security, which the
+        # journal has never seen. Only reachable if something outside this
+        # appliance placed it.
+        from sentinel.execution.simulator import _Resting
+        b._orders["sim-rogue"] = _Resting(
+            broker_order_id="sim-rogue",
+            client_key="sntl-0000000000000000rogue",
+            instrument=AAA, side=Side.BUY, quantity=D(5))
+
+        rec = run(R.reconcile(broker=b, conn=conn, binding=None,
+                              deployment=DEPLOY))
+
+        # The reconciliation COMPLETED rather than raising, and the original
+        # command survived intact.
+        assert rec.observation is not None
+        assert result.submitted[0].client_key in {
+            c.client_key for c in journal.load_commands(conn, DEPLOY)}
+        # And the connection is still usable — the savepoint did its job.
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            assert cur.fetchone()[0] == 1
+
+
 class TestR7FillIdentity:
     def _fill(self, qty="4", price="100", oid="o-1"):
         return BrokerFill(client_key="sntl-k", broker_order_id=oid,
