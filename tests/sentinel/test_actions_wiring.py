@@ -371,12 +371,24 @@ class TestTheInputOrderIsENFORCED:
         ratio, _ = bars(conn, day)
         assert float(ratio) == pytest.approx(1.5)
 
-    def test_the_sort_is_STABLE_on_date_then_ticker(self):
+    def test_the_ordering_is_date_then_ticker(self, conn):
+        """The same property this always asserted, in its new home.
+
+        It used to call `ingest._sorted_sep`, an in-process `sorted()` that held
+        a universe-scale year alive — see tests/sentinel/test_ingest_memory.py.
+        The sort now happens in PostgreSQL, which has bounded memory and a disk
+        to spill to; what must NOT change is the order it produces, because
+        `normalise_sep_rows` recovers split ratios from it.
+        """
         from sentinel.feed import ingest as I
+
         rows = [{"date": "2024-06-04", "ticker": "BBB"},
                 {"date": "2024-06-03", "ticker": "ZZZ"},
                 {"date": "2024-06-03", "ticker": "AAA"}]
-        assert [(r["date"], r["ticker"]) for r in I._sorted_sep(rows)] == [
+        got = I._ordered_sep(conn, iter(rows),
+                             run_id="00000000-0000-0000-0000-00000000000f",
+                             chunk="t")
+        assert [(r["date"], r["ticker"]) for r in got] == [
             ("2024-06-03", "AAA"), ("2024-06-03", "ZZZ"), ("2024-06-04", "BBB")]
 
 

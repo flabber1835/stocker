@@ -95,7 +95,8 @@ def connect(dsn: str):
 
 
 @contextmanager
-def streaming_cursor(conn, sql: str, params=(), *, batch: int = 5000):
+def streaming_cursor(conn, sql: str, params=(), *, batch: int = 5000,
+                     withhold: bool = False):
     """A SERVER-SIDE cursor. Rows arrive in batches and are never all resident.
 
     `cur.fetchall()` materialises the entire result client-side, and every caller
@@ -109,6 +110,16 @@ def streaming_cursor(conn, sql: str, params=(), *, batch: int = 5000):
     needs no version branch. The connection is opened with `autocommit=False`,
     which is the condition a portal requires.
 
+    `withhold` keeps the cursor alive ACROSS COMMITS. An ordinary portal is
+    destroyed by COMMIT, which matters for exactly one caller and matters
+    absolutely: the ingest reads staged rows through this cursor while
+    `write_bars` commits the resulting bars every 5,000 rows, so the reader's own
+    consumer closes the cursor out from under it — `InvalidCursorName`, partway
+    through a chunk. PostgreSQL pays for it by materialising the remaining rows
+    into a TEMP FILE at that commit, which keeps the memory bound this whole
+    change exists for; the copy is on the database's disk, not in the trading
+    process's heap.
+
     FALLS BACK to a client-side cursor when the driver refuses a named one — an
     unnamed-cursor read is slower on memory but still CORRECT, and a loader that
     raises because a fake connection in a test cannot declare a portal would
@@ -116,7 +127,7 @@ def streaming_cursor(conn, sql: str, params=(), *, batch: int = 5000):
     """
     name = f"sentinel_stream_{uuid.uuid4().hex}"
     try:
-        cur = conn.cursor(name=name)
+        cur = conn.cursor(name=name, withhold=withhold)
         cur.itersize = batch
     except Exception:                                         # noqa: BLE001
         cur = conn.cursor()

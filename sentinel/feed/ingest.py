@@ -125,21 +125,36 @@ def _action_maps(conn, start: str, end: str):
             rows)
 
 
-def _sorted_sep(rows: Iterable[dict]) -> list[dict]:
-    """Vendor price rows in (date, ticker) order, materialised.
+def _ordered_sep(conn, rows: Iterable[dict], *, run_id: str, chunk: str):
+    """Vendor price rows in (date, ticker) order, WITHOUT holding the chunk.
 
-    `normalise_sep_rows` now RAISES on an out-of-order stream rather than
-    silently recovering split ratios against the wrong bar, so the ordering has
-    to come from somewhere. It cannot come from the vendor: `fetch_table`
-    cursor-pages an HTTP API that requests no sort and promises none, so a
-    correct corpus rested on an undocumented property of someone else's
-    service.
+    `normalise_sep_rows` RAISES on an out-of-order stream rather than silently
+    recovering split ratios against the wrong bar, so the ordering has to come
+    from somewhere. It cannot come from the vendor: `fetch_table` cursor-pages
+    an HTTP API that requests no sort and promises none, so a correct corpus
+    rested on an undocumented property of someone else's service.
 
-    The sort is done HERE, at the call site that can afford it — one chunk is a
-    year, not a corpus — rather than inside the generator, where buffering
-    would make a universe-scale year quietly resident in memory.
+    THIS USED TO BE `sorted(rows, ...)`, at "the call site that can afford it —
+    one chunk is a year, not a corpus". A universe-scale year is precisely what
+    could not be afforded: ~10,000 securities x ~252 sessions is ~2.5M vendor
+    dicts held alive at once, 1-2 GB against a 2g container ceiling, before a
+    single bar is normalised.
+
+    The sort now happens in PostgreSQL, which spills to disk above `work_mem`
+    and therefore has the bounded-memory property the interpreter lacks. Both
+    halves stream, so no stage of the ingest holds more than a batch. See
+    `sentinel/feed/staging.py`.
     """
-    return sorted(rows, key=lambda r: (str(r.get("date")), str(r.get("ticker"))))
+    from sentinel.feed import staging
+
+    staged = staging.stage(conn, rows, run_id=run_id, chunk=chunk)
+    log.info("sentinel: staged %d SEP rows for chunk %s", staged, chunk)
+    try:
+        yield from staging.staged(conn, run_id=run_id, chunk=chunk)
+    finally:
+        # ALWAYS, including on the exception path. Scratch that survives a
+        # failed chunk is read by the resumed one as if it belonged to it.
+        staging.clear(conn, run_id=run_id, chunk=chunk)
 
 
 def _persist_chunk_evidence(conn, run, chunk: str, lo: str, hi: str,
@@ -247,7 +262,9 @@ def seed(conn, *, date_from: str = DEFAULT_SEED_START, date_to: Optional[str] = 
             # of the moment before the window opens. Without it the first bar of
             # every year derived "no split" — see store.previous_observations.
             bars = domains.normalise_sep_rows(
-                _sorted_sep(fetch(sharadar.SEP, sharadar.date_params(lo, hi))),
+                _ordered_sep(conn,
+                             fetch(sharadar.SEP, sharadar.date_params(lo, hi)),
+                             run_id=run.progress.run_id, chunk=lo[:4]),
                 resolve_identity=resolver,
                 authoritative_splits=splits, dividends=divs,
                 prior_observations=feed_store.previous_observations(conn, lo),
@@ -342,7 +359,9 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
         report = domains.NormalisationReport()
         splits, divs, action_rows = _action_maps(conn, start, to)
         bars = domains.normalise_sep_rows(
-            _sorted_sep(fetch(sharadar.SEP, sharadar.date_params(start, to))),
+            _ordered_sep(conn,
+                         fetch(sharadar.SEP, sharadar.date_params(start, to)),
+                         run_id=run.progress.run_id, chunk="prices"),
             resolve_identity=resolve_identity or universe.load_resolver(conn).resolve,
             authoritative_splits=splits, dividends=divs,
             # THE DAILY PATH IS WHERE THE DEFECT BIT HARDEST. This window opens

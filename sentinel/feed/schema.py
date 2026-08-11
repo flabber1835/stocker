@@ -227,6 +227,36 @@ DDL = [
         error_message TEXT)""",
     """CREATE INDEX IF NOT EXISTS idx_feed_ingest_runs_started
         ON feed_ingest_runs (started_at DESC)""",
+
+    # ------------------------------------------------------------------
+    # THE CHUNK SORT, moved out of the interpreter. See sentinel/feed/staging.py.
+    #
+    # `normalise_sep_rows` requires session order and the vendor's cursor-paged
+    # API promises none, so the ingest sorted the chunk in memory — and a chunk
+    # is a calendar year of the whole universe, ~2.5M vendor dicts, 1-2 GB
+    # against a 2g container ceiling. PostgreSQL sorts with bounded memory and
+    # spills to disk; the interpreter does not.
+    #
+    # UNLOGGED because every row is a verbatim copy of something the vendor will
+    # serve again. WAL for 2.5M scratch rows a night protects data that is
+    # cheaper to re-fetch than to replay, and an unclean shutdown truncating the
+    # table is the CORRECT disposition for a partial chunk. Nothing durable is
+    # ever read from here — `sentinel_bars` is the corpus.
+    #
+    # NO INDEX, deliberately. This is written once and read once, in full: a
+    # btree would pay random-I/O maintenance on every insert to save a sort that
+    # PostgreSQL does better as one sequential pass and a merge. The (run_id,
+    # chunk) scoping is satisfied by the same scan.
+    # ------------------------------------------------------------------
+    """CREATE UNLOGGED TABLE IF NOT EXISTS sentinel_sep_staging (
+        run_id     UUID NOT NULL,
+        chunk      TEXT NOT NULL,
+        session    DATE NOT NULL,
+        ticker     TEXT NOT NULL,
+        open       DOUBLE PRECISION,
+        close      DOUBLE PRECISION,
+        closeunadj DOUBLE PRECISION,
+        volume     DOUBLE PRECISION)""",
 ]
 
 #: Marks a run abandoned by a process that died. Same `RESTART_ABORTED:` prefix
