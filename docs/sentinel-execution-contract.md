@@ -30,8 +30,13 @@ sentinel/execution/certification.py  which adapters are certified, and why not
 sentinel/binding.py                  account binding + takeover epoch
 sentinel/handover.py                 the administrative migration
 sentinel/schema.py                   behavioural state DDL
-sentinel/feed/publication.py         corpus versions (DETECTION tier)
+sentinel/feed/publication.py         corpus versions + the visibility rule
 sentinel/feed/repair.py              split-ratio audit and repair
+sentinel/feed/staging.py             the chunk sort, in PostgreSQL
+sentinel/feed/calendar.py            session freshness, not a day budget
+sentinel/feed/readiness.py           the data contract + persisted verdicts
+sentinel/core/catchup.py             convergence after absence, re-projection
+sentinel/core/cashflow.py            external cash as a declared event
 ```
 
 **NOT DONE, and none of it should be inferred from the green suite:**
@@ -39,10 +44,17 @@ sentinel/feed/repair.py              split-ratio audit and repair
 ```text
 no live or paper broker has ever been contacted by this code
 the Sentinel controller (§7 of the architecture doc) is not wired to it
-Wealth Core is not wired to the projection that would fill a plan's basket
+Wealth Core is not wired to the projection that would fill a plan's basket.
+    `catchup.catch_up` takes `advance_state` and `decide` as SEAMS for exactly
+    this reason — the orchestration is built and certified, what it drives is
+    supplied by the caller, and Wealth Core is still NO-GO
+no CLI command drives `catch_up` yet: it would have to name the two seams
+    above, and naming them means choosing them
 the RECONSTRUCTION tier of corpus versioning is deferred
 crash injection is LOGICAL (state, journal, stale restore), not SIGKILL
-the resource limits are declared, not yet MEASURED against a real run
+the resource limits are declared and ENFORCED (every service carries
+    mem_limit and cpus, asserted by test) but not yet MEASURED against a real
+    run — that needs a Docker daemon on the NAS and cannot be done in CI
 spinoffs and mergers are NOT modelled as share-count changes; they fall
     through to foreign-activity handling, which blocks increases until a human
     acknowledges. The prose describes them; only splits are implemented
