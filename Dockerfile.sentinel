@@ -83,7 +83,7 @@ RUN pip install --no-cache-dir --no-deps /shared/
 # httpx is the HTTP client, and it is reachable from TWO places that fail at
 # different times: `sentinel/feed/sharadar.py` (the corpus fetch) and
 # `stock_strategy_shared/broker/base.py` (the broker adapter). Both import it
-# lazily, so the second one would not have failed until `establish-ownership`
+# lazily, so the second one would not have failed until `migrate-account`
 # tried to talk to Alpaca — i.e. during a liquidation.
 #
 # BOTH of these were missed by reading top-level imports. Every dependency this
@@ -106,7 +106,7 @@ COPY sentinel/ /app/sentinel/
 ENV SENTINEL_STATE_DIR=/var/lib/sentinel
 RUN mkdir -p /var/lib/sentinel
 
-# No default command that TRADES. `establish-ownership` liquidates an account;
+# No default command that TRADES. `migrate-account` liquidates a LEGACY book;
 # it is not something a container restart policy should be able to trigger on its
 # own. The default is the read-only status view, and the real action is an
 # explicit `docker compose run`.

@@ -2,20 +2,21 @@
 #
 #   docker compose -f docker-compose.sentinel.yml run --rm sentinel status
 #   docker compose -f docker-compose.sentinel.yml run --rm sentinel plan
-#   docker compose -f docker-compose.sentinel.yml run --rm sentinel establish-ownership
+#   docker compose -f docker-compose.sentinel.yml run --rm sentinel migrate-account
 #
 # `name:` keeps this out of the directory-derived project the Stocker compose
 # files use, so `docker compose down --remove-orphans` on either side can never
 # evict the other's containers — the same reasoning that gave the backtest stack
 # `name: stocker-bt`, and the same accident it exists to prevent.
 #
-# THERE IS NO LONG-RUNNING SERVICE HERE YET, and that is intentional. Sentinel's
-# only implemented capability is a one-time account handover. A `restart:
-# unless-stopped` service running `establish-ownership` would re-attempt a
-# LIQUIDATION on every container restart; the ownership record makes that a
-# no-op, but a policy whose safety depends entirely on a file being present is
-# not one to adopt before it has to exist. Item E adds the daily engine, and that
-# is when a service definition is warranted.
+# THERE IS NO LONG-RUNNING ENGINE SERVICE HERE YET, and that is intentional. The
+# execution layer is built and certified against a simulator; the multi-session
+# catch-up orchestrator that would drive it on a schedule is not. A `restart:
+# unless-stopped` service is warranted when that lands, not before.
+#
+# The handover is `migrate-account` and it REFUSES against a bound account, so a
+# restart cannot re-attempt a liquidation. That is a property of the code and of
+# a row in PostgreSQL — not, as it once was, of a file being present.
 name: sentinel
 
 services:
@@ -42,12 +43,21 @@ services:
     cpus: 1.5
     environment:
       POSTGRES_USER: sentinel
-      POSTGRES_PASSWORD: ${SENTINEL_POSTGRES_PASSWORD:-sentinel}
+      # NO DEFAULT. `:?` makes compose REFUSE to start without it rather than
+      # silently using a known word. A fallback credential is a credential
+      # everybody has.
+      POSTGRES_PASSWORD: ${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}
       POSTGRES_DB: sentinel
     volumes:
       - sentinel_pgdata:/var/lib/postgresql/data
     ports:
-      - "5435:5432"   # distinct from live (5433) and bt (5434)
+      # LOOPBACK ONLY. `5435:5432` binds 0.0.0.0 on most Docker installs, which
+      # put the behavioural state — the command journal, the account binding —
+      # on the LAN behind a password that defaulted to the word "sentinel". An
+      # attacker or a stray client editing that state is far worse than one
+      # crashing the process. Published at all only so the certification tools
+      # and psql can reach it from the host.
+      - "127.0.0.1:5435:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U sentinel -h 127.0.0.1"]
       interval: 5s
@@ -59,6 +69,18 @@ services:
       context: .
       dockerfile: Dockerfile.sentinel
       network: host
+    # `latest` is a CONVENIENCE ALIAS and deliberately literal.
+    #
+    # An interpolated `sentinel:${SENTINEL_IMAGE_TAG:-latest}` looks like better
+    # pinning and is worse: scripts/compose_image.py REFUSES an image containing
+    # `${...}` on purpose, because it cannot know the environment Compose was
+    # invoked with, and a resolver that guesses is how the manifest ends up
+    # naming an artefact that never ran.
+    #
+    # Commit pinning happens where it can be VERIFIED instead: `make
+    # sentinel-image` builds `sentinel:<git-sha>` alongside this alias, and the
+    # identity record captures the resolved image DIGEST — which is stronger
+    # than a tag, since a tag can be moved and a digest cannot.
     image: sentinel:latest
     # run-only: `docker compose up` must not start a liquidation.
     profiles: ["cli"]
@@ -78,16 +100,18 @@ services:
       SENTINEL_STATE_DIR: /var/lib/sentinel
       SENTINEL_MAX_CYCLES: ${SENTINEL_MAX_CYCLES:-40}
       SENTINEL_POLL_SECONDS: ${SENTINEL_POLL_SECONDS:-5}
-      SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:-sentinel}@sentinel-postgres:5432/sentinel
+      SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel
       SHARADAR_API_KEY: ${SHARADAR_API_KEY:-}
     volumes:
-      # THE most safety-critical mount in this file. `ownership.jsonl` records
-      # that the legacy book was removed and the account is Sentinel's. If it is
-      # lost, the next start classifies a Wealth Core book as legacy and
-      # liquidates it. A named volume survives image rebuilds, container
-      # recreation and `docker compose down`; it does NOT survive
-      # `down --volumes`, which is why scripts/retire-stocker.sh refuses that
-      # flag outright.
+      # AUDIT EVIDENCE ONLY. `ownership.jsonl` used to be the authority, and its
+      # absence re-armed a liquidation — which is why this comment used to call
+      # it the most safety-critical mount in the file. It is not any more: the
+      # binding lives in `sentinel_account_binding` in PostgreSQL, written in
+      # the same transaction as the ownership events, and every reader
+      # (`status`, the panel, the runtime) goes to the database.
+      #
+      # The genuinely irreplaceable volume is now `sentinel_pgdata`. Losing this
+      # one costs a convenience log; losing that one costs the book.
       - sentinel_state:/var/lib/sentinel
 
     depends_on:
@@ -107,6 +131,18 @@ services:
       context: .
       dockerfile: Dockerfile.sentinel
       network: host
+    # `latest` is a CONVENIENCE ALIAS and deliberately literal.
+    #
+    # An interpolated `sentinel:${SENTINEL_IMAGE_TAG:-latest}` looks like better
+    # pinning and is worse: scripts/compose_image.py REFUSES an image containing
+    # `${...}` on purpose, because it cannot know the environment Compose was
+    # invoked with, and a resolver that guesses is how the manifest ends up
+    # naming an artefact that never ran.
+    #
+    # Commit pinning happens where it can be VERIFIED instead: `make
+    # sentinel-image` builds `sentinel:<git-sha>` alongside this alias, and the
+    # identity record captures the resolved image DIGEST — which is stronger
+    # than a tag, since a tag can be moved and a digest cannot.
     image: sentinel:latest
     restart: unless-stopped
     # A read-only page has no business growing. Small on purpose: a phone
@@ -125,7 +161,7 @@ services:
       - "8004:8000"
     environment:
       SENTINEL_STATE_DIR: /var/lib/sentinel
-      SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:-sentinel}@sentinel-postgres:5432/sentinel
+      SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel
       # DELIBERATELY NO ALPACA CREDENTIALS. The panel has no code path to the
       # broker, and withholding the keys means that stays true even if one is
       # added by mistake.

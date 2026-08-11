@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from dataclasses import replace
 import json
 import logging
 import sys
@@ -66,15 +67,27 @@ def _setup_logging(verbose: bool) -> None:
 def cmd_status(config: SentinelConfig) -> int:
     """Read-only. Deliberately does NOT require credentials — the moment you most
     want to inspect state is when something about the environment is wrong."""
+    # THE DATABASE ANSWERS THIS, not the file. The binding became authoritative
+    # in stage B and these readers did not move with it, so `status` could report
+    # NOT owned while the runtime was correctly trading a bound account — which
+    # is what an operator reads at 3am before deciding to rerun a migration.
+    from sentinel import ownership_view
+
+    view = ownership_view.read(config.database_url, config.state_dir)
     store = FileOwnershipStore(config.ownership_log)
-    events = store.events()
-    established = ownership_established(store)
+    try:
+        events = store.events()
+    except Exception as exc:                                  # noqa: BLE001
+        events = []
+        view = replace(view, detail=view.detail
+                       + f" (audit log unreadable: {exc})")
     print(json.dumps({
         "config": config.redacted(),
-        "state": current_state(store).value,
-        "ownership_established": established,
-        "wealth_core_bootstrap_allowed": established,
-        "events": [
+        **view.to_dict(),
+        # AUDIT ONLY, and labelled. Kept in the output because it is genuinely
+        # useful during an incident; renamed so it can never be mistaken for the
+        # answer above.
+        "audit_log_events_detail": [
             {"state": e.state.value, "at": e.at.isoformat(), "detail": e.detail}
             for e in events
         ],

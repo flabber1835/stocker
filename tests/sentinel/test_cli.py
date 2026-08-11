@@ -110,7 +110,13 @@ class TestCredentialRefusal:
         for k, v in env(ALPACA_API_KEY="", SENTINEL_STATE_DIR=str(tmp_path)).items():
             monkeypatch.setenv(k, v)
         assert cli.main(["status"]) == cli.EXIT_OK
-        assert json.loads(capsys.readouterr().out)["state"] == "UNINITIALIZED"
+        out = json.loads(capsys.readouterr().out)
+        # The BINDING answers this now, not the file. With no database
+        # configured the honest answer is UNKNOWN — never NOT_OWNED, which
+        # would invite someone to rerun a migration.
+        assert out["ownership"] == "UNKNOWN"
+        assert out["authority"] == "none"
+        assert out["wealth_core_bootstrap_allowed"] is False
 
 
 class TestPlanIsReadOnly:

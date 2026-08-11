@@ -116,20 +116,29 @@ def _short(exc: Exception) -> str:
     return f"{name}: {str(exc).strip().splitlines()[0][:120]}"
 
 
-def _ownership(state_dir: Path) -> model.Row:
+def _ownership(state_dir: Path, database_url: str = "") -> model.Row:
+    """The BINDING, not the file.
+
+    The panel used to read `ownership.jsonl` and report whatever it found. That
+    was correct while the file was authoritative and became a second, competing
+    reality the moment the binding moved into PostgreSQL — a panel showing NOT
+    ESTABLISHED beside a runtime that is correctly trading is worse than a panel
+    showing nothing, because it invites someone to act.
+
+    An unreadable binding renders as UNKNOWN rather than as a reassuring "not
+    established": the operator needs to see that the question could not be
+    answered.
+    """
     try:
-        from sentinel.store import FileOwnershipStore, current_state
-        store = FileOwnershipStore(Path(state_dir) / "ownership.jsonl")
-        state = current_state(store)
-        # `events()`, and an ABSENT log returns [] rather than raising — which
-        # is the correct reading: no handover has been recorded, so the account
-        # is NOT ESTABLISHED. Only a CORRUPT log raises, and that is the one
-        # case that must reach the operator as UNREADABLE rather than as a
-        # reassuring "not established".
-        events = list(store.events())
-        at = _utc(events[-1].at) if events else None
-        return model.ownership_row(
-            state=state.value if hasattr(state, "value") else str(state), at=at)
+        from sentinel import ownership_view
+        from sentinel.feed import store as feed_store
+        # BOUNDED, like every other read this page makes. See _bounded_dsn.
+        view = ownership_view.read(
+            database_url, state_dir,
+            connect=lambda dsn: feed_store.connect(_bounded_dsn(dsn)))
+        return model.ownership_row(state=view.state.value, at=None,
+                                   error=None if view.state.value != "UNKNOWN"
+                                   else view.detail)
     except Exception as exc:                        # noqa: BLE001 — see module doc
         return model.ownership_row(state=None, at=None, error=repr(exc))
 
@@ -246,7 +255,7 @@ def build_panel(*, state_dir: Path, database_url: str,
     now = now or datetime.now(timezone.utc)
     errors: list[str] = []
 
-    own = _ownership(Path(state_dir))
+    own = _ownership(Path(state_dir), database_url)
     if own.status is model.UNKNOWN:
         errors.append("ownership log")
     feed_rows, feed_errs = _feed_rows(database_url)

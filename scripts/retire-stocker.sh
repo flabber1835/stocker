@@ -34,7 +34,7 @@
 #
 # AFTER THIS, Sentinel owns the paper account:
 #   docker compose -f docker-compose.sentinel.yml run --rm sentinel plan
-#   docker compose -f docker-compose.sentinel.yml run --rm sentinel establish-ownership
+#   docker compose -f docker-compose.sentinel.yml run --rm sentinel migrate-account --deployment-id <id>
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
@@ -122,5 +122,5 @@ echo "  Backtest stack:     UNTOUCHED"
 echo
 echo "  Next:"
 echo "    docker compose -f docker-compose.sentinel.yml run --rm sentinel plan"
-echo "    docker compose -f docker-compose.sentinel.yml run --rm sentinel establish-ownership"
+echo "    docker compose -f docker-compose.sentinel.yml run --rm sentinel migrate-account --deployment-id <id>"
 exit "$rc"

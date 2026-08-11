@@ -216,7 +216,8 @@ class TestTheImageLayout:
             f"`python -m sentinel status` failed under the image layout:\n"
             f"{proc.stdout}\n{proc.stderr}"
         )
-        assert json.loads(proc.stdout)["state"] == "UNINITIALIZED"
+        # `ownership` rather than `state`: the binding is the authority now.
+        assert json.loads(proc.stdout)["ownership"] == "UNKNOWN"
 
     def test_the_default_command_does_not_TRADE(self):
         """A restart policy must not be able to trigger a liquidation. The image's
