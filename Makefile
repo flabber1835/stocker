@@ -49,8 +49,15 @@ shell-pipeline:
 # Runs every suite in its OWN pytest process — the service packages all being
 # named `app` makes a single cross-suite process order-dependent (see
 # scripts/run-tests.sh). One-liner per suite; green here = every suite green.
+#
+# The install line is the CONTRACT for a green run: a suite whose dependency is
+# missing ERRORS at collection, which reads as a broken repository rather than
+# an unprovisioned runner. `aiosqlite` earned its place that way —
+# tests/portfolio_builder drives async SQLAlchemy against an in-memory DB and
+# errored on every fresh checkout until it was listed.
 test:
-	pip install --quiet -e shared pytest pandas numpy pydantic pyyaml hypothesis
+	pip install --quiet -e shared pytest pandas numpy pydantic pyyaml hypothesis \
+	    sqlalchemy aiosqlite httpx exchange_calendars
 	bash scripts/run-tests.sh
 
 # Integration test: spins up Docker Compose with MOCK_DATA=true, runs full pipeline,

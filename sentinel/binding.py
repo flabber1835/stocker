@@ -127,13 +127,20 @@ def require(conn) -> AccountBinding:
 
 
 def bind(conn, *, deployment_id: str, broker: str, broker_account_id: str,
-         notes: str = "") -> AccountBinding:
+         notes: str = "", commit: bool = True) -> AccountBinding:
     """Record the FIRST binding. Refuses to overwrite one.
 
     Not an upsert. Re-binding is either an adoption (which increments the epoch
     and is its own function) or a mistake, and the two must not share a code
     path — an upsert here would let a misconfigured restart silently repoint the
     appliance at a different account.
+
+    `commit=False` leaves the transaction open so the caller can write the
+    binding and the ownership events TOGETHER. `migrate_account` claimed they
+    landed in one transaction while both this function and the event store
+    committed independently; a crash between them could persist
+    SENTINEL_OWNERSHIP_ESTABLISHED with no binding, which is exactly the
+    disagreement the move off the JSONL file was supposed to end.
     """
     existing = load(conn)
     if existing is not None:
@@ -148,8 +155,13 @@ def bind(conn, *, deployment_id: str, broker: str, broker_account_id: str,
             " broker_account_id, takeover_epoch, ownership_state, notes)"
             " VALUES (1,%s,%s,%s,1,%s,%s)",
             (deployment_id, broker, broker_account_id, SENTINEL_OWNED, notes))
-    conn.commit()
-    return require(conn)
+    if commit:
+        conn.commit()
+        return require(conn)
+    return AccountBinding(deployment_id=deployment_id, broker=broker,
+                          broker_account_id=broker_account_id,
+                          takeover_epoch=1, ownership_state=SENTINEL_OWNED,
+                          notes=notes)
 
 
 def adopt_restored(conn, *, notes: str = "") -> AccountBinding:

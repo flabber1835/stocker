@@ -105,8 +105,18 @@ DDL = (
         broker_order_id  TEXT,
         filled_quantity  NUMERIC     NOT NULL DEFAULT 0,
         detail           TEXT,
+        -- ADOPTED FROM THE BROKER rather than created here. Its client_key was
+        -- minted by a previous generation of this appliance and CANNOT be
+        -- regenerated (the key is a hash; plan_id and revision are not
+        -- recoverable from it), so the recompute check that guards ordinary
+        -- rows is skipped for these. Without adoption a stale restore left the
+        -- position permanently unexplained: the appliance could de-risk but
+        -- never re-risk.
+        recovered        BOOLEAN     NOT NULL DEFAULT FALSE,
         created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+    """ALTER TABLE sentinel_commands
+        ADD COLUMN IF NOT EXISTS recovered BOOLEAN NOT NULL DEFAULT FALSE""",
     # AT MOST ONE IN-FLIGHT COMMAND PER SECURITY, enforced by the database and
     # not only by `authorize`. The application check can be bypassed by a bug or
     # a second process; this cannot. UNKNOWN is in the list deliberately — an
@@ -136,14 +146,21 @@ DDL = (
     # ------------------------------------------------------------------
     # FILLS, keyed so the same fill cannot be counted twice on replay.
     # ------------------------------------------------------------------
+    # `fill_key` is a CONTENT fingerprint, not an ordinal. Keying on a fill's
+    # position in whatever list the broker happened to return meant a query over
+    # a different window gave the same fill a different key — and could give a
+    # DIFFERENT fill one already used, which ON CONFLICT DO NOTHING then
+    # silently dropped. See journal.fill_fingerprint, including why this is not
+    # the final answer: broker-native activity ids (and trade corrections) must
+    # replace it before this table becomes the accounting ledger.
     """CREATE TABLE IF NOT EXISTS sentinel_fills (
         broker_order_id TEXT        NOT NULL,
-        seq             INT         NOT NULL,
+        fill_key        TEXT        NOT NULL,
         client_key      TEXT,
         quantity        NUMERIC     NOT NULL,
         price           NUMERIC     NOT NULL,
         filled_at       TIMESTAMPTZ,
-        PRIMARY KEY (broker_order_id, seq))""",
+        PRIMARY KEY (broker_order_id, fill_key))""",
 
     # ------------------------------------------------------------------
     # OBSERVATIONS, retained because a reconciliation dispute is unanswerable

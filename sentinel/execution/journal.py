@@ -32,8 +32,10 @@ is the behaviour you want when the holder is a process that just crashed.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from contextlib import contextmanager
+from dataclasses import replace
 from decimal import Decimal
 from typing import Iterable, Optional, Sequence
 
@@ -140,6 +142,50 @@ def supersede_plan(conn, plan_id: str, by_plan_id: str) -> None:
 # Commands
 # ---------------------------------------------------------------------------
 
+class CommandEconomicsChanged(RuntimeError):
+    """A stored client key was rebuilt with DIFFERENT economics.
+
+    The advertised property is "deterministic key -> deterministic side effect".
+    Without this check it was only "deterministic key -> deterministic plan and
+    security", with the quantity trusted to whatever the caller happened to
+    reconstruct — and since the upsert deliberately does not rewrite quantity,
+    the database could hold X while the wire carried Y under one identity.
+
+    Raised rather than reconciled. There is no safe automatic answer: the stored
+    row may already have been acted on at the broker.
+    """
+
+
+#: Fields a client key is a promise about. They may never change under it; a
+#: genuinely new intent needs `CommandIdentity.superseding()`, which mints a new
+#: key precisely so the old promise stays intact.
+_IMMUTABLE = ("security_id", "side", "quantity", "symbol")
+
+
+def _assert_economics_unchanged(cur, command: Command) -> None:
+    cur.execute("SELECT security_id, side, quantity, symbol FROM sentinel_commands"
+                " WHERE client_key = %s", (command.client_key,))
+    row = cur.fetchone()
+    if row is None:
+        return
+    stored = {"security_id": str(row[0]), "side": str(row[1]),
+              "quantity": Decimal(str(row[2])), "symbol": str(row[3])}
+    incoming = {"security_id": command.security_id, "side": command.side.value,
+                "quantity": command.quantity,
+                "symbol": command.instrument.symbol}
+    differs = {k: (stored[k], incoming[k]) for k in _IMMUTABLE
+               if stored[k] != incoming[k]}
+    if differs:
+        raise CommandEconomicsChanged(
+            f"{command.client_key} already exists with different economics: "
+            + "; ".join(f"{k} stored={s!r} incoming={i!r}"
+                        for k, (s, i) in sorted(differs.items()))
+            + ". A client key is a promise about WHAT it does, not only about "
+              "which plan and security it belongs to. New intent needs a new "
+              "identity — CommandIdentity.superseding() — so the promise the "
+              "broker may already have acted on stays intact.")
+
+
 def save_command(conn, command: Command, *, previous: Optional[CommandState] = None
                  ) -> None:
     """Persist the current state AND append the transition that produced it.
@@ -147,8 +193,12 @@ def save_command(conn, command: Command, *, previous: Optional[CommandState] = N
     Both in one transaction: a command row that moved without a matching event,
     or an event with no corresponding row, is a history that cannot be trusted
     to explain itself.
+
+    Refuses outright if the key already exists carrying different economics —
+    see `_assert_economics_unchanged`.
     """
     with conn.cursor() as cur:
+        _assert_economics_unchanged(cur, command)
         cur.execute(
             "INSERT INTO sentinel_commands (client_key, plan_id, security_id,"
             " revision, symbol, broker_instrument_id, side, quantity, state,"
@@ -174,9 +224,59 @@ def save_command(conn, command: Command, *, previous: Optional[CommandState] = N
     conn.commit()
 
 
+def adopt_recovered_order(conn, order, *, deployment: DeploymentIdentity) -> None:
+    """Write a Sentinel-keyed broker order the journal has never heard of.
+
+    Reached after a restore from a backup that predates the order. The key
+    proves it is OURS — it carries our prefix — but it cannot be REGENERATED,
+    because a hash does not yield back the `plan_id` and `revision` that made
+    it. So the row is stored with the broker's own economics, marked
+    `recovered`, and exempted from the recompute check that guards rows this
+    generation minted.
+
+    **Adoption is what makes recovery converge.** Identifying the order without
+    storing it left the position permanently unattributable: `expected_book`
+    stayed empty, the holding read as foreign activity forever, and the
+    appliance could de-risk but never re-risk. Reporting a recovered order and
+    then doing nothing with it is not recovery, it is a description of the
+    problem.
+
+    LIMIT, stated because adoption is an act of trust: "ours" is decided by the
+    key PREFIX, since a hash cannot be inverted to prove which deployment and
+    epoch minted it. That is deliberate — an order from a previous takeover
+    epoch is genuinely ours and must be adopted — but it means anything able to
+    write a `sntl-` client id on this account would be adopted too. The
+    protection against that is the one-appliance-one-account binding, not this
+    function.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_commands (client_key, plan_id, security_id,"
+            " revision, symbol, broker_instrument_id, side, quantity, state,"
+            " broker_order_id, filled_quantity, detail, recovered)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)"
+            " ON CONFLICT (client_key) DO NOTHING",
+            (order.client_key, RECOVERED_PLAN_ID, order.instrument.security_id,
+             0, order.instrument.symbol, order.instrument.broker_id,
+             order.side.value, str(order.quantity), order.state.value,
+             order.broker_order_id, str(order.filled_quantity),
+             "adopted from the broker after a restore"))
+        cur.execute(
+            "INSERT INTO sentinel_command_events (client_key, from_state,"
+            " to_state, filled_quantity, detail) VALUES (%s,NULL,%s,%s,%s)",
+            (order.client_key, order.state.value, str(order.filled_quantity),
+             "recovered: present at the broker, absent from the journal"))
+    conn.commit()
+
+
+#: Plan id given to adopted rows. A real plan id would be a lie — the plan that
+#: produced the order is precisely what a stale restore lost.
+RECOVERED_PLAN_ID = "RECOVERED"
+
+
 def _row_to_command(row, deployment: DeploymentIdentity) -> Command:
     (client_key, plan_id, security_id, revision, symbol, broker_instrument_id,
-     side, quantity, state, broker_order_id, filled, detail) = row
+     side, quantity, state, broker_order_id, filled, detail, recovered) = row
     identity = CommandIdentity(deployment=deployment, plan_id=str(plan_id),
                                security_id=str(security_id),
                                revision=int(revision))
@@ -188,6 +288,11 @@ def _row_to_command(row, deployment: DeploymentIdentity) -> Command:
         side=Side(side), quantity=Decimal(str(quantity)),
         state=CommandState(state), broker_order_id=broker_order_id,
         filled_quantity=Decimal(str(filled)), detail=str(detail or ""))
+    if recovered:
+        # ADOPTED, so the key is not regenerable by construction and the check
+        # below would reject every recovered row. The stored key is carried
+        # verbatim so `client_key` still returns something the broker knows.
+        return replace(command, recovered_key=str(client_key))
     if command.client_key != str(client_key):
         # THE KEY IS DERIVED, so a stored key that no longer recomputes means
         # the binding changed under us — a different account or a bumped
@@ -208,7 +313,7 @@ class StoredKeyMismatch(RuntimeError):
 
 _COMMAND_COLUMNS = ("client_key, plan_id, security_id, revision, symbol,"
                     " broker_instrument_id, side, quantity, state,"
-                    " broker_order_id, filled_quantity, detail")
+                    " broker_order_id, filled_quantity, detail, recovered")
 
 
 def load_commands(conn, deployment: DeploymentIdentity, *,
@@ -254,26 +359,50 @@ def command_history(conn, client_key: str) -> tuple:
 # Fills and observations
 # ---------------------------------------------------------------------------
 
-def record_fills(conn, fills: Sequence[BrokerFill]) -> int:
-    """Idempotent on (broker_order_id, seq).
+def fill_fingerprint(fill: BrokerFill) -> str:
+    """A fill's identity, derived from WHAT IT IS rather than where it appeared.
 
-    A recovery that re-reads the broker's recent fills MUST NOT double-count
-    them: the same fill arriving twice would inflate the position Sentinel
-    believes it holds and generate a spurious sell. `seq` is the fill's ordinal
-    within its order, which is stable across re-reads in a way a timestamp is
-    not.
+    The previous key was the fill's ordinal position in the list the broker
+    happened to return. That is not an identity: a query over a different window
+    returns a different list, so the same economic fill lands under a different
+    `seq` — and, worse, a DIFFERENT fill can inherit one already used, which
+    `ON CONFLICT DO NOTHING` then silently discards. An accounting ledger whose
+    primary key depends on how you asked the question will eventually both
+    double-count and drop.
+
+    Derived instead from order, quantity, price and timestamp. Two genuinely
+    distinct fills that agree on all four are economically indistinguishable, so
+    collapsing them is the correct behaviour rather than a lost row.
+
+    NOT the final answer. Brokers expose their own activity ids — and trade
+    corrections and busts, which no content hash can model — so before this
+    table becomes the accounting ledger it must carry broker-native activity
+    identity. Recorded here as the known limit rather than left to be
+    discovered.
+    """
+    blob = "|".join((
+        str(fill.broker_order_id), str(fill.quantity), str(fill.price),
+        fill.filled_at.isoformat() if fill.filled_at else "",
+    ))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:24]
+
+
+def record_fills(conn, fills: Sequence[BrokerFill]) -> int:
+    """Idempotent on the fill's CONTENT, not on its position in a response.
+
+    A recovery that re-reads the broker's recent fills must not double-count
+    them: the same fill twice inflates the position Sentinel believes it holds
+    and generates a spurious sell.
     """
     written = 0
     with conn.cursor() as cur:
-        per_order: dict = {}
         for fill in fills:
-            seq = per_order.get(fill.broker_order_id, 0)
-            per_order[fill.broker_order_id] = seq + 1
             cur.execute(
-                "INSERT INTO sentinel_fills (broker_order_id, seq, client_key,"
-                " quantity, price, filled_at) VALUES (%s,%s,%s,%s,%s,%s)"
-                " ON CONFLICT (broker_order_id, seq) DO NOTHING",
-                (fill.broker_order_id, seq, fill.client_key,
+                "INSERT INTO sentinel_fills (broker_order_id, fill_key,"
+                " client_key, quantity, price, filled_at)"
+                " VALUES (%s,%s,%s,%s,%s,%s)"
+                " ON CONFLICT (broker_order_id, fill_key) DO NOTHING",
+                (fill.broker_order_id, fill_fingerprint(fill), fill.client_key,
                  str(fill.quantity), str(fill.price), fill.filled_at))
             written += cur.rowcount
     conn.commit()

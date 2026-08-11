@@ -55,18 +55,70 @@ MAX_PAGES = 20
 #: Alpaca's order vocabulary -> ours. The mapping lives in ONE place so a new
 #: broker cannot re-introduce the `partial_fill` / `partially_filled`
 #: split-brain that lived in Stocker for months.
+#:
+#: THE CLASSIFYING QUESTION IS NOT "does this sound finished?" IT IS:
+#:
+#:     can a trade still occur under this order?
+#:
+#: If yes — or if we cannot be certain it is no — the status must map to a state
+#: for which `blocks_overlapping` is True. A wrongly-terminal status frees the
+#: security for a second command and the original then fills too: a doubled
+#: position, which is the exact failure the whole in-flight machinery exists to
+#: prevent. A wrongly-in-flight status stalls one security until an operator
+#: looks, which is visible and recoverable. Those costs are not symmetric, so
+#: neither is the default.
+#:
+#: `stopped` was mapped to REJECTED here and that was a MONEY BUG. Alpaca
+#: defines it as "the trade is guaranteed, usually at a stated price or better,
+#: but has not yet occurred" — a fill that is CERTAIN and PENDING, which is very
+#: nearly the opposite of a rejection. Marked terminal it freed the security,
+#: and the guaranteed trade then landed alongside whatever replaced it.
 _STATUS = {
-    "new": S.ACKNOWLEDGED, "accepted": S.ACKNOWLEDGED,
-    "pending_new": S.ACKNOWLEDGED, "accepted_for_bidding": S.ACKNOWLEDGED,
-    "held": S.ACKNOWLEDGED, "calculated": S.ACKNOWLEDGED,
-    "suspended": S.ACKNOWLEDGED, "pending_replace": S.ACKNOWLEDGED,
-    "replaced": S.ACKNOWLEDGED, "done_for_day": S.ACKNOWLEDGED,
+    # ── working: routed or awaiting routing ─────────────────────────────────
+    "new": S.ACKNOWLEDGED,
+    "accepted": S.ACKNOWLEDGED,
+    "pending_new": S.ACKNOWLEDGED,
+    "accepted_for_bidding": S.ACKNOWLEDGED,
+    "held": S.ACKNOWLEDGED,
+    "suspended": S.ACKNOWLEDGED,
+
+    # ── a trade is COMING, or may still be reported ─────────────────────────
+    # `stopped`: the trade is GUARANTEED and has not happened yet.
+    "stopped": S.ACKNOWLEDGED,
+    # `calculated`: complete for the day, settlement calculations pending. The
+    # final fill quantity is not yet established, so the command is not done.
+    "calculated": S.ACKNOWLEDGED,
+    # `done_for_day`: no further execution TODAY. Not the same as "no further
+    # execution" — and for a partially filled order the remainder's fate is
+    # still open, so this does not release the security on its own.
+    "done_for_day": S.ACKNOWLEDGED,
+
+    # ── replacement: Sentinel never issues one ──────────────────────────────
+    # Seeing either means something OUTSIDE Sentinel altered our order. The
+    # replacement carries a broker id we do not know and may still fill, so
+    # releasing the security here would let us trade alongside an order we
+    # cannot see. Blocked, and surfaced — see `is_anomalous_status`.
+    "pending_replace": S.ACKNOWLEDGED,
+    "replaced": S.ACKNOWLEDGED,
+
+    # ── genuinely settled ───────────────────────────────────────────────────
     "partially_filled": S.PARTIALLY_FILLED,
     "filled": S.FILLED,
-    "canceled": S.CANCELLED, "cancelled": S.CANCELLED,
-    "expired": S.CANCELLED, "pending_cancel": S.CANCEL_PENDING,
-    "rejected": S.REJECTED, "stopped": S.REJECTED,
+    "canceled": S.CANCELLED,
+    "cancelled": S.CANCELLED,
+    "expired": S.CANCELLED,
+    "pending_cancel": S.CANCEL_PENDING,
+    "rejected": S.REJECTED,
 }
+
+#: Statuses that mean an order of OURS was interfered with from outside. They
+#: are blocked like any working order, but a human should know: Sentinel never
+#: replaces an order, so their appearance is not something it can have caused.
+ANOMALOUS_STATUSES = frozenset({"replaced", "pending_replace"})
+
+
+def is_anomalous_status(raw: str) -> bool:
+    return (raw or "").strip().lower() in ANOMALOUS_STATUSES
 
 
 class UnmappedBrokerStatus(RuntimeError):
@@ -223,12 +275,19 @@ class AlpacaExecutionBroker(ExecutionBroker):
 
     def _to_order(self, payload: dict) -> BrokerOrder:
         symbol = str(payload.get("symbol") or "")
+        raw_status = str(payload.get("status") or "")
+        if is_anomalous_status(raw_status):
+            log.warning(
+                "sentinel: order %s reports %r — Sentinel never issues a "
+                "replacement, so this order was altered from OUTSIDE. It stays "
+                "BLOCKING because the replacement may still fill under a broker "
+                "id we do not hold.", payload.get("id"), raw_status)
         return BrokerOrder(
             broker_order_id=str(payload.get("id") or ""),
             client_key=payload.get("client_order_id") or None,
             instrument=self._instrument(symbol, payload.get("asset_id")),
             side=Side.BUY if str(payload.get("side")) == "buy" else Side.SELL,
-            state=map_status(str(payload.get("status") or "")),
+            state=map_status(raw_status),
             quantity=_dec(payload.get("qty"), Decimal(0)) or Decimal(0),
             filled_quantity=_dec(payload.get("filled_qty"), Decimal(0)) or Decimal(0),
             raw=payload)

@@ -44,7 +44,6 @@ predecessor supplied — which, now that `normalise_sep_rows` accepts
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 from sentinel.feed import actions_map, calendar
 

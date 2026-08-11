@@ -352,12 +352,20 @@ class TestReconciliation:
         assert book == {"SEC-AAA": Decimal(10), "SEC-BBB": Decimal(-4)}
 
 
+def put_bar(conn, security_id, session, ticker):
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_bars (security_id, session, ticker,"
+            " close_unadjusted) VALUES (%s,%s,%s,10)"
+            " ON CONFLICT (security_id, session) DO NOTHING",
+            (security_id, session, ticker))
+    conn.commit()
+
+
 class TestCorpusActionLookup:
     def test_it_compounds_splits_over_the_gap(self, conn):
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO sentinel_bars (security_id, session, ticker,"
-                " close_unadjusted) VALUES ('SEC-AAA','2026-08-01','AAA',10)")
+        put_bar(conn, "SEC-AAA", "2026-08-05", "AAA")
+        put_bar(conn, "SEC-AAA", "2026-08-07", "AAA")
         feed_store.write_actions(conn, [
             {"ticker": "AAA", "date": "2026-08-05", "action": "split",
              "value": 2.0},
@@ -367,6 +375,67 @@ class TestCorpusActionLookup:
         lookup = R.corpus_action_lookup(conn, start=date(2026, 8, 1),
                                         end=date(2026, 8, 10))
         assert lookup("SEC-AAA") == pytest.approx(Decimal(6))
+
+    def test_a_RECYCLED_ticker_does_not_inherit_the_other_company_split(self, conn):
+        """R6. Tickers are reused, and resolving one to EVERY security that ever
+        held it applies one company's split to another's holding — multiplying
+        the wrong expected quantity before deciding whether the broker looks
+        foreign.
+
+        Strange defect to ship in this package in particular: the ingest refuses
+        to fall back to the ticker precisely because reuse splices unrelated
+        companies. The same rule has to hold on the way out.
+        """
+        put_bar(conn, "SEC-OLD", "2011-06-01", "XYZ")     # the first company
+        put_bar(conn, "SEC-NEW", "2026-08-05", "XYZ")     # inherited the symbol
+        feed_store.write_actions(conn, [
+            {"ticker": "XYZ", "date": "2011-06-02", "action": "split",
+             "value": 2.0}])
+
+        # The 2011 split, looked up over a 2011 gap, belongs to SEC-OLD only.
+        old_gap = R.corpus_action_lookup(conn, start=date(2011, 1, 1),
+                                         end=date(2011, 12, 31))
+        assert old_gap("SEC-OLD") == pytest.approx(Decimal(2))
+        assert old_gap("SEC-NEW") == Decimal(1), (
+            "SEC-NEW did not exist under this ticker in 2011 and must not "
+            "inherit its split")
+
+    def test_a_WEEKEND_ex_date_still_resolves(self, conn):
+        """`sentinel_actions.session` holds the vendor's EX-DATE, a CALENDAR
+        date that can fall on a non-session. An exact-session join would drop
+        it, and a dropped split reconciles the book against the wrong share
+        count."""
+        put_bar(conn, "SEC-AAA", "2026-08-07", "AAA")     # Friday
+        feed_store.write_actions(conn, [
+            {"ticker": "AAA", "date": "2026-08-08", "action": "split",
+             "value": 2.0}])                              # Saturday ex-date
+
+        lookup = R.corpus_action_lookup(conn, start=date(2026, 8, 1),
+                                        end=date(2026, 8, 10))
+        assert lookup("SEC-AAA") == pytest.approx(Decimal(2))
+
+    def test_a_REVERSE_split_is_supported(self, conn):
+        put_bar(conn, "SEC-AAA", "2026-08-05", "AAA")
+        feed_store.write_actions(conn, [
+            {"ticker": "AAA", "date": "2026-08-05", "action": "reversesplit",
+             "value": 0.1}])
+        lookup = R.corpus_action_lookup(conn, start=date(2026, 8, 1),
+                                        end=date(2026, 8, 10))
+        assert lookup("SEC-AAA") == pytest.approx(Decimal("0.1"))
+
+    def test_a_SPINOFF_is_NOT_silently_treated_as_a_multiplier(self, conn):
+        """Scope honesty. A spinoff is not expressible as a share-count scalar,
+        so it is left to foreign-activity handling — visible and blocking —
+        rather than approximated. The prose describes spinoffs; this is what is
+        IMPLEMENTED."""
+        put_bar(conn, "SEC-AAA", "2026-08-05", "AAA")
+        feed_store.write_actions(conn, [
+            {"ticker": "AAA", "date": "2026-08-05", "action": "spinoff",
+             "value": 2.0}])
+        lookup = R.corpus_action_lookup(conn, start=date(2026, 8, 1),
+                                        end=date(2026, 8, 10))
+        assert lookup("SEC-AAA") == Decimal(1)
+        assert "spinoff" not in R.SUPPORTED_ACTIONS
 
     def test_an_unmapped_security_returns_1_rather_than_raising(self, conn):
         lookup = R.corpus_action_lookup(conn, start=date(2026, 8, 1),

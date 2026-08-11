@@ -142,7 +142,7 @@ def publish(conn, *, run_id: Optional[str] = None,
                 (previous.version if previous else None, run_id,
                  window_start, window_end,
                  json.dumps(evidence or {}, sort_keys=True, default=str)))
-            version = int(cur.fetchone()[0])
+            cur.fetchone()          # RETURNING drains the statement
         conn.commit()
     finally:
         with conn.cursor() as cur:

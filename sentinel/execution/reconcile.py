@@ -42,9 +42,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Callable, Mapping, Optional
 
-from sentinel.execution.commands import Command
-from sentinel.execution.contract import (
-    BrokerObservation, ExecutionBroker, IncompleteObservation)
+from sentinel.execution.contract import BrokerObservation, ExecutionBroker
 from sentinel.execution.identity import DeploymentIdentity, is_sentinel_key
 from sentinel.execution.states import CommandState, RuntimeState
 
@@ -149,8 +147,12 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
             detail=f"could not identify the account: {exc}")
     binding_mod.verify(conn, identity)
 
-    # 3. OBSERVE. (2, the writer lock, is the caller's — it must span more than
-    #    this call.)
+    # 3. OBSERVE. Step 2, the writer lock, is held by `executor.execute_session`
+    #    around this whole call — it must span more than reconciliation, so it
+    #    cannot be taken here. It is taken in the public entry point rather than
+    #    left to the caller precisely so it cannot be forgotten; calling
+    #    `reconcile` directly (as the tests do) is read-mostly and does not
+    #    submit.
     try:
         observation = await broker.observe()
     except Exception as exc:                                  # noqa: BLE001
@@ -177,13 +179,54 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
                       if is_sentinel_key(o.client_key)
                       and o.client_key not in known_keys)
 
+    # ADOPT THEM. Identifying a recovered order and then not storing it is a
+    # description of the problem, not recovery: `expected_book_from_commands`
+    # would stay empty, the holding would read as foreign activity forever, and
+    # the appliance could de-risk but never re-risk. Surfaced by the adversarial
+    # scenario, where a stale restore left a correctly-attributed position
+    # permanently unexplained.
+    for order in recovered:
+        journal.adopt_recovered_order(conn, order, deployment=deployment)
+    if recovered:
+        log.info("sentinel: adopted %d recovered order(s) from the broker: %s",
+                 len(recovered), ", ".join(o.client_key for o in recovered))
+        stored = journal.load_commands(conn, deployment)
+
+    # 4b. SYNCHRONISE ORDINARY PROGRESS, not only the undetermined commands.
+    #
+    #     A market order does NOT have to come back filled. `new` or `accepted`
+    #     followed by a fill is completely normal, so a command sits in the
+    #     journal at ACKNOWLEDGED with filled_quantity 0 while the broker holds
+    #     a position. Reconciling only the UNKNOWNs left that gap open, and the
+    #     consequence was severe and quiet:
+    #
+    #         submit BUY 100     journal ACKNOWLEDGED, filled 0
+    #         broker fills it    broker position 100
+    #         next reconcile     expected {} vs observed {AAA: 100}
+    #                            => SENTINEL'S OWN TRADE IS FOREIGN ACTIVITY
+    #
+    #     which blocks every subsequent increase. The appliance could make its
+    #     first trade and then quarantine itself over it. This must happen
+    #     BEFORE `expected_book_from_commands`, and each change must be
+    #     PERSISTED — an in-memory sync would be forgotten by the next restart
+    #     and the accusation would return.
     resolved = []
     for command in stored:
+        before_state, before_filled = command.state, command.filled_quantity
         if command.state is CommandState.UNKNOWN:
-            before = command.state
             command = await recovery.resolve_unknown(broker, command, observation)
-            if command.state is not before:
-                journal.save_command(conn, command, previous=before)
+        elif command.state in (CommandState.ACKNOWLEDGED,
+                               CommandState.PARTIALLY_FILLED):
+            command = recovery.apply_observation(command, observation)
+        elif command.state is CommandState.CANCEL_PENDING:
+            # Also observation-driven, and for the same reason: the broker's
+            # acceptance of a cancel is not proof that it happened.
+            command = recovery.confirm_cancellation(command, observation)
+        # A PARTIAL that grows without changing state is still progress, so the
+        # persist condition watches the quantity as well as the state.
+        if (command.state is not before_state
+                or command.filled_quantity != before_filled):
+            journal.save_command(conn, command, previous=before_state)
         resolved.append(command)
 
     unresolved = tuple(c for c in resolved if c.state is CommandState.UNKNOWN)
@@ -226,25 +269,66 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         foreign_orders=foreign_orders, unresolved=unresolved, detail=detail)
 
 
+#: Action verbs this lookup can express as a share-count multiplier. Named so
+#: the LIMIT is greppable: a spinoff or a merger changes a book in ways a scalar
+#: cannot describe, so they are deliberately NOT handled here and fall through
+#: to foreign-activity classification — visible, blocking increases, awaiting a
+#: human. The prose elsewhere describes them; this is what is IMPLEMENTED.
+SUPPORTED_ACTIONS = ("split", "reversesplit", "splitdiv")
+
+
 def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
     """A DB-backed `ActionLookup` over `sentinel_actions` for the gap.
 
-    Keyed by SECURITY, while `sentinel_actions` is keyed by TICKER, so the
-    mapping goes through `sentinel_bars` — which is the only place both
-    identities appear. A security whose ticker cannot be resolved returns 1
-    rather than raising: an unknown mapping must not silently HALVE a position,
-    and the unexplained quantity will be caught as foreign activity, which is
-    the safe direction.
+    ## The join must be AS-OF, not ever
+
+    `sentinel_actions` is keyed by TICKER; positions are keyed by SECURITY. The
+    bridge is `sentinel_bars`, the only place both appear — but resolving it as
+    `SELECT DISTINCT security_id, ticker` collapses time, and tickers are
+    RECYCLED. One company's 2011 split would then be applied to a different
+    company that inherited its symbol in 2019, multiplying the expected quantity
+    of the wrong holding before deciding whether the broker looked foreign.
+
+    That would be a strange defect to ship in this package in particular: the
+    ingest refuses to fall back to the ticker precisely because reuse splices
+    unrelated companies. The same rule has to hold on the way out.
+
+    So the ticker is resolved to whichever security ACTUALLY TRADED under it on
+    the action's own session, using that session's bar. An action whose ticker
+    has no bar that day resolves to nothing and is skipped — the resulting
+    unexplained quantity is caught as foreign activity, which is the safe
+    direction. A missing mapping must never silently halve a position.
+
+    ## Scope
+
+    Splits only — see `SUPPORTED_ACTIONS`. Spinoffs and mergers are not
+    expressible as a multiplier and are left to foreign-activity handling.
     """
+    verbs = "|".join(SUPPORTED_ACTIONS)
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT b.security_id, COALESCE(EXP(SUM(LN(a.value))), 1)"
-            " FROM sentinel_actions a"
-            " JOIN (SELECT DISTINCT security_id, ticker FROM sentinel_bars) b"
-            "   ON b.ticker = a.ticker"
-            " WHERE a.session > %s AND a.session <= %s"
-            "   AND LOWER(a.action) LIKE '%%split%%'"
-            "   AND a.value IS NOT NULL AND a.value > 0"
-            " GROUP BY b.security_id", (start, end))
+            # AS-OF, via LATERAL: the ticker resolves to whichever security most
+            # recently traded under it AT OR BEFORE the action's session.
+            #
+            # Not `b.session = a.session`. `sentinel_actions.session` holds the
+            # vendor's EX-DATE, which is a CALENDAR date and can fall on a
+            # weekend or a holiday — the same fact the ingest's action snapping
+            # exists for. An exact-session join would silently drop every such
+            # action, and a dropped split is a book that reconciles against the
+            # wrong share count.
+            "SELECT sub.security_id, COALESCE(EXP(SUM(LN(sub.value))), 1)"
+            " FROM ("
+            "   SELECT b.security_id, a.value"
+            "     FROM sentinel_actions a"
+            "     CROSS JOIN LATERAL ("
+            "        SELECT security_id FROM sentinel_bars"
+            "         WHERE ticker = a.ticker AND session <= a.session"
+            "         ORDER BY session DESC LIMIT 1"
+            "     ) b"
+            "    WHERE a.session > %s AND a.session <= %s"
+            f"      AND REGEXP_REPLACE(LOWER(a.action), '[^a-z]', '', 'g') ~ '({verbs})'"
+            "      AND a.value IS NOT NULL AND a.value > 0"
+            " ) sub"
+            " GROUP BY sub.security_id", (start, end))
         ratios = {str(sid): Decimal(str(ratio)) for sid, ratio in cur.fetchall()}
     return lambda security_id: ratios.get(security_id, Decimal(1))

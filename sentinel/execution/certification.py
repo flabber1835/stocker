@@ -33,7 +33,7 @@ absent entry reads as "nobody has looked", and this has been looked at.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Mapping
 
 

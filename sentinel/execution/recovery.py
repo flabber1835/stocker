@@ -26,7 +26,7 @@ explicit by returning the pre-send command so it can be written first.
 """
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Tuple
 
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (

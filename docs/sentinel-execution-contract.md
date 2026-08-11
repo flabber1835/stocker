@@ -39,10 +39,16 @@ sentinel/feed/repair.py              split-ratio audit and repair
 ```text
 no live or paper broker has ever been contacted by this code
 the Sentinel controller (§7 of the architecture doc) is not wired to it
-Wealth Core is not wired to the projection — `desired` is still an argument
+Wealth Core is not wired to the projection that would fill a plan's basket
 the RECONSTRUCTION tier of corpus versioning is deferred
-crash injection is logical (state, journal), not process-level SIGKILL
+crash injection is LOGICAL (state, journal, stale restore), not SIGKILL
 the resource limits are declared, not yet MEASURED against a real run
+spinoffs and mergers are NOT modelled as share-count changes; they fall
+    through to foreign-activity handling, which blocks increases until a human
+    acknowledges. The prose describes them; only splits are implemented
+`sentinel_fills` keys on a CONTENT fingerprint, not broker-native activity
+    ids, so it cannot yet model trade corrections or busts. It must not become
+    the accounting ledger in this form
 ```
 
 The architecture document settles what Sentinel *decides*. This one settles what
@@ -282,6 +288,65 @@ reason about again. Requiring it to be rebuilt on the new command model before i
 can be used would put a rewrite in front of a safety fix for no gain.
 
 Operator/emergency tooling is likewise exempt, and must be labelled as such.
+
+---
+
+## 4a. Adapter status translation
+
+> **Classify a broker status by "can a trade still occur?", never by whether it
+> sounds finished.**
+
+A wrongly-terminal status frees the security for a second command while the
+first still fills — a doubled position. A wrongly-in-flight status stalls one
+security until an operator looks. Those costs are not symmetric, so neither is
+the default: anything uncertain maps to a state that blocks.
+
+Alpaca's `stopped` was mapped to `REJECTED`, and that was a money bug. Alpaca
+defines it as *the trade is guaranteed, usually at a stated price or better, but
+has not yet occurred* — a fill that is certain and pending, which is nearly the
+opposite of a rejection.
+
+```text
+stopped        guaranteed trade, not yet occurred      -> blocks
+calculated     complete for the day, settlement pending -> blocks
+done_for_day   no more execution TODAY; remainder open  -> blocks
+replaced       externally altered; replacement may fill -> blocks + ANOMALOUS
+```
+
+An unmapped status **raises**. Guessing "still working" leaves a settled order
+live in the journal; guessing "terminal" abandons one that is not.
+
+---
+
+## 4b. The economics belong to the plan
+
+The executor reads `plan.target_basket` and has no other source of quantities.
+It previously took a separate `desired` mapping alongside the plan, so a client
+key could assert "plan P, security S" while carrying a quantity P never said —
+and since the journal's upsert deliberately never rewrites quantity, the database
+could hold X while the wire carried Y under one identity.
+
+The parameter was **removed** rather than validated: a check can be skipped by a
+future call site, an absent parameter cannot. `save_command` additionally refuses
+outright if a stored key is rebuilt with different `security_id`, `side`,
+`quantity` or `symbol`. New intent needs `CommandIdentity.superseding()`.
+
+---
+
+## 4c. The long-only envelope is enforced HERE
+
+`compute_delta` will turn a desired quantity of −100 against a flat book into
+`SELL 100`, which is an opening short. Alpaca supports short selling and runs its
+own buying-power check, so the broker does not refuse it on Sentinel's behalf.
+The final gate before anything reaches a broker asserts independently:
+
+```text
+0 <= target_exposure <= 1
+no negative target quantity
+```
+
+An execution layer that relies on its caller to preserve the risk envelope has no
+envelope.
 
 ---
 
@@ -840,7 +905,20 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
 28  Account binding and takeover epoch are verified before any command.
 29  Unsupported broker capabilities fail closed; they never silently degrade.
 30  A restored backup is assumed stale relative to the broker; Sentinel-keyed
-    broker orders absent locally are recovered, never duplicated.
+    broker orders absent locally are ADOPTED into the journal, never merely
+    reported and never duplicated. Identifying a recovered order without storing
+    it leaves the position permanently unexplained — able to de-risk, never able
+    to re-risk.
+31  A broker status is classified by whether a trade can still occur under it,
+    never by whether it sounds finished; an unmapped status raises.
+32  The executor's quantities come from the plan and nowhere else, and a stored
+    client key may never be rebuilt with different economics.
+33  The long-only, unlevered envelope is asserted at the execution gate, not
+    inherited from whatever produced the plan.
+34  The single-writer lock is acquired inside the public execution entry point,
+    not left to the caller.
+35  A corporate action resolves its ticker to the security that held it AS OF
+    that session; tickers are recycled.
 ```
 
 Every one of these is falsifiable, and each should fail a test when violated.

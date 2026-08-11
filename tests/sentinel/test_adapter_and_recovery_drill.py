@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -380,9 +381,9 @@ class TestStaleBackupRestore:
             account=BrokerAccountIdentity("sim", "SIM-ACCOUNT"))
         snapshot = backup(conn)              # taken BEFORE anything happened
         result = run(executor.execute_session(
-            broker=broker, conn=conn, deployment=DEPLOY, plan=plan(),
-            desired={"SEC-AAA": D(10)}, instruments={"SEC-AAA": AAA},
-            today=TODAY))
+            broker=broker, conn=conn, deployment=DEPLOY,
+            plan=replace(plan(), target_basket={"SEC-AAA": D(10)}),
+            instruments={"SEC-AAA": AAA}, today=TODAY))
         return broker, snapshot, result.submitted[0]
 
     def test_an_order_placed_after_the_backup_is_RECOVERED_not_duplicated(self, conn):
@@ -405,16 +406,23 @@ class TestStaleBackupRestore:
         restore(conn, snapshot)
 
         run(executor.execute_session(
-            broker=broker, conn=conn, deployment=DEPLOY, plan=plan("plan-2"),
-            desired={"SEC-AAA": D(10)}, instruments={"SEC-AAA": AAA},
-            today=TODAY))
+            broker=broker, conn=conn, deployment=DEPLOY,
+            plan=replace(plan("plan-2"), target_basket={"SEC-AAA": D(10)}),
+            instruments={"SEC-AAA": AAA}, today=TODAY))
 
         submits_after = len([c for c in broker.calls if c.startswith("submit:")])
         assert submits_after == submits_before, (
             "the working order already covers the target; a second submit here "
             "is a doubled position")
 
-    def test_a_fill_that_happened_while_down_is_seen_after_restore(self, conn):
+    def test_a_fill_that_happened_while_down_is_ATTRIBUTED_after_restore(self, conn):
+        """This assertion used to read FOREIGN_ACTIVITY, described as "correct
+        and conservative ... until the recovered order is adopted" — and nothing
+        adopted it, so the appliance stayed there forever: able to de-risk,
+        never able to re-risk. The adversarial scenario surfaced that; recovery
+        now ADOPTS the order, so the position is explained and the runtime
+        converges.
+        """
         broker, snapshot, command = self._setup(conn)
         broker.fill(command.client_key)      # filled while the appliance was gone
         restore(conn, snapshot)
@@ -422,10 +430,9 @@ class TestStaleBackupRestore:
         rec = run(R.reconcile(broker=broker, conn=conn, binding=None,
                               deployment=DEPLOY))
         assert rec.observed == {"SEC-AAA": D(10)}
-        assert rec.runtime_state.value == "FOREIGN_ACTIVITY", (
-            "correct and conservative: the journal cannot yet explain this "
-            "position, so exposure-INCREASING action is blocked until the "
-            "recovered order is adopted")
+        assert rec.expected == {"SEC-AAA": D(10)}, "attributed to OUR order"
+        assert rec.runtime_state.value == "RUNNING"
+        assert journal.load_commands(conn, DEPLOY)[0].is_recovered
 
     def test_the_binding_SURVIVES_the_restore_so_the_account_is_still_known(self, conn):
         broker, snapshot, _ = self._setup(conn)

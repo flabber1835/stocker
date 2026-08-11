@@ -147,15 +147,27 @@ async def migrate_account(*, broker: SentinelBroker, conn,
             "read — a fill or a foreign order between them is exactly what the "
             "second read is for.")
 
-    # 4. Binding and events in ONE transaction. A handover that recorded the
-    #    events but not the binding — or the reverse — is precisely the
-    #    inconsistency the file could never rule out.
-    record(store, OwnershipState.SENTINEL_OWNERSHIP_ESTABLISHED,
+    # 4. BINDING AND EVENTS IN ONE TRANSACTION — genuinely, now.
+    #
+    #    This claimed to be atomic while `PostgresOwnershipStore.append` and
+    #    `binding.bind` each committed on their own, so a crash between them
+    #    could persist SENTINEL_OWNERSHIP_ESTABLISHED with no binding row. The
+    #    failure direction was conservative — ordinary startup requires the
+    #    binding — but the guarantee was stated and false, and a stated-and-false
+    #    crash-consistency property is worse than an absent one because it stops
+    #    people looking.
+    #
+    #    Both writers now defer their commit; the ONE commit below is what makes
+    #    the handover atomic.
+    deferred = PostgresOwnershipStore(conn, autocommit=False)
+    record(deferred, OwnershipState.SENTINEL_OWNERSHIP_ESTABLISHED,
            reason="legacy book removed; flat confirmed by two observations",
            deployment_id=deployment_id, broker_account_id=observed_id or "")
-    bound = binding_mod.bind(
+    binding_mod.bind(
         conn, deployment_id=deployment_id, broker=_broker_name(broker),
-        broker_account_id=observed_id or "unknown", notes=notes)
+        broker_account_id=observed_id or "unknown", notes=notes, commit=False)
+    conn.commit()
+    bound = binding_mod.require(conn)
 
     log.info("sentinel: account %s bound to %s at epoch %d",
              bound.broker_account_id, bound.deployment_id, bound.takeover_epoch)

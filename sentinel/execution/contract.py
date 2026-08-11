@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Mapping, Optional, Sequence
+from typing import Optional, Sequence
 
 from sentinel.execution.states import CommandState
 

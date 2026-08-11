@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -199,9 +200,13 @@ def broker():
 
 
 def go(b, conn, desired, *, p=None, today=TODAY):
+    """`desired` is folded INTO the plan — the executor has no other
+    source of economics, which is the point of R3."""
+    base = p or plan()
     return run(executor.execute_session(
-        broker=b, conn=conn, deployment=DEPLOY, plan=p or plan(),
-        desired=desired, instruments=INSTRUMENTS, today=today))
+        broker=b, conn=conn, deployment=DEPLOY,
+        plan=replace(base, target_basket=desired),
+        instruments=INSTRUMENTS, today=today))
 
 
 def seed_held(conn, b, instrument, qty, *, plan_id="plan-0"):

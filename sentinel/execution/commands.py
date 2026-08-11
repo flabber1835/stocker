@@ -33,7 +33,7 @@ like activity. It is escalated once and excluded from completeness accounting.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -74,6 +74,14 @@ class Command:
     filled_quantity: Decimal = Decimal(0)
     created_at: Optional[datetime] = None
     detail: str = ""
+    #: Set ONLY on a command ADOPTED from the broker after a restore. Such a key
+    #: was minted by a previous generation of this appliance and cannot be
+    #: regenerated — a hash does not yield back the `plan_id` and `revision`
+    #: that made it — so the stored key is carried verbatim instead of
+    #: recomputed. Explicit field rather than a mutated attribute: a recovered
+    #: command must be recognisable as one, and `client_key` must never silently
+    #: return a value the broker would not recognise.
+    recovered_key: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.quantity, Decimal):
@@ -86,7 +94,11 @@ class Command:
 
     @property
     def client_key(self) -> str:
-        return self.identity.client_key
+        return self.recovered_key or self.identity.client_key
+
+    @property
+    def is_recovered(self) -> bool:
+        return self.recovered_key is not None
 
     @property
     def security_id(self) -> str:

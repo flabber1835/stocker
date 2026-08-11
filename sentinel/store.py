@@ -174,8 +174,15 @@ class PostgresOwnershipStore:
     `intent_proposals` earned that note and the same caveat applies.
     """
 
-    def __init__(self, conn) -> None:
+    def __init__(self, conn, *, autocommit: bool = True) -> None:
         self.conn = conn
+        #: When False, `append` writes but does NOT commit, so the caller can
+        #: put several writes — notably the ownership event and the account
+        #: binding — in ONE transaction. Committing inside `append` made that
+        #: impossible, which quietly falsified `migrate_account`'s own claim
+        #: that the two land together: a crash between them could persist
+        #: SENTINEL_OWNERSHIP_ESTABLISHED with no binding row.
+        self.autocommit = autocommit
 
     def append(self, event: OwnershipEvent) -> None:
         with self.conn.cursor() as cur:
@@ -184,7 +191,8 @@ class PostgresOwnershipStore:
                 " VALUES (%s,%s,%s)",
                 (event.state.value, event.at, json.dumps(event.detail,
                                                          sort_keys=True)))
-        self.conn.commit()
+        if self.autocommit:
+            self.conn.commit()
 
     def events(self) -> list:
         with self.conn.cursor() as cur:

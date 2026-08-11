@@ -43,10 +43,10 @@ from typing import Mapping, Optional, Sequence
 
 from sentinel.execution import commands as C
 from sentinel.execution import journal, reconcile as R, recovery
-from sentinel.execution.contract import BrokerObservation, ExecutionBroker, Side
+from sentinel.execution.contract import ExecutionBroker
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
 from sentinel.execution.plan import ExecutionPlan
-from sentinel.execution.states import Action, CommandState, RuntimeState
+from sentinel.execution.states import CommandState, RuntimeState
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +68,38 @@ class SessionResult:
                 "detail": self.detail,
                 "reconciliation": (self.reconciliation.to_dict()
                                    if self.reconciliation else None)}
+
+
+class RiskEnvelopeViolation(RuntimeError):
+    """The plan asks for something outside what this deployment may hold."""
+
+
+def _assert_executable(plan: ExecutionPlan) -> None:
+    """The LONG-ONLY, UNLEVERED envelope, enforced at the execution membrane.
+
+    Upstream types only check that these are `Decimal`. That is not the same as
+    checking they are SANE, and the gap is not academic: `compute_delta` will
+    happily turn a desired quantity of −100 against a flat book into `SELL 100`,
+    which is an OPENING SHORT. Alpaca supports short selling and runs its own
+    buying-power check, so the broker will not necessarily refuse it on
+    Sentinel's behalf.
+
+    Wealth Core is a long-only book and Sentinel scales it between 0 and 1. The
+    final gate before anything reaches a broker must assert that independently
+    rather than trusting whatever produced the plan — an execution layer that
+    relies on its caller to preserve the risk envelope has no envelope.
+    """
+    if not (Decimal(0) <= plan.target_exposure <= Decimal(1)):
+        raise RiskEnvelopeViolation(
+            f"target_exposure {plan.target_exposure} is outside [0, 1]. "
+            f"Sentinel scales how much of the shadow is held; it does not lever "
+            f"it and it does not invert it.")
+    negative = {sid: qty for sid, qty in plan.target_basket.items() if qty < 0}
+    if negative:
+        raise RiskEnvelopeViolation(
+            f"negative target quantities {negative} would open SHORT positions. "
+            f"This is a long-only book, and the broker will not refuse the "
+            f"order on our behalf.")
 
 
 def order_of_operations(deltas: Sequence[C.Delta]) -> tuple:
@@ -95,13 +127,46 @@ def is_execution_window_open(plan: ExecutionPlan, today: date) -> bool:
 
 async def execute_session(*, broker: ExecutionBroker, conn,
                           deployment: DeploymentIdentity, plan: ExecutionPlan,
-                          desired: Mapping[str, Decimal],
                           instruments: Mapping[str, object],
                           today: date,
                           actions: Optional[R.ActionLookup] = None,
                           min_increment: Decimal = Decimal(1),
                           ) -> SessionResult:
-    """One pass: reconcile, then drive the account toward `desired`."""
+    """One pass: reconcile, then drive the account toward the PLAN's basket.
+
+    **The quantities come from `plan.target_basket` and nowhere else.** This
+    used to take a separate `desired` mapping alongside the plan, which meant
+    the client key said "plan P, security S" while the quantity came from an
+    argument nobody checked against P. A caller could pass 200 under a plan that
+    said 100 and the resulting order would carry an identity asserting the
+    opposite. Since the identity is the entire recovery mechanism, an identity
+    that does not determine the economics is not an identity — it is a label.
+
+    Removing the parameter is deliberate rather than validating it: a check can
+    be skipped by a future call site, an absent parameter cannot.
+    """
+    _assert_executable(plan)
+    # THE WRITER LOCK IS TAKEN HERE, not left to the caller. `reconcile` states
+    # that its caller must hold it across the whole session — and a prerequisite
+    # documented in a docstring is one a future controller can simply forget.
+    # Acquiring it inside the only public entry point makes omission
+    # unrepresentable rather than merely discouraged.
+    with journal.writer_lock(conn):
+        return await _execute_session_locked(
+            broker=broker, conn=conn, deployment=deployment, plan=plan,
+            instruments=instruments, today=today, actions=actions,
+            min_increment=min_increment)
+
+
+async def _execute_session_locked(*, broker: ExecutionBroker, conn,
+                                  deployment: DeploymentIdentity,
+                                  plan: ExecutionPlan,
+                                  instruments: Mapping[str, object],
+                                  today: date,
+                                  actions: Optional[R.ActionLookup],
+                                  min_increment: Decimal) -> SessionResult:
+    desired = plan.target_basket
+
     # 1. RECONCILE. Nothing is submitted before the broker's own state is
     #    established — including after a restart, where the journal may be
     #    behind reality.
@@ -216,18 +281,25 @@ async def resolve_outstanding(*, broker: ExecutionBroker, conn,
     whether a new plan exists. An appliance that boots with unresolved commands
     and immediately computes a target would be sizing against a book it does not
     yet know.
+
+    Takes the writer lock for the same reason `execute_session` does: it WRITES
+    command state, and a second process resolving the same UNKNOWN concurrently
+    would race the resolution rather than the order.
     """
-    observation = await broker.observe()
-    resolved = []
-    for command in journal.load_commands(conn, deployment,
-                                         states=[CommandState.UNKNOWN]):
-        before = command.state
-        try:
-            updated = await recovery.resolve_unknown(broker, command, observation)
-        except Exception as exc:                              # noqa: BLE001
-            log.warning("sentinel: %s stays UNKNOWN: %s", command.client_key, exc)
-            continue
-        if updated.state is not before:
-            journal.save_command(conn, updated, previous=before)
-        resolved.append(updated)
-    return tuple(resolved)
+    with journal.writer_lock(conn):
+        observation = await broker.observe()
+        resolved = []
+        for command in journal.load_commands(conn, deployment,
+                                             states=[CommandState.UNKNOWN]):
+            before = command.state
+            try:
+                updated = await recovery.resolve_unknown(broker, command,
+                                                         observation)
+            except Exception as exc:                          # noqa: BLE001
+                log.warning("sentinel: %s stays UNKNOWN: %s",
+                            command.client_key, exc)
+                continue
+            if updated.state is not before:
+                journal.save_command(conn, updated, previous=before)
+            resolved.append(updated)
+        return tuple(resolved)

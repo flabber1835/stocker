@@ -147,8 +147,31 @@ def test_verify_only_mode_changes_nothing(src):
 
 
 def test_it_never_passes_volumes(src):
-    """The standing rule: --volumes deletes the trading DB and the 35M-row corpus."""
-    assert "--volumes" not in src and " -v " not in src
+    """The standing rule: --volumes deletes the trading DB and the 35M-row corpus.
+
+    Checked against DOCKER invocations rather than by scanning the whole file
+    for `" -v "`. That substring is not a docker flag — `awk -v b="$bt_mem"`
+    contains it — so the blanket version reported a violation the moment the
+    script grew a memory-limit report, and a guard that cries wolf on ordinary
+    shell is one somebody eventually deletes. The rule it protects is real, so
+    it is worth stating precisely instead.
+    """
+    assert "--volumes" not in src, "unambiguous, and never legitimate here"
+
+    offenders = []
+    for lineno, line in enumerate(src.splitlines(), start=1):
+        stripped = line.strip()
+        if stripped.startswith("#") or "docker" not in stripped:
+            continue
+        # Tokens only, so `-v` as a flag is caught and `awk -v` is not: the awk
+        # occurrence is not on a docker line at all, and a bare `-v` that IS
+        # would be a genuine violation.
+        after_docker = stripped.split("docker", 1)[1]
+        if any(tok in ("-v", "--volumes") for tok in after_docker.split()):
+            offenders.append(f"{lineno}: {stripped}")
+    assert not offenders, (
+        "a docker invocation carries a volume-deleting flag:\n"
+        + "\n".join(offenders))
 
 
 def test_it_reports_the_corpus_version(src):
