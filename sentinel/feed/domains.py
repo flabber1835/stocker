@@ -229,6 +229,14 @@ class NormalisationReport:
     # cross-checking. It also stops every legitimate 3:2 reading as a
     # disagreement, since `round(1.5)` is 2.
     derived_splits_unsnapped: dict = field(default_factory=dict)
+    # (ticker, session) -> the ratio derived against a SEEDED predecessor that
+    # ACTIONS did not corroborate, and which was therefore NOT applied. Two
+    # things can put an entry here and they need opposite responses, which is
+    # why it is a named bucket rather than a silent 1.0: a genuine split the
+    # actions feed also missed, or an artifact of the seeded close belonging to
+    # an older vendor adjustment vintage. Neither is safe to act on
+    # unattended; both are worth a human's attention.
+    seam_splits_uncorroborated: dict = field(default_factory=dict)
 
     #: Cap on RETAINED rejection rows. The count is unbounded and exact; only
     #: the per-row detail is capped.
@@ -265,6 +273,7 @@ def normalise_sep_rows(
     resolve_identity=None,
     dividends: Mapping[tuple[str, str], float] | None = None,
     authoritative_splits: Mapping[tuple[str, str], float] | None = None,
+    prior_observations: Mapping[str, tuple] | None = None,
     report: NormalisationReport | None = None,
 ) -> Iterator[NormalisedBar]:
     """SEP rows -> `NormalisedBar`s, in (session, ticker) order.
@@ -286,9 +295,23 @@ def normalise_sep_rows(
     by permanent identity. Unresolvable bars are DROPPED and counted, never
     fallen back to the ticker — a fallback re-introduces the ticker-reuse splice
     on precisely the securities whose identity is doubtful.
+
+    `prior_observations` seeds the previous-observation map from the corpus, so
+    a split landing on a security's FIRST bar in this window is visible at all.
+    Without it every window's leading edge derived 1.0 — see
+    `store.previous_observations` and docs/sentinel-execution-contract.md §9.
+
+    A ratio derived against a SEEDED predecessor is treated more cautiously than
+    one derived inside the stream, because the two closes may come from
+    different vendor adjustment VINTAGES. See `_SEAM_SPLIT_UNCORROBORATED`.
     """
     rep = report if report is not None else NormalisationReport()
-    prev: dict[str, tuple[Optional[float], Optional[float]]] = {}
+    prev: dict[str, tuple[Optional[float], Optional[float]]] = dict(
+        prior_observations or {})
+    #: Securities whose `prev` entry is a SEED rather than something this stream
+    #: produced. Emptied per security on its first bar, so the caution below
+    #: applies to exactly one comparison each.
+    seeded: set[str] = set(prev)
     last_session: Optional[str] = None
 
     for r in rows:
@@ -330,6 +353,8 @@ def normalise_sep_rows(
             continue
 
         p_close, p_raw = prev.get(sid, (None, None))
+        from_seed = sid in seeded
+        seeded.discard(sid)
         ratio = split_ratio_from_domains(p_close, p_raw, close, raw)
         if ratio != 1.0:
             rep.derived_splits[(ticker, session)] = ratio
@@ -339,11 +364,35 @@ def normalise_sep_rows(
         unsnapped = unsnapped_split_ratio(p_close, p_raw, close, raw)
         if unsnapped is not None and abs(unsnapped - 1.0) > SPLIT_TOLERANCE:
             rep.derived_splits_unsnapped[(ticker, session)] = unsnapped
+        stated = (authoritative_splits or {}).get((ticker, session))
         if authoritative_splits is not None:
             # ACTIONS decides when present; the derived ratio stays as the
             # cross-check. Two independent sources agreeing is worth more than
             # one asserting.
-            ratio = float(authoritative_splits.get((ticker, session), ratio))
+            ratio = float(stated if stated is not None else ratio)
+        if from_seed and ratio != 1.0 and stated is None:
+            # AN UNCORROBORATED SPLIT AT THE SEAM IS NOT APPLIED.
+            #
+            # The seeded close came from an earlier FETCH, and SEP.close is
+            # adjusted under whatever vintage was current then. If the vendor has
+            # re-based history since, the two domains straddle two bases and the
+            # ratio between them is an artifact — a 2:1 whose adjustment has
+            # landed on the new bars but not on the stored one derives a
+            # SPURIOUS 0.5, inventing a reverse split that never happened.
+            #
+            # Inside the stream both closes come from one fetch, so that cannot
+            # arise; at the seam it can, and only at the seam. So the seam gets
+            # the conservative reading, on the same argument the trailing stop
+            # uses for a zero volatility: a suspicious input on a rule that
+            # rewrites a SHARE COUNT resolves to the ordinary value.
+            #
+            # This is NOT the old silent 1.0. The event is recorded as an
+            # anomaly naming the security and session, so a real split that
+            # ACTIONS also missed surfaces for a human instead of vanishing —
+            # and the non-downgrade rule in `_BAR_UPSERT` means it cannot erase
+            # a ratio an earlier, better-positioned run already established.
+            rep.seam_splits_uncorroborated[(ticker, session)] = ratio
+            ratio = 1.0
         if ratio != 1.0:
             rep.splits_detected += 1
         prev[sid] = (close, raw)

@@ -35,7 +35,28 @@ _BAR_UPSERT = """
         close_unadjusted = EXCLUDED.close_unadjusted,
         open_unadjusted = EXCLUDED.open_unadjusted,
         volume = EXCLUDED.volume,
-        split_ratio = EXCLUDED.split_ratio,
+        -- ABSENCE OF EVIDENCE MUST NOT OVERWRITE EVIDENCE.
+        --
+        -- 1.0 is the value `split_ratio_from_domains` returns when it has NO
+        -- predecessor to compare against — it means "nothing seen", not "no
+        -- split happened". An unconditional assignment therefore let the daily
+        -- overlap CORRUPT the corpus at its own leading edge: the window starts
+        -- 14 days behind the frontier, the first bar of each security in it has
+        -- no predecessor in the stream, the derived ratio comes out 1.0, and it
+        -- was written straight over a correct 2.0 that an earlier run had
+        -- computed when that same session sat mid-window. The mechanism that
+        -- exists to absorb vendor restatements was degrading data every day it
+        -- ran, on any split ACTIONS does not cover — and the ingest's own
+        -- SPLIT_ONLY_DERIVED warning exists because that set is not empty.
+        --
+        -- A ratio may be RAISED (1.0 -> 2.0, correcting a miss) or CHANGED
+        -- (ACTIONS restating 2.0 -> 1.5). It may never be silently downgraded to
+        -- "no split". Deliberately overwriting a SPURIOUS split is a REPAIR, and
+        -- repairs go through sentinel/feed/repair.py where they are explicit and
+        -- audited — not through the path that runs unattended every evening.
+        split_ratio = CASE WHEN EXCLUDED.split_ratio = 1.0
+                           THEN sentinel_bars.split_ratio
+                           ELSE EXCLUDED.split_ratio END,
         dividend_per_share = EXCLUDED.dividend_per_share
 """
 
@@ -269,6 +290,43 @@ def rejected_tickers(conn, start: str, end: str, reason: str = "NO_IDENTITY") ->
                     " WHERE session BETWEEN %s AND %s AND reason = %s",
                     (start, end, reason))
         return {str(t[0]).upper() for t in cur.fetchall() if t[0]}
+
+
+def previous_observations(conn, before_session: str) -> dict:
+    """`security_id -> (close_signal, close_unadjusted)` for the last bar each
+    security printed STRICTLY BEFORE `before_session`.
+
+    This is what lets a windowed ingest recover a split that lands on the first
+    bar of its window. `normalise_sep_rows` derives the ratio by comparing a bar
+    against the previous observation of the SAME security, and it starts each
+    call with an empty map — so the leading edge of every seed year and every
+    daily window was computed against nothing and came out 1.0.
+
+    **A LOOKBACK WINDOW CANNOT SUBSTITUTE FOR THIS QUERY.** A security can be
+    sparse for weeks, so no finite margin bounds how far back its predecessor
+    lies; that is precisely why chunking the canonical LOADER was withdrawn in
+    926b313 and cannot be rescued by widening one. The ingest is a different
+    case only because it has a corpus to consult — the loader, mid-window, does
+    not.
+
+    Keyed on `security_id`, never the ticker: a reused symbol would otherwise
+    hand one company's previous close to another and derive a split from the
+    splice.
+
+    Bounded by the number of securities (~10k), not by sessions. `DISTINCT ON`
+    walks the (security_id, session) primary key backwards, so this is an index
+    scan rather than a corpus read.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (security_id) security_id, close_signal,"
+            " close_unadjusted FROM sentinel_bars WHERE session < %s"
+            " ORDER BY security_id, session DESC", (before_session,))
+        return {
+            str(sid): (float(c) if c is not None else None,
+                       float(r) if r is not None else None)
+            for sid, c, r in cur.fetchall()
+        }
 
 
 def latest_session(conn) -> Optional[str]:

@@ -180,6 +180,17 @@ def _persist_chunk_evidence(conn, run, chunk: str, lo: str, hi: str,
             "kind": "UNUSABLE_DIVIDEND", "ticker": row["ticker"],
             "session": row["date"],
             "detail": f"action={row['action']} value={row['value']!r}"})
+    # A split derived at the window's leading edge that ACTIONS did not confirm.
+    # NOT applied (see domains.normalise_sep_rows) and therefore NOT visible in
+    # the bar it concerns, which is exactly why it has to be durable: the only
+    # trace of the question would otherwise be a value that looks ordinary.
+    for (tkr, sess), ratio in report.seam_splits_uncorroborated.items():
+        anomalies.append({
+            "kind": "SEAM_SPLIT_UNCORROBORATED", "ticker": tkr, "session": sess,
+            "detail": f"derived={ratio:.6g} against a SEEDED predecessor with no "
+                      f"ACTIONS row; NOT applied. Either the actions feed missed "
+                      f"a real split, or the seeded close belongs to an older "
+                      f"vendor adjustment vintage."})
     if anomalies:
         feed_store.write_anomalies(conn, anomalies)
 
@@ -230,10 +241,16 @@ def seed(conn, *, date_from: str = DEFAULT_SEED_START, date_to: Optional[str] = 
             # equidistant from the 1 and 2 the derived ratio snaps to, and S5
             # made that error matter by preserving fractional entitlement.
             splits, divs, action_rows = _action_maps(conn, lo, hi)
+            # THE PREVIOUS OBSERVATION OF EACH SECURITY, from the corpus. Read
+            # BEFORE this chunk writes anything, so it is strictly the state as
+            # of the moment before the window opens. Without it the first bar of
+            # every year derived "no split" — see store.previous_observations.
             bars = domains.normalise_sep_rows(
                 _sorted_sep(fetch(sharadar.SEP, sharadar.date_params(lo, hi))),
                 resolve_identity=resolver,
-                authoritative_splits=splits, dividends=divs, report=report)
+                authoritative_splits=splits, dividends=divs,
+                prior_observations=feed_store.previous_observations(conn, lo),
+                report=report)
             written = feed_store.write_bars(conn, bars)
             # PERSIST THE EVIDENCE in the same breath as the bars. A refusal,
             # a truncation or an anomaly recorded only in memory dies with the
@@ -285,7 +302,13 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
         bars = domains.normalise_sep_rows(
             _sorted_sep(fetch(sharadar.SEP, sharadar.date_params(start, to))),
             resolve_identity=resolve_identity or universe.load_resolver(conn).resolve,
-            authoritative_splits=splits, dividends=divs, report=report)
+            authoritative_splits=splits, dividends=divs,
+            # THE DAILY PATH IS WHERE THE DEFECT BIT HARDEST. This window opens
+            # 14 days behind the frontier and runs EVERY EVENING, so its leading
+            # edge was re-derived as "no split" nightly and written over
+            # whatever a better-positioned earlier run had established.
+            prior_observations=feed_store.previous_observations(conn, start),
+            report=report)
         run.progress.rows_written += feed_store.write_bars(conn, bars)
         _persist_chunk_evidence(conn, run, "prices", start, to, report, splits,
                                 action_rows)

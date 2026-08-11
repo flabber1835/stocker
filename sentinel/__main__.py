@@ -205,6 +205,40 @@ def cmd_check_data(config: SentinelConfig, today: str | None) -> int:
     return EXIT_NOT_ESTABLISHED
 
 
+def cmd_feed_repair(config: SentinelConfig, args) -> int:
+    """Stored split ratios that contradict ACTIONS — and, with --apply, the fix.
+
+    Exits non-zero while any discrepancy stands, INCLUDING after a dry run, so a
+    deploy script cannot treat "I looked" as "it is clean". A clean audit still
+    exits zero while saying, in the payload, that it is a LOWER BOUND: a split
+    ACTIONS never recorded contradicts nothing and is invisible here. Only a
+    contiguous reseed can rule that population out, and no exit code should be
+    read as claiming otherwise.
+    """
+    from sentinel.feed import repair as feed_repair
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = feed_store.connect(config.database_url)
+    try:
+        feed_store.ensure_schema(conn)
+        out = feed_repair.repair(conn, start=args.start, end=args.end,
+                                 dry_run=not args.apply)
+    finally:
+        conn.close()
+
+    print(json.dumps(out, indent=2, default=str))
+    if out["confirmed_discrepancies"]:
+        print(f"REFUSED: {out['confirmed_discrepancies']} bar(s) contradict "
+              f"ACTIONS in {args.start}..{args.end}"
+              + ("" if args.apply else " — re-run with --apply to fix"),
+              file=sys.stderr)
+        return EXIT_NOT_ESTABLISHED
+    return EXIT_OK
+
+
 def cmd_identity(config: SentinelConfig, args) -> int:
     """What this environment and corpus ARE. Read-only; no broker, no writes.
 
@@ -533,6 +567,16 @@ def main(argv: list[str] | None = None) -> int:
                          "before the first bootstrap). Explicit on purpose: "
                          "supplying nothing means UNKNOWN, not empty, and "
                          "every ticker then reads UNDETERMINED")
+    rp = sub.add_parser("feed-repair",
+                        help="find (and optionally fix) stored split ratios "
+                             "that CONTRADICT the ACTIONS feed")
+    rp.add_argument("--start", required=True)
+    rp.add_argument("--end", required=True)
+    rp.add_argument("--apply", action="store_true",
+                    help="actually rewrite the ratios. DRY BY DEFAULT: this "
+                         "command changes SHARE COUNTS, and the one operation "
+                         "in the package permitted to LOWER a split ratio "
+                         "should not be the convenient one")
     idp = sub.add_parser("identity",
                          help="what this environment and corpus ARE — the "
                               "record a certified run is reproducible from")
@@ -572,6 +616,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_feed(config, args)
         if args.command == "rejection-audit":
             return cmd_rejection_audit(config, args)
+        if args.command == "feed-repair":
+            return cmd_feed_repair(config, args)
         if args.command == "identity":
             return cmd_identity(config, args)
         if args.command == "check-data":
