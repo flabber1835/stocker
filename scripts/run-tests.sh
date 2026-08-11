@@ -55,7 +55,6 @@ mapfile -t -O "${#SUITES[@]}" SUITES < <(find tests -maxdepth 1 \
 #      surfaced by the next green run rather than surviving indefinitely.
 declare -A KNOWN_RED=(
   [tests/wealth_core]="3 golden-fixture tests. The fixture is INTENTIONALLY UNPINNED while the terminal-audit re-pin is pending — see CLAUDE.md 'The \$283.04'. ENDS WHEN: the single authorised re-pin lands. Do NOT re-pin to make these green."
-  [tests/bt_engine]="2 tests in test_wealth_core_api.py::TestItIsMounted. services/bt-engine/app/main.py imports stock_strategy_shared.loader, which the legacy eradication (ac0c71f) deleted, so the service cannot start — the Wealth Core certification endpoint is mounted on a dead entrypoint. The wealth_core_* modules themselves all import cleanly. ENDS WHEN: main.py is reduced to the Wealth Core API it still serves."
 )
 
 pass=0; fail=0; expected=0; failed_suites=(); stale=()

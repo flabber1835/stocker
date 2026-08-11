@@ -116,9 +116,16 @@ PRODUCTION
   docker-compose.sentinel.yml
 
 CERTIFICATION-ONLY — must never enter the production dependency graph
-  services/bt-engine/     Wealth Core rehearsal endpoint (wind tunnel deleted)
+  services/bt-engine/     Wealth Core rehearsal endpoint. main.py was reduced to
+                          that surface in 2026-08: the eradication deleted the
+                          modules its retired backtester API imported, so the
+                          service could not START and the endpoint it was meant
+                          to preserve was mounted on a dead entrypoint
   services/bt-data/       Sharadar corpus loader for the certification stack
-  services/backtester/    wealth_core_replay.py, the corpus-parity oracle
+  services/backtester/    wealth_core_replay.py, the corpus-parity oracle.
+                          main.py, config_replay.py, parity.py and _vendor/ are
+                          DELETED — unreachable, unimportable, and nothing here
+                          is resurrected merely to satisfy an old entrypoint
   docker-compose.backtest.yml
   tests/support/          the ephemeral-Postgres fixture
 ```

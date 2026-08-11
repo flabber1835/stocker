@@ -451,13 +451,43 @@ class TestARestartDoesNotLeaveARunLying:
     def test_the_startup_pass_reclaims_wealth_core_runs(self):
         assert "UPDATE bt_wealth_core_runs SET status='failed'" in self.LIFESPAN
 
-    def test_it_reclaims_all_three_tables_not_just_the_two_it_started_with(self):
-        """bt_runs and bt_sweeps were always reclaimed; bt_wealth_core_runs was
-        added later and is the one that was missed. Asserting all three keeps a
-        FOURTH job table from being added with the same omission."""
-        for table in ("bt_runs", "bt_sweeps", "bt_wealth_core_runs"):
+    def test_EVERY_job_table_this_service_creates_is_reclaimed(self):
+        """DERIVED from the DDL, not enumerated.
+
+        This used to name bt_runs, bt_sweeps and bt_wealth_core_runs literally,
+        because three existed — and the reason for the literal list was to stop
+        a FOURTH table arriving with the same omission, which a literal list
+        cannot actually do. It also went stale the moment the Wealth Core
+        repair removed the two tables this service can no longer create: it
+        demanded a reclaim for rows nothing here writes.
+
+        Reading the DDL closes both holes at once. A new job table is covered
+        the day it is added, and a removed one stops being demanded.
+        """
+        import re
+
+        from app import wealth_core_api
+
+        created = set()
+        for ddl in wealth_core_api.WEALTH_CORE_DDL:
+            m = re.search(r"CREATE TABLE IF NOT EXISTS (bt_\w+)", ddl)
+            # A job table is one with a `status` lifecycle; the results and
+            # progress tables have no run to reclaim.
+            if m and "status" in ddl:
+                created.add(m.group(1))
+
+        assert created, "no job table found in WEALTH_CORE_DDL"
+        for table in sorted(created):
             assert f"UPDATE {table} SET status='failed'" in self.LIFESPAN, (
                 f"{table} has running rows that no restart pass reclaims")
+
+    def test_the_RETIRED_tables_are_no_longer_touched(self):
+        """bt_runs and bt_sweeps belong to the backtester the eradication
+        deleted. Nothing here can create a row in them, so marking their stale
+        rows RESTART_ABORTED would be a lie — they were not aborted by this
+        restart, they were abandoned by a deletion."""
+        for table in ("bt_runs", "bt_sweeps"):
+            assert f"UPDATE {table} SET" not in self.LIFESPAN
 
     def _reclaim_statements(self):
         """The reclaim SQL, via AST rather than regex.
@@ -486,7 +516,7 @@ class TestARestartDoesNotLeaveARunLying:
         looks like a result — and the scheduler's own recovery keys on the
         prefix."""
         stmts = self._reclaim_statements()
-        assert len(stmts) == 3, f"expected 3 reclaims, found {len(stmts)}"
+        assert stmts, "no reclaim statements at all"
         for stmt in stmts:
             assert "RESTART_ABORTED" in stmt, stmt[:120]
 
