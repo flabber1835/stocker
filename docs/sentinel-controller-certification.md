@@ -140,9 +140,7 @@ acquire a second one.
 
 ---
 
-## 5. What step 2's acceptance criterion should be
-
-Recommended, for decision:
+## 5. The settled split (decided 2026-08-11)
 
 ```text
 1  the controller DECIDES at close; the effective series is the decision series
@@ -163,6 +161,54 @@ Recommended, for decision:
 
 The alternative — reproducing 386 — is achievable only by reintroducing the
 issuer-identity and terminal-order defects into the shadow, which would mean
-certifying the production engine against a known-wrong book.
+certifying the production engine against a known-wrong book. **The
+pre-correction shadow is deliberately not being recovered**; the corrected
+lineage is the one intended for deployment.
 
-**Neither path can be executed in CI.** Both need SPY, and SPY needs the corpus.
+**Step 2 moves to the NAS**, beside #15. Both need SPY and SPY needs the corpus.
+
+### 5a. The `closeadj` contract, stated narrowly
+
+The global Wealth Core guard is NOT weakened. A second, separate contract is
+added beside it:
+
+```text
+Wealth Core security signals and marks      may NEVER read closeadj
+the Sentinel market-regime sensor (SPY)     MAY read closeadj, because the
+                                            frozen controller specification
+                                            explicitly requires a total-return
+                                            series
+```
+
+Two rules, two tests. The SPY exception must not become precedent for feeding
+adjusted prices into Wealth Core, so the narrowing is by MODULE — a single named
+regime-data path — rather than by column, and the existing tokenizer guard keeps
+covering everything else under `sentinel/`. A future engineer reaching for
+`closeadj` in a scoring or marking path still hits a wall.
+
+---
+
+## 6. Step 3, which does NOT wait on the NAS
+
+Two halves, and the first is strictly stronger than re-running the experiments:
+
+```text
+FROZEN RESEARCH ARTEFACTS as acceptance oracles
+    07_leave_one_crisis_out.csv        crisis holdouts
+    04_delay_cost_sensitivity.csv      delayed signals, execution cost
+    08_rolling_start_validation.csv    60 rolling starts
+    09_fixed_5y_windows.csv            15 fixed windows
+    10_time_blocks.csv                 5 regime blocks
+    05/06_*_plateau.csv                parameter and gate plateaus
+    11_controlled_recovery_adversarial_worlds.csv   3,000 synthetic worlds
+
+NEW SYSTEM-LEVEL SIMULATION, which no artefact can answer
+    controller + Wealth Core composition      catch-up after outages
+    external cash                             stale / missing data
+    restart equivalence                       recover twice = no further action
+    single-name and multi-name failure        execution convergence
+```
+
+These are frozen evidence from the research process. Asserting against them is
+stronger than reproducing the experiments, because a re-run can only ever agree
+with the code that produced it.
