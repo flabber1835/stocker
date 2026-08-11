@@ -80,21 +80,45 @@ TOLERANCE = 1e-9
 
 @dataclass
 class ParityReport:
+    """COUNTS are exact; the NAMED examples are capped.
+
+    `missing_from_sentinel` used to be the full list of every divergent key.
+    That is fine when the two sides agree and unbounded exactly when they do
+    not: a corpus seeded against the wrong universe would put millions of
+    tuples in a report whose own JSON only ever prints their LENGTH. The
+    failure case is the one that has to stay bounded, because it is the one
+    that runs out of memory.
+
+    So the counts are authoritative and the samples are evidence. `agrees` is
+    decided by the counts, never by whether a capped list happens to be empty.
+    """
     window: tuple[str, str]
     sentinel_bars: int = 0
     canonical_bars: int = 0
+    missing_count: int = 0
+    extra_count: int = 0
     missing_from_sentinel: list[tuple[str, str]] = field(default_factory=list)
     extra_in_sentinel: list[tuple[str, str]] = field(default_factory=list)
     field_divergences: dict[str, int] = field(default_factory=dict)
     examples: list[dict] = field(default_factory=list)
-    truncated: int = 0
+    examples_truncated: int = 0
     unavailable: Optional[str] = None
+
+    def note_missing(self, key, *, max_report: int) -> None:
+        self.missing_count += 1
+        if len(self.missing_from_sentinel) < max_report:
+            self.missing_from_sentinel.append(key)
+
+    def note_extra(self, key, *, max_report: int) -> None:
+        self.extra_count += 1
+        if len(self.extra_in_sentinel) < max_report:
+            self.extra_in_sentinel.append(key)
 
     @property
     def agrees(self) -> bool:
         return (self.unavailable is None
-                and not self.missing_from_sentinel
-                and not self.extra_in_sentinel
+                and not self.missing_count
+                and not self.extra_count
                 and not self.field_divergences)
 
     def to_dict(self) -> dict:
@@ -102,11 +126,16 @@ class ParityReport:
                 "unavailable": self.unavailable,
                 "sentinel_bars": self.sentinel_bars,
                 "canonical_bars": self.canonical_bars,
-                "missing_from_sentinel": len(self.missing_from_sentinel),
-                "extra_in_sentinel": len(self.extra_in_sentinel),
+                "missing_from_sentinel": self.missing_count,
+                "extra_in_sentinel": self.extra_count,
+                # The capped SAMPLES, named so nobody reads them as the whole
+                # set. Without these a membership failure reports a number and
+                # no way to start looking.
+                "missing_sample": [list(k) for k in self.missing_from_sentinel],
+                "extra_sample": [list(k) for k in self.extra_in_sentinel],
                 "field_divergences": self.field_divergences,
                 "examples": self.examples,
-                "examples_truncated": self.truncated,
+                "examples_truncated": self.examples_truncated,
                 "agrees": self.agrees}
 
 
@@ -141,29 +170,45 @@ def _close(a, b) -> bool:
 
 def compare(sentinel_bars: dict, canonical_bars: dict, *, window,
             max_report: int = 25) -> ParityReport:
-    """Pure. Two `{session: [VendorBar]}` maps in, one report out."""
-    mine = {(s, b.security_id): b
-            for s, bars in sentinel_bars.items() for b in bars}
-    theirs = {(s, b.security_id): b
-              for s, bars in canonical_bars.items() for b in bars}
-    rep = ParityReport(window=tuple(window), sentinel_bars=len(mine),
-                       canonical_bars=len(theirs))
-    rep.missing_from_sentinel = sorted(set(theirs) - set(mine))
-    rep.extra_in_sentinel = sorted(set(mine) - set(theirs))
+    """Pure. Two `{session: [VendorBar]}` maps in, one report out.
 
-    for key in sorted(set(mine) & set(theirs)):
-        a, b = mine[key], theirs[key]
-        for f in COMPARED_FIELDS:
-            if _close(getattr(a, f, None), getattr(b, f, None)):
-                continue
-            rep.field_divergences[f] = rep.field_divergences.get(f, 0) + 1
-            if len(rep.examples) < max_report:
-                rep.examples.append({
-                    "session": key[0], "security_id": key[1], "field": f,
-                    "sentinel": getattr(a, f, None),
-                    "canonical": getattr(b, f, None)})
-            else:
-                rep.truncated += 1
+    STREAMED BY SESSION, and that is a memory property rather than a style
+    choice. The previous form built a dict keyed `(session, security_id)` for
+    each side — ~2M entries apiece over 2021-2023 — and then materialised THREE
+    more collections over them: two whole-window set differences and a
+    `sorted(set & set)` list of every shared key. Peak was several times the
+    data it was comparing, on top of two fully loaded corpora.
+
+    Bars are keyed by session on both sides, so a bar can only ever match
+    within its own session: comparing session by session is the same
+    comparison, holding one session at a time instead of three years. Nothing
+    about the VERDICT changes, which is what the equivalence tests assert.
+    """
+    rep = ParityReport(window=tuple(window))
+    for session in sorted(set(sentinel_bars) | set(canonical_bars)):
+        mine = {b.security_id: b for b in sentinel_bars.get(session, ())}
+        theirs = {b.security_id: b for b in canonical_bars.get(session, ())}
+        rep.sentinel_bars += len(mine)
+        rep.canonical_bars += len(theirs)
+
+        for sid in sorted(theirs.keys() - mine.keys()):
+            rep.note_missing((session, sid), max_report=max_report)
+        for sid in sorted(mine.keys() - theirs.keys()):
+            rep.note_extra((session, sid), max_report=max_report)
+
+        for sid in sorted(mine.keys() & theirs.keys()):
+            a, b = mine[sid], theirs[sid]
+            for f in COMPARED_FIELDS:
+                if _close(getattr(a, f, None), getattr(b, f, None)):
+                    continue
+                rep.field_divergences[f] = rep.field_divergences.get(f, 0) + 1
+                if len(rep.examples) < max_report:
+                    rep.examples.append({
+                        "session": session, "security_id": sid, "field": f,
+                        "sentinel": getattr(a, f, None),
+                        "canonical": getattr(b, f, None)})
+                else:
+                    rep.examples_truncated += 1
     return rep
 
 
@@ -219,82 +264,6 @@ def run(sentinel_conn, *, start: str, end: str,
                    max_report=max_report)
 
 
-def _chunks(start: str, end: str, days: int):
-    """Split a window into consecutive [a, b] date pairs, inclusive."""
-    from datetime import date, timedelta
-    a = date.fromisoformat(start)
-    last = date.fromisoformat(end)
-    while a <= last:
-        b = min(a + timedelta(days=days - 1), last)
-        yield a.isoformat(), b.isoformat()
-        a = b + timedelta(days=1)
-
-
-def merge(reports, *, window, max_report: int = 25) -> ParityReport:
-    """Fold per-chunk reports into one verdict for the whole window.
-
-    Sessions never span a chunk boundary and bars are keyed by
-    `(session, security_id)`, so the union of the parts IS the whole: no bar
-    can be missing in one chunk and present in another.
-
-    The first `unavailable` wins and short-circuits — if one chunk could not be
-    read, the window was not compared, and merging the rest would report a
-    partial comparison as a complete one.
-    """
-    out = ParityReport(window=tuple(window))
-    for rep in reports:
-        if rep.unavailable:
-            return ParityReport(window=tuple(window), unavailable=rep.unavailable)
-        out.sentinel_bars += rep.sentinel_bars
-        out.canonical_bars += rep.canonical_bars
-        out.missing_from_sentinel.extend(rep.missing_from_sentinel)
-        out.extra_in_sentinel.extend(rep.extra_in_sentinel)
-        for f, n in rep.field_divergences.items():
-            out.field_divergences[f] = out.field_divergences.get(f, 0) + n
-        for ex in rep.examples:
-            if len(out.examples) < max_report:
-                out.examples.append(ex)
-            else:
-                out.truncated += 1
-        out.truncated += rep.truncated
-    return out
-
-
-def run_chunked(sentinel_conn, *, start: str, end: str,
-                bt_database_url: Optional[str] = None,
-                max_report: int = 25, chunk_days: int = 92) -> ParityReport:
-    """`run`, but with PEAK MEMORY bounded by the chunk rather than the window.
-
-    The whole-window form was killed by the OOM reaper on a 7.7 GiB machine —
-    silently, because SIGKILL leaves no traceback and the harness had already
-    truncated the evidence file, so a three-year comparison reported as an
-    empty JSON and a message telling you to read it.
-
-    The cost is not the two loaded windows alone. `compare` builds a dict keyed
-    `(session, security_id)` for each side — on 2021-2023 that is roughly 4.5M
-    entries apiece — and then materialises THREE more collections over them:
-    two set differences and a `sorted(set & set)` list of every shared key. The
-    peak is several times the data, and it grows with the window, which is why
-    a one-month probe survives and the certification window does not.
-
-    Chunking is not a weaker check. Sessions do not span a boundary and bars
-    are keyed by session, so the union of the chunks is exactly the window;
-    `merge` sums the counters and keeps the same capped examples. A quarter is
-    the default because it is ~63 sessions — small enough to bound the peak,
-    large enough that the per-chunk query overhead stays irrelevant against a
-    three-year run.
-    """
-    reports = []
-    for a, b in _chunks(start, end, chunk_days):
-        reports.append(run(sentinel_conn, start=a, end=b,
-                           bt_database_url=bt_database_url,
-                           max_report=max_report))
-    if not reports:
-        return ParityReport(window=(start, end),
-                            unavailable=f"empty window {start}..{end}")
-    return merge(reports, window=(start, end), max_report=max_report)
-
-
 def main(argv=None) -> int:
     import argparse
     import json
@@ -310,10 +279,6 @@ def main(argv=None) -> int:
     ap.add_argument("--sentinel-url", default=None,
                     help="defaults to $SENTINEL_DATABASE_URL")
     ap.add_argument("--max-report", type=int, default=25)
-    # 0 disables chunking and restores the single-pass form — kept so the two
-    # can be compared on a small window, which is how the chunked path is
-    # proven to give the same answer rather than merely a survivable one.
-    ap.add_argument("--chunk-days", type=int, default=92)
     args = ap.parse_args(argv)
 
     url = args.sentinel_url or os.environ.get("SENTINEL_DATABASE_URL")
@@ -323,16 +288,8 @@ def main(argv=None) -> int:
 
     conn = feed_store.connect(url)
     try:
-        runner = run if args.chunk_days <= 0 else None
-        if runner is not None:
-            rep = runner(conn, start=args.start, end=args.end,
-                         bt_database_url=args.bt_url,
-                         max_report=args.max_report)
-        else:
-            rep = run_chunked(conn, start=args.start, end=args.end,
-                              bt_database_url=args.bt_url,
-                              max_report=args.max_report,
-                              chunk_days=args.chunk_days)
+        rep = run(conn, start=args.start, end=args.end,
+                  bt_database_url=args.bt_url, max_report=args.max_report)
     finally:
         conn.close()
 
@@ -343,8 +300,8 @@ def main(argv=None) -> int:
         print(f"REFUSED: {rep.unavailable}", file=sys.stderr)
     else:
         print(f"REFUSED: the seeded corpus differs from the canonical one — "
-              f"{len(rep.missing_from_sentinel)} missing, "
-              f"{len(rep.extra_in_sentinel)} extra, field divergences "
+              f"{rep.missing_count} missing, "
+              f"{rep.extra_count} extra, field divergences "
               f"{rep.field_divergences}. Read membership first: a field "
               f"mismatch on a bar that should not exist is noise.",
               file=sys.stderr)
@@ -352,7 +309,7 @@ def main(argv=None) -> int:
 
 
 __all__ = ["COMPARED_FIELDS", "ParityReport", "TOLERANCE", "compare", "main",
-           "merge", "run", "run_chunked"]
+           "run"]
 
 if __name__ == "__main__":                                   # pragma: no cover
     raise SystemExit(main())

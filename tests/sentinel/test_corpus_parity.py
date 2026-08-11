@@ -29,6 +29,12 @@ from stock_strategy_shared.wealth_core.feed import VendorBar  # noqa: E402
 
 from tools import corpus_parity as CP  # noqa: E402
 
+# The CANONICAL loader, imported directly: the hazard tests below assert
+# properties of ITS date handling, and asserting them anywhere else would be
+# asserting a paraphrase.
+CP._add_backtester_to_path()
+from app import wealth_core_replay as BT  # noqa: E402
+
 W = ("2024-01-01", "2024-12-31")
 
 
@@ -98,7 +104,7 @@ class TestTheReportIsBOUNDED:
         mine = side(*[bar(sid=f"P:{i}", split_ratio=2.0) for i in range(40)])
         theirs = side(*[bar(sid=f"P:{i}") for i in range(40)])
         rep = CP.compare(mine, theirs, window=W, max_report=5)
-        assert len(rep.examples) == 5 and rep.truncated == 35
+        assert len(rep.examples) == 5 and rep.examples_truncated == 35
 
     def test_the_COUNT_stays_exact_regardless(self):
         mine = side(*[bar(sid=f"P:{i}", split_ratio=2.0) for i in range(40)])
@@ -211,25 +217,14 @@ class TestTheCanonicalDSNUsesADriverTheImageHAS:
         assert "--network host" in body[:i]
 
 
-class TestChunkingDoesNotWeakenTheCHECK:
-    """The whole-window form was OOM-killed on the NAS at 2021-2023.
-
-    Silently: SIGKILL leaves no traceback, and the harness had already
-    truncated the evidence file, so a three-year comparison surfaced as an
-    empty JSON beside a message telling you to read it.
-
-    The cost is not the two loaded windows. `compare` builds a dict keyed
-    `(session, security_id)` per side — ~4.5M entries each over three years —
-    then materialises two set differences and a `sorted(set & set)` list over
-    every shared key. Peak is a multiple of the data and grows with the window,
-    which is why a one-month probe survives and the certification window does
-    not.
-
-    Chunking is only legitimate if the verdict is unchanged, so that is what is
-    asserted here rather than that it merely completes."""
+class TestTheStreamedCompareIsTheSameCOMPARISON:
+    """Session-streamed rather than whole-window, for memory — and the verdict
+    must not move an inch. Asserted on fixtures carrying every kind of finding
+    at once: a field divergence, a bar only Sentinel has, and a bar only the
+    canonical side has."""
 
     @staticmethod
-    def bar(session, sid, **over):
+    def bar(sid, **over):
         from types import SimpleNamespace
         d = dict(security_id=sid, ticker="AAA", raw_close=10.0, raw_open=9.0,
                  volume=100.0, split_ratio=1.0, dividend_per_share=0.0,
@@ -238,63 +233,147 @@ class TestChunkingDoesNotWeakenTheCHECK:
         return SimpleNamespace(**d)
 
     def frames(self):
-        """Two months, with a divergence and a membership gap in EACH, so a
-        merge that dropped a chunk could not accidentally agree."""
         mine, theirs = {}, {}
-        for month, day in (("2021-01", "04"), ("2021-02", "04")):
-            s = f"{month}-{day}"
-            mine[s] = [self.bar(s, "S1"), self.bar(s, "S2", raw_close=11.0),
-                       self.bar(s, "EXTRA")]
-            theirs[s] = [self.bar(s, "S1"), self.bar(s, "S2"),
-                         self.bar(s, "MISSING")]
+        for s in ("2021-01-04", "2021-02-04", "2021-03-04"):
+            mine[s] = [self.bar("S1"), self.bar("S2", raw_close=11.0),
+                       self.bar("EXTRA")]
+            theirs[s] = [self.bar("S1"), self.bar("S2"), self.bar("MISSING")]
         return mine, theirs
 
-    def test_a_merged_pair_equals_the_single_pass(self):
+    def test_the_counts_are_exact(self):
         mine, theirs = self.frames()
-        whole = CP.compare(mine, theirs, window=("2021-01-01", "2021-02-28"))
+        rep = CP.compare(mine, theirs, window=("2021-01-01", "2021-03-31"))
+        assert rep.missing_count == 3          # one per session
+        assert rep.extra_count == 3
+        assert rep.field_divergences == {"raw_close": 3}
+        assert rep.sentinel_bars == 9 and rep.canonical_bars == 9
+        assert rep.agrees is False
 
-        halves = [CP.compare({k: v for k, v in mine.items() if k.startswith(m)},
-                             {k: v for k, v in theirs.items() if k.startswith(m)},
-                             window=(m + "-01", m + "-28"))
-                  for m in ("2021-01", "2021-02")]
-        merged = CP.merge(halves, window=("2021-01-01", "2021-02-28"))
+    def test_a_bar_matches_only_WITHIN_its_session(self):
+        """The property that makes streaming legitimate. If a security appears
+        on different sessions on the two sides, that is two membership
+        differences, not a match."""
+        mine = {"2021-01-04": [self.bar("S1")]}
+        theirs = {"2021-01-05": [self.bar("S1")]}
+        rep = CP.compare(mine, theirs, window=("2021-01-01", "2021-01-31"))
+        assert rep.missing_count == 1 and rep.extra_count == 1
+        assert rep.field_divergences == {}
 
-        assert merged.field_divergences == whole.field_divergences
-        assert sorted(merged.missing_from_sentinel) == \
-            sorted(whole.missing_from_sentinel)
-        assert sorted(merged.extra_in_sentinel) == sorted(whole.extra_in_sentinel)
-        assert merged.sentinel_bars == whole.sentinel_bars
-        assert merged.canonical_bars == whole.canonical_bars
-        assert merged.agrees == whole.agrees is False
+    def test_agreement_is_still_agreement(self):
+        mine, _ = self.frames()
+        rep = CP.compare(mine, mine, window=("2021-01-01", "2021-03-31"))
+        assert rep.agrees is True
+        assert rep.missing_count == rep.extra_count == 0
 
-    def test_an_UNAVAILABLE_chunk_poisons_the_whole_verdict(self):
-        """A window where one chunk could not be read was not compared. Merging
-        the readable parts would report a partial comparison as a complete
-        one — the same 'absent is not equal' rule the rest of the harness runs
-        on."""
-        ok = CP.compare({}, {}, window=("2021-01-01", "2021-01-31"))
-        bad = CP.ParityReport(window=("2021-02-01", "2021-02-28"),
-                              unavailable="connection lost")
-        merged = CP.merge([ok, bad], window=("2021-01-01", "2021-02-28"))
-        assert merged.unavailable == "connection lost"
-        assert merged.agrees is False
 
-    def test_the_chunks_TILE_the_window_exactly(self):
-        """No gap and no overlap: a gap silently skips sessions, an overlap
-        double-counts divergences."""
-        from datetime import date, timedelta
-        chunks = list(CP._chunks("2021-01-04", "2023-12-29", 92))
-        assert chunks[0][0] == "2021-01-04"
-        assert chunks[-1][1] == "2023-12-29"
-        for (_, prev_end), (nxt_start, _) in zip(chunks, chunks[1:]):
-            assert date.fromisoformat(nxt_start) - \
-                date.fromisoformat(prev_end) == timedelta(days=1)
+class TestTheREPORTIsBoundedWhenParityFailsCATASTROPHICALLY:
+    """The failure case is the one that must stay bounded — it is the one that
+    runs out of memory. A corpus seeded against the wrong universe puts every
+    key in the membership lists, in a report whose JSON only ever prints their
+    LENGTH."""
 
-    def test_a_single_day_window_still_yields_one_chunk(self):
-        assert list(CP._chunks("2021-01-04", "2021-01-04", 92)) == \
-            [("2021-01-04", "2021-01-04")]
+    @staticmethod
+    def bar(sid):
+        from types import SimpleNamespace
+        return SimpleNamespace(security_id=sid, ticker="AAA", raw_close=1.0,
+                               raw_open=1.0, volume=1.0, split_ratio=1.0,
+                               dividend_per_share=0.0, tradeable=True)
 
-    def test_the_certification_step_does_not_pin_chunking_off(self):
+    def total_disagreement(self, n=500):
+        mine = {"2021-01-04": [self.bar(f"MINE{i}") for i in range(n)]}
+        theirs = {"2021-01-04": [self.bar(f"THEIRS{i}") for i in range(n)]}
+        return CP.compare(mine, theirs, window=("2021-01-01", "2021-01-31"),
+                          max_report=25)
+
+    def test_the_samples_are_capped(self):
+        rep = self.total_disagreement()
+        assert len(rep.missing_from_sentinel) == 25
+        assert len(rep.extra_in_sentinel) == 25
+
+    def test_but_the_counts_are_NOT(self):
+        rep = self.total_disagreement()
+        assert rep.missing_count == 500 and rep.extra_count == 500
+
+    def test_the_json_reports_counts_and_labels_the_samples_as_samples(self):
+        d = self.total_disagreement().to_dict()
+        assert d["missing_from_sentinel"] == 500
+        assert len(d["missing_sample"]) == 25
+        assert d["agrees"] is False
+
+    def test_the_cap_does_not_decide_the_VERDICT(self):
+        """`agrees` reads the counts. Deciding it from a capped list would make
+        a report that named nothing look like agreement."""
+        rep = self.total_disagreement()
+        rep.missing_from_sentinel.clear()
+        rep.extra_in_sentinel.clear()
+        assert rep.agrees is False
+
+
+class TestWhyTheLOADERSAreNotChunked:
+    """A REGRESSION TEST FOR A REJECTED DESIGN.
+
+    An earlier fix for the OOM ran the whole canonical loader once per 92-day
+    chunk. It is unsound, and the tests written for it could not see that
+    because they compared already-normalised bars and never invoked a loader.
+    Two pieces of loader state cross a date boundary:
+
+    ```text
+    snap_to_session   an ex-date is a CALENDAR date snapped forward to the next
+                      SESSION. Given the chunk's own session list, an action in
+                      the tail of a chunk snaps past its end and is DROPPED —
+                      and the next chunk never loads that action, because its
+                      date is before that chunk's start. The action vanishes
+                      from both.
+
+    load_bars `prev`  the derived split ratio reads the PREVIOUS observation
+                      per security. The first bar of a chunk has none, so it
+                      derives a different ratio than the same bar mid-window —
+                      and `prev` is keyed on security with NO recency bound, so
+                      a name that last printed weeks ago still carries its
+                      previous close. No finite overlap can reconstruct it.
+    ```
+
+    These assertions pin the HAZARD, not the abandoned code: if either
+    behaviour ever changes, the reasoning here has to be revisited before
+    anyone reaches for chunking again."""
+
+    def test_an_action_in_a_chunks_TAIL_is_dropped_by_that_chunk(self):
+        """Friday-ending chunk, Saturday ex-date, Monday session."""
+        whole = ["2021-01-08", "2021-01-11"]          # Fri, Mon
+        chunk1 = ["2021-01-08"]                        # Fri only
+        assert BT.snap_to_session("2021-01-09", whole) == "2021-01-11"
+        assert BT.snap_to_session("2021-01-09", chunk1) is None, (
+            "if this ever returns a session, re-derive the argument before "
+            "reintroducing chunked loading")
+
+    def test_and_the_NEXT_chunk_never_sees_that_action(self):
+        """It filters actions by ITS OWN start date, which is after the
+        ex-date. So neither chunk carries it — the action is lost, not
+        double-counted, which is the harder failure to notice."""
+        actions = [{"ticker": "AAA", "date": "2021-01-09", "action": "split",
+                    "value": 2.0}]
+        chunk2_sessions = ["2021-01-11", "2021-01-12"]
+        chunk2_actions = [r for r in actions if r["date"] >= "2021-01-10"]
+        assert chunk2_actions == []
+        assert BT.split_ratios_from_actions(chunk2_actions,
+                                            chunk2_sessions) == {}
+        # Whole-window loading catches it.
+        assert BT.split_ratios_from_actions(
+            actions, ["2021-01-08"] + chunk2_sessions) == {
+                ("AAA", "2021-01-11"): 2.0}
+
+    def test_the_derived_split_ratio_depends_on_the_PREVIOUS_bar(self):
+        """So the first bar of any chunk derives a different ratio."""
+        mid_window = BT.split_ratio_from_domains(50.0, 100.0, 50.0, 50.0)
+        chunk_start = BT.split_ratio_from_domains(None, None, 50.0, 50.0)
+        assert mid_window != chunk_start, (
+            "the derived ratio no longer reads previous state — the second "
+            "reason chunked loading was rejected would no longer apply")
+
+    def test_the_tool_exposes_no_chunking_entry_point(self):
+        assert not hasattr(CP, "run_chunked")
+        assert not hasattr(CP, "_chunks")
+
+    def test_the_harness_does_not_pass_a_chunk_flag(self):
         body = (REPO / "scripts" / "sentinel-certify.sh").read_text()
-        assert "--chunk-days 0" not in body, (
-            "chunking disabled in the harness puts the OOM back")
+        assert "--chunk-days" not in body
