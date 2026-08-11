@@ -887,6 +887,80 @@ module imports SQLAlchemy at module scope and that is a retired-stack
 dependency — `tests/sentinel/test_image_layout.py` refuses to let the runtime
 image acquire it.
 
+## 10f. The resource envelope is MEASURED, and the measurement is an artefact
+
+`docker-compose.sentinel.yml` sets three limits under a comment that says what
+they are:
+
+> SET EARLY AND GENEROUSLY, tightened to the measured envelope later. The value
+> is not the point yet; ENFORCEMENT is.
+
+```text
+sentinel-postgres   mem_limit 1g    cpus 1.5   shm_size 1gb
+sentinel            mem_limit 2g    cpus 2.0
+sentinel-panel      mem_limit 512m  cpus 0.5
+```
+
+"Later" is finding #15. It needs a Docker daemon and the seeded corpus, so it
+runs on the NAS and nowhere else. Run it with `scripts/sentinel-measure.sh`
+rather than by hand:
+
+```bash
+scripts/sentinel-measure.sh seed    -- sentinel feed-seed --date-from 1998-01-01
+scripts/sentinel-measure.sh daily   -- sentinel run --dry-run
+scripts/sentinel-measure.sh catchup -- sentinel catch-up
+```
+
+Each writes `artifacts/envelope/<phase>-<stamp>.{csv,json,log}` — a per-sample
+CSV, a peak/headroom report, and the phase's own output.
+
+### What it samples, and why each one is there
+
+```text
+docker stats --no-stream   peak RSS and CPU per container, on a TIMER. Not the
+                           streaming form: it redraws with control codes, so a
+                           tee'd log is neither readable nor parseable, and the
+                           first frame's CPU number is meaningless
+/proc/meminfo              host MemAvailable. A container inside its limit on a
+                           host that is swapping has not passed
+pg_stat_database           temp_bytes delta. The corpus sort SPILLS, and a spill
+                           is invisible to `docker stats` — it is disk, and it
+                           is what the staging table exists to bound
+du on the data volume      disk growth across the phase
+docker inspect             OOMKilled and RestartCount, read from the DAEMON. A
+                           container killed at its limit and restarted reports
+                           healthy afterwards, with a truncated log
+elapsed wall time          a phase that fits in 1g by taking nine hours has not
+                           passed either
+```
+
+### The verdicts
+
+```text
+PASS          every peak at least 20% below its enforced limit
+TIGHT         a peak within 20%. Sampling is on a timer, so a spike between two
+              frames is invisible; a peak near the wall has probably touched it
+UNMEASURED    no samples. NOT a pass
+PHASE FAILED  the phase exited non-zero — the envelope describes a run that did
+              not finish
+OOM KILLED    read from the daemon, not inferred from a silent exit
+```
+
+The limits are read out of the compose file at run time, never transcribed, so
+the comparison cannot go stale against the deployment it describes.
+`tests/sentinel/test_certification_harness.py::TestTheResourceMeasurementHarness`
+pins that, and pins that the harness can destroy no state — measurement is
+read-only about the corpus; `sentinel-certify.sh` step 3 owns truncation.
+
+### What `sentinel-certify.sh` does NOT cover
+
+Nine steps, and none of them is a resource measurement. Nothing in that script
+samples memory, CPU, temp spill or wall time, and nothing compares an observed
+peak against a declared limit. A fully green certification says nothing about
+whether the seed fits in 1g. That is why #15 is a separate job with its own
+harness rather than a step folded into the existing one — and why the compose
+limits stay provisional until the artefacts above exist.
+
 ## 11. `execution_model` activation is a versioned operational event
 
 If enabling the Wealth Core / Sentinel path requires changing a protected

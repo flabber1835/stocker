@@ -880,7 +880,26 @@ class TestEveryBinaryTheSuiteShellsOutToIsInstalled:
     fails here rather than 500 seconds into the certified run."""
 
     #: Interpreters and helpers that are guaranteed by construction.
-    EXEMPT = {"python", "python3", "pytest", "pip"}
+    #: `bash` and `sh` are Debian ESSENTIAL packages — present in every Debian
+    #: derivative, not installable-away — so listing them in the apt line would
+    #: be noise. That reasoning depends entirely on the base staying Debian,
+    #: which `test_the_bash_exemption_still_has_its_PREMISE` pins.
+    EXEMPT = {"python", "python3", "pytest", "pip", "bash", "sh"}
+
+    def test_the_bash_exemption_still_has_its_PREMISE(self):
+        """`bash -n <script>` is how the shell harnesses are syntax-checked, and
+        it is exempted above on the grounds that Debian guarantees it. Move to
+        Alpine or a distroless base and that guarantee is gone — busybox `sh` is
+        not bash and `bash -n` becomes FileNotFoundError at step 5. So the
+        exemption is only allowed to stand while the premise does."""
+        base = [l.split()[1] for l in
+                (ROOT / "Dockerfile.sentinel").read_text().splitlines()
+                if l.strip().upper().startswith("FROM ")]
+        assert base and all("-slim" in b or "-bookworm" in b or "debian" in b
+                            for b in base), (
+            f"the image no longer builds on a Debian base ({base}); bash and sh "
+            "are no longer guaranteed and must be installed explicitly or "
+            "removed from EXEMPT")
 
     @staticmethod
     def apt_packages() -> set[str]:

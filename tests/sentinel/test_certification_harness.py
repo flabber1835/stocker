@@ -673,3 +673,121 @@ class TestTheDirtyTreeRefusalNamesTheFILES:
         """The likeliest cause on a NAS: a filesystem that rewrites permission
         bits, so every entry is a MODE change on a file nobody touched."""
         assert "core.fileMode" in MANIFEST.read_text()
+
+
+MEASURE = REPO / "scripts" / "sentinel-measure.sh"
+
+
+class TestTheResourceMeasurementHarness:
+    """Finding #15 measures an envelope, and the measurement is EVIDENCE.
+
+    `docker-compose.sentinel.yml` sets `mem_limit: 1g` under a comment that says
+    the value is provisional and will be "tightened to the measured envelope
+    later". A limit tightened from a figure someone read off a terminal is a
+    limit nobody can re-derive, and the failure it produces is an OOM kill
+    partway through a seed — which, as the 8b incident showed, presents as a
+    silent exit and gets inferred rather than measured.
+
+    So the harness is checked the way the rest of the certification machinery
+    is: statically, for the properties whose absence would make a green run
+    meaningless.
+    """
+
+    def body(self) -> str:
+        return MEASURE.read_text()
+
+    def test_it_exists_and_is_executable(self):
+        assert MEASURE.exists(), "scripts/sentinel-measure.sh is missing"
+        assert os.access(MEASURE, os.X_OK), "not executable"
+
+    def test_it_NEVER_removes_volumes(self):
+        """The same rule the certify script follows. The Sentinel volume holds
+        the ownership log, and losing it makes the next start liquidate a
+        Sentinel-owned book — a measurement run must not be able to cause that.
+
+        Matched as COMMANDS, not as the substring `-v `. The first version did
+        the latter and had to carve out an exception for `psql -v
+        ON_ERROR_STOP=1`, which left it pinned to that one line's exact
+        formatting: reflow the psql call and the guard silently stops checking
+        anything. That is the same shape as the `fetchall()` test that matched
+        its own docstring.
+        """
+        import re
+        body = self.body()
+        hazards = [
+            (r"compose[^\n|&;]*\bdown\b[^\n|&;]*(--volumes|\s-v\b)",
+             "`compose down` with volume removal"),
+            (r"\bdocker\s+volume\s+rm\b", "docker volume rm"),
+            (r"\bdocker\s+(system|volume)\s+prune\b", "a prune"),
+            (r"\brm\s+-rf\s+/var/lib/postgresql", "deleting the data directory"),
+            (r"\bTRUNCATE\b", "truncating the corpus — measurement is READ-ONLY "
+                              "about state; step 3 of the certify script owns that"),
+        ]
+        found = [why for pat, why in hazards
+                 if re.search(pat, body, re.I | re.M)]
+        assert not found, f"scripts/sentinel-measure.sh can destroy state: {found}"
+
+    def test_the_volume_guard_can_FAIL(self):
+        """Guard the guard, on the one that would be catastrophic to have
+        silently disabled. Five patterns and a real string for each."""
+        import re
+        pats = [r"compose[^\n|&;]*\bdown\b[^\n|&;]*(--volumes|\s-v\b)",
+                r"\bdocker\s+volume\s+rm\b",
+                r"\bdocker\s+(system|volume)\s+prune\b",
+                r"\brm\s+-rf\s+/var/lib/postgresql",
+                r"\bTRUNCATE\b"]
+        samples = ["${COMPOSE} down --volumes",
+                   "docker volume rm sentinel_pgdata",
+                   "docker system prune -af",
+                   "rm -rf /var/lib/postgresql/data",
+                   "TRUNCATE TABLE sentinel_bars"]
+        for pat, s in zip(pats, samples):
+            assert re.search(pat, s, re.I | re.M), (pat, s)
+        # And the live text of the psql call must NOT trip any of them.
+        psql = ("psql -U sentinel -d sentinel -tAq -v ON_ERROR_STOP=1 -c "
+                "\"SELECT temp_bytes FROM pg_stat_database\"")
+        assert not any(re.search(p, psql, re.I | re.M) for p in pats)
+
+    def test_the_limits_are_READ_from_compose_not_transcribed(self):
+        """A hardcoded `1073741824` would keep reporting headroom after
+        somebody changed the file it is supposed to be comparing against —
+        the same failure shape as a transcribed threshold."""
+        body = self.body()
+        assert "docker-compose.sentinel.yml" in body
+        assert "mem_limit" in body
+        for literal in ("1073741824", "2147483648", "536870912"):
+            assert literal not in body, (
+                f"{literal} is a compose limit transcribed into the harness")
+
+    def test_it_samples_WITHOUT_streaming(self):
+        """Streaming `docker stats` redraws with control codes: a tee'd log is
+        neither readable nor parseable, and its first CPU frame is meaningless.
+        Sampled on a timer instead, one complete CSV row per frame."""
+        body = self.body()
+        assert "--no-stream" in body
+        assert "docker stats --no-stream" in body
+
+    def test_it_records_what_docker_stats_CANNOT_see(self):
+        """Peak RSS alone passes a run that spilled 40GB to disk, swapped the
+        host, or was OOM-killed and restarted into apparent health."""
+        body = self.body()
+        for probe in ("temp_bytes",          # the sort spill
+                      "MemAvailable",        # host pressure
+                      "OOMKilled",           # the kill itself
+                      "RestartCount",        # and the recovery that hides it
+                      "elapsed_seconds"):    # a phase that fits by taking a day
+            assert probe in body, f"the harness never looks at {probe}"
+
+    def test_an_UNMEASURED_run_is_not_a_pass(self):
+        """The failure this class most needs to prevent: a sampler that never
+        started, a phase that exited non-zero, or an OOM — each reported as a
+        clean envelope."""
+        body = self.body()
+        for verdict in ("UNMEASURED", "PHASE FAILED", "OOM KILLED", "TIGHT"):
+            assert verdict in body, f"no {verdict} verdict"
+        assert 'case "${VERDICT}" in' in body
+
+    def test_it_is_valid_bash(self):
+        r = subprocess.run(["bash", "-n", str(MEASURE)],
+                           capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
