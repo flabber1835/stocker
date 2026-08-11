@@ -545,7 +545,49 @@ it will be believed.
 
 Bars, actions and universe rows additionally carry `last_written_run_id`, which
 is nearly free (`write_bars` already runs inside an `IngestRun`) and answers
-"which ingest produced this value" without any revision history.
+"which ingest produced this value" without any revision history. **Published is
+what readable means**: `publication.visible_predicate` hides any row whose
+`last_written_run_id` belongs to a run no publication represents, so a reader
+either sees a coherent generation or refuses. Rows with a NULL run id stay
+visible — they predate the tracking, and hiding them would empty an existing
+corpus on upgrade.
+
+### 8.3 Published is not enough on its own — the pin must freeze the ROWS
+
+That rule buys the right property against a corpus that only GROWS. Against one
+rewritten in place it is not sufficient, and the gap is not subtle:
+
+```text
+v41 published, AAA/2026-08-10 visible
+a session pins v41 and starts reading
+the daily ingest UPSERTs that row -> last_written_run_id = run42
+the predicate now HIDES it
+the same calculation, still nominally on v41, sees a different corpus
+```
+
+The version number never moved. `require_current` still answers 41. The snapshot
+that number names changed underneath the reader — a bar can vanish mid-window,
+or return with a restated split ratio, which does not even change the row count.
+`visible_predicate` is re-evaluated per query, and what it evaluates is mutable.
+
+So an ingest holds `store.corpus_write_lock` — `CORPUS_LOCK_KEY`, EXCLUSIVE —
+for its whole duration. A reader's shared pin and a writer are then mutually
+exclusive by construction rather than by two modules agreeing to be careful.
+Whole run, not per chunk: per-chunk acquisition leaves a window between chunks
+in which a reader pins a half-written corpus, the same defect one level down.
+`write_bars(require_lock=True)` asserts the lock against `pg_locks`, so the rule
+is enforced rather than documented.
+
+**Why not generations, which would be better.** A `generation` column with an
+atomic pointer move is the correct end state and is the RECONSTRUCTION tier of
+§8.1. It answers "show me v47", which this does not. It also changes the write
+path, the read path, repair, coherence and every test that touches the hottest
+table in the system, and a daily re-fetching a 14-day overlap needs
+content-change detection or it writes ~140k redundant rows a night. What is
+implemented is the subset of that guarantee which closes the hazard — and it is
+required under generations too, since the pointer move must still exclude a
+reader mid-snapshot. For a single-writer appliance that decides once per session
+and ingests in the evening, the exclusion costs nothing it does concurrently.
 
 ---
 
@@ -832,9 +874,36 @@ converts a visible deferral into a hang.
 the implementation, and two of its properties are load-bearing rather than
 incidental.
 
-**The pointer advances with the state, in one transaction.**
+**The pointer advances with the state, in one transaction — structurally.**
 `sentinel_processed_sessions` is one row per cursor, written in the same commit
 as the state the session produced.
+
+Saying so was not enough. The seam was `advance_state(session, state) -> state`,
+which any in-memory object satisfies — and then the only durable half is the
+pointer: a crash after the commit leaves the cursor saying Aug 10 is done while
+the durable book still says Aug 9, and Aug 10 is skipped permanently. Two
+enforcements, because either alone is escapable:
+
+```text
+advance_state(conn, session, state)    receives the transaction, so it CAN be
+                                       atomic
+_mark_processed(conn, session, state)  persists what it returned in the SAME
+                                       STATEMENT as the pointer, so catch-up's
+                                       own copy is atomic whatever the seam does
+```
+
+The state is JSON with no `default=` coercion: a fallback makes everything
+encodable and nothing round-trip, so an unencodable state is refused at the
+FIRST session rather than after four hours of replay. `catch_up` rolls back on
+any exception — a killed process gets that from the server, a raised exception
+on a surviving connection does not.
+
+**The one thing no design here can prevent**, found by mutation testing and so
+stated rather than implied: a seam that calls `conn.commit()` itself has made
+its state durable ahead of the pointer, and a crash then REPLAYS a session,
+double-ageing every episode. What survives is that catch-up's own copy never
+disagrees with catch-up's own pointer, so a restart resumes from a coherent pair
+and the seam's over-advance is detectable by comparing the two.
 
 ```text
 pointer written AFTER the whole loop   a crash replays sessions that already
@@ -906,6 +975,24 @@ marks stale (corpus behind)     reductions proceed, increases refused
 NAV UNEXPLAINED                 reductions proceed, increases refused
 NAV unobserved (broker down)    NOTHING proceeds — NavUnobserved is raised
 ```
+
+**A missing mark is not a target of zero.** `project` omits an unpriceable
+security rather than sizing it, and omission alone is not enough — for the same
+reason publication alone was not. To `compute_delta` an absent basket entry and
+a zero are the same thing, so the omission became a liquidation. Two situations
+were arriving at one place:
+
+```text
+not in weights        Wealth Core no longer wants it   -> SELL ALL. Correct, and
+                      it needs no mark: the share count is exact
+in weights, no mark   we cannot value it               -> HOLD. No decision
+```
+
+A blind security carries `held + committed` as its target — not `held` alone,
+since 40 owned with 60 working is a position of 100 in flight. A zero or
+negative mark counts as unpriceable, not as a price of zero. And a held security
+the target drops now carries an EXPLICIT zero, because a plan that relies on a
+reader's default is a plan that does not say what it means.
 
 A withdrawal on a stale corpus still reduces. Doing nothing because the marks
 are old leaves the account unable to settle the wire, which is not the
@@ -1134,6 +1221,18 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
 50  A stored verdict is shown with its AGE. "Never measured" is not "not
     ready", and a stale PASS is reported as stale rather than downgraded to a
     failure or presented as current.
+51  While a session holds the corpus pinned, the ROWS that pin names do not
+    change. An ingest holds the same key exclusively for its whole duration;
+    freezing the version number while the rows move is not a snapshot.
+52  A security that is still wanted and cannot be priced HOLDS its current
+    quantity. "We cannot value this" and "we want none of this" are different
+    facts and only the second is a reason to sell.
+53  A held security the target drops carries an explicit zero. Absent and zero
+    are the same to a delta calculation, so a plan must not rely on the
+    difference.
+54  The catch-up seam receives the transaction, and catch-up persists the state
+    it returns in the same statement as the pointer. A state that cannot be
+    encoded is refused before the first session advances.
 ```
 
 Every one of these is falsifiable, and each should fail a test when violated.
