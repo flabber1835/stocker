@@ -1011,9 +1011,24 @@ support CPU CFS scheduler or the cgroup is not mounted
 
 ```text
 Docker 24.0.2   kernel 3.10.108   cgroup v1   btrfs   Celeron N3060, 2 cores
-memory limits   ENFORCED          shm_size    ENFORCED
-CPU CFS quota   UNSUPPORTED       swap limit  UNSUPPORTED
+
+ENFORCED      memory, memory+swap, cpu_shares
+              (/proc/cgroups has cpu, cpuacct, memory, blkio, cpuset all on)
+UNSUPPORTED   cpu cfs quota, cpu cfs period, all four blkio throttles,
+              kernel memory TCP
 ```
+
+Confirmed rather than assumed: `docker run --memory=256m --memory-swap=256m
+sentinel:latest status` exits 0 on that host. The memory envelope #15 measures
+there is a real one.
+
+Two consequences worth reading together. **cpu_shares works** — the cpu cgroup
+is present, only CFS bandwidth is missing — so relative CPU weighting is
+available if it is ever wanted; it is deliberately not used, because a share is
+a priority and not a ceiling, and presenting one as the other would be the same
+overclaim. And **blkio throttling is unavailable**, which matters for a seed
+that is I/O-bound on spinning disks: disk pressure cannot be bounded here
+either, only observed.
 
 The daemon **refusing** is correct, and it is why the answer is a probe rather
 than deleting the resource controls. A CPU ceiling the kernel silently ignored

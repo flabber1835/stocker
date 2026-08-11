@@ -70,19 +70,31 @@ def stripper():
     return _load(STRIP)
 
 
-#: The DS216+II, from its own `docker info` and the error it produced. The two
-#: CPU flags are FACTS: the daemon's check is `NanoCPUs > 0 && !CPUCfsPeriod`,
-#: so the refusal proves them false.
+#: The DS216+II, transcribed from the machine's own `docker info` warnings and
+#: `/proc/cgroups` — not from the kernel version, and not from what seemed
+#: likely. The first version of this fixture guessed `SwapLimit: False` on the
+#: reasoning that an old Synology kernel would not have swap accounting. The
+#: host's warning list does not contain "No swap limit support", and it does
+#: contain four blkio ones, so swap accounting is present and disk throttling
+#: is not. A fixture describing a host has to come from the host.
+#:
+#: The two CPU flags are proven twice over: the daemon's check is
+#: `NanoCPUs > 0 && !CPUCfsPeriod`, so the refusal implies them, and the
+#: warnings name them outright.
 SYNOLOGY = {
     "ServerVersion": "24.0.2", "KernelVersion": "3.10.108",
     "OperatingSystem": "Synology DSM", "CgroupVersion": "1",
     "CgroupDriver": "cgroupfs", "Driver": "btrfs", "NCPU": 2,
     "MemTotal": 8287367168,
     "CPUCfsPeriod": False, "CPUCfsQuota": False,
-    "MemoryLimit": True, "SwapLimit": False,
-    "Warnings": ["WARNING: No cpu cfs quota support",
+    "MemoryLimit": True, "SwapLimit": True,
+    "Warnings": ["WARNING: No kernel memory TCP limit support",
+                 "WARNING: No cpu cfs quota support",
                  "WARNING: No cpu cfs period support",
-                 "WARNING: No swap limit support"],
+                 "WARNING: No blkio throttle.read_bps_device support",
+                 "WARNING: No blkio throttle.write_bps_device support",
+                 "WARNING: No blkio throttle.read_iops_device support",
+                 "WARNING: No blkio throttle.write_iops_device support"],
 }
 
 MODERN = {
@@ -102,8 +114,25 @@ class TestTheCapabilityVerdict:
         `cpus:` and the NAS would stop starting containers again."""
         caps = probe.classify(SYNOLOGY)
         assert caps["cpu_quota"] == "UNSUPPORTED"
+        assert caps["cpu_period"] == "UNSUPPORTED"
+        # Enforced, both of them, and confirmed on the machine itself:
+        # `docker run --memory=256m --memory-swap=256m sentinel:latest status`
+        # exits 0. So the MEMORY envelope #15 measures here is a real one.
         assert caps["memory_limit"] == "ENFORCED"
-        assert caps["memory_swap"] == "UNSUPPORTED"
+        assert caps["memory_swap"] == "ENFORCED"
+
+    def test_the_synology_warnings_are_carried_into_the_RECORD(self, probe, monkeypatch):
+        """The daemon's own prose is the most direct evidence of what it cannot
+        hold, and it names limits this probe does not model — blkio throttling,
+        which matters for an I/O-heavy seed on a NAS. Carried verbatim rather
+        than reduced to the four fields, so the artefact does not silently
+        narrow what was observed."""
+        monkeypatch.setattr(probe, "docker_info", lambda: SYNOLOGY)
+        rec = probe.probe()
+        assert any("cfs quota" in w for w in rec["daemon_warnings"])
+        assert any("blkio" in w for w in rec["daemon_warnings"])
+        assert rec["host"]["kernel"] == "3.10.108"
+        assert rec["host"]["ncpu"] == 2
 
     def test_a_capable_host_is_still_capable(self, probe):
         """The fix must not disable CPU limits everywhere. That would be
