@@ -1000,6 +1000,65 @@ the comparison cannot go stale against the deployment it describes.
 pins that, and pins that the harness can destroy no state — measurement is
 read-only about the corpus; `sentinel-certify.sh` step 3 owns truncation.
 
+### Not every host can ENFORCE every declared limit
+
+The first real #15 run, on a Synology DS216+II, never started a container:
+
+```text
+Error response from daemon: NanoCPUs can not be set, as your kernel does not
+support CPU CFS scheduler or the cgroup is not mounted
+```
+
+```text
+Docker 24.0.2   kernel 3.10.108   cgroup v1   btrfs   Celeron N3060, 2 cores
+memory limits   ENFORCED          shm_size    ENFORCED
+CPU CFS quota   UNSUPPORTED       swap limit  UNSUPPORTED
+```
+
+The daemon **refusing** is correct, and it is why the answer is a probe rather
+than deleting the resource controls. A CPU ceiling the kernel silently ignored
+is §11's own defect — a setting believed to be in force, that is not.
+
+```text
+scripts/sentinel_host_capabilities.py   asks the DAEMON what it enforces, not
+                                        the kernel version, which is a proxy
+scripts/sentinel_strip_cpu_limits.py    deletes `cpus:` and nothing else
+scripts/sentinel-compose.sh             the ONE resolver. Probes, and prints
+                                        the `-f` args every entry point uses
+```
+
+A compose override cannot do this: overrides MERGE, so `cpus: 0` would start
+the container — the daemon's check is gated on `NanoCPUs > 0` — but the field
+survives into `docker compose config` and the deployment still advertises a
+ceiling it does not have. The CPU-free file is therefore **generated** from the
+canonical one on every invocation, by deleting exactly those lines. It cannot
+drift, it diffs cleanly, and no operator edits YAML.
+
+`SENTINEL_FORCE_CPU_LIMITS=1` keeps the canonical file unprobed, for proving on
+a capable host that that path still works.
+
+**UNKNOWN keeps the limits.** Only a positive UNSUPPORTED strips them, so an
+unprobed host — no daemon, CI — retains its declared ceilings and fails loudly
+if it cannot hold them. The opposite default would silently drop every CPU
+limit on a machine that could.
+
+#### What this means for #15
+
+```text
+memory   a real envelope. mem_limit and shm_size are enforced here
+CPU      MEASURED, not BOUNDED. `cpus:` never reaches the kernel, so peak CPU
+         percent is observational and #15 must NOT report a CPU envelope as
+         certified on this host
+```
+
+The harness reports these separately — `memory_verdict` and `cpu_verdict`, with
+`cpu_limit_enforcement` naming the capability — because one summary word would
+either overclaim CPU or discard a real memory measurement. It writes
+`capabilities-<stamp>.json` beside every phase, so the record says which limits
+were actually in force when the numbers were taken.
+
+On two 1.6GHz cores the wall-time figure is likely to matter more than either.
+
 ### What `sentinel-certify.sh` does NOT cover
 
 Nine steps, and none of them is a resource measurement. Nothing in that script

@@ -46,7 +46,11 @@
 #   scripts/sentinel-certify.sh --start ... --end ... --verify-only
 set -euo pipefail
 
-COMPOSE="docker compose -f docker-compose.sentinel.yml"
+# THE RESOLVER decides the compose file. On a host with no CPU CFS quota the
+# canonical one cannot start a container at all, and a certification that never
+# got past `up` is not a certification. The capability verdict is recorded in
+# the manifest, so the record says which limits were actually in force.
+COMPOSE="docker compose $(bash "$(dirname "$0")/sentinel-compose.sh")"
 RUN="${COMPOSE} run --rm -T sentinel"
 START=""; END=""; KEEP=0; VERIFY_ONLY=0; SEED_FROM="1998-01-01"
 ART="artifacts/sentinel"

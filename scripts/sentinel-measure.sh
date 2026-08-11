@@ -58,7 +58,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-COMPOSE="docker compose -f docker-compose.sentinel.yml"
+# THE RESOLVER decides which compose file this host can actually run. On a
+# Synology with no CPU CFS quota the canonical one makes the daemon refuse
+# before the container exists, so measuring anything requires the generated,
+# cpus-free deployment. Never hardcode `-f docker-compose.sentinel.yml` here:
+# the whole point is that the file differs by host and the artefact says so.
+COMPOSE="docker compose $(bash "$(dirname "$0")/sentinel-compose.sh")"
 ART="artifacts/envelope"
 INTERVAL="${SENTINEL_SAMPLE_SECONDS:-5}"
 DB_SERVICE="sentinel-postgres"
@@ -82,6 +87,20 @@ REPORT="${ART}/${PHASE}-${STAMP}.json"
 # Never transcribed. The whole point is to compare the measurement against what
 # the deployment actually enforces, and a hardcoded copy of `1g` here would
 # keep reporting headroom after someone changed the file.
+# WHAT THIS HOST CAN ENFORCE, before what it was asked to enforce. A CPU
+# ceiling the kernel cannot hold is not a limit with headroom — it is not a
+# limit, and #15 must not report one as certified.
+step "probing what this host can ENFORCE"
+CAPS_JSON="$(python3 scripts/sentinel_host_capabilities.py --json)" \
+  || die "the host capability probe failed; the envelope would describe limits
+  that may not be in force"
+echo "${CAPS_JSON}" | python3 -c 'import json,sys; d=json.load(sys.stdin);
+print("  cpu_quota    :", d["capabilities"]["cpu_quota"]);
+print("  memory_limit :", d["capabilities"]["memory_limit"]);
+print("  kernel       :", d["host"]["kernel"], "cgroup", d["host"]["cgroup_version"])'
+mkdir -p "${ART}"
+echo "${CAPS_JSON}" > "${ART}/capabilities-${STAMP}.json"
+
 step "reading the declared limits from docker-compose.sentinel.yml"
 LIMITS_JSON="$(python3 - <<'PY'
 import json, re, sys, yaml, pathlib
@@ -206,6 +225,7 @@ PHASE="${PHASE}" STAMP="${STAMP}" RC="${RC}" ELAPSED="${ELAPSED}" \
 TEMP_BEFORE="${TEMP_BEFORE}" TEMP_AFTER="${TEMP_AFTER}" \
 DISK_BEFORE="${DISK_BEFORE}" DISK_AFTER="${DISK_AFTER}" \
 LIMITS_JSON="${LIMITS_JSON}" OOM_JSON="${OOM_JSON}" \
+CAPS_JSON="${CAPS_JSON}" \
 CMD="$*" SAMPLES="${SAMPLES}" REPORT="${REPORT}" \
 python3 <<'PY'
 import csv, json, os, sys
@@ -229,6 +249,14 @@ for r in rows:
         min_avail = v if min_avail is None else min(min_avail, v)
 
 declared = json.loads(env["LIMITS_JSON"])
+caps = json.loads(env.get("CAPS_JSON") or "{}").get("capabilities", {})
+# CPU is OBSERVED here, not necessarily BOUNDED. On a host with no CFS quota
+# the compose `cpus:` never reaches the kernel — the resolver strips it so the
+# container can start at all — so reporting headroom against it would be
+# reporting headroom against a number nothing enforces. Peak CPU is still
+# recorded; what changes is the CLAIM attached to it.
+cpu_enforced = caps.get("cpu_quota") == "ENFORCED"
+mem_enforced = caps.get("memory_limit") == "ENFORCED"
 def declared_for(container):
     # compose names containers `<project>-<service>-<n>`; match the longest
     # service name that appears, so `sentinel-postgres` wins over `sentinel`.
@@ -246,6 +274,15 @@ report = {
     "postgres_temp_bytes_delta": int(env["TEMP_AFTER"]) - int(env["TEMP_BEFORE"]),
     "data_volume_growth_bytes": int(env["DISK_AFTER"]) - int(env["DISK_BEFORE"]),
     "containers": {}, "oom_and_restarts": json.loads(env["OOM_JSON"]),
+    "host_capabilities": caps,
+    # The two verdicts are SEPARATE because the two limits are separate facts.
+    # A Synology enforces memory and cannot enforce CPU, and one summary word
+    # for both would either overclaim or discard a real measurement.
+    "memory_verdict": "PASS",
+    "cpu_limit_enforcement": "ENFORCED" if cpu_enforced else (
+        caps.get("cpu_quota") or "UNKNOWN"),
+    "cpu_verdict": "PASS" if cpu_enforced else "UNSUPPORTED — CPU was measured "
+                                               "but NOT bounded on this host",
     "headroom_verdict": "PASS",
 }
 
@@ -258,31 +295,58 @@ for c, m in sorted(peak_mem.items()):
              "declared_mem_limit_bytes": d.get("mem_limit"),
              "declared_cpus": d.get("cpus"),
              "enforced_mem_limit_bytes": hard}
-    if hard:
+    entry["cpu_bounded"] = cpu_enforced
+    if hard and mem_enforced:
         entry["headroom_pct"] = round(100.0 * (hard - m) / hard, 1)
         # 20% is a floor for a MEASUREMENT, not a tuning target: this samples on
         # a timer, so a spike between two frames is invisible and a peak that
         # already sits near the wall is a peak that has probably touched it.
         if entry["headroom_pct"] < 20.0:
+            report["memory_verdict"] = "TIGHT"
             report["headroom_verdict"] = "TIGHT"
+    elif hard:
+        # A declared limit the host does not enforce. Recorded, never scored.
+        entry["headroom_pct"] = None
+        entry["note"] = ("memory limit declared but the host reports "
+                         f"memory_limit={caps.get('memory_limit')}")
+        report["memory_verdict"] = "UNENFORCED"
+        report["headroom_verdict"] = "UNENFORCED"
     report["containers"][c] = entry
 
 if not rows:
-    report["headroom_verdict"] = "UNMEASURED"
+    report["memory_verdict"] = report["headroom_verdict"] = "UNMEASURED"
 if int(env["RC"]) != 0:
-    report["headroom_verdict"] = "PHASE FAILED"
+    report["memory_verdict"] = report["headroom_verdict"] = "PHASE FAILED"
 if any(o.get("oom_killed") for o in report["oom_and_restarts"]):
-    report["headroom_verdict"] = "OOM KILLED"
+    report["memory_verdict"] = report["headroom_verdict"] = "OOM KILLED"
 
 open(env["REPORT"], "w").write(json.dumps(report, indent=2, sort_keys=True))
 print(json.dumps(report, indent=2, sort_keys=True))
 print(f"\n  -> {env['REPORT']}")
 PY
 
-VERDICT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["headroom_verdict"])' "${REPORT}")"
+read -r VERDICT CPU_ENF <<<"$(python3 -c '
+import json, sys
+r = json.load(open(sys.argv[1]))
+print(r["headroom_verdict"].split()[0], r["cpu_limit_enforcement"])' "${REPORT}")"
+
+# CPU FIRST, and always — including on a PASS. The memory envelope being sound
+# says nothing about the CPU one, and a reader who sees only "ENVELOPE
+# MEASURED" would reasonably assume both were bounded.
+if [ "${CPU_ENF}" != "ENFORCED" ]; then
+  printf '\n\033[33mCPU LIMITS %s\033[0m — peak CPUpercent in %s was OBSERVED, not\n' \
+    "${CPU_ENF}" "${REPORT}"
+  printf '  BOUNDED. This host has no CFS quota, so `cpus:` never reached the kernel and\n'
+  printf '  #15 cannot certify a CPU envelope here. The MEMORY envelope below is real.\n'
+fi
+
 case "${VERDICT}" in
-  PASS)  printf '\n\033[32mENVELOPE MEASURED\033[0m — %s, %ss\n' "${PHASE}" "${ELAPSED}" ;;
-  TIGHT) printf '\n\033[33mENVELOPE TIGHT\033[0m — a peak is within 20%% of its limit. Read %s before tightening anything.\n' "${REPORT}" ;;
+  PASS)  printf '\n\033[32mMEMORY ENVELOPE MEASURED\033[0m — %s, %ss\n' "${PHASE}" "${ELAPSED}" ;;
+  TIGHT) printf '\n\033[33mMEMORY ENVELOPE TIGHT\033[0m — a peak is within 20%% of its limit. Read %s before tightening anything.\n' "${REPORT}" ;;
+  UNENFORCED)
+         die "the host does not enforce mem_limit either, so this measurement
+  describes NO envelope at all. Read ${ART}/capabilities-${STAMP}.json — a
+  number measured under limits nothing applies is not a limit with headroom." ;;
   *)     die "${VERDICT} — read ${REPORT} and ${ART}/${PHASE}-${STAMP}.log" ;;
 esac
 

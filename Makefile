@@ -14,7 +14,11 @@
 # There is one production architecture. Nothing here may name a retired one.
 # Recover it from `stocker-legacy-2026-08` if you need to read it.
 
-COMPOSE  := docker compose -f docker-compose.sentinel.yml
+# THE RESOLVER, not a hardcoded -f. A host without CPU CFS quota (Synology
+# DSM, kernel 3.10) makes the daemon REFUSE any container declaring `cpus:`, so
+# the compose file that can actually run there is generated. `:=` so the probe
+# happens once per make invocation rather than per reference.
+COMPOSE  := docker compose $(shell bash scripts/sentinel-compose.sh)
 GIT_SHA  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 
 help:
