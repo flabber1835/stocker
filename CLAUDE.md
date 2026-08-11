@@ -59,10 +59,20 @@ controller.
 # Required Reading Before Coding
 
 ```text
-docs/sentinel-deployment.md          operational ground truth. READ FIRST
-docs/sentinel-architecture.md        strategy/controller architecture
-docs/sentinel-execution-contract.md  the execution and recovery contract
+docs/sentinel-deployment.md            operational ground truth. READ FIRST
+docs/sentinel-architecture.md          strategy/controller architecture
+docs/sentinel-execution-contract.md    the execution and recovery contract
+docs/sentinel-controller-certification.md
+                                       what the controller PROVES today, and
+                                       why the severe path is not certified
 ```
+
+The controller's recovery overlay reproduces the frozen 1.1 oracle exactly. Its
+SEVERE path does not — and the frozen oracle is **not** the right target for it:
+that run predates the terminal and issuer-identity corrections, so its 386
+zero-exposure days belong to a shadow carrying a defect this engine does not
+have. Read the certification doc before treating any severe-path number as an
+acceptance criterion.
 
 Read `docs/sentinel-execution-contract.md` before touching ANYTHING under
 `sentinel/execution/`, `sentinel/binding.py`, `sentinel/handover.py` or the
