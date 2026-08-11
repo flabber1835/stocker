@@ -202,10 +202,10 @@ def broker():
 def go(b, conn, desired, *, p=None, today=TODAY):
     """`desired` is folded INTO the plan — the executor has no other
     source of economics, which is the point of R3."""
-    base = p or plan()
+    base = replace(p or plan(), target_basket=desired)
+    executor.adopt_plan(conn, base)
     return run(executor.execute_session(
-        broker=b, conn=conn, deployment=DEPLOY,
-        plan=replace(base, target_basket=desired),
+        broker=b, conn=conn, deployment=DEPLOY, plan=base,
         instruments=INSTRUMENTS, today=today))
 
 

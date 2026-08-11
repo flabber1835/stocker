@@ -31,7 +31,7 @@ from typing import Tuple
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
     BrokerObservation, CommandOutcome, ExecutionBroker)
-from sentinel.execution.states import CommandState as S
+from sentinel.execution.states import CommandState, CommandState as S
 
 
 def prepare_send(command: Command) -> Command:
@@ -63,6 +63,56 @@ async def dispatch(broker: ExecutionBroker, command: Command) -> Command:
     return command.transition(outcome.state,
                               broker_order_id=outcome.broker_order_id,
                               detail=outcome.detail)
+
+
+#: States whose outcome is NOT ESTABLISHED and which recovery must resolve by
+#: asking the broker for the exact key.
+#:
+#: SEND_PENDING belongs here and its omission was the sharpest hole in the
+#: layer. The whole crash-safety design is "persist SEND_PENDING, then call" —
+#: so a SIGKILL in that window leaves exactly this state in the journal, by
+#: construction. Recovery handled UNKNOWN and skipped it, which meant the one
+#: window the state exists to make recoverable had no recovery path: the broker
+#: could own 100 shares while the journal said SEND_PENDING forever.
+INDETERMINATE = frozenset({CommandState.UNKNOWN, CommandState.SEND_PENDING})
+
+
+def needs_resolution(command: Command) -> bool:
+    return command.state in INDETERMINATE
+
+
+async def resolve_indeterminate(broker: ExecutionBroker, command: Command,
+                                observation: BrokerObservation) -> Command:
+    """Resolve a command whose outcome was never established.
+
+    A SEND_PENDING command found at rest is promoted to UNKNOWN first, rather
+    than resolved directly. That is not ceremony: SEND_PENDING means "we were
+    about to call", UNKNOWN means "we called and do not know", and after a crash
+    those are the same epistemic position — but the journal should say how it got
+    there. The promotion is a legal transition and leaves a readable history:
+    found pending at startup, therefore undetermined, therefore asked.
+
+    Only reachable under the writer lock, so a SEND_PENDING seen here is always a
+    crash remnant and never a command another thread is mid-way through sending.
+    """
+    if command.state is CommandState.SEND_PENDING:
+        command = promote_to_unknown(command)
+    return await resolve_unknown(broker, command, observation)
+
+
+def promote_to_unknown(command: Command) -> Command:
+    """SEND_PENDING -> UNKNOWN, for a command found at rest after a crash.
+
+    Exposed separately so the caller can PERSIST the promotion. Resolving
+    straight through leaves the journal reading `SEND_PENDING -> ACKNOWLEDGED`,
+    which is a history that never admits the appliance distrusted its own
+    record. What happened is worth keeping: found pending, therefore
+    undetermined, therefore asked.
+    """
+    return command.transition(
+        CommandState.UNKNOWN,
+        detail="found SEND_PENDING at rest — the process died in the send "
+               "window, so the outcome is undetermined")
 
 
 async def resolve_unknown(broker: ExecutionBroker, command: Command,

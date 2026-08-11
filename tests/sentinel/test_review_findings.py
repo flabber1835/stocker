@@ -159,9 +159,10 @@ def broker():
 
 
 def go(b, conn, basket, *, p=None, today=TODAY):
+    current = replace(p or plan(), target_basket=basket)
+    executor.adopt_plan(conn, current)
     return run(executor.execute_session(
-        broker=b, conn=conn, deployment=DEPLOY,
-        plan=replace(p or plan(), target_basket=basket),
+        broker=b, conn=conn, deployment=DEPLOY, plan=current,
         instruments={"SEC-AAA": AAA}, today=today))
 
 

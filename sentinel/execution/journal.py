@@ -130,6 +130,38 @@ def load_plan(conn, plan_id: str) -> Optional[ExecutionPlan]:
         superseded_by=str(row[9]) if row[9] else None)
 
 
+def latest_plan(conn) -> Optional[ExecutionPlan]:
+    """The newest UNSUPERSEDED plan — the only one that may be executed.
+
+    Ordered by `created_at` then `plan_id` so the answer is total even when two
+    plans land in the same transaction timestamp; a non-deterministic "latest"
+    would be worse than none.
+    """
+    with conn.cursor() as cur:
+        cur.execute("SELECT plan_id FROM sentinel_execution_plans"
+                    " WHERE superseded_by IS NULL"
+                    " ORDER BY created_at DESC, plan_id DESC LIMIT 1")
+        row = cur.fetchone()
+    return load_plan(conn, str(row[0])) if row else None
+
+
+def supersede_all_but(conn, plan_id: str) -> int:
+    """Mark every other unsuperseded plan as replaced by this one.
+
+    Catch-up produces one plan per missed session, and only the last of them
+    describes current intent. Superseding the rest is what makes "historical
+    sessions advance state, historical execution intent is never replayed" a
+    property of the DATABASE rather than a habit of the caller.
+    """
+    with conn.cursor() as cur:
+        cur.execute("UPDATE sentinel_execution_plans SET superseded_by = %s"
+                    " WHERE superseded_by IS NULL AND plan_id <> %s",
+                    (plan_id, plan_id))
+        n = cur.rowcount
+    conn.commit()
+    return n
+
+
 def supersede_plan(conn, plan_id: str, by_plan_id: str) -> None:
     with conn.cursor() as cur:
         cur.execute("UPDATE sentinel_execution_plans SET superseded_by = %s"

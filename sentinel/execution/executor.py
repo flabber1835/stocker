@@ -74,6 +74,84 @@ class RiskEnvelopeViolation(RuntimeError):
     """The plan asks for something outside what this deployment may hold."""
 
 
+class StalePlanRefused(RuntimeError):
+    """The plan handed in is not the current authoritative intent."""
+
+
+def adopt_plan(conn, plan: ExecutionPlan) -> ExecutionPlan:
+    """Make `plan` the ONE current execution intent, durably.
+
+    Persists it and supersedes every other unsuperseded plan. This is the
+    operation catch-up needs: replaying five missed sessions produces five
+    plans, and only the last of them describes what is wanted NOW. Superseding
+    the rest here — in one place, in the database — is what makes *historical
+    sessions advance state, historical execution intent is never replayed* a
+    property rather than a habit.
+
+    Idempotent: adopting the current plan again supersedes nothing and changes
+    nothing, which is what a restart mid-session needs.
+    """
+    _assert_executable(plan)
+    journal.save_plan(conn, plan)
+    journal.supersede_all_but(conn, plan.plan_id)
+    return journal.load_plan(conn, plan.plan_id)
+
+
+def _assert_current_plan(conn, plan: ExecutionPlan) -> None:
+    """The plan must be the LATEST UNSUPERSEDED plan in the database.
+
+    The missed-open rule lets a stale plan still DE-RISK, which is right for a
+    plan that is merely late. It is catastrophic for a plan that is
+    OBSOLETE, and nothing distinguished the two:
+
+    ```text
+    Monday      controller wants 0%     broker unavailable
+    Tuesday     controller wants 55%    broker still unavailable
+    Wednesday   controller wants 100%   broker returns
+    ```
+
+    Retry Monday's plan first and the executor is authorised to perform its
+    reductions — liquidating the book on Wednesday morning because Monday wanted
+    zero — while Wednesday's increases are deferred for being outside their
+    window. The result is the exact inverse of convergence.
+
+    So "is this plan late?" and "is this plan still what we want?" are separate
+    questions, and only the second one may authorise a trade. Historical
+    sessions advance deterministic state; historical execution intent is never
+    replayed.
+    """
+    # THE DURABLE RECORD DECIDES, not the object in hand. A caller holding a
+    # plan built before it was superseded has `superseded_by is None` in memory
+    # and is exactly the caller this check exists to stop — it is how Monday's
+    # obsolete plan arrives on Wednesday looking current.
+    stored = journal.load_plan(conn, plan.plan_id)
+    if stored is not None and stored.is_superseded:
+        raise StalePlanRefused(
+            f"plan {plan.plan_id} was superseded by {stored.superseded_by}. A "
+            f"superseded plan may not execute — not even its reductions. "
+            f"Liquidating today because an obsolete plan wanted zero is the "
+            f"inverse of convergence.")
+    current = journal.latest_plan(conn)
+    if current is None:
+        raise StalePlanRefused(
+            f"plan {plan.plan_id} is not persisted. The executor runs the "
+            f"DURABLE current plan, not whatever it was handed: an in-memory "
+            f"plan cannot be shown to be the latest one.")
+    if current.plan_id != plan.plan_id:
+        raise StalePlanRefused(
+            f"plan {plan.plan_id} is not the current plan ({current.plan_id}). "
+            f"After a catch-up there is exactly ONE surviving execution intent, "
+            f"and it is the newest.")
+    if current.fingerprint() != plan.fingerprint():
+        # Same id, different economics — the in-memory object and the durable
+        # record disagree about what is being attempted, and the client keys
+        # derive from the id.
+        raise StalePlanRefused(
+            f"plan {plan.plan_id} does not match its stored record "
+            f"({plan.fingerprint()} vs {current.fingerprint()}). A plan is "
+            f"immutable; if the intent changed it needs a new plan.")
+
+
 def _assert_executable(plan: ExecutionPlan) -> None:
     """The LONG-ONLY, UNLEVERED envelope, enforced at the execution membrane.
 
@@ -146,6 +224,7 @@ async def execute_session(*, broker: ExecutionBroker, conn,
     be skipped by a future call site, an absent parameter cannot.
     """
     _assert_executable(plan)
+    _assert_current_plan(conn, plan)
     # THE WRITER LOCK IS TAKEN HERE, not left to the caller. `reconcile` states
     # that its caller must hold it across the whole session — and a prerequisite
     # documented in a docstring is one a future controller can simply forget.
@@ -289,12 +368,17 @@ async def resolve_outstanding(*, broker: ExecutionBroker, conn,
     with journal.writer_lock(conn):
         observation = await broker.observe()
         resolved = []
-        for command in journal.load_commands(conn, deployment,
-                                             states=[CommandState.UNKNOWN]):
+        for command in journal.load_commands(
+                conn, deployment, states=sorted(recovery.INDETERMINATE,
+                                                key=lambda s: s.value)):
             before = command.state
+            if command.state is CommandState.SEND_PENDING:
+                command = recovery.promote_to_unknown(command)
+                journal.save_command(conn, command, previous=before)
+                before = command.state
             try:
-                updated = await recovery.resolve_unknown(broker, command,
-                                                         observation)
+                updated = await recovery.resolve_indeterminate(
+                    broker, command, observation)
             except Exception as exc:                          # noqa: BLE001
                 log.warning("sentinel: %s stays UNKNOWN: %s",
                             command.client_key, exc)

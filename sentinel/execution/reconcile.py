@@ -222,8 +222,17 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     resolved = []
     for command in stored:
         before_state, before_filled = command.state, command.filled_quantity
-        if command.state is CommandState.UNKNOWN:
-            command = await recovery.resolve_unknown(broker, command, observation)
+        if command.state is CommandState.SEND_PENDING:
+            # Persisted so the history records WHY the outcome was re-asked.
+            command = recovery.promote_to_unknown(command)
+            journal.save_command(conn, command, previous=CommandState.SEND_PENDING)
+            before_state = CommandState.UNKNOWN
+        if recovery.needs_resolution(command):
+            # UNKNOWN *and* SEND_PENDING. The latter is the crash window the
+            # persist-before-send ordering exists to create, and skipping it
+            # left that window with no recovery path at all.
+            command = await recovery.resolve_indeterminate(
+                broker, command, observation)
         elif command.state in (CommandState.ACKNOWLEDGED,
                                CommandState.PARTIALLY_FILLED):
             command = recovery.apply_observation(command, observation)

@@ -141,6 +141,7 @@ def plan(plan_id, basket, *, exposure="1", effective=DAY1):
 
 
 def session(b, conn, p, today):
+    executor.adopt_plan(conn, p)
     return run(executor.execute_session(
         broker=b, conn=conn, deployment=DEPLOY, plan=p,
         instruments=INSTRUMENTS, today=today,

@@ -393,9 +393,10 @@ class TestStaleBackupRestore:
         broker = SimulatedBroker(
             account=BrokerAccountIdentity("sim", "SIM-ACCOUNT"))
         snapshot = backup(conn)              # taken BEFORE anything happened
+        p = replace(plan(), target_basket={"SEC-AAA": D(10)})
+        executor.adopt_plan(conn, p)
         result = run(executor.execute_session(
-            broker=broker, conn=conn, deployment=DEPLOY,
-            plan=replace(plan(), target_basket={"SEC-AAA": D(10)}),
+            broker=broker, conn=conn, deployment=DEPLOY, plan=p,
             instruments={"SEC-AAA": AAA}, today=TODAY))
         return broker, snapshot, result.submitted[0]
 
@@ -418,9 +419,10 @@ class TestStaleBackupRestore:
         submits_before = len([c for c in broker.calls if c.startswith("submit:")])
         restore(conn, snapshot)
 
+        p2 = replace(plan("plan-2"), target_basket={"SEC-AAA": D(10)})
+        executor.adopt_plan(conn, p2)
         run(executor.execute_session(
-            broker=broker, conn=conn, deployment=DEPLOY,
-            plan=replace(plan("plan-2"), target_basket={"SEC-AAA": D(10)}),
+            broker=broker, conn=conn, deployment=DEPLOY, plan=p2,
             instruments={"SEC-AAA": AAA}, today=TODAY))
 
         submits_after = len([c for c in broker.calls if c.startswith("submit:")])
