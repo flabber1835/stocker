@@ -153,6 +153,45 @@ DDL = [
 
     # PROGRESS. Written per chunk and COMMITTED, so `feed-status` from another
     # process — or after a crash — sees the truth rather than a stale guess.
+    # ------------------------------------------------------------------
+    # CORPUS VERSIONS. Architecture invariant #3 — "every snapshot and
+    # decision records data_version" — was ADOPTED and UNIMPLEMENTED: there was
+    # no version to record, and `sentinel_bars` is a destructive upsert, so a
+    # Sharadar restatement rewrote the evidence under a decision already made.
+    #
+    # AN INGEST RUN IS NOT A CORPUS VERSION. A run that fails halfway has a
+    # run_id, and it must never be citable. A version exists only when a
+    # coherent, validated state was PUBLISHED.
+    #
+    # DETECTION tier: this answers "a decision read v47, the corpus is now v52,
+    # so a replay may not reproduce it". It does NOT answer "show me v47" —
+    # that is the RECONSTRUCTION tier, which needs revision history and is
+    # deliberately deferred. See docs/sentinel-execution-contract.md §8.
+    # ------------------------------------------------------------------
+    """CREATE TABLE IF NOT EXISTS sentinel_corpus_publications (
+        version          BIGSERIAL PRIMARY KEY,
+        previous_version BIGINT,
+        run_id           UUID,
+        published_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        window_start     DATE,
+        window_end       DATE,
+        evidence         JSONB NOT NULL DEFAULT '{}'::jsonb)""",
+    # A GAP IN THE CHAIN IS THE CORRUPTION SIGNAL: rows written by a run that
+    # never published. Cheap to detect precisely because the link is explicit.
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_publications_prev
+        ON sentinel_corpus_publications (previous_version)""",
+
+    # WHICH INGEST LAST TOUCHED THIS ROW. Nearly free — `write_bars` already
+    # runs inside an `IngestRun` — and it answers "which ingest produced this
+    # value" without any revision history. ALTER rather than a column in the
+    # CREATE, for the same reason the rejection columns are: CREATE TABLE IF NOT
+    # EXISTS does nothing to an already-seeded database, so a fresh schema would
+    # pass every test while the deployed corpus kept the old shape.
+    """ALTER TABLE sentinel_bars
+        ADD COLUMN IF NOT EXISTS last_written_run_id UUID""",
+    """ALTER TABLE sentinel_actions
+        ADD COLUMN IF NOT EXISTS last_written_run_id UUID""",
+
     """CREATE TABLE IF NOT EXISTS feed_ingest_runs (
         run_id        UUID PRIMARY KEY,
         kind          TEXT NOT NULL,

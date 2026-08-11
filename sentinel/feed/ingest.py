@@ -251,7 +251,8 @@ def seed(conn, *, date_from: str = DEFAULT_SEED_START, date_to: Optional[str] = 
                 authoritative_splits=splits, dividends=divs,
                 prior_observations=feed_store.previous_observations(conn, lo),
                 report=report)
-            written = feed_store.write_bars(conn, bars)
+            written = feed_store.write_bars(
+                conn, bars, run_id=run.progress.run_id)
             # PERSIST THE EVIDENCE in the same breath as the bars. A refusal,
             # a truncation or an anomaly recorded only in memory dies with the
             # process, and the certification that needs it runs in a different
@@ -263,7 +264,46 @@ def seed(conn, *, date_from: str = DEFAULT_SEED_START, date_to: Optional[str] = 
                                           + report.dropped_no_identity)
 
     run.finish("success")
+    _publish_version(conn, run, date_from, date_to)
     return run.progress
+
+
+def _publish_version(conn, run, window_start: str, window_end: str):
+    """Declare a new corpus version — AFTER the run has succeeded.
+
+    Ordering is the whole distinction between a run and a version. A run that
+    fails halfway has a `run_id`, and it must never be citable as the corpus a
+    decision was made against; a version exists only when a coherent, validated
+    state was reached. Calling this before `run.finish("success")` would erase
+    that difference while looking identical in a schema dump.
+
+    NON-FATAL. A corpus that loaded correctly but could not be published is
+    still a correct corpus, and failing the ingest here would discard hours of
+    work over a bookkeeping row. The absence shows up as a chain gap and as a
+    stale `data_version`, both of which are visible.
+    """
+    from sentinel.feed import publication
+
+    try:
+        published = publication.publish(
+            conn, run_id=run.progress.run_id, window_start=window_start,
+            window_end=window_end,
+            evidence={"kind": run.progress.kind,
+                      "rows_written": run.progress.rows_written,
+                      "rows_dropped": run.progress.rows_dropped,
+                      "chunks": run.progress.chunks_done})
+        log.info("sentinel: published corpus version %d (previous %s)",
+                 published.version, published.previous_version)
+        return published
+    except publication.CorpusBusy:
+        log.warning("sentinel: corpus NOT published — a session holds it "
+                    "pinned. The rows are written and idempotent; re-run the "
+                    "ingest to publish once the session releases.")
+    except Exception as exc:                                  # noqa: BLE001
+        log.warning("sentinel: corpus NOT published (%s). The data is loaded; "
+                    "decisions will keep recording the PREVIOUS data_version "
+                    "until a publication succeeds.", exc)
+    return None
 
 
 def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
@@ -309,7 +349,8 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
             # whatever a better-positioned earlier run had established.
             prior_observations=feed_store.previous_observations(conn, start),
             report=report)
-        run.progress.rows_written += feed_store.write_bars(conn, bars)
+        run.progress.rows_written += feed_store.write_bars(
+            conn, bars, run_id=run.progress.run_id)
         _persist_chunk_evidence(conn, run, "prices", start, to, report, splits,
                                 action_rows)
         run.progress.rows_dropped += (report.dropped_no_raw_close
@@ -321,4 +362,8 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
         domains.assert_raw_price_domain(report)
 
     run.finish("success")
+    # AFTER `assert_raw_price_domain`, which is the daily path's validation. A
+    # version published before it would be citable by a decision made against a
+    # corpus the ingest was about to reject.
+    _publish_version(conn, run, start, to)
     return run.progress

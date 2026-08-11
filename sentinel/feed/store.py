@@ -17,6 +17,7 @@ cost the ability to run it from a plain script.
 """
 from __future__ import annotations
 
+import os
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -27,8 +28,8 @@ from sentinel.feed.schema import DDL, RECLAIM_ORPHANS, RESTART_ABORT_MARKER
 _BAR_UPSERT = """
     INSERT INTO sentinel_bars (security_id, session, ticker, close_signal,
         close_unadjusted, open_unadjusted, volume, split_ratio,
-        dividend_per_share)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        dividend_per_share, last_written_run_id)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (security_id, session) DO UPDATE SET
         ticker = EXCLUDED.ticker,
         close_signal = EXCLUDED.close_signal,
@@ -57,7 +58,9 @@ _BAR_UPSERT = """
         split_ratio = CASE WHEN EXCLUDED.split_ratio = 1.0
                            THEN sentinel_bars.split_ratio
                            ELSE EXCLUDED.split_ratio END,
-        dividend_per_share = EXCLUDED.dividend_per_share
+        dividend_per_share = EXCLUDED.dividend_per_share,
+        last_written_run_id = COALESCE(EXCLUDED.last_written_run_id,
+                                       sentinel_bars.last_written_run_id)
 """
 
 _ACTION_UPSERT = """
@@ -178,26 +181,60 @@ class IngestRun:
         self.publish()
 
 
-def write_bars(conn, bars: Iterable[Any]) -> int:
-    """Upsert bars. Accepts `NormalisedBar` or a bare `VendorBar`.
+#: Rows buffered before a flush. Peak memory becomes O(batch), not O(chunk).
+WRITE_BATCH = int(os.getenv("SENTINEL_WRITE_BATCH", "5000"))
+
+
+def write_bars(conn, bars: Iterable[Any], *, run_id=None,
+               batch_size: int = 0) -> int:
+    """Upsert bars, STREAMING. Accepts `NormalisedBar` or a bare `VendorBar`.
 
     Both shapes because the engine's VendorBar does not carry a signal close and
     tests legitimately build one directly; a bare VendorBar simply stores NULL
     there, which the readiness check then reports rather than tolerates.
+
+    **BOUNDED.** This used to drain the whole generator into one list before
+    writing anything, so a seed year was resident TWICE — once as the sorted
+    vendor rows and again as tuples — on a NAS whose memory ceiling is the
+    binding constraint for the entire deployment. Flushing per batch makes the
+    second copy O(batch).
+
+    The vendor-side sort in `ingest._sorted_sep` is still O(chunk) and cannot be
+    removed the same way: the ratio derivation requires session order and the
+    HTTP API promises none. Reducing that one needs a staging table, which is a
+    separate change; this is the half that was free.
+
+    `run_id` stamps `last_written_run_id`, which answers "which ingest produced
+    this value" without any revision history — the cheap half of the corpus
+    versioning contract.
     """
-    rows = []
+    size = batch_size or WRITE_BATCH
+    rows: list = []
+    written = 0
+
+    def flush() -> None:
+        nonlocal written
+        if not rows:
+            return
+        with conn.cursor() as cur:
+            cur.executemany(_BAR_UPSERT, rows)
+        # COMMIT PER BATCH, matching the rest of this module: an interrupted
+        # ingest keeps the rows it got, and the upserts are idempotent so the
+        # re-run resumes rather than duplicates.
+        conn.commit()
+        written += len(rows)
+        rows.clear()
+
     for item in bars:
         b = getattr(item, "vendor", item)
         rows.append((b.security_id, b.session, b.ticker,
                      getattr(item, "close_signal", None),
                      b.raw_close, b.raw_open, b.volume, b.split_ratio,
-                     b.dividend_per_share))
-    if not rows:
-        return 0
-    with conn.cursor() as cur:
-        cur.executemany(_BAR_UPSERT, rows)
-    conn.commit()
-    return len(rows)
+                     b.dividend_per_share, str(run_id) if run_id else None))
+        if len(rows) >= size:
+            flush()
+    flush()
+    return written
 
 
 def write_actions(conn, rows: Sequence[Any]) -> int:
