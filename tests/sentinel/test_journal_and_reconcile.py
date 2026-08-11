@@ -1,0 +1,374 @@
+"""Durable command state, and reconciliation after a gap.
+
+The two properties under test are the ones a restart depends on:
+
+    a command's row is written BEFORE the network call, so recovery can find it;
+    corporate actions are applied BEFORE anything is called foreign activity.
+
+The second is easy to leave out and invisible when you do — the arithmetic still
+works, it just accuses the market of trading the account. In a 25-name book that
+would latch a re-risking block after most outages longer than a day.
+
+Contract: docs/sentinel-execution-contract.md §6, §10.
+"""
+from __future__ import annotations
+
+import asyncio
+import sys
+from datetime import date
+from decimal import Decimal
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "shared"))
+
+from tests.integration.conftest import _EphemeralPostgres  # noqa: E402
+
+from sentinel import binding as B, schema  # noqa: E402
+from sentinel.execution import journal, recovery, reconcile as R  # noqa: E402
+from sentinel.execution.commands import Command  # noqa: E402
+from sentinel.execution.contract import (  # noqa: E402
+    BrokerAccountIdentity, BrokerInstrument, Side)
+from sentinel.execution.identity import CommandIdentity, DeploymentIdentity  # noqa: E402
+from sentinel.execution.plan import ExecutionPlan  # noqa: E402
+from sentinel.execution.simulator import FaultKind as F, SimulatedBroker  # noqa: E402
+from sentinel.execution.states import CommandState as S, RuntimeState  # noqa: E402
+from sentinel.feed import store as feed_store  # noqa: E402
+
+DEPLOY = DeploymentIdentity("nas-1", "sim", "SIM-ACCOUNT", 1)
+AAA = BrokerInstrument(security_id="SEC-AAA", symbol="AAA", broker_id="b-AAA")
+BBB = BrokerInstrument(security_id="SEC-BBB", symbol="BBB", broker_id="b-BBB")
+
+
+def run(coro):
+    return asyncio.run(coro)
+
+
+def cmd(instrument=AAA, qty="10", side=Side.BUY, plan="plan-1", revision=0,
+        state=S.PLANNED, filled="0"):
+    return Command(
+        identity=CommandIdentity(deployment=DEPLOY, plan_id=plan,
+                                 security_id=instrument.security_id,
+                                 revision=revision),
+        instrument=instrument, side=side, quantity=Decimal(qty), state=state,
+        filled_quantity=Decimal(filled))
+
+
+@pytest.fixture(scope="module")
+def pg():
+    try:
+        server = _EphemeralPostgres()
+        server.start()
+    except Exception as exc:                                  # noqa: BLE001
+        pytest.skip(f"ephemeral Postgres unavailable: {exc}")
+    try:
+        yield server
+    finally:
+        server.stop()
+
+
+@pytest.fixture()
+def conn(pg):
+    c = feed_store.connect(pg.sync_dsn)
+    with c.cursor() as cur:
+        for t in ("sentinel_account_binding", "sentinel_ownership_events",
+                  "sentinel_commands", "sentinel_command_events",
+                  "sentinel_execution_plans", "sentinel_fills",
+                  "sentinel_observations", "sentinel_bars", "sentinel_actions"):
+            cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
+    c.commit()
+    schema.ensure_schema(c)
+    feed_store.ensure_schema(c)
+    B.bind(c, deployment_id="nas-1", broker="sim",
+           broker_account_id="SIM-ACCOUNT")
+    yield c
+    c.close()
+
+
+class TestCommandJournal:
+    def test_a_command_round_trips_with_its_derived_key_intact(self, conn):
+        journal.save_command(conn, cmd())
+        loaded = journal.load_commands(conn, DEPLOY)
+        assert len(loaded) == 1
+        assert loaded[0].client_key == cmd().client_key
+        assert loaded[0].quantity == Decimal(10)
+
+    def test_the_stored_key_must_RECOMPUTE_under_the_current_binding(self, conn):
+        """A row that no longer recomputes belongs to a previous generation —
+        a different account, or a bumped takeover epoch. Loading it silently
+        would attribute a predecessor's order to this one."""
+        journal.save_command(conn, cmd())
+        other = DeploymentIdentity("nas-1", "sim", "SIM-ACCOUNT", 2)
+        with pytest.raises(journal.StoredKeyMismatch):
+            journal.load_commands(conn, other)
+
+    def test_every_transition_is_appended(self, conn):
+        c = cmd()
+        journal.save_command(conn, c)
+        c2 = c.transition(S.SEND_PENDING)
+        journal.save_command(conn, c2, previous=c.state)
+        c3 = c2.transition(S.ACKNOWLEDGED, broker_order_id="sim-1")
+        journal.save_command(conn, c3, previous=c2.state)
+
+        history = journal.command_history(conn, c.client_key)
+        assert [h["to"] for h in history] == ["PLANNED", "SEND_PENDING",
+                                              "ACKNOWLEDGED"]
+        assert history[-1]["from"] == "SEND_PENDING"
+
+    def test_the_DATABASE_enforces_one_in_flight_command_per_security(self, conn):
+        """`authorize` checks this too, but an application check can be bypassed
+        by a bug or a second process. This one cannot."""
+        journal.save_command(conn, cmd(state=S.ACKNOWLEDGED))
+        with pytest.raises(Exception):
+            journal.save_command(conn, cmd(revision=1, state=S.ACKNOWLEDGED))
+        conn.rollback()
+
+    def test_a_TERMINAL_command_frees_the_security_for_a_new_one(self, conn):
+        journal.save_command(conn, cmd(state=S.FILLED, filled="10"))
+        journal.save_command(conn, cmd(revision=1, state=S.ACKNOWLEDGED))
+        assert len(journal.in_flight_commands(conn, DEPLOY)) == 1
+
+    def test_in_flight_includes_UNKNOWN(self, conn):
+        journal.save_command(conn, cmd(state=S.UNKNOWN))
+        assert [c.state for c in journal.in_flight_commands(conn, DEPLOY)] \
+            == [S.UNKNOWN]
+
+    def test_fills_are_idempotent_across_a_re_read(self, conn):
+        """A recovery that re-reads recent fills must not double-count them:
+        the same fill twice inflates the believed position and generates a
+        spurious sell."""
+        b = SimulatedBroker()
+        c = run(recovery.dispatch(b, recovery.prepare_send(cmd())))
+        b.fill(c.client_key)
+        fills = run(b.recent_fills(b.now))
+
+        assert journal.record_fills(conn, fills) == 1
+        assert journal.record_fills(conn, fills) == 0
+
+
+class TestWriterLock:
+    def test_a_second_writer_is_refused_rather_than_blocked(self, conn, pg):
+        other = feed_store.connect(pg.sync_dsn)
+        try:
+            with journal.writer_lock(conn):
+                with pytest.raises(journal.WriterLockUnavailable):
+                    with journal.writer_lock(other):
+                        pass                                  # pragma: no cover
+        finally:
+            other.close()
+
+    def test_the_lock_is_released_afterwards(self, conn, pg):
+        with journal.writer_lock(conn):
+            pass
+        other = feed_store.connect(pg.sync_dsn)
+        try:
+            with journal.writer_lock(other):
+                pass
+        finally:
+            other.close()
+
+
+class TestPlans:
+    def test_a_plan_round_trips_and_fingerprints_its_ECONOMIC_content(self, conn):
+        plan = ExecutionPlan(
+            plan_id="plan-1", decision_session=date(2026, 8, 10),
+            effective_session=date(2026, 8, 11),
+            target_exposure=Decimal("1.0"),
+            target_basket={"SEC-AAA": Decimal(10)}, data_version=47)
+        journal.save_plan(conn, plan)
+        loaded = journal.load_plan(conn, "plan-1")
+        assert loaded.target_basket == {"SEC-AAA": Decimal(10)}
+        assert loaded.data_version == 47
+        assert loaded.fingerprint() == plan.fingerprint()
+
+    def test_the_fingerprint_ignores_the_handle_and_what_happened_after(self):
+        base = dict(decision_session=date(2026, 8, 10),
+                    effective_session=date(2026, 8, 11),
+                    target_exposure=Decimal("1.0"),
+                    target_basket={"SEC-AAA": Decimal(10)})
+        a = ExecutionPlan(plan_id="plan-1", **base)
+        b = ExecutionPlan(plan_id="plan-2", superseded_by="plan-3", **base)
+        assert a.fingerprint() == b.fingerprint()
+
+    def test_a_plan_records_the_corpus_version_it_consumed(self, conn):
+        """Invariant #3. Without it a replay that disagrees with history cannot
+        say whether the broker drifted or the corpus moved."""
+        journal.save_plan(conn, ExecutionPlan(
+            plan_id="p", decision_session=date(2026, 8, 10),
+            effective_session=date(2026, 8, 11),
+            target_exposure=Decimal(1), data_version=52))
+        assert journal.load_plan(conn, "p").data_version == 52
+
+    def test_supersession_is_recorded_not_destructive(self, conn):
+        for pid in ("plan-1", "plan-2"):
+            journal.save_plan(conn, ExecutionPlan(
+                plan_id=pid, decision_session=date(2026, 8, 10),
+                effective_session=date(2026, 8, 11),
+                target_exposure=Decimal(1)))
+        journal.supersede_plan(conn, "plan-1", "plan-2")
+        assert journal.load_plan(conn, "plan-1").superseded_by == "plan-2"
+        assert journal.load_plan(conn, "plan-2").superseded_by is None
+
+
+class TestAgeBookThroughActions:
+    def test_a_split_multiplies_the_expected_holding(self):
+        aged = R.age_book_through_actions(
+            {"SEC-AAA": Decimal(10)}, lambda _s: Decimal(2))
+        assert aged == {"SEC-AAA": Decimal(20)}
+
+    def test_no_action_leaves_the_holding_alone(self):
+        aged = R.age_book_through_actions(
+            {"SEC-AAA": Decimal(10)}, lambda _s: Decimal(1))
+        assert aged == {"SEC-AAA": Decimal(10)}
+
+    def test_an_unknown_ratio_is_treated_as_NO_action(self):
+        """An unresolvable mapping must not silently HALVE a position. The
+        unexplained quantity is caught as foreign activity instead, which is the
+        safe direction."""
+        aged = R.age_book_through_actions(
+            {"SEC-AAA": Decimal(10)}, lambda _s: None)
+        assert aged == {"SEC-AAA": Decimal(10)}
+
+
+class TestReconciliation:
+    def _broker(self):
+        b = SimulatedBroker(account=BrokerAccountIdentity("sim", "SIM-ACCOUNT"))
+        return b
+
+    def test_a_matching_book_reconciles_clean(self, conn):
+        journal.save_command(conn, cmd(state=S.FILLED, filled="10"))
+        b = self._broker()
+        b.seed_position(AAA, "10")
+
+        result = run(R.reconcile(broker=b, conn=conn, binding=None,
+                                 deployment=DEPLOY))
+        assert result.clean and result.runtime_state is RuntimeState.RUNNING
+
+    def test_a_WRONG_ACCOUNT_is_refused_before_anything_is_compared(self, conn):
+        b = SimulatedBroker(account=BrokerAccountIdentity("sim", "SOMEONE-ELSE"))
+        with pytest.raises(B.AccountMismatch):
+            run(R.reconcile(broker=b, conn=conn, binding=None,
+                            deployment=DEPLOY))
+
+    def test_a_broker_outage_yields_BROKER_DEGRADED_not_a_conclusion(self, conn):
+        b = self._broker()
+        b.schedule_observe(F.OUTAGE)
+        result = run(R.reconcile(broker=b, conn=conn, binding=None,
+                                 deployment=DEPLOY))
+        assert result.runtime_state is RuntimeState.BROKER_DEGRADED
+        assert not result.foreign_positions, "no conclusions from no data"
+
+    def test_an_INCOMPLETE_observation_cannot_conclude_anything(self, conn):
+        b = self._broker()
+        b.seed_position(AAA, "10")
+        b.schedule_observe(F.TRUNCATED_ORDERS)
+        result = run(R.reconcile(broker=b, conn=conn, binding=None,
+                                 deployment=DEPLOY))
+        assert result.runtime_state is RuntimeState.RECONCILING
+        assert not result.foreign_positions
+
+    def test_A_SPLIT_DURING_AN_OUTAGE_IS_NOT_FOREIGN_ACTIVITY(self, conn):
+        """The step everyone omits, and the reason this module has an order.
+
+        Sentinel believes it holds 10. A 2:1 split while it was down makes the
+        broker report 20. Without ageing the book first, that is 'a quantity
+        change no order explains' — and the appliance latches a re-risking block
+        after an entirely ordinary corporate action.
+        """
+        journal.save_command(conn, cmd(state=S.FILLED, filled="10"))
+        b = self._broker()
+        b.seed_position(AAA, "10")
+        b.apply_corporate_action("SEC-AAA", "2")
+
+        naive = run(R.reconcile(broker=b, conn=conn, binding=None,
+                                deployment=DEPLOY))
+        assert naive.runtime_state is RuntimeState.FOREIGN_ACTIVITY, (
+            "without the actions lookup this is what happens — pinned so the "
+            "test proves the rule is load-bearing rather than decorative")
+
+        aware = run(R.reconcile(broker=b, conn=conn, binding=None,
+                                deployment=DEPLOY,
+                                actions=lambda sid: Decimal(2)))
+        assert aware.clean and aware.runtime_state is RuntimeState.RUNNING
+        assert aware.corporate_actions == {"SEC-AAA": Decimal(2)}
+
+    def test_a_genuinely_unexplained_position_IS_foreign(self, conn):
+        b = self._broker()
+        b.seed_position(BBB, "5")               # nobody bought this
+        result = run(R.reconcile(broker=b, conn=conn, binding=None,
+                                 deployment=DEPLOY))
+        assert result.runtime_state is RuntimeState.FOREIGN_ACTIVITY
+        assert result.foreign_positions == ("SEC-BBB",)
+
+    def test_an_order_with_no_key_of_ours_is_foreign(self, conn):
+        b = self._broker()
+        b.seed_foreign_order(AAA, side=Side.BUY, qty="5")
+        result = run(R.reconcile(broker=b, conn=conn, binding=None,
+                                 deployment=DEPLOY))
+        assert result.runtime_state is RuntimeState.FOREIGN_ACTIVITY
+        assert len(result.foreign_orders) == 1
+
+    def test_an_order_carrying_OUR_key_but_missing_locally_is_RECOVERED(self, conn):
+        """A restored backup that predates the order. It is history to adopt,
+        never a stranger's order and never something to duplicate."""
+        b = self._broker()
+        c = run(recovery.dispatch(b, recovery.prepare_send(cmd())))
+        # ...and the journal knows nothing about it (the restore happened here).
+
+        result = run(R.reconcile(broker=b, conn=conn, binding=None,
+                                 deployment=DEPLOY))
+        assert [o.client_key for o in result.recovered_orders] == [c.client_key]
+        assert not result.foreign_orders, "ours, not a stranger's"
+
+    def test_an_UNKNOWN_command_is_resolved_during_reconciliation(self, conn):
+        b = self._broker()
+        b.schedule_submit(F.ACCEPT_THEN_TIMEOUT)
+        c = run(recovery.dispatch(b, recovery.prepare_send(cmd())))
+        assert c.state is S.UNKNOWN
+        journal.save_command(conn, c)
+
+        result = run(R.reconcile(broker=b, conn=conn, binding=None,
+                                 deployment=DEPLOY))
+        assert not result.unresolved
+        assert journal.load_commands(conn, DEPLOY)[0].state is S.ACKNOWLEDGED
+
+    def test_an_UNRESOLVABLE_command_keeps_the_appliance_RECONCILING(self, conn):
+        journal.save_command(conn, cmd(state=S.UNKNOWN))
+        b = self._broker()
+        b.schedule_observe(F.TRUNCATED_ORDERS)
+        result = run(R.reconcile(broker=b, conn=conn, binding=None,
+                                 deployment=DEPLOY))
+        assert result.runtime_state is RuntimeState.RECONCILING
+
+    def test_the_expected_book_comes_from_the_JOURNAL_not_the_broker(self, conn):
+        """Seeding belief from the broker makes the comparison vacuous."""
+        journal.save_command(conn, cmd(state=S.FILLED, filled="10"))
+        journal.save_command(conn, cmd(instrument=BBB, side=Side.SELL,
+                                       qty="4", state=S.FILLED, filled="4"))
+        book = R.expected_book_from_commands(journal.load_commands(conn, DEPLOY))
+        assert book == {"SEC-AAA": Decimal(10), "SEC-BBB": Decimal(-4)}
+
+
+class TestCorpusActionLookup:
+    def test_it_compounds_splits_over_the_gap(self, conn):
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_bars (security_id, session, ticker,"
+                " close_unadjusted) VALUES ('SEC-AAA','2026-08-01','AAA',10)")
+        feed_store.write_actions(conn, [
+            {"ticker": "AAA", "date": "2026-08-05", "action": "split",
+             "value": 2.0},
+            {"ticker": "AAA", "date": "2026-08-07", "action": "split",
+             "value": 3.0}])
+
+        lookup = R.corpus_action_lookup(conn, start=date(2026, 8, 1),
+                                        end=date(2026, 8, 10))
+        assert lookup("SEC-AAA") == pytest.approx(Decimal(6))
+
+    def test_an_unmapped_security_returns_1_rather_than_raising(self, conn):
+        lookup = R.corpus_action_lookup(conn, start=date(2026, 8, 1),
+                                        end=date(2026, 8, 10))
+        assert lookup("SEC-NOPE") == Decimal(1)

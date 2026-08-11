@@ -1,0 +1,89 @@
+"""The immutable record of what a decision was trying to achieve.
+
+A plan is created when a session's decision is accepted, and it is never edited.
+If a newer session decides something different before the previous plan has
+completed, a NEW plan is created and may supersede the old one's UNSENT commands.
+Working orders are not superseded — they are cancelled and confirmed cancelled,
+because declaring a live order superseded abandons it.
+
+This is what makes the question answerable after the fact:
+
+> what exactly was Sentinel trying to accomplish when it placed this order?
+
+Every field below is part of that answer, and `data_version` is the one that is
+easy to leave out and impossible to reconstruct later: without it, a replay that
+disagrees with history cannot say whether the broker drifted or the corpus moved.
+That is architecture invariant #3, and it is why the column is NOT nullable in
+spirit even though the schema tolerates NULL during the transition.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import dataclass, field
+from datetime import date
+from decimal import Decimal
+from typing import Mapping, Optional
+
+
+@dataclass(frozen=True)
+class ExecutionPlan:
+    plan_id: str
+    decision_session: date
+    effective_session: date
+    target_exposure: Decimal
+    target_basket: Mapping[str, Decimal] = field(default_factory=dict)
+    data_version: Optional[int] = None
+    shadow_snapshot_hash: str = ""
+    sentinel_transition_hash: str = ""
+    strategy_fingerprint: str = ""
+    superseded_by: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.target_exposure, Decimal):
+            raise TypeError("target_exposure must be Decimal")
+        for security_id, qty in self.target_basket.items():
+            if not isinstance(qty, Decimal):
+                raise TypeError(
+                    f"target_basket[{security_id}] must be Decimal, got "
+                    f"{type(qty).__name__}")
+
+    @property
+    def is_superseded(self) -> bool:
+        return self.superseded_by is not None
+
+    def fingerprint(self) -> str:
+        """A stable hash of the plan's ECONOMIC content.
+
+        Excludes `plan_id` and `superseded_by` — the first is an arbitrary
+        handle and the second is a fact about what happened afterwards, so
+        including either would make two plans with identical intent look
+        different. Used to detect that a re-derived plan is unchanged, which is
+        what lets an idempotent retry be recognised as one.
+        """
+        payload = {
+            "decision_session": self.decision_session.isoformat(),
+            "effective_session": self.effective_session.isoformat(),
+            "target_exposure": str(self.target_exposure),
+            "target_basket": {k: str(v)
+                              for k, v in sorted(self.target_basket.items())},
+            "data_version": self.data_version,
+            "shadow_snapshot_hash": self.shadow_snapshot_hash,
+            "sentinel_transition_hash": self.sentinel_transition_hash,
+            "strategy_fingerprint": self.strategy_fingerprint,
+        }
+        blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+    def to_dict(self) -> dict:
+        return {
+            "plan_id": self.plan_id,
+            "decision_session": self.decision_session.isoformat(),
+            "effective_session": self.effective_session.isoformat(),
+            "target_exposure": str(self.target_exposure),
+            "target_basket": {k: str(v)
+                              for k, v in sorted(self.target_basket.items())},
+            "data_version": self.data_version,
+            "fingerprint": self.fingerprint(),
+            "superseded_by": self.superseded_by,
+        }
