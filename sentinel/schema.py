@@ -173,6 +173,60 @@ DDL = (
         positions    JSONB       NOT NULL DEFAULT '{}'::jsonb,
         orders       JSONB       NOT NULL DEFAULT '[]'::jsonb,
         runtime_state TEXT)""",
+
+    # ------------------------------------------------------------------
+    # CATCH-UP. How far the deterministic replay has advanced.
+    #
+    # ONE ROW, keyed by a cursor name. A table with many rows would invite
+    # "the latest by timestamp", and a wall clock is not an ordering of
+    # trading sessions — a re-run at 09:00 would look newer than the session
+    # it is behind.
+    #
+    # The pointer is written in the SAME TRANSACTION as the state the session
+    # produced. Written after the whole loop instead, a crash replays sessions
+    # that already advanced — and Wealth Core's state is path-dependent, so a
+    # replayed session double-ages every episode. Written before, a crash
+    # SKIPS a session, which is the silent one.
+    # ------------------------------------------------------------------
+    """CREATE TABLE IF NOT EXISTS sentinel_processed_sessions (
+        cursor_name TEXT PRIMARY KEY,
+        session     DATE NOT NULL,
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+
+    # ------------------------------------------------------------------
+    # EXTERNAL CASH. Declared, never inferred from a balance.
+    #
+    # NAV moves for two reasons and the number does not say which. Guessing
+    # "P&L" puts a $50k deposit into every return the system will ever report;
+    # guessing "cash flow" gives a genuine reconciliation break a benign label
+    # and stops it being investigated. See sentinel/core/cashflow.py.
+    #
+    # `amount` is SIGNED — positive is money in — rather than a magnitude plus
+    # a direction column. Two fields that must agree are two fields that can
+    # disagree, and the disagreement here inverts the correction.
+    # ------------------------------------------------------------------
+    """CREATE TABLE IF NOT EXISTS sentinel_cash_flows (
+        flow_id     TEXT PRIMARY KEY,
+        session     DATE NOT NULL,
+        amount      NUMERIC NOT NULL CHECK (amount <> 0),
+        detail      TEXT NOT NULL,
+        recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_cash_flows_session
+        ON sentinel_cash_flows (session)""",
+
+    # The residual, kept. "Was Tuesday's move ever explained?" is asked days
+    # later by someone who was not there, and an answer that lived only in a
+    # log line has scrolled past.
+    """CREATE TABLE IF NOT EXISTS sentinel_nav_reconciliations (
+        session       DATE PRIMARY KEY,
+        previous_nav  NUMERIC NOT NULL,
+        observed_nav  NUMERIC NOT NULL,
+        marked_pl     NUMERIC NOT NULL,
+        external      NUMERIC NOT NULL,
+        unexplained   NUMERIC NOT NULL,
+        attribution   TEXT NOT NULL
+                      CHECK (attribution IN ('DECLARED','MARKET','UNEXPLAINED')),
+        reconciled_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
 )
 
 

@@ -753,6 +753,110 @@ recovery buys intraday because a server came back.
 
 This is part of the execution model and therefore part of certification.
 
+### 13.2 The orchestrator, and its durable pointer
+
+§13 described the sequence; nothing produced it. `sentinel/core/catchup.py` is
+the implementation, and two of its properties are load-bearing rather than
+incidental.
+
+**The pointer advances with the state, in one transaction.**
+`sentinel_processed_sessions` is one row per cursor, written in the same commit
+as the state the session produced.
+
+```text
+pointer written AFTER the whole loop   a crash replays sessions that already
+                                       advanced. Wealth Core's state is
+                                       path-dependent, so a replayed session
+                                       double-ages every episode
+pointer written BEFORE the step        a crash SKIPS a session, permanently and
+                                       silently. This is the worse one
+```
+
+One row keyed by a cursor name, not many rows ordered by timestamp: a wall clock
+is not an ordering of trading sessions, and a re-run at 09:00 would look newer
+than the session it is behind. The pointer takes `GREATEST` on update, so a
+caller replaying an old window cannot rewind the frontier.
+
+**Wealth Core and the controller are seams.** `advance_state` and `decide` are
+injected. Wealth Core is built and NOT ACTIVATED, and the exposure controller
+does not exist yet — item E pins exposure at 1.00. Wiring either in would put a
+NO-GO engine on the production path and make the orchestration untestable until
+both land. The orchestration is what is being built and certified; what it
+drives is supplied by the caller.
+
+### 13.3 External cash is a first-class recovery event
+
+A deposit or a withdrawal changes what is investable. It does not change what
+Wealth Core did, it is not strategy P&L, and it triggers no historical replay.
+
+**NAV cannot be its own witness.** The balance moves for two reasons and the
+number does not say which:
+
+```text
+NAV 100,000 -> 150,000
+      |
+      +--  a $50,000 wire arrived
+      +--  the book was marked up
+      +--  a reconciliation break: something is wrong
+```
+
+Guess *P&L* and a deposit is +50% in a day, permanently, in every performance
+number the system will ever report. Guess *cash flow* and a genuine break gets a
+benign label and stops being investigated. Both guesses are silent and neither
+is recoverable later, because the evidence that would settle it is the moment
+that has passed.
+
+So a flow is **declared** — by an operator, or by a broker activity feed — and
+what cannot be attributed stays `UNEXPLAINED`. Three attributions, and the third
+is never resolved into one of the first two by default:
+
+```text
+MARKET       the move is within tolerance of the marked P&L
+DECLARED     a recorded flow accounts for it
+UNEXPLAINED  neither does. Recorded as such, durably
+```
+
+The tolerance is absolute (cents), not proportional. A percentage tolerance on a
+large account silently absorbs exactly the size of discrepancy worth catching.
+
+**Re-projection, not replay.** `catchup.reproject` re-sizes the CURRENT target
+against the new NAV and advances no session. `last_processed_session` does not
+move. Membership is Wealth Core's business and does not change because money
+arrived — exposure scales the basket, never the membership.
+
+**The asymmetry applies to input quality, not only to time.** §13.1 defers
+increases when the window is missed. The same rule governs degraded inputs,
+because both degrade an order's SIZE without degrading its direction:
+
+```text
+marks stale (corpus behind)     reductions proceed, increases refused
+NAV UNEXPLAINED                 reductions proceed, increases refused
+NAV unobserved (broker down)    NOTHING proceeds — NavUnobserved is raised
+```
+
+A withdrawal on a stale corpus still reduces. Doing nothing because the marks
+are old leaves the account unable to settle the wire, which is not the
+conservative choice it resembles. A withdrawal that cannot be sized at all —
+because no NAV was observed — is refused outright rather than sized against a
+guess, and the guess would be wrong by exactly the flow that prompted it.
+
+When only part of an intent is permitted, **no plan is emitted** rather than a
+reduced one. A plan carrying half of an intent has a fingerprint saying it was
+fully satisfied when it was not.
+
+**Cash movement during a partial fill.** A BUY 100 that is 40 filled with 60
+working, when a deposit lands and the new target is 150:
+
+```text
+naive        new BUY 150  ->  40 held + 60 working + 150 = 250 for a 150 target
+exact-delta  remaining = desired - held - committed = 150 - 40 - 60 = 50
+```
+
+and the working order is **cancelled and confirmed cancelled**, never silently
+superseded. Supersession retires an UNSENT intent; a live order at the broker is
+a real obligation, and declaring it superseded abandons it — the shares still
+arrive and nothing is expecting them.
+
 ---
 
 ## 14. Backup restore is an operating mode
@@ -919,6 +1023,30 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
     not left to the caller.
 35  A corporate action resolves its ticker to the security that held it AS OF
     that session; tickers are recycled.
+36  PUBLISHED IS WHAT READABLE MEANS. A row written by an ingest that no corpus
+    publication represents is invisible to every reader. A corpus BEHIND its
+    version is detectable; one AHEAD of it is not.
+37  Rows that no publication represents are REPORTED as well as hidden. Hiding
+    alone freezes the corpus silently at the last published version while the
+    fetch appears to be working.
+38  Freshness is measured in SESSIONS against the exchange calendar, never in
+    calendar days. A day budget wide enough for a holiday weekend also hides a
+    three-session outage inside an ordinary week.
+39  Unevaluable is never fresh, and neither is a frontier the exchange cannot
+    account for.
+40  No stage of an ingest holds more than a batch of vendor rows. The chunk sort
+    happens in PostgreSQL, which has bounded memory and a disk to spill to.
+41  The catch-up pointer is durable and advances in the SAME TRANSACTION as the
+    state the session produced. It never moves backwards.
+42  A catch-up emits exactly ONE execution intent, and it is the newest.
+43  External cash is DECLARED, never inferred from a balance. An unattributable
+    NAV move is UNEXPLAINED — never silently P&L and never silently a flow.
+44  A cash flow triggers a RE-PROJECTION of the current target and never a
+    replay. No session advances because money arrived.
+45  Degraded inputs follow the missed-open asymmetry: stale marks or an
+    UNEXPLAINED NAV permit reductions and refuse increases; an unobserved NAV
+    permits nothing. Partial authorisation emits NO plan rather than a reduced
+    one.
 ```
 
 Every one of these is falsifiable, and each should fail a test when violated.
