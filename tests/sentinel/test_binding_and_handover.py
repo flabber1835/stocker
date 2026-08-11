@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
-from tests.integration.conftest import _EphemeralPostgres  # noqa: E402
+from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
 from fakes import FakeBroker  # noqa: E402
 from sentinel import binding as B, handover, schema  # noqa: E402

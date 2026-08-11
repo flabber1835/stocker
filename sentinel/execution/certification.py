@@ -73,22 +73,25 @@ REGISTRY: Mapping[str, AdapterCertification] = {
     "ibkr": AdapterCertification(
         name="ibkr", certified=False,
         reasons=(
-            "close_position() mints a fresh uuid4 per attempt, so a "
-            "timeout-and-retry produces TWO identities for one economic "
-            "intent — the duplicate-position failure the contract exists to "
-            "prevent",
-            "get_clock() reconstructs the session as Mon-Fri 09:30-16:00 with "
-            "NO holiday calendar, so it reports a market open on Thanksgiving "
-            "and on every early close",
-            "submit() auto-confirms broker 'question' prompts in a bounded "
-            "loop; an unknown warning must never be acknowledged because it "
-            "arrived in the shape the code recognises as a confirmation",
-            "no ExecutionBroker implementation exists — the prototype speaks "
-            "the retired dict/tuple BrokerAdapter surface",
+            "NO IMPLEMENTATION EXISTS. The prototype adapter was DELETED in the "
+            "legacy eradication; it spoke the retired dict/tuple BrokerAdapter "
+            "surface, not the typed execution contract",
+            "it minted a fresh uuid4 per close attempt, so a timeout-and-retry "
+            "produced TWO identities for one economic intent — the "
+            "duplicate-position failure this contract exists to prevent",
+            "it reconstructed the session as Mon-Fri 09:30-16:00 with NO "
+            "holiday calendar, reporting a market open on Thanksgiving and on "
+            "every early close",
+            "it auto-confirmed broker 'question' prompts in a bounded loop; an "
+            "unknown warning must never be acknowledged because it arrived in "
+            "the shape the code recognises as a confirmation",
         ),
-        notes="Prototype only. Activation requires its own ExecutionBroker "
-              "implementation plus a mapping conformance suite; the contract "
-              "state machine is NOT re-litigated per adapter."),
+        notes="Recoverable from the stocker-legacy-2026-08 branch, and that is "
+              "the right place for it: those three defects are properties of a "
+              "design built against the old surface, so IBKR support means a "
+              "NEW ExecutionBroker plus its own mapping conformance suite. "
+              "Reviving the prototype would import the defects with it. The "
+              "contract state machine is not re-litigated per adapter."),
 }
 
 

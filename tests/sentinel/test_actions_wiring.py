@@ -36,7 +36,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
-from tests.integration.conftest import _EphemeralPostgres  # noqa: E402
+from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
 from sentinel.feed import actions_map as A  # noqa: E402
 from sentinel.feed import ingest, sharadar  # noqa: E402

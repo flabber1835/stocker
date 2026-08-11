@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
-from tests.integration.conftest import _EphemeralPostgres  # noqa: E402
+from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
 from sentinel import binding as B, schema  # noqa: E402
 from sentinel.execution import (  # noqa: E402
@@ -294,14 +294,27 @@ class TestAdapterCertification:
                            match="not in the certification registry"):
             certification.require_certified("some-new-broker")
 
-    def test_the_real_IBKR_defects_still_exist_as_described(self):
-        """The registry's reasons are claims about code. If someone fixes the
-        adapter, this fails and the registry must be revisited — a stale
-        'not certified' is as misleading as a stale 'certified'."""
-        source = (ROOT / "shared" / "stock_strategy_shared" / "broker"
-                  / "ibkr.py").read_text()
-        assert "uuid.uuid4().hex" in source
-        assert "confirmed" in source
+    def test_the_IBKR_adapter_is_GONE_not_merely_uncertified(self):
+        """Eradication, asserted rather than assumed.
+
+        The registry used to say "prototype only", and a prototype sitting in
+        the tree is a prototype somebody eventually wires up — carrying its
+        uuid4-per-close, its Mon-Fri-no-holidays clock and its auto-confirmed
+        broker prompts with it. It is now deleted and recoverable only from
+        `stocker-legacy-2026-08`, which is where a design built against the
+        retired surface belongs.
+        """
+        assert not (ROOT / "shared" / "stock_strategy_shared" / "broker"
+                    / "ibkr.py").exists()
+        entry = certification.REGISTRY["ibkr"]
+        assert not entry.certified
+        assert any("NO IMPLEMENTATION EXISTS" in r for r in entry.reasons)
+
+    def test_the_broker_factory_is_gone_too(self):
+        """Runtime BROKER-env dispatch is how a second broker gets selected by
+        accident. One deployment, one broker, constructed directly."""
+        assert not (ROOT / "shared" / "stock_strategy_shared" / "broker"
+                    / "factory.py").exists()
 
 
 # ===========================================================================
