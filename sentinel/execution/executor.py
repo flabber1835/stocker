@@ -43,7 +43,7 @@ from typing import Mapping, Optional, Sequence
 
 from sentinel.execution import commands as C
 from sentinel.execution import journal, reconcile as R, recovery
-from sentinel.execution.contract import ExecutionBroker
+from sentinel.execution.contract import Completeness, ExecutionBroker
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
 from sentinel.execution.plan import ExecutionPlan
 from sentinel.execution.states import CommandState, RuntimeState
@@ -203,14 +203,54 @@ def is_execution_window_open(plan: ExecutionPlan, today: date) -> bool:
     return today <= plan.effective_session
 
 
+#: How many times the settle poll may re-observe before giving up on the
+#: reductions and deferring the increases. Bounded, not open-ended: a sale that
+#: has not completed after this many reads is a sale whose proceeds are not
+#: arriving in this session, and waiting longer converts a deferral into a hang.
+DEFAULT_SETTLE_CYCLES = 6
+
+
 async def execute_session(*, broker: ExecutionBroker, conn,
                           deployment: DeploymentIdentity, plan: ExecutionPlan,
                           instruments: Mapping[str, object],
                           today: date,
                           actions: Optional[R.ActionLookup] = None,
                           min_increment: Decimal = Decimal(1),
+                          settle_cycles: int = DEFAULT_SETTLE_CYCLES,
                           ) -> SessionResult:
-    """One pass: reconcile, then drive the account toward the PLAN's basket.
+    """TWO PHASES: reduce, settle, re-observe, re-size, increase.
+
+    `order_of_operations` already put reductions before increases, and that is
+    not the same property. Every delta used to be sized against ONE observation
+    taken before anything was sent, and all of them were submitted back to back:
+
+    ```text
+    observe            A: 50 held,  B: 0 held
+    submit SELL A 50   ... still working
+    submit BUY  B 100  <- sized against a book that no longer exists, funded by
+                          proceeds that have not settled
+    ```
+
+    THE MONEY. The purchase assumes the sale's proceeds. If the sale is partial,
+    still working, or UNKNOWN, the purchase is funded by margin — which the
+    long-only unlevered envelope exists to exclude and which the broker will
+    happily provide without being asked.
+
+    THE QUANTITY. Anything that changes the book between the two submissions is
+    invisible to the second. A foreign fill, an order the broker closed
+    `done_for_day`, an over-fill on the sale — each makes `desired - held -
+    committed` stale arithmetic, and the exact-delta machinery that exists to
+    make convergence exact converges to the wrong number instead.
+
+    So increases are sized against a read taken AFTER the reductions settled.
+    When that read cannot be had — the reductions are still outstanding past
+    `settle_cycles`, or the observation is not COMPLETE — the increases are
+    DEFERRED rather than sized against the stale one. §13.1's asymmetry, applied
+    to input quality: buying late is opportunity cost, buying wrong is not.
+
+    A session with NO reductions skips the settle entirely. The second read
+    exists to see proceeds; with nothing sold there are none, and an
+    unconditional extra round trip is latency for nothing.
 
     **The quantities come from `plan.target_basket` and nowhere else.** This
     used to take a separate `desired` mapping alongside the plan, which meant
@@ -234,7 +274,7 @@ async def execute_session(*, broker: ExecutionBroker, conn,
         return await _execute_session_locked(
             broker=broker, conn=conn, deployment=deployment, plan=plan,
             instruments=instruments, today=today, actions=actions,
-            min_increment=min_increment)
+            min_increment=min_increment, settle_cycles=settle_cycles)
 
 
 async def _execute_session_locked(*, broker: ExecutionBroker, conn,
@@ -243,7 +283,9 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                                   instruments: Mapping[str, object],
                                   today: date,
                                   actions: Optional[R.ActionLookup],
-                                  min_increment: Decimal) -> SessionResult:
+                                  min_increment: Decimal,
+                                  settle_cycles: int = DEFAULT_SETTLE_CYCLES,
+                                  ) -> SessionResult:
     desired = plan.target_basket
 
     # 1. RECONCILE. Nothing is submitted before the broker's own state is
@@ -276,44 +318,151 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     deferred: list = []
     window_open = is_execution_window_open(plan, today)
 
-    # 3. REDUCTIONS FIRST. A purchase that fails must never prevent a sale.
-    for delta in order_of_operations(deltas):
-        if delta.classification is C.DeltaClass.NONE:
-            continue
+    async def authorized(candidates, obs, commands):
+        """The subset that may proceed. Everything else lands in `refused`.
 
-        # THE MISSED-OPEN RULE. A stale plan may still de-risk; it may not buy.
-        if delta.is_increase and not window_open:
-            deferred.append(delta.security_id)
-            continue
+        Separated from sending so it can run BEFORE the settle. Refusing and
+        deferring are different answers — one means "never on this evidence",
+        the other means "try again once the proceeds exist" — and an increase
+        blocked by foreign activity that gets reported as "waiting to settle"
+        sends an operator to look at the wrong thing.
+        """
+        out = []
+        for delta in candidates:
+            if delta.classification is C.DeltaClass.NONE:
+                continue
+            try:
+                C.authorize(delta=delta, runtime=runtime, binding=_binding(conn),
+                            observed_account=await broker.identify_account(),
+                            observation=obs, open_commands=commands,
+                            capabilities=broker.capabilities)
+            except Exception as exc:                          # noqa: BLE001
+                refused[delta.security_id] = f"{type(exc).__name__}: {exc}"
+                continue
+            out.append(delta)
+        return out
 
-        try:
-            C.authorize(delta=delta, runtime=runtime, binding=_binding(conn),
-                        observed_account=await broker.identify_account(),
-                        observation=observation, open_commands=open_commands,
-                        capabilities=broker.capabilities)
-        except Exception as exc:                              # noqa: BLE001
-            refused[delta.security_id] = f"{type(exc).__name__}: {exc}"
-            continue
+    async def submit_all(candidates, obs, commands):
+        """Authorize and send, against the observation `candidates` were sized
+        from. Returns the commands now outstanding."""
+        for delta in await authorized(candidates, obs, commands):
+            command = C.build(
+                delta=delta,
+                identity=CommandIdentity(deployment=deployment,
+                                         plan_id=plan.plan_id,
+                                         security_id=delta.security_id),
+                instrument=instruments[delta.security_id])
+            sent = await _persist_and_send(conn, broker, command)
+            submitted.append(sent)
+            commands = commands + (sent,)
+        return commands
 
-        command = C.build(
-            delta=delta,
-            identity=CommandIdentity(deployment=deployment,
-                                     plan_id=plan.plan_id,
-                                     security_id=delta.security_id),
-            instrument=instruments[delta.security_id])
+    # 3. PHASE ONE — REDUCTIONS. A purchase that fails must never prevent a
+    #    sale, and a sale's proceeds are not spendable until they exist.
+    ordered = order_of_operations(deltas)
+    reductions = [d for d in ordered
+                  if not d.is_increase and d.classification is not C.DeltaClass.NONE]
+    increases = [d for d in ordered
+                 if d.is_increase and d.classification is not C.DeltaClass.NONE]
 
-        sent = await _persist_and_send(conn, broker, command)
-        submitted.append(sent)
-        open_commands = open_commands + (sent,)
+    open_commands = await submit_all(reductions, observation, open_commands)
+
+    # PRE-FLIGHT the increases against the pre-trade read, before spending a
+    # settle on them. An increase blocked by FOREIGN_ACTIVITY, a binding
+    # mismatch or an outstanding UNKNOWN will be blocked after the settle too;
+    # reporting it as "deferred, waiting to settle" would name a cause that is
+    # not the cause. Survivors are authorised AGAIN below, against the read they
+    # are actually sized from — this pass classifies, the second one gates.
+    increases = await authorized(increases, observation, open_commands)
+
+    # THE MISSED-OPEN RULE, before anything is spent on settling. A stale plan
+    # may still de-risk; it may not buy, so there is nothing to settle FOR.
+    if increases and not window_open:
+        deferred.extend(d.security_id for d in increases)
+        increases = []
+        detail_window = (
+            f"{len(deferred)} increase(s) DEFERRED — the plan's execution "
+            f"window ({plan.effective_session}) has passed and "
+            f"exposure-increasing orders wait for the next one")
+    else:
+        detail_window = ""
+
+    # 4. SETTLE, then RE-OBSERVE and RE-SIZE. Only when both halves exist:
+    #    with no reductions there are no proceeds to wait for, and with no
+    #    increases there is nothing the second read would inform.
+    settle_note = ""
+    if increases and submitted:
+        settled, observation = await _settle_reductions(
+            broker, [c.client_key for c in submitted], settle_cycles)
+        if not settled:
+            deferred.extend(d.security_id for d in increases)
+            increases = []
+            settle_note = (
+                f"{len(deferred)} increase(s) DEFERRED — the reductions did not "
+                f"settle within {settle_cycles} cycles, so their proceeds do "
+                f"not exist. Buying against them would be buying on margin, "
+                f"which the long-only unlevered envelope excludes and which the "
+                f"broker will provide without being asked.")
+        else:
+            # RE-SIZED against the fresh read. `desired` is unchanged — it comes
+            # from the plan and nowhere else — so only `held` and `committed`
+            # move, which is exactly the correction being made.
+            open_commands = journal.in_flight_commands(conn, deployment)
+            increases = [
+                C.compute_delta(security_id=d.security_id,
+                                desired=desired.get(d.security_id, Decimal(0)),
+                                observation=observation,
+                                min_increment=min_increment)
+                for d in increases]
+            # Only INCREASES may come out of the re-size. A reduction appearing
+            # here would be phase one's own fill read back as new work.
+            increases = [d for d in increases if d.is_increase]
+
+    # 5. PHASE TWO — INCREASES, against whichever observation is now current.
+    if increases:
+        await submit_all(increases, observation, open_commands)
 
     detail = f"{len(submitted)} submitted, {len(refused)} refused"
-    if deferred:
-        detail += (f", {len(deferred)} increase(s) DEFERRED — the plan's "
-                   f"execution window ({plan.effective_session}) has passed and "
-                   f"exposure-increasing orders wait for the next one")
+    for note in (detail_window, settle_note):
+        if note:
+            detail += ", " + note
     return SessionResult(runtime_state=runtime, reconciliation=rec,
                          submitted=tuple(submitted), refused=refused,
                          deferred=tuple(deferred), detail=detail)
+
+
+async def _settle_reductions(broker: ExecutionBroker, client_keys,
+                             cycles: int) -> tuple:
+    """Poll until the reductions stop being outstanding. Returns (settled, obs).
+
+    SETTLED means none of `client_keys` is still WORKING at the broker, and the
+    read that established it was COMPLETE. Both halves matter: an incomplete
+    read cannot prove an order is finished, and "the order is finished" is the
+    entire basis for believing the proceeds exist.
+
+    `is_working`, not presence in the list. The order list deliberately includes
+    recent TERMINAL orders — without them a completed fill would vanish from the
+    observation and leave its command stuck at ACKNOWLEDGED — so a membership
+    test would find every sale still outstanding forever and defer every
+    increase this executor ever wanted to make.
+
+    Bounded rather than open-ended. A sale still working after `cycles` reads is
+    a sale whose proceeds are not arriving in this session, and waiting longer
+    turns a deferral — which is safe and visible — into a hang, which is
+    neither. No sleeping: the poll is a re-read, and how fast the caller's
+    broker answers is the caller's business.
+    """
+    outstanding = set(client_keys)
+    observation = None
+    for _ in range(max(1, cycles)):
+        observation = await broker.observe()
+        if observation.completeness is not Completeness.COMPLETE:
+            continue
+        working = {o.client_key for o in observation.orders
+                   if o.client_key and o.is_working}
+        if not (outstanding & working):
+            return True, observation
+    return False, observation
 
 
 async def _persist_and_send(conn, broker, command: C.Command) -> C.Command:

@@ -126,6 +126,17 @@ class SimulatedBroker(ExecutionBroker):
     #: way to reproduce the invariant-21 hazard at the contract level.
     fill_between_reads: Optional[object] = None
 
+    #: One entry popped BEFORE each `observe`, in order — the same script idiom
+    #: as the fault queues, and for the same reason: the world changing between
+    #: two reads is a scenario, not an accident, and a test that describes it as
+    #: a sequence can be read as one.
+    #:
+    #: This is what makes the two-phase execution contract testable at all. The
+    #: property is "the increase is sized against a read taken AFTER the
+    #: reductions settled", and demonstrating it requires the settle to actually
+    #: happen between two specific reads.
+    observe_hooks: list = field(default_factory=list)
+
     now: datetime = EPOCH
     _orders: dict = field(default_factory=dict)
     _positions: dict = field(default_factory=dict)
@@ -210,6 +221,11 @@ class SimulatedBroker(ExecutionBroker):
         return self.account
 
     async def observe(self) -> BrokerObservation:
+        if self.observe_hooks:
+            hook = self.observe_hooks.pop(0)
+            if hook is not None:
+                hook(self)
+
         fault = self._pop(self.observe_faults)
         if fault is FaultKind.OUTAGE:
             self.calls.append("observe:OUTAGE")

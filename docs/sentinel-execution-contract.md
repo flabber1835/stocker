@@ -753,6 +753,67 @@ recovery buys intraday because a server came back.
 
 This is part of the execution model and therefore part of certification.
 
+### 13.1a Two-phase execution: reduce, settle, re-observe, re-size, increase
+
+§13.1 orders reductions before increases. That is not the same property as
+sizing them separately, and the gap between *submitted* and *settled* is where
+the whole failure lives. Every delta used to be sized against ONE observation
+taken before anything was sent:
+
+```text
+observe            A: 50 held,  B: 0 held
+submit SELL A 50   ... still working
+submit BUY  B 100  <- sized against a book that no longer exists, funded by
+                      proceeds that have not settled
+```
+
+**The money.** The purchase assumes the sale's proceeds. If the sale is partial,
+still working, or UNKNOWN, the purchase is funded by margin — which §4c's
+long-only unlevered envelope exists to exclude, and which the broker provides
+without being asked.
+
+**The quantity.** Anything that changes the book between the two submissions is
+invisible to the second. A foreign fill, an order the broker closed
+`done_for_day`, an over-fill on the sale — each makes `desired − held −
+committed` stale arithmetic, and the machinery that exists to make convergence
+exact converges to the wrong number.
+
+So:
+
+```text
+1  size everything against the pre-trade observation
+2  PRE-FLIGHT the increases: anything that can never be authorised on this
+   evidence is REFUSED here, with its real reason
+3  submit the reductions
+4  SETTLE — poll until none of them is still WORKING, bounded by settle_cycles
+5  re-observe, and RE-SIZE the increases against that read
+6  submit the increases
+```
+
+Steps 4-6 are skipped when there is nothing to settle for: a pure-buy session
+has no proceeds to wait on, and an unconditional extra round trip is latency for
+nothing.
+
+**Settled means not WORKING, on a COMPLETE read.** Both halves. The order list
+deliberately includes recent terminal orders — without them a completed fill
+vanishes from the observation and its command sticks at ACKNOWLEDGED — so a
+membership test would find every sale outstanding forever. And an incomplete
+read cannot prove an order finished, which is the entire basis for believing the
+proceeds exist.
+
+**Pre-flight before settle, because refused and deferred are different answers.**
+One means "never, on this evidence"; the other means "try again once the
+proceeds exist". An increase blocked by FOREIGN_ACTIVITY reported as "waiting to
+settle" sends an operator to look at the wrong thing. Survivors are authorised
+again against the read they are actually sized from — the first pass classifies,
+the second gates.
+
+**When the settle fails, increases are DEFERRED.** §13.1's asymmetry applied to
+input quality rather than to time: buying late is opportunity cost, buying wrong
+is not. The bound is a cycle count, not a timeout — a sale still working after
+it is a sale whose proceeds are not arriving this session, and waiting longer
+converts a visible deferral into a hang.
+
 ### 13.2 The orchestrator, and its durable pointer
 
 §13 described the sequence; nothing produced it. `sentinel/core/catchup.py` is
@@ -1047,6 +1108,13 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
     UNEXPLAINED NAV permit reductions and refuse increases; an unobserved NAV
     permits nothing. Partial authorisation emits NO plan rather than a reduced
     one.
+46  An increase is sized against an observation taken AFTER the reductions
+    settled. Submitted is not settled.
+47  Settled means no reduction is still WORKING and the read that established
+    it was COMPLETE. An unsettled reduction defers every increase.
+48  Refused and deferred are different answers. An increase that can never be
+    authorised on this evidence is refused with its own reason, before any
+    settle is spent on it.
 ```
 
 Every one of these is falsifiable, and each should fail a test when violated.

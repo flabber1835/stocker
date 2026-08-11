@@ -316,8 +316,22 @@ class TestExecuteSession:
         assert result.submitted == ()
 
     def test_reductions_are_sent_before_increases(self, conn):
+        """The ordering, which is now the FIRST half of a two-phase contract.
+
+        The sale has to actually SETTLE for the purchase to be sized at all —
+        see tests/sentinel/test_two_phase.py. Without the hook the sale rests
+        forever and the increase is correctly deferred, which is a different
+        (also correct) behaviour and not the one this test is about.
+        """
         b = broker()
         seed_held(conn, b, BBB, 20)
+
+        def settle(sim):
+            for order in list(sim._orders.values()):
+                if order.client_key and order.remaining > 0:
+                    sim.fill(order.client_key)
+        b.observe_hooks = [None, settle]
+
         go(b, conn, {"SEC-AAA": D(10), "SEC-BBB": D(0)})
 
         submits = [c for c in b.calls if c.startswith("submit:")]
