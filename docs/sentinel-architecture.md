@@ -619,6 +619,64 @@ restore side because one boolean answered both "the evidence says no crash" and
 `transition_record()` / `transition_hash()`; parity is asserted on the decision
 record, not on the presence of a call site.
 
+### 7b. The implementation contract (settled 2026-08-11, before coding)
+
+§7 settles the RULE. This settles how it is built, because three of these
+choices are the difference between a controller and something that resembles
+one.
+
+**Configuration is LOADED from the frozen rule, never transcribed.**
+`docs/sentinel-handoff/00_README/FROZEN_SENTINEL_1P1_RULE.json` carries every
+threshold as data, and its SHA256 is in the handoff's own `SHA256SUMS.txt`. The
+controller reads that file and verifies the digest at import. A transcribed
+constant is a constant that can drift from the artifact it claims to reproduce —
+which is exactly what §7's own warning ("re-inferring Sentinel from prose is how
+you get a Sentinel that merely resembles 1.1") is about. The digest check turns
+"we copied it correctly" from a claim into a fact.
+
+**The controller is a PURE function, and breadth is an INPUT.**
+
+```text
+step(observation, state) -> (state, decision)
+```
+
+No IO, no clock, no corpus access. This is not stylistic. `09_GAPS` records that
+the security-level damaged/green classifier is **NOT RECOVERABLE** — only the
+daily aggregate tape survives — so a controller that computed breadth internally
+could not be certified at all. Taking breadth as an observation makes the
+controller exactly certifiable today against the frozen tape, and leaves the
+classifier as a separately gated component (UNCERTIFIED_BREADTH stands).
+
+It also means the whole state machine is testable without a database, and that
+`catchup.advance_state` can drive it: the state is a JSON-round-trippable dict,
+which is the constraint the catch-up seam already enforces.
+
+**What the frozen tape can and cannot prove.** Stating this now, because
+discovering it during certification would invite rounding the claim up:
+
+```text
+CERTIFIABLE EXACTLY, 5,032 sessions
+  the recovery ramp            fragility gate, 0.55 -> 0.65 -> 1.0, abandonment
+  the healthy triple           r20 / damaged / green
+  slow severe ENTRY            every predicate is on the tape
+  fast and slow RECOVERY       dwell counts, streaks, re-arm
+
+NOT CERTIFIABLE AGAINST THIS TAPE
+  the two SPY predicates of fast entry
+      spy_vol5 / spy_vol20 - 1 >= 0.04
+      spy_r20 <= -0.01
+    SPY appears in no handoff artifact. They are implemented from the frozen
+    JSON and carry their own gate; the tape's severe transitions are consumed
+    as the parent signal where the certification needs them.
+```
+
+**Causes are separate, and the reason survives.** `fast_severe_active` and
+`slow_severe_active` are distinct fields, not one flag, because their recovery
+clocks differ — if fast clears while slow persists, exposure stays 0% and the
+governing clock changes. Every step emits a `transition_record` carrying the
+cause set, the evidence and the reason code, and that record is what parity is
+asserted on.
+
 ### Execution semantics
 
 Decisions are made **after the close**; any exposure change is effective at the

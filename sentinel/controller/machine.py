@@ -1,0 +1,482 @@
+"""The Sentinel 1.1 controller: a pure deterministic state machine.
+
+```text
+step(observation, state) -> (state, decision)
+```
+
+No IO, no clock, no corpus access, no broker. Given the same observation and
+the same prior state it returns the same next state and the same exposure,
+forever — which is what makes it certifiable against a 5,032-session tape at
+all, and what lets `catchup.advance_state` drive it inside a transaction.
+
+## Breadth is an INPUT, and that is not a style choice
+
+`09_GAPS/MISSING_OR_UNRECOVERED.md` records the security-level damaged/green
+classifier as NOT RECOVERABLE — only the daily aggregate tape survives — and the
+frozen rule's own `breadth` block says `DO NOT RE-INFER`. A controller that
+computed breadth internally could therefore never be certified: its inputs would
+be a reconstruction, and every threshold in both severe paths reads them.
+
+Taking breadth as an observation makes this module exactly certifiable today and
+leaves the classifier as a separately gated component. It also means the whole
+state machine runs with no database.
+
+## Evidence records, not boolean expressions
+
+Seven conditions with two embedded disjunctions is where a transcription error
+hides. Each predicate carries its value, whether it was AVAILABLE, and whether
+it passed — three states, not two:
+
+```text
+available=False, passed=None   we could not evaluate this
+available=True,  passed=False  we evaluated it and it said no
+```
+
+A required-but-unavailable predicate fails the transition CLOSED with an
+explicit reason, never coerced into an ordinary negative. This is the direct
+lesson from Stocker's crash brake, which was fail-open on the restore side
+because one boolean answered both "the evidence says no crash" and "there is no
+evidence".
+
+## Causes are tracked separately
+
+`fast_severe_active` and `slow_severe_active` are distinct, not one flag. Their
+recovery clocks differ: if fast clears while slow persists, exposure stays 0%
+and the governing clock changes. A single flag would silently adopt whichever
+clock cleared first.
+
+## The state is a plain JSON-round-trippable dict
+
+Not a dataclass. `catchup._mark_processed` persists it in the same statement as
+the session pointer and refuses anything `json.dumps` cannot encode without a
+`default=` fallback — because a fallback makes everything encodable and nothing
+round-trip. A dict of floats, ints, strings and bools survives that exactly, and
+a resumed controller continues mid-ramp with its healthy streak intact.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Optional
+
+from sentinel.controller.frozen_rule import ControllerConfig
+
+#: Reason codes. Named constants because they are consumed by the transition
+#: record and an operator reads them under pressure.
+FAST_EVIDENCE_UNAVAILABLE = "FAST_EVIDENCE_UNAVAILABLE"
+SLOW_EVIDENCE_UNAVAILABLE = "SLOW_EVIDENCE_UNAVAILABLE"
+HEALTH_EVIDENCE_UNAVAILABLE = "HEALTH_EVIDENCE_UNAVAILABLE"
+
+
+@dataclass(frozen=True)
+class Observation:
+    """One session's inputs. Every field may be None, meaning UNAVAILABLE.
+
+    None is never zero. An absent `shadow_r40` early in a window is "we cannot
+    evaluate this predicate", and a controller that reads it as 0.0 would find
+    a comfortable positive where there is no evidence at all.
+    """
+
+    session: str
+    shadow_nav: Optional[float] = None
+    damaged_breadth: Optional[float] = None
+    green_breadth: Optional[float] = None
+    shadow_drawdown: Optional[float] = None
+    shadow_r5: Optional[float] = None
+    shadow_r10: Optional[float] = None
+    shadow_r20: Optional[float] = None
+    shadow_r40: Optional[float] = None
+    damaged_breadth_delta5: Optional[float] = None
+    #: SPY confirmation. ABSENT FROM EVERY HANDOFF ARTEFACT, so these are
+    #: implemented from the frozen rule and cannot be certified against the
+    #: tape — see the certification module's docstring.
+    spy_r20: Optional[float] = None
+    spy_vol_ratio: Optional[float] = None
+
+
+@dataclass(frozen=True)
+class PredicateResult:
+    """value / available / passed, kept apart on purpose."""
+
+    name: str
+    value: Optional[float]
+    available: bool
+    passed: Optional[bool]
+
+    def to_dict(self) -> dict:
+        return {"name": self.name, "value": self.value,
+                "available": self.available, "passed": self.passed}
+
+
+@dataclass(frozen=True)
+class Evidence:
+    """A transition's predicates and what they collectively say."""
+
+    predicates: tuple
+    satisfied: bool
+    reason: str
+
+    def __getattr__(self, item):
+        for p in self.predicates:
+            if p.name == item:
+                return p
+        raise AttributeError(item)
+
+    def to_dict(self) -> dict:
+        return {"satisfied": self.satisfied, "reason": self.reason,
+                "predicates": [p.to_dict() for p in self.predicates]}
+
+
+@dataclass(frozen=True)
+class Decision:
+    session: str
+    target_core_exposure: float
+    reason: str
+    fast_severe_active: bool = False
+    slow_severe_active: bool = False
+    ramp_step: Optional[float] = None
+    evidence: dict = field(default_factory=dict)
+
+    @property
+    def severe(self) -> bool:
+        return self.fast_severe_active or self.slow_severe_active
+
+    def to_dict(self) -> dict:
+        """The transition record. Parity is asserted on THIS, not on a call
+        site — both engines must emit the same canonical shape."""
+        return {"session": self.session,
+                "target_core_exposure": self.target_core_exposure,
+                "reason": self.reason,
+                "fast_severe_active": self.fast_severe_active,
+                "slow_severe_active": self.slow_severe_active,
+                "severe": self.severe,
+                "ramp_step": self.ramp_step,
+                "evidence": self.evidence}
+
+
+def _p(name, value, test) -> PredicateResult:
+    """One predicate, with UNAVAILABLE kept distinct from FAILED."""
+    if value is None:
+        return PredicateResult(name=name, value=None, available=False,
+                               passed=None)
+    return PredicateResult(name=name, value=float(value), available=True,
+                           passed=bool(test(value)))
+
+
+def _collect(predicates, unavailable_reason: str, satisfied_reason: str,
+             failed_reason: str) -> Evidence:
+    """FAIL CLOSED on missing evidence, and say which kind of no it is.
+
+    Order matters: unavailability is checked BEFORE the pass/fail tally, so a
+    transition never reports "the conditions were not met" when the truth is
+    that it could not look.
+    """
+    missing = [p.name for p in predicates if not p.available]
+    if missing:
+        return Evidence(predicates=tuple(predicates), satisfied=False,
+                        reason=f"{unavailable_reason}: {','.join(missing)}")
+    ok = all(p.passed for p in predicates)
+    return Evidence(predicates=tuple(predicates), satisfied=ok,
+                    reason=satisfied_reason if ok else failed_reason)
+
+
+class Controller:
+    """Sentinel 1.1. Constructed with the frozen config; holds no state itself.
+
+    State lives in the dict passed through `step`, never on the instance — so
+    two sessions replayed on one instance cannot leak into each other, and a
+    controller is safe to reuse across a catch-up replay.
+    """
+
+    def __init__(self, config: ControllerConfig) -> None:
+        self.cfg = config
+
+    # ── state ───────────────────────────────────────────────────────────────
+
+    def initial_state(self) -> dict:
+        """A COLD START, stated explicitly rather than defaulted field by field.
+
+        Every clock starts unset and every streak at zero, which is the correct
+        reading of "we have no history": a controller that began mid-ramp, or
+        with a stress clock already aged, would make its first decision on
+        evidence it never saw.
+        """
+        return {
+            "ordinary_stress_active": False,
+            "ordinary_stress_start_session": None,
+            "ordinary_stress_start_shadow_nav": None,
+            "ordinary_stress_age": 0,
+            "fast_severe_active": False,
+            "fast_severe_entry_session": None,
+            "fast_severe_age": 0,
+            "fast_healthy_streak": 0,
+            "fast_rearm_armed": True,
+            "slow_severe_active": False,
+            "slow_severe_entry_session": None,
+            "slow_severe_age": 0,
+            "slow_healthy_streak": 0,
+            "ramp_active": False,
+            "ramp_step_index": None,
+            "ramp_healthy_streak": 0,
+            "ramp_entry_session": None,
+            "last_target_core": 1.0,
+            "last_session": None,
+        }
+
+    # ── predicates ──────────────────────────────────────────────────────────
+
+    def is_healthy(self, ob: Observation) -> Optional[bool]:
+        """The triple every recovery and every ramp promotion depends on.
+
+        Returns None when it cannot be evaluated — callers must treat that as
+        "not healthy" for promotion purposes AND must not let it break a
+        streak silently, which is why the streak logic reads it explicitly.
+        """
+        h = self.cfg.healthy
+        if ob.shadow_r20 is None or ob.damaged_breadth is None \
+                or ob.green_breadth is None:
+            return None
+        return (ob.shadow_r20 > h.shadow_r20_strictly_greater_than
+                and ob.damaged_breadth <= h.max_damaged_breadth
+                and ob.green_breadth >= h.min_green_breadth)
+
+    def is_fragile(self, delta_r40_5: Optional[float]) -> Optional[bool]:
+        """§7a's gate. `<= 0.0`, tightened from `<= +0.01` with the exact
+        historical path unchanged — so the threshold sits on a plateau rather
+        than a knife edge, which is why this is a comparison and not a band."""
+        if delta_r40_5 is None:
+            return None
+        return delta_r40_5 <= self.cfg.ramp.fragile_if_delta_r40_5_lte
+
+    def fast_severe_evidence(self, ob: Observation) -> Evidence:
+        """The seven-condition fast path, with its two embedded disjunctions.
+
+        The disjunctions are evaluated as single predicates with their own
+        availability, because `A or B` where A is unavailable and B is False is
+        NOT False — it is unknown, and the whole point of this structure is
+        that unknown fails closed.
+        """
+        e = self.cfg.fast_entry
+        short_loss = _or_predicate(
+            "short_loss",
+            [(ob.shadow_r5, e["short_loss_or"][0]["max_shadow_r5"]),
+             (ob.shadow_r10, e["short_loss_or"][1]["max_shadow_r10"])])
+        confirmation = _or_predicate(
+            "confirmation",
+            [(ob.spy_r20, e["confirmation_or"][0]["max_spy_r20"]),
+             (ob.shadow_r10, e["confirmation_or"][1]["max_shadow_r10"])])
+        preds = [
+            _p("shadow_drawdown", ob.shadow_drawdown,
+               lambda v: v <= e["max_shadow_drawdown"]),
+            _p("damaged_breadth", ob.damaged_breadth,
+               lambda v: v >= e["min_damaged_breadth"]),
+            _p("green_breadth", ob.green_breadth,
+               lambda v: v <= e["max_green_breadth"]),
+            short_loss,
+            _p("damage_acceleration", ob.damaged_breadth_delta5,
+               lambda v: v >= e["min_damaged_breadth_delta5"]),
+            _p("vol_acceleration", ob.spy_vol_ratio,
+               lambda v: v >= e["min_spy_vol5_over_vol20_minus_1"]),
+            confirmation,
+        ]
+        return _collect(preds, FAST_EVIDENCE_UNAVAILABLE,
+                        "FAST_SEVERE_ENTRY", "FAST_CONDITIONS_NOT_MET")
+
+    def slow_severe_evidence(self, ob: Observation, state: dict) -> Evidence:
+        """The grinding-bear path. Evaluated only while ordinary stress is
+        active — the caller enforces that; this reports the predicates."""
+        e = self.cfg.slow_entry
+        anchor = state.get("ordinary_stress_start_shadow_nav")
+        since = (None if not anchor or ob.shadow_nav is None
+                 else ob.shadow_nav / anchor - 1.0)
+        preds = [
+            _p("stress_age", state.get("ordinary_stress_age"),
+               lambda v: v >= e["minimum_stress_sessions"]),
+            _p("return_since_anchor", since,
+               lambda v: v <= e["max_return_since_anchor"]),
+            _p("shadow_r40", ob.shadow_r40,
+               lambda v: v <= e["max_shadow_return_40"]),
+            _p("damaged_breadth", ob.damaged_breadth,
+               lambda v: v >= e["min_damaged_breadth"]),
+            _p("green_breadth", ob.green_breadth,
+               lambda v: v <= e["max_green_breadth"]),
+        ]
+        return _collect(preds, SLOW_EVIDENCE_UNAVAILABLE,
+                        "SLOW_SEVERE_ENTRY", "SLOW_CONDITIONS_NOT_MET")
+
+    # ── the ramp ────────────────────────────────────────────────────────────
+
+    def ramp_target(self, state: dict) -> float:
+        """Exposure implied by the ramp alone, ignoring severe causes."""
+        if not state.get("ramp_active"):
+            return 1.0
+        idx = state.get("ramp_step_index")
+        return self.cfg.ramp.steps[idx] if idx is not None else 1.0
+
+    def step_with_parent(self, *, observation: Observation, state: dict,
+                         parent_alloc: float,
+                         prior_parent_alloc: float) -> tuple:
+        """One session, with the PARENT severe signal supplied externally.
+
+        This is the certification entry point, and the separation is a
+        statement about what is proven rather than a convenience. The parent's
+        fast path needs two SPY predicates that appear in NO handoff artefact,
+        so its entries cannot be reproduced from the frozen tape. Consuming the
+        tape's own canonical allocation as the severe signal isolates exactly
+        what Sentinel 1.1 ADDS — the selective recovery ramp — and certifies
+        that exactly, instead of certifying a guess about SPY.
+
+        `step()` is the production path, where the parent signal is computed
+        from the evidence rather than supplied.
+        """
+        cfg = self.cfg
+        st = dict(state)
+        severe = parent_alloc <= 0.0
+        recovering = prior_parent_alloc <= 0.0 and not severe
+
+        healthy = self.is_healthy(observation)
+
+        if severe:
+            # RENEWED SEVERE ABANDONS THE RAMP (§7a). Not paused: the ramp's
+            # premise is that a recovery is being confirmed, and a fresh severe
+            # cause is that premise failing. Resuming at 0.65 afterwards would
+            # promote on confirmations collected before the thing that broke.
+            #
+            # BELT AND BRACES, and labelled as such rather than left looking
+            # load-bearing. Abandonment is actually ENFORCED one branch down:
+            # the only route out of severe is a canonical recovery, and that
+            # branch re-evaluates fragility and restarts the ramp at step 0
+            # unconditionally. Mutation testing proved it — deleting this line
+            # changes no behaviour at all. It stays because the rule is
+            # explicit and a future edit to the recovery branch should not be
+            # able to resurrect a stale ramp silently.
+            st.update(ramp_active=False, ramp_step_index=None,
+                      ramp_healthy_streak=0, ramp_entry_session=None)
+            target, reason = cfg.severe_target_core, "SEVERE"
+        elif recovering:
+            fragile = self.is_fragile(
+                _delta_r40_at_prior_close(st.get("_r40_history"),
+                                          cfg.ramp.gate_horizon_sessions))
+            if fragile:
+                # THE RECOVERY SESSION ITSELF SEEDS THE STREAK. 2022-08-05 is
+                # healthy and its ramp promotes on 08-19; counting from the day
+                # AFTER would put the tenth confirmation on 08-22.
+                st.update(ramp_active=True, ramp_step_index=0,
+                          ramp_healthy_streak=1 if healthy else 0,
+                          ramp_entry_session=observation.session)
+                target, reason = cfg.ramp.steps[0], "RECOVERY_FRAGILE_RAMP"
+            else:
+                st.update(ramp_active=False, ramp_step_index=None,
+                          ramp_healthy_streak=0)
+                target, reason = cfg.ramp.not_fragile_target, "RECOVERY_FULL"
+        elif st.get("ramp_active"):
+            idx = st["ramp_step_index"]
+            need = cfg.ramp.confirmation_sessions[idx]
+            # CONSECUTIVE, INCLUDING THE RECOVERY SESSION, JUDGED ON THE PRIOR
+            # CLOSE. Three properties, and the frozen tape pins all three
+            # independently — each of my first two attempts had exactly one of
+            # them and diverged on five sessions out of 5,032:
+            #
+            #   consecutive     2011's cumulative count reaches ten on 09-23
+            #                   and does NOT promote; a False on 09-12 reset it
+            #   includes entry  2022-08-05 is healthy and its ramp promotes on
+            #                   08-19, which is only reachable if the recovery
+            #                   session is the first confirmation
+            #   prior close     2011-11-08 reaches ten and promotes on 11-09,
+            #                   as does 2022-10-31 -> 11-01
+            #
+            # A ramp that steps one session early holds 10% more exposure
+            # through a day the rule says was still being confirmed, at each of
+            # two steps, on every fragile recovery.
+            if st.get("ramp_healthy_streak", 0) >= need:
+                idx += 1
+                st["ramp_step_index"] = idx
+                st["ramp_healthy_streak"] = 0
+                if idx >= len(cfg.ramp.steps) - 1:
+                    st.update(ramp_active=False, ramp_step_index=None,
+                              ramp_entry_session=None)
+                    target, reason = cfg.ramp.steps[-1], "RAMP_COMPLETE"
+                else:
+                    target, reason = cfg.ramp.steps[idx], "RAMP_PROMOTED"
+            else:
+                target, reason = cfg.ramp.steps[idx], "RAMP_HOLDING"
+
+            if st.get("ramp_active"):
+                # UNAVAILABLE resets too. The rule asks for consecutive healthy
+                # CLOSES, and a close we could not classify is not one.
+                st["ramp_healthy_streak"] = (
+                    st.get("ramp_healthy_streak", 0) + 1 if healthy else 0)
+
+        else:
+            target, reason = cfg.ordinary_target_core, "NORMAL"
+
+        st["_r40_history"] = _push(st.get("_r40_history"),
+                                   observation.shadow_r40,
+                                   cfg.ramp.gate_horizon_sessions + 1)
+        st["last_target_core"] = target
+        st["last_session"] = observation.session
+        st["fast_severe_active"] = severe
+        st["slow_severe_active"] = False
+
+        return st, Decision(
+            session=observation.session, target_core_exposure=target,
+            reason=reason, fast_severe_active=severe,
+            ramp_step=(cfg.ramp.steps[st["ramp_step_index"]]
+                       if st.get("ramp_active")
+                       and st.get("ramp_step_index") is not None else None))
+
+
+def _or_predicate(name, pairs) -> PredicateResult:
+    """`A or B` where an unavailable side is UNKNOWN, not False.
+
+    Available-and-true short-circuits to a pass — a satisfied disjunct settles
+    it regardless of the other. Otherwise, if any side is unavailable the whole
+    thing is unavailable, because "no and unknown" cannot be distinguished from
+    "no and yes" without looking.
+    """
+    if any(v is not None and v <= t for v, t in pairs):
+        return PredicateResult(name=name, value=None, available=True,
+                               passed=True)
+    if any(v is None for v, _ in pairs):
+        return PredicateResult(name=name, value=None, available=False,
+                               passed=None)
+    return PredicateResult(name=name, value=None, available=True, passed=False)
+
+
+def _push(history, value, keep: int) -> list:
+    h = list(history or [])
+    h.append(value)
+    return h[-keep:]
+
+
+def _delta_r40_at_prior_close(history, horizon: int):
+    """`delta_r40_5`, evaluated on PRIOR-CLOSE information.
+
+        r40[prior_close] - r40[prior_close - horizon]
+
+    The frozen rule says "using prior close information", and
+    `02_recovery_gate_flags.csv` pins it exactly: each of the seven recovery
+    dates carries its `prior_close` and the `delta_r40` judged on it. This
+    formulation reproduces all seven to 1e-12; today-based ones do not.
+
+    `history` is the controller's own rolling r40 window, pushed AFTER each
+    decision — so on a recovery session its last element IS the prior close,
+    and the horizon is `h[-1] - h[-1-horizon]`. That off-by-one is the whole
+    defect this replaced: reading `h[-horizon]` compared the prior close
+    against four sessions back instead of five, which flipped 2011-09-07 from
+    fragile to not-fragile and skipped a 0.55 ramp entirely.
+
+    None when the window is not yet full. Never zero: an unevaluable gate is
+    not a comfortable positive, and `is_fragile(None)` returns None so the
+    caller fails it closed.
+    """
+    h = list(history or [])
+    if len(h) < horizon + 1:
+        return None
+    now, then = h[-1], h[-1 - horizon]
+    if now is None or then is None:
+        return None
+    return now - then
+
+
+__all__ = ["Controller", "Decision", "Evidence", "Observation",
+           "PredicateResult"]
