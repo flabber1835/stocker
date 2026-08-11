@@ -74,7 +74,12 @@ CARRY: dict[str, str] = {
     "ALPACA_SECRET_KEY":
         "sentinel/config.py",
     "BT_POSTGRES_PASSWORD":
-        "only step 8b of sentinel-certify.sh, the canonical-corpus comparison",
+        "docker-compose.backtest.yml, and step 8b's canonical-corpus comparison",
+    "BT_ENGINE_MEM_LIMIT":
+        "bt-engine's memory ceiling, docker-compose.backtest.yml. Defaults to "
+        "4g, so dropping a tuned value reverts it SILENTLY",
+    "SENTINEL_MAX_CYCLES": "optional; compose defaults to 40",
+    "SENTINEL_POLL_SECONDS": "optional; compose defaults to 5",
     "NDL_BASE_URL":
         "optional. Nasdaq Data Link endpoint override",
     "SHARADAR_FETCH_TIMEOUT": "optional tuning",
@@ -93,6 +98,38 @@ REQUIRED = ("SHARADAR_API_KEY",)
 GENERATE = {
     "SENTINEL_POSTGRES_PASSWORD":
         "not in the Stocker file; compose refuses to start without it",
+}
+
+#: Live in a compose file and DELIBERATELY not carried, each for a stated
+#: reason. This exists so `test_the_whitelist_covers_the_COMPOSE_surface` can
+#: prove the whitelist complete: a new `${VAR}` in either compose file must be
+#: classified here or in CARRY, rather than silently defaulting.
+#:
+#: BT_ENGINE_MEM_LIMIT is why this dict exists. It was dropped as "retired with
+#: Stocker" on the first real run, and it is not retired — it is bt-engine's
+#: memory ceiling. It defaults to 4g, so a value tuned for this NAS would have
+#: reverted without a word: exactly the "a setting believed to be in force,
+#: that is not" failure sentinel-deployment.md §11 names.
+DELIBERATELY_UNSET = {
+    "BT_MOCK_DATA":
+        "carrying a stale `true` would run the CERTIFICATION on synthetic data",
+    "BT_DATA_MODE":
+        "same hazard; the default reads the real Sharadar corpus",
+    "BT_ENGINE_IMAGE":
+        "resolved per-run by scripts/compose_image.py — an inherited value "
+        "pins a stale image and the manifest would name the wrong artefact",
+    "BT_ENGINE_IMAGE_ID":
+        "the resolved image ID for the same run; inheriting it would let the "
+        "manifest attest to an artefact that did not produce the evidence",
+    "BT_BASELINE_MAX_AGE_DAYS": "bt-scheduler knob; defaults are the contract",
+    "BT_EXPERIMENTS_PER_WEEK": "bt-scheduler knob",
+    "BT_EXPERIMENT_HOUR": "bt-scheduler knob",
+    "BT_SCHED_TICK_SECS": "bt-scheduler knob",
+    "BT_SWEEP_FORCE_REFRESH_DAYS": "bt-scheduler knob",
+    "BT_SWEEP_HOUR": "bt-scheduler knob",
+    "BT_SWEEP_WEEKDAY": "bt-scheduler knob",
+    "BT_TOPUP_HOUR": "bt-scheduler knob",
+    "STALE_BT_RUN_HOURS": "bt-scheduler knob",
 }
 
 #: Dropped, and NAMED in the report rather than dropped silently. Anyone who

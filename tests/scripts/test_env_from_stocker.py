@@ -135,15 +135,32 @@ class TestTheWhitelist:
     def test_every_carried_name_is_read_by_the_SOURCE(self, mod):
         """The whitelist is only correct while the code still reads these. A
         name that no longer appears anywhere is a variable being propagated
-        because it once mattered."""
+        because it once mattered.
+
+        The haystack originally covered `sentinel/`, the sentinel compose file
+        and the certify script — and NOT `docker-compose.backtest.yml`. That
+        omission is the whole reason BT_ENGINE_MEM_LIMIT was classified as
+        retired: this test could not have contradicted it, because it was not
+        looking at the file the variable lives in.
+        """
         hay = "\n".join(
             p.read_text() for p in (REPO / "sentinel").rglob("*.py"))
-        hay += (REPO / "docker-compose.sentinel.yml").read_text()
-        hay += (REPO / "scripts" / "sentinel-certify.sh").read_text()
+        for extra in ("docker-compose.sentinel.yml",
+                      "docker-compose.backtest.yml",
+                      "scripts/sentinel-certify.sh"):
+            hay += (REPO / extra).read_text()
         orphans = [k for k in set(mod.CARRY) | set(mod.GENERATE)
                    if k not in hay]
         assert not orphans, (
             f"{orphans} are carried forward but nothing reads them")
+
+    def test_the_haystack_spans_BOTH_compose_files(self):
+        """Guard the guard, on the exact gap that produced the bug."""
+        for f in ("docker-compose.sentinel.yml", "docker-compose.backtest.yml"):
+            assert (REPO / f).is_file(), f
+        import inspect
+        src = inspect.getsource(self.test_every_carried_name_is_read_by_the_SOURCE)
+        assert "docker-compose.backtest.yml" in src
 
 
 class TestTheOutputIsFAITHFUL:
@@ -315,3 +332,79 @@ class TestItRunsOnTheHostInterpreter:
         # The message has to say what to DO. "REFUSED" alone strands somebody
         # on a NAS whose default python3 is old but which has a newer one.
         assert "python3.11" in body or "newer python3" in body
+
+
+class TestTheWhitelistIsCOMPLETEAgainstCompose:
+    """The converse check, which is the one that was missing.
+
+    `test_every_carried_name_is_read_by_the_SOURCE` proves every CARRIED name
+    matters. Nothing proved the other direction — that every name which MATTERS
+    is carried — and nothing looked at `docker-compose.backtest.yml` at all.
+
+    So `BT_ENGINE_MEM_LIMIT` was reported to the operator as "retired with
+    Stocker" on the first real run. It is not retired: it is bt-engine's memory
+    ceiling at docker-compose.backtest.yml:97, with a 4g default. A value tuned
+    for that NAS would have reverted to 4g without a word — "a setting believed
+    to be in force, that is not", which sentinel-deployment.md §11 names as its
+    own class of defect.
+
+    A compose file is where an env var actually takes effect, so that is the
+    surface the whitelist has to be complete against. Every `${VAR}` in either
+    file must be classified: carried, generated, forced, or DELIBERATELY_UNSET
+    with a reason. Adding one to a compose file and not deciding is the failure.
+    """
+
+    COMPOSE = ("docker-compose.sentinel.yml", "docker-compose.backtest.yml")
+
+    def referenced(self):
+        import re as _re
+        out = {}
+        for f in self.COMPOSE:
+            body = (REPO / f).read_text()
+            live = "\n".join(l for l in body.splitlines()
+                             if not l.strip().startswith("#"))
+            for v in _re.findall(r"\$\{([A-Z_][A-Z_0-9]*)", live):
+                out.setdefault(v, f)
+        return out
+
+    def test_the_scan_finds_both_files(self):
+        """Guard the guard: a regex matching nothing passes vacuously."""
+        got = self.referenced()
+        assert "SHARADAR_API_KEY" in got
+        assert "BT_ENGINE_MEM_LIMIT" in got, (
+            "the backtest compose file is not being scanned — which is exactly "
+            "how BT_ENGINE_MEM_LIMIT was missed")
+        assert len(got) >= 15, sorted(got)
+
+    def test_every_composed_variable_is_CLASSIFIED(self):
+        mod_ns = {}
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("efs", SCRIPT)
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        known = (set(m.CARRY) | set(m.GENERATE) | set(m.FORCED)
+                 | set(m.DELIBERATELY_UNSET) | m.INERT_SAFETY)
+        unclassified = {v: f for v, f in self.referenced().items()
+                        if v not in known}
+        assert not unclassified, (
+            "these are read by a compose file and the whitelist has never "
+            f"decided about them, so they are dropped by accident: "
+            f"{unclassified}. Add each to CARRY or to DELIBERATELY_UNSET with "
+            f"a reason.")
+
+    def test_the_deliberate_omissions_each_carry_a_REASON(self, mod):
+        empty = [k for k, v in mod.DELIBERATELY_UNSET.items()
+                 if not v or len(v) < 15]
+        assert not empty, f"no stated reason for: {empty}"
+
+    def test_the_two_data_MODE_switches_are_never_carried(self, mod):
+        """The sharpest one. Carrying a stale `BT_MOCK_DATA=true` would run the
+        certification against synthetic data and report it as a pass."""
+        for hazard in ("BT_MOCK_DATA", "BT_DATA_MODE"):
+            assert hazard in mod.DELIBERATELY_UNSET
+            assert hazard not in mod.CARRY
+
+    def test_BT_ENGINE_MEM_LIMIT_is_carried(self, mod):
+        """Named explicitly, because it is the bug this class exists for and a
+        regression would otherwise only reappear on somebody's NAS."""
+        assert "BT_ENGINE_MEM_LIMIT" in mod.CARRY
