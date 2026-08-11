@@ -1,9 +1,9 @@
 """Sentinel's command-line entrypoint.
 
 ```bash
-python -m sentinel status                # read the ownership log; touches nothing
-python -m sentinel plan                  # observe + print the plan; SUBMITS NOTHING
-python -m sentinel establish-ownership   # the real handover
+python -m sentinel status          # read the ownership log; touches nothing
+python -m sentinel plan            # observe + print the plan; SUBMITS NOTHING
+python -m sentinel migrate-account # the ONE-TIME administrative handover
 ```
 
 `plan` exists because the first thing Sentinel ever does to a real account is
@@ -11,6 +11,12 @@ liquidate it, and that is a poor moment to discover the account has a position
 nobody expected. It performs exactly the reads the real command performs, runs
 the same pure planner, prints what WOULD happen, and writes nothing — not to the
 broker and not to the ownership log.
+
+`establish-ownership` is RETIRED and survives only to refuse and name its
+replacement: it classified an account as a legacy Stocker book whenever a JSONL
+file said nothing, so losing one file on one volume re-armed a liquidation
+against a Wealth Core book. Ordinary startup now has no liquidation path at all,
+and the binding lives in PostgreSQL beside the state it protects.
 
 Exit codes are meant for a supervisor:
 
