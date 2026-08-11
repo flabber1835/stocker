@@ -176,10 +176,17 @@ def exposure_row(*, exposure: float, controller_active: bool) -> Row:
                "controller not active — exposure does not vary", None)
 
 
+#: A verdict older than this describes a corpus that has since been through a
+#: daily ingest. Shown, never hidden — but labelled, because a stale PASS
+#: presented as current is the one way an old verdict does harm.
+VERDICT_STALE_AFTER = timedelta(hours=26)
+
+
 def feed_row(*, frontier: Optional[str], sessions_behind: Optional[int],
              ready: Optional[bool], checks_passed: int, checks_total: int,
              as_of: Optional[datetime], error: Optional[str] = None,
-             ingest_running: bool = False) -> Row:
+             ingest_running: bool = False,
+             checked_at: Optional[datetime] = None) -> Row:
     """The data contract, not a row count.
 
     §8 is explicit that "126 rows" is not the test, so this reports the contract
@@ -213,11 +220,34 @@ def feed_row(*, frontier: Optional[str], sessions_behind: Optional[int],
     # "the evidence says no" and "there is no evidence".
     if ready is None:
         return Row("feed", "Feed", f"{frontier}{behind}", WARN,
-                   "contract not checked — the check timed out, likely an "
-                   "ingest in progress", as_of, freshness=timedelta(days=4))
+                   "contract NOT CHECKED — no verdict has ever been stored. "
+                   "Run `check-data`; this is 'we have not asked', not 'the "
+                   "corpus failed'.", as_of, freshness=timedelta(days=4))
     verdict = ("contract READY" if ready else "contract NOT READY")
-    return Row("feed", "Feed", f"{frontier}{behind}", OK if ready else FAIL,
-               f"{verdict} {checks_passed}/{checks_total}", as_of,
+
+    # WHEN IT WAS MEASURED, always, and an explicit warning once it is old.
+    # The page no longer computes the contract — it reads the last stored
+    # verdict — so the age is the only thing separating a current answer from
+    # one that predates a re-ingest. Undated, a day-old PASS reads as now.
+    age = ""
+    stale = False
+    if checked_at is not None:
+        delta = datetime.now(timezone.utc) - checked_at
+        stale = delta > VERDICT_STALE_AFTER
+        hours = delta.total_seconds() / 3600
+        age = (f" · checked {hours:.0f}h ago" if hours >= 1
+               else f" · checked {delta.total_seconds() / 60:.0f}m ago")
+        if stale:
+            age += " — STALE, re-run check-data"
+
+    status = OK if ready else FAIL
+    if ready and stale:
+        # Reported, not downgraded to a failure. The verdict was a PASS and
+        # saying otherwise would be inventing a result; what is uncertain is
+        # whether it still applies.
+        status = WARN
+    return Row("feed", "Feed", f"{frontier}{behind}", status,
+               f"{verdict} {checks_passed}/{checks_total}{age}", as_of,
                freshness=timedelta(days=4))
 
 

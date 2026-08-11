@@ -183,16 +183,33 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
         frontier, front_err = _read(conn, feed_store.latest_visible_session,
                                     STATEMENT_TIMEOUT_MS, default=None)
 
-        # The contract check is the expensive read and the least urgent, so it
-        # gets the TIGHTEST budget and is the first thing given up. During a
-        # seed it legitimately takes minutes.
-        r, _ = _read(conn, readiness.check_readiness, READINESS_TIMEOUT_MS,
-                     default=None)
-        if r is None:
-            ready, passed, total = None, 0, 0
+        # A VERDICT SOMEBODY ELSE COMPUTED, read by primary key.
+        #
+        # This used to call `check_readiness` here, inside the page load, under
+        # the tightest of the three budgets — with a comment explaining that it
+        # is the expensive read and during a seed it legitimately takes minutes.
+        # Both true, and together they blanked the page on exactly the question
+        # it exists to answer: an operator watching a six-hour seed could not
+        # tell a corpus still building from one that had failed a clause.
+        #
+        # No budget fixes that. The check reads the corpus, the corpus is what
+        # is under load, and anything short enough to protect a page load is
+        # short enough to lose under contention. `check-data` already computes
+        # a full verdict; this reads the last one and reports its age.
+        snap, _ = _read(conn, readiness.latest_snapshot, STATEMENT_TIMEOUT_MS,
+                        default=None)
+        if snap is None:
+            # NEVER False. Nothing has computed a verdict — "we have not asked"
+            # is not "the corpus failed a clause", and `model.feed_row` already
+            # renders None as its own third state.
+            ready, passed, total, checked_at = None, 0, 0, None
         else:
-            ready, passed, total = (r.ready, sum(1 for c in r.checks if c.ok),
-                                    len(r.checks))
+            # `ready` is what was MEASURED; `trustworthy` folds in the age. The
+            # panel shows the measurement and labels the staleness, rather than
+            # silently downgrading a verdict the operator can date themselves.
+            ready = snap.ready
+            passed, total = snap.checks_passed, snap.checks_total
+            checked_at = snap.computed_at
 
         # SESSIONS, which is what the field has always been called.
         #
@@ -225,6 +242,11 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                            sessions_behind=behind, ready=ready,
                            checks_passed=passed, checks_total=total,
                            as_of=_utc(run.get("updated_at")),
+                           # WHEN THE VERDICT WAS COMPUTED, which is not when
+                           # the ingest last ran. A day-old PASS shown beside a
+                           # fresh ingest timestamp reads as current, and that
+                           # is the one way a stale verdict does harm.
+                           checked_at=_utc(checked_at),
                            error=(f"frontier {front_err}" if front_err else None),
                            ingest_running=(run.get("status") == "running")),
             model.ingest_row(kind=run.get("kind"), status=run.get("status"),

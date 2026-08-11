@@ -229,6 +229,37 @@ DDL = [
         ON feed_ingest_runs (started_at DESC)""",
 
     # ------------------------------------------------------------------
+    # READINESS VERDICTS, kept. See sentinel/feed/readiness.py save_snapshot.
+    #
+    # The panel used to COMPUTE the data contract inside a page load, under the
+    # tightest of its three timeouts — and its own comment explained why: the
+    # check is the expensive read, and during a seed it legitimately takes
+    # minutes. Both true, and together they blanked the page on exactly the
+    # question it exists to answer. An operator watching a six-hour seed could
+    # not tell a corpus still building from one that had failed a clause.
+    #
+    # No timeout fixes it: the check reads the corpus, the corpus is what is
+    # under load, and any budget short enough to protect a page load is short
+    # enough to lose under contention. A page must READ a verdict somebody else
+    # computed and say how old it is.
+    #
+    # APPEND-ONLY, not one mutable row. "When did readiness last change?" is
+    # asked after an incident, and an upsert would have overwritten the answer.
+    # ------------------------------------------------------------------
+    """CREATE TABLE IF NOT EXISTS sentinel_readiness_snapshots (
+        snapshot_id   BIGSERIAL PRIMARY KEY,
+        computed_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ready         BOOLEAN NOT NULL,
+        checks_passed INTEGER NOT NULL,
+        checks_total  INTEGER NOT NULL,
+        -- EVERY CLAUSE, not just the boolean. The whole design of this check is
+        -- one verdict per clause; keeping only `ready` throws away the part
+        -- that tells an operator which fetch to re-run.
+        checks        JSONB NOT NULL DEFAULT '[]'::jsonb)""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_readiness_computed
+        ON sentinel_readiness_snapshots (computed_at DESC)""",
+
+    # ------------------------------------------------------------------
     # THE CHUNK SORT, moved out of the interpreter. See sentinel/feed/staging.py.
     #
     # `normalise_sep_rows` requires session order and the vendor's cursor-paged

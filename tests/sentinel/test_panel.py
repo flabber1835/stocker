@@ -81,15 +81,19 @@ class TestUnknownIsNeverZero:
         assert "UNREADABLE" in r.value
 
     def test_a_TIMED_OUT_contract_check_is_not_a_FAILED_one(self):
-        """`ready is None` means the check did not complete. It is the expensive
-        read and it times out against a corpus being bulk-loaded, so calling it
-        "NOT READY" would raise a red alarm every time the panel was opened
-        during a seed. Same rule as the crash brake's `evaluable`: one flag must
-        not answer both "the evidence says no" and "there is no evidence"."""
+        """`ready is None` means NO VERDICT EXISTS.
+
+        It used to mean "the check timed out inside this page load" — the panel
+        computed the contract itself and gave up first during a seed. It now
+        reads a stored verdict (#14), so None means nothing has ever computed
+        one. The rule is unchanged and is the point of this test: one flag must
+        not answer both "the evidence says no" and "there is no evidence". Same
+        rule as the crash brake's `evaluable`.
+        """
         r = model.feed_row(frontier="2026-08-08", sessions_behind=1, ready=None,
                            checks_passed=0, checks_total=0, as_of=NOW)
-        assert r.status is model.WARN, "a timed-out check reported as a failure"
-        assert "not checked" in r.detail
+        assert r.status is model.WARN, "an unmeasured contract reported as failed"
+        assert "not checked" in r.detail.lower()
         failed = model.feed_row(frontier="2026-08-08", sessions_behind=1,
                                 ready=False, checks_passed=7, checks_total=9,
                                 as_of=NOW)

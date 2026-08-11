@@ -1115,6 +1115,13 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
 48  Refused and deferred are different answers. An increase that can never be
     authorised on this evidence is refused with its own reason, before any
     settle is spent on it.
+49  An operator page READS a verdict; it never computes a contract. The check
+    reads the corpus, so any timeout short enough to protect a page load is
+    short enough to lose under exactly the ingest that makes the answer
+    urgent.
+50  A stored verdict is shown with its AGE. "Never measured" is not "not
+    ready", and a stale PASS is reported as stale rather than downgraded to a
+    failure or presented as current.
 ```
 
 Every one of these is falsifiable, and each should fail a test when violated.

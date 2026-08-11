@@ -120,6 +120,109 @@ class Readiness:
         return [c for c in self.checks if c.status == FAIL]
 
 
+# ── persisted verdicts ───────────────────────────────────────────────────────
+#
+# A page must not compute a contract. See `save_snapshot` below and the schema
+# comment on `sentinel_readiness_snapshots`.
+
+#: Beyond this a verdict describes a corpus that has since been through a daily
+#: ingest, so it is reported but must not authorise anything. One session's
+#: worth plus margin — the question a readiness verdict answers is "may we plan
+#: on this corpus", and the corpus changes once a day.
+SNAPSHOT_TRUST_SECONDS = 26 * 3600
+
+
+@dataclass(frozen=True)
+class ReadinessSnapshot:
+    """A verdict somebody else computed, and how old it is."""
+
+    computed_at: object
+    ready: bool
+    checks_passed: int
+    checks_total: int
+    checks: list
+    age_seconds: float
+
+    @property
+    def stale(self) -> bool:
+        return self.age_seconds > SNAPSHOT_TRUST_SECONDS
+
+    @property
+    def trustworthy(self) -> bool:
+        """What a caller should GATE on. `ready` is what was measured.
+
+        Two fields, deliberately. Collapsing them either discards a usable
+        verdict the moment it ages, or lets a day-old PASS authorise a bootstrap
+        against a corpus that has been re-ingested since. What was measured does
+        not change with age; whether it may still be acted on does.
+        """
+        return self.ready and not self.stale
+
+    @property
+    def failures(self) -> list:
+        return [c for c in self.checks if c.get("status") == FAIL]
+
+    def to_dict(self) -> dict:
+        return {"computed_at": (self.computed_at.isoformat()
+                                if self.computed_at else None),
+                "age_seconds": round(self.age_seconds, 1),
+                "ready": self.ready, "stale": self.stale,
+                "trustworthy": self.trustworthy,
+                "checks_passed": self.checks_passed,
+                "checks_total": self.checks_total,
+                "failures": self.failures}
+
+
+def save_snapshot(conn, result: "Readiness") -> None:
+    """Persist a verdict so a page never has to compute one.
+
+    Called wherever the check ALREADY runs — `check-data` computes a full
+    verdict and prints it to a terminal that scrolls. Persisting it costs one
+    insert and is the entire supply side of this feature.
+
+    `value` is dropped from the stored form: it holds whatever each check found
+    useful, including the terminal-accounting dict and a full missing-session
+    list, and none of it is read by a reader that has the name, the status and
+    the detail. A snapshot that grows without bound is a snapshot nobody keeps.
+    """
+    import json
+
+    payload = [{"name": c.name, "status": c.status, "detail": c.detail}
+               for c in result.checks]
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_readiness_snapshots (ready, checks_passed,"
+            " checks_total, checks) VALUES (%s,%s,%s,%s)",
+            (result.ready, sum(1 for c in result.checks if c.ok),
+             len(result.checks), json.dumps(payload)))
+    conn.commit()
+
+
+def latest_snapshot(conn) -> Optional[ReadinessSnapshot]:
+    """The most recent verdict, or None if nothing has ever computed one.
+
+    NONE IS NOT NOT-READY. "We have not asked" and "the corpus failed a clause"
+    are different facts, and reporting the first as the second says a corpus
+    failed a check it was never measured against — the same conflation the
+    ownership readers had to have removed.
+    """
+    import json
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT computed_at, ready, checks_passed, checks_total, checks,"
+            " EXTRACT(EPOCH FROM (NOW() - computed_at))"
+            " FROM sentinel_readiness_snapshots"
+            " ORDER BY computed_at DESC, snapshot_id DESC LIMIT 1")
+        row = cur.fetchone()
+    if row is None:
+        return None
+    checks = row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]")
+    return ReadinessSnapshot(
+        computed_at=row[0], ready=bool(row[1]), checks_passed=int(row[2]),
+        checks_total=int(row[3]), checks=checks, age_seconds=float(row[5]))
+
+
 def _q1(conn, sql, params=()):
     with conn.cursor() as cur:
         cur.execute(sql, params)

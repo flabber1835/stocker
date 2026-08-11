@@ -231,6 +231,20 @@ def cmd_check_data(config: SentinelConfig, today: str | None) -> int:
     try:
         feed_store.ensure_schema(conn)
         result = readiness.check_readiness(conn, today=today)
+        # PERSIST WHAT WAS JUST COMPUTED. The panel used to run this check
+        # itself, inside a page load, under the tightest of its three timeouts
+        # — and gave up first during a seed, which is exactly when an operator
+        # needs the answer. The verdict already exists here; keeping it costs
+        # one insert and is the entire supply side of that fix.
+        #
+        # NON-FATAL. A verdict that could not be stored is still a verdict, and
+        # failing `check-data` over a bookkeeping row would hide the report the
+        # operator actually ran the command for.
+        try:
+            readiness.save_snapshot(conn, result)
+        except Exception as exc:                              # noqa: BLE001
+            print(f"  (readiness snapshot NOT stored: {exc!r} — the panel will "
+                  f"show the previous one, with its age)", file=sys.stderr)
     finally:
         conn.close()
 
