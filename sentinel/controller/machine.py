@@ -356,14 +356,31 @@ class Controller:
             fragile = self.is_fragile(
                 _delta_r40_at_prior_close(st.get("_r40_history"),
                                           cfg.ramp.gate_horizon_sessions))
-            if fragile:
+            # AN UNEVALUABLE GATE RAMPS. `fragile is not False`, not `if
+            # fragile` — None means the five-session r40 window could not be
+            # formed, and taking the falsy branch there sends the account to
+            # 100% on absent evidence.
+            #
+            # That is exposure-INCREASING action on no evidence, which
+            # architecture invariant 26 forbids outright: "exposure-increasing
+            # action requires strictly stronger evidence than
+            # exposure-reducing action". Ramping instead costs opportunity on a
+            # recovery that might have been robust; the other way round buys a
+            # full book into a recovery nobody could assess.
+            #
+            # Found by composing the controller with catch-up rather than by
+            # the frozen tape, whose first recovery is ~290 sessions in and
+            # never has a short window. A cold start does.
+            if fragile is not False:
                 # THE RECOVERY SESSION ITSELF SEEDS THE STREAK. 2022-08-05 is
                 # healthy and its ramp promotes on 08-19; counting from the day
                 # AFTER would put the tenth confirmation on 08-22.
                 st.update(ramp_active=True, ramp_step_index=0,
                           ramp_healthy_streak=1 if healthy else 0,
                           ramp_entry_session=observation.session)
-                target, reason = cfg.ramp.steps[0], "RECOVERY_FRAGILE_RAMP"
+                target = cfg.ramp.steps[0]
+                reason = ("RECOVERY_FRAGILE_RAMP" if fragile
+                          else "RECOVERY_GATE_UNAVAILABLE_RAMP")
             else:
                 st.update(ramp_active=False, ramp_step_index=None,
                           ramp_healthy_streak=0)
