@@ -106,21 +106,87 @@ def project(*, shadow_weights: Mapping[str, Decimal], exposure: Decimal,
     """
     if not isinstance(exposure, Decimal) or not isinstance(nav, Decimal):
         raise TypeError("exposure and nav must be Decimal")
+
+    # FINITENESS FIRST, and before any comparison. `Decimal("NaN") < 0` does
+    # not return False — it raises InvalidOperation — and `Decimal("Infinity")`
+    # compares perfectly happily, sails through a range check and produces an
+    # infinite target notional. Neither is caught by an `isinstance` test, so a
+    # bounds check written without this is a bounds check with two holes.
+    for label, value in (("exposure", exposure), ("nav", nav), ("lot", lot)):
+        if not isinstance(value, Decimal):
+            raise TypeError(f"{label} must be Decimal")
+        if not value.is_finite():
+            raise ProjectionRefused(f"{label} is not finite: {value}")
+
     if exposure < 0 or exposure > 1:
         raise ProjectionRefused(
             f"exposure must be in [0, 1], got {exposure}. Sentinel scales how "
             f"much of the shadow is held; it does not lever it.")
     if nav < 0:
         raise ProjectionRefused(f"nav must be non-negative, got {nav}")
+    if lot <= 0:
+        raise ProjectionRefused(f"lot must be positive, got {lot}")
+
+    # ── THE UNLEVERED ENVELOPE, ENFORCED RATHER THAN DOCUMENTED ──────────────
+    #
+    # This function's own docstring said the weights "sum to at most 1" and
+    # nothing checked it. Three 40% weights at exposure 1.0 produced ~120% of
+    # NAV in equities and every downstream gate passed: `_assert_executable`
+    # sees only the exposure scalar and the sign of each quantity, and it has
+    # no NAV and no marks, so it cannot re-derive aggregate notional even in
+    # principle. This is the last place the arithmetic is available, which
+    # makes it the place the envelope has to hold.
+    #
+    # A NEGATIVE weight was worse than unchecked — it was silently ABSORBED.
+    # It produced a non-positive quantity, hit the `qty <= 0: continue` below,
+    # and vanished. A short leg arriving from a malformed shadow should stop
+    # the appliance, not be quietly dropped on the way to the broker.
+    #
+    # "Wealth Core always produces sane weights" is not a protection at a
+    # broker boundary. It is an assumption about another component, and this is
+    # the membrane.
+    total = Decimal(0)
+    for security_id, weight in sorted(shadow_weights.items()):
+        if not isinstance(weight, Decimal):
+            raise TypeError(f"weight for {security_id} must be Decimal")
+        if not weight.is_finite():
+            raise ProjectionRefused(
+                f"weight for {security_id} is not finite: {weight}")
+        if weight < 0:
+            raise ProjectionRefused(
+                f"weight for {security_id} is negative ({weight}). The book is "
+                f"LONG ONLY; a short leg is a malformed shadow, not a position "
+                f"to floor away.")
+        if weight > 1:
+            raise ProjectionRefused(
+                f"weight for {security_id} is {weight}, above 1. A single name "
+                f"cannot exceed the whole core book.")
+        total += weight
+    # STRICTLY. No tolerance, deliberately: 25 slots at 4% is exactly 1 in
+    # Decimal, so a legitimate shadow never needs slack, and a gate with an
+    # epsilon is a gate whose real limit is the epsilon. If a producer ever
+    # does need rounding room, it belongs where the weights are MADE — not at
+    # the boundary that exists to disbelieve them.
+    if total > 1:
+        raise ProjectionRefused(
+            f"shadow weights sum to {total}, above 1. At exposure {exposure} "
+            f"that is {total * exposure:f} of NAV in equities — leverage. The "
+            f"envelope is long-only and unlevered.")
 
     quantities: dict = {}
     notional: dict = {}
     unpriced: list = []
 
     for security_id, weight in sorted(shadow_weights.items()):
-        if not isinstance(weight, Decimal):
-            raise TypeError(f"weight for {security_id} must be Decimal")
         price = marks.get(security_id)
+        # A NON-FINITE mark is unpriced, not a price. `Decimal("Infinity")`
+        # passes `> 0` and yields a zero quantity; NaN raises on comparison.
+        # Both are corrupt evidence about what a share is worth, and the
+        # existing machinery for that is to NAME the security, never guess.
+        if price is not None and (not isinstance(price, Decimal)
+                                  or not price.is_finite()):
+            unpriced.append(security_id)
+            continue
         if price is None or price <= 0:
             # NOT renormalised away, and not guessed at. The name is named.
             unpriced.append(security_id)

@@ -69,4 +69,22 @@ note "CPU quota UNSUPPORTED on this host — generating ${GENERATED}"
 mkdir -p "$(dirname "${GENERATED}")"
 python3 scripts/sentinel_strip_cpu_limits.py "${CANONICAL}" "${GENERATED}" \
   >&2 || { echo "could not generate the CPU-free compose file" >&2; exit 1; }
-printf -- '-f %s' "${GENERATED}"
+
+# --project-directory IS NOT OPTIONAL, and its absence was a real bug in the
+# first version of this script.
+#
+# Compose defines the PROJECT DIRECTORY as the directory of the first `-f`
+# file. Everything relative resolves against it:
+#
+#     build: {context: .}   ->  artifacts/compose/  instead of the repo root
+#     the implicit .env     ->  artifacts/compose/.env, which does not exist,
+#                               so SENTINEL_POSTGRES_PASSWORD is unset and
+#                               compose refuses on the `:?` — or worse, an
+#                               optional var silently takes its default
+#
+# The generated YAML is byte-identical to the canonical file except for the
+# `cpus:` lines, and its MEANING still changed, because meaning depends on
+# where the file sits. That is exactly why a YAML diff cannot see this and the
+# test has to compare resolved `docker compose config` output.
+REPO_ROOT="$(pwd -P)"
+printf -- '--project-directory %s -f %s' "${REPO_ROOT}" "${GENERATED}"

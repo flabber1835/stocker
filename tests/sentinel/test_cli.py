@@ -83,9 +83,22 @@ class TestPaperOnly:
         with pytest.raises(LiveEndpointRefused):
             SentinelConfig.from_env()
 
-    def test_paper_and_unknown_hosts_are_accepted(self):
-        for url in (DEFAULT_BASE_URL, "http://alpaca-sim:9000", "http://localhost:9"):
-            assert SentinelConfig.from_env(env(ALPACA_BASE_URL=url)).is_live_endpoint is False
+    def test_ONLY_the_paper_endpoint_is_accepted(self):
+        """This test used to be `test_paper_and_unknown_hosts_are_accepted`,
+        and its name was the defect: it asserted that `http://alpaca-sim:9000`
+        and `http://localhost:9` START THE APPLIANCE, because the guard was a
+        denylist and neither is `api.alpaca.markets`.
+
+        It was recording what the code did rather than what the rule is. The
+        rule is an ALLOWLIST — see `tests/sentinel/test_paper_allowlist.py` —
+        so an unknown host is refused, not accepted. Nothing in the repository
+        points at either of those URLs: the HTTP simulators were deleted with
+        Stocker, and `SimulatedBroker` runs in-process."""
+        SentinelConfig.from_env(env(ALPACA_BASE_URL=DEFAULT_BASE_URL))
+        for url in ("http://alpaca-sim:9000", "http://localhost:9",
+                    "https://api.alpaca.markets.evil.example"):
+            with pytest.raises(LiveEndpointRefused):
+                SentinelConfig.from_env(env(ALPACA_BASE_URL=url))
 
     def test_the_cli_exits_1_rather_than_traceback(self, monkeypatch):
         for k, v in env(ALPACA_BASE_URL="https://api.alpaca.markets").items():

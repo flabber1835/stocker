@@ -448,3 +448,108 @@ class TestRestartConvergence:
 
         again = go(b, conn, {"SEC-AAA": D(10)}, p=plan(plan_id="plan-2"))
         assert again.submitted == () and not again.refused
+
+
+# ── the unlevered envelope, ENFORCED ─────────────────────────────────────────
+
+class TestTheUnleveredEnvelopeIsEnforcedNotDocumented:
+    """`project`'s docstring said the weights "sum to at most 1". Nothing
+    checked it, and nothing downstream could.
+
+    ```text
+    A 40%  B 40%  C 40%   exposure 1.0   ->  ~120% of NAV in equities
+    ```
+
+    `_assert_executable` at the execution gate sees the exposure scalar and the
+    sign of each quantity. It has no NAV and no marks, so it cannot re-derive
+    aggregate notional even in principle — this function is the last place the
+    arithmetic exists, which makes it where the envelope has to hold.
+
+    "Wealth Core always produces sane weights" is an assumption about another
+    component. This is the membrane; its job is to disbelieve.
+    """
+
+    MARKS = {"A": D(10), "B": D(10), "C": D(10)}
+
+    def project(self, weights, **kw):
+        kw.setdefault("exposure", D(1))
+        kw.setdefault("nav", D("10000"))
+        kw.setdefault("marks", self.MARKS)
+        return PJ.project(shadow_weights=weights, **kw)
+
+    def test_120_percent_REFUSES(self):
+        with pytest.raises(PJ.ProjectionRefused) as e:
+            self.project({"A": D("0.4"), "B": D("0.4"), "C": D("0.4")})
+        assert "leverage" in str(e.value).lower()
+
+    def test_100_point_0001_percent_REFUSES(self):
+        """The boundary is the interesting part of a bound. No tolerance is
+        deliberate: 25 slots at 4% is exactly 1 in Decimal, so a legitimate
+        shadow never needs slack, and a gate with an epsilon is a gate whose
+        real limit is the epsilon."""
+        with pytest.raises(PJ.ProjectionRefused):
+            self.project({"A": D("1.000001")})
+
+    def test_exactly_100_percent_is_ALLOWED(self):
+        """Without this the guard could pass by refusing everything — and the
+        certified book IS 25 x 4% = exactly 1."""
+        p = self.project({"A": D("0.5"), "B": D("0.5")})
+        assert p.invested_notional == D("10000")
+
+    def test_the_certified_25_slot_book_at_4_percent_passes(self):
+        weights = {f"S{i:02d}": D("0.04") for i in range(25)}
+        marks = {k: D(10) for k in weights}
+        p = PJ.project(shadow_weights=weights, exposure=D(1), nav=D("10000"),
+                      marks=marks)
+        assert sum(weights.values()) == D(1)
+        assert len(p.quantities) == 25
+
+    def test_a_NEGATIVE_weight_refuses_rather_than_vanishing(self):
+        """The worst of the set, because it was silently ABSORBED. A negative
+        weight produced a non-positive quantity, hit `qty <= 0: continue`, and
+        disappeared — a short leg from a malformed shadow dropped on the way to
+        the broker rather than stopping the appliance."""
+        with pytest.raises(PJ.ProjectionRefused) as e:
+            self.project({"A": D("0.9"), "B": D("-0.2")})
+        assert "LONG ONLY" in str(e.value)
+
+    def test_a_single_weight_above_1_refuses(self):
+        with pytest.raises(PJ.ProjectionRefused):
+            self.project({"A": D("1.5"), "B": D("-0.5")})
+
+    @pytest.mark.parametrize("bad", ["NaN", "Infinity", "-Infinity", "sNaN"])
+    def test_a_NON_FINITE_weight_refuses(self, bad):
+        """`isinstance(x, Decimal)` is true for all of these. `Decimal("NaN")
+        < 0` RAISES rather than returning False, and Infinity passes a range
+        check and yields an infinite target notional — so a bounds check
+        written without a finiteness test has two holes."""
+        with pytest.raises((PJ.ProjectionRefused, ArithmeticError)):
+            self.project({"A": D(bad)})
+
+    @pytest.mark.parametrize("field,bad", [
+        ("exposure", "NaN"), ("exposure", "Infinity"),
+        ("nav", "NaN"), ("nav", "Infinity"), ("lot", "NaN"), ("lot", "0"),
+        ("lot", "-1"),
+    ])
+    def test_a_NON_FINITE_or_impossible_scalar_refuses(self, field, bad):
+        kw = {"exposure": D(1), "nav": D("10000"), "marks": self.MARKS}
+        kw[field] = D(bad)
+        with pytest.raises((PJ.ProjectionRefused, ArithmeticError)):
+            PJ.project(shadow_weights={"A": D("0.5")}, **kw)
+
+    @pytest.mark.parametrize("bad", ["NaN", "Infinity"])
+    def test_a_NON_FINITE_mark_is_UNPRICED_not_a_price(self, bad):
+        """Corrupt evidence about what a share is worth. The existing machinery
+        for that names the security rather than guessing, and that is the right
+        answer here too — Infinity passes `> 0` and silently yields a zero
+        quantity, which reads as "we chose not to hold it"."""
+        p = PJ.project(shadow_weights={"A": D("0.5"), "B": D("0.5")},
+                      exposure=D(1), nav=D("10000"),
+                      marks={"A": D(bad), "B": D(10)})
+        assert "A" in p.unpriced
+        assert "A" not in p.quantities
+
+    def test_exposure_still_scales_a_LEGAL_book(self):
+        """The envelope must not have broken the thing it guards."""
+        p = self.project({"A": D("0.5"), "B": D("0.5")}, exposure=D("0.55"))
+        assert p.invested_notional == D("5500")

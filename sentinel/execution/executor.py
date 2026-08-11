@@ -263,14 +263,38 @@ async def execute_session(*, broker: ExecutionBroker, conn,
     Removing the parameter is deliberate rather than validating it: a check can
     be skipped by a future call site, an absent parameter cannot.
     """
+    # `_assert_executable` is a property of the PLAN OBJECT — arithmetic on
+    # values already in hand — so it is safe outside the lock and cheap enough
+    # to refuse a malformed plan without waiting for one.
     _assert_executable(plan)
-    _assert_current_plan(conn, plan)
+
     # THE WRITER LOCK IS TAKEN HERE, not left to the caller. `reconcile` states
     # that its caller must hold it across the whole session — and a prerequisite
     # documented in a docstring is one a future controller can simply forget.
     # Acquiring it inside the only public entry point makes omission
     # unrepresentable rather than merely discouraged.
     with journal.writer_lock(conn):
+        # CURRENCY IS RE-ASSERTED UNDER THE LOCK, and this ordering is the
+        # whole point. The check used to sit ABOVE the `with`, which proved the
+        # plan was current at a moment that had passed by the time anything was
+        # submitted:
+        #
+        #     executor                    catch-up
+        #     --------                    --------
+        #     assert plan A current  ok
+        #                                 acquire writer lock
+        #                                 create plan B, supersede A
+        #                                 release
+        #     acquire writer lock
+        #     execute A                   <- the database knew. Nobody asked
+        #
+        # The database was right throughout; execution simply never asked
+        # again. That resurrects the exact failure the stale-plan guard exists
+        # to prevent — a defensive or aggressive intention firing after newer
+        # market information has replaced it. Holding the lock makes the answer
+        # true for the duration of the session rather than at an instant before
+        # it, because supersession requires the same lock.
+        _assert_current_plan(conn, plan)
         return await _execute_session_locked(
             broker=broker, conn=conn, deployment=deployment, plan=plan,
             instruments=instruments, today=today, actions=actions,

@@ -373,3 +373,128 @@ class TestTheHarnessDoesNotClaimACpuEnvelope:
         assert usable(SYNOLOGY) is False          # UNSUPPORTED -> strip
         assert usable({}) is True                 # UNKNOWN     -> canonical
         assert usable({"ServerVersion": "1.12"}) is True
+
+
+class TestTheGeneratedFileKeepsTheREPOAsProjectDirectory:
+    """A compose file's meaning depends on WHERE IT SITS.
+
+    Compose defines the project directory as the directory of the first `-f`
+    file, and everything relative resolves against it. The generated file lives
+    at `artifacts/compose/`, so emitting only `-f <generated>` silently moved:
+
+    ```text
+    build: {context: .}   ->  artifacts/compose/  instead of the repo root
+    the implicit .env     ->  artifacts/compose/.env, which does not exist, so
+                              SENTINEL_POSTGRES_PASSWORD is unset and compose
+                              refuses on its `:?` — or an optional var quietly
+                              takes a default nobody chose
+    ```
+
+    Measured, not argued. `docker compose config` on this checkout:
+
+    ```text
+    canonical                          context: /home/user/stocker
+    generated, no --project-directory  context: /home/user/stocker/artifacts/compose
+    generated, with it                 context: /home/user/stocker
+    ```
+
+    The YAML is byte-identical to the canonical file apart from the `cpus:`
+    lines. A YAML comparison cannot see this, which is exactly why the
+    real-compose branch below exists.
+    """
+
+    @staticmethod
+    def resolver_args(force=None):
+        env = dict(os.environ)
+        if force:
+            env["SENTINEL_FORCE_CPU_LIMITS"] = force
+        r = subprocess.run(["bash", str(RESOLVER)], capture_output=True,
+                           text=True, cwd=str(REPO), env=env)
+        assert r.returncode == 0, r.stderr
+        return r.stdout.strip().split()
+
+    @staticmethod
+    def generated_args():
+        """The args the resolver emits on a host without CFS quota, read OUT OF
+        THE SCRIPT rather than restated here — otherwise this class would test
+        a copy of the resolver and pass while the resolver was wrong."""
+        out = REPO / "artifacts" / "compose" / "docker-compose.sentinel.nocpu.yml"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        r = subprocess.run([sys.executable, str(STRIP), str(CANONICAL), str(out)],
+                           capture_output=True, text=True, cwd=str(REPO))
+        assert r.returncode == 0, r.stderr
+        body = RESOLVER.read_text()
+        line = [l for l in body.splitlines()
+                if "printf" in l and "GENERATED" in l][-1]
+        args = []
+        if "--project-directory" in line:
+            args += ["--project-directory", str(REPO)]
+        return args + ["-f", out.relative_to(REPO).as_posix()]
+
+    def test_the_script_emits_project_directory_with_a_NON_ROOT_file(self):
+        """Structural, and always runs."""
+        code = "\n".join(l for l in RESOLVER.read_text().splitlines()
+                         if not l.strip().startswith("#"))
+        tail = code[code.index("GENERATED}"):]
+        assert "--project-directory" in tail, (
+            "the generated file is emitted without --project-directory, so "
+            "compose resolves `build: context: .` and the implicit .env "
+            "against artifacts/compose/ instead of the repository root")
+
+    def test_the_canonical_branch_needs_no_flag(self):
+        """It sits at the repo root, so the default is already correct. A flag
+        there would be noise pretending to be safety."""
+        assert self.resolver_args(force="1") == ["-f", "docker-compose.sentinel.yml"]
+
+    def test_both_variants_resolve_the_SAME_build_context(self):
+        """The authoritative check, with a structural fallback so it is never a
+        SKIP — inside the certified image a skip is a failure and that image has
+        no docker CLI. Same shape as `test_compose_image.py`'s `branch`
+        fixture: a degraded path needs its degradation exercised."""
+        import shutil
+        generated = self.generated_args()
+        if shutil.which("docker") is None:
+            assert generated[0] == "--project-directory"
+            assert Path(generated[1]) == REPO
+            return
+
+        env = dict(os.environ, SENTINEL_POSTGRES_PASSWORD="probe")
+
+        def resolved(args):
+            r = subprocess.run(["docker", "compose", *args, "config"],
+                               capture_output=True, text=True, cwd=str(REPO),
+                               env=env)
+            if r.returncode != 0:
+                pytest.fail(f"docker compose config failed for {args}: {r.stderr}")
+            return yaml.safe_load(r.stdout)
+
+        a = resolved(["-f", "docker-compose.sentinel.yml"])
+        b = resolved(generated)
+        for name in a["services"]:
+            sa, sb = a["services"][name], b["services"][name]
+            assert sa.get("build") == sb.get("build"), (
+                f"{name}: build context differs between the canonical and "
+                f"CPU-free deployments — the generated file's LOCATION changed "
+                f"its meaning")
+            for key in ("environment", "volumes", "image", "mem_limit",
+                        "shm_size", "profiles", "command"):
+                assert sa.get(key) == sb.get(key), f"{name}.{key}"
+        assert a.get("name") == b.get("name")
+        assert a.get("volumes") == b.get("volumes")
+        # And the ONLY difference is the CPU ceiling.
+        assert any(s.get("cpus") for s in a["services"].values())
+        assert not any(s.get("cpus") for s in b["services"].values())
+
+    def test_the_environment_resolves_from_the_REPO_dotenv(self):
+        """The other half of the bug, and the one that would have surfaced as a
+        confusing `:?` refusal rather than a wrong build."""
+        import shutil
+        generated = self.generated_args()
+        if shutil.which("docker") is None:
+            assert Path(generated[1]) == REPO
+            return
+        env = dict(os.environ, SENTINEL_POSTGRES_PASSWORD="from-the-env")
+        r = subprocess.run(["docker", "compose", *generated, "config"],
+                           capture_output=True, text=True, cwd=str(REPO), env=env)
+        assert r.returncode == 0, r.stderr
+        assert "from-the-env" in r.stdout

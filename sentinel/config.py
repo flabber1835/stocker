@@ -32,6 +32,24 @@ DEFAULT_BASE_URL = "https://paper-api.alpaca.markets"
 #: labels, Sentinel refuses.
 LIVE_HOSTS = frozenset({"api.alpaca.markets"})
 
+#: THE ALLOWLIST, and the actual gate. `LIVE_HOSTS` above answers "is this the
+#: one host we happen to know reaches real money" — which is a DENYLIST, and a
+#: denylist's failure mode is everything nobody thought of:
+#:
+#:     https://api.alpaca.markets.evil.example/   not in LIVE_HOSTS -> allowed
+#:     http://paper-api.alpaca.markets/           cleartext key     -> allowed
+#:     https://10.0.0.5:8080/                     a proxy to live   -> allowed
+#:     https://paper-api.alpaca.markets@evil/     hostname is evil  -> allowed
+#:
+#: None of those are hypothetical failures of judgement; they are what "permit
+#: everything except one string" means. The gate is inverted: permit exactly
+#: the known paper endpoint and refuse every other thing.
+#:
+#: This is not about paper trading being risky. It is that the eventual move
+#: from "paper certified" to anything involving money must require an explicit
+#: architectural change, not an environment variable.
+PAPER_HOSTS = frozenset({"paper-api.alpaca.markets"})
+
 #: Where the ownership log lives. A VOLUME on the NAS, never inside the image:
 #: losing it means a restart re-enters legacy cleanup against a Sentinel-owned
 #: book. It is the most safety-critical byte Sentinel writes.
@@ -39,7 +57,35 @@ DEFAULT_STATE_DIR = "/var/lib/sentinel"
 
 
 class LiveEndpointRefused(RuntimeError):
-    """Raised when configuration points at the real broker."""
+    """Raised when configuration points at anything but the paper broker."""
+
+
+def is_paper_url(url: str) -> bool:
+    """The allowlist predicate, as a FUNCTION on a bare string.
+
+    Split out of `SentinelConfig` because the execution adapter takes a
+    `base_url` argument directly and has no config object to ask. Two copies of
+    an allowlist drift, and the copy that drifts is the one nobody is reading
+    when it matters — so both boundaries call this.
+    """
+    parsed = urlparse(url or "")
+    host = (parsed.hostname or "").lower().rstrip(".")
+    return (parsed.scheme == "https"
+            and not parsed.username and not parsed.password
+            and host in PAPER_HOSTS)
+
+
+def assert_paper_url(url: str) -> None:
+    """Refuse anything that is not exactly the Alpaca paper endpoint."""
+    if is_paper_url(url):
+        return
+    raise LiveEndpointRefused(
+        f"{url!r} is not the Alpaca paper endpoint. Sentinel permits exactly "
+        f"https://{sorted(PAPER_HOSTS)[0]} — https scheme, that hostname, no "
+        f"embedded credentials. This is an ALLOWLIST on purpose: a rule that "
+        f"merely excludes the known live host permits every proxy, lookalike "
+        f"domain and cleartext URL nobody thought to enumerate. Going live "
+        f"must be a reviewed code change, never a URL.")
 
 
 class MissingCredentials(RuntimeError):
@@ -62,11 +108,35 @@ class SentinelConfig:
 
     @property
     def endpoint_host(self) -> str:
-        return (urlparse(self.base_url).hostname or "").lower()
+        """The hostname, NORMALISED, so the allowlist compares like with like.
+
+        `urlparse().hostname` already lowercases and strips the port, but not a
+        trailing DNS root dot: `paper-api.alpaca.markets.` resolves to exactly
+        the same host and is a different string. Stripped here rather than at
+        the comparison, so every reader of this property gets the same answer.
+        """
+        host = (urlparse(self.base_url).hostname or "").lower()
+        return host.rstrip(".")
 
     @property
     def is_live_endpoint(self) -> bool:
+        """Kept for the panel and the audit record; NOT the safety gate.
+
+        A denylist answers "is this the one host we know about", which is a
+        different question from "is this allowed"."""
         return self.endpoint_host in LIVE_HOSTS
+
+    @property
+    def is_paper_endpoint(self) -> bool:
+        """The gate. Scheme AND host AND no embedded credentials.
+
+        The scheme matters because `http://` to the paper host is still a
+        cleartext API key on the wire, and the userinfo check because
+        `https://paper-api.alpaca.markets@evil.example/` has hostname
+        `evil.example` — reading the string left to right, a human sees the
+        paper host first.
+        """
+        return is_paper_url(self.base_url)
 
     def redacted(self) -> dict:
         """Safe to log. The key is shown by LENGTH and last four only — enough to
@@ -101,14 +171,25 @@ class SentinelConfig:
         return cfg
 
     def assert_paper(self) -> None:
+        """ALLOWLIST. The endpoint must BE the paper endpoint, not merely fail
+        to be the one live host anybody listed."""
+        if self.is_paper_endpoint:
+            return
         if self.is_live_endpoint:
-            raise LiveEndpointRefused(
-                f"ALPACA_BASE_URL points at {self.endpoint_host}, the REAL "
-                f"trading API. Sentinel is paper-only and will not start. There "
-                f"is deliberately no override: this deployment has no live "
-                f"mandate, and an env var that could grant one is the same slip "
-                f"the hardcoded trade_type was. Use {DEFAULT_BASE_URL}."
-            )
+            why = (f"points at {self.endpoint_host}, the REAL trading API")
+        else:
+            why = (f"is {self.base_url!r}, which is not the Alpaca paper "
+                   f"endpoint. Sentinel permits exactly "
+                   f"https://{sorted(PAPER_HOSTS)[0]} — an https scheme, that "
+                   f"hostname, and no embedded credentials — because a rule "
+                   f"that merely excludes the live host permits every proxy, "
+                   f"lookalike domain and cleartext URL nobody enumerated")
+        raise LiveEndpointRefused(
+            f"ALPACA_BASE_URL {why}. Sentinel is paper-only and will not "
+            f"start. There is deliberately no override: this deployment has no "
+            f"live mandate, and an env var that could grant one is the same "
+            f"slip the hardcoded trade_type was. Use {DEFAULT_BASE_URL}."
+        )
 
     def assert_credentials(self) -> None:
         """Checked separately from `assert_paper`, and only by commands that

@@ -173,6 +173,24 @@ class AlpacaExecutionBroker(ExecutionBroker):
     def __init__(self, *, api_key: str, secret_key: str, base_url: str,
                  resolve_security_id=None, to_broker_symbol=None,
                  http_provider=None) -> None:
+        # THE PAPER GATE, AT THE CONSTRUCTOR. `sentinel/config.py` refuses a
+        # non-paper `ALPACA_BASE_URL`, but that check guards the CONFIG path —
+        # and this class takes a `base_url` string from anyone who imports it.
+        # A future wiring commit that builds the adapter directly would bypass
+        # the appliance's only live-trading protection without touching the
+        # file that documents it, and the resulting diff would look like
+        # plumbing.
+        #
+        # Enforced HERE so the bypass does not exist rather than being
+        # discouraged: this is the object that holds the credentials and forms
+        # the URLs, so it is the last honest place to ask.
+        #
+        # Deliberately importing the predicate rather than restating it. Two
+        # copies of an allowlist drift, and the copy that drifts is the one
+        # nobody is reading when it matters.
+        from sentinel.config import assert_paper_url
+        assert_paper_url(base_url)
+
         self.api_key = api_key
         self.secret_key = secret_key
         self.base_url = base_url.rstrip("/")
