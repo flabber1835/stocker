@@ -887,6 +887,44 @@ module imports SQLAlchemy at module scope and that is a retired-stack
 dependency — `tests/sentinel/test_image_layout.py` refuses to let the runtime
 image acquire it.
 
+## 10e-bis. The `.env` is built by SUBTRACTION from Stocker's
+
+Sentinel reads six variables. The retired Stocker `.env` has around forty, and
+copying it forward carries three distinct hazards:
+
+```text
+PAPER_ONLY=true             read by NOTHING. The only surviving mention is a
+LIVE_TRADING_ENABLED=false  COMMENT in sentinel/config.py describing the design
+KILL_SWITCH=false           that was deleted. A line that looks like a safety
+MAX_ORDER_NOTIONAL          interlock and is inert is worse than no line
+ALPACA_BASE_URL             if the old deployment pointed at the live host,
+                            Sentinel refuses to start on the inherited value —
+                            a confusing failure, and a fact worth surfacing
+AV_API_KEY, ANTHROPIC_...   credentials for services that no longer exist. A
+TAVILY_API_KEY, IBKR_*      secret with no consumer is pure liability
+```
+
+The guard that actually stops Sentinel reaching real money is `LIVE_HOSTS` in
+`sentinel/config.py`, which refuses `api.alpaca.markets` and has **no
+override**. Re-adding the old flags adds nothing.
+
+```bash
+scripts/sentinel-env-from-stocker.py --from ~/stocker-old/.env --dry-run
+scripts/sentinel-env-from-stocker.py --from ~/stocker-old/.env
+```
+
+Writes mode 0600, refuses to overwrite without `--force`, and **never prints a
+value** — the report names variables and says what happened to each. That last
+property is why it is a script: this runs on the NAS over SSH, and a terminal
+that has echoed a Sharadar key has put it in scrollback and in the session
+transcript.
+
+It refuses if `SHARADAR_API_KEY` is absent or still a placeholder, generates
+`SENTINEL_POSTGRES_PASSWORD` (the Stocker file has no equivalent, and compose
+declares it `:?` so it will not start without one), and warns when a carried
+password contains a character compose splices into a DSN or a literal `$` it
+would interpolate.
+
 ## 10f. The resource envelope is MEASURED, and the measurement is an artefact
 
 `docker-compose.sentinel.yml` sets three limits under a comment that says what
