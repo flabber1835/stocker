@@ -82,12 +82,19 @@ class SentinelBroker(abc.ABC):
 
     @abc.abstractmethod
     async def observe(self) -> AccountObservation:
-        """Read positions AND working orders in one call.
+        """Read working orders AND positions as one observation.
 
         One method rather than two because the state machine must never reason
         across a gap: positions read at T and orders read at T+2s can describe a
         world that never existed, and the conclusion "held with no working sell"
         drawn from it would submit a duplicate close.
+
+        **NO BROKER OFFERS AN ATOMIC SNAPSHOT OF BOTH**, so this method's job is
+        not to pretend otherwise — it is to order the two reads so that a fill
+        landing between them cannot make an object DISAPPEAR. See
+        `AlpacaSentinelBroker.observe` for why the order is orders-then-positions
+        and not the reverse; the contract is
+        docs/sentinel-execution-contract.md §5.3, invariant 21.
         """
 
     @abc.abstractmethod
@@ -121,8 +128,41 @@ class AlpacaSentinelBroker(SentinelBroker):
         return await self._adapter.get_account()
 
     async def observe(self) -> AccountObservation:
-        positions = await self._adapter.get_positions()
+        """ORDERS FIRST, THEN POSITIONS. The order is the correctness property.
+
+        The two reads cannot be atomic, so something can move between them. The
+        question is which direction it moves, and only one ordering is safe:
+
+        ```text
+        positions, then orders            orders, then positions
+        ─────────────────────             ──────────────────────
+        t0 positions -> empty             t0 orders    -> [BUY]     seen
+           (a resting BUY has not filled)    ...or -> empty (already filled)
+        t1 the BUY FILLS                  t1 the BUY FILLS
+        t2 orders -> empty                t2 positions -> [POSITION] seen
+           (it is no longer OPEN)
+           => concluded FLAT while             => never flat. Costs one cycle.
+              holding a position
+        ```
+
+        Under positions-first the object is missed by BOTH reads: it left the
+        set that was already read and entered the set that was read too early.
+        Under orders-first a fill can only move evidence from the not-yet-read
+        set into the about-to-be-read set, so it cannot vanish.
+
+        The asymmetry is what matters. A false NOT-flat costs one poll interval.
+        A false FLAT is irreversible: `plan_startup` returns FLAT_CONFIRMED and
+        `establish_ownership` immediately records SENTINEL_OWNERSHIP_ESTABLISHED,
+        so one bad observation ends the migration permanently and Wealth Core
+        bootstraps onto an inherited position wearing Sentinel's colours.
+
+        This does NOT make the observation atomic, and it does not cover a third
+        party acting between the reads. Irreversible conclusions additionally
+        require two consecutive agreeing observations — see
+        docs/sentinel-execution-contract.md §5.3.
+        """
         orders = await self._adapter.list_orders(status="open")
+        positions = await self._adapter.get_positions()
         held = {p.ticker: float(p.qty or 0.0) for p in positions}
         open_orders: list[OpenOrder] = []
         for o in orders:
