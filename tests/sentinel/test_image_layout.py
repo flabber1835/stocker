@@ -542,8 +542,29 @@ class TestTheBuildContextCarriesWhatTheDockerfilesCOPY:
 
 # ── every repo path the code NAMES must be in the image that reads it ────────
 
-def _repo_paths_named_by(tree_dir: str) -> list[tuple[str, int, str]]:
-    """(file, line, repo-relative path) for every repo file the code names.
+#: The suite runs under TWO roots and this walk has to know which is which.
+#: On a host both are the checkout. In the certified image `sentinel/` is
+#: inspected at /work/repo (SENTINEL_REPO_ROOT) while `tests/` lives at /work —
+#: the split `TestNoRepoFileIsReadThroughROOT` documents.
+#:
+#: Getting this wrong is not hypothetical: the first version walked
+#: `ROOT / "tests/sentinel"`, which in the image is /work/repo/tests/sentinel
+#: and does not exist. The early-out returned [], the coverage assertions went
+#: vacuous, and only `test_the_extractor_still_finds_the_known_ones` caught it —
+#: seventeen minutes into the certified run, which is precisely the job that
+#: guard was written for.
+PKG_ROOT = ROOT                                       # holds sentinel/
+SUITE_ROOT = Path(__file__).resolve().parents[2]      # holds tests/
+
+
+def _repo_paths_named_by(tree_dir: str, base: Path) -> list[tuple[str, int, str, Path]]:
+    """(file, line, path relative to `base`) for every repo file the code names.
+
+    `base` is the root that `tree_dir` hangs off, and it is also what the
+    resulting paths are relative to — so a tests module naming
+    `ROOT / "docs" / ...` yields `docs/...` against /work, and the package
+    naming the same thing yields `docs/...` against /work/repo. Both are then
+    comparable to a Dockerfile COPY source, which is what they must be.
 
     Two extractors, because the code writes these two ways and either alone
     leaves a hole:
@@ -562,7 +583,7 @@ def _repo_paths_named_by(tree_dir: str) -> list[tuple[str, int, str]]:
     """
     import ast
 
-    root = ROOT / tree_dir
+    root = base / tree_dir
     if not root.is_dir():                              # narrower image layout
         return []
 
@@ -603,9 +624,15 @@ def _repo_paths_named_by(tree_dir: str) -> list[tuple[str, int, str]]:
                     and isinstance(node.right.value, str):
                 return left / node.right.value
             return None
-        # `os.environ.get("SENTINEL_REPO_ROOT") or Path(...).parents[N]` — the
-        # env override names the SAME repo root, so the literal branch stands in.
+        # `REPO = os.environ.get("SENTINEL_REPO_ROOT") or Path(...).parents[N]`
+        # resolves to PKG_ROOT, not to the literal fallback. On a host the two
+        # are the same directory. In the image they are NOT: the fallback is
+        # /work and the env var says /work/repo, so taking the literal branch
+        # reported `scripts/sentinel-certify.sh` and `sentinel/identity.py` as
+        # missing — they are there, one level down.
         if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
+            if any("os.environ" in ast.unparse(v) for v in node.values):
+                return PKG_ROOT
             for v in node.values:
                 r = _resolve(v, f, syms)
                 if r is not None:
@@ -619,11 +646,25 @@ def _repo_paths_named_by(tree_dir: str) -> list[tuple[str, int, str]]:
                 return _resolve(node.func.value, f, syms)
         return None
 
-    def _rel(p: Path) -> str | None:
-        try:
-            return p.resolve().relative_to(ROOT).as_posix()
-        except ValueError:                             # escapes the repository
-            return None
+    def _rel(p: Path):
+        """(root, path-relative-to-it), or None if it escapes both.
+
+        A single base is not enough: one MODULE can name paths under both
+        roots. `tests/sentinel/test_certification_harness.py` reads
+        `REPO / "scripts" / ...` (=/work/repo) on one line and
+        `ROOT / "tools" / ...` (=/work) on another, and the coverage question
+        differs — /work/repo/ COPY destinations for the first, /work/ for the
+        second. PKG_ROOT is checked FIRST because /work/repo is itself under
+        /work, so the other order would tag everything /work and relativise
+        the repo paths as `repo/scripts/...`, matching no COPY source at all.
+        """
+        rp = p.resolve()
+        for cand in (PKG_ROOT, SUITE_ROOT):
+            try:
+                return cand, rp.relative_to(cand).as_posix()
+            except ValueError:
+                continue
+        return None
 
     #: Inline uses, resolved through the module's OWN bindings rather than
     #: assumed to hang off the repo root — `_HANDOFF / "00_README" / ...` is
@@ -633,22 +674,46 @@ def _repo_paths_named_by(tree_dir: str) -> list[tuple[str, int, str]]:
         r'\b([A-Z_][A-Z_0-9]*)\s*/\s*'
         r'"([\w.\-]+)"(?:\s*/\s*"([\w.\-]+)")?(?:\s*/\s*"([\w.\-]+)")?')
 
-    out: list[tuple[str, int, str]] = []
+    out: list[tuple[str, int, str, Path]] = []
     for f in sorted(root.rglob("*.py")):
         body = f.read_text()
-        rel_f = f.relative_to(ROOT).as_posix()
+        rel_f = f.relative_to(base).as_posix()
+        tree = ast.parse(body)
         syms: dict[str, Path] = {}
-        for stmt in ast.parse(body).body:
+        for stmt in tree.body:
             if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 \
                     and isinstance(stmt.targets[0], ast.Name):
                 p = _resolve(stmt.value, f, syms)
                 if p is None:
                     continue
                 syms[stmt.targets[0].id] = p
-                r = _rel(p)
-                if r is not None:
-                    out.append((rel_f, stmt.lineno, r))
+                hit = _rel(p)
+                if hit is not None:
+                    out.append((rel_f, stmt.lineno, hit[1], hit[0]))
+        # Lines belonging to a STATEMENT that touches `sys.path`. An entry there
+        # is an import path, not a file that gets opened, and a nonexistent one
+        # is inert — `TestNoRepoFileIsReadThroughROOT` carves out the same
+        # exemption. Computed per STATEMENT rather than per line, because
+        # `conftest.py` writes it as
+        #
+        #     for p in (str(HERE), str(ROOT), str(ROOT / "shared")):
+        #         if p not in sys.path:
+        #             sys.path.insert(0, p)
+        #
+        # where the line naming the path contains no `sys.path` at all. A
+        # line-level filter missed exactly that one.
+        skip_lines: set[int] = set()
+        for stmt in ast.walk(tree):
+            if not isinstance(stmt, ast.stmt):
+                continue
+            if "sys.path" not in ast.unparse(stmt):
+                continue
+            end = getattr(stmt, "end_lineno", stmt.lineno) or stmt.lineno
+            skip_lines.update(range(stmt.lineno, end + 1))
+
         for i, line in enumerate(body.splitlines(), 1):
+            if i in skip_lines:
+                continue
             m = inline.search(line)
             # A name this module never bound to a path is somebody else's `/`.
             if not m or m.group(1) not in syms:
@@ -662,11 +727,11 @@ def _repo_paths_named_by(tree_dir: str) -> list[tuple[str, int, str]]:
             p = syms[m.group(1)]
             for seg in (g for g in m.groups()[1:] if g):
                 p = p / seg
-            r = _rel(p)
-            if r is not None:
-                out.append((rel_f, i, r))
-    # The repo root itself is not a COPY source and needs no checking.
-    return [(f, n, p) for f, n, p in out if p not in ("", ".", "./")]
+            hit = _rel(p)
+            if hit is not None:
+                out.append((rel_f, i, hit[1], hit[0]))
+    # The roots themselves are not COPY sources and need no checking.
+    return [(f, n, p, r) for f, n, p, r in out if p not in ("", ".", "./")]
 
 
 class TestEveryRepoPathTheCodeREADS_IsCopiedIn:
@@ -709,19 +774,25 @@ class TestEveryRepoPathTheCodeREADS_IsCopiedIn:
                 if df.name == dockerfile]
 
     @staticmethod
-    def _uncovered(named, sources) -> list[str]:
-        bad = []
-        for f, line, rel in named:
-            rel = rel.rstrip("/")
-            # A named path is carried when a COPY source IS it, CONTAINS it, or
-            # lies beneath it. The last case is `ROOT / "services"` against
-            # `COPY services/bt-data/`: partially present, and the callers that
-            # do that already branch on what exists.
-            if any(rel == s or rel.startswith(s + "/") or s.startswith(rel + "/")
-                   for s in sources):
-                continue
-            bad.append(f"{f}:{line} reads {rel!r}")
-        return bad
+    def _covered(rel: str, sources) -> bool:
+        """A named path is carried when a COPY source IS it, CONTAINS it, or
+        lies beneath it. The last case is `ROOT / "services"` against
+        `COPY services/bt-data/`: partially present, and the callers that do
+        that already branch on what exists."""
+        rel = rel.rstrip("/")
+        return any(rel == s or rel.startswith(s + "/") or s.startswith(rel + "/")
+                   for s in sources)
+
+    @classmethod
+    def _uncovered(cls, named, sources, only_root=None) -> list[str]:
+        """`only_root` restricts to paths belonging to one root, because the
+        two roots have different COPY destination sets and mixing them was the
+        bug: a `REPO / "scripts" / ...` read is satisfied by
+        `COPY scripts/ /work/repo/scripts/` and says nothing about /work."""
+        return [f"{f}:{line} reads {rel!r}"
+                for f, line, rel, root in named
+                if (only_root is None or root == only_root)
+                and not cls._covered(rel, sources)]
 
     def test_the_extractor_still_finds_the_known_ones(self):
         """Guard the guard. Both assertions below are vacuous if the walk
@@ -730,31 +801,60 @@ class TestEveryRepoPathTheCodeREADS_IsCopiedIn:
 
         Pinned to the four artefacts whose absence is a certification failure
         rather than to a count, so ordinary churn does not touch this."""
-        pkg = {p for _, _, p in _repo_paths_named_by("sentinel")}
+        pkg = {p for _, _, p, _ in _repo_paths_named_by("sentinel", PKG_ROOT)}
         assert "docs/sentinel-handoff/00_README/FROZEN_SENTINEL_1P1_RULE.json" in pkg
         assert "docs/sentinel-handoff/00_README/SHA256SUMS.txt" in pkg
 
-        suite = {p for _, _, p in _repo_paths_named_by("tests/sentinel")}
+        suite = {p for _, _, p, _ in
+                 _repo_paths_named_by("tests/sentinel", SUITE_ROOT)}
         assert ("docs/sentinel-handoff/04_BREADTH_ORACLES/"
                 "sentinel_1p1_exact_daily_with_breadth.csv") in suite
         assert ("docs/sentinel-handoff/02_SENTINEL_1P1_FROZEN_ORACLE/"
                 "02_recovery_gate_flags.csv") in suite
 
     def test_the_RUNTIME_image_carries_every_path_sentinel_reads(self):
-        bad = self._uncovered(_repo_paths_named_by("sentinel"),
+        bad = self._uncovered(_repo_paths_named_by("sentinel", PKG_ROOT),
                               self._copy_sources("Dockerfile.sentinel"))
         assert not bad, (
             "sentinel/ names these repo paths and Dockerfile.sentinel copies "
             "none of them, so they are absent from /app at run time: "
             + "; ".join(bad))
 
+    @staticmethod
+    def _dest_sources(prefix: str) -> list[str]:
+        """COPY sources whose DESTINATION is under `prefix` in the test image."""
+        out = []
+        for line in (ROOT / "Dockerfile.sentinel-test").read_text().splitlines():
+            m = re.match(rf"^COPY\s+(\S+)\s+{re.escape(prefix)}", line.strip())
+            if m:
+                out.append(m.group(1).rstrip("/"))
+        return out
+
     def test_the_TEST_image_carries_every_path_the_suite_reads(self):
-        bad = self._uncovered(_repo_paths_named_by("tests/sentinel"),
-                              self._copy_sources("Dockerfile.sentinel-test"))
+        """Each root against ITS OWN destinations.
+
+        `/work/repo` is checked first and excluded from the `/work` set,
+        because /work/repo is physically inside /work — matching `COPY tests/
+        /work/tests/` against a repo-rooted path would pass for the wrong
+        reason."""
+        named = _repo_paths_named_by("tests/sentinel", SUITE_ROOT)
+        repo_side = self._dest_sources("/work/repo/")
+        work_side = [s for s in self._dest_sources("/work/") if s not in repo_side]
+        if PKG_ROOT == SUITE_ROOT:
+            # A CHECKOUT. There is one tree, `_rel` tags everything with the
+            # first root it matches, and the split carries no information — so
+            # the only meaningful question is whether the path is copied at
+            # all. Splitting anyway put `tests/` and `tools/` in the repo-side
+            # bucket, where they are legitimately absent, and failed on a host
+            # while passing in the image.
+            bad = self._uncovered(named, repo_side + work_side)
+        else:
+            bad = (self._uncovered(named, work_side, only_root=SUITE_ROOT)
+                   + self._uncovered(named, repo_side, only_root=PKG_ROOT))
         assert not bad, (
             "tests/sentinel names these repo paths and Dockerfile.sentinel-test "
             "copies none of them, so the certified run fails on them at step 5, "
-            "after the re-seed: " + "; ".join(bad))
+            "after the re-seed: " + "; ".join(sorted(set(bad))))
 
     def test_the_runtime_paths_also_resolve_under_the_TEST_image_repo_root(self):
         """`SENTINEL_REPO_ROOT=/work/repo` and `sentinel/` is copied there for
@@ -765,22 +865,33 @@ class TestEveryRepoPathTheCodeREADS_IsCopiedIn:
                      (ROOT / "Dockerfile.sentinel-test").read_text().splitlines()
                      for m in [re.match(r"^COPY\s+(\S+)\s+/work/repo/", line.strip())]
                      if m for src in [m.group(1)]]
-        bad = self._uncovered(_repo_paths_named_by("sentinel"), repo_side)
+        bad = self._uncovered(_repo_paths_named_by("sentinel", PKG_ROOT), repo_side)
         assert not bad, (
             "Dockerfile.sentinel-test does not mirror these under /work/repo, "
             "so the image-layout reconstruction cannot find them: " + "; ".join(bad))
 
     def test_every_named_path_actually_EXISTS(self):
         """The cheapest half, and it catches a different mistake: a COPY set
-        that covers a path which is not there. Skipped for anything under
-        `sentinel/requirements.lock`, the one file that does not exist until
-        the first real build."""
-        named = (_repo_paths_named_by("sentinel")
-                 + _repo_paths_named_by("tests/sentinel"))
-        missing = sorted({f"{f}:{n} -> {p}" for f, n, p in named
-                          if not (ROOT / p).exists()
-                          and not p.endswith("requirements.lock")})
-        assert not missing, missing
+        that covers a path which is not there.
+
+        Each tree is resolved against ITS OWN root. Checking both against ROOT
+        was the second half of the same bug: in the image ROOT is /work/repo,
+        so every path a tests module names — `tools/corpus_parity.py`,
+        `services/backtester/app` — read as missing, because they live under
+        /work. Two roots, and every use of them has to say which.
+
+        `sentinel/requirements.lock` is exempt: it does not exist until the
+        first real build.
+        """
+        missing = []
+        for tree, base in (("sentinel", PKG_ROOT),
+                           ("tests/sentinel", SUITE_ROOT)):
+            for f, n, rel, root in _repo_paths_named_by(tree, base):
+                if rel.endswith("requirements.lock"):
+                    continue
+                if not (root / rel).exists():
+                    missing.append(f"{f}:{n} -> {rel} (under {root})")
+        assert not missing, sorted(set(missing))
 
 
 class TestNoRepoFileIsReadThroughROOT:
