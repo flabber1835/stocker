@@ -123,7 +123,7 @@ class TestHistoricalIntentIsNeverReplayed:
         """
         seen = []
 
-        def advance(session, state):
+        def advance(conn, session, state):
             seen.append(session)
             return {"sessions": state.get("sessions", 0) + 1}
 
@@ -148,7 +148,7 @@ class TestHistoricalIntentIsNeverReplayed:
         surviving on Thursday it would liquidate a live account."""
         CU.catch_up(conn, through="2026-08-13",
                     missed=["2026-08-10", "2026-08-13"],
-                    advance_state=lambda s, st: st,
+                    advance_state=lambda c, s, st: st,
                     decide=lambda session, state: a_plan(
                         session,
                         basket={} if session == "2026-08-10" else {"P-AAA": "100"},
@@ -165,7 +165,7 @@ class TestHistoricalIntentIsNeverReplayed:
         journal.save_plan(conn, stale)
 
         CU.catch_up(conn, through="2026-08-13", missed=["2026-08-13"],
-                    advance_state=lambda s, st: st,
+                    advance_state=lambda c, s, st: st,
                     decide=lambda session, state: a_plan(session))
 
         assert journal.load_plan(conn, "plan-stale").is_superseded
@@ -175,7 +175,7 @@ class TestCatchUpIsResumable:
     def test_the_processed_session_is_DURABLE(self, conn):
         CU.catch_up(conn, through="2026-08-11",
                     missed=["2026-08-10", "2026-08-11"],
-                    advance_state=lambda s, st: st,
+                    advance_state=lambda c, s, st: st,
                     decide=lambda session, state: a_plan(session))
         assert CU.last_processed_session(conn) == dt.date(2026, 8, 11)
 
@@ -184,7 +184,7 @@ class TestCatchUpIsResumable:
         transaction. A pointer written after the loop would replay everything
         after a crash; one written before would skip a session forever, and
         skipping is the silent one."""
-        def explode_on_wednesday(session, state):
+        def explode_on_wednesday(conn, session, state):
             if session == "2026-08-12":
                 raise RuntimeError("the process died here")
             return state
@@ -202,14 +202,14 @@ class TestCatchUpIsResumable:
     def test_resuming_replays_only_what_is_OWED(self, conn):
         CU.catch_up(conn, through="2026-08-11",
                     missed=["2026-08-10", "2026-08-11"],
-                    advance_state=lambda s, st: st,
+                    advance_state=lambda c, s, st: st,
                     decide=lambda session, state: a_plan(session))
 
         seen = []
         CU.catch_up(conn, through="2026-08-13",
                     missed=["2026-08-10", "2026-08-11", "2026-08-12",
                             "2026-08-13"],
-                    advance_state=lambda s, st: seen.append(s) or st,
+                    advance_state=lambda c, s, st: seen.append(s) or st,
                     decide=lambda session, state: a_plan(session))
         assert seen == ["2026-08-12", "2026-08-13"], (
             "a session already advanced must not advance twice — the state is "
@@ -224,7 +224,7 @@ class TestCatchUpIsResumable:
                 with pytest.raises(journal.WriterLockUnavailable):
                     CU.catch_up(conn, through="2026-08-13",
                                 missed=["2026-08-13"],
-                                advance_state=lambda s, st: st,
+                                advance_state=lambda c, s, st: st,
                                 decide=lambda session, state: a_plan(session))
         finally:
             other.close()
@@ -318,7 +318,7 @@ class TestReprojectionNotReplay:
         Core's peaks, ages, review clocks and cooldowns are a function of price
         history, not of the balance."""
         CU.catch_up(conn, through="2026-08-10", missed=["2026-08-10"],
-                    advance_state=lambda s, st: st,
+                    advance_state=lambda c, s, st: st,
                     decide=lambda session, state: a_plan(session))
         CF.record(conn, session="2026-08-10", amount=D("50000"), detail="wire")
 
@@ -326,7 +326,7 @@ class TestReprojectionNotReplay:
         out = CU.reproject(conn, session="2026-08-10", nav=D("150000"),
                            weights={"P-AAA": D("1.0")}, exposure=D("1"),
                            marks={"P-AAA": D("100")},
-                           advance_state=lambda s, st: advanced.append(s) or st)
+                           advance_state=lambda c, s, st: advanced.append(s) or st)
         assert advanced == [], "a deposit must not replay a single session"
         assert out.plan.target_basket == {"P-AAA": D("1500")}
         assert CU.last_processed_session(conn) == dt.date(2026, 8, 10)
@@ -405,7 +405,7 @@ class TestReprojectionNotReplay:
         change what the derived client keys mean — the same id would name two
         different economic intents."""
         CU.catch_up(conn, through="2026-08-10", missed=["2026-08-10"],
-                    advance_state=lambda s, st: st,
+                    advance_state=lambda c, s, st: st,
                     decide=lambda session, state: a_plan(session))
         first = journal.latest_plan(conn)
 

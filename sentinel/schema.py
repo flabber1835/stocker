@@ -191,7 +191,17 @@ DDL = (
     """CREATE TABLE IF NOT EXISTS sentinel_processed_sessions (
         cursor_name TEXT PRIMARY KEY,
         session     DATE NOT NULL,
+        -- THE STATE, BESIDE THE CURSOR AND IN THE SAME STATEMENT.
+        --
+        -- `advance_state` is handed the transaction so it CAN write its own
+        -- durable state; nothing can make it. Without this column the only
+        -- durable half was the pointer, so a crash after the commit left the
+        -- cursor saying Aug 10 was done while the book still said Aug 9 — and
+        -- Aug 10 is then skipped permanently and silently.
+        state       JSONB,
         updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+    """ALTER TABLE sentinel_processed_sessions
+        ADD COLUMN IF NOT EXISTS state JSONB""",
 
     # ------------------------------------------------------------------
     # EXTERNAL CASH. Declared, never inferred from a balance.

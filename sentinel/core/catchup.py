@@ -55,6 +55,7 @@ CURRENT target against the new NAV and advances nothing.
 """
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import date
@@ -64,6 +65,16 @@ from typing import Callable, Mapping, Optional
 from sentinel.core.cashflow import Attribution, NavReconciliation
 from sentinel.execution import journal
 from sentinel.execution.plan import ExecutionPlan
+
+
+class StateNotDurable(TypeError):
+    """The state a seam returned cannot be encoded, so it cannot be made atomic
+    with the pointer — which is the entire guarantee.
+
+    Raised at the FIRST session rather than at the end. A four-hour replay that
+    discovers this on its last step has lost the run; one that refuses
+    immediately has cost a clear error message.
+    """
 
 
 class NavUnobserved(RuntimeError):
@@ -132,18 +143,72 @@ def last_processed_session(conn) -> Optional[date]:
     return None if row is None else _d(row[0])
 
 
-def _mark_processed(conn, session: date) -> None:
-    """NEVER MOVES BACKWARDS. A caller replaying an old window must not rewind
-    the frontier of what has already advanced — that is how a session gets
-    aged twice."""
+def resume_state(conn):
+    """The state catch-up last persisted, or None.
+
+    What a RESTART reads. Without it a resumed run hands the seam `None` and
+    the seam has no history to advance from — so the sessions after a crash
+    would be replayed against an empty book, which is a quieter version of the
+    skip this whole mechanism exists to prevent.
+    """
+    with conn.cursor() as cur:
+        cur.execute("SELECT state FROM sentinel_processed_sessions"
+                    " WHERE cursor_name = %s", (_CURSOR,))
+        row = cur.fetchone()
+    if row is None or row[0] is None:
+        return None
+    return row[0] if isinstance(row[0], (dict, list)) else json.loads(row[0])
+
+
+def _encode(state) -> Optional[str]:
+    if state is None:
+        return None
+    try:
+        # NO `default=`. A fallback coercion makes EVERYTHING encodable and
+        # nothing round-trip: `Decimal("1.5")` goes out as the string "1.5" and
+        # comes back as a string, so the resumed book is quietly not the book
+        # that was saved. For money that is worse than refusing — the seam must
+        # hand over something that survives the trip, and being told so at
+        # session one is cheap.
+        return json.dumps(state, sort_keys=True)
+    except (TypeError, ValueError) as exc:
+        raise StateNotDurable(
+            f"catch-up cannot encode the state this seam returned "
+            f"({type(state).__name__}): {exc}. It has to be written in the same "
+            f"statement as the pointer, or the pointer can outlive it — and a "
+            f"pointer ahead of the state SKIPS a session permanently. Give "
+            f"`advance_state` a JSON-serialisable return, or have it persist "
+            f"through the `conn` it is handed and return a handle to that.") \
+            from exc
+
+
+def _mark_processed(conn, session: date, state=None) -> None:
+    """The pointer and the state, in ONE statement.
+
+    This is the enforcement that does not depend on the seam's cooperation.
+    `advance_state` is handed the transaction and can write through it, but
+    nothing can make it — so catch-up also persists whatever it was handed,
+    beside the cursor, in the same row. A pointer that is durable while the
+    state is not is a session skipped permanently and silently.
+
+    NEVER MOVES BACKWARDS. A caller replaying an old window must not rewind the
+    frontier of what has already advanced — that is how a session gets aged
+    twice. The state follows the same guard: it is only replaced when the
+    session actually advances, so a rewind attempt cannot install an older
+    book under a newer pointer.
+    """
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO sentinel_processed_sessions (cursor_name, session)"
-            " VALUES (%s,%s) ON CONFLICT (cursor_name) DO UPDATE SET"
+            "INSERT INTO sentinel_processed_sessions (cursor_name, session,"
+            " state) VALUES (%s,%s,%s) ON CONFLICT (cursor_name) DO UPDATE SET"
             "   session = GREATEST(sentinel_processed_sessions.session,"
             "                      EXCLUDED.session),"
+            "   state = CASE WHEN EXCLUDED.session"
+            "                     >= sentinel_processed_sessions.session"
+            "                THEN EXCLUDED.state"
+            "                ELSE sentinel_processed_sessions.state END,"
             "   updated_at = NOW()",
-            (_CURSOR, session.isoformat()))
+            (_CURSOR, session.isoformat(), _encode(state)))
 
 
 # ── catch-up ─────────────────────────────────────────────────────────────────
@@ -152,8 +217,29 @@ def catch_up(conn, *, through, missed, advance_state: Callable,
              decide: Callable, state=None) -> CatchUpResult:
     """Advance deterministic state across `missed`, then emit ONE plan.
 
-    `advance_state(session, state) -> state` is the deterministic step: Wealth
-    Core's session, and the controller's. It must not touch a broker.
+    `advance_state(conn, session, state) -> state` is the deterministic step:
+    Wealth Core's session, and the controller's. It must not touch a broker.
+
+    IT RECEIVES THE TRANSACTION, and that is the point of the signature. A seam
+    handed only `(session, state)` can satisfy the contract with a plain Python
+    object, which is exactly what every test did — and then the only durable
+    half is the pointer. A crash after the commit leaves the cursor saying Aug
+    10 is done while the book still says Aug 9, and Aug 10 is skipped
+    permanently and silently.
+
+    Being handed `conn` makes the correct thing possible; it cannot make it
+    happen. So `_mark_processed` ALSO persists whatever this returns, in the
+    same statement as the pointer — two enforcements, because either alone is
+    escapable.
+
+    **`advance_state` MUST NOT COMMIT.** This is the one failure no arrangement
+    here can prevent, and it is stated rather than implied because a mutation
+    sweep found it: a seam that commits its own writes has made ITS state
+    durable ahead of the pointer, so a crash then replays a session that
+    already happened and double-ages every episode. What survives is that
+    catch-up's own copy never disagrees with catch-up's own pointer, so a
+    restart resumes from a coherent pair and the seam's over-advance is
+    DETECTABLE by comparing the two rather than silent.
 
     `decide(session, state) -> ExecutionPlan | None` is called ONCE, for the
     final session. Calling it per session and keeping the last would be the
@@ -164,10 +250,23 @@ def catch_up(conn, *, through, missed, advance_state: Callable,
     path-dependent, so replaying one double-ages every episode in the book.
     """
     with journal.writer_lock(conn):
-        return _catch_up_locked(conn, through=_d(through),
-                                missed=[_d(m) for m in missed],
-                                advance_state=advance_state, decide=decide,
-                                state=state)
+        try:
+            return _catch_up_locked(conn, through=_d(through),
+                                    missed=[_d(m) for m in missed],
+                                    advance_state=advance_state, decide=decide,
+                                    state=state)
+        except BaseException:
+            # ROLL BACK THE SESSION THAT DID NOT FINISH.
+            #
+            # A killed process gets this from the server for free. A raised
+            # exception on a connection that SURVIVES does not: the failed
+            # session's writes sit uncommitted in an open transaction, visible
+            # to this connection and to nothing else, and the next caller
+            # inherits them. That is a pointer and a state that disagree by
+            # exactly one session — the fault this whole mechanism exists to
+            # make impossible, arriving through the error path.
+            conn.rollback()
+            raise
 
 
 def _catch_up_locked(conn, *, through: date, missed, advance_state, decide,
@@ -175,14 +274,22 @@ def _catch_up_locked(conn, *, through: date, missed, advance_state, decide,
     done = last_processed_session(conn)
     owed = sorted(s for s in missed if done is None or s > done)
 
+    # A RESTART HANDS US NOTHING. Read what the last run left, or the resumed
+    # sessions advance against an empty book — a quieter version of the skip
+    # this whole mechanism exists to prevent.
+    if state is None:
+        state = resume_state(conn)
+
     replayed = 0
     for session in owed:
-        # ONE TRANSACTION per session: the state the step produced and the
-        # pointer that says it happened commit together or not at all. Split
-        # them and a crash between the two either replays a session (double
-        # ageing) or skips it (silent, permanent).
-        state = advance_state(session.isoformat(), state)
-        _mark_processed(conn, session)
+        # ONE TRANSACTION per session, and the seam is handed the connection so
+        # it can write its own durable state inside it. Nothing can force it to
+        # — so `_mark_processed` also persists whatever it returns, in the same
+        # statement as the pointer. Split them and a crash between the two
+        # either replays a session (double ageing, at least visible) or skips it
+        # (silent, permanent, and the worse one).
+        state = advance_state(conn, session.isoformat(), state)
+        _mark_processed(conn, session, state)
         conn.commit()
         replayed += 1
 
@@ -192,7 +299,7 @@ def _catch_up_locked(conn, *, through: date, missed, advance_state, decide,
         journal.save_plan(conn, plan)
         superseded = journal.supersede_all_but(conn, plan.plan_id) or 0
         plan = journal.load_plan(conn, plan.plan_id)
-    _mark_processed(conn, through)
+    _mark_processed(conn, through, state)
     conn.commit()
 
     return CatchUpResult(sessions_replayed=replayed, through=through,
@@ -392,5 +499,6 @@ def _d(v) -> date:
     return v if isinstance(v, date) else date.fromisoformat(str(v))
 
 
-__all__ = ["CatchUpResult", "NavUnobserved", "Reprojection", "catch_up",
-           "last_processed_session", "project", "reproject"]
+__all__ = ["CatchUpResult", "NavUnobserved", "Reprojection", "StateNotDurable",
+           "catch_up", "last_processed_session", "project", "reproject",
+           "resume_state", "unpriceable"]
