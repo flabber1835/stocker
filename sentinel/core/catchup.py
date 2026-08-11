@@ -218,6 +218,13 @@ def project(*, weights: Mapping[str, Decimal], nav: Decimal,
     A security with no mark is OMITTED rather than sized at zero. Zero is a
     target — "hold none of this" — and it would liquidate a position because a
     price was missing.
+
+    **OMISSION IS NOT SUFFICIENT ON ITS OWN**, and this function cannot make it
+    so: to a downstream reader an absent key and a zero are the same thing.
+    `compute_delta` reads a missing basket entry as `desired = 0` and sells the
+    lot. Whoever composes this into a plan must decide what an omitted-but-held
+    security should be — see `unpriceable` and `reproject`, which set it to the
+    quantity currently held so no economic decision is made at all.
     """
     out: dict = {}
     for sid, w in weights.items():
@@ -227,6 +234,29 @@ def project(*, weights: Mapping[str, Decimal], nav: Decimal,
         qty = (Decimal(nav) * Decimal(w) * Decimal(exposure)) / Decimal(mark)
         out[sid] = qty.to_integral_value(rounding="ROUND_FLOOR")
     return out
+
+
+def unpriceable(weights: Mapping[str, Decimal],
+                marks: Mapping[str, Decimal]) -> tuple:
+    """Securities Wealth Core still WANTS and nothing can price.
+
+    Separated from `project` because the distinction it enables is not about
+    projection at all — it is about telling two situations apart that both end
+    up as "no entry in the target basket":
+
+    ```text
+    not in weights        Wealth Core no longer wants it   -> SELL ALL
+    in weights, no mark   we cannot value it               -> HOLD, no decision
+    ```
+
+    Only the first is a reason to sell, and selling it needs no mark: the share
+    count is exactly known. The second is a data outage wearing a target's
+    clothing, and treating it as one liquidates a position because a price was
+    missing — the failure `project`'s docstring forbids and, before this
+    existed, `reproject` performed anyway.
+    """
+    return tuple(sorted(sid for sid in weights
+                        if not marks.get(sid) or marks[sid] <= 0))
 
 
 def reproject(conn, *, session, nav: Optional[Decimal],
@@ -259,6 +289,30 @@ def reproject(conn, *, session, nav: Optional[Decimal],
 
     desired = project(weights=weights, nav=nav, exposure=exposure, marks=marks)
 
+    # A SECURITY WE CANNOT PRICE HOLDS WHAT IT HOLDS.
+    #
+    # `project` omits it, correctly refusing to guess a quantity. Left omitted,
+    # that refusal becomes the opposite instruction the moment anything reads
+    # the basket: `compute_delta` sees no entry, takes `desired = 0`, and sells
+    # the position — and the sweep below would independently arrive at the same
+    # place. "We cannot value this" and "we want none of this" are different
+    # facts and only the second is a reason to sell.
+    #
+    # `held + committed`, not `held` alone: 40 owned with 60 working is a
+    # position of 100 in flight, and a target of 40 would cancel the difference
+    # while a target that ignored `committed` would order it twice.
+    blind = unpriceable(weights, marks)
+    for sid in blind:
+        outstanding = held.get(sid, Decimal(0)) + committed.get(sid, Decimal(0))
+        if outstanding:
+            desired[sid] = outstanding
+    if blind:
+        caveats.append(
+            f"NO MARK for {list(blind)} — held quantities are carried unchanged "
+            f"and no purchase is sized. The corpus cannot value these today; "
+            f"that is a data outage, not a target of zero, and selling on it "
+            f"would liquidate a position because a price was missing.")
+
     # ── may this re-projection INCREASE exposure? ────────────────────────────
     #
     # The missed-open asymmetry, applied to input quality rather than to time.
@@ -283,12 +337,20 @@ def reproject(conn, *, session, nav: Optional[Decimal],
             f"is always permitted; increasing exposure against a balance nobody "
             f"can account for is not.")
 
+    # A HELD SECURITY THE TARGET DOES NOT MENTION IS AN EXPLICIT ZERO.
+    #
+    # Wealth Core dropped it, so it is sold — and selling needs no mark, the
+    # share count is exactly known. Written into the basket rather than left
+    # absent because absent and zero are the same thing to `compute_delta`, and
+    # a plan that relies on a reader's default is a plan that does not say what
+    # it means. That ambiguity is precisely what turned an unpriceable security
+    # into a liquidation one branch above.
+    for sid in held:
+        desired.setdefault(sid, Decimal(0))
+
     remaining = {
         sid: qty - held.get(sid, Decimal(0)) - committed.get(sid, Decimal(0))
         for sid, qty in desired.items()}
-    for sid in held:
-        remaining.setdefault(
-            sid, -held[sid] - committed.get(sid, Decimal(0)))
 
     if reduction_only and any(v > 0 for v in remaining.values()):
         increases = {k: str(v) for k, v in sorted(remaining.items()) if v > 0}

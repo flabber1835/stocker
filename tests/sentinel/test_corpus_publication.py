@@ -154,20 +154,54 @@ class TestPinning:
         finally:
             writer.close()
 
-    def test_an_ingest_that_cannot_publish_still_KEEPS_ITS_DATA(self, conn, pg):
+    def test_an_ingest_that_cannot_publish_still_KEEPS_ITS_DATA(self, conn,
+                                                                monkeypatch):
         """A corpus that loaded correctly but could not be published is still a
         correct corpus; failing the ingest would discard hours over a
-        bookkeeping row. The absence is visible as a stale data_version."""
+        bookkeeping row. The absence is visible as a stale data_version.
+
+        THE SETUP CHANGED, THE PROPERTY DID NOT. This used to run the ingest
+        while a reader held the pin, because back then a pin only blocked
+        PUBLICATION. That is no longer possible and must not be — a pin now
+        blocks the WRITE too, or the rows a reader is describing as v41 get
+        rewritten underneath it (see test_corpus_snapshot_stability.py). So the
+        publication is made to fail directly, which is the fault this test was
+        always about.
+        """
+        P.publish(conn)
+
+        def refuse(*a, **kw):
+            raise RuntimeError("the database blipped during publish")
+        monkeypatch.setattr(P, "publish", refuse)
+
+        ingest.seed(conn, date_from="2021-01-01", date_to="2021-12-31",
+                    fetch=fetcher([sep("AAA", "2021-06-01")]))
+
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM sentinel_bars")
+            assert cur.fetchone()[0] == 1, "the bar was written"
+        assert P.require_current(conn).version == 1, "but not published"
+
+    def test_an_ingest_REFUSES_TO_START_while_a_reader_is_pinned(self, conn, pg):
+        """The new half, and the reason the test above had to be rewritten.
+
+        A pin used to freeze the version NUMBER while `sentinel_bars` — a
+        destructive in-place upsert — was rewritten underneath the reader. The
+        ingest now cannot begin at all, and says so rather than writing rows
+        nobody can safely read.
+        """
         P.publish(conn)
         reader = S.connect(pg.sync_dsn)
         try:
             with P.pinned(reader):
-                ingest.seed(conn, date_from="2021-01-01", date_to="2021-12-31",
-                            fetch=fetcher([sep("AAA", "2021-06-01")]))
+                with pytest.raises(P.CorpusBusy, match="PINNED"):
+                    ingest.seed(conn, date_from="2021-01-01",
+                                date_to="2021-12-31",
+                                fetch=fetcher([sep("AAA", "2021-06-01")]))
             with conn.cursor() as cur:
                 cur.execute("SELECT COUNT(*) FROM sentinel_bars")
-                assert cur.fetchone()[0] == 1, "the bar was written"
-            assert P.require_current(conn).version == 1, "but not published"
+                assert cur.fetchone()[0] == 0, (
+                    "nothing was written, so nothing moved under the reader")
         finally:
             reader.close()
 

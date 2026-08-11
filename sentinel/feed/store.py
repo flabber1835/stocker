@@ -95,6 +95,103 @@ def connect(dsn: str):
 
 
 @contextmanager
+def corpus_write_lock(conn):
+    """Hold the corpus STILL for the duration of an ingest.
+
+    ## Why publication alone was not enough
+
+    `publication.visible_predicate` made a row visible when its current
+    `last_written_run_id` belongs to a published run, and `publication.pinned`
+    stopped a new PUBLICATION landing mid-session. Neither stopped the ROWS
+    moving, and `sentinel_bars` is a destructive in-place upsert:
+
+    ```text
+    v41 published, AAA/2026-08-10 visible
+    a session pins v41 and starts reading
+    the daily ingest UPSERTs AAA/2026-08-10 -> last_written_run_id = run42
+    the predicate now HIDES that row
+    the same calculation, still nominally on v41, sees a different corpus
+    ```
+
+    The version number never moved. The snapshot it names did. A bar can vanish
+    mid-window or come back with a restated split ratio — the second does not
+    even change the row count — and the decision carries `data_version = 41`
+    describing a state that never existed as a whole.
+
+    "Published is what readable means" is the right rule for a corpus that only
+    GROWS. Against one rewritten in place, the predicate is re-evaluated per
+    query and what it evaluates is mutable.
+
+    ## Why a lock rather than generations
+
+    A generation column with an atomic pointer move is the better end state and
+    is the RECONSTRUCTION tier §8 defers. It answers "show me v47", which this
+    does not. It also changes the write path, the read path, repair, coherence
+    and every test that touches the hottest table in the system, and a daily
+    ingest that re-fetches a 14-day overlap would need content-change detection
+    or it writes 140k redundant rows a night.
+
+    This is the subset of that guarantee needed to close the hazard, and it is
+    needed under generations too: the pointer move must still exclude a reader
+    mid-snapshot. Single-writer, one decision per session, ingest in the
+    evening — the exclusion costs nothing this appliance actually does
+    concurrently.
+
+    ## The lock is the SAME key readers pin
+
+    `publication.CORPUS_LOCK_KEY`, taken EXCLUSIVE. A reader's shared pin and an
+    ingest's exclusive hold are then mutually exclusive by construction rather
+    than by two modules agreeing to be careful. Advisory, so it releases if the
+    holder's connection dies — an ingest killed mid-chunk must not lock the
+    corpus until someone notices.
+    """
+    from sentinel.feed.publication import CORPUS_LOCK_KEY, CorpusBusy
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT pg_try_advisory_lock(%s)", (CORPUS_LOCK_KEY,))
+        if not bool(cur.fetchone()[0]):
+            raise CorpusBusy(
+                "the corpus is PINNED by a reader (or another ingest holds the "
+                "write lock); refusing to write. Rewriting a row a session is "
+                "reading would change what its recorded data_version describes "
+                "— the version would not move and the snapshot would.")
+    conn.commit()
+    try:
+        yield
+    finally:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_unlock(%s)", (CORPUS_LOCK_KEY,))
+        conn.commit()
+
+
+def _assert_corpus_locked(conn) -> None:
+    """The write lock is HELD by this connection. Enforced, not documented.
+
+    A prerequisite in a docstring is one the next ingest path can simply not
+    follow, and this one is the difference between a stable snapshot and a
+    plausible wrong number. `pg_locks` is the authority — asking the lock
+    manager is exact, where a module-level flag would be a second copy of the
+    truth that can drift from it.
+    """
+    from sentinel.feed.publication import CORPUS_LOCK_KEY, CorpusBusy
+
+    key = CORPUS_LOCK_KEY
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) FROM pg_locks WHERE locktype = 'advisory'"
+            " AND pid = pg_backend_pid() AND granted"
+            "   AND ((classid::bigint << 32) | objid::bigint) = %s"
+            "   AND mode = 'ExclusiveLock'", (key,))
+        held = int(cur.fetchone()[0])
+    if not held:
+        raise CorpusBusy(
+            "write_bars was called without the corpus write lock. Wrap the "
+            "ingest in `store.corpus_write_lock(conn)`: an in-place upsert "
+            "while a session holds the corpus pinned changes what that "
+            "session's data_version describes.")
+
+
+@contextmanager
 def streaming_cursor(conn, sql: str, params=(), *, batch: int = 5000,
                      withhold: bool = False):
     """A SERVER-SIDE cursor. Rows arrive in batches and are never all resident.
@@ -239,7 +336,7 @@ WRITE_BATCH = int(os.getenv("SENTINEL_WRITE_BATCH", "5000"))
 
 
 def write_bars(conn, bars: Iterable[Any], *, run_id=None,
-               batch_size: int = 0) -> int:
+               batch_size: int = 0, require_lock: bool = False) -> int:
     """Upsert bars, STREAMING. Accepts `NormalisedBar` or a bare `VendorBar`.
 
     Both shapes because the engine's VendorBar does not carry a signal close and
@@ -260,7 +357,17 @@ def write_bars(conn, bars: Iterable[Any], *, run_id=None,
     `run_id` stamps `last_written_run_id`, which answers "which ingest produced
     this value" without any revision history — the cheap half of the corpus
     versioning contract.
+
+    `require_lock` asserts the caller holds `corpus_write_lock`. Every INGEST
+    path passes it: an in-place upsert while a session has the corpus pinned
+    changes what that session's `data_version` describes, and the version does
+    not move to say so. It is a parameter rather than unconditional because
+    hundreds of fixtures build a corpus directly with no reader in sight, and a
+    check that forces every one of them through a lock buys nothing and teaches
+    people to reach past it.
     """
+    if require_lock:
+        _assert_corpus_locked(conn)
     size = batch_size or WRITE_BATCH
     rows: list = []
     written = 0

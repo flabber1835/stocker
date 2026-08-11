@@ -344,11 +344,23 @@ def pinned(conn) -> Iterator[Publication]:
     is read INSIDE the lock, so it cannot be the version before the one actually
     used — the off-by-one that would make every provenance record subtly wrong
     in the rare case rather than obviously wrong in every case.
+
+    SHARED, so two readers may hold it at once: the panel and a decision session
+    both read, and making them queue behind each other would be a self-inflicted
+    outage with no safety benefit. It excludes only the EXCLUSIVE holders — a
+    publisher, and (since the snapshot-stability fix) an ingest, which takes
+    `store.corpus_write_lock` for its whole duration. Without that second
+    exclusion the pin froze the version NUMBER while the rows it named were
+    rewritten in place underneath the reader.
     """
     with conn.cursor() as cur:
         cur.execute("SELECT pg_try_advisory_lock_shared(%s)", (CORPUS_LOCK_KEY,))
-        if not bool(cur.fetchone()[0]):                       # pragma: no cover
-            raise CorpusBusy("a publish is in progress; cannot pin the corpus")
+        if not bool(cur.fetchone()[0]):
+            raise CorpusBusy(
+                "the corpus is being WRITTEN — a publish or an ingest holds it "
+                "exclusively — so it cannot be pinned. Pinning now would stamp "
+                "a decision with a version whose rows are half one generation "
+                "and half another.")
     try:
         yield require_current(conn)
     finally:

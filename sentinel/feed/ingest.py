@@ -219,7 +219,25 @@ def seed(conn, *, date_from: str = DEFAULT_SEED_START, date_to: Optional[str] = 
     (security_id, session), so an interrupted seed is resumed by running it
     again. That is why the orphan reclaim keeps a dead run's committed rows
     rather than rolling them back.
+
+    HOLDS THE CORPUS WRITE LOCK FOR THE WHOLE RUN, not per chunk. An in-place
+    upsert while a session has the corpus pinned changes what that session's
+    `data_version` describes — and the version does not move to say so. Taking
+    it per chunk would leave a window between chunks in which a reader could pin
+    a half-written corpus, which is the same defect one level down.
+
+    Acquired in the public entry point rather than left to the caller, for the
+    reason `execute_session` gives about its writer lock: a prerequisite that
+    lives in a docstring is one a future call site can simply forget.
     """
+    with feed_store.corpus_write_lock(conn):
+        return _seed_locked(conn, date_from=date_from, date_to=date_to,
+                            fetch=fetch, resolve_identity=resolve_identity)
+
+
+def _seed_locked(conn, *, date_from: str, date_to: Optional[str],
+                 fetch: Callable[..., Iterable[dict]],
+                 resolve_identity) -> feed_store.IngestProgress:
     date_to = date_to or _today()
     chunks = sharadar.year_chunks(date_from, date_to)
     run = feed_store.IngestRun(conn, "seed", date_from=date_from,
@@ -270,7 +288,7 @@ def seed(conn, *, date_from: str = DEFAULT_SEED_START, date_to: Optional[str] = 
                 prior_observations=feed_store.previous_observations(conn, lo),
                 report=report)
             written = feed_store.write_bars(
-                conn, bars, run_id=run.progress.run_id)
+                conn, bars, run_id=run.progress.run_id, require_lock=True)
             # PERSIST THE EVIDENCE in the same breath as the bars. A refusal,
             # a truncation or an anomaly recorded only in memory dies with the
             # process, and the certification that needs it runs in a different
@@ -327,7 +345,23 @@ def _publish_version(conn, run, window_start: str, window_end: str):
 def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
           resolve_identity=None, overlap_days: int = DAILY_OVERLAP_DAYS,
           today: Optional[str] = None) -> feed_store.IngestProgress:
-    """Fetch from `overlap_days` behind the stored frontier through today."""
+    """Fetch from `overlap_days` behind the stored frontier through today.
+
+    HOLDS THE CORPUS WRITE LOCK, exactly as `seed` does and for the same
+    reason. This path is the one that actually races a reader: it runs every
+    evening, its 14-day overlap window REWRITES rows a session may be reading,
+    and the rewrite is silent — the published version stays where it is while
+    the rows it names change underneath.
+    """
+    with feed_store.corpus_write_lock(conn):
+        return _daily_locked(conn, fetch=fetch,
+                             resolve_identity=resolve_identity,
+                             overlap_days=overlap_days, today=today)
+
+
+def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
+                  resolve_identity, overlap_days: int,
+                  today: Optional[str]) -> feed_store.IngestProgress:
     to = today or _today()
     frontier = feed_store.latest_session(conn)
     if frontier is None:
@@ -371,7 +405,7 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
             prior_observations=feed_store.previous_observations(conn, start),
             report=report)
         run.progress.rows_written += feed_store.write_bars(
-            conn, bars, run_id=run.progress.run_id)
+            conn, bars, run_id=run.progress.run_id, require_lock=True)
         _persist_chunk_evidence(conn, run, "prices", start, to, report, splits,
                                 action_rows)
         run.progress.rows_dropped += (report.dropped_no_raw_close
