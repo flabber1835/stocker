@@ -40,13 +40,20 @@
 #
 # ## Usage
 #
-#     scripts/sentinel-measure.sh seed -- sentinel feed-seed --date-from 1998-01-01
-#     scripts/sentinel-measure.sh daily -- sentinel run --dry-run
-#     scripts/sentinel-measure.sh catchup -- sentinel catch-up
+#     scripts/sentinel-measure.sh seed  -- sentinel feed-seed --date-from 1998-01-01
+#     scripts/sentinel-measure.sh daily -- sentinel feed-daily
+#     scripts/sentinel-measure.sh plan  -- sentinel plan
+#     scripts/sentinel-measure.sh ready -- sentinel check-data
 #
 # The phase name is free text and only labels the artefacts. Everything after
-# `--` runs through `docker compose run --rm`, so it is measured inside the
+# `--` runs through `docker compose run --rm -T`, so it is measured inside the
 # limits it is being measured against.
+#
+# NOT MEASURABLE TODAY: the catch-up orchestrator. `sentinel/core/catchup.py`
+# exists and is tested, but nothing in `sentinel/__main__.py` exposes it — there
+# is no `catch-up` verb, so finding #15's catch-up phase has no entry point to
+# time. That is a wiring gap, not a measurement one; say so rather than
+# substituting a different phase and calling it catch-up.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -167,7 +174,11 @@ trap 'kill "${SAMPLER}" 2>/dev/null || true' EXIT INT TERM
 step "running: $*"
 START_EPOCH="$(date +%s)"
 set +e
-${COMPOSE} run --rm "$@" 2>&1 | tee "${ART}/${PHASE}-${STAMP}.log"
+# -T, like the certify script. Without it compose allocates a TTY whenever
+# stdin is one — which over SSH it is — and the tee'd log fills with cursor
+# control codes. Same reason `docker stats` is sampled rather than streamed:
+# an artefact you cannot grep is not evidence.
+${COMPOSE} run --rm -T "$@" 2>&1 | tee "${ART}/${PHASE}-${STAMP}.log"
 RC="${PIPESTATUS[0]}"
 set -e
 ELAPSED=$(( $(date +%s) - START_EPOCH ))

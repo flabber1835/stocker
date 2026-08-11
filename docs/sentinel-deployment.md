@@ -944,13 +944,23 @@ runs on the NAS and nowhere else. Run it with `scripts/sentinel-measure.sh`
 rather than by hand:
 
 ```bash
-scripts/sentinel-measure.sh seed    -- sentinel feed-seed --date-from 1998-01-01
-scripts/sentinel-measure.sh daily   -- sentinel run --dry-run
-scripts/sentinel-measure.sh catchup -- sentinel catch-up
+scripts/sentinel-measure.sh seed  -- sentinel feed-seed --date-from 1998-01-01
+scripts/sentinel-measure.sh daily -- sentinel feed-daily
+scripts/sentinel-measure.sh plan  -- sentinel plan
+scripts/sentinel-measure.sh ready -- sentinel check-data
 ```
 
 Each writes `artifacts/envelope/<phase>-<stamp>.{csv,json,log}` — a per-sample
 CSV, a peak/headroom report, and the phase's own output.
+
+**The catch-up phase cannot be measured yet.** `sentinel/core/catchup.py` is
+built and tested, but `sentinel/__main__.py` exposes no verb for it: the CLI
+offers `status`, `feed-status`, `feed-seed`, `feed-daily`, `migration-plan`,
+`target-book`, `check-data`, `rejection-audit`, `feed-repair`, `identity`,
+`plan`, `migrate-account`, `adopt-restored-account` and `establish-ownership`,
+and none of them reaches the orchestrator. That is a wiring gap rather than a
+measurement one, and #15 is short one phase until it closes. Do not substitute
+a different phase and label it catch-up.
 
 ### What it samples, and why each one is there
 

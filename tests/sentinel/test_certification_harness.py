@@ -791,3 +791,38 @@ class TestTheResourceMeasurementHarness:
         r = subprocess.run(["bash", "-n", str(MEASURE)],
                            capture_output=True, text=True)
         assert r.returncode == 0, r.stderr
+
+    def test_every_example_phase_names_a_REAL_cli_verb(self):
+        """Two of the first examples were `sentinel run --dry-run` and
+        `sentinel catch-up`. Neither is a verb — argparse would have answered
+        "invalid choice" to an operator who had just SSH'd to the NAS to start
+        an hours-long job. Examples in a runbook are instructions, and an
+        instruction nobody executed is an instruction nobody checked."""
+        import re
+        verbs = set(re.findall(r'sub\.add_parser\(\s*"([a-z-]+)"',
+                               (REPO / "sentinel" / "__main__.py").read_text()))
+        assert "feed-seed" in verbs, "the verb scrape is broken, not the script"
+        used = re.findall(r"sentinel-measure\.sh\s+\S+\s+--\s+sentinel\s+([a-z-]+)",
+                          self.body())
+        assert used, "no example invocations found to check"
+        bogus = sorted({v for v in used if v not in verbs})
+        assert not bogus, (
+            f"the harness documents phases that are not CLI verbs: {bogus}. "
+            f"Available: {sorted(verbs)}")
+
+    def test_it_runs_the_phase_with_T(self):
+        """Without -T compose allocates a TTY whenever stdin is one, which over
+        SSH it is, and the tee'd phase log fills with cursor control codes. The
+        certify script passes -T for the same reason."""
+        assert "run --rm -T" in self.body()
+
+    def test_the_catchup_GAP_is_recorded_rather_than_papered_over(self):
+        """sentinel/core/catchup.py is built and tested and has no CLI verb, so
+        #15 is short one phase. The harness must say so — substituting another
+        phase and labelling it catch-up would make the artefact a lie."""
+        import re
+        verbs = set(re.findall(r'sub\.add_parser\(\s*"([a-z-]+)"',
+                               (REPO / "sentinel" / "__main__.py").read_text()))
+        if "catch-up" in verbs or "catchup" in verbs:
+            return                       # wired since; this guard is done
+        assert "NOT MEASURABLE TODAY" in self.body()
