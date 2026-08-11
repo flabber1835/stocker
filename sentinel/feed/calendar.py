@@ -40,9 +40,11 @@ every security on every session would fail on the first IPO.
 """
 from __future__ import annotations
 
+import datetime as _dt
+from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
-from typing import Iterable, Sequence
+from typing import Iterable, Optional, Sequence
 
 #: The exchange whose sessions define "a trading day" for this deployment.
 #: US equities, so XNYS — and the SAME identifier the scheduler resolves, so the
@@ -115,6 +117,201 @@ def previous_sessions(end: date | str, count: int) -> list[str]:
     return [d.date().isoformat() for d in cal.sessions[lo:idx + 1]]
 
 
+# ── freshness, in SESSIONS ───────────────────────────────────────────────────
+#
+# `readiness` used to answer this in calendar days:
+#
+#     MAX_FRONTIER_AGE_DAYS = 4          # "a weekend plus a holiday"
+#     if (today - frontier).days > 4: FAIL
+#
+# A day budget cannot express "a session I should have". It must be wide enough
+# for the longest legitimate gap, and at that width it also swallows real
+# outages inside an ordinary week — a Tuesday frontier read on Friday scores 3
+# and passes with Wednesday and Thursday missing. Narrowing it only changes
+# WHICH outages fit; it detects none of them, and starts failing over Christmas.
+# The number is wrong in both directions simultaneously, which is the signature
+# of a question being asked in the wrong units.
+#
+# The exact question — "is the frontier the latest session that has already
+# CLOSED?" — needs no slack at all. The calendar knows which days were sessions
+# and the clock knows which are finished, so a market that did not trade cannot
+# make the corpus stale and a session that traded and is missing is stale by
+# exactly one session.
+
+#: When an XNYS session is finished for ingest purposes. The regular close is
+#: 16:00 ET (13:00 on a half day, which is EARLIER, so this bound holds for
+#: both). Vendors publish EOD data 1-2h later; that lag is the INGEST's
+#: business, not the calendar's — a session that has closed is owed, and how
+#: long the fetch takes to satisfy it is a separate fact with its own alarm.
+SESSION_CLOSE_HOUR_ET = 16
+
+#: IANA rather than a fixed offset: the ET/EDT transition moves, and a hardcoded
+#: -05:00 would mis-classify the hour after the close for eight months a year.
+EXCHANGE_TZ = "America/New_York"
+
+
+@dataclass(frozen=True)
+class Freshness:
+    """Is the corpus current, measured against the exchange rather than a clock."""
+
+    #: The latest XNYS session that has already closed. None when unevaluable.
+    expected_session: Optional[str]
+    frontier: Optional[str]
+    #: Sessions that closed and are not in the corpus, oldest first. The LIST,
+    #: not a count: "stale" tells an operator nothing they can act on, three
+    #: dates tell them exactly which fetches to re-run.
+    missing_sessions: tuple = ()
+    #: False when the calendar could not be consulted or there is no frontier.
+    #: A third state, deliberately — see `fresh`.
+    evaluable: bool = True
+    #: The corpus holds something the exchange cannot account for: a session
+    #: dated in the FUTURE, or a date XNYS never held at all. A different fault
+    #: with a different cause (a wrong clock, or a vendor emitting a weekend
+    #: row) and a different remedy — re-running the fetch would not change it —
+    #: so it is reported on its own rather than folded into staleness.
+    #:
+    #: NOT the same as holding today's session before its close. That is EARLY,
+    #: and early is fine: the session exists, its date has arrived, and the
+    #: vendor simply published ahead of the 16:00 boundary this module uses to
+    #: decide what is OWED. Conflating the two made a perfectly current corpus
+    #: read as anomalous every time an ingest landed before the close.
+    ahead: bool = False
+    #: The frontier is a real session later than the latest closed one. Benign,
+    #: reported so the distinction above is visible rather than implied.
+    early: bool = False
+    reason: str = ""
+
+    @property
+    def sessions_behind(self) -> int:
+        return len(self.missing_sessions)
+
+    @property
+    def fresh(self) -> bool:
+        """UNEVALUABLE IS NOT FRESH. NEITHER IS ANOMALOUS.
+
+        The rule the crash brake had to learn: one boolean cannot answer both
+        *the evidence says current* and *there is no evidence*. Defaulting the
+        second to True would let a missing calendar certify a corpus nobody
+        checked.
+
+        `ahead` is excluded for the same reason one step along. It is not
+        staleness — nothing is missing — but a frontier the exchange cannot
+        account for is not a green light either, and a caller reading only this
+        property would take it as one. The three states stay separable through
+        `evaluable` / `ahead` / `missing_sessions`; what they must never do is
+        collapse into a True.
+        """
+        return self.evaluable and not self.missing_sessions and not self.ahead
+
+    def to_dict(self) -> dict:
+        return {"fresh": self.fresh, "evaluable": self.evaluable,
+                "expected_session": self.expected_session,
+                "frontier": self.frontier,
+                "sessions_behind": self.sessions_behind,
+                "missing_sessions": list(self.missing_sessions),
+                "ahead": self.ahead, "early": self.early,
+                "reason": self.reason}
+
+
+def latest_closed_session(now_et=None) -> str:
+    """The most recent XNYS session whose close has passed.
+
+    Anchored on the CLOSE, not on the date. Anchoring on today would report
+    every corpus as a session behind from midnight until the evening ingest —
+    true for most of every weekday, which is an alarm nobody reads.
+    """
+    import pandas as pd                      # noqa: PLC0415
+
+    now = _now_et(now_et)
+    cal = _calendar()
+    # A day that IS a session but has not closed yet is not owed, so step back
+    # one calendar day before resolving and let `direction="previous"` land on
+    # the last session at or before that.
+    anchor = now.date()
+    if not (cal.is_session(pd.Timestamp(anchor))
+            and now.hour >= SESSION_CLOSE_HOUR_ET):
+        anchor = anchor - _dt.timedelta(days=1)
+    return cal.date_to_session(pd.Timestamp(anchor),
+                               direction="previous").date().isoformat()
+
+
+def freshness(frontier: Optional[str], now_et=None) -> Freshness:
+    """Compare the corpus frontier against the sessions that have closed."""
+    if not frontier:
+        return Freshness(
+            expected_session=None, frontier=None, evaluable=False,
+            reason="the corpus is empty, so there is no frontier to judge. "
+                   "That is a LOAD failure, not a staleness one, and the "
+                   "sessions check reports it in its own right.")
+    try:
+        expected = latest_closed_session(now_et)
+    except CalendarUnavailable as exc:
+        return Freshness(
+            expected_session=None, frontier=str(frontier), evaluable=False,
+            reason=f"the session calendar is unavailable, so freshness cannot "
+                   f"be established: {exc}. UNKNOWN rather than fresh — a check "
+                   f"that cannot ask its question must not answer it.")
+
+    frontier = str(frontier)
+    if frontier > expected:
+        # THREE different things live past the close boundary, and only two of
+        # them are faults. Separating them matters because the first version of
+        # this treated all three as anomalous, which flagged every corpus whose
+        # ingest happened to land before 16:00 ET.
+        today = _now_et(now_et).date().isoformat()
+        if frontier not in sessions_in_range(frontier, frontier):
+            return Freshness(
+                expected_session=expected, frontier=frontier, ahead=True,
+                reason=f"the corpus frontier {frontier} is not an XNYS session "
+                       f"at all — the vendor emitted a row for a day the "
+                       f"exchange did not hold. Not a staleness fault; "
+                       f"re-running the fetch would not change it.")
+        if frontier > today:
+            return Freshness(
+                expected_session=expected, frontier=frontier, ahead=True,
+                reason=f"the corpus holds {frontier}, a session in the FUTURE "
+                       f"relative to {today}. A clock is wrong — this system's "
+                       f"or the vendor's. Not a staleness fault.")
+        return Freshness(
+            expected_session=expected, frontier=frontier, early=True,
+            reason=f"frontier {frontier} is today's session, published before "
+                   f"its {SESSION_CLOSE_HOUR_ET}:00 ET close. Current, and "
+                   f"ahead of what is owed rather than behind it.")
+
+    missing = tuple(s for s in sessions_in_range(frontier, expected)
+                    if s > frontier)
+    if not missing:
+        return Freshness(expected_session=expected, frontier=frontier,
+                         reason=f"frontier {frontier} is the latest closed "
+                                f"XNYS session")
+    return Freshness(
+        expected_session=expected, frontier=frontier, missing_sessions=missing,
+        reason=f"{len(missing)} session(s) have closed since the frontier "
+               f"{frontier} and are not in the corpus: "
+               f"{', '.join(missing[:8])}"
+               f"{f' (+{len(missing) - 8} more)' if len(missing) > 8 else ''}")
+
+
+def _now_et(now_et=None):
+    """Whatever the caller supplied, in exchange time.
+
+    An ISO string is accepted so a test can name a moment exactly; a naive one
+    is INTERPRETED as exchange-local rather than UTC, because every date this
+    module reasons about is an exchange date and silently shifting by five hours
+    would move the 16:00 boundary across a day end.
+    """
+    from zoneinfo import ZoneInfo             # noqa: PLC0415
+
+    tz = ZoneInfo(EXCHANGE_TZ)
+    if now_et is None:
+        return _dt.datetime.now(tz)
+    if isinstance(now_et, str):
+        now_et = _dt.datetime.fromisoformat(now_et)
+    if now_et.tzinfo is None:
+        return now_et.replace(tzinfo=tz)
+    return now_et.astimezone(tz)
+
+
 def missing_sessions(expected: Sequence[str], actual: Iterable[str]) -> list[str]:
     """Sessions the calendar says existed and the corpus does not hold.
 
@@ -137,6 +334,7 @@ def unexpected_sessions(expected: Sequence[str], actual: Iterable[str]) -> list[
     return sorted({str(a) for a in actual} - want)
 
 
-__all__ = ["CalendarUnavailable", "EXCHANGE", "calendar_version",
-           "missing_sessions", "previous_sessions", "sessions_in_range",
-           "unexpected_sessions"]
+__all__ = ["CalendarUnavailable", "EXCHANGE", "EXCHANGE_TZ", "Freshness",
+           "SESSION_CLOSE_HOUR_ET", "calendar_version", "freshness",
+           "latest_closed_session", "missing_sessions", "previous_sessions",
+           "sessions_in_range", "unexpected_sessions"]

@@ -38,6 +38,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
+from tests.support.source import code_of  # noqa: E402
 
 from sentinel.core import loader  # noqa: E402
 from sentinel.feed import publication as P  # noqa: E402
@@ -256,16 +257,9 @@ class TestMemory:
         complete graph of VendorBar objects, so both representations coexisted
         at peak — on the machine whose memory ceiling is the binding constraint
         for the whole deployment."""
-        # THE CODE, not the prose. The first version of this grepped the raw
-        # source and went red on a docstring that EXPLAINED why fetchall() was
-        # removed — a falsifier that fires on its own fix is worse than none,
-        # because the obvious way to silence it is to stop writing the comment.
-        # `ast.unparse` drops comments and lets the docstring be excised.
-        import ast
-        import inspect
-        fn = ast.parse(inspect.getsource(loader.load_window)).body[0]
-        if (fn.body and isinstance(fn.body[0], ast.Expr)
-                and isinstance(fn.body[0].value, ast.Constant)):
-            fn.body = fn.body[1:]
-        assert "fetchall" not in ast.unparse(fn), (
+        # THE CODE, not the prose — see tests/support/source.py. The first
+        # version grepped raw source and went red on the docstring EXPLAINING
+        # why fetchall() was removed, which is a guard that punishes its own
+        # explanation.
+        assert "fetchall" not in code_of(loader.load_window), (
             "iterate the cursor; the second full copy is free to avoid")

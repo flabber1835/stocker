@@ -61,10 +61,13 @@ REQUIRED_SESSIONS = REQUIRED_CLOSES
 #: engine will run, with no margin for a vendor gap.
 PREFERRED_SESSIONS = 252
 
-#: Calendar days the frontier may lag before the corpus is stale. Four days
-#: covers a normal weekend plus a holiday; beyond that, a daily fetch has been
-#: failing and nobody noticed.
-MAX_FRONTIER_AGE_DAYS = 4
+# MAX_FRONTIER_AGE_DAYS IS GONE, not retuned. It was 4 calendar days — "a
+# weekend plus a holiday" — and a day budget cannot express "a session I should
+# have": at the width a Thanksgiving weekend needs, a Tuesday frontier read on
+# Friday scored 3 and passed with Wednesday and Thursday missing. See
+# `calendar.freshness`, which asks the exact question instead. Deliberately not
+# left importable at a smaller value: the next freshness question would be
+# answered in days again.
 
 PASS, WARN, FAIL = "PASS", "WARN", "FAIL"
 
@@ -315,15 +318,26 @@ def check_readiness(conn, *, today: Optional[str] = None,
             r.add("calendar_agreement", PASS,
                   f"every corpus session is a {cal_name} session", 0)
 
-    # ── freshness ────────────────────────────────────────────────────────────
-    age = (_dt.date.fromisoformat(today) - _dt.date.fromisoformat(frontier)).days
-    if age > MAX_FRONTIER_AGE_DAYS:
-        r.add("freshness", FAIL,
-              f"the newest session is {frontier}, {age} days old. A daily fetch "
-              f"has been failing: planning on this corpus produces yesterday's "
-              f"book with today's confidence.", age)
+    # ── freshness, in SESSIONS ───────────────────────────────────────────────
+    # Against the EXCHANGE, not a day count. `today` is honoured as the moment
+    # to judge from — callers pass a date, which `_now_et` reads as exchange-
+    # local midnight, so a date-only caller is asking "as of the start of that
+    # day" and the latest closed session is the previous one. That is the
+    # conservative reading: it never claims a session is owed before its close.
+    fresh = _cal.freshness(frontier, now_et=today)
+    if not fresh.evaluable:
+        # FAIL, never PASS. Same rule as continuity: a check that could not ask
+        # its question has not answered it.
+        r.add("freshness", FAIL, fresh.reason, fresh.to_dict())
+    elif fresh.ahead:
+        r.add("freshness", FAIL, fresh.reason, fresh.to_dict())
+    elif fresh.fresh:
+        r.add("freshness", PASS, fresh.reason, fresh.to_dict())
     else:
-        r.add("freshness", PASS, f"frontier {frontier} ({age}d old)", age)
+        r.add("freshness", FAIL,
+              f"{fresh.reason}. A daily fetch has been failing: planning on "
+              f"this corpus produces an older session's book with today's "
+              f"confidence.", fresh.to_dict())
 
     # ── the four price domains, over the WINDOW THAT WILL BE READ ────────────
     # Measured on the recent window rather than the whole corpus: a decade of

@@ -194,12 +194,25 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
             ready, passed, total = (r.ready, sum(1 for c in r.checks if c.ok),
                                     len(r.checks))
 
+        # SESSIONS, which is what the field has always been called.
+        #
+        # It was computed as `(utcnow().date() - frontier).days`, and both halves
+        # were wrong. Calendar days are not sessions: on a Monday evening with
+        # Friday's data — the healthy state — it read 3, while a Friday with a
+        # Tuesday frontier and two missing sessions also read 3. And the clock
+        # was UTC for an exchange question, so after 20:00 ET it added another
+        # day, during exactly the hours the daily ingest runs.
+        #
+        # No DB, no timeout budget: the calendar is a pinned local library.
         behind = None
         if frontier:
+            from sentinel.feed import calendar as _cal
             try:
-                behind = max(0, (datetime.now(timezone.utc).date()
-                                 - datetime.fromisoformat(str(frontier)).date()).days)
-            except ValueError:
+                behind = _cal.freshness(str(frontier)).sessions_behind
+            except Exception:                            # noqa: BLE001
+                # No calendar ⇒ UNKNOWN, rendered as blank. Never 0: the panel
+                # must not report a corpus current on the strength of a check
+                # that could not run.
                 behind = None
 
         run = runs[0] if runs else {}
