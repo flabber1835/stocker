@@ -305,11 +305,31 @@ the evidence from the not-yet-read set into the about-to-be-read set, so it
 cannot vanish. The failure mode inverts from "falsely flat" (irreversible) to
 "falsely not flat" (costs one cycle).
 
-**Stability rule for irreversible conclusions.** Ordering alone does not cover a
-third party acting between reads. Any conclusion that cannot be walked back —
-account is flat, migration complete, an `UNKNOWN` resolved as never-landed —
-requires two consecutive agreeing complete observations separated by a
-reconciliation interval.
+**Ordering is necessary and NOT sufficient**, and the contract has to say which
+half it solves. Reversing the reads converts disappearance into *double
+counting*: the same fill is a working order in the first read and a position in
+the second, and netting those gives a delta that would SELL a holding acquired
+seconds earlier.
+
+```text
+positions, then orders      the fill vanishes from both     -> false flat
+orders, then positions      the fill appears in both        -> double count
+orders, positions, orders   the disagreement is DETECTED    -> observe again
+```
+
+**Consistency rule: re-read the orders after the positions and compare.** If the
+two order reads differ in state or filled quantity — not merely in the set of ids,
+since an order that filled is present in both — the two halves describe different
+instants and the observation is `INCONSISTENT`. That is a fourth completeness
+value, it fails `require_complete`, and it is a reason to look again, never a
+reason to trade. Convergence is what makes that an acceptable remedy: the next
+observation is coherent and reports nothing to do.
+
+**Stability rule for irreversible conclusions.** Even a consistent observation
+does not cover a third party acting between cycles. Any conclusion that cannot be
+walked back — account is flat, migration complete, an `UNKNOWN` resolved as
+never-landed — requires two consecutive agreeing complete observations separated
+by a reconciliation interval.
 
 ---
 
@@ -770,7 +790,8 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
 19  Cancellation is confirmed by observation, never by an API return value.
 20  Observations declare completeness; irreversible conclusions require COMPLETE,
     and two consecutive agreeing ones.
-21  Orders are observed before positions.
+21  Orders are observed before positions, and the orders are re-read afterwards;
+    a disagreement makes the observation INCONSISTENT, which authorises nothing.
 22  Certified autonomous execution never calls broker-native close.
 23  Quantities are decimal end to end; a sub-increment residual escalates and is
     never retried in a loop.
