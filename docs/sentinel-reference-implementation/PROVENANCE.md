@@ -87,9 +87,13 @@ the four controller unit tests         PASS against the corrected source
 our own relatedtickers tokenization    CONFIRMED whitespace-split, as credited
 ```
 
-Not verified: that running `sentinel_1p1_standalone.py` against raw Sharadar
-reproduces `sentinel_1p1_daily.csv`. That needs the corpus. The tape is stored;
-the producer is unverified.
+Independently verified 2026-08-12: running `sentinel_1p1_standalone.py` against
+the exact pinned 32-file raw-Sharadar corpus reproduced the committed summary:
+5,032 sessions, CAGR `0.22094618498568308`, maximum drawdown
+`-0.21963097876900606`, ending multiple `54.195852099734765`, 722 buys,
+terminal blocks 1/5, and 7,188 issuer checks with zero violations. The stored
+tape therefore has a reproduced producer and is the historical specification
+for the production-path audit.
 
 ## CONSEQUENCE FOR `sentinel/feed/`
 
