@@ -19,7 +19,10 @@ They are release-safety rules, not style preferences.
 1. **The authoritative repository is `flabber1835/stocker`.**
 2. **Never develop directly on `main` and never push directly to `main`.** All
    delivered changes must arrive through a pull request targeting `main`.
-3. **Use the workflow appropriate to the execution environment.**
+3. **Before editing, identify both the base-verification method and the delivery
+   channel.** Use exactly one of the workflows below. If the workspace has
+   neither a working GitHub/PR path nor a way to export a downloadable patch,
+   STOP before editing; do not create work that cannot leave the sandbox.
 
    ### A. Normal local or CLI checkout with shell access to GitHub
 
@@ -73,19 +76,55 @@ They are release-safety rules, not style preferences.
    - Shell `git push` is not required in this path. The PR handoff is the
      publication step.
    - Do not report delivery until the platform confirms a GitHub PR number or
-     URL. If PR publication fails, report the exact failure and the local commit
-     SHA or generated patch as **undelivered** work; local commits alone are not
-     repository delivery.
+     URL. If PR publication fails, immediately fall back to workflow C while the
+     local commit is still available.
+
+   ### C. Managed or disconnected workspace without a built-in PR handoff
+
+   This is a **recovery/export path**, not repository delivery. It applies only
+   when the checkout's base SHA was independently verified as described above
+   and the platform can expose a generated file for download or attachment.
+
+   - Before editing, verify that a generated file can be returned to the user.
+     If no artifact/download/attachment channel exists, STOP before editing.
+   - Do not add GitHub credentials, change proxies, or weaken sandbox controls.
+   - A platform-owned branch such as `work` is acceptable. Record the verified
+     base SHA before the first edit and preserve it in the completion report.
+   - Commit the complete change locally. Then export the commit range as a
+     portable patch, including binary changes if any:
+
+     ```bash
+     BASE_SHA=<independently-verified-main-sha>
+     HEAD_SHA=$(git rev-parse HEAD)
+     git format-patch --binary --stdout "$BASE_SHA..$HEAD_SHA" \
+       > /tmp/<task-name>.patch
+     git bundle create /tmp/<task-name>.bundle HEAD "^$BASE_SHA"
+     sha256sum /tmp/<task-name>.patch /tmp/<task-name>.bundle
+     wc -c /tmp/<task-name>.patch /tmp/<task-name>.bundle
+     ```
+
+   - Return at least the `.patch` as a downloadable artifact. The `.bundle` is a
+     second recovery format when the platform supports binary downloads.
+   - Report the verified base SHA, local head SHA, artifact SHA256 and size,
+     changed-file list, and exact tests. Keep the working tree clean.
+   - Label the result **UNDELIVERED LOCAL WORK** until another GitHub-connected
+     agent or developer applies the artifact to current `main`, pushes a feature
+     branch, and opens a PR. Do not describe a local commit or exported artifact
+     as a pull request or as repository delivery.
+   - If the artifact cannot be exposed after implementation, print a complete
+     `git format-patch --binary --stdout "$BASE_SHA..$HEAD_SHA"` in numbered,
+     lossless chunks as the last-resort recovery and state that reassembly is
+     required.
 
 4. **Do not merge your own pull request unless the user explicitly asks you to.**
    The default handoff is: agent codes -> agent tests -> agent opens PR -> user
    reviews/merges.
 5. **Never force-push `main`, rewrite published history, or bypass repository
    protections.**
-6. If a feature-branch push or PR creation fails, report the exact error and stop
-   rather than silently continuing or claiming completion.
-7. Before reporting completion, verify that the pull request exists on GitHub and
-   targets `main`.
+6. If a feature-branch push, PR creation, or artifact export fails, report the
+   exact error and stop rather than silently continuing or claiming completion.
+7. Before reporting repository delivery, verify that the pull request exists on
+   GitHub and targets `main`.
 
 ## Most Important Process Rule
 
