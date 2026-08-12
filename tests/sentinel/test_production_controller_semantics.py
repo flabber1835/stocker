@@ -89,3 +89,40 @@ def test_slow_state_exact_minimum_dwell_and_sixth_healthy_exit():
         want = expected.step(i, False, healthy)
         assert state["slow_severe_active"] == want
     assert not state["slow_severe_active"]
+
+
+def test_stops20_unavailable_or_invalid_fails_binary_recovery_closed():
+    ctl = Controller(load())
+    state = ctl.initial_state()
+    state, _ = ctl.step(observation=_ob(0, dd=-0.155), state=state)
+    for i in range(1, 19):
+        state, _ = ctl.step(observation=_ob(i, dd=-0.14), state=state)
+
+    for i, stops in enumerate((None, -1, 3), start=19):
+        state, _ = ctl.step(
+            observation=_ob(i, dd=-0.14, healthy=True, stops20=stops),
+            state=state)
+        assert state["ordinary_healthy_streak"] == 0
+        assert state["ordinary_stress_active"]
+
+
+def test_slow_entry_retains_named_unavailable_predicates():
+    ctl = Controller(load())
+    state = ctl.initial_state()
+    state.update(base_stress_start_shadow_nav=100.0,
+                 base_stress_duration=20)
+    ob = _ob(0)
+    ob = Observation(**{**ob.__dict__, "shadow_nav": 90.0,
+                         "shadow_r40": None, "damaged_breadth": None,
+                         "green_breadth": None})
+    evidence = ctl.slow_severe_evidence(ob, state)
+
+    assert evidence.satisfied is False
+    assert evidence.reason.startswith("SLOW_EVIDENCE_UNAVAILABLE")
+    assert "shadow_r40" in evidence.reason
+    assert "damaged_breadth" in evidence.reason
+    assert "green_breadth" in evidence.reason
+    assert [p.name for p in evidence.predicates] == [
+        "stress_duration", "return_since_anchor", "shadow_r40",
+        "damaged_breadth", "green_breadth"]
+    assert evidence.shadow_r40.passed is None
