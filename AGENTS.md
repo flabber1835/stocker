@@ -24,6 +24,15 @@ They are release-safety rules, not style preferences.
    neither a working GitHub/PR path nor a way to export a downloadable patch,
    STOP before editing; do not create work that cannot leave the sandbox.
 
+   A connected GitHub app is a valid PR delivery channel. When authenticated
+   local `git` can fetch and push and the connected GitHub app has repository
+   access, use `git` for base verification, branches, commits, and pushes, then
+   use the GitHub app for PR creation and verification. The GitHub CLI (`gh`) is
+   optional in this path: its absence, or sandboxed access to its configuration,
+   is not by itself a blocker. Request the narrow approval needed for an
+   otherwise available authenticated operation instead of telling the user to
+   install or re-authenticate tooling that is already configured.
+
    ### A. Normal local or CLI checkout with shell access to GitHub
 
    Before changing anything, run and report:
@@ -116,14 +125,18 @@ They are release-safety rules, not style preferences.
      lossless chunks as the last-resort recovery and state that reassembly is
      required.
 
-4. **Do not merge your own pull request unless the user explicitly asks you to.**
+4. **Open completed, validated pull requests ready for review by default.** Use
+   draft status only when the user explicitly requests it or the pull request is
+   intentionally incomplete. If an incomplete pull request is opened as a
+   draft, state what remains before it can be reviewed.
+5. **Do not merge your own pull request unless the user explicitly asks you to.**
    The default handoff is: agent codes -> agent tests -> agent opens PR -> user
    reviews/merges.
-5. **Never force-push `main`, rewrite published history, or bypass repository
+6. **Never force-push `main`, rewrite published history, or bypass repository
    protections.**
-6. If a feature-branch push, PR creation, or artifact export fails, report the
+7. If a feature-branch push, PR creation, or artifact export fails, report the
    exact error and stop rather than silently continuing or claiming completion.
-7. Before reporting repository delivery, verify that the pull request exists on
+8. Before reporting repository delivery, verify that the pull request exists on
    GitHub and targets `main`.
 
 ## Most Important Process Rule
