@@ -9,13 +9,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from typing import Mapping, Sequence
 
 from stock_strategy_shared.wealth_core.adapter import PendingOrder
 from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
 from stock_strategy_shared.wealth_core.engine import Reason, WealthCoreConfig
-from stock_strategy_shared.wealth_core.feed import Feed, SecurityMeta, SecuritySeries, VendorBar
+from stock_strategy_shared.wealth_core.feed import (
+    Feed, FeedError, SecurityMeta, SecuritySeries, VendorBar)
 from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
 from stock_strategy_shared.wealth_core.live import plan_session
 from stock_strategy_shared.wealth_core.signals import REQUIRED_CLOSES
@@ -45,13 +47,47 @@ def _hash(value) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
-def _bounded_feed_dict(raw: Mapping) -> dict:
+def _path_dependent_security_ids(wealth_core: Mapping,
+                                 pending: Sequence[Mapping]) -> set[str]:
+    """Security anchors/cached marks whose next transition can still matter."""
+    protected: set[str] = set()
+
+    def add(value) -> None:
+        if value is not None and str(value):
+            protected.add(str(value))
+
+    for episode in (wealth_core.get("episodes") or {}).values():
+        add(episode.get("security_id"))
+    for slot in (wealth_core.get("slots") or {}).values():
+        add(slot.get("occupied_by"))
+        add(slot.get("reserved_for"))
+    for order in pending:
+        add(order.get("security_id"))
+    for field_name in (
+            "security_cooldowns", "unresolved_terminals",
+            "sessions_since_valid_mark", "terminal_pending_sessions",
+            "terminal_pending_terms", "terminal_carry_audit",
+            "last_valid_mark_session"):
+        for security_id in (wealth_core.get(field_name) or {}):
+            add(security_id)
+    return protected
+
+
+def _bounded_last_known(raw: Mapping, protected_security_ids: set[str]) -> dict:
+    return {
+        str(sid): float(mark) for sid, mark in sorted(raw.items())
+        if str(sid) in protected_security_ids}
+
+
+def _bounded_feed_dict(raw: Mapping,
+                       protected_security_ids: set[str] | None = None) -> dict:
     """Return the schema-v3 feed restart image.
 
     The absolute split factor and current identity are anchors.  Observation
     arrays are parallel and retain exactly t-126..t by GLOBAL session index;
     older rows are corpus history, not production state.
     """
+    protected = set(protected_security_ids or ())
     session_index = int(raw.get("session_index", -1))
     cutoff = session_index - FEED_RESTART_SESSIONS + 1
     seen: dict[str, int] = {}
@@ -76,7 +112,10 @@ def _bounded_feed_dict(raw: Mapping) -> dict:
         if any(int(columns["session_indices"][i]) > session_index for i in keep):
             raise ValueError(
                 f"feed restart series {sid!r} contains a future observation")
-        compact_series[str(sid)] = {
+        sid = str(sid)
+        if not keep and sid not in protected:
+            continue
+        compact_series[sid] = {
             "security_id": str(series.get("security_id", sid)),
             "ticker": str(series.get("ticker", sid)),
             "issuer_id": str(series.get("issuer_id", f"S:{sid}")),
@@ -84,6 +123,11 @@ def _bounded_feed_dict(raw: Mapping) -> dict:
             **{name: [columns[name][i] for i in keep]
                for name in _SERIES_FIELDS},
         }
+    missing = protected - set(compact_series)
+    if missing:
+        raise ValueError(
+            "feed restart state lacks path-dependent anchors for: "
+            + ", ".join(sorted(missing)))
     return {"session_index": session_index, "seen_sessions": seen,
             "series": compact_series}
 
@@ -141,7 +185,10 @@ class SessionState:
 
     def to_dict(self) -> dict:
         raw = asdict(self)
-        raw["feed"] = _bounded_feed_dict(raw["feed"])
+        protected = _path_dependent_security_ids(
+            raw["wealth_core"], raw["pending"])
+        raw["feed"] = _bounded_feed_dict(raw["feed"], protected)
+        raw["last_known"] = _bounded_last_known(raw["last_known"], protected)
         raw["last_evidence"] = _bounded_evidence(raw["last_evidence"])
         raw["version"] = ENVELOPE_VERSION
         return raw
@@ -155,7 +202,12 @@ class SessionState:
         if version not in (LEGACY_ENVELOPE_VERSION, ENVELOPE_VERSION):
             raise ValueError(f"unsupported production state version {raw.get('version')!r}")
         migrated = dict(raw)
-        migrated["feed"] = _bounded_feed_dict(migrated.get("feed") or {})
+        protected = _path_dependent_security_ids(
+            migrated.get("wealth_core") or {}, migrated.get("pending") or [])
+        migrated["feed"] = _bounded_feed_dict(
+            migrated.get("feed") or {}, protected)
+        migrated["last_known"] = _bounded_last_known(
+            migrated.get("last_known") or {}, protected)
         migrated["last_evidence"] = _bounded_evidence(
             migrated.get("last_evidence"))
         migrated["version"] = ENVELOPE_VERSION
@@ -172,6 +224,15 @@ class SessionState:
 
 
 @dataclass(frozen=True)
+class FeedAnchor:
+    """Pinned-corpus basis for a current security absent from restart state."""
+    security_id: str
+    ticker: str
+    issuer_id: str
+    prior_split_factor: float
+
+
+@dataclass(frozen=True)
 class PublishedSession:
     session: str
     data_version: int
@@ -180,9 +241,11 @@ class PublishedSession:
     sectors: Mapping[str, str | None]
     spy_closeadj: Sequence[float | None]
     terminal_events: Sequence[TerminalTerms] = ()
+    feed_anchors: Mapping[str, FeedAnchor] = field(default_factory=dict)
 
 
-def load_published_session(conn, session: str, *, spy_sessions: int = 41
+def load_published_session(conn, session: str, *, spy_sessions: int = 41,
+                           known_feed_security_ids: Sequence[str] = ()
                            ) -> PublishedSession:
     """Load one coherent production input snapshot from the published corpus."""
     from sentinel.core.loader import load_meta, load_terminal_events
@@ -193,6 +256,7 @@ def load_published_session(conn, session: str, *, spy_sessions: int = 41
     publication = current(conn)
     if publication is None:
         raise RuntimeError("the corpus has never been published")
+    meta = load_meta(conn)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT security_id,ticker,close_unadjusted,open_unadjusted,volume,"
@@ -221,9 +285,50 @@ def load_published_session(conn, session: str, *, spy_sessions: int = 41
     terminals = load_terminal_events(
         conn, start=session, end=session,
         resolve_with_reason=resolver.resolve_with_reason).events
-    return PublishedSession(session=session, data_version=publication.version,
-                            bars=bars, meta=load_meta(conn), sectors=sectors,
-                            spy_closeadj=spy, terminal_events=terminals)
+    missing = sorted(
+        {bar.security_id for bar in bars} - set(known_feed_security_ids))
+    factors = {sid: 1.0 for sid in missing}
+    counts = {sid: 0 for sid in missing}
+    if missing:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT security_id,split_ratio FROM sentinel_bars b"
+                " WHERE security_id=ANY(%s) AND session<%s AND "
+                f"{visible_predicate('b')} ORDER BY security_id,session",
+                (missing, session))
+            for sid, ratio in cur.fetchall():
+                sid = str(sid)
+                ratio = float(ratio)
+                if not math.isfinite(ratio) or ratio <= 0:
+                    raise RuntimeError(
+                        f"cannot reconstruct split anchor for {sid!r}: "
+                        f"invalid published ratio {ratio!r}")
+                factors[sid] *= ratio
+                counts[sid] += 1
+    by_security = {bar.security_id: bar for bar in bars}
+    anchors: dict[str, FeedAnchor] = {}
+    for sid in missing:
+        security_meta = meta.get(sid)
+        if security_meta is None:
+            raise RuntimeError(
+                f"cannot reconstruct feed anchor for {sid!r}: metadata absent")
+        issuer_id, _ = security_meta.issuer_key()
+        if counts[sid]:
+            if issuer_id is None:
+                raise RuntimeError(
+                    f"cannot reconstruct feed anchor for returning {sid!r}: "
+                    "issuer identity is unresolved")
+            anchors[sid] = FeedAnchor(
+                security_id=sid, ticker=by_security[sid].ticker,
+                issuer_id=issuer_id, prior_split_factor=factors[sid])
+        elif security_meta.first_session != session:
+            raise RuntimeError(
+                f"cannot prove {sid!r} is a first corpus observation on "
+                f"{session}; refusing a default split/identity anchor")
+    return PublishedSession(
+        session=session, data_version=publication.version, bars=bars, meta=meta,
+        sectors=sectors, spy_closeadj=spy, terminal_events=terminals,
+        feed_anchors=anchors)
 
 
 def _feed_from_dict(raw: Mapping, meta, elig) -> Feed:
@@ -236,11 +341,36 @@ def _feed_from_dict(raw: Mapping, meta, elig) -> Feed:
     return feed
 
 
-def _feed_to_dict(feed: Feed) -> dict:
+def _feed_to_dict(feed: Feed, protected_security_ids: set[str]) -> dict:
     return _bounded_feed_dict({
         "session_index": feed._session_index,
         "seen_sessions": dict(feed._seen_sessions),
-        "series": {sid: asdict(s) for sid, s in sorted(feed.series.items())}})
+        "series": {sid: asdict(s) for sid, s in sorted(feed.series.items())}},
+        protected_security_ids)
+
+
+def _restore_missing_feed_anchors(feed: Feed,
+                                  published: PublishedSession) -> None:
+    """Restore evicted returning series before canonical Feed sees the bars."""
+    for bar in sorted(published.bars, key=lambda item: item.security_id):
+        if bar.security_id in feed.series:
+            continue
+        anchor = published.feed_anchors.get(bar.security_id)
+        if anchor is None:
+            meta = published.meta.get(bar.security_id)
+            if meta is None or meta.first_session != published.session:
+                raise FeedError(
+                    f"returning security {bar.security_id!r} has no pinned-corpus "
+                    "split/identity anchor")
+            continue
+        factor = float(anchor.prior_split_factor)
+        if (anchor.security_id != bar.security_id or not anchor.issuer_id
+                or not math.isfinite(factor) or factor <= 0):
+            raise FeedError(
+                f"invalid pinned-corpus feed anchor for {bar.security_id!r}")
+        feed.series[bar.security_id] = SecuritySeries(
+            security_id=bar.security_id, ticker=anchor.ticker,
+            issuer_id=anchor.issuer_id, split_factor=factor)
 
 
 def _return(series: SecuritySeries, horizon: int) -> float | None:
@@ -314,6 +444,7 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
     ledger = Ledger.from_dict(env.ledger)
     last_known = dict(env.last_known)
     feed = _feed_from_dict(env.feed, published.meta, elig)
+    _restore_missing_feed_anchors(feed, published)
     ledger_event_boundary = len(ledger.events)
     plan = plan_session(
         session=published.session, bars=published.bars, meta=published.meta,
@@ -367,9 +498,14 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
         "holdings": [asdict(h) for h in held]},
         "wealth_core": _bounded_evidence(
             {"wealth_core": plan.to_dict()})["wealth_core"]}
+    wealth_core = state.to_dict()
+    pending_state = [p.to_dict() for p in pending]
+    protected = _path_dependent_security_ids(wealth_core, pending_state)
     return SessionState(
-        wealth_core=state.to_dict(), pending=[p.to_dict() for p in pending],
-        ledger=ledger.to_dict(), last_known=last_known, feed=_feed_to_dict(feed),
+        wealth_core=wealth_core, pending=pending_state,
+        ledger=ledger.to_dict(),
+        last_known=_bounded_last_known(last_known, protected),
+        feed=_feed_to_dict(feed, protected),
         controller=controller_state, shadow_nav_history=navs,
         shadow_peak_nav=peak, trailing_stop_sessions=stops,
         controller_session_history=recent_sessions,
@@ -385,7 +521,12 @@ def advance_and_persist(conn, session: str, prior: Mapping, *, load_published,
     """Catch-up callback: compute only; catch_up commits envelope + cursor."""
     from sentinel.feed.publication import pinned
     with pinned(conn) as publication:
-        published = load_published(conn, session)
+        prior_feed = (prior.feed if isinstance(prior, SessionState)
+                      else (prior.get("feed") or {}))
+        published = load_published(
+            conn, session,
+            known_feed_security_ids=tuple(
+                (prior_feed.get("series") or {}).keys()))
         if published.data_version != publication.version:
             raise RuntimeError("loaded publication version differs from session pin")
         result = advance_state(
@@ -394,6 +535,6 @@ def advance_and_persist(conn, session: str, prior: Mapping, *, load_published,
         return result.to_dict()
 
 
-__all__ = ["PublishedSession", "REQUIRED_IDENTITY_FIELDS", "SessionState",
+__all__ = ["FeedAnchor", "PublishedSession", "REQUIRED_IDENTITY_FIELDS", "SessionState",
            "advance_and_persist",
            "advance_state", "holdings_from_shadow", "load_published_session"]

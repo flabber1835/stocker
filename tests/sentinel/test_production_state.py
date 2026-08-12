@@ -7,11 +7,14 @@ from stock_strategy_shared.wealth_core.adapter import PendingOrder
 from stock_strategy_shared.wealth_core.engine import Operation, Reason
 from stock_strategy_shared.wealth_core.ledger import EventType
 
-from stock_strategy_shared.wealth_core.feed import SecurityMeta, VendorBar
+from stock_strategy_shared.wealth_core.feed import FeedError, SecurityMeta, VendorBar
+from stock_strategy_shared.wealth_core.state import HoldingEpisode, PortfolioState
 
 from sentinel.controller.frozen_rule import load
 from sentinel.controller.machine import Controller
-from sentinel.core.production import PublishedSession, SessionState, advance_state
+from sentinel.core.production import (
+    FeedAnchor, PublishedSession, SessionState, advance_state,
+    load_published_session)
 
 
 def _published(session="2026-08-10", version=7):
@@ -54,6 +57,24 @@ def _synthetic_published(number: int, version: int = 7) -> PublishedSession:
                       for i in range(41)])
 
 
+def _turnover_published(number: int, version: int = 7) -> PublishedSession:
+    """One genuinely new, fixed-width security on every market session."""
+    session = f"S{number:04d}"
+    security_id = f"P{number:04d}"
+    ticker = f"T{number:04d}"
+    meta = {security_id: SecurityMeta(
+        security_id, ticker, category="Domestic Common Stock",
+        permaticker=security_id, related_tickers=(ticker,),
+        first_session=session)}
+    return PublishedSession(
+        session=session, data_version=version, meta=meta,
+        sectors={security_id: "TECH"},
+        bars=[VendorBar(session, security_id, ticker, 10.0, 10.0,
+                        1_000_000)],
+        spy_closeadj=[100.0 + i + (0.2 if i % 3 == 0 else 0.0)
+                      for i in range(41)])
+
+
 def _serialized_size(state: SessionState) -> int:
     return len(json.dumps(
         state.to_dict(), sort_keys=True, separators=(",", ":")).encode())
@@ -71,6 +92,22 @@ def _run_synthetic(count: int, *, reload_every: int | None = None):
         decisions.append(deepcopy(state.last_decision))
         plan_hashes.append(deepcopy(state.last_evidence["wealth_core"]["hashes"]))
         if number in (256, 1_000):
+            measurements[number] = _serialized_size(state)
+    return state, decisions, plan_hashes, measurements
+
+
+def _run_turnover(count: int, *, reload_every: int | None = None):
+    config, state = _fresh()
+    decisions = []
+    plan_hashes = []
+    measurements = {0: _serialized_size(state)}
+    for number in range(1, count + 1):
+        if reload_every and number > 1 and (number - 1) % reload_every == 0:
+            state = SessionState.from_dict(json.loads(json.dumps(state.to_dict())))
+        state = _advance(state, _turnover_published(number), config)
+        decisions.append(deepcopy(state.last_decision))
+        plan_hashes.append(deepcopy(state.last_evidence["wealth_core"]["hashes"]))
+        if number in (256, 512, 1_000):
             measurements[number] = _serialized_size(state)
     return state, decisions, plan_hashes, measurements
 
@@ -179,8 +216,9 @@ def test_session_calculation_remains_inside_one_publication_pin(monkeypatch):
 
     config, before = _fresh()
 
-    def load_published(conn, session):
+    def load_published(conn, session, *, known_feed_security_ids):
         assert active
+        assert known_feed_security_ids == ()
         return _published(session=session)
 
     monkeypatch.setattr("sentinel.feed.publication.pinned", fake_pin)
@@ -204,7 +242,7 @@ def test_loaded_version_must_equal_the_pin(monkeypatch):
     try:
         advance_and_persist(
             object(), "2026-08-10", before.to_dict(),
-            load_published=lambda *_: _published(),
+            load_published=lambda *_, **__: _published(),
             controller_config=config,
             strategy_identity=before.strategy_identity)
     except RuntimeError as exc:
@@ -216,7 +254,8 @@ def test_loaded_version_must_equal_the_pin(monkeypatch):
 def test_stop_evidence_waits_for_executed_fill_and_pending_exit_survives(monkeypatch):
     config, state = _fresh()
 
-    def fake_plan(*, session, pending, ledger, **_):
+    def fake_plan(*, session, bars, feed, pending, ledger, **_):
+        feed.advance(session, bars)
         if session == "2026-08-10":
             pending.append(PendingOrder(
                 operation=Operation.CLOSE_POSITION, security_id="1", ticker="AAA",
@@ -288,6 +327,183 @@ def test_serialized_state_reaches_a_bounded_plateau_through_session_1000():
           f"session_1000={sizes[1_000]}")
 
 
+def test_security_turnover_plateaus_and_restarts_are_identical():
+    uninterrupted, decisions_a, hashes_a, sizes = _run_turnover(1_000)
+    restarted, decisions_b, hashes_b, _ = _run_turnover(
+        1_000, reload_every=7)
+
+    assert len(uninterrupted.feed["series"]) == 127
+    assert uninterrupted.last_known == {}
+    plateau_sizes = [sizes[256], sizes[512], sizes[1_000]]
+    assert max(plateau_sizes) - min(plateau_sizes) <= 512
+    assert sizes[1_000] < sizes[256] * 1.02
+
+    assert uninterrupted.wealth_core == restarted.wealth_core
+    assert uninterrupted.pending == restarted.pending
+    assert uninterrupted.ledger == restarted.ledger
+    assert uninterrupted.controller == restarted.controller
+    assert uninterrupted.last_decision == restarted.last_decision
+    assert uninterrupted.last_evidence == restarted.last_evidence
+    assert decisions_a == decisions_b
+    assert hashes_a == hashes_b
+    assert uninterrupted.state_hash == restarted.state_hash
+    print("turnover_serialized_sizes "
+          f"before_warmup={sizes[0]} "
+          f"plateau_session_256={sizes[256]} "
+          f"session_512={sizes[512]} "
+          f"session_1000={sizes[1_000]}")
+
+
+def test_evicted_split_security_reappears_on_its_original_signal_basis():
+    config, state = _fresh()
+    first_meta = {"SPLIT": SecurityMeta(
+        "SPLIT", "SPLT", category="Domestic Common Stock",
+        permaticker="SPLIT", related_tickers=("SPLT",),
+        first_session="S0001")}
+    state = _advance(state, PublishedSession(
+        session="S0001", data_version=7, meta=first_meta,
+        sectors={"SPLIT": "TECH"},
+        bars=[VendorBar("S0001", "SPLIT", "SPLT", 5.0, 5.0,
+                        1_000_000, split_ratio=2.0)],
+        spy_closeadj=[100.0 + i for i in range(41)]), config)
+    assert state.feed["series"]["SPLIT"]["signal_closes"] == [10.0]
+
+    for number in range(2, 131):
+        state = _advance(state, _turnover_published(number), config)
+    assert "SPLIT" not in state.feed["series"]
+
+    returning = PublishedSession(
+        session="S0131", data_version=7, meta=first_meta,
+        sectors={"SPLIT": "TECH"},
+        bars=[VendorBar("S0131", "SPLIT", "SPLT", 5.0, 5.0,
+                        1_000_000)],
+        spy_closeadj=[100.0 + i for i in range(41)],
+        feed_anchors={"SPLIT": FeedAnchor(
+            "SPLIT", "SPLT", "P:SPLIT", prior_split_factor=2.0)})
+    state = _advance(state, returning, config)
+    series = state.feed["series"]["SPLIT"]
+    assert series["split_factor"] == 2.0
+    assert series["signal_closes"] == [10.0]
+    assert series["issuer_id"] == "P:SPLIT"
+
+
+def test_returning_security_without_a_corpus_anchor_fails_closed():
+    config, state = _fresh()
+    published = PublishedSession(
+        session="S0200", data_version=7,
+        meta={"OLD": SecurityMeta(
+            "OLD", "OLD", category="Domestic Common Stock",
+            permaticker="OLD", first_session="S0001")},
+        sectors={"OLD": "TECH"},
+        bars=[VendorBar("S0200", "OLD", "OLD", 10.0, 10.0, 1_000_000)],
+        spy_closeadj=[100.0 + i for i in range(41)])
+    try:
+        _advance(state, published, config)
+    except FeedError as exc:
+        assert "no pinned-corpus split/identity anchor" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("a returning security silently took a new anchor")
+
+
+def test_path_dependent_securities_pin_anchors_and_marks_after_expiry():
+    _, state = _fresh()
+    portfolio = PortfolioState.from_dict(state.wealth_core)
+    portfolio.episodes[0] = HoldingEpisode(
+        security_id="held", ticker="HELD", issuer_id="P:held", slot_id=0,
+        signal_date="S0000", entry_date="S0001", entry_raw_open=10.0,
+        entry_split_adjusted_price=10.0, initial_shares=10,
+        current_shares=10)
+    portfolio.slots[0].occupied_by = "held"
+    portfolio.slots[1].reserve("pending", "PEND", "P:pending")
+    portfolio.security_cooldowns["cooldown"] = 3
+    portfolio.unresolved_terminals["terminal"] = "unresolved terms"
+    portfolio.sessions_since_valid_mark["terminal"] = 4
+    portfolio.terminal_pending_sessions["terminal"] = 2
+    portfolio.terminal_pending_terms["terminal"] = {"terms": {}}
+    portfolio.terminal_carry_audit["terminal"] = {"session": "S0199"}
+    portfolio.last_valid_mark_session["terminal"] = "S0199"
+    state.wealth_core = portfolio.to_dict()
+    state.pending = [PendingOrder(
+        operation=Operation.OPEN_SLOT_POSITION, security_id="pending",
+        ticker="PEND", slot_id=1, shares=10, signal_session="S0200",
+        reason=Reason.ENTRY_DURABLE_RANK.value).to_dict()]
+
+    def expired_series(security_id: str) -> dict:
+        return {
+            "security_id": security_id, "ticker": security_id.upper(),
+            "issuer_id": f"P:{security_id}", "split_factor": 2.0,
+            "sessions": ["S0001"], "session_indices": [0],
+            "signal_closes": [10.0], "raw_closes": [5.0],
+            "volumes": [1_000_000]}
+
+    protected = {"held", "pending", "cooldown", "terminal"}
+    state.feed = {
+        "session_index": 200, "seen_sessions": {"S0001": 0},
+        "series": {sid: expired_series(sid)
+                   for sid in protected | {"expired"}}}
+    state.last_known = {sid: 5.0 for sid in protected | {"expired"}}
+
+    persisted = state.to_dict()
+    assert set(persisted["feed"]["series"]) == protected
+    assert set(persisted["last_known"]) == protected
+    for sid in protected:
+        assert persisted["feed"]["series"][sid]["sessions"] == []
+
+
+def test_published_loader_reconstructs_prior_split_factor_from_pinned_rows(
+        monkeypatch):
+    meta = {"1": SecurityMeta(
+        "1", "AAA", category="Domestic Common Stock", permaticker="1",
+        related_tickers=("AAA",), first_session="S0001")}
+
+    class Cursor:
+        def __init__(self):
+            self.sql = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def execute(self, sql, _params=()):
+            self.sql = sql
+
+        def fetchall(self):
+            if "SELECT security_id,ticker" in self.sql:
+                return [("1", "AAA", 5.0, 5.0, 1_000_000, 1.0, 0.0)]
+            if "SELECT closeadj" in self.sql:
+                return [(100.0 + i,) for i in range(41)]
+            if "ARRAY_REMOVE(ARRAY_AGG(sector" in self.sql:
+                return [("1", "TECH")]
+            if "SELECT security_id,split_ratio" in self.sql:
+                return [("1", 2.0), ("1", 3.0)]
+            raise AssertionError(self.sql)
+
+    class Connection:
+        def cursor(self):
+            return Cursor()
+
+    monkeypatch.setattr("sentinel.feed.publication.assert_coherent", lambda _: None)
+    monkeypatch.setattr(
+        "sentinel.feed.publication.current",
+        lambda _: SimpleNamespace(version=7))
+    monkeypatch.setattr(
+        "sentinel.feed.publication.visible_predicate", lambda _: "TRUE")
+    monkeypatch.setattr("sentinel.core.loader.load_meta", lambda _: meta)
+    monkeypatch.setattr(
+        "sentinel.core.loader.load_terminal_events",
+        lambda *_, **__: SimpleNamespace(events=[]))
+    monkeypatch.setattr(
+        "sentinel.feed.universe.load_resolver",
+        lambda _: SimpleNamespace(resolve_with_reason=lambda *_: None))
+
+    published = load_published_session(Connection(), "S0200")
+    anchor = published.feed_anchors["1"]
+    assert anchor.prior_split_factor == 6.0
+    assert anchor.issuer_id == "P:1"
+
+
 def test_restart_window_keeps_t_minus_126_and_discards_t_minus_127():
     config, state = _fresh()
     for number in range(1, 201):
@@ -338,6 +554,12 @@ def test_version_two_envelope_migrates_by_pruning_only_redundant_history():
     old["signal_closes"].insert(0, 10.0)
     old["raw_closes"].insert(0, 5.0)
     old["volumes"].insert(0, 1_000_000)
+    legacy["feed"]["series"]["dormant"] = {
+        "security_id": "dormant", "ticker": "DORM", "issuer_id": "P:dormant",
+        "split_factor": 4.0, "sessions": ["S0001"],
+        "session_indices": [0], "signal_closes": [20.0],
+        "raw_closes": [5.0], "volumes": [1_000_000]}
+    legacy["last_known"]["dormant"] = 5.0
     legacy["last_evidence"]["wealth_core"]["state_after"] = {"recursive": True}
     legacy["last_evidence"]["wealth_core"]["pending_after"] = [{"copy": True}]
 
@@ -345,6 +567,8 @@ def test_version_two_envelope_migrates_by_pruning_only_redundant_history():
     plan_evidence = migrated.last_evidence["wealth_core"]
     assert migrated.version == 3
     assert migrated.feed == current.feed
+    assert "dormant" not in migrated.feed["series"]
+    assert "dormant" not in migrated.last_known
     assert "state_after" not in plan_evidence
     assert "pending_after" not in plan_evidence
 

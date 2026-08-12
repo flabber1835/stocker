@@ -340,8 +340,9 @@ restart image:
 ```text
 global session index            absolute and monotonic across restarts
 recent session/index map        current plus exactly 126 prior market sessions
-per-security compact anchor     security id, current ticker, current issuer id,
-                                cumulative split factor
+active per-security anchor      security id, current ticker, current issuer id,
+                                cumulative split factor, retained only while
+                                rolling or path-dependent state needs it
 per-security rolling evidence   observations whose GLOBAL index is inside that
                                 same 127-session window: session, index, signal
                                 close, raw close and volume
@@ -356,14 +357,37 @@ inputs remain published session inputs. No production calculation reads an
 older feed observation.
 
 Expiration is by **global market-session index**, not by a security's row count.
-At a boundary, the observation at `t-126` remains and `t-127` is discarded. A
-security that stops printing eventually retains no rolling observations, but
-its compact anchor remains: discarding the cumulative split factor would rebase
-its signal series if it printed again, and discarding its current ticker/issuer
-identity would make restart continuation differ from uninterrupted execution.
-Intrinsic eligibility metadata continues to come from the pinned published
-corpus; the snapshot retains the path-dependent current identity carried by the
-series.
+At a boundary, the observation at `t-126` remains and `t-127` is discarded.
+Anchor ownership follows the same bounded-restart rule: keep an anchor when its
+series still has a retained observation, or when the security is named by
+authoritative path-dependent state. The latter includes a filled episode, a
+reserved slot or pending order, a security cooldown, and every unresolved or
+pending terminal/mark-carry record. `last_known` is a raw-mark cache, not a
+second market-data history, and is retained only for that path-dependent set.
+This keeps dormant universe members out of both maps without pruning a security
+whose next transition can still depend on its identity, split basis or stale
+mark.
+
+An evicted security may later print again. The production loader must then
+reconstruct the missing anchor from the **pinned corpus before** handing the
+session to Wealth Core: multiply every earlier published `split_ratio` for that
+permanent security id in session order, and resolve the issuer from the pinned
+security metadata. The query also proves whether any earlier published
+observation exists, so a genuine first observation may begin at factor `1.0`.
+If an earlier observation exists but either the split basis or issuer identity
+cannot be reconstructed, production fails closed. It must never take the
+canonical feed's new-series defaults for a returning security, because doing so
+would silently rebase its signal series or replace its issuer identity. A
+retained path-dependent anchor remains authoritative until that state clears;
+corpus reconstruction is only the re-entry path for an anchor already evicted.
+
+The boundedness contract applies to the feed restart image, `last_known`, and
+the other explicitly rolling caches. The top-level Wealth Core ledger is an
+immutable event history and intentionally grows when economic events occur.
+Therefore a quiescent or cache-only workload reaches a byte plateau after
+warm-up, while an envelope that continues posting ledger events grows only by
+those intentional events; the contract is not that every possible envelope is
+byte-constant.
 
 The evidence record is diagnostic, not authoritative state. `last_evidence`
 stores the observation, breadth inputs and a whitelisted plan summary, but never
@@ -373,11 +397,13 @@ orders exist exactly once, in the envelope's top-level `wealth_core` and
 
 Snapshot schema v3 introduces this representation. A v2 envelope is migrated on
 load by deterministic pruning because it contains the same feed fields plus
-older observations; its embedded plan copies are removed at the same boundary.
-The migration changes storage shape only and must prove continuation parity
-against an uninterrupted run. V1 remains explicitly refused because it lacks
-lifetime shadow-peak and completed-stop event memory and cannot be repaired from
-a short history window.
+older observations and dormant anchors/marks; its embedded plan copies are
+removed at the same boundary. Early v3 envelopes are canonicalised by the same
+retention pass, so deploying the cardinality bound requires no parallel state or
+one-off rewrite. The migration changes storage shape only and must prove
+continuation parity against an uninterrupted run. V1 remains explicitly refused
+because it lacks lifetime shadow-peak and completed-stop event memory and cannot
+be repaired from a short history window.
 
 ## 9. Price-domain validation must be Wealth-Core-specific
 
