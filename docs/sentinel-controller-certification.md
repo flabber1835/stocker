@@ -414,6 +414,85 @@ The `decide` seam stays empty until step 4 passes. Wiring a driver before the
 upstream signal chain is certified would mean choosing an implementation to fill
 it on the strength of the part that is not yet proven.
 
+### 7e. The 7,061-session target is UNREACHABLE by the corrected engine, and that is by design (measured 2026-08-12)
+
+Before regenerating a holding panel from raw Sharadar, the two preserved tapes
+were compared directly. Both are in the repository; the comparison needs no
+corpus and takes seconds. `scripts/sentinel-breadth-lineage-diff.py` reproduces
+it.
+
+```text
+frozen oracle    04_BREADTH_ORACLES/fundamental_portfolio_health_daily.csv
+                 7,062 rows, 1998-07-06 .. 2026-07-31   PRE-correction lineage
+corrected tape   sentinel-reference-implementation/sentinel_1p1_daily.csv
+                 5,032 rows, 2006-07-31 .. 2026-07-31   terminal + issuer corrected
+```
+
+Result on the 5,032-session overlap:
+
+```text
+identical          4,183
+divergent            849   16.9%
+FIRST DIVERGENCE  2016-02-05, after 2,396 CONSECUTIVE IDENTICAL SESSIONS
+                  frozen     16 damaged /  2 green of 19 held
+                  corrected  17 damaged /  2 green of 20 held
+```
+
+**Two conclusions, and the second is the certification-relevant one.**
+
+*The classifier rule is the same in both lineages.* 2,396 consecutive identical
+sessions cannot happen under two different classification rules. A strictness
+error or a missing clause diverges immediately and everywhere, not after nine
+and a half years.
+
+*The BOOKS differ, starting at a single dated event.* The first divergence is a
+held-count change, 19 to 20 — a population difference, not a classification one.
+That is exactly the signature of the terminal-order correction, which found the
+old replay buying a delisted security and spending admission slots on already
+terminated ones. It matches the date the architecture document already recorded
+for this divergence, derived independently there.
+
+Of the 849 divergent sessions, 399 (47%) have a different held COUNT and are
+definitively population differences. The other 450 have the same count; that is
+NOT evidence of a rule difference, because once the held set diverges a
+same-size book of different names produces different counts under an identical
+classifier. The fractions alone cannot separate those two causes, and the script
+deliberately does not claim otherwise.
+
+**Therefore the 7,061/7,061 result cannot be reproduced by this engine, and
+reproducing it would be a defect rather than an achievement.** That measurement
+was taken against the frozen oracle using the PRE-correction panel. Matching it
+now would require reintroducing the terminal-order and issuer-identity defects
+into the shadow — which §5 already ruled out for the 386-day figure, for the
+same reason. The pre-correction shadow is deliberately not recovered.
+
+This is a **CATEGORY B** result, and the blocker is NOT Sharadar restatement:
+
+```text
+classifier parity        ESTABLISHED    2,396 identical sessions across two
+                                        independently produced lineages, plus
+                                        the randomised differential in
+                                        tests/sentinel/test_breadth_classifier.py
+input-population parity   IMPOSSIBLE    the target panel belongs to a superseded
+                                        book carrying a defect this engine does
+                                        not have, and is not being recovered
+tape parity vs FROZEN     IMPOSSIBLE    follows from the above
+tape parity vs CORRECTED  UNVERIFIED    reachable, and the right target. See
+                                        below
+```
+
+**The right target is the corrected tape, and it is still unverified.**
+`docs/sentinel-reference-implementation/PROVENANCE.md` states it plainly: *"Not
+verified: that running `sentinel_1p1_standalone.py` against raw Sharadar
+reproduces `sentinel_1p1_daily.csv`. That needs the corpus. The tape is stored;
+the producer is unverified."* That run — 5,032 sessions, corrected lineage —
+is what F(a) and F(b) should be aimed at. Aiming them at 7,061 was aiming at the
+wrong artefact.
+
+`UNCERTIFIED_BREADTH` therefore STANDS, and the reason is now specific: not "the
+engine is unproven" but "the engine has never been run against the corpus and
+compared to the tape of its own lineage".
+
 ### 7d. Step 1's offline half is DONE: `sentinel/breadth/`
 
 The classifier is transcribed from `sentinel_1p1_standalone.py:526-546` into a
