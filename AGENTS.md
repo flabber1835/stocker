@@ -98,7 +98,7 @@ They are release-safety rules, not style preferences.
      HEAD_SHA=$(git rev-parse HEAD)
      git format-patch --binary --stdout "$BASE_SHA..$HEAD_SHA" \
        > /tmp/<task-name>.patch
-     git bundle create /tmp/<task-name>.bundle "$BASE_SHA..$HEAD_SHA"
+     git bundle create /tmp/<task-name>.bundle HEAD "^$BASE_SHA"
      sha256sum /tmp/<task-name>.patch /tmp/<task-name>.bundle
      wc -c /tmp/<task-name>.patch /tmp/<task-name>.bundle
      ```
@@ -107,7 +107,7 @@ They are release-safety rules, not style preferences.
      second recovery format when the platform supports binary downloads.
    - Report the verified base SHA, local head SHA, artifact SHA256 and size,
      changed-file list, and exact tests. Keep the working tree clean.
-   - Label the result **UNDDELIVERED LOCAL WORK** until another GitHub-connected
+   - Label the result **UNDELIVERED LOCAL WORK** until another GitHub-connected
      agent or developer applies the artifact to current `main`, pushes a feature
      branch, and opens a PR. Do not describe a local commit or exported artifact
      as a pull request or as repository delivery.
