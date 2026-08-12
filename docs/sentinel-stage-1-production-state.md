@@ -57,11 +57,33 @@ semantics, and slow recovery occurs on the sixth healthy observation after five
 already-established confirmations.  The already-certified Sentinel 1.1 ramp
 remains unchanged and consumes the resulting parent transition.
 
-Wealth Core trailing-stop exits in the previous 20 sessions are durable
-controller evidence.  They are recorded by session in the envelope rather than
-reconstructed from the current book, because the exited episode is no longer
-present after the evidence is created.  The boundary is exact: two stops remain
-healthy evidence for `BinaryStress`; three do not.
+Wealth Core trailing-stop exits in the current controller session plus the
+preceding 19 controller sessions are durable controller evidence.  They are
+recorded by session in the envelope rather than reconstructed from the current
+book, because the exited episode is no longer present after the evidence is
+created.  The boundary is exact: two stops remain healthy evidence for
+`BinaryStress`; three do not.
+
+`stops20` counts **executed** Wealth Core trailing-stop exits, never
+close-time intents.  A trailing stop detected on session *t* creates a pending
+SELL and contributes no stop evidence until that SELL fills at a later
+executable open.  A pending trailing-stop exit that cannot execute remains
+pending and contributes no evidence; if it fills several controller sessions
+later, it is counted on that actual fill session.  The production transition
+captures the ledger boundary immediately before planning and considers only
+new ledger events for its published session whose typed event is `SELL` and
+whose canonical reason is `EXIT_TRAILING_STOP`.  Multiple completed fills on
+one session are retained individually.  Evidence expires exactly when its exit
+session is 20 controller sessions behind, never by calendar-day arithmetic.
+
+Missing stop evidence is `UNAVAILABLE`, never zero.  BinaryStress recovery
+therefore needs an available nonnegative `stops20` at or below two alongside
+its positive `shadow_r20`; unavailable or invalid stop evidence resets the
+healthy streak.  Slow-entry evidence likewise retains named predicate results
+for stress duration, return since the base-stress anchor, `shadow_r40`,
+damaged breadth, and green breadth.  A missing input yields
+`SLOW_EVIDENCE_UNAVAILABLE` naming the predicate rather than an ordinary
+negative.
 
 A production session owns one corpus publication pin for the complete input and
 state transition: published input loading, Wealth Core advancement, breadth

@@ -14,9 +14,9 @@ from typing import Mapping, Sequence
 
 from stock_strategy_shared.wealth_core.adapter import PendingOrder
 from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
-from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
+from stock_strategy_shared.wealth_core.engine import Reason, WealthCoreConfig
 from stock_strategy_shared.wealth_core.feed import Feed, SecurityMeta, SecuritySeries, VendorBar
-from stock_strategy_shared.wealth_core.ledger import Ledger
+from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
 from stock_strategy_shared.wealth_core.live import plan_session
 from stock_strategy_shared.wealth_core.state import PortfolioState
 from stock_strategy_shared.wealth_core.terminal import TerminalTerms
@@ -235,11 +235,22 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
     ledger = Ledger.from_dict(env.ledger)
     last_known = dict(env.last_known)
     feed = _feed_from_dict(env.feed, published.meta, elig)
+    ledger_event_boundary = len(ledger.events)
     plan = plan_session(
         session=published.session, bars=published.bars, meta=published.meta,
         state=state, pending=pending, ledger=ledger, last_known=last_known,
         feed=feed, cfg=wealth_config, eligibility_cfg=elig,
         terminal_events=published.terminal_events)
+
+    # A stop is evidence only when its pending SELL actually filled.  Plan
+    # intents are close-time decisions; the append-only ledger records the
+    # completed fill with canonical typed event and reason values.
+    completed_stops = [
+        event for event in ledger.events[ledger_event_boundary:]
+        if event.session == published.session
+        and event.event_type is EventType.SELL
+        and event.reason == Reason.EXIT_TRAILING_STOP.value
+    ]
 
     held = holdings_from_shadow(state, feed, published.sectors)
     breadth = session_breadth(held)
@@ -249,13 +260,13 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
     navs = navs[-41:]
     peak = max(float(env.shadow_peak_nav), nav)
     stops = list(env.trailing_stop_sessions)
-    stop_count = sum(i.reason == "EXIT_TRAILING_STOP" for i in plan.intents)
-    stops.extend([published.session] * stop_count)
-    # ISO session ordering makes the durable evidence window deterministic;
-    # retain 20 observations by controller session, not wall-clock days.
-    recent_sessions = list(env.controller_session_history) + [published.session]
-    recent_sessions = recent_sessions[-20:]
-    stops = [s for s in stops if s in set(recent_sessions)]
+    stops.extend([published.session] * len(completed_stops))
+    # Retain every completed stop from the current controller session plus
+    # exactly the preceding 19 controller sessions; never age by calendar day.
+    recent_sessions = (list(env.controller_session_history) + [published.session])[-20:]
+    recent_session_set = set(recent_sessions)
+    stops = [stop_session for stop_session in stops
+             if stop_session in recent_session_set]
     damaged = list(env.breadth_history) + [breadth.damaged_breadth]
     regime = spy_regime(published.spy_closeadj)
     ob = Observation(
