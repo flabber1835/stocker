@@ -17,29 +17,75 @@ These rules apply to Codex and other coding agents working in this repository.
 They are release-safety rules, not style preferences.
 
 1. **The authoritative repository is `flabber1835/stocker`.**
-2. **Before changing anything, verify the checkout and remote:**
-   - `git remote -v`
-   - `git branch --show-current`
-   - `git rev-parse HEAD`
-   - `git fetch origin main`
-   - `git rev-parse origin/main`
-3. **If `origin` is unavailable, `origin/main` cannot be resolved, or the local
+2. **Never develop directly on `main` and never push directly to `main`.** All
+   delivered changes must arrive through a pull request targeting `main`.
+3. **Use the workflow appropriate to the execution environment.**
+
+   ### A. Normal local or CLI checkout with shell access to GitHub
+
+   Before changing anything, run and report:
+
+   ```bash
+   git remote -v
+   git branch --show-current
+   git rev-parse HEAD
+   git fetch origin main
+   git rev-parse origin/main
+   ```
+
+   If `origin` is unavailable, `origin/main` cannot be resolved, or the local
    base is not current with `origin/main`, STOP and report the problem. Do not
-   implement changes in a disconnected or stale sandbox and present them as
-   published repository work.**
-4. **Never develop directly on `main`.** Create a feature branch from current
-   `origin/main`, preferably `codex/<short-task-name>`.
-5. **Never push directly to `main`.** Push only the feature branch and open a
-   pull request targeting `main`.
-6. **Do not merge your own pull request unless the user explicitly asks you to.**
+   implement changes in a disconnected or stale checkout and present them as
+   published repository work.
+
+   Create a feature branch from current `origin/main`, preferably
+   `codex/<short-task-name>`, push only that feature branch, and open a pull
+   request against `main`.
+
+   ### B. Managed coding workspace with a built-in PR handoff
+
+   This path applies only when the platform supplied the repository checkout and
+   intentionally blocks shell-level GitHub access while providing its own
+   **Create PR** or equivalent publication mechanism.
+
+   - Do not add GitHub tokens, alter credential helpers, weaken proxy settings,
+     or repeatedly retry blocked shell network access merely to make `git fetch`
+     or `git push` work.
+   - Record and report:
+
+     ```bash
+     git branch --show-current
+     git rev-parse HEAD
+     git status --short
+     ```
+
+   - Proceed only when the local `HEAD` equals an authoritative `main` SHA that
+     was independently supplied by the managed platform, the user, or a
+     connected GitHub verification. A SHA observed only inside the same
+     disconnected checkout is not independent verification. If no trusted base
+     SHA is available, or it does not match, STOP before editing.
+   - The managed local branch may remain platform-owned, for example `work`; do
+     not require a shell-created remote feature branch when the platform itself
+     publishes the PR.
+   - Commit changes locally, then use the platform's built-in PR handoff to open
+     a pull request against `flabber1835/stocker:main`. Include the verified base
+     SHA in the PR description.
+   - Shell `git push` is not required in this path. The PR handoff is the
+     publication step.
+   - Do not report delivery until the platform confirms a GitHub PR number or
+     URL. If PR publication fails, report the exact failure and the local commit
+     SHA or generated patch as **undelivered** work; local commits alone are not
+     repository delivery.
+
+4. **Do not merge your own pull request unless the user explicitly asks you to.**
    The default handoff is: agent codes -> agent tests -> agent opens PR -> user
    reviews/merges.
-7. **Never force-push `main`, rewrite published history, or bypass repository
+5. **Never force-push `main`, rewrite published history, or bypass repository
    protections.**
-8. **Before reporting completion, verify the remote branch/PR exists on GitHub.**
-   Local commits alone are not delivery.
-9. If a push or PR creation fails, report the exact error and stop rather than
-   silently continuing on local-only commits.
+6. If a feature-branch push or PR creation fails, report the exact error and stop
+   rather than silently continuing or claiming completion.
+7. Before reporting completion, verify that the pull request exists on GitHub and
+   targets `main`.
 
 ## Most Important Process Rule
 
