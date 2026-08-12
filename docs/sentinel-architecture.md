@@ -667,6 +667,27 @@ raw-corpus parity    REQUIRES NAS  UNCERTIFIED_BREADTH still stands. Offline
                                    falsification is not tape reproduction
 ```
 
+**The SPY regime sensor also exists: `sentinel/regime/spy.py`.** Its status reads
+differently from breadth's, and the difference is not a weakness:
+
+```text
+SPY regime rule      SPECIFIED     by the frozen rule — both predicates
+sentinel/regime/     IMPLEMENTED   faithful to the frozen config, which it
+                                   LOADS rather than transcribes; boundary-
+                                   falsified and mutation-tested
+direct tape parity   IMPOSSIBLE    SPY appears in no handoff artefact, so there
+                                   is no historical series to replay against
+forward-chain proof  REQUIRES NAS  raw corpus -> breadth -> SPY regime ->
+                                   controller, on the corrected lineage
+```
+
+IMPOSSIBLE is a property of the preserved artefacts, not missing logic — the
+rule is fully specified. It is also the one file in `sentinel/` permitted to
+read `SEP.closeadj`, a narrowing of the price-domain invariant decided in
+`docs/sentinel-controller-certification.md` §5b **before** the code was written.
+The guard was made STRICTER in the same change: it previously skipped all string
+tokens, so `bar["closeadj"]` passed everywhere.
+
 It also means the whole state machine is testable without a database, and that
 `catchup.advance_state` can drive it: the state is a JSON-round-trippable dict,
 which is the constraint the catch-up seam already enforces.

@@ -186,6 +186,99 @@ regime-data path — rather than by column, and the existing tokenizer guard kee
 covering everything else under `sentinel/`. A future engineer reaching for
 `closeadj` in a scoring or marking path still hits a wall.
 
+### 5b. The exemption, NAMED — decided before implementation (2026-08-12)
+
+§5a settled that the narrowing happens. This settles exactly what it is, because
+"a single named regime-data path" is not yet a name, and an unnamed exemption is
+the kind that widens by accident.
+
+**1. The one module permitted to name or read `closeadj`:**
+
+```text
+sentinel/regime/spy.py        the SPY market-regime sensor. Nothing else.
+```
+
+Not the package — the FILE. `sentinel/regime/` as a whole is not exempt, so a
+second module added beside it inherits the prohibition rather than the
+exemption. It declares the column as `SPY_PRICE_COLUMN` and that declaration is
+the entire surface of the carve-out.
+
+**2. Why total return is CORRECT here.** SPY in this rule is not a holding. It
+is a market-regime sensor, and the frozen specification defines both of its
+predicates on a total-return series (`standalone:176-178`). A dividend paid by
+an S&P constituent is not a market decline, but it moves a price-return index
+down; measuring regime on price return would read every quarterly dividend
+season as mild market weakness. `spy_r20 <= -0.01` is a 1% threshold, which is
+inside the range that error moves. The total-return domain is what makes the
+threshold mean what the frozen rule says it means.
+
+**3. Why `closeadj` remains WRONG everywhere else, stated per path:**
+
+```text
+Wealth Core signals    momentum on a total-return series changes on every
+                       dividend payer, so the ranking silently reorders
+Portfolio marking      sizes each 4% admission off the wrong equity
+Execution              a total-return price is not a price anything trades at;
+                       fills reconcile against closeunadj
+Breadth                own_dd/r21/r63 are SIGNAL-domain by construction. The
+                       recovered classifier reads SEP.close, and feeding it
+                       closeadj would move every boundary in sentinel/breadth/
+Any security-level path  same reason as signals: it is a synthetic series
+```
+
+The distinction is not "adjusted is riskier". It is that a total-return series
+answers a different question, and every one of those paths is asking the other
+one.
+
+**4. No other module may name or read it.** The guard enforces this by FILE
+path, and the allowlist is asserted to have exactly the expected entries — so
+adding a second permitted module fails the suite rather than passing quietly.
+
+**5. Widening requires a deliberate design change AND a test change**, in that
+order, with an entry in this document. That is the point of pinning the
+allowlist by equality rather than by membership: there is no way to add a path
+without editing the assertion, and no way to edit the assertion without saying
+why here.
+
+**6. A defect in the existing guard, found while making this change and fixed
+by it.** The tokenizer skips STRING tokens so that docstrings explaining the
+prohibition do not violate it. But that also exempted string literals in
+executable code:
+
+```text
+df.closeadj             CAUGHT today       NAME token
+bar["closeadj"]         NOT CAUGHT today   STRING token
+```
+
+The second form is the natural one in this codebase, which passes corpus rows as
+dicts. So the guard was materially weaker than it read, and a narrowing that
+merely allowlisted a module would have left the hole open underneath it. The
+replacement skips COMMENTs and DOCSTRINGS specifically — not all strings — so a
+dict-key read is now caught everywhere except the one permitted file.
+`sentinel/feed/domains.py` keeps a second, tightly-scoped entry for
+`SEP_FORBIDDEN_COLUMNS = ("closeadj",)`: naming the prohibition is not
+committing the violation, and that constant is what makes the ingest drop the
+column. **This change makes the invariant stricter overall while carving out one
+sensor.**
+
+**7. What `sentinel/regime/` can and cannot claim.**
+
+```text
+SPY regime rule       SPECIFIED       by the frozen Sentinel rule
+sentinel/regime/      IMPLEMENTED     faithful to frozen config, boundary-
+                                      falsified, mutation-tested
+direct tape parity    IMPOSSIBLE      SPY inputs are absent from every handoff
+                                      artefact — there is nothing to compare to
+forward-chain proof   REQUIRES NAS    raw corpus -> breadth -> SPY regime ->
+                                      controller, on the corrected lineage
+```
+
+"IMPOSSIBLE" is a property of the preserved artefacts, not a gap in the logic.
+The rule is fully specified and the implementation is faithful to it; what is
+absent is a historical SPY series to replay it against. Do not describe this as
+missing or unrecovered logic — the sense in which breadth was once missing does
+not apply here and never did.
+
 ---
 
 ## 6. Step 3, which does NOT wait on the NAS

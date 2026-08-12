@@ -28,30 +28,157 @@ def row(ticker, date, close, closeunadj, open_=None, volume=1_000_000):
             "closeunadj": closeunadj, "open": open_, "volume": volume}
 
 
+#: The ONLY files under `sentinel/` permitted to name `closeadj`, by exact
+#: relative path. Certification §5b is the decision record and must be updated
+#: before this tuple is. Scoped to FILES, not directories: `sentinel/regime/` as
+#: a package is not exempt, so a second sensor added beside spy.py inherits the
+#: prohibition rather than the carve-out.
+CLOSEADJ_PERMITTED = (
+    # The SPY market-regime sensor. SPY is not a holding — it is a regime
+    # sensor, and the frozen rule defines both of its predicates on a
+    # total-return series.
+    "sentinel/regime/spy.py",
+    # Names the prohibition in order to ENFORCE it: SEP_FORBIDDEN_COLUMNS is
+    # what makes the ingest drop the column. Naming it is not reading it.
+    "sentinel/feed/domains.py",
+)
+
+
+def _closeadj_in_source(src, label):
+    """Executable-code occurrences of `closeadj` in one source string.
+
+    COMMENTS and DOCSTRINGS are exempt — the module explaining why the column
+    is forbidden cannot be what fails the check. Other STRING tokens are NOT
+    exempt, and that is the correction: the previous guard skipped every string,
+    so `bar["closeadj"]` passed while `df.closeadj` failed. This codebase
+    carries corpus rows as dicts, so the string form is the natural one and the
+    guard was materially weaker than it read. See certification §5b item 6.
+
+    Takes SOURCE, not a path, so the self-tests below can probe it without
+    writing files into `sentinel/` — which would be a package member that
+    exists only during a test run.
+    """
+    import ast
+    import io
+    import tokenize
+
+    # Docstring line ranges, via ast rather than token heuristics. The first
+    # attempt tracked the previous token type and got function docstrings wrong
+    # — it skipped NEWLINE/INDENT before recording them, so the "previous
+    # meaningful token" was always the `:` and only MODULE docstrings were
+    # exempted. ast asks the question directly.
+    doc_lines = set()
+    for node in ast.walk(ast.parse(src)):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                 ast.AsyncFunctionDef)):
+            continue
+        body = getattr(node, "body", None)
+        if (body and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)):
+            doc = body[0]
+            doc_lines.update(range(doc.lineno, (doc.end_lineno or doc.lineno) + 1))
+
+    out = []
+    for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+        if tok.type == tokenize.COMMENT or tok.start[0] in doc_lines:
+            continue
+        if "closeadj" in tok.string:
+            out.append(f"{label}:{tok.start[0]}: {tok.string}")
+    return out
+
+
+def _closeadj_occurrences(py):
+    return _closeadj_in_source(py.read_text(), py.relative_to(ROOT))
+
+
 class TestTheForbiddenColumn:
-    def test_closeadj_is_never_read(self):
-        """A total-return series in the signal domain changes momentum on every
-        dividend payer; in the mark it sizes every 4% admission off the wrong
-        equity. Not reading it AT ALL is the only reliable way not to read it by
-        accident."""
+    """A total-return series in the signal domain changes momentum on every
+    dividend payer; in the mark it sizes every 4% admission off the wrong
+    equity; in execution it is not a price anything trades at. Not reading it AT
+    ALL is the only reliable way not to read it by accident.
+
+    NARROWED 2026-08-12, and made STRICTER in the same change — see
+    certification §5b. Exactly one sensor may read it; the string-literal hole
+    that let `bar["closeadj"]` through everywhere is closed.
+    """
+
+    def test_closeadj_is_read_in_NO_module_outside_the_allowlist(self):
+        offenders = []
+        for py in sorted((REPO / "sentinel").rglob("*.py")):
+            rel = py.relative_to(REPO).as_posix()
+            if f"sentinel/{rel}" in CLOSEADJ_PERMITTED or rel in CLOSEADJ_PERMITTED:
+                continue
+            offenders.extend(_closeadj_occurrences(py))
+        assert not offenders, (
+            "closeadj is named in sentinel/ CODE outside the allowlist:\n"
+            + "\n".join(offenders))
+
+    def test_the_allowlist_is_EXACTLY_these_two_paths(self):
+        """Pinned by EQUALITY, not membership.
+
+        Adding a third permitted path cannot be done without editing this
+        assertion, and editing it without a §5b entry is the review signal. A
+        guard that merely tolerates its allowlist grows one entry at a time.
+        """
+        assert CLOSEADJ_PERMITTED == (
+            "sentinel/regime/spy.py",
+            "sentinel/feed/domains.py",
+        )
+
+    def test_the_SPY_sensor_is_the_only_PRODUCTION_reader(self):
+        """domains.py names it to forbid it; spy.py names it to read it."""
+        from sentinel.feed import domains as dom
+
+        assert dom.SEP_FORBIDDEN_COLUMNS == ("closeadj",)
+        from sentinel.regime import spy as spy_mod
+
+        assert spy_mod.SPY_PRICE_COLUMN == "closeadj"
+
+    def test_the_exemption_is_by_FILE_not_by_PACKAGE(self):
+        """`sentinel/regime/` is not blanket-exempt. A second module added there
+        inherits the prohibition — which is the difference between a narrowing
+        and a hole."""
+        assert not any(p.endswith("/") or p.count("/") < 2
+                       for p in CLOSEADJ_PERMITTED)
+        assert "sentinel/regime" not in CLOSEADJ_PERMITTED
+        assert "sentinel/regime/" not in CLOSEADJ_PERMITTED
+
+    def test_the_guard_CATCHES_a_dict_key_read(self):
+        """The hole this narrowing closed.
+
+        `bar["closeadj"]` is a STRING token, so the previous guard — which
+        skipped every string — passed it. That is the natural form in a codebase
+        that carries corpus rows as dicts.
+        """
         import io
         import tokenize
 
-        # TOKENIZED, not line-prefixed. The first version scanned raw lines and
-        # flagged its own docstring — the module explaining why the column is
-        # forbidden cannot be what fails the check. Strings and comments are
-        # excluded, which also exempts SEP_FORBIDDEN_COLUMNS = ("closeadj",):
-        # naming the prohibition is not violating it. What remains is executable
-        # code, where the name could only appear as a real column access.
-        offenders = []
-        for py in (REPO / "sentinel").rglob("*.py"):
-            src = py.read_text()
-            for tok in tokenize.generate_tokens(io.StringIO(src).readline):
-                if tok.type in (tokenize.STRING, tokenize.COMMENT):
-                    continue
-                if "closeadj" in tok.string:
-                    offenders.append(f"{py.relative_to(ROOT)}:{tok.start[0]}: {tok.string}")
-        assert not offenders, "closeadj is read in sentinel/ CODE:\n" + "\n".join(offenders)
+        src = 'def f(bar):\n    return float(bar["closeadj"])\n'
+        toks = list(tokenize.generate_tokens(io.StringIO(src).readline))
+        old_style = [t for t in toks
+                     if t.type not in (tokenize.STRING, tokenize.COMMENT)
+                     and "closeadj" in t.string]
+        assert not old_style, "precondition: the OLD guard misses this form"
+        assert _closeadj_in_source(src, "probe"), "the NEW guard must catch it"
+
+    def test_the_guard_still_catches_the_ATTRIBUTE_form(self):
+        assert _closeadj_in_source("def f(df):\n    return df.closeadj\n", "probe")
+
+    def test_a_DOCSTRING_naming_the_column_is_still_exempt(self):
+        """The module explaining the prohibition cannot be what fails it."""
+        assert not _closeadj_in_source(
+            '"""Never read closeadj here."""\n\n\ndef f():\n    return 1\n', "probe")
+
+    def test_a_COMMENT_naming_the_column_is_still_exempt(self):
+        assert not _closeadj_in_source("# never read closeadj\nX = 1\n", "probe")
+
+    def test_a_FUNCTION_docstring_is_exempt_but_its_body_is_not(self):
+        src = ('def f(bar):\n'
+               '    """closeadj is forbidden here."""\n'
+               '    return bar["closeadj"]\n')
+        hits = _closeadj_in_source(src, "probe")
+        assert len(hits) == 1, hits
 
 
 class TestSplitRatio:
