@@ -815,7 +815,27 @@ stored lag closes in **float32** before dividing the current close by the lag, s
 float64 reimplementation will disagree on boundary rows, and every boundary in
 this classifier is strict-vs-inclusive.
 
-### `priority` is unrecovered, and which strategy that blocks
+### `priority` — an unused output of the historical helper, not a Sentinel gap
+
+State the scope before the status, because the two are easy to run together.
+The historical `position_features()` returned MORE than Sentinel consumes.
+Sentinel's entire breadth dependency is two scalars:
+
+```text
+damaged_breadth = mean(amber)
+green_breadth   = mean(green)
+```
+
+The logic producing `amber` and `green` is RECOVERED and codified. What is not
+recovered is `priority` — a per-name ranking score that sat alongside them in
+the same helper's return surface and that Sentinel never reads. So the accurate
+sentence is *"the historical helper has not been reconstructed in every output
+it once produced"*, and NOT *"Sentinel's breadth is incomplete"*. `priority` is
+not a Sentinel implementation gap, certification blocker, runtime dependency,
+missing oracle, or unresolved breadth issue. It is an unused branch of an old
+API surface.
+
+Which strategy it actually blocks:
 
 ```text
 Sentinel 1.1                              NO  — not consumed, cannot be
@@ -844,6 +864,13 @@ failure and the reason is worth keeping: a fabricated ranking would run, produce
 plausible-looking cohorts, and be wrong with no symptom. Failing the whole
 function closed also stops the exact-recovered breadth outputs it computes
 alongside from carrying an invented one out with them.
+
+**Keep that raise, and do not reconstruct `priority` to make the old helper
+look whole again.** Sentinel does not call `position_features()` at all — it
+uses `recovered_breadth_features()`, which returns green/red/amber/sector_stress
+and never touches the raising path. A speculative ranking invented purely for
+API completeness would add an unverifiable formula to the repository in exchange
+for nothing Sentinel reads.
 
 ---
 

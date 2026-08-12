@@ -138,10 +138,15 @@ reproducing the CORRECTED tape
 re-deriving that tape from the raw corpus rather than trusting a shipped CSV.
 See `docs/sentinel-reference-implementation/PROVENANCE.md`.
 
-The unrecovered `priority` formula is **not** a Sentinel blocker. It belonged to
-the experimental Selective Survivor Firewall's cohort ranking. Sentinel consumes
-`mean(amber)` and `mean(green)`, both now exact. See
-`docs/sentinel-architecture.md` §8, "which strategy that blocks".
+`priority` is **not** an open Sentinel item, and it is worth being precise about
+what it is instead. The historical `position_features()` helper returned more
+than Sentinel consumes; `priority` was a per-name cohort ranking in that return
+surface, used by the experimental Selective Survivor Firewall and by nothing
+else. Sentinel's breadth dependency is `mean(amber)` and `mean(green)`, and the
+logic producing both is recovered and codified. So an incomplete reconstruction
+of the old helper is exactly that — it is not a Sentinel gap, blocker, runtime
+dependency or unresolved breadth issue. See `docs/sentinel-architecture.md` §8,
+"an unused output of the historical helper".
 
 ### The recovered semantics, normative
 

@@ -27,7 +27,11 @@
 > source. And the "Recommended implementation rule" still holds with its reason
 > updated: the `UNCERTIFIED_BREADTH` gate is now about **our reimplementation**
 > not yet having been proven against the tape, not about the rule being unknown.
-> `priority` remains genuinely unrecovered — Sentinel does not consume it.
+> `priority` is still not reconstructed, and that is not a Sentinel gap: it was
+> a per-name ranking in the historical helper's return surface, consumed by the
+> Selective Survivor Firewall and by nothing Sentinel runs. The part of that
+> helper Sentinel depends on — the logic producing `amber` and `green`, hence
+> damaged/green breadth — IS recovered.
 
 ## Bottom line
 
