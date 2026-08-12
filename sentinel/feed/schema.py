@@ -47,6 +47,15 @@ DDL = [
         PRIMARY KEY (security_id, session))""",
     """CREATE INDEX IF NOT EXISTS idx_sentinel_bars_session
         ON sentinel_bars (session)""",
+    # Dedicated total-return domain. Wealth Core is structurally unable to read
+    # it; only sentinel.regime uses it when assembling a production observation.
+    """CREATE TABLE IF NOT EXISTS sentinel_spy_total_return (
+        session             DATE PRIMARY KEY,
+        closeadj            DOUBLE PRECISION NOT NULL,
+        last_written_run_id UUID)""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_spy_total_return_written_by
+        ON sentinel_spy_total_return (last_written_run_id)
+        WHERE last_written_run_id IS NOT NULL""",
 
     # RAW VENDOR ROWS THE INGEST REFUSED. Not a log — EVIDENCE.
     #
@@ -144,12 +153,14 @@ DDL = [
         permaticker      TEXT NOT NULL,
         ticker           TEXT NOT NULL,
         category         TEXT,
+        sector           TEXT,
         related_tickers  TEXT,
         first_price_date DATE,
         last_price_date  DATE,
         is_delisted      BOOLEAN,
         snapshot_date    DATE NOT NULL,
         PRIMARY KEY (permaticker, ticker, snapshot_date))""",
+    """ALTER TABLE sentinel_universe ADD COLUMN IF NOT EXISTS sector TEXT""",
 
     # PROGRESS. Written per chunk and COMMITTED, so `feed-status` from another
     # process — or after a crash — sees the truth rather than a stale guess.
@@ -287,7 +298,10 @@ DDL = [
         open       DOUBLE PRECISION,
         close      DOUBLE PRECISION,
         closeunadj DOUBLE PRECISION,
+        closeadj   DOUBLE PRECISION,
         volume     DOUBLE PRECISION)""",
+    """ALTER TABLE sentinel_sep_staging
+        ADD COLUMN IF NOT EXISTS closeadj DOUBLE PRECISION""",
 ]
 
 #: Marks a run abandoned by a process that died. Same `RESTART_ABORTED:` prefix

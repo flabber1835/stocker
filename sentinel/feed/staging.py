@@ -65,11 +65,10 @@ from typing import Iterable, Iterator, Optional
 #: tests/sentinel/test_ingest_memory.py. Add a key to the normaliser without a
 #: column here and that test fails rather than a corpus degrading.
 #:
-#: `high`, `low`, `closeadj` and `lastupdated` are deliberately NOT carried.
-#: `closeadj` is the total-return series and is enforced-unread by test; the
-#: others are read by nothing. Copying them would triple the scratch write for
-#: columns no consumer exists for.
-CARRIED = frozenset({"ticker", "date", "open", "close", "closeunadj", "volume"})
+#: `closeadj` is carried only into the dedicated SPY regime table. Wealth Core
+#: still never receives it. `high`, `low` and `lastupdated` are read by nothing.
+CARRIED = frozenset({"ticker", "date", "open", "close", "closeunadj",
+                     "closeadj", "volume"})
 
 #: Same size as `store.WRITE_BATCH`, and for the same reason: the point of
 #: staging is that no stage holds more than a batch, so the buffer here must be
@@ -78,8 +77,8 @@ STAGE_BATCH = 5000
 
 _INSERT = """
     INSERT INTO sentinel_sep_staging
-        (run_id, chunk, session, ticker, open, close, closeunadj, volume)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        (run_id, chunk, session, ticker, open, close, closeunadj, closeadj, volume)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
 
 
@@ -108,7 +107,8 @@ def stage(conn, rows: Iterable[dict], *, run_id: str, chunk: str) -> int:
     for r in rows:
         buf.append((run_id, chunk, str(r["date"]), str(r["ticker"]),
                     _f(r.get("open")), _f(r.get("close")),
-                    _f(r.get("closeunadj")), _f(r.get("volume"))))
+                    _f(r.get("closeunadj")), _f(r.get("closeadj")),
+                    _f(r.get("volume"))))
         if len(buf) >= STAGE_BATCH:
             flush()
     flush()
@@ -131,7 +131,7 @@ def staged(conn, *, run_id: str, chunk: str,
     """
     from sentinel.feed.store import streaming_cursor
 
-    sql = ("SELECT session, ticker, open, close, closeunadj, volume"
+    sql = ("SELECT session, ticker, open, close, closeunadj, closeadj, volume"
            " FROM sentinel_sep_staging WHERE run_id = %s AND chunk = %s"
            " ORDER BY session, ticker")
     # WITHHOLD, and it is not optional here. The consumer of this generator is
@@ -140,10 +140,11 @@ def staged(conn, *, run_id: str, chunk: str,
     # through the chunk. See `store.streaming_cursor`.
     with streaming_cursor(conn, sql, (run_id, chunk), batch=batch,
                           withhold=True) as cur:
-        for session, ticker, op, close, raw, volume in cur:
+        for session, ticker, op, close, raw, closeadj, volume in cur:
             yield {"date": str(session), "ticker": str(ticker),
                    "open": _f(op), "close": _f(close),
-                   "closeunadj": _f(raw), "volume": _f(volume)}
+                   "closeunadj": _f(raw), "closeadj": _f(closeadj),
+                   "volume": _f(volume)}
 
 
 def clear(conn, *, run_id: str, chunk: Optional[str] = None) -> int:

@@ -63,6 +63,14 @@ _BAR_UPSERT = """
                                        sentinel_bars.last_written_run_id)
 """
 
+_SPY_TOTAL_RETURN_UPSERT = """
+    INSERT INTO sentinel_spy_total_return
+        (session, closeadj, last_written_run_id) VALUES (%s, %s, %s)
+    ON CONFLICT (session) DO UPDATE SET
+        closeadj = EXCLUDED.closeadj,
+        last_written_run_id = EXCLUDED.last_written_run_id
+"""
+
 _ACTION_UPSERT = """
     INSERT INTO sentinel_actions (ticker, session, action, value, contraticker,
         last_written_run_id)
@@ -377,7 +385,11 @@ def write_bars(conn, bars: Iterable[Any], *, run_id=None,
         if not rows:
             return
         with conn.cursor() as cur:
-            cur.executemany(_BAR_UPSERT, rows)
+            cur.executemany(_BAR_UPSERT, [r[:10] for r in rows])
+            spy = [(r[1], r[10], r[9]) for r in rows
+                   if r[2] == "SPY" and r[10] is not None]
+            if spy:
+                cur.executemany(_SPY_TOTAL_RETURN_UPSERT, spy)
         # COMMIT PER BATCH, matching the rest of this module: an interrupted
         # ingest keeps the rows it got, and the upserts are idempotent so the
         # re-run resumes rather than duplicates.
@@ -390,7 +402,8 @@ def write_bars(conn, bars: Iterable[Any], *, run_id=None,
         rows.append((b.security_id, b.session, b.ticker,
                      getattr(item, "close_signal", None),
                      b.raw_close, b.raw_open, b.volume, b.split_ratio,
-                     b.dividend_per_share, str(run_id) if run_id else None))
+                     b.dividend_per_share, str(run_id) if run_id else None,
+                     getattr(item, "close_total_return", None)))
         if len(rows) >= size:
             flush()
     flush()

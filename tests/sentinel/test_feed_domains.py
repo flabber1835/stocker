@@ -41,6 +41,12 @@ CLOSEADJ_PERMITTED = (
     # Names the prohibition in order to ENFORCE it: SEP_FORBIDDEN_COLUMNS is
     # what makes the ingest drop the column. Naming it is not reading it.
     "sentinel/feed/domains.py",
+    # Narrow transport/persistence path into the dedicated SPY-only table.
+    "sentinel/feed/staging.py",
+    "sentinel/feed/store.py",
+    "sentinel/feed/schema.py",
+    # The sole composition that hands the published series to the sensor.
+    "sentinel/core/production.py",
 )
 
 
@@ -114,7 +120,7 @@ class TestTheForbiddenColumn:
             "closeadj is named in sentinel/ CODE outside the allowlist:\n"
             + "\n".join(offenders))
 
-    def test_the_allowlist_is_EXACTLY_these_two_paths(self):
+    def test_the_allowlist_is_EXACTLY_the_regime_transport_paths(self):
         """Pinned by EQUALITY, not membership.
 
         Adding a third permitted path cannot be done without editing this
@@ -124,10 +130,14 @@ class TestTheForbiddenColumn:
         assert CLOSEADJ_PERMITTED == (
             "sentinel/regime/spy.py",
             "sentinel/feed/domains.py",
+            "sentinel/feed/staging.py",
+            "sentinel/feed/store.py",
+            "sentinel/feed/schema.py",
+            "sentinel/core/production.py",
         )
 
-    def test_the_SPY_sensor_is_the_only_PRODUCTION_reader(self):
-        """domains.py names it to forbid it; spy.py names it to read it."""
+    def test_the_SPY_sensor_is_the_only_strategy_reader(self):
+        """Other permitted modules only transport the value to this sensor."""
         from sentinel.feed import domains as dom
 
         assert dom.SEP_FORBIDDEN_COLUMNS == ("closeadj",)

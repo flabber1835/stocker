@@ -328,6 +328,100 @@ class Controller:
         return _collect(preds, SLOW_EVIDENCE_UNAVAILABLE,
                         "SLOW_SEVERE_ENTRY", "SLOW_CONDITIONS_NOT_MET")
 
+    def step(self, *, observation: Observation, state: dict) -> tuple:
+        """Advance the production parent controller and the 1.1 ramp.
+
+        Unlike :meth:`step_with_parent`, this entry point never consumes an
+        oracle allocation.  The parent severe state is derived exclusively
+        from the supplied observation and prior durable state.
+        """
+        st = dict(state)
+        ob = observation
+        fast = self.fast_severe_evidence(ob)
+
+        ordinary = bool(st.get("ordinary_stress_active"))
+        if ob.shadow_drawdown is not None \
+                and ob.shadow_drawdown <= self.cfg.ordinary_stress_drawdown:
+            if not ordinary:
+                st.update(ordinary_stress_active=True,
+                          ordinary_stress_start_session=ob.session,
+                          ordinary_stress_start_shadow_nav=ob.shadow_nav,
+                          ordinary_stress_age=0)
+            else:
+                st["ordinary_stress_age"] = int(
+                    st.get("ordinary_stress_age", 0)) + 1
+            ordinary = True
+        else:
+            st.update(ordinary_stress_active=False,
+                      ordinary_stress_start_session=None,
+                      ordinary_stress_start_shadow_nav=None,
+                      ordinary_stress_age=0)
+            ordinary = False
+
+        slow = (self.slow_severe_evidence(ob, st) if ordinary else
+                Evidence((), False, "ORDINARY_STRESS_INACTIVE"))
+        fast_active = bool(st.get("fast_severe_active"))
+        slow_active = bool(st.get("slow_severe_active"))
+
+        healthy = self.is_healthy(ob)
+        if fast.satisfied:
+            if not fast_active:
+                fast_active = True
+                st.update(fast_severe_entry_session=ob.session,
+                          fast_severe_age=0, fast_healthy_streak=0,
+                          fast_rearm_armed=False)
+            else:
+                st["fast_severe_age"] = int(st.get("fast_severe_age", 0)) + 1
+                st["fast_healthy_streak"] = 0
+        elif fast_active:
+            st["fast_severe_age"] = int(st.get("fast_severe_age", 0)) + 1
+            st["fast_healthy_streak"] = (
+                int(st.get("fast_healthy_streak", 0)) + 1 if healthy else 0)
+            r = self.cfg.fast_recovery
+            if (st["fast_severe_age"] >= r["minimum_state_sessions"]
+                    and st["fast_healthy_streak"] >= r["confirmation_sessions"]):
+                fast_active = False
+                st["fast_healthy_streak"] = 0
+
+        if slow.satisfied:
+            if not slow_active:
+                slow_active = True
+                st.update(slow_severe_entry_session=ob.session,
+                          slow_severe_age=0, slow_healthy_streak=0)
+            else:
+                st["slow_severe_age"] = int(st.get("slow_severe_age", 0)) + 1
+                st["slow_healthy_streak"] = 0
+        elif slow_active:
+            st["slow_severe_age"] = int(st.get("slow_severe_age", 0)) + 1
+            st["slow_healthy_streak"] = (
+                int(st.get("slow_healthy_streak", 0)) + 1 if healthy else 0)
+            r = self.cfg.slow_recovery
+            if (st["slow_severe_age"] >= r["minimum_state_sessions"]
+                    and st["slow_healthy_streak"] >= r["confirmation_sessions"]):
+                slow_active = False
+                st["slow_healthy_streak"] = 0
+
+        st["fast_severe_active"] = fast_active
+        st["slow_severe_active"] = slow_active
+        parent = 0.0 if fast_active or slow_active else 1.0
+        prior = (0.0 if state.get("fast_severe_active")
+                 or state.get("slow_severe_active") else 1.0)
+        nxt, decision = self.step_with_parent(
+            observation=ob, state=st, parent_alloc=parent,
+            prior_parent_alloc=prior)
+        nxt["fast_severe_active"] = fast_active
+        nxt["slow_severe_active"] = slow_active
+        decision = Decision(
+            session=decision.session,
+            target_core_exposure=decision.target_core_exposure,
+            reason=decision.reason,
+            fast_severe_active=fast_active,
+            slow_severe_active=slow_active,
+            ramp_step=decision.ramp_step,
+            evidence={"fast": fast.to_dict(), "slow": slow.to_dict()},
+        )
+        return nxt, decision
+
     # ── the ramp ────────────────────────────────────────────────────────────
 
     def ramp_target(self, state: dict) -> float:
