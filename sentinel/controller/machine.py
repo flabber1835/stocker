@@ -116,6 +116,7 @@ class Observation:
     #: tape — see the certification module's docstring.
     spy_r20: Optional[float] = None
     spy_vol_ratio: Optional[float] = None
+    stops20: int = 0
 
 
 @dataclass(frozen=True)
@@ -235,6 +236,13 @@ class Controller:
             "fast_severe_age": 0,
             "fast_healthy_streak": 0,
             "fast_rearm_armed": True,
+            "binary_armed": True,
+            "base_fast_active": False,
+            "base_fast_age": 0,
+            "base_fast_healthy_streak": 0,
+            "base_fast_armed": True,
+            "base_stress_start_shadow_nav": None,
+            "base_stress_duration": 0,
             "slow_severe_active": False,
             "slow_severe_entry_session": None,
             "slow_severe_age": 0,
@@ -339,32 +347,87 @@ class Controller:
         ob = observation
         fast = self.fast_severe_evidence(ob)
 
-        ordinary = bool(st.get("ordinary_stress_active"))
-        if ob.shadow_drawdown is not None \
-                and ob.shadow_drawdown <= self.cfg.ordinary_stress_drawdown:
-            if not ordinary:
-                st.update(ordinary_stress_active=True,
-                          ordinary_stress_start_session=ob.session,
-                          ordinary_stress_start_shadow_nav=ob.shadow_nav,
-                          ordinary_stress_age=0)
-            else:
-                st["ordinary_stress_age"] = int(
-                    st.get("ordinary_stress_age", 0)) + 1
-            ordinary = True
-        else:
-            st.update(ordinary_stress_active=False,
-                      ordinary_stress_start_session=None,
-                      ordinary_stress_start_shadow_nav=None,
-                      ordinary_stress_age=0)
-            ordinary = False
+        dd = ob.shadow_drawdown
+        signal = fast.satisfied
+        healthy = self.is_healthy(ob)
 
-        slow = (self.slow_severe_evidence(ob, st) if ordinary else
-                Evidence((), False, "ORDINARY_STRESS_INACTIVE"))
+        # Exact BinaryStress ordering: rearm, entry, then active recovery.
+        ordinary = bool(st.get("ordinary_stress_active"))
+        if dd is not None and dd > self.cfg.ordinary_stress_drawdown:
+            st["binary_armed"] = True
+        if (dd is not None and dd <= self.cfg.ordinary_stress_drawdown
+                and st.get("binary_armed", True) and not ordinary):
+            ordinary = True
+            st.update(binary_armed=False,
+                      ordinary_stress_start_session=ob.session,
+                      ordinary_stress_start_shadow_nav=ob.shadow_nav,
+                      ordinary_stress_age=0, ordinary_healthy_streak=0)
+        elif ordinary:
+            st["ordinary_stress_age"] = int(st.get("ordinary_stress_age", 0)) + 1
+            binary_healthy = (ob.shadow_r20 is not None and ob.shadow_r20 > 0
+                              and ob.stops20 <= 2)
+            st["ordinary_healthy_streak"] = (
+                int(st.get("ordinary_healthy_streak", 0)) + 1
+                if binary_healthy else 0)
+            if (st["ordinary_stress_age"] >= 20
+                    and st["ordinary_healthy_streak"] >= 3):
+                ordinary = False
+                st["ordinary_healthy_streak"] = 0
+        st["ordinary_stress_active"] = ordinary
+
+        # Exact base-mode FastState. Binary stress blocks only entry.
+        base_fast = bool(st.get("base_fast_active"))
+        if dd is not None and dd > -0.06 and not signal:
+            st["base_fast_armed"] = True
+        if (signal and st.get("base_fast_armed", True) and not base_fast
+                and not ordinary):
+            base_fast = True
+            st.update(base_fast_armed=False, base_fast_age=0,
+                      base_fast_healthy_streak=0)
+        elif base_fast:
+            st["base_fast_age"] = int(st.get("base_fast_age", 0)) + 1
+            st["base_fast_healthy_streak"] = (
+                int(st.get("base_fast_healthy_streak", 0)) + 1 if healthy else 0)
+            if (st["base_fast_age"] >= 10
+                    and st["base_fast_healthy_streak"] >= 3):
+                base_fast = False
+                st["base_fast_healthy_streak"] = 0
+        st["base_fast_active"] = base_fast
+
+        base_stress = ordinary or base_fast
+        if base_stress:
+            if not (state.get("ordinary_stress_active")
+                    or state.get("base_fast_active")):
+                st["base_stress_start_shadow_nav"] = ob.shadow_nav
+                st["base_stress_duration"] = 1
+            else:
+                st["base_stress_duration"] = int(
+                    st.get("base_stress_duration", 0)) + 1
+        else:
+            st.update(base_stress_start_shadow_nav=None, base_stress_duration=0)
+        anchor = st.get("base_stress_start_shadow_nav")
+        stress_return = (None if not anchor or ob.shadow_nav is None else
+                         ob.shadow_nav / anchor - 1.0)
+        e = self.cfg.slow_entry
+        slow_entry = (base_stress and st["base_stress_duration"] >= e["minimum_stress_sessions"]
+                      and stress_return is not None
+                      and stress_return <= e["max_return_since_anchor"]
+                      and ob.shadow_r40 is not None
+                      and ob.shadow_r40 <= e["max_shadow_return_40"]
+                      and ob.damaged_breadth is not None
+                      and ob.damaged_breadth >= e["min_damaged_breadth"]
+                      and ob.green_breadth is not None
+                      and ob.green_breadth <= e["max_green_breadth"])
+        slow = Evidence((), slow_entry,
+                        "SLOW_SEVERE_ENTRY" if slow_entry else "SLOW_CONDITIONS_NOT_MET")
         fast_active = bool(st.get("fast_severe_active"))
         slow_active = bool(st.get("slow_severe_active"))
 
-        healthy = self.is_healthy(ob)
-        if fast.satisfied:
+        # Exact parent-mode FastState: rearm precedes entry and retrigger is
+        # impossible until dd > -6% while the shock is absent.
+        if dd is not None and dd > -0.06 and not signal:
+            st["fast_rearm_armed"] = True
+        if signal and st.get("fast_rearm_armed", True) and not fast_active:
             if not fast_active:
                 fast_active = True
                 st.update(fast_severe_entry_session=ob.session,
@@ -378,27 +441,27 @@ class Controller:
             st["fast_healthy_streak"] = (
                 int(st.get("fast_healthy_streak", 0)) + 1 if healthy else 0)
             r = self.cfg.fast_recovery
-            if (st["fast_severe_age"] >= r["minimum_state_sessions"]
+            if (st["fast_severe_age"] + 1 >= r["minimum_state_sessions"]
                     and st["fast_healthy_streak"] >= r["confirmation_sessions"]):
                 fast_active = False
                 st["fast_healthy_streak"] = 0
 
-        if slow.satisfied:
+        if slow_active:
+            st["slow_severe_age"] = int(st.get("slow_severe_age", 0)) + 1
+            st["slow_healthy_streak"] = (
+                int(st.get("slow_healthy_streak", 0)) + 1 if healthy else 0)
+            # Standalone exits on the sixth healthy observation.
+            if (st["slow_severe_age"] + 1 >= 20
+                    and st["slow_healthy_streak"] >= 6):
+                slow_active = False
+                st["slow_healthy_streak"] = 0
+        elif slow.satisfied:
             if not slow_active:
                 slow_active = True
                 st.update(slow_severe_entry_session=ob.session,
                           slow_severe_age=0, slow_healthy_streak=0)
             else:
                 st["slow_severe_age"] = int(st.get("slow_severe_age", 0)) + 1
-                st["slow_healthy_streak"] = 0
-        elif slow_active:
-            st["slow_severe_age"] = int(st.get("slow_severe_age", 0)) + 1
-            st["slow_healthy_streak"] = (
-                int(st.get("slow_healthy_streak", 0)) + 1 if healthy else 0)
-            r = self.cfg.slow_recovery
-            if (st["slow_severe_age"] >= r["minimum_state_sessions"]
-                    and st["slow_healthy_streak"] >= r["confirmation_sessions"]):
-                slow_active = False
                 st["slow_healthy_streak"] = 0
 
         st["fast_severe_active"] = fast_active
