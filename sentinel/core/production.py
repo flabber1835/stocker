@@ -115,11 +115,43 @@ def _bounded_feed_dict(raw: Mapping,
         sid = str(sid)
         if not keep and sid not in protected:
             continue
+        required = ("security_id", "ticker", "issuer_id", "split_factor")
+        missing_anchor = [name for name in required if name not in series]
+        if missing_anchor:
+            raise ValueError(
+                f"feed restart series {sid!r} has incomplete anchor: missing "
+                + ", ".join(missing_anchor))
+        security_id = series["security_id"]
+        ticker = series["ticker"]
+        issuer_id = series["issuer_id"]
+        if not isinstance(security_id, str) or not security_id.strip():
+            raise ValueError(
+                f"feed restart series {sid!r} has invalid security_id anchor")
+        if security_id != sid:
+            raise ValueError(
+                f"feed restart series key {sid!r} disagrees with security_id "
+                f"anchor {security_id!r}")
+        if not isinstance(ticker, str) or not ticker.strip():
+            raise ValueError(
+                f"feed restart series {sid!r} has invalid ticker anchor")
+        if not isinstance(issuer_id, str) or not issuer_id.strip():
+            raise ValueError(
+                f"feed restart series {sid!r} has invalid issuer_id anchor")
+        try:
+            split_factor = float(series["split_factor"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"feed restart series {sid!r} has invalid split_factor anchor"
+            ) from exc
+        if (isinstance(series["split_factor"], bool)
+                or not math.isfinite(split_factor) or split_factor <= 0):
+            raise ValueError(
+                f"feed restart series {sid!r} has invalid split_factor anchor")
         compact_series[sid] = {
-            "security_id": str(series.get("security_id", sid)),
-            "ticker": str(series.get("ticker", sid)),
-            "issuer_id": str(series.get("issuer_id", f"S:{sid}")),
-            "split_factor": float(series.get("split_factor", 1.0)),
+            "security_id": security_id,
+            "ticker": ticker,
+            "issuer_id": issuer_id,
+            "split_factor": split_factor,
             **{name: [columns[name][i] for i in keep]
                for name in _SERIES_FIELDS},
         }
@@ -515,22 +547,23 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
         last_decision=decision.to_dict(), last_evidence=evidence)
 
 
-def advance_and_persist(conn, session: str, prior: Mapping, *, load_published,
+def advance_and_persist(conn, session: str, prior: SessionState | Mapping, *,
+                        load_published,
                         controller_config: ControllerConfig,
                         strategy_identity: Mapping, **kwargs) -> dict:
     """Catch-up callback: compute only; catch_up commits envelope + cursor."""
     from sentinel.feed.publication import pinned
+    canonical_prior = SessionState.from_dict(
+        prior.to_dict() if isinstance(prior, SessionState) else prior)
     with pinned(conn) as publication:
-        prior_feed = (prior.feed if isinstance(prior, SessionState)
-                      else (prior.get("feed") or {}))
         published = load_published(
             conn, session,
             known_feed_security_ids=tuple(
-                (prior_feed.get("series") or {}).keys()))
+                canonical_prior.feed["series"].keys()))
         if published.data_version != publication.version:
             raise RuntimeError("loaded publication version differs from session pin")
         result = advance_state(
-            prior, published, controller_config=controller_config,
+            canonical_prior, published, controller_config=controller_config,
             strategy_identity=strategy_identity, **kwargs)
         return result.to_dict()
 

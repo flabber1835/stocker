@@ -230,6 +230,57 @@ def test_session_calculation_remains_inside_one_publication_pin(monkeypatch):
     assert not active
 
 
+def test_advance_and_persist_migrates_before_requesting_reentry_anchor(
+        monkeypatch):
+    from sentinel.core.production import advance_and_persist
+
+    @contextmanager
+    def fake_pin(conn):
+        yield type("Pin", (), {"version": 7})()
+
+    config, state = _fresh()
+    legacy = state.to_dict()
+    legacy["version"] = 2
+    legacy["last_processed_session"] = "S0200"
+    legacy["data_version"] = 7
+    legacy["feed"] = {
+        "session_index": 200, "seen_sessions": {"S0001": 0},
+        "series": {"RETURN": {
+            "security_id": "RETURN", "ticker": "RTRN",
+            "issuer_id": "P:RETURN", "split_factor": 2.0,
+            "sessions": ["S0001"], "session_indices": [0],
+            "signal_closes": [10.0], "raw_closes": [5.0],
+            "volumes": [1_000_000]}}}
+    legacy["last_known"] = {"RETURN": 5.0}
+    meta = {"RETURN": SecurityMeta(
+        "RETURN", "RTRN", category="Domestic Common Stock",
+        permaticker="RETURN", related_tickers=("RTRN",),
+        first_session="S0001")}
+
+    def load_published(conn, session, *, known_feed_security_ids):
+        assert session == "S0201"
+        # The raw v2 envelope still names RETURN, but migration expires it.
+        # Only the canonical feed may suppress corpus anchor reconstruction.
+        assert known_feed_security_ids == ()
+        return PublishedSession(
+            session=session, data_version=7, meta=meta,
+            sectors={"RETURN": "TECH"},
+            bars=[VendorBar(session, "RETURN", "RTRN", 5.0, 5.0,
+                            1_000_000)],
+            spy_closeadj=[100.0 + i for i in range(41)],
+            feed_anchors={"RETURN": FeedAnchor(
+                "RETURN", "RTRN", "P:RETURN", prior_split_factor=2.0)})
+
+    monkeypatch.setattr("sentinel.feed.publication.pinned", fake_pin)
+    result = advance_and_persist(
+        object(), "S0201", legacy, load_published=load_published,
+        controller_config=config, strategy_identity=state.strategy_identity)
+    series = result["feed"]["series"]["RETURN"]
+    assert series["split_factor"] == 2.0
+    assert series["signal_closes"] == [10.0]
+    assert result["last_processed_session"] == "S0201"
+
+
 def test_loaded_version_must_equal_the_pin(monkeypatch):
     from sentinel.core.production import advance_and_persist
 
@@ -403,6 +454,40 @@ def test_returning_security_without_a_corpus_anchor_fails_closed():
         assert "no pinned-corpus split/identity anchor" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("a returning security silently took a new anchor")
+
+
+def test_retained_persisted_series_requires_a_complete_valid_anchor():
+    config, state = _fresh()
+    state = _advance(state, _published(), config)
+    valid = state.to_dict()
+
+    for field_name in ("security_id", "ticker", "issuer_id", "split_factor"):
+        broken = deepcopy(valid)
+        del broken["feed"]["series"]["1"][field_name]
+        try:
+            SessionState.from_dict(broken)
+        except ValueError as exc:
+            assert "incomplete anchor" in str(exc)
+            assert field_name in str(exc)
+        else:  # pragma: no cover
+            raise AssertionError(f"missing {field_name} anchor was synthesized")
+
+    invalid = (
+        ("security_id", "other"), ("ticker", ""), ("ticker", " "),
+        ("issuer_id", ""), ("issuer_id", "\t"),
+        ("split_factor", 0.0), ("split_factor", -1.0),
+        ("split_factor", float("nan")), ("split_factor", float("inf")),
+        ("split_factor", True))
+    for field_name, value in invalid:
+        broken = deepcopy(valid)
+        broken["feed"]["series"]["1"][field_name] = value
+        try:
+            SessionState.from_dict(broken)
+        except ValueError as exc:
+            assert "anchor" in str(exc)
+        else:  # pragma: no cover
+            raise AssertionError(
+                f"invalid {field_name} anchor {value!r} was accepted")
 
 
 def test_path_dependent_securities_pin_anchors_and_marks_after_expiry():

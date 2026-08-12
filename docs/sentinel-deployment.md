@@ -381,6 +381,23 @@ would silently rebase its signal series or replace its issuer identity. A
 retained path-dependent anchor remains authoritative until that state clears;
 corpus reconstruction is only the re-entry path for an anchor already evicted.
 
+The persistence wrapper must canonicalise the prior envelope **before** asking
+the loader which current securities need corpus anchors. This sequencing is
+part of the restart contract, not an optimisation: a v2 or early-v3 envelope
+can still name a dormant series that migration will evict. Letting that raw name
+suppress corpus reconstruction and only then pruning it creates a first-upgrade
+restart failure exactly when the security returns. The loader's known-security
+set therefore comes only from the migrated, bounded feed image, and that same
+canonical envelope is the input to the session transition.
+
+Every persisted series that survives canonicalisation has a complete anchor.
+`security_id`, ticker, issuer id and cumulative split factor are required stored
+fields; the id must match the series-map key, labels must be non-empty, and the
+factor must be finite and positive. Loading never manufactures `S:<id>` or
+`1.0` for a retained rolling or path-dependent series. An incomplete legacy or
+current envelope fails closed because guessing either value can change issuer
+exclusivity or silently rebase every subsequent signal close.
+
 The boundedness contract applies to the feed restart image, `last_known`, and
 the other explicitly rolling caches. The top-level Wealth Core ledger is an
 immutable event history and intentionally grows when economic events occur.
@@ -400,10 +417,12 @@ load by deterministic pruning because it contains the same feed fields plus
 older observations and dormant anchors/marks; its embedded plan copies are
 removed at the same boundary. Early v3 envelopes are canonicalised by the same
 retention pass, so deploying the cardinality bound requires no parallel state or
-one-off rewrite. The migration changes storage shape only and must prove
-continuation parity against an uninterrupted run. V1 remains explicitly refused
-because it lacks lifetime shadow-peak and completed-stop event memory and cannot
-be repaired from a short history window.
+one-off rewrite. Complete anchors are a migration precondition rather than a
+field-defaulting opportunity. The migration changes storage shape only and must
+prove continuation parity against an uninterrupted run, including the case
+where a just-evicted security returns on the first upgraded session. V1 remains
+explicitly refused because it lacks lifetime shadow-peak and completed-stop
+event memory and cannot be repaired from a short history window.
 
 ## 9. Price-domain validation must be Wealth-Core-specific
 
