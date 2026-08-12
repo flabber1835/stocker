@@ -24,12 +24,29 @@ is checked against the handoff's own `SHA256SUMS.txt` at load. That turns "we
 copied it correctly" from a claim into a verified fact, and it makes an edit to
 the frozen rule a loud failure rather than a silent restrategy.
 
-## What is deliberately NOT here
+## What is deliberately NOT here — and why that is a boundary, not a gap
 
-The security-level damaged/green classifier. `09_GAPS/MISSING_OR_UNRECOVERED.md`
-records it as NOT RECOVERABLE, and the frozen rule's own `breadth` block says
-`DO NOT RE-INFER`. Breadth reaches the controller as an OBSERVATION; anything
-that computes it is a separate component under its own gate.
+The security-level damaged/green classifier. Note what that does NOT mean: the
+classifier is known. The handoff bundle of 2026-08-09 did not contain it, which
+is why this file's frozen `breadth` block still reads `NOT FOUND IN RETAINED
+ARTIFACTS` / `DO NOT RE-INFER` — that JSON is a hash-verified artefact of that
+date and is never rewritten to match later knowledge. Later the same day the
+classifier was recovered independently and preserved here:
+
+```text
+docs/sentinel-reference-implementation/sentinel_1p1_standalone.py
+docs/sentinel-breadth-reconstruction/recovered_breadth_classifier.py
+```
+
+Its exact GREEN/RED/AMBER rules — including the age-63 GREEN exemption and
+AMBER's sector escalation — are transcribed in
+`docs/sentinel-controller-certification.md` §7a. Sentinel's `damaged` and
+`green` are therefore deterministically computable from the Wealth Core shadow.
+
+The classifier is absent from THIS module because this module loads thresholds.
+Breadth generation is a separate component that owes its own parity proof
+against the corrected tape; breadth reaches the controller as an OBSERVATION for
+that separation, not because the logic is missing.
 """
 from __future__ import annotations
 

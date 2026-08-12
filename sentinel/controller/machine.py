@@ -9,17 +9,27 @@ the same prior state it returns the same next state and the same exposure,
 forever — which is what makes it certifiable against a 5,032-session tape at
 all, and what lets `catchup.advance_state` drive it inside a transaction.
 
-## Breadth is an INPUT, and that is not a style choice
+## Breadth is an INPUT, and that is a module boundary
 
-`09_GAPS/MISSING_OR_UNRECOVERED.md` records the security-level damaged/green
-classifier as NOT RECOVERABLE — only the daily aggregate tape survives — and the
-frozen rule's own `breadth` block says `DO NOT RE-INFER`. A controller that
-computed breadth internally could therefore never be certified: its inputs would
-be a reconstruction, and every threshold in both severe paths reads them.
+A controller that computed breadth internally would fold two separately
+certifiable things — the per-security classifier and the state machine — into
+one artefact, and neither could then be falsified alone. Taking breadth as an
+observation keeps `step` a pure function of (observation, state): exactly
+certifiable against the frozen transition tape, testable with hand-built
+sequences, and drivable by `catchup.advance_state` with no database.
 
-Taking breadth as an observation makes this module exactly certifiable today and
-leaves the classifier as a separately gated component. It also means the whole
-state machine runs with no database.
+**This is not because the classifier is unknown.** The 2026-08-09 handoff bundle
+did not contain it — `09_GAPS/MISSING_OR_UNRECOVERED.md` and the frozen rule's
+`breadth` block both record that handoff-era status, and both are preserved as
+written. It was recovered independently later the same day and is in the
+repository (`docs/sentinel-reference-implementation/sentinel_1p1_standalone.py`;
+rules transcribed in `docs/sentinel-controller-certification.md` §7a), so
+`damaged` and `green` can be computed deterministically from the Wealth Core
+shadow. The breadth engine is a separate component and owes its own parity proof
+against the corrected tape.
+
+The frozen breadth and transition tapes are certification and regression
+evidence. They are not runtime inputs: nothing on the live path reads one.
 
 ## Evidence records, not boolean expressions
 

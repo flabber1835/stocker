@@ -1,5 +1,34 @@
 # Sentinel 1.1 breadth classifier — forensic reconstruction
 
+> **CURRENT STATUS NOTE (added later; the report below is unchanged).**
+>
+> This report is the FORENSIC PASS of 2026-08-09, written before the classifier
+> was recovered. Its conclusions — "not recovered", a GREEN rule exact on only
+> 90.27% of sessions, a one-sided AMBER shortfall, an escalation term still to
+> be found — describe what was known at that hour. They are **superseded** and
+> are retained because the residual analysis is what makes the recovered rule
+> credible: both terms it predicted must exist turned out to be exactly the two
+> that were missing.
+>
+> The exact classifier landed the same day and is in this directory as
+> `recovered_breadth_classifier.py` (and, identically, under
+> `docs/sentinel-reproduction-kit/04_EXACT_BREADTH_RECOVERY/`). It supplies the
+> **age-63 GREEN exemption** and **AMBER's sector escalation**, and reproduces
+> the frozen breadth counts exactly: **7,061 / 7,061 sessions on both GREEN and
+> AMBER/damaged over 160,715 holding-days**, mean absolute daily count error
+> 0.000. `docs/sentinel-controller-certification.md` §7a transcribes the rules.
+>
+> `reconstruction_metrics.json` beside this file belongs to THIS report, not to
+> the recovery — its `green_candidate` / `damaged_core_candidate` fields are the
+> superseded approximations measured below.
+>
+> Two things below still stand. The DENOMINATOR finding (position-panel row
+> count, not the health CSV's `holdings` column) is confirmed by the recovered
+> source. And the "Recommended implementation rule" still holds with its reason
+> updated: the `UNCERTIFIED_BREADTH` gate is now about **our reimplementation**
+> not yet having been proven against the tape, not about the rule being unknown.
+> `priority` remains genuinely unrecovered — Sentinel does not consume it.
+
 ## Bottom line
 
 The original missing function `position_features(g, cfg)` has **not** been recovered byte-for-byte, but the forensic reconstruction materially narrows the gap.

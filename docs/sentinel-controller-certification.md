@@ -235,8 +235,10 @@ agreement is evidence. If it is aimed at it, the agreement is a tautology.
 
 ### 7a. The recovered breadth classifier IS in the repository
 
-`09_GAPS` records the classifier as NOT FOUND, and that was true of the handoff
-bundle. It is present in `docs/sentinel-reference-implementation/
+`09_GAPS` recorded the classifier as NOT FOUND. That was true of the handoff
+bundle and only of it; the entry now carries a status note pointing here. The
+classifier was recovered independently on 2026-08-09 and is present in
+`docs/sentinel-reference-implementation/
 sentinel_1p1_standalone.py`, labelled in the source as *"Exact recovered breadth
 classifier, computed directly from current shadow holdings"*:
 

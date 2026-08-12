@@ -29,7 +29,9 @@ at `docs/sentinel-handoff/`. It answers three of the four open questions in §8
 and CORRECTS a material error in the original draft: **Sentinel 1.1 is NOT a
 binary controller.** See §7a. Read `docs/sentinel-handoff/00_README/` first —
 `FROZEN_SENTINEL_1P1_RULE.json` is the authoritative parameter set and
-`09_GAPS/MISSING_OR_UNRECOVERED.md` states what is still missing.
+`09_GAPS/MISSING_OR_UNRECOVERED.md` states what was missing **from that
+bundle** — its item 1, the breadth classifier, has since been recovered and
+carries a status note saying so.
 
 **LATER THE SAME DAY — the missing breadth classifier and a full standalone
 reference implementation arrived.** §8 Q2 no longer reads "NOT FOUND". The
@@ -640,12 +642,17 @@ you get a Sentinel that merely resembles 1.1") is about. The digest check turns
 step(observation, state) -> (state, decision)
 ```
 
-No IO, no clock, no corpus access. This is not stylistic. `09_GAPS` records that
-the security-level damaged/green classifier is **NOT RECOVERABLE** — only the
-daily aggregate tape survives — so a controller that computed breadth internally
-could not be certified at all. Taking breadth as an observation makes the
-controller exactly certifiable today against the frozen tape, and leaves the
-classifier as a separately gated component (UNCERTIFIED_BREADTH stands).
+No IO, no clock, no corpus access. This is not stylistic, and it is **not**
+forced by any missing logic. The classifier is known — recovered 2026-08-09 and
+in the repository (§8 Q2 below, and
+`docs/sentinel-controller-certification.md` §7a) — so breadth IS computable
+deterministically from the Wealth Core shadow. Breadth is an observation because
+the classifier and the state machine are two separately certifiable artefacts:
+fused into one module, neither could be falsified on its own. Split, the
+controller is exactly certifiable against the frozen transition tape today,
+while the breadth engine carries its own parity obligation against the corrected
+tape (deployment doc §12 item F). That obligation is what `UNCERTIFIED_BREADTH`
+names — an unproven reimplementation, not an unknown rule.
 
 It also means the whole state machine is testable without a database, and that
 `catchup.advance_state` can drive it: the state is a JSON-round-trippable dict,
@@ -721,8 +728,10 @@ The frozen harness arrived 2026-08-09 (`docs/sentinel-handoff/`). Answers below.
 
 ```text
 Q1  scalar or share-level?     ANSWERED: SCALAR
-Q2  breadth definitions        SUPPLIED, claimed exact, NOT VERIFIED IN THIS
-                               REPO. The UNCERTIFIED_BREADTH gate STANDS
+Q2  breadth definitions        ANSWERED: the classifier is RECOVERED and is in
+                               the repo. What is still owed is OUR engine's
+                               parity against the corrected tape, which is what
+                               the UNCERTIFIED_BREADTH gate now covers
 Q3  recovery episode semantics MOOT (follows from Q1)
 Q4  how live NAV is computed   ANSWERED: return-series overlay, so the
                                execution claim is BOUNDED-ERROR, not exact
@@ -915,7 +924,11 @@ is a candidate for that test, not a pass of it.
 
 ---
 
-**Original Q2 statement, retained:**
+**Original Q2 statement, retained VERBATIM as the handoff-era record. It is
+superseded — the classifier was recovered later that same day (above) and is in
+the repository; the "no controller logic may be written" rule at the end was
+retired with it. Nothing below is a current statement of what is known.**
+
 `09_GAPS/MISSING_OR_UNRECOVERED.md`: the security-level damaged/green
 classifier is *"NOT FOUND in the retained artifacts"*. What survived is the
 **aggregate daily tape**, which is enough to certify against but not enough to
