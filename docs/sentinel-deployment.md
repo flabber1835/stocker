@@ -328,6 +328,57 @@ snapshot/replay contract — never inferred from price rows. Inferring them woul
 produce a fresh, looser peak on every restart: a risk control failing silently
 toward less protection.
 
+### 8a. Production snapshots persist a bounded restart image, not feed history
+
+`SessionState` is the authoritative one-session production envelope. Its feed
+member exists only to continue the next deterministic calculation; it is not a
+second copy of the versioned Sharadar corpus and must not grow as sessions pass.
+
+The production snapshot schema therefore persists an explicitly bounded feed
+restart image:
+
+```text
+global session index            absolute and monotonic across restarts
+recent session/index map        current plus exactly 126 prior market sessions
+per-security compact anchor     security id, current ticker, current issuer id,
+                                cumulative split factor
+per-security rolling evidence   observations whose GLOBAL index is inside that
+                                same 127-session window: session, index, signal
+                                close, raw close and volume
+```
+
+The 127-session bound is derived rather than tuned. Wealth Core needs closes
+from `t-126` through `t` inclusive for eligibility, momentum and formation
+volatility. That window strictly contains the 20-session ADV input and
+Sentinel's 21/63-session holding breadth inputs. Controller NAV, breadth and
+completed-stop histories remain in their already-bounded top-level fields; SPY
+inputs remain published session inputs. No production calculation reads an
+older feed observation.
+
+Expiration is by **global market-session index**, not by a security's row count.
+At a boundary, the observation at `t-126` remains and `t-127` is discarded. A
+security that stops printing eventually retains no rolling observations, but
+its compact anchor remains: discarding the cumulative split factor would rebase
+its signal series if it printed again, and discarding its current ticker/issuer
+identity would make restart continuation differ from uninterrupted execution.
+Intrinsic eligibility metadata continues to come from the pinned published
+corpus; the snapshot retains the path-dependent current identity carried by the
+series.
+
+The evidence record is diagnostic, not authoritative state. `last_evidence`
+stores the observation, breadth inputs and a whitelisted plan summary, but never
+the plan's `state_after` or `pending_after` copies. Wealth Core state and pending
+orders exist exactly once, in the envelope's top-level `wealth_core` and
+`pending` fields.
+
+Snapshot schema v3 introduces this representation. A v2 envelope is migrated on
+load by deterministic pruning because it contains the same feed fields plus
+older observations; its embedded plan copies are removed at the same boundary.
+The migration changes storage shape only and must prove continuation parity
+against an uninterrupted run. V1 remains explicitly refused because it lacks
+lifetime shadow-peak and completed-stop event memory and cannot be repaired from
+a short history window.
+
 ## 9. Price-domain validation must be Wealth-Core-specific
 
 Do not assume live's Alpha-Vantage-adjusted `daily_prices` is equivalent to the

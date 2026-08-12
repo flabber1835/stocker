@@ -1,5 +1,6 @@
 from copy import deepcopy
 from contextlib import contextmanager
+import json
 from types import SimpleNamespace
 
 from stock_strategy_shared.wealth_core.adapter import PendingOrder
@@ -36,6 +37,44 @@ def _advance(state, published, config):
                          strategy_identity=state.strategy_identity)
 
 
+def _synthetic_published(number: int, version: int = 7) -> PublishedSession:
+    """One fixed-width session from a production-shaped, split-bearing feed."""
+    session = f"S{number:04d}"
+    meta = {"1": SecurityMeta(
+        "1", "AAA", category="Domestic Common Stock", permaticker="1",
+        related_tickers=("AAA",), first_session="S0001")}
+    split = 2.0 if number == 50 else 1.0
+    raw_close = 10.0 if number < 50 else 5.0
+    return PublishedSession(
+        session=session, data_version=version, meta=meta,
+        sectors={"1": "TECH"},
+        bars=[VendorBar(session, "1", "AAA", raw_close, raw_close,
+                        1_000_000, split_ratio=split)],
+        spy_closeadj=[100.0 + i + (0.2 if i % 3 == 0 else 0.0)
+                      for i in range(41)])
+
+
+def _serialized_size(state: SessionState) -> int:
+    return len(json.dumps(
+        state.to_dict(), sort_keys=True, separators=(",", ":")).encode())
+
+
+def _run_synthetic(count: int, *, reload_every: int | None = None):
+    config, state = _fresh()
+    decisions = []
+    plan_hashes = []
+    measurements = {0: _serialized_size(state)}
+    for number in range(1, count + 1):
+        if reload_every and number > 1 and (number - 1) % reload_every == 0:
+            state = SessionState.from_dict(json.loads(json.dumps(state.to_dict())))
+        state = _advance(state, _synthetic_published(number), config)
+        decisions.append(deepcopy(state.last_decision))
+        plan_hashes.append(deepcopy(state.last_evidence["wealth_core"]["hashes"]))
+        if number in (256, 1_000):
+            measurements[number] = _serialized_size(state)
+    return state, decisions, plan_hashes, measurements
+
+
 def test_one_session_advance_persists_complete_authoritative_envelope():
     config, before = _fresh()
     after = _advance(before, _published(), config)
@@ -48,6 +87,8 @@ def test_one_session_advance_persists_complete_authoritative_envelope():
     assert after.controller["last_session"] == "2026-08-10"
     assert after.last_decision["session"] == "2026-08-10"
     assert after.last_evidence["observation"]["spy_r20"] is not None
+    assert "state_after" not in after.last_evidence["wealth_core"]
+    assert "pending_after" not in after.last_evidence["wealth_core"]
 
 
 def test_reload_is_identical_and_does_not_alias_prior_state():
@@ -226,3 +267,88 @@ def test_completed_stops_keep_multiplicity_for_exactly_twenty_controller_session
 
     state = _advance(state, _published("2026-01-21"), config)
     assert state.last_evidence["observation"]["stops20"] == 0
+
+
+def test_serialized_state_reaches_a_bounded_plateau_through_session_1000():
+    state, _, _, sizes = _run_synthetic(1_000)
+    series = state.feed["series"]["1"]
+
+    assert len(state.feed["seen_sessions"]) == 127
+    assert all(len(series[field]) == 127 for field in (
+        "sessions", "session_indices", "signal_closes", "raw_closes", "volumes"))
+    assert sizes[0] < sizes[256]
+    # Integer index width changes at decimal boundaries, but retained object
+    # count and economic evidence are already flat.  This byte band catches
+    # even one extra session, while allowing that bounded representation detail.
+    assert abs(sizes[1_000] - sizes[256]) <= 512
+    assert sizes[1_000] < sizes[256] * 1.05
+    print("serialized_sizes "
+          f"before_warmup={sizes[0]} "
+          f"plateau_session_256={sizes[256]} "
+          f"session_1000={sizes[1_000]}")
+
+
+def test_restart_window_keeps_t_minus_126_and_discards_t_minus_127():
+    config, state = _fresh()
+    for number in range(1, 201):
+        state = _advance(state, _synthetic_published(number), config)
+
+    series = state.feed["series"]["1"]
+    assert state.feed["session_index"] == 199
+    assert series["sessions"][0] == "S0074"       # t - 126
+    assert series["session_indices"][0] == 73
+    assert "S0073" not in series["sessions"]      # t - 127
+    assert "S0073" not in state.feed["seen_sessions"]
+    assert len(series["sessions"]) == 127
+    # The session carrying the 2:1 split has expired, but its path-dependent
+    # factor and current security/issuer identity remain restart anchors.
+    assert "S0050" not in series["sessions"]
+    assert series["split_factor"] == 2.0
+    assert series["security_id"] == "1"
+    assert series["ticker"] == "AAA"
+    assert series["issuer_id"] == "P:1"
+
+
+def test_repeated_serialization_cycles_preserve_every_production_output():
+    uninterrupted, decisions_a, hashes_a, _ = _run_synthetic(220)
+    restarted, decisions_b, hashes_b, _ = _run_synthetic(220, reload_every=7)
+
+    assert uninterrupted.wealth_core == restarted.wealth_core
+    assert uninterrupted.pending == restarted.pending
+    assert uninterrupted.ledger == restarted.ledger
+    assert uninterrupted.controller == restarted.controller
+    assert uninterrupted.last_decision == restarted.last_decision
+    assert uninterrupted.last_evidence == restarted.last_evidence
+    assert decisions_a == decisions_b
+    assert hashes_a == hashes_b
+    assert uninterrupted.state_hash == restarted.state_hash
+
+
+def test_version_two_envelope_migrates_by_pruning_only_redundant_history():
+    config, current = _fresh()
+    for number in range(1, 201):
+        current = _advance(current, _synthetic_published(number), config)
+
+    legacy = deepcopy(current.to_dict())
+    legacy["version"] = 2
+    legacy["feed"]["seen_sessions"]["S0073"] = 72
+    old = legacy["feed"]["series"]["1"]
+    old["sessions"].insert(0, "S0073")
+    old["session_indices"].insert(0, 72)
+    old["signal_closes"].insert(0, 10.0)
+    old["raw_closes"].insert(0, 5.0)
+    old["volumes"].insert(0, 1_000_000)
+    legacy["last_evidence"]["wealth_core"]["state_after"] = {"recursive": True}
+    legacy["last_evidence"]["wealth_core"]["pending_after"] = [{"copy": True}]
+
+    migrated = SessionState.from_dict(legacy)
+    plan_evidence = migrated.last_evidence["wealth_core"]
+    assert migrated.version == 3
+    assert migrated.feed == current.feed
+    assert "state_after" not in plan_evidence
+    assert "pending_after" not in plan_evidence
+
+    a = _advance(current, _synthetic_published(201), config)
+    b = _advance(migrated, _synthetic_published(201), config)
+    assert a.to_dict() == b.to_dict()
+    assert a.state_hash == b.state_hash

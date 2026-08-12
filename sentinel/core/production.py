@@ -18,6 +18,7 @@ from stock_strategy_shared.wealth_core.engine import Reason, WealthCoreConfig
 from stock_strategy_shared.wealth_core.feed import Feed, SecurityMeta, SecuritySeries, VendorBar
 from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
 from stock_strategy_shared.wealth_core.live import plan_session
+from stock_strategy_shared.wealth_core.signals import REQUIRED_CLOSES
 from stock_strategy_shared.wealth_core.state import PortfolioState
 from stock_strategy_shared.wealth_core.terminal import TerminalTerms
 
@@ -26,14 +27,81 @@ from sentinel.controller.frozen_rule import ControllerConfig
 from sentinel.controller.machine import Controller, Observation
 from sentinel.regime.spy import spy_regime
 
-ENVELOPE_VERSION = 2
+ENVELOPE_VERSION = 3
+LEGACY_ENVELOPE_VERSION = 2
+FEED_RESTART_SESSIONS = REQUIRED_CLOSES
 REQUIRED_IDENTITY_FIELDS = frozenset({
     "strategy", "controller_rule_sha256", "wealth_core_source_sha256"})
+
+_SERIES_FIELDS = (
+    "sessions", "session_indices", "signal_closes", "raw_closes", "volumes")
+_PLAN_EVIDENCE_FIELDS = (
+    "execution_model", "session", "intents", "blocked", "block_reason",
+    "resolved_equity", "estimated_equity", "hashes", "warnings")
 
 
 def _hash(value) -> str:
     blob = json.dumps(value, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode()).hexdigest()
+
+
+def _bounded_feed_dict(raw: Mapping) -> dict:
+    """Return the schema-v3 feed restart image.
+
+    The absolute split factor and current identity are anchors.  Observation
+    arrays are parallel and retain exactly t-126..t by GLOBAL session index;
+    older rows are corpus history, not production state.
+    """
+    session_index = int(raw.get("session_index", -1))
+    cutoff = session_index - FEED_RESTART_SESSIONS + 1
+    seen: dict[str, int] = {}
+    for session, index in (raw.get("seen_sessions") or {}).items():
+        index = int(index)
+        if index > session_index:
+            raise ValueError("feed restart state contains a future session index")
+        if index >= cutoff:
+            seen[str(session)] = index
+    seen = dict(sorted(seen.items(), key=lambda item: (item[1], item[0])))
+
+    compact_series: dict[str, dict] = {}
+    for sid, value in sorted((raw.get("series") or {}).items()):
+        series = dict(value)
+        columns = {name: list(series.get(name) or []) for name in _SERIES_FIELDS}
+        lengths = {len(column) for column in columns.values()}
+        if len(lengths) != 1:
+            raise ValueError(
+                f"feed restart series {sid!r} has misaligned observation arrays")
+        keep = [i for i, index in enumerate(columns["session_indices"])
+                if int(index) >= cutoff]
+        if any(int(columns["session_indices"][i]) > session_index for i in keep):
+            raise ValueError(
+                f"feed restart series {sid!r} contains a future observation")
+        compact_series[str(sid)] = {
+            "security_id": str(series.get("security_id", sid)),
+            "ticker": str(series.get("ticker", sid)),
+            "issuer_id": str(series.get("issuer_id", f"S:{sid}")),
+            "split_factor": float(series.get("split_factor", 1.0)),
+            **{name: [columns[name][i] for i in keep]
+               for name in _SERIES_FIELDS},
+        }
+    return {"session_index": session_index, "seen_sessions": seen,
+            "series": compact_series}
+
+
+def _bounded_evidence(raw: Mapping | None) -> dict | None:
+    """Strip recursive plan state from diagnostic evidence.
+
+    The whitelist is intentional: a future plan field does not become durable
+    production state merely because it was added to ``LiveSessionPlan``.
+    """
+    if raw is None:
+        return None
+    evidence = dict(raw)
+    plan = evidence.get("wealth_core")
+    if isinstance(plan, Mapping):
+        evidence["wealth_core"] = {
+            key: plan[key] for key in _PLAN_EVIDENCE_FIELDS if key in plan}
+    return evidence
 
 
 @dataclass
@@ -72,16 +140,26 @@ class SessionState:
             strategy_identity=dict(strategy_identity))
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        raw = asdict(self)
+        raw["feed"] = _bounded_feed_dict(raw["feed"])
+        raw["last_evidence"] = _bounded_evidence(raw["last_evidence"])
+        raw["version"] = ENVELOPE_VERSION
+        return raw
 
     @classmethod
     def from_dict(cls, raw: Mapping) -> "SessionState":
-        if int(raw.get("version", 0)) == 1:
+        version = int(raw.get("version", 0))
+        if version == 1:
             raise ValueError("production state version 1 cannot be migrated safely: "
                              "lifetime shadow peak and trailing-stop history are absent")
-        if int(raw.get("version", 0)) != ENVELOPE_VERSION:
+        if version not in (LEGACY_ENVELOPE_VERSION, ENVELOPE_VERSION):
             raise ValueError(f"unsupported production state version {raw.get('version')!r}")
-        state = cls(**dict(raw))
+        migrated = dict(raw)
+        migrated["feed"] = _bounded_feed_dict(migrated.get("feed") or {})
+        migrated["last_evidence"] = _bounded_evidence(
+            migrated.get("last_evidence"))
+        migrated["version"] = ENVELOPE_VERSION
+        state = cls(**migrated)
         missing = REQUIRED_IDENTITY_FIELDS - set(state.strategy_identity)
         if missing:
             raise ValueError("persisted strategy identity is incomplete: "
@@ -159,9 +237,10 @@ def _feed_from_dict(raw: Mapping, meta, elig) -> Feed:
 
 
 def _feed_to_dict(feed: Feed) -> dict:
-    return {"session_index": feed._session_index,
-            "seen_sessions": dict(feed._seen_sessions),
-            "series": {sid: asdict(s) for sid, s in sorted(feed.series.items())}}
+    return _bounded_feed_dict({
+        "session_index": feed._session_index,
+        "seen_sessions": dict(feed._seen_sessions),
+        "series": {sid: asdict(s) for sid, s in sorted(feed.series.items())}})
 
 
 def _return(series: SecuritySeries, horizon: int) -> float | None:
@@ -285,7 +364,9 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
     evidence = {"observation": asdict(ob), "breadth": {
         "denominator": breadth.denominator, "greens": breadth.greens,
         "ambers": breadth.ambers, "reds": breadth.reds,
-        "holdings": [asdict(h) for h in held]}, "wealth_core": plan.to_dict()}
+        "holdings": [asdict(h) for h in held]},
+        "wealth_core": _bounded_evidence(
+            {"wealth_core": plan.to_dict()})["wealth_core"]}
     return SessionState(
         wealth_core=state.to_dict(), pending=[p.to_dict() for p in pending],
         ledger=ledger.to_dict(), last_known=last_known, feed=_feed_to_dict(feed),
