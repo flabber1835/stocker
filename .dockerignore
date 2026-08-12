@@ -30,6 +30,13 @@ docs/
 !docs/sentinel-handoff/02_SENTINEL_1P1_FROZEN_ORACLE/
 !docs/sentinel-handoff/04_BREADTH_ORACLES/
 
+# The recovered breadth classifier, read by the TEST image only —
+# `test_breadth_classifier.py` differentially checks `sentinel/breadth/` against
+# it. The production module reads neither directory at runtime, so these are
+# absent from the runtime image and must stay absent.
+!docs/sentinel-breadth-reconstruction/
+!docs/sentinel-reference-implementation/
+
 # Runtime artifacts (written at runtime, not part of any build)
 artifacts/
 

@@ -44,9 +44,16 @@ AMBER's sector escalation — are transcribed in
 `green` are therefore deterministically computable from the Wealth Core shadow.
 
 The classifier is absent from THIS module because this module loads thresholds.
-Breadth generation is a separate component that owes its own parity proof
-against the corrected tape; breadth reaches the controller as an OBSERVATION for
+Breadth generation is a separate component — `sentinel/breadth/`, implemented
+and falsified offline, with its raw-corpus parity against the corrected lineage
+still owed to the NAS run. Breadth reaches the controller as an OBSERVATION for
 that separation, not because the logic is missing.
+
+Its thresholds are NOT in this JSON and could not be: the frozen rule's `breadth`
+block carries oracle paths and the re-inference warning, never the predicates. So
+`sentinel/breadth/` transcribes its constants from the recovered source instead,
+and pins them there the only way available — a randomised differential test
+against the stored artefact, which fails offline on any semantic drift.
 """
 from __future__ import annotations
 

@@ -307,6 +307,8 @@ authoritative; §8's prose is orientation.**
 1  implement the recovered classifier from the STANDALONE SOURCE, not from any
    prose summary, and reproduce the frozen breadth tape before anything
    downstream is accepted — the frozen rule's own precondition
+   [IMPLEMENTED offline as sentinel/breadth/. The TAPE half is still owed —
+    see 7d below for exactly which half is done]
 2  compute the SPY regime series: closeadj, rolling std of DAILY RETURNS,
    ddof=1, vol5/vol20 - 1
 3  narrow the closeadj guard to a named regime-data module, with its own test
@@ -318,3 +320,39 @@ authoritative; §8's prose is orientation.**
 The `decide` seam stays empty until step 4 passes. Wiring a driver before the
 upstream signal chain is certified would mean choosing an implementation to fill
 it on the strength of the part that is not yet proven.
+
+### 7d. Step 1's offline half is DONE: `sentinel/breadth/`
+
+The classifier is transcribed from `sentinel_1p1_standalone.py:526-546` into a
+pure stdlib-only module in the appliance. Be precise about what that buys,
+because the two halves of step 1 are easy to collapse into one claim:
+
+```text
+DONE, and falsified offline
+  the predicates, transcribed from the source and not from prose
+  every strict-vs-inclusive boundary, tested AT the threshold and one step
+    across it: own_dd 0 and -0.075, r21 0 and -0.03, red's -0.10, r63 0,
+    age 62 vs 63, sector stress exactly 0.50, escalation with green true/false
+  the age-63 exemption as a WAIVER — r63 absent must still be green at 62
+  the len(held) denominator, and the empty book as 0.0/0.0 rather than NaN
+  the float32 lag-close contract, with a fixture that FLIPS a classification
+    under float64 (identical current and lag price: r21 == 0 -> not green,
+    r21 == +1.5e-8 -> green)
+  a randomised 300-book differential against the stored pandas artefact, with
+    values clustered ON the thresholds rather than uniformly sampled
+
+NOT DONE, and not claimable until the NAS run
+  reproducing the 7,061-session breadth tape from the raw Sharadar corpus
+  the corrected-lineage comparison that step 4 makes on a DECISION basis
+```
+
+Every item in the first block was mutation-checked: the semantics were broken
+one at a time — age exemption removed, each comparison flipped strict/inclusive,
+the escalation dropped, `AND NOT green` dropped, float32 replaced by float64,
+the denominator changed, each threshold constant moved — and the suite failed in
+every case. A guard nobody has watched fail is a guard nobody has tested.
+
+What the module deliberately does NOT do: read a tape, read the corpus, read
+anything under `docs/`, or fall back to a frozen output. A fallback is how a
+reconstruction quietly becomes a replay, and there is a test asserting the
+absence rather than a comment promising it.

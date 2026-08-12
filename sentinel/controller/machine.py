@@ -24,9 +24,24 @@ did not contain it — `09_GAPS/MISSING_OR_UNRECOVERED.md` and the frozen rule's
 written. It was recovered independently later the same day and is in the
 repository (`docs/sentinel-reference-implementation/sentinel_1p1_standalone.py`;
 rules transcribed in `docs/sentinel-controller-certification.md` §7a), so
-`damaged` and `green` can be computed deterministically from the Wealth Core
-shadow. The breadth engine is a separate component and owes its own parity proof
-against the corrected tape.
+`damaged` and `green` are computed deterministically from the Wealth Core
+shadow. That engine is now IMPLEMENTED, as `sentinel/breadth/` — a pure
+stdlib-only module whose `breadth_observation_fields()` produces exactly the two
+fields this dataclass reads.
+
+Three statuses, and they are not the same one:
+
+```text
+classifier logic        RECOVERED     exact, two independently agreeing sources
+sentinel/breadth/       IMPLEMENTED   transcribed from the standalone source and
+                                      falsified offline, including a randomised
+                                      differential against the stored artefact
+raw-corpus parity       REQUIRES NAS  the 7,061-session reproduction against the
+                                      corrected lineage is a separate step
+```
+
+So the seam exists and the chain is assemblable, but `decide` stays empty until
+the NAS run certifies it end to end (certification §7c).
 
 The frozen breadth and transition tapes are certification and regression
 evidence. They are not runtime inputs: nothing on the live path reads one.

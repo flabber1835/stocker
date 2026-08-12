@@ -138,6 +138,15 @@ reproducing the CORRECTED tape
 re-deriving that tape from the raw corpus rather than trusting a shipped CSV.
 See `docs/sentinel-reference-implementation/PROVENANCE.md`.
 
+**The engine itself now exists — `sentinel/breadth/` — which changes what is
+owed, not whether anything is.** It is transcribed from the standalone source,
+boundary-falsified, mutation-checked and cross-checked by a randomised
+differential against the stored artefact on every test run. None of that is
+tape reproduction: it proves the transcription faithful, not the lineage
+reproduced. Both (a) and (b) still require the NAS and the authoritative corpus,
+and `UNCERTIFIED_BREADTH` stands until they land. See
+`docs/sentinel-controller-certification.md` §7d for the exact split.
+
 `priority` is **not** an open Sentinel item, and it is worth being precise about
 what it is instead. The historical `position_features()` helper returned more
 than Sentinel consumes; `priority` was a per-name cohort ranking in that return

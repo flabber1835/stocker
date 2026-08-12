@@ -654,6 +654,19 @@ while the breadth engine carries its own parity obligation against the corrected
 tape (deployment doc §12 item F). That obligation is what `UNCERTIFIED_BREADTH`
 names — an unproven reimplementation, not an unknown rule.
 
+**The engine now exists: `sentinel/breadth/`.** Pure, stdlib-only, no corpus and
+no `docs/` read at runtime. Keep the three statuses distinct when citing it:
+
+```text
+classifier logic     RECOVERED     exact, two independently agreeing sources
+sentinel/breadth/    IMPLEMENTED   transcribed from the standalone source,
+                                   boundary-falsified, and cross-checked by a
+                                   randomised differential against the stored
+                                   artefact on every test run
+raw-corpus parity    REQUIRES NAS  UNCERTIFIED_BREADTH still stands. Offline
+                                   falsification is not tape reproduction
+```
+
 It also means the whole state machine is testable without a database, and that
 `catchup.advance_state` can drive it: the state is a JSON-round-trippable dict,
 which is the constraint the catch-up seam already enforces.

@@ -83,6 +83,14 @@ COPY docs/sentinel-handoff/00_README/ /work/docs/sentinel-handoff/00_README/
 COPY docs/sentinel-handoff/02_SENTINEL_1P1_FROZEN_ORACLE/ /work/docs/sentinel-handoff/02_SENTINEL_1P1_FROZEN_ORACLE/
 COPY docs/sentinel-handoff/04_BREADTH_ORACLES/ /work/docs/sentinel-handoff/04_BREADTH_ORACLES/
 COPY docs/sentinel-handoff/00_README/ /work/repo/docs/sentinel-handoff/00_README/
+# THE RECOVERED BREADTH CLASSIFIER, for the differential test only. The
+# production module `sentinel/breadth/` is pure and reads neither of these at
+# runtime; `test_breadth_classifier.py` imports the pandas artefact and compares
+# it against the transcription on randomised books, so a semantic drift fails
+# offline instead of surviving to the NAS run. Test-side root only — nothing
+# under /work/repo/sentinel may reach them.
+COPY docs/sentinel-breadth-reconstruction/ /work/docs/sentinel-breadth-reconstruction/
+COPY docs/sentinel-reference-implementation/ /work/docs/sentinel-reference-implementation/
 COPY sentinel/ /work/repo/sentinel/
 COPY shared/ /work/repo/shared/
 COPY Dockerfile.sentinel /work/repo/Dockerfile.sentinel
