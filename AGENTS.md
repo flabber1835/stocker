@@ -24,6 +24,15 @@ They are release-safety rules, not style preferences.
    neither a working GitHub/PR path nor a way to export a downloadable patch,
    STOP before editing; do not create work that cannot leave the sandbox.
 
+   A connected GitHub app is a valid PR delivery channel. When authenticated
+   local `git` can fetch and push and the connected GitHub app has repository
+   access, use `git` for base verification, branches, commits, and pushes, then
+   use the GitHub app for PR creation and verification. The GitHub CLI (`gh`) is
+   optional in this path: its absence, or sandboxed access to its configuration,
+   is not by itself a blocker. Request the narrow approval needed for an
+   otherwise available authenticated operation instead of telling the user to
+   install or re-authenticate tooling that is already configured.
+
    ### A. Normal local or CLI checkout with shell access to GitHub
 
    Before changing anything, run and report:
