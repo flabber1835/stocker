@@ -1,5 +1,10 @@
 from copy import deepcopy
 from contextlib import contextmanager
+from types import SimpleNamespace
+
+from stock_strategy_shared.wealth_core.adapter import PendingOrder
+from stock_strategy_shared.wealth_core.engine import Operation, Reason
+from stock_strategy_shared.wealth_core.ledger import EventType
 
 from stock_strategy_shared.wealth_core.feed import SecurityMeta, VendorBar
 
@@ -165,3 +170,59 @@ def test_loaded_version_must_equal_the_pin(monkeypatch):
         assert "differs from session pin" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("a publication change inside a session was accepted")
+
+
+def test_stop_evidence_waits_for_executed_fill_and_pending_exit_survives(monkeypatch):
+    config, state = _fresh()
+
+    def fake_plan(*, session, pending, ledger, **_):
+        if session == "2026-08-10":
+            pending.append(PendingOrder(
+                operation=Operation.CLOSE_POSITION, security_id="1", ticker="AAA",
+                slot_id=0, shares=10, signal_session=session,
+                reason=Reason.EXIT_TRAILING_STOP.value))
+        elif session == "2026-08-12":
+            ledger.post(
+                session=session, event_type=EventType.SELL, cash_before=100_000,
+                security_id="1", ticker="AAA", shares_delta=-10,
+                cash_delta=100, price=10, reason=Reason.EXIT_TRAILING_STOP.value)
+            pending.clear()
+        return SimpleNamespace(estimated_equity=100_000, intents=[object()],
+                               to_dict=lambda: {})
+
+    monkeypatch.setattr("sentinel.core.production.plan_session", fake_plan)
+    state = _advance(state, _published("2026-08-10"), config)
+    assert state.last_evidence["observation"]["stops20"] == 0
+    assert len(state.pending) == 1
+
+    state = _advance(state, _published("2026-08-11"), config)
+    assert state.last_evidence["observation"]["stops20"] == 0
+    assert len(state.pending) == 1
+
+    reloaded = SessionState.from_dict(state.to_dict())
+    state = _advance(reloaded, _published("2026-08-12"), config)
+    assert state.last_evidence["observation"]["stops20"] == 1
+    assert state.pending == []
+
+
+def test_completed_stops_keep_multiplicity_for_exactly_twenty_controller_sessions(monkeypatch):
+    config, state = _fresh()
+
+    def fake_plan(*, session, ledger, **_):
+        if session == "2026-01-01":
+            for _ in range(3):
+                ledger.post(
+                    session=session, event_type=EventType.SELL, cash_before=100_000,
+                    security_id="1", ticker="AAA", shares_delta=-10,
+                    cash_delta=100, price=10,
+                    reason=Reason.EXIT_TRAILING_STOP.value)
+        return SimpleNamespace(estimated_equity=100_000, intents=[],
+                               to_dict=lambda: {})
+
+    monkeypatch.setattr("sentinel.core.production.plan_session", fake_plan)
+    for day in range(1, 21):
+        state = _advance(state, _published(f"2026-01-{day:02d}"), config)
+    assert state.last_evidence["observation"]["stops20"] == 3
+
+    state = _advance(state, _published("2026-01-21"), config)
+    assert state.last_evidence["observation"]["stops20"] == 0
