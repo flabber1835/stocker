@@ -201,6 +201,15 @@ def main() -> int:
             print(f"  scanning {name} ...", file=sys.stderr)
             report["files"][name]["content"] = sep_date_range(root / name)
 
+    # A bulk export packs each TABLE into one ZIP; the replay reads one gzip per
+    # YEAR. When SHARADAR_SEP.zip is present and the per-year files are not,
+    # the SEP rows are here in a different shape — reporting that as "missing"
+    # reads as absent data, which is a materially different and much worse
+    # finding than the true one.
+    sep_missing = [n for n in missing if n.startswith("SHARADAR_SEP_")]
+    bulk_sep_present = "SHARADAR_SEP.zip" in report["files"]
+    unpackaged = bulk_sep_present and len(sep_missing) == len(missing)
+
     report["summary"] = {
         "pinned_total": len(want),
         "matched_pinned": len(matched),
@@ -211,6 +220,15 @@ def main() -> int:
         "missing_files": missing,
         "mismatched_files": mismatched,
         "extra_files": extra,
+        "sep_present_only_as_bulk_zip": unpackaged,
+        # Deliberately NOT a single pass/fail. The metadata inputs can be
+        # byte-exact while SEP is merely unsplit, and those are different
+        # states with different next steps.
+        "metadata_inputs_byte_identical": all(
+            report["files"].get(n, {}).get("matches_pinned") is True
+            for n in ("SHARADAR_TICKERS.zip", "SHARADAR_ACTIONS.zip",
+                      "SHARADAR_SFP.zip")),
+        "sep_per_year_files_present": not sep_missing,
         "corpus_is_byte_identical_to_the_recovered_run":
             not missing and not mismatched,
     }
@@ -234,8 +252,22 @@ def main() -> int:
             print(f"    {n}")
     for digest, names in report["duplicates_by_content"].items():
         print(f"\n  identical bytes under {len(names)} names: {', '.join(names)}")
+    print(f"\n  metadata inputs byte-identical (TICKERS/ACTIONS/SFP): "
+          f"{s['metadata_inputs_byte_identical']}")
+    print(f"  SEP per-year files present:  {s['sep_per_year_files_present']}")
+    if s["sep_present_only_as_bulk_zip"]:
+        print("\n  SEP IS PRESENT AS A BULK ZIP, NOT AS PER-YEAR FILES.")
+        print("  The rows are here in a different shape — this is packaging,")
+        print("  not absent data. Split it before running any reconstruction:")
+        print("    python3 scripts/sentinel-split-sep-bulk.py \\")
+        print(f"        --zip {root}/SHARADAR_SEP.zip \\")
+        print(f"        --out {root} --fingerprint sep-fingerprint.json")
+        print("\n  Note: the split files will NOT match the pinned SEP hashes.")
+        print("  Those digests are of specific gzip artefacts and gzip bytes")
+        print("  vary with compression level, implementation and mtime. SEP")
+        print("  provenance is established on ROWS — see the fingerprint file.")
     print(f"\n  written: {args.out}")
-    print("  corpus byte-identical to the recovered run: "
+    print("  every pinned input byte-identical: "
           f"{s['corpus_is_byte_identical_to_the_recovered_run']}")
     return 0
 
