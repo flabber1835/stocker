@@ -480,9 +480,9 @@ class TestNoLeakIntoOtherDomains:
             for node in ast.walk(tree):
                 if isinstance(node, ast.ImportFrom) and "regime" in (node.module or ""):
                     importers.append(py.as_posix())
-        assert importers == [], (
+        assert importers == ["sentinel/core/production.py"], (
             "something now imports the SPY sensor: " + ", ".join(importers)
-            + ". That may be correct — update this test deliberately.")
+            + ". Only the deterministic production composition may do so.")
 
 
 class TestTheSeamIntoTheController:

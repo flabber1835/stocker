@@ -190,12 +190,13 @@ def _d(v) -> Optional[str]:
 
 
 _UNIVERSE_UPSERT = """
-    INSERT INTO sentinel_universe (permaticker, ticker, category,
+    INSERT INTO sentinel_universe (permaticker, ticker, category, sector,
         related_tickers, first_price_date, last_price_date, is_delisted,
         snapshot_date)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (permaticker, ticker, snapshot_date) DO UPDATE SET
         category = EXCLUDED.category,
+        sector = EXCLUDED.sector,
         related_tickers = EXCLUDED.related_tickers,
         first_price_date = EXCLUDED.first_price_date,
         last_price_date = EXCLUDED.last_price_date,
@@ -217,6 +218,7 @@ def write_universe(conn, rows: Sequence[Mapping], snapshot_date: str) -> int:
             continue
         payload.append((
             str(pt).strip(), str(tk).strip().upper(), r.get("category"),
+            r.get("sector"),
             " ".join(parse_related_tickers(r.get("relatedtickers")
                                            or r.get("related_tickers"))) or None,
             _d(r.get("firstpricedate") or r.get("first_price_date")),

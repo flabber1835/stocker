@@ -188,6 +188,8 @@ class NormalisedBar:
 
     vendor: VendorBar
     close_signal: Optional[float] = None
+    # Pass-through for the dedicated SPY regime store. Never enters VendorBar.
+    close_total_return: Optional[float] = None
 
 
 @dataclass
@@ -412,7 +414,8 @@ def normalise_sep_rows(
             raw_open = round(op_adj * (raw / close), 6)
 
         rep.bars += 1
-        yield NormalisedBar(close_signal=close, vendor=VendorBar(
+        yield NormalisedBar(close_signal=close,
+            close_total_return=_f(r.get("closeadj")), vendor=VendorBar(
             session=session,
             security_id=sid,
             ticker=ticker,
