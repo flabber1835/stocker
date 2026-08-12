@@ -58,7 +58,7 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Callable, Mapping, Optional
 
@@ -269,10 +269,96 @@ def catch_up(conn, *, through, missed, advance_state: Callable,
             raise
 
 
+class SessionsIncomplete(ValueError):
+    """`missed` is not the exchange's own list of sessions through `through`.
+
+    Catch-up used to take the caller's word for it and then, having advanced
+    only over what it was given, mark `through` processed UNCONDITIONALLY:
+
+    ```text
+    last processed  Monday
+    missed          [Tuesday, Thursday]
+    through         Friday
+    ```
+
+    Wednesday and Friday never advanced Wealth Core or the controller, and the
+    durable pointer then said Friday. Every later catch-up skips sessions at or
+    before the pointer, so those two are gone — permanently and silently, which
+    is the precise failure mode `_mark_processed` was written to close from the
+    other direction.
+
+    The authority is the certified XNYS calendar, not the argument. A list that
+    disagrees with it is refused rather than repaired: a caller confused about
+    which days are sessions is a caller whose STATE is about to be wrong, and
+    quietly substituting the right answer hides that.
+    """
+
+
+def _expected_sessions(start: date, through: date) -> list[date]:
+    """Every exchange session in `[start, through]`, from the certified XNYS
+    calendar. Weekends and holidays are simply absent, because they are not
+    sessions."""
+    from sentinel.feed import calendar as cal
+
+    if start > through:
+        return []
+    return [date.fromisoformat(s) for s in cal.sessions_in_range(start, through)]
+
+
 def _catch_up_locked(conn, *, through: date, missed, advance_state, decide,
                      state) -> CatchUpResult:
     done = last_processed_session(conn)
-    owed = sorted(s for s in missed if done is None or s > done)
+
+    # ── THE LIST IS PROVEN, NOT TRUSTED ──────────────────────────────────────
+    #
+    # `owed` used to be `sorted(s for s in missed if s > done)` and nothing
+    # compared it to reality. Then `_mark_processed(conn, through, state)` ran
+    # unconditionally at the end, so a caller could advance two sessions and
+    # move the pointer four days — losing the two in between forever.
+    #
+    # Derived from the calendar rather than filtered from the argument, so the
+    # sessions that RUN are the exchange's, and the argument only has to agree.
+    supplied = sorted(set(missed))
+    if len(supplied) != len(list(missed)):
+        raise SessionsIncomplete(
+            f"`missed` contains duplicates: {sorted(str(m) for m in missed)}. "
+            f"Normalising them away would hide a caller that believes it is "
+            f"asking for two advances of one session, and a double advance "
+            f"double-ages every episode in the book.")
+
+    # Sessions AT OR BEFORE the pointer are already processed and are dropped,
+    # not refused — a resuming caller reports everything it believes it missed
+    # without knowing where the pointer got to, and that is the normal path
+    # after a partial run.
+    unprocessed = [s for s in supplied if done is None or s > done]
+
+    # WHERE TO START LOOKING. After the pointer when there is one. On a fresh
+    # appliance there is nothing to anchor to, so the caller's own earliest
+    # session is the anchor — contiguity and session-validity are still proven
+    # from there; only the left edge is the caller's to choose.
+    if done is not None:
+        start = done + timedelta(days=1)
+    elif unprocessed:
+        start = unprocessed[0]
+    else:
+        start = through
+    owed = _expected_sessions(start, through)
+
+    if unprocessed != owed:
+        not_sessions = [s.isoformat() for s in unprocessed if s not in owed]
+        omitted = [s.isoformat() for s in owed if s not in unprocessed]
+        raise SessionsIncomplete(
+            f"`missed` is not the exchange's session list through {through}. "
+            f"expected {[s.isoformat() for s in owed]}; "
+            f"got {[s.isoformat() for s in unprocessed]}"
+            + (f"; NOT SESSIONS (weekend/holiday) or after {through}: "
+               f"{not_sessions}" if not_sessions else "")
+            + (f"; OMITTED: {omitted}" if omitted else "")
+            + ". Refused rather than repaired: a caller confused about which "
+              "days are sessions is a caller whose STATE is about to be wrong, "
+              "and marking `through` processed would bury the omitted ones "
+              "permanently — every later catch-up skips at or before the "
+              "pointer.")
 
     # A RESTART HANDS US NOTHING. Read what the last run left, or the resumed
     # sessions advance against an empty book — a quieter version of the skip

@@ -32,6 +32,7 @@ from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 from sentinel import binding as B, schema  # noqa: E402
 from sentinel.execution import (  # noqa: E402
     certification, executor, journal, reconcile as R)
+from sentinel.execution import alpaca as A  # noqa: E402
 from sentinel.execution.alpaca import (  # noqa: E402
     AlpacaExecutionBroker, UnmappedBrokerStatus, map_status)
 from sentinel.execution.contract import (  # noqa: E402
@@ -471,3 +472,109 @@ class TestStaleBackupRestore:
         adopted = B.require(conn).identity
         with pytest.raises(journal.StoredKeyMismatch):
             journal.load_commands(conn, adopted)
+
+
+# ── malformed payloads are UNUSABLE, not defaulted ───────────────────────────
+
+class TestCorruptBrokerEvidenceCannotLookComplete:
+    """Unknown STATUS already refused to guess. Side and quantity did not.
+
+    ```python
+    side = Side.BUY if str(payload.get("side")) == "buy" else Side.SELL
+    quantity = _dec(payload.get("qty"), Decimal(0)) or Decimal(0)
+    ```
+
+    So `{"side": null, "qty": "garbage"}` read as **SELL, quantity 0** — and
+    the surrounding observation could still be labelled COMPLETE.
+
+    The asymmetry was the wrong way round. A status is a hint about lifecycle;
+    side and quantity ARE the trade. And a COMPLETE read of an apparently flat
+    account is precisely what authorises increases, so corrupt evidence became
+    indistinguishable from a quiet account at the moment that distinction
+    matters most.
+    """
+
+    #: A real adapter, because `_to_order` is a method and the paper allowlist
+    #: now gates construction — building one is also a small check that the two
+    #: guards compose.
+    ADAPTER = AlpacaExecutionBroker(
+        api_key="k", secret_key="s",
+        base_url="https://paper-api.alpaca.markets")
+
+    def order(self, **over):
+        p = {"id": "o1", "client_order_id": "k1", "symbol": "AAA",
+             "side": "buy", "qty": "10", "filled_qty": "0", "status": "new"}
+        p.update(over)
+        return p
+
+    def parse(self, payload):
+        return self.ADAPTER._to_order(payload)
+
+    def test_a_WELL_FORMED_order_still_parses(self):
+        """Without this the guard could pass by refusing everything."""
+        o = self.parse(self.order())
+        assert o.side is Side.BUY and o.quantity == Decimal(10)
+
+    #: `"BUY "` is deliberately NOT here: it strips to "buy". This list first
+    #: contained it, contradicting the whitespace test two below — strict about
+    #: MEANING, lenient about presentation, and a test set has to pick one.
+    @pytest.mark.parametrize("bad", [None, "", "long", "b", 1, "sel", "buy sell"])
+    def test_an_UNRECOGNISED_SIDE_refuses(self, bad):
+        """Every one of these used to become a SELL."""
+        with pytest.raises(A.MalformedBrokerPayload) as e:
+            self.parse(self.order(side=bad))
+        assert "side" in str(e.value)
+
+    @pytest.mark.parametrize("good,want", [("buy", Side.BUY), ("sell", Side.SELL),
+                                           ("BUY", Side.BUY), ("Sell", Side.SELL),
+                                           ("BUY ", Side.BUY), (" sell", Side.SELL)])
+    def test_case_and_whitespace_are_still_ACCEPTED(self, good, want):
+        """Strict about meaning, not about presentation. Refusing "BUY" would
+        be an outage dressed as rigour."""
+        assert self.parse(self.order(side=good)).side is want
+
+    @pytest.mark.parametrize("bad", [None, "", "garbage", "NaN", "Infinity",
+                                     "1.2.3", "-5"])
+    def test_an_UNREADABLE_QUANTITY_refuses(self, bad):
+        """Zero is a CLAIM about the account — nothing filled, nothing held —
+        so defaulting an unreadable field to it is a confident statement made
+        from an absence of evidence."""
+        with pytest.raises(A.MalformedBrokerPayload):
+            self.parse(self.order(qty=bad))
+
+    @pytest.mark.parametrize("bad", [None, "", "garbage", "-1"])
+    def test_an_UNREADABLE_FILLED_QUANTITY_refuses(self, bad):
+        with pytest.raises(A.MalformedBrokerPayload):
+            self.parse(self.order(filled_qty=bad))
+
+    def test_a_LEGITIMATE_zero_is_still_zero(self):
+        """The distinction the fix rests on: an explicit "0" is evidence, an
+        absent field is not."""
+        assert self.parse(self.order(filled_qty="0")).filled_quantity == \
+            Decimal(0)
+
+    def test_the_error_names_the_ORDER(self):
+        """An operator reading this at 3am needs to know which one."""
+        with pytest.raises(A.MalformedBrokerPayload) as e:
+            self.parse(self.order(id="o-42", qty="garbage"))
+        assert "o-42" in str(e.value)
+
+    def test_a_NEGATIVE_POSITION_is_read_faithfully_not_zeroed(self):
+        """The one place a negative IS legitimate wire data. Sentinel's
+        envelope forbids holding a short, so it must be SEEN and refused
+        upstream — reading it as zero would make the short invisible, which is
+        strictly worse than refusing the observation."""
+        import inspect
+        src = inspect.getsource(A.AlpacaExecutionBroker)
+        assert "allow_negative=True" in src, (
+            "position quantities are not allowed to be negative, so a short "
+            "at the broker would either raise or read as something it is not")
+
+    def test_it_matches_the_UNKNOWN_STATUS_discipline(self):
+        """Stated as one assertion because the finding was an ASYMMETRY: the
+        adapter was already strict in one half of the payload and lenient in
+        the other."""
+        with pytest.raises(A.UnmappedBrokerStatus):
+            A.map_status("teleported")
+        with pytest.raises(A.MalformedBrokerPayload):
+            self.parse(self.order(side="teleported"))

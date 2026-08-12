@@ -155,7 +155,7 @@ class TestNeitherCanExistWithoutTheOther:
         """
         with pytest.raises(RuntimeError):
             run(conn, "2026-08-13",
-                ["2026-08-10", "2026-08-11", "2026-08-12"],
+                ["2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13"],
                 durable_advance(explode_on="2026-08-12"))
 
         age, last = durable_state(conn)
@@ -186,7 +186,7 @@ class TestNeitherCanExistWithoutTheOther:
 
         with pytest.raises(RuntimeError):
             run(conn, "2026-08-13",
-                ["2026-08-10", "2026-08-11", "2026-08-12"], durable_advance())
+                ["2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13"], durable_advance())
 
         age, last = durable_state(conn)
         assert (age, last) == (2, dt.date(2026, 8, 11)), (
@@ -197,7 +197,7 @@ class TestNeitherCanExistWithoutTheOther:
         """Convergence. Neither skipped nor doubled."""
         with pytest.raises(RuntimeError):
             run(conn, "2026-08-13",
-                ["2026-08-10", "2026-08-11", "2026-08-12"],
+                ["2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13"],
                 durable_advance(explode_on="2026-08-12"))
 
         run(conn, "2026-08-13",
@@ -306,7 +306,7 @@ class TestASeamThatCOMMITSCannotBeStopped_butIsBounded:
 
         with pytest.raises(RuntimeError):
             run(conn, "2026-08-13",
-                ["2026-08-10", "2026-08-11", "2026-08-12"], commits_early)
+                ["2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13"], commits_early)
 
         assert CU.last_processed_session(conn) == dt.date(2026, 8, 11)
         assert CU.resume_state(conn) == {"last": "2026-08-11"}, (
@@ -331,7 +331,7 @@ class TestASeamThatCOMMITSCannotBeStopped_butIsBounded:
 
         with pytest.raises(RuntimeError):
             run(conn, "2026-08-13",
-                ["2026-08-10", "2026-08-11", "2026-08-12"], commits_early)
+                ["2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13"], commits_early)
 
         _, seam_session = durable_state(conn)
         assert seam_session > CU.last_processed_session(conn), (

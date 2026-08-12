@@ -146,8 +146,15 @@ class TestHistoricalIntentIsNeverReplayed:
     def test_the_surviving_plan_is_the_NEWEST_not_the_first(self, conn):
         """Which one survives is the whole safety property. Monday wanted zero;
         surviving on Thursday it would liquidate a live account."""
+        # A COMPLETE session list. It used to read `["2026-08-10",
+        # "2026-08-13"]`, skipping the Tuesday and Wednesday — which catch-up
+        # now refuses, because advancing over a gap and then marking `through`
+        # processed buries the omitted sessions permanently. The gap was
+        # incidental here anyway: `decide` is called ONCE, for `through`, so
+        # the two-element list never produced two plans.
         CU.catch_up(conn, through="2026-08-13",
-                    missed=["2026-08-10", "2026-08-13"],
+                    missed=["2026-08-10", "2026-08-11",
+                            "2026-08-12", "2026-08-13"],
                     advance_state=lambda c, s, st: st,
                     decide=lambda session, state: a_plan(
                         session,
@@ -191,7 +198,7 @@ class TestCatchUpIsResumable:
 
         with pytest.raises(RuntimeError):
             CU.catch_up(conn, through="2026-08-13",
-                        missed=["2026-08-10", "2026-08-11", "2026-08-12"],
+                        missed=["2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13"],
                         advance_state=explode_on_wednesday,
                         decide=lambda session, state: a_plan(session))
 
@@ -441,3 +448,124 @@ class TestUnexplainedNavBlocksIncreasesOnly:
                            held={"P-AAA": D("1000")}, nav_reconciliation=r)
         assert out.plan is not None
         assert out.plan.target_basket == {"P-AAA": D("600")}
+
+
+# ── the session list is PROVEN against the exchange calendar ─────────────────
+
+class TestCatchUpCannotBeToldToSkipASession:
+    """Catch-up used to trust `missed` and then mark `through` regardless.
+
+    ```text
+    last processed  Monday
+    missed          [Tuesday, Thursday]
+    through         Friday
+    ```
+
+    Wednesday and Friday never advanced Wealth Core or the controller, and the
+    durable pointer then said Friday. Every later catch-up skips at or before
+    the pointer, so those two sessions are gone — permanently and silently.
+    That is the same class of loss `_mark_processed` closes from the other
+    direction, arrived at through the argument list instead of a crash.
+
+    The authority is now the certified XNYS calendar, not the caller. All dates
+    below are real sessions unless the test says otherwise; 2026-08-15 is a
+    Saturday and 2026-09-07 is Labor Day.
+    """
+
+    def advance(self):
+        seen = []
+
+        def _a(conn, session, state):
+            seen.append(session)
+            return {"last": session}
+        _a.seen = seen
+        return _a
+
+    def run(self, conn, through, missed, adv=None):
+        return CU.catch_up(conn, through=through, missed=missed,
+                           advance_state=adv or self.advance(),
+                           decide=lambda session, state: None)
+
+    def test_a_MISSING_MIDDLE_session_refuses(self, conn):
+        """The review's scenario. Wednesday is a session and is not listed."""
+        with pytest.raises(CU.SessionsIncomplete) as e:
+            self.run(conn, "2026-08-13",
+                     ["2026-08-10", "2026-08-11", "2026-08-13"])
+        assert "OMITTED" in str(e.value) and "2026-08-12" in str(e.value)
+
+    def test_a_MISSING_THROUGH_session_refuses(self, conn):
+        """`through` itself absent — the half that let the pointer jump."""
+        with pytest.raises(CU.SessionsIncomplete) as e:
+            self.run(conn, "2026-08-13",
+                     ["2026-08-10", "2026-08-11", "2026-08-12"])
+        assert "2026-08-13" in str(e.value)
+
+    def test_and_NOTHING_is_marked_when_it_refuses(self, conn):
+        """The refusal has to come BEFORE any advance. Refusing after
+        advancing two of four sessions would leave exactly the half-applied
+        state the whole module exists to prevent."""
+        adv = self.advance()
+        with pytest.raises(CU.SessionsIncomplete):
+            self.run(conn, "2026-08-13",
+                     ["2026-08-10", "2026-08-11", "2026-08-13"], adv)
+        assert adv.seen == [], f"state advanced before refusing: {adv.seen}"
+        assert CU.last_processed_session(conn) is None
+
+    def test_a_DUPLICATE_refuses_rather_than_being_normalised(self, conn):
+        """Silently de-duplicating hides a caller that believes it is asking
+        for two advances of one session — and a double advance double-ages
+        every episode in the book."""
+        with pytest.raises(CU.SessionsIncomplete) as e:
+            self.run(conn, "2026-08-11",
+                     ["2026-08-10", "2026-08-10", "2026-08-11"])
+        assert "duplicate" in str(e.value).lower()
+
+    def test_OUT_OF_ORDER_is_accepted_and_sorted(self, conn):
+        """Order is not information here — the sessions run in calendar order
+        regardless — so refusing it would be pedantry rather than safety."""
+        adv = self.advance()
+        self.run(conn, "2026-08-11", ["2026-08-11", "2026-08-10"], adv)
+        assert adv.seen == ["2026-08-10", "2026-08-11"]
+
+    def test_a_WEEKEND_day_refuses(self, conn):
+        """2026-08-15 is a Saturday. Advancing state over a non-session is not
+        a no-op: it ages the book by a day the market never had."""
+        with pytest.raises(CU.SessionsIncomplete) as e:
+            self.run(conn, "2026-08-17",
+                     ["2026-08-14", "2026-08-15", "2026-08-17"])
+        assert "NOT SESSIONS" in str(e.value)
+
+    def test_a_HOLIDAY_refuses(self, conn):
+        """2026-09-07 is Labor Day. The calendar knows; the caller may not."""
+        with pytest.raises(CU.SessionsIncomplete) as e:
+            self.run(conn, "2026-09-08",
+                     ["2026-09-04", "2026-09-07", "2026-09-08"])
+        assert "NOT SESSIONS" in str(e.value)
+
+    def test_the_holiday_is_not_required_either(self, conn):
+        """The complement, and the reason the calendar has to be the authority
+        rather than "every weekday": omitting Labor Day is CORRECT, and a
+        contiguity rule built on dates would have refused it."""
+        adv = self.advance()
+        self.run(conn, "2026-09-08", ["2026-09-04", "2026-09-08"], adv)
+        assert adv.seen == ["2026-09-04", "2026-09-08"]
+
+    def test_a_RESUMING_caller_may_repeat_processed_sessions(self, conn):
+        """The normal path after a partial run: the caller reports everything
+        it believes it missed without knowing where the pointer reached. Those
+        are dropped, not refused — the guard must not break recovery."""
+        adv1 = self.advance()
+        self.run(conn, "2026-08-11", ["2026-08-10", "2026-08-11"], adv1)
+        adv2 = self.advance()
+        self.run(conn, "2026-08-13",
+                 ["2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13"], adv2)
+        assert adv2.seen == ["2026-08-12", "2026-08-13"]
+
+    def test_a_COMPLETE_list_still_works(self, conn):
+        """Without this the guard could pass by refusing everything."""
+        adv = self.advance()
+        self.run(conn, "2026-08-13",
+                 ["2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13"], adv)
+        assert adv.seen == ["2026-08-10", "2026-08-11", "2026-08-12",
+                            "2026-08-13"]
+        assert CU.last_processed_session(conn) == dt.date(2026, 8, 13)

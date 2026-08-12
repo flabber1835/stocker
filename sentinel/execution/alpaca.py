@@ -141,6 +141,69 @@ def map_status(raw: str) -> S:
     return _STATUS[key]
 
 
+class MalformedBrokerPayload(RuntimeError):
+    """The broker sent a field this adapter cannot read as economics.
+
+    Same rule as `UnmappedBrokerStatus`, applied to the other half of the
+    payload. Status was strict and side/quantity were not, and the asymmetry
+    was the wrong way round: a status is a hint about lifecycle, whereas side
+    and quantity ARE the trade.
+
+    ```text
+    {"side": null, "qty": "garbage"}   ->   SELL, quantity 0
+    ```
+
+    `side` fell out of `BUY if payload["side"] == "buy" else SELL`, so anything
+    that was not exactly "buy" became a SALE. `qty` fell back to `Decimal(0)`.
+    The surrounding observation could then still be labelled COMPLETE, which
+    makes corrupt evidence indistinguishable from a flat, quiet account — and
+    a COMPLETE read of a flat account is what authorises increases.
+
+    Raised, so the observation is unusable and the appliance holds.
+    """
+
+
+#: The only two sides that exist. A mapping rather than an `== "buy"` test so
+#: that a value which is neither is VISIBLE rather than silently one of them.
+_SIDES = {"buy": "BUY", "sell": "SELL"}
+
+
+def _side(raw, *, where: str):
+    from sentinel.execution.contract import Side
+    key = str(raw).strip().lower() if raw is not None else ""
+    if key not in _SIDES:
+        raise MalformedBrokerPayload(
+            f"{where}: side {raw!r} is neither 'buy' nor 'sell'. Refusing to "
+            f"guess — the previous default turned every unrecognised value, "
+            f"including null, into a SELL.")
+    return Side.BUY if _SIDES[key] == "BUY" else Side.SELL
+
+
+def _required_dec(value, *, where: str, allow_negative: bool = False) -> Decimal:
+    """A quantity or price that MUST be readable.
+
+    `_dec(..., Decimal(0))` returns zero for null, for "", and for "garbage"
+    alike. Zero is a meaningful economic answer — nothing filled, nothing held
+    — so an unreadable field became a confident statement about the account.
+    """
+    if value is None or value == "":
+        raise MalformedBrokerPayload(
+            f"{where}: missing. A missing quantity is not zero; zero is a "
+            f"claim about the account and this is an absence of evidence.")
+    try:
+        out = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        raise MalformedBrokerPayload(
+            f"{where}: {value!r} is not a number.") from None
+    if not out.is_finite():
+        raise MalformedBrokerPayload(f"{where}: {value!r} is not finite.")
+    if out < 0 and not allow_negative:
+        raise MalformedBrokerPayload(
+            f"{where}: {out} is negative. The envelope is long-only and a "
+            f"negative quantity here is corrupt evidence, not a short.")
+    return out
+
+
 def _dec(value, default: Optional[Decimal] = None) -> Optional[Decimal]:
     """Decimal from the WIRE STRING, never via float.
 
@@ -280,7 +343,12 @@ class AlpacaExecutionBroker(ExecutionBroker):
             if not isinstance(p, dict):
                 continue
             symbol = str(p.get("symbol") or "")
-            qty = _dec(p.get("qty"), Decimal(0))
+            # A POSITION quantity may legitimately be negative at a broker
+            # (a short), and Sentinel's envelope forbids holding one — so it is
+            # read faithfully and refused upstream, rather than being read as
+            # zero here, which would make a short position INVISIBLE.
+            qty = _required_dec(p.get("qty"), allow_negative=True,
+                                where=f"position {p.get('symbol')} qty")
             out.append(BrokerPosition(
                 instrument=self._instrument(symbol, p.get("asset_id")),
                 quantity=qty or Decimal(0)))
@@ -304,10 +372,14 @@ class AlpacaExecutionBroker(ExecutionBroker):
             broker_order_id=str(payload.get("id") or ""),
             client_key=payload.get("client_order_id") or None,
             instrument=self._instrument(symbol, payload.get("asset_id")),
-            side=Side.BUY if str(payload.get("side")) == "buy" else Side.SELL,
+            side=_side(payload.get("side"),
+                       where=f"order {payload.get('id')} side"),
             state=map_status(raw_status),
-            quantity=_dec(payload.get("qty"), Decimal(0)) or Decimal(0),
-            filled_quantity=_dec(payload.get("filled_qty"), Decimal(0)) or Decimal(0),
+            quantity=_required_dec(payload.get("qty"),
+                                   where=f"order {payload.get('id')} qty"),
+            filled_quantity=_required_dec(
+                payload.get("filled_qty"),
+                where=f"order {payload.get('id')} filled_qty"),
             raw=payload)
 
     # -- recovery -----------------------------------------------------------
@@ -403,8 +475,10 @@ class AlpacaExecutionBroker(ExecutionBroker):
             out.append(BrokerFill(
                 client_key=None,
                 broker_order_id=str(a.get("order_id") or ""),
-                quantity=_dec(a.get("qty"), Decimal(0)) or Decimal(0),
-                price=_dec(a.get("price"), Decimal(0)) or Decimal(0),
+                quantity=_required_dec(a.get("qty"),
+                                       where=f"activity {a.get('id')} qty"),
+                price=_required_dec(a.get("price"),
+                                    where=f"activity {a.get('id')} price"),
                 filled_at=_parse_ts(a.get("transaction_time"))))
         return tuple(out)
 

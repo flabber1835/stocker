@@ -83,6 +83,57 @@ def writer_lock(conn):
 # Plans
 # ---------------------------------------------------------------------------
 
+class PlanEconomicsChanged(RuntimeError):
+    """A stored plan_id was rebuilt with DIFFERENT economics.
+
+    Commands have had this protection since the command-identity work; plans
+    did not, and the asymmetry was invisible because `save_plan`'s comment
+    delegated the check to "load_plan's caller" — and the caller that matters,
+    `core.catchup.catch_up`, does not perform one.
+
+    ```text
+    plan_id = P    basket {A: 100}          stored
+    restart, reconstruction defect
+    plan_id = P    basket {A: 50, B: 50}    INSERT ... DO NOTHING -> no-op
+                                            load_plan(P) -> {A: 100}
+    ```
+
+    Catch-up then supersedes every other plan in favour of P and proceeds with
+    the OLD basket as though it were the newly calculated intent. Durable
+    intent that silently is not what was computed is not immutable intent; it
+    is a label, which is the same thing `CommandEconomicsChanged` exists to
+    prevent one level down.
+
+    Raised rather than reconciled, for the same reason: the stored plan may
+    already have been acted on at the broker.
+    """
+
+
+#: The fields that make a plan MEAN something. A difference in any of these
+#: under one plan_id is a different intention wearing the same name.
+#:
+#: `superseded_by` is deliberately absent — supersession is a lifecycle fact
+#: about a plan, not part of its economics, and including it would make a
+#: re-save of an already-superseded plan look like a divergence.
+_PLAN_ECONOMICS = ("decision_session", "effective_session", "target_exposure",
+                   "data_version", "shadow_snapshot_hash",
+                   "sentinel_transition_hash", "strategy_fingerprint",
+                   "target_basket")
+
+
+def _plan_economics(plan: ExecutionPlan) -> dict:
+    return {
+        "decision_session": str(plan.decision_session),
+        "effective_session": str(plan.effective_session),
+        "target_exposure": str(plan.target_exposure),
+        "data_version": plan.data_version,
+        "shadow_snapshot_hash": plan.shadow_snapshot_hash,
+        "sentinel_transition_hash": plan.sentinel_transition_hash,
+        "strategy_fingerprint": plan.strategy_fingerprint,
+        "target_basket": {k: str(v) for k, v in sorted(plan.target_basket.items())},
+    }
+
+
 def save_plan(conn, plan: ExecutionPlan) -> None:
     with conn.cursor() as cur:
         cur.execute(
@@ -105,6 +156,31 @@ def save_plan(conn, plan: ExecutionPlan) -> None:
              json.dumps({k: str(v) for k, v in plan.target_basket.items()},
                         sort_keys=True)))
     conn.commit()
+
+    # DIVERGENCE IS CHECKED HERE, not left to a caller. The original comment
+    # said the check lived in `load_plan`'s caller; `core.catchup.catch_up`
+    # is that caller and never performed one, so a re-derived plan with the
+    # same id and different content was a silent no-op followed by a load of
+    # the OLD basket.
+    #
+    # After the insert rather than as a constraint, and that ordering is the
+    # reason the check was placed elsewhere in the first place: a constraint
+    # violation inside the statement aborts the transaction before anything can
+    # compare the two rows, so the error could not say WHAT differed. Reading
+    # the stored row back keeps the diff available.
+    stored = load_plan(conn, plan.plan_id)
+    if stored is None:                                    # pragma: no cover
+        raise RuntimeError(f"plan {plan.plan_id} vanished immediately after "
+                           f"being written")
+    want, got = _plan_economics(plan), _plan_economics(stored)
+    if want != got:
+        differing = {k: {"stored": got[k], "incoming": want[k]}
+                     for k in _PLAN_ECONOMICS if got[k] != want[k]}
+        raise PlanEconomicsChanged(
+            f"plan {plan.plan_id} already exists with different economics: "
+            f"{differing}. The insert is ON CONFLICT DO NOTHING, so the stored "
+            f"row wins silently and every later read returns intent nobody "
+            f"computed. A plan id must determine the plan.")
 
 
 def load_plan(conn, plan_id: str) -> Optional[ExecutionPlan]:

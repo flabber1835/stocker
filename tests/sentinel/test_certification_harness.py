@@ -813,8 +813,14 @@ class TestTheResourceMeasurementHarness:
     def test_it_runs_the_phase_with_T(self):
         """Without -T compose allocates a TTY whenever stdin is one, which over
         SSH it is, and the tee'd phase log fills with cursor control codes. The
-        certify script passes -T for the same reason."""
-        assert "run --rm -T" in self.body()
+        certify script passes -T for the same reason.
+
+        Matched WITHOUT `--rm`, which moved: the phase container is kept until
+        its final `.State` has been read, so an OOM can be attributed to the
+        measured workload rather than to whatever else was running."""
+        code = "\n".join(l for l in self.body().splitlines()
+                          if l.strip() and not l.strip().startswith("#"))
+        assert "run -T --name" in code
 
     def test_the_catchup_GAP_is_recorded_rather_than_papered_over(self):
         """sentinel/core/catchup.py is built and tested and has no CLI verb, so
@@ -826,3 +832,63 @@ class TestTheResourceMeasurementHarness:
         if "catch-up" in verbs or "catchup" in verbs:
             return                       # wired since; this guard is done
         assert "NOT MEASURABLE TODAY" in self.body()
+
+    # ── the evidence must not be broader than what was measured ─────────────
+
+    def test_the_phase_container_is_INSPECTED_before_removal(self):
+        """The phase used to run with `--rm`, so it was GONE by the time the
+        OOM scan looked — and the scan then swept surviving `sentinel*`
+        containers, which are the database and the panel, not the workload. A
+        non-zero exit still prevented a false PASS, but "the OOM killer
+        specifically" was lost while the comments claimed otherwise."""
+        body = self.body()
+        # EXECUTABLE lines only. The first version scanned the whole file and
+        # tripped on the usage comment describing the command — reading the
+        # documentation instead of the script, which is the trap this
+        # repository keeps re-finding.
+        code = "\n".join(l for l in body.splitlines()
+                          if l.strip() and not l.strip().startswith("#"))
+        assert "--name" in code and "PHASE_CONTAINER" in code
+        assert "run --rm" not in code, (
+            "the measured container is removed before its final .State can be "
+            "read, so an OOM cannot be attributed to the phase")
+        assert code.index("docker inspect -f") < code.index("docker rm -f"), (
+            "the container is removed before it is inspected")
+
+    def test_an_OOM_is_ATTRIBUTED(self):
+        """`something was OOM-killed` and `the seed was OOM-killed` are
+        different findings — the database being killed during a seed says
+        something else entirely."""
+        body = self.body()
+        assert "OOM KILLED (the measured phase)" in body
+        assert "OOM KILLED (another container)" in body
+
+    def test_host_memory_is_its_OWN_verdict(self):
+        """A container inside its ceiling on a host whose MemAvailable
+        collapsed is not a passing envelope, and no per-container headroom
+        figure can see that."""
+        body = self.body()
+        assert "host_memory_verdict" in body
+        assert "host_min_mem_available_pct" in body
+
+    def test_IO_and_RUNTIME_are_reported_too(self):
+        """This host reports no blkio throttle support at all, so disk pressure
+        is in the same category as CPU: observable, not boundable. And a phase
+        that fits in 1g by taking nine hours has not passed either."""
+        body = self.body()
+        assert "io_limit_enforcement" in body
+        assert "runtime_verdict" in body
+
+    def test_every_axis_is_PRINTED_whatever_the_memory_verdict(self):
+        """A reader who sees only "MEMORY ENVELOPE MEASURED" would reasonably
+        assume the rest were bounded. On this hardware three of them are not,
+        so the summary is unconditional rather than an else-branch."""
+        body = self.body()
+        block = body[body.index("what this run actually proves"):]
+        for axis in ("container memory", "host memory", "CPU", "disk I/O",
+                     "runtime"):
+            assert axis in block, axis
+        # BEFORE the memory verdict's case statement, so it is never skipped by
+        # an early `die`.
+        assert body.index("what this run actually proves") < \
+            body.index('case "${VERDICT}" in')

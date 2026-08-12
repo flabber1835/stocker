@@ -46,8 +46,9 @@
 #     scripts/sentinel-measure.sh ready -- sentinel check-data
 #
 # The phase name is free text and only labels the artefacts. Everything after
-# `--` runs through `docker compose run --rm -T`, so it is measured inside the
-# limits it is being measured against.
+# `--` runs through `docker compose run -T --name <phase>`, so it is measured
+# inside the limits it is being measured against — and NOT with `--rm`, so
+# its final `.State` can be inspected before it is removed.
 #
 # NOT MEASURABLE TODAY: the catch-up orchestrator. `sentinel/core/catchup.py`
 # exists and is tested, but nothing in `sentinel/__main__.py` exposes it — there
@@ -193,11 +194,25 @@ trap 'kill "${SAMPLER}" 2>/dev/null || true' EXIT INT TERM
 step "running: $*"
 START_EPOCH="$(date +%s)"
 set +e
+# NOT --rm, and that is the fix for a real weakness in the evidence.
+#
+# The phase used to run with `--rm`, so the container was GONE by the time the
+# OOM scan looked — and the scan then swept surviving `sentinel*` containers,
+# which are the database and the panel, not the workload. A non-zero exit still
+# prevented a false PASS, but "the OOM killer specifically" was lost, and the
+# comments claimed otherwise.
+#
+# So: a NAMED container, kept until its final `.State` has been inspected, then
+# removed here. `--name` also removes the guesswork about which container was
+# the phase.
+#
 # -T, like the certify script. Without it compose allocates a TTY whenever
 # stdin is one — which over SSH it is — and the tee'd log fills with cursor
 # control codes. Same reason `docker stats` is sampled rather than streamed:
 # an artefact you cannot grep is not evidence.
-${COMPOSE} run --rm -T "$@" 2>&1 | tee "${ART}/${PHASE}-${STAMP}.log"
+PHASE_CONTAINER="sentinel-measure-${PHASE}-${STAMP}"
+${COMPOSE} run -T --name "${PHASE_CONTAINER}" "$@" 2>&1 \
+  | tee "${ART}/${PHASE}-${STAMP}.log"
 RC="${PIPESTATUS[0]}"
 set -e
 ELAPSED=$(( $(date +%s) - START_EPOCH ))
@@ -210,6 +225,12 @@ trap - EXIT INT TERM
 TEMP_AFTER="$(psql_scalar "SELECT COALESCE(temp_bytes,0) FROM pg_stat_database WHERE datname='sentinel'")"
 DISK_AFTER="$(${COMPOSE} exec -T "${DB_SERVICE}" du -sb /var/lib/postgresql/data 2>/dev/null | cut -f1)"
 : "${TEMP_AFTER:=0}" "${DISK_AFTER:=0}"
+
+# THE PHASE CONTAINER ITSELF, inspected BEFORE it is removed. This is the only
+# reading that can attribute an OOM to the measured workload: the sweep below
+# sees surviving `sentinel*` containers, which are the database and the panel.
+PHASE_STATE="$(docker inspect -f '{"name":"{{.Name}}","oom_killed":{{.State.OOMKilled}},"restarts":{{.RestartCount}},"exit_code":{{.State.ExitCode}}}' "${PHASE_CONTAINER}" 2>/dev/null || echo '{}')"
+docker rm -f "${PHASE_CONTAINER}" >/dev/null 2>&1 || true
 
 # OOM and restarts are read from the DAEMON, not inferred from the log. A
 # container killed at its limit and restarted by the policy leaves a healthy
@@ -225,7 +246,7 @@ PHASE="${PHASE}" STAMP="${STAMP}" RC="${RC}" ELAPSED="${ELAPSED}" \
 TEMP_BEFORE="${TEMP_BEFORE}" TEMP_AFTER="${TEMP_AFTER}" \
 DISK_BEFORE="${DISK_BEFORE}" DISK_AFTER="${DISK_AFTER}" \
 LIMITS_JSON="${LIMITS_JSON}" OOM_JSON="${OOM_JSON}" \
-CAPS_JSON="${CAPS_JSON}" \
+CAPS_JSON="${CAPS_JSON}" PHASE_STATE="${PHASE_STATE}" \
 CMD="$*" SAMPLES="${SAMPLES}" REPORT="${REPORT}" \
 python3 <<'PY'
 import csv, json, os, sys
@@ -274,16 +295,41 @@ report = {
     "postgres_temp_bytes_delta": int(env["TEMP_AFTER"]) - int(env["TEMP_BEFORE"]),
     "data_volume_growth_bytes": int(env["DISK_AFTER"]) - int(env["DISK_BEFORE"]),
     "containers": {}, "oom_and_restarts": json.loads(env["OOM_JSON"]),
+    # THE MEASURED WORKLOAD's own final state, kept separate from the sweep of
+    # surviving containers. Attribution is the point: the sweep can only say
+    # "something was OOM-killed", and the database being killed during a seed
+    # is a different finding from the seed being killed.
+    "phase_container": json.loads(env.get("PHASE_STATE") or "{}"),
     "host_capabilities": caps,
     # The two verdicts are SEPARATE because the two limits are separate facts.
     # A Synology enforces memory and cannot enforce CPU, and one summary word
     # for both would either overclaim or discard a real measurement.
+    # FOUR AXES, SEPARATELY, because the evidence for each is different in
+    # kind and one word for all of them grows broader than what was measured.
+    #
+    #   container memory   bounded by mem_limit; a real PASS/TIGHT
+    #   host memory        OBSERVED. MemAvailable collapsing means the host was
+    #                      starving even if every container sat inside its own
+    #                      ceiling — which is a different failure and not one
+    #                      a per-container headroom figure can see
+    #   CPU                bounded only where CFS quota exists
+    #   disk I/O           never bounded here: this host reports no blkio
+    #                      throttle support at all
+    #   runtime            measured. A phase that fits in 1g by taking nine
+    #                      hours has not passed either, and no memory number
+    #                      says so
     "memory_verdict": "PASS",
     "cpu_limit_enforcement": "ENFORCED" if cpu_enforced else (
         caps.get("cpu_quota") or "UNKNOWN"),
     "cpu_verdict": "PASS" if cpu_enforced else "UNSUPPORTED — CPU was measured "
                                                "but NOT bounded on this host",
     "headroom_verdict": "PASS",
+    "host_memory_verdict": "OBSERVED",
+    "io_limit_enforcement": "UNSUPPORTED" if any(
+        "blkio" in w for w in json.loads(env.get("CAPS_JSON") or "{}"
+                                         ).get("daemon_warnings", [])
+    ) else "UNKNOWN",
+    "runtime_verdict": "MEASURED",
 }
 
 for c, m in sorted(peak_mem.items()):
@@ -313,12 +359,30 @@ for c, m in sorted(peak_mem.items()):
         report["headroom_verdict"] = "UNENFORCED"
     report["containers"][c] = entry
 
+# HOST PRESSURE, scored on its own axis rather than folded into the memory
+# verdict. 10% of total is a reporting threshold, not a limit: it says "look at
+# this", because nothing here can bound host memory and a PASS that quietly
+# covered it would be claiming more than was measured.
+_total = json.loads(env.get("CAPS_JSON") or "{}").get("host", {}).get("mem_total")
+if min_avail is not None and _total:
+    report["host_mem_total_bytes"] = _total
+    report["host_min_mem_available_pct"] = round(100.0 * min_avail / _total, 1)
+    if min_avail < 0.10 * _total:
+        report["host_memory_verdict"] = (
+            f"PRESSURE — MemAvailable fell to "
+            f"{report['host_min_mem_available_pct']}% of total while every "
+            f"container stayed inside its own ceiling")
+
 if not rows:
     report["memory_verdict"] = report["headroom_verdict"] = "UNMEASURED"
 if int(env["RC"]) != 0:
     report["memory_verdict"] = report["headroom_verdict"] = "PHASE FAILED"
-if any(o.get("oom_killed") for o in report["oom_and_restarts"]):
-    report["memory_verdict"] = report["headroom_verdict"] = "OOM KILLED"
+if report["phase_container"].get("oom_killed"):
+    report["memory_verdict"] = report["headroom_verdict"] = \
+        "OOM KILLED (the measured phase)"
+elif any(o.get("oom_killed") for o in report["oom_and_restarts"]):
+    report["memory_verdict"] = report["headroom_verdict"] = \
+        "OOM KILLED (another container)"
 
 open(env["REPORT"], "w").write(json.dumps(report, indent=2, sort_keys=True))
 print(json.dumps(report, indent=2, sort_keys=True))
@@ -333,6 +397,25 @@ print(r["headroom_verdict"].split()[0], r["cpu_limit_enforcement"])' "${REPORT}"
 # CPU FIRST, and always — including on a PASS. The memory envelope being sound
 # says nothing about the CPU one, and a reader who sees only "ENVELOPE
 # MEASURED" would reasonably assume both were bounded.
+# EVERY axis is printed, whatever the memory verdict says. A reader who sees
+# only "MEMORY ENVELOPE MEASURED" would reasonably assume the rest were bounded
+# too, and on this hardware three of them are not.
+python3 - "${REPORT}" <<'PYX'
+import json, sys
+r = json.load(open(sys.argv[1]))
+print("\n  ── what this run actually proves ──")
+print(f"    container memory : {r['memory_verdict']}")
+print(f"    host memory      : {r['host_memory_verdict']}"
+      + (f"  (min {r['host_min_mem_available_pct']}% available)"
+         if "host_min_mem_available_pct" in r else ""))
+print(f"    CPU              : {r['cpu_limit_enforcement']} "
+      f"(peak recorded, not bounded)"
+      if r["cpu_limit_enforcement"] != "ENFORCED"
+      else f"    CPU              : {r['cpu_verdict']}")
+print(f"    disk I/O         : {r['io_limit_enforcement']}")
+print(f"    runtime          : {r['elapsed_seconds']}s")
+PYX
+
 if [ "${CPU_ENF}" != "ENFORCED" ]; then
   printf '\n\033[33mCPU LIMITS %s\033[0m — peak CPUpercent in %s was OBSERVED, not\n' \
     "${CPU_ENF}" "${REPORT}"
