@@ -26,7 +26,7 @@ from sentinel.controller.frozen_rule import ControllerConfig
 from sentinel.controller.machine import Controller, Observation
 from sentinel.regime.spy import spy_regime
 
-ENVELOPE_VERSION = 1
+ENVELOPE_VERSION = 2
 REQUIRED_IDENTITY_FIELDS = frozenset({
     "strategy", "controller_rule_sha256", "wealth_core_source_sha256"})
 
@@ -44,7 +44,10 @@ class SessionState:
     last_known: dict[str, float]
     feed: dict
     controller: dict
+    shadow_peak_nav: float
     shadow_nav_history: list[float] = field(default_factory=list)
+    trailing_stop_sessions: list[str] = field(default_factory=list)
+    controller_session_history: list[str] = field(default_factory=list)
     breadth_history: list[float] = field(default_factory=list)
     last_processed_session: str | None = None
     data_version: int | None = None
@@ -65,6 +68,7 @@ class SessionState:
             pending=[], ledger=Ledger().to_dict(), last_known={},
             feed={"session_index": -1, "seen_sessions": {}, "series": {}},
             controller=controller.initial_state(),
+            shadow_peak_nav=float(starting_cash),
             strategy_identity=dict(strategy_identity))
 
     def to_dict(self) -> dict:
@@ -72,6 +76,9 @@ class SessionState:
 
     @classmethod
     def from_dict(cls, raw: Mapping) -> "SessionState":
+        if int(raw.get("version", 0)) == 1:
+            raise ValueError("production state version 1 cannot be migrated safely: "
+                             "lifetime shadow peak and trailing-stop history are absent")
         if int(raw.get("version", 0)) != ENVELOPE_VERSION:
             raise ValueError(f"unsupported production state version {raw.get('version')!r}")
         state = cls(**dict(raw))
@@ -198,12 +205,25 @@ def _period_return(values: Sequence[float], horizon: int) -> float | None:
 
 def advance_state(prior: SessionState | Mapping, published: PublishedSession,
                   *, controller_config: ControllerConfig,
+                  strategy_identity: Mapping,
                   wealth_config: WealthCoreConfig | None = None,
                   eligibility_config: EligibilityConfig | None = None
                   ) -> SessionState:
     """Pure one-session transition. Persist its return in the caller's txn."""
     env = (prior if isinstance(prior, SessionState)
            else SessionState.from_dict(prior))
+    if env.version != ENVELOPE_VERSION:
+        raise ValueError(f"unsupported production state version {env.version!r}")
+    running_identity = dict(strategy_identity)
+    missing = REQUIRED_IDENTITY_FIELDS - set(running_identity)
+    if missing:
+        raise ValueError("running strategy identity is incomplete: "
+                         + ", ".join(sorted(missing)))
+    if running_identity["strategy"] != controller_config.strategy_id \
+            or running_identity["controller_rule_sha256"] != controller_config.digest:
+        raise ValueError("running strategy/controller identity disagrees with configuration")
+    if env.strategy_identity != running_identity:
+        raise ValueError("persisted strategy/config/source identity differs from running identity")
     if env.last_processed_session and published.session <= env.last_processed_session:
         raise ValueError("production sessions must advance strictly")
     if env.data_version is not None and published.data_version < env.data_version:
@@ -226,8 +246,16 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
     navs = list(env.shadow_nav_history)
     nav = float(plan.estimated_equity)
     navs.append(nav)
-    navs = navs[-64:]
-    peak = max(navs) if navs else nav
+    navs = navs[-41:]
+    peak = max(float(env.shadow_peak_nav), nav)
+    stops = list(env.trailing_stop_sessions)
+    stop_count = sum(i.reason == "EXIT_TRAILING_STOP" for i in plan.intents)
+    stops.extend([published.session] * stop_count)
+    # ISO session ordering makes the durable evidence window deterministic;
+    # retain 20 observations by controller session, not wall-clock days.
+    recent_sessions = list(env.controller_session_history) + [published.session]
+    recent_sessions = recent_sessions[-20:]
+    stops = [s for s in stops if s in set(recent_sessions)]
     damaged = list(env.breadth_history) + [breadth.damaged_breadth]
     regime = spy_regime(published.spy_closeadj)
     ob = Observation(
@@ -240,6 +268,7 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
         damaged_breadth_delta5=(damaged[-1] - damaged[-6]
                                 if len(damaged) >= 6 else None),
         spy_r20=regime.spy_r20, spy_vol_ratio=regime.spy_vol_ratio)
+    ob = Observation(**{**asdict(ob), "stops20": len(stops)})
     ctl = Controller(controller_config)
     controller_state, decision = ctl.step(observation=ob, state=env.controller)
     evidence = {"observation": asdict(ob), "breadth": {
@@ -250,6 +279,8 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
         wealth_core=state.to_dict(), pending=[p.to_dict() for p in pending],
         ledger=ledger.to_dict(), last_known=last_known, feed=_feed_to_dict(feed),
         controller=controller_state, shadow_nav_history=navs,
+        shadow_peak_nav=peak, trailing_stop_sessions=stops,
+        controller_session_history=recent_sessions,
         breadth_history=damaged[-6:], last_processed_session=published.session,
         data_version=published.data_version,
         strategy_identity=dict(env.strategy_identity),
@@ -257,11 +288,18 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
 
 
 def advance_and_persist(conn, session: str, prior: Mapping, *, load_published,
-                        controller_config: ControllerConfig, **kwargs) -> dict:
+                        controller_config: ControllerConfig,
+                        strategy_identity: Mapping, **kwargs) -> dict:
     """Catch-up callback: compute only; catch_up commits envelope + cursor."""
-    published = load_published(conn, session)
-    return advance_state(prior, published,
-                         controller_config=controller_config, **kwargs).to_dict()
+    from sentinel.feed.publication import pinned
+    with pinned(conn) as publication:
+        published = load_published(conn, session)
+        if published.data_version != publication.version:
+            raise RuntimeError("loaded publication version differs from session pin")
+        result = advance_state(
+            prior, published, controller_config=controller_config,
+            strategy_identity=strategy_identity, **kwargs)
+        return result.to_dict()
 
 
 __all__ = ["PublishedSession", "REQUIRED_IDENTITY_FIELDS", "SessionState",
