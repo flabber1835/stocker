@@ -116,7 +116,7 @@ class Observation:
     #: tape — see the certification module's docstring.
     spy_r20: Optional[float] = None
     spy_vol_ratio: Optional[float] = None
-    stops20: int = 0
+    stops20: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -231,6 +231,7 @@ class Controller:
             "ordinary_stress_start_session": None,
             "ordinary_stress_start_shadow_nav": None,
             "ordinary_stress_age": 0,
+            "ordinary_healthy_streak": 0,
             "fast_severe_active": False,
             "fast_severe_entry_session": None,
             "fast_severe_age": 0,
@@ -318,11 +319,13 @@ class Controller:
         """The grinding-bear path. Evaluated only while ordinary stress is
         active — the caller enforces that; this reports the predicates."""
         e = self.cfg.slow_entry
-        anchor = state.get("ordinary_stress_start_shadow_nav")
+        # The slow predicate is anchored to the full base-stress episode,
+        # whether BinaryStress or base FastState started it.
+        anchor = state.get("base_stress_start_shadow_nav")
         since = (None if not anchor or ob.shadow_nav is None
                  else ob.shadow_nav / anchor - 1.0)
         preds = [
-            _p("stress_age", state.get("ordinary_stress_age"),
+            _p("stress_duration", state.get("base_stress_duration"),
                lambda v: v >= e["minimum_stress_sessions"]),
             _p("return_since_anchor", since,
                lambda v: v <= e["max_return_since_anchor"]),
@@ -364,10 +367,13 @@ class Controller:
                       ordinary_stress_age=0, ordinary_healthy_streak=0)
         elif ordinary:
             st["ordinary_stress_age"] = int(st.get("ordinary_stress_age", 0)) + 1
+            stops_available = (isinstance(ob.stops20, int)
+                               and not isinstance(ob.stops20, bool)
+                               and ob.stops20 >= 0)
             binary_healthy = (ob.shadow_r20 is not None and ob.shadow_r20 > 0
-                              and ob.stops20 <= 2)
+                              and stops_available and ob.stops20 <= 2)
             st["ordinary_healthy_streak"] = (
-                int(st.get("ordinary_healthy_streak", 0)) + 1
+                int(st["ordinary_healthy_streak"]) + 1
                 if binary_healthy else 0)
             if (st["ordinary_stress_age"] >= 20
                     and st["ordinary_healthy_streak"] >= 3):
@@ -405,21 +411,8 @@ class Controller:
                     st.get("base_stress_duration", 0)) + 1
         else:
             st.update(base_stress_start_shadow_nav=None, base_stress_duration=0)
-        anchor = st.get("base_stress_start_shadow_nav")
-        stress_return = (None if not anchor or ob.shadow_nav is None else
-                         ob.shadow_nav / anchor - 1.0)
-        e = self.cfg.slow_entry
-        slow_entry = (base_stress and st["base_stress_duration"] >= e["minimum_stress_sessions"]
-                      and stress_return is not None
-                      and stress_return <= e["max_return_since_anchor"]
-                      and ob.shadow_r40 is not None
-                      and ob.shadow_r40 <= e["max_shadow_return_40"]
-                      and ob.damaged_breadth is not None
-                      and ob.damaged_breadth >= e["min_damaged_breadth"]
-                      and ob.green_breadth is not None
-                      and ob.green_breadth <= e["max_green_breadth"])
-        slow = Evidence((), slow_entry,
-                        "SLOW_SEVERE_ENTRY" if slow_entry else "SLOW_CONDITIONS_NOT_MET")
+        slow = (self.slow_severe_evidence(ob, st) if base_stress
+                else Evidence((), False, "SLOW_CONDITIONS_NOT_MET"))
         fast_active = bool(st.get("fast_severe_active"))
         slow_active = bool(st.get("slow_severe_active"))
 
