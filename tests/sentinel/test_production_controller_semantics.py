@@ -98,7 +98,7 @@ def test_stops20_unavailable_or_invalid_fails_binary_recovery_closed():
     for i in range(1, 19):
         state, _ = ctl.step(observation=_ob(i, dd=-0.14), state=state)
 
-    for i, stops in enumerate((None, -1, 3), start=19):
+    for i, stops in enumerate((None, -1, "invalid", 3), start=19):
         state, _ = ctl.step(
             observation=_ob(i, dd=-0.14, healthy=True, stops20=stops),
             state=state)
