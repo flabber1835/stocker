@@ -125,14 +125,18 @@ They are release-safety rules, not style preferences.
      lossless chunks as the last-resort recovery and state that reassembly is
      required.
 
-4. **Do not merge your own pull request unless the user explicitly asks you to.**
+4. **Open completed, validated pull requests ready for review by default.** Use
+   draft status only when the user explicitly requests it or the pull request is
+   intentionally incomplete. If an incomplete pull request is opened as a
+   draft, state what remains before it can be reviewed.
+5. **Do not merge your own pull request unless the user explicitly asks you to.**
    The default handoff is: agent codes -> agent tests -> agent opens PR -> user
    reviews/merges.
-5. **Never force-push `main`, rewrite published history, or bypass repository
+6. **Never force-push `main`, rewrite published history, or bypass repository
    protections.**
-6. If a feature-branch push, PR creation, or artifact export fails, report the
+7. If a feature-branch push, PR creation, or artifact export fails, report the
    exact error and stop rather than silently continuing or claiming completion.
-7. Before reporting repository delivery, verify that the pull request exists on
+8. Before reporting repository delivery, verify that the pull request exists on
    GitHub and targets `main`.
 
 ## Most Important Process Rule
