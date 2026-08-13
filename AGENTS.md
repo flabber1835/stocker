@@ -139,6 +139,27 @@ They are release-safety rules, not style preferences.
 8. Before reporting repository delivery, verify that the pull request exists on
    GitHub and targets `main`.
 
+## Avoid repeated ceremony
+
+Repository and remote verification, required reading, and other setup checks
+are once per task, not once per command or message. Do not repeat successful
+checks during the same task without a concrete reason, such as relevant remote
+state changing, substantial elapsed time, or an operation that requires fresh
+ancestry.
+
+For an explicitly requested, reversible GitHub-only administrative operation,
+resolve the exact target, perform the operation once, verify it once, and report
+it immediately. Converting a pull request to draft, marking it ready, changing
+labels or reviewers, and posting a requested comment do not require a local
+fetch, source inspection, design-document reading, or tests unless the request
+also includes code changes or the operation itself depends on fresh repository
+state.
+
+For review fixes, inspect and change only the files relevant to the finding.
+Document first only when the fix introduces or changes a design decision; a fix
+that restores conformance to an existing documented contract needs no new
+design text.
+
 ## Most Important Process Rule
 
 Whenever a design decision is made, document it in the design docs before
