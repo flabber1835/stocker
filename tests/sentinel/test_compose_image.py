@@ -343,8 +343,10 @@ class TestTheTwoBRANCHESAgree:
     BRANCHES inside it disagreeing, which is the same defect one level further
     down — and it is where the reviewer's finding actually lived.
 
-    Asserted over every service in every real compose file, so a service added
-    later is covered without anyone remembering to add a case."""
+    Asserted over every non-interpolated service in every real Compose file, so
+    a service added later is covered without anyone remembering to add a case.
+    Interpolated services are Compose-only; their fallback refusal has a
+    separate falsifier because `.env` is intentionally not reimplemented."""
 
     @pytest.mark.parametrize("compose", REAL_COMPOSE)
     def test_every_service_resolves_identically(self, compose, monkeypatch):
@@ -380,9 +382,10 @@ class TestAProfileGatedServiceIsStillNamed:
     """`docker compose config` OMITS a service whose profile is not active, and
     reading that absence as "declares no image" derives a name for a service
     that has one. The certification runtime image is exactly this case:
-    `sentinel` sits behind `profiles: ["cli"]` and declares
-    `image: sentinel:latest`, and the authoritative branch answered
-    `sentinel-sentinel`.
+    `sentinel` sits behind `profiles: ["cli"]` and declares an interpolated
+    image with a local-development `sentinel:latest` default. The authoritative
+    branch once answered `sentinel-sentinel`; the file fallback now refuses the
+    interpolation rather than guessing how Compose sourced its environment.
 
     Worse than the fallback version of the same bug, because it happened on the
     PREFERRED branch — where Compose was available and trusted."""

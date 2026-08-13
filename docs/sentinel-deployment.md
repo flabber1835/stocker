@@ -803,9 +803,11 @@ The authoritative branch had the same bug from the other side: **a
 profile-gated service is OMITTED from `docker compose config`**, and reading
 that absence as "declares no image" derives a name for a service that has one.
 `docker-compose.sentinel.yml` is exactly this case — `sentinel` sits behind
-`profiles: ["cli"]` and declares `image: sentinel:latest` — and the resolver
-answered `sentinel-sentinel`. A service missing from the rendered model now
-falls through to the file rather than being derived.
+`profiles: ["cli"]` and its image is selected by Compose from
+`SENTINEL_RUNTIME_IMAGE_REF` with a local-development default. A service missing
+from the rendered model now falls through to the file rather than being
+derived; because that image is interpolated, the fallback then refuses instead
+of pretending to reproduce Compose's `.env` and configured-env-file rules.
 
 What the file cannot settle, it refuses over, because reading a compose file is
 not the same as reading Compose's resolved application model:
@@ -823,9 +825,12 @@ interpolates an UNSET variable to the empty string, so `image: thing:${TAG}`
 renders as `thing:` — malformed, non-empty, and otherwise about to be written
 into the manifest as the name of an artefact.
 
-A standing test resolves EVERY service in both real compose files down both
-branches and requires the answers to be identical. One resolver stopped the two
-scripts disagreeing; this stops the two branches inside it disagreeing.
+A standing test resolves every non-interpolated service in both real Compose
+files down both branches and requires the answers to be identical. Interpolated
+services have a separate falsifier proving the file fallback refuses even when
+the same variable is present in the Python process environment. One resolver
+stopped the two scripts disagreeing; these checks stop its two branches from
+forming different opinions where a file alone can settle the answer.
 
 ### The base is rebuilt before the engine, and then verified
 
