@@ -590,8 +590,10 @@ class TestTheCleanCertificationImageInspectionBundle:
         "services/backtester/",
         "services/bt-data/",
         "services/bt-engine/",
+        "tools/",
     }
     WORK_INPUTS = {
+        "scripts/sentinel-measure.sh": "/work/scripts/sentinel-measure.sh",
         "scripts/sentinel_forward_run.py": "/work/scripts/sentinel_forward_run.py",
         "scripts/sentinel_test_run.py": "/work/scripts/sentinel_test_run.py",
         "services/backtester/": "/work/services/backtester/",

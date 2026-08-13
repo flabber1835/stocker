@@ -88,13 +88,15 @@ services:
       context: .
       dockerfile: Dockerfile.sentinel
       network: host
-    # `latest` is a CONVENIENCE ALIAS and deliberately literal.
+    # `latest` is the local-development default only.
     #
-    # An interpolated `sentinel:${SENTINEL_IMAGE_TAG:-latest}` looks like better
-    # pinning and is worse: scripts/compose_image.py REFUSES an image containing
-    # `${...}` on purpose, because it cannot know the environment Compose was
-    # invoked with, and a resolver that guesses is how the manifest ends up
-    # naming an artefact that never ran.
+    # The formal resource measurement exports an exact reviewed repo digest in
+    # SENTINEL_RUNTIME_IMAGE_REF and lets Compose itself resolve it.  The
+    # inspection-only compose_image.py fallback deliberately REFUSES this
+    # interpolation: Compose can also source `.env` and configured env files,
+    # so reproducing it from the Python process environment could attribute the
+    # run to a different image.  No certification caller asks that fallback to
+    # resolve this profile-gated service.
     #
     # Commit pinning happens where it can be VERIFIED instead: `make
     # sentinel-image` builds `sentinel:<git-sha>` alongside this alias, and the

@@ -268,7 +268,7 @@ def test_public_installation_refuses_even_a_structurally_complete_self_authored_
         conn):
     payload = manifest()
     with pytest.raises(authority.AuthorityRefused,
-                       match="trusted issuer/signature"):
+                       match="offline-signed certificate lifecycle"):
         authority.install_system_certificate(
             conn, manifest_bytes=payload,
             confirm_sha256=hashlib.sha256(payload).hexdigest(),

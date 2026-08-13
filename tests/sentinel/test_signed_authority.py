@@ -542,7 +542,7 @@ def test_operation_gate_accepts_only_exact_operation_and_independent_hashes(conn
             publication_policy_implementation_sha256=sha("8"),
             publication_chain_root_sha256=sha("9"), now=NOW,
             trust_roots=ROOTS)
-    with pytest.raises(authority.AuthorityRefused, match="exact permitted operation"):
+    with pytest.raises(authority.AuthorityRefused, match="exact execution operation"):
         authority.require_execution_authority(
             conn, runtime_identity=runtime, strategy_identity=strategy,
             required_mode=authority.RolloutMode.CONTROLLER,

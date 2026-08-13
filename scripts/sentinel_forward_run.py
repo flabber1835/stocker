@@ -19,12 +19,14 @@ import sys
 import tempfile
 from typing import Any, Callable, Mapping, Sequence
 
+from sentinel.core import production as production_module
+
 
 SCHEMA = "sentinel.production-forward-chain-run/1"
 REPORT_SCHEMA = "sentinel.production-forward-chain/1"
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RUNNER = ROOT / "tools" / "sentinel_forward_chain.py"
-DEFAULT_PRODUCTION = ROOT / "sentinel" / "core" / "production.py"
+DEFAULT_PRODUCTION = Path(production_module.__file__).resolve()
 DEFAULT_RULE = (
     ROOT / "docs" / "sentinel-handoff" / "00_README"
     / "FROZEN_SENTINEL_1P1_RULE.json"

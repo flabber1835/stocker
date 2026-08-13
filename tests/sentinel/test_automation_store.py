@@ -15,6 +15,7 @@ from sentinel.automation.model import (
     ControlBinding,
     CycleSpec,
     CycleState,
+    InvalidCycleTransition,
     MissingAutomationState,
     StaleLeaderRefused,
 )
@@ -641,12 +642,20 @@ def test_adoption_never_moves_pretransport_cycle_to_executable_state(conn) -> No
     config = AutomationConfig(
         publication_delay_seconds=0, execution_delay_seconds=0)
     control = enable(conn, config)
-    permit = store.acquire_lease(
+    first = store.acquire_lease(
         conn, holder_id="worker-a", lease_seconds=30)
     created = store.create_cycle(
-        conn, permit=permit, spec=cycle_spec(control, config))
+        conn, permit=first, spec=cycle_spec(control, config))
+    store.engage_kill(conn, actor="operator", reason="generation boundary")
+    expected = store.load_control(conn).binding
+    assert expected is not None
+    store.release_kill(
+        conn, expected_binding=expected, actor="operator",
+        reason="generation adoption")
+    second = store.acquire_lease(
+        conn, holder_id="worker-b", lease_seconds=30)
 
     with pytest.raises(InvalidCycleTransition, match="adoption cannot move"):
         store.adopt_cycle(
-            conn, permit=permit, cycle_id=created.cycle_id,
+            conn, permit=second, cycle_id=created.cycle_id,
             to_state=CycleState.EXECUTING)

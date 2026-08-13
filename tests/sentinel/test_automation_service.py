@@ -879,4 +879,4 @@ async def test_missed_window_supersession_is_notifier_eligible(conn, pg) -> None
         cur.execute(
             "SELECT state FROM sentinel_automation_service_instances"
             " WHERE instance_id='worker-a'")
-        assert cur.fetchone()[0] == "PREPARED"
+        assert cur.fetchone()[0] == "SUPERSEDED"

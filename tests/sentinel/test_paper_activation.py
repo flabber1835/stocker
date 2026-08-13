@@ -1195,7 +1195,7 @@ class TestStrictExecutionGate:
 
         with pytest.raises(
                 paper.PaperActivationRefused,
-                match="does not match binding"):
+                match="does not match the durable binding"):
             _execute(conn, broker)
 
         assert "account_snapshot" in broker.calls

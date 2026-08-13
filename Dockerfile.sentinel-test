@@ -87,7 +87,9 @@ COPY tools/ /work/tools/
 # the certification lens and blur the runtime/inspection boundary.
 COPY scripts/sentinel_forward_run.py /work/scripts/sentinel_forward_run.py
 COPY scripts/sentinel_test_run.py /work/scripts/sentinel_test_run.py
+COPY scripts/sentinel-measure.sh /work/scripts/sentinel-measure.sh
 COPY scripts/ /work/repo/scripts/
+COPY tools/ /work/repo/tools/
 
 # INSPECTION ONLY. Never on sys.path — these are the inputs to assertions about
 # the image, and importing them is precisely what this file exists to prevent.
@@ -159,11 +161,16 @@ ENV PYTHONPATH=/work:/work/services/backtester:/app \
 # BEFORE any test runs. If the imports resolve to the wrong place the suite is
 # measuring the wrong thing, and a failure here is far cheaper than a green run
 # that certified a checkout.
-RUN python -c "import sentinel, stock_strategy_shared.wealth_core as wc; \
+RUN python -c "from pathlib import Path; \
+    import sentinel, stock_strategy_shared.wealth_core as wc; \
     from app import wealth_core_replay as bt; \
+    from scripts import sentinel_forward_run as forward_run; \
     import tools.corpus_parity; \
     assert sentinel.__file__.startswith('/app/'), sentinel.__file__; \
     assert '/work' not in wc.__file__, wc.__file__; \
+    assert str(forward_run.DEFAULT_PRODUCTION).startswith('/app/'), forward_run.DEFAULT_PRODUCTION; \
+    assert str(forward_run.DEFAULT_RUNNER).startswith('/work/tools/'), forward_run.DEFAULT_RUNNER; \
+    assert Path('/work/scripts/sentinel-measure.sh').is_file(); \
     print('runtime imports OK:', sentinel.__file__, wc.__file__, bt.__file__)"
 
 # Overrides the runtime ENTRYPOINT, whose purpose is to refuse to be started

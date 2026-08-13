@@ -5,6 +5,7 @@ import asyncio
 from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -30,6 +31,9 @@ from sentinel.guarded_administration import (
     GuardedAdministrativeExecutionBroker,
     build_fresh_administrative_guard,
 )
+
+REPO = Path(os.environ.get(
+    "SENTINEL_REPO_ROOT", Path(__file__).resolve().parents[2]))
 from sentinel.ownership import AccountObservation, OpenOrder
 
 
@@ -618,8 +622,7 @@ def test_cli_parser_keeps_admin_lifecycle_explicit_and_exact(monkeypatch):
 
 
 def test_runbook_uses_only_digest_pinned_surface_for_admin_broker_access():
-    text = (Path(__file__).resolve().parents[2]
-            / "docs" / "sentinel-paper-activation.md").read_text(
+    text = (REPO / "docs" / "sentinel-paper-activation.md").read_text(
                 encoding="utf-8")
     commands = (
         "inspect-paper-account", "migration-plan", "migrate-account",
