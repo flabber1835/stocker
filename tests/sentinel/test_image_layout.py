@@ -409,7 +409,7 @@ class TestTheBuildContextCarriesWhatTheDockerfilesCOPY:
         """(dockerfile, source) for every COPY that reads the build context."""
         out = []
         for df in sorted(ROOT.glob("Dockerfile*")) + \
-                sorted(ROOT.glob("services/*/Dockerfile")):
+                sorted(ROOT.glob("services/*/Dockerfile*")):
             for raw in df.read_text().splitlines():
                 line = raw.strip()
                 if not line.upper().startswith("COPY "):
@@ -482,7 +482,7 @@ class TestTheBuildContextCarriesWhatTheDockerfilesCOPY:
                 "narrower than the checkout it is meant to cover")
             return
         seen = {df for df, _ in self.copy_sources()}
-        for df in ROOT.glob("services/*/Dockerfile"):
+        for df in ROOT.glob("services/*/Dockerfile*"):
             assert df in seen, df
 
     def test_no_dockerfile_copies_an_ignored_path(self):

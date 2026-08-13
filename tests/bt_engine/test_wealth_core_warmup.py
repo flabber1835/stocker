@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import os
+import pathlib
 
 import pytest
 
@@ -31,6 +33,10 @@ from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
 from stock_strategy_shared.wealth_core.feed import Feed, SecurityMeta, VendorBar
 from stock_strategy_shared.wealth_core.signals import (LONG_LOOKBACK_SESSIONS,
                                                        REQUIRED_CLOSES)
+
+
+REPO = pathlib.Path(os.environ.get(
+    "BT_ENGINE_REPO_ROOT", pathlib.Path(__file__).resolve().parents[2]))
 
 
 # ── the constants line up with the signal ────────────────────────────────────
@@ -88,6 +94,13 @@ class TestTheSplit:
                                            "2020-06-01")
         assert len(warm) < api.WARMUP_SESSIONS
         assert measured
+
+    def test_action_cutoff_requires_one_session_before_the_full_warmup(self):
+        warm = _sessions(api.WARMUP_SESSIONS)
+        assert api._exclusive_prior_session(warm, warm) is None
+
+        prior = "2019-12-31"
+        assert api._exclusive_prior_session([prior, *warm], warm) == prior
 
 
 # ── the behaviour: a warmed feed can rank on session one ─────────────────────
@@ -329,7 +342,8 @@ class TestTheWarmupSurvivesTheHandoff:
             api.WealthCoreJobRequest(mode="baseline_replay",
                                      start_date="2020-05-06",
                                      end_date="2020-05-10",
-                                     expected_hashes={}))
+                                     expected_hashes={},
+                                     expected_data_version="generation-7"))
         assert seen["warmup_sessions"] == corpus["warmup_sessions"]
 
     def test_experiment_forwards_it(self, monkeypatch):
@@ -367,13 +381,16 @@ class TestActionsAreIndexedAgainstTheRightWindow:
         `app/live/wealth_core_replay.py`; in the repo it lives under the
         backtester, and importing it by file keeps this test independent of
         whichever layout is present."""
+        if os.environ.get("BT_ENGINE_IN_IMAGE") == "1":
+            from app.live import wealth_core_replay
+            return wealth_core_replay
+
         import importlib.util
-        import pathlib
         import sys
         if "_wcr_probe" in sys.modules:
             return sys.modules["_wcr_probe"]
-        src = (pathlib.Path(__file__).resolve().parents[2]
-               / "services" / "backtester" / "app" / "wealth_core_replay.py")
+        src = (REPO / "services" / "backtester" / "app" /
+               "wealth_core_replay.py")
         spec = importlib.util.spec_from_file_location("_wcr_probe", src)
         mod = importlib.util.module_from_spec(spec)
         # Registered BEFORE exec: its dataclasses resolve string annotations
@@ -410,12 +427,56 @@ class TestActionsAreIndexedAgainstTheRightWindow:
         assert ("AAA", "2021-01-04") not in full
         assert full == {("AAA", "2020-11-02"): 1.5}
 
+    def test_prior_or_older_actions_drop_but_weekend_actions_map_forward(
+            self):
+        """The calendar net is wider than the retained feature history.
+
+        Mapping its discarded action rows against the trimmed index would put
+        both OLD events on 2020-11-02, inventing causal inputs on the boundary.
+        The canonical filter must remove them before either mapper sees them.
+        """
+        wcr = self._replay()
+        prior = "2020-10-30"  # Friday, exclusive cutoff
+        warm = ["2020-11-02", "2020-11-03"]  # first retained is Monday
+        measured = ["2021-01-04"]
+        rows = [
+            {"ticker": "OLD_SPLIT", "date": "2020-10-30",
+             "action": "split", "value": 2.0},
+            {"ticker": "OLD_DIV", "date": "2020-10-29",
+             "action": "dividend", "value": 1.0},
+            {"ticker": "WEEKEND_SPLIT", "date": "2020-11-01",
+             "action": "split", "value": 3.0},
+            {"ticker": "WEEKEND_DIV", "date": "2020-11-01",
+             "action": "dividend", "value": 1.5},
+        ]
+        causal = wcr.actions_after_session(rows, prior)
+        index = wcr.sessions_index(warm + measured)
+
+        assert wcr.split_ratios_from_actions(causal, index) == {
+            ("WEEKEND_SPLIT", "2020-11-02"): 3.0}
+        assert wcr.dividends_from_actions(causal, index) == {
+            ("WEEKEND_DIV", "2020-11-02"): 1.5}
+
+        src = open(api.__file__).read()
+        body = src[src.index("async def _load_corpus"):src.index("def _execute(")]
+        assert "source_action_rows = load_actions(conn, warmup_from, end)" in body
+        assert "action_rows = actions_after_session(\n" \
+               "                source_action_rows, " \
+               "actions_exclusive_prior_session)" in body
+        assert body.index("action_rows = actions_after_session(") < body.index(
+            "split_ratios_from_actions(action_rows, full_idx)")
+        assert body.index("action_rows = actions_after_session(") < body.index(
+            "dividends_from_actions(action_rows, full_idx)")
+
     def test_the_loader_drops_pre_start_rows_before_deriving_terminal_events(self):
         """Terminal events keep the MEASURED index, so a pre-start delisting must
         be removed from the ROWS instead — otherwise it snaps forward and the run
         fires a terminal action on session one for a security it never held."""
         src = open(api.__file__).read()
         body = src[src.index("async def _load_corpus"):src.index("def _execute(")]
+        assert "actions_exclusive_prior_session = _exclusive_prior_session(" \
+               in body
+        assert "actions_first_retained_session = warmup_sessions[0]" in body
         assert "measured_action_rows = [r for r in action_rows" in body
         assert "terminal_events_from_actions(\n                    measured_action_rows, idx," in body
         assert "split_ratios_from_actions(action_rows, full_idx)" in body

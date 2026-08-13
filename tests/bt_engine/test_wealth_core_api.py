@@ -41,7 +41,8 @@ from stock_strategy_shared.wealth_core.risk_profile import (  # noqa: E402
     PROFILE_NAME,
 )
 
-REPO = pathlib.Path(__file__).resolve().parents[2]
+REPO = pathlib.Path(os.environ.get(
+    "BT_ENGINE_REPO_ROOT", pathlib.Path(__file__).resolve().parents[2]))
 SLICE = 160
 
 
@@ -181,12 +182,26 @@ class TestBaselineReplayRefusals:
 
     def test_a_COMPLETE_hash_set_is_accepted(self):
         api._validate(req(mode="baseline_replay",
-                          expected_hashes={k: "x" for k in HASH_ORDER}))
+                          expected_hashes={k: "x" for k in HASH_ORDER},
+                          expected_data_version="generation-7"))
+
+    def test_hashes_without_their_exact_data_generation_are_refused(self):
+        with pytest.raises(HTTPException) as exc:
+            api._validate(req(
+                mode="baseline_replay",
+                expected_hashes={k: "x" for k in HASH_ORDER}))
+        assert "expected_data_version" in str(exc.value.detail)
+
+    def test_other_modes_cannot_claim_an_ignored_generation_pin(self):
+        with pytest.raises(HTTPException) as exc:
+            api._validate(req(expected_data_version="generation-7"))
+        assert "baseline_replay-only" in str(exc.value.detail)
 
     def test_a_baseline_replay_carrying_a_CHANGE_is_refused(self):
         with pytest.raises(HTTPException):
             api._validate(req(mode="baseline_replay",
                               expected_hashes={k: "x" for k in HASH_ORDER},
+                              expected_data_version="generation-7",
                               change={"n_slots": 20}))
 
 
@@ -269,7 +284,8 @@ class TestDispatch:
         pass path works without standing up the backtester."""
         first = api._execute(req(mode="chain_rehearsal"), corpus)
         out = api._execute(
-            req(mode="baseline_replay", expected_hashes=first["parity_hashes"]),
+            req(mode="baseline_replay", expected_hashes=first["parity_hashes"],
+                expected_data_version="generation-7"),
             corpus)
         assert out["summary"]["divergence"]["identical"] is True
 
@@ -277,7 +293,8 @@ class TestDispatch:
         from app.wealth_core_tunnel import ParityViolation
         bogus = {k: "0" * 64 for k in HASH_ORDER}
         with pytest.raises(ParityViolation):
-            api._execute(req(mode="baseline_replay", expected_hashes=bogus),
+            api._execute(req(mode="baseline_replay", expected_hashes=bogus,
+                             expected_data_version="generation-7"),
                          corpus)
 
     def test_an_experiment_records_its_parent_and_its_divergence(self, corpus):
@@ -467,8 +484,22 @@ class TestTheCorpusSnapshotIsIdentifiedAndStable:
             "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         lock = body.index("acquire_corpus_read_lock(aconn)")
         identity = body.index("load_ready_data_generation(aconn)")
+        expected_generation = body.index(
+            "require_expected_data_generation(req, generation)")
         first_loader = body.index("assert_raw_price_domain(conn")
-        assert tx < lock < identity < first_loader
+        assert tx < lock < identity < expected_generation < first_loader
+
+    def test_a_mismatched_expected_generation_refuses_before_loading(self):
+        generation = jobs_busy.DataGeneration(
+            version="generation-8", status="READY", source_mode="sharadar",
+            updated_at="2026-08-13T00:00:00Z")
+        request = req(
+            mode="baseline_replay",
+            expected_hashes={k: "x" for k in HASH_ORDER},
+            expected_data_version="generation-7")
+        with pytest.raises(jobs_busy.CorpusGenerationUnavailable,
+                           match="no corpus loader query"):
+            api.require_expected_data_generation(request, generation)
 
     def test_identity_and_meta_are_bounded_by_the_requested_end(self):
         body = self.SRC[self.SRC.index("async def _load_corpus"):
@@ -894,7 +925,9 @@ class TestRetentionIsReachableFromTheRequest:
         assert offered == set(api.RETENTION_MODES)
 
     @pytest.mark.parametrize("mode,extra", [
-        ("baseline_replay", {"expected_hashes": {k: "x" for k in HASH_ORDER}}),
+        ("baseline_replay", {
+            "expected_hashes": {k: "x" for k in HASH_ORDER},
+            "expected_data_version": "generation-7"}),
         ("experiment", {"change": {"n_slots": 12}, "config": {"n_slots": 12},
                         "baseline_hashes": {k: "x" for k in HASH_ORDER}}),
     ])

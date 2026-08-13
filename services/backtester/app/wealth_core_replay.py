@@ -688,6 +688,22 @@ def load_actions(conn, start: str, end: str) -> list[dict]:
             conn.execute(_ACTIONS_SQL, {"start": start, "end": end}).mappings()]
 
 
+def actions_after_session(rows: Iterable[dict],
+                          exclusive_prior_session: str) -> list[dict]:
+    """Return actions after the session preceding retained causal history.
+
+    Corpus callers query a generous calendar range to *find* the final 126
+    pre-start trading sessions. Rows on or before the immediately preceding
+    session are not input history. Passing them to ``snap_to_session`` with the
+    trimmed index would shift them onto the first retained day, fabricating a
+    split or dividend there. The cutoff is exclusive because an action dated on
+    a weekend or holiday after the prior session legitimately maps forward to
+    the first retained trading session.
+    """
+    cutoff = str(exclusive_prior_session)
+    return [row for row in rows if str(row["date"]) > cutoff]
+
+
 # ── permanent security identity ─────────────────────────────────────────────
 # A TICKER IS AN OBSERVATION LABEL. The permanent identity owns the economic
 # state, and using the ticker as `security_id` gets it wrong in both directions:
@@ -1091,7 +1107,8 @@ __all__ = ["ACTIONS_CAVEATS", "CAVEATS", "DERIVED_SPLIT_CAVEATS",
            "TERMINAL_ACTIONS", "DIVIDEND_ACTIONS", "dividends_from_actions",
            "IdentityResolver", "IdentityUnresolvable", "SECURITY_ID_PREFIX",
            "permanent_id", "load_identity",
-           "unusable_dividend_rows", "load_actions", "load_sessions",
+           "unusable_dividend_rows", "load_actions", "actions_after_session",
+           "load_sessions",
            "reconcile_split",
            "sessions_index", "snap_to_session", "split_ratios_from_actions",
            "terminal_events_from_actions", "terminal_from_action",

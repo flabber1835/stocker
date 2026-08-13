@@ -297,6 +297,8 @@ def _certification_input_spec(root: Path, *, image: bool = False):
         (repo / "docker-compose.backtest.yml", ""),
         (repo / "docker-compose.sentinel-backup.yml", ""),
         (repo / ".dockerignore", ""),
+        (repo / ".gitattributes", ""),
+        (repo / ".github" / "workflows" / "sentinel-safety.yml", ""),
         (repo / ".env.example", ""),
         (repo / "Makefile", ""),
         (repo / "README.md", ""),

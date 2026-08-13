@@ -145,6 +145,11 @@ class TestAPlanIdDeterminesThePlan:
         with pytest.raises(journal.PlanEconomicsChanged):
             journal.save_plan(conn, a_plan(basket={"A": 101}))
 
+    def test_the_plan_fingerprint_keeps_the_complete_sha256(self):
+        fingerprint = a_plan().fingerprint()
+        assert len(fingerprint) == 64
+        assert set(fingerprint) <= set("0123456789abcdef")
+
     def test_SUPERSESSION_is_not_a_divergence(self, conn):
         """A lifecycle fact, not economics. Including `superseded_by` in the
         comparison would make re-saving an already-superseded plan look like a

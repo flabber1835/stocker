@@ -735,11 +735,12 @@ curl -sX POST localhost:8031/wealth-core/jobs/run -H 'content-type: application/
   "starting_cash": 1000000
 }'
 
-# 2. reproduce the backtester exactly (expected_hashes come FROM the backtester)
+# 2. reproduce one exact backtester artifact and its BT data generation
 curl -sX POST localhost:8031/wealth-core/jobs/run -H 'content-type: application/json' -d '{
   "mode": "baseline_replay",
   "start_date": "2015-01-01", "end_date": "2024-12-31",
-  "expected_hashes": {"normalized_input": "...", "...": "..."}
+  "expected_hashes": {"normalized_input": "...", "...": "..."},
+  "expected_data_version": "<artifact corpus.version>"
 }'
 
 # 3. score a variant against a recorded parent
@@ -756,6 +757,21 @@ curl -s localhost:8031/wealth-core/runs/latest
 Runs are serialised against each other AND against a sweep — each loads the
 whole corpus for its range, and two at once is the memory profile that gets the
 container OOM-killed, which would be recorded as a strategy failure.
+For `baseline_replay`, `expected_hashes` and `expected_data_version` must come
+from the same retained producer artifact. After acquiring the shared corpus
+lock in a read-only repeatable-read snapshot, bt-engine compares the current
+READY generation to that exact version before it invokes any corpus loader; a
+mismatch refuses instead of turning a vendor-data change into an apparent
+engine divergence.
+
+The loader reaches back 400 calendar days only to locate the final 126 trading
+sessions needed for feature warm-up plus their immediately preceding trading
+session. That prior session is the exclusive ACTION cutoff: rows dated on or
+before it are discarded before mapping splits or dividends. Rows dated after
+it are preserved, including weekend or holiday ex-dates that correctly map to
+the first retained trading session. If the prior session is unavailable the
+run refuses; using the first retained date as the cutoff would incorrectly drop
+those valid non-session events.
 
 **Read the result in this order.** `provenance.split_source` first: `derived`
 means `bt_actions` is empty and the run is NOT certified-reproducible (remedy:

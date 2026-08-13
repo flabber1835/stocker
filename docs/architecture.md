@@ -4605,6 +4605,9 @@ splitting them would duplicate all five. The refusals are the substance:
 ```text
 baseline_replay without expected_hashes  422 — recomputing them here would prove
                                          only that the tunnel agrees with itself
+baseline_replay without the artifact's
+exact expected_data_version              422 — hashes cannot be detached from
+                                         the corpus generation that produced them
 a PARTIAL hash set                       422 — silently narrows the check to
                                          whichever layers were sent
 experiment without a `change`            422 — indistinguishable after the fact
@@ -4614,6 +4617,12 @@ a `change` the config diff does NOT make 422 — attributes a result to somethin
 a run beside a sweep or another run      409 — two corpora do not fit; an OOM is
                                          recorded as a strategy failure
 ```
+
+The version comparison happens after bt-engine acquires the shared corpus lock
+and reads the READY generation inside its read-only repeatable-read snapshot,
+but before the first canonical-loader query. If the retained expected-hash
+artifact names a different generation, the run fails closed without loading or
+scoring the corpus.
 
 **One corpus reader, not two.** The Sharadar column-to-domain mapping lives once,
 in `services/backtester/app/wealth_core_replay.py`, and is COPYed into the

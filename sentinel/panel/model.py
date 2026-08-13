@@ -129,21 +129,25 @@ def ownership_row(*, state: Optional[str], at: Optional[datetime],
                   error: Optional[str] = None) -> Row:
     """The single most safety-critical fact Sentinel owns.
 
-    If the ownership log is lost, the next start classifies a Sentinel-owned
-    book as a legacy Stocker book and liquidates it. It must be impossible to
-    look at this panel and not know which side of that boundary you are on, so
-    it is row one and it is never abbreviated.
+    The canonical PostgreSQL binding is the only ownership authority. Losing a
+    retired JSONL audit file cannot re-arm migration, and ordinary startup has
+    no liquidation path. It must still be impossible to look at this panel and
+    not know which side of the explicit handover boundary the database records,
+    so ownership is row one and is never abbreviated.
 
     Timeless by design (`freshness=None`): an established handover does not go
-    stale. It is true until something supersedes it.
+    stale. It is true until something supersedes it.  That is an ownership
+    fact, not a current-position fact: the account may hold a Sentinel book
+    after the historically flat handover.
     """
     if error:
         return Row("ownership", "Ownership", "UNREADABLE", UNKNOWN,
-                   f"the log could not be read — {error}", at)
+                   f"the canonical binding could not be read — {error}", at)
     if state in ("SENTINEL_OWNERSHIP_ESTABLISHED",
                  "WEALTH_CORE_BOOTSTRAP_ALLOWED"):
-        return Row("ownership", "Ownership", "FLAT CONFIRMED", OK,
-                   "Sentinel owns this account", at)
+        return Row("ownership", "Ownership", "SENTINEL OWNED", OK,
+                   "historical flat handover recorded; see Broker for current "
+                   "positions", at)
     # UNINITIALIZED is the state of a store that has never been written, which
     # is where every deployment starts. It is NOT "in progress" — nothing has
     # begun — and saying so would misreport the most important row on the page
@@ -159,7 +163,11 @@ def ownership_row(*, state: Optional[str], at: Optional[datetime],
                "handover incomplete — it stopped part-way", at)
 
 
-def exposure_row(*, exposure: float, controller_active: bool) -> Row:
+def exposure_row(*, exposure: Optional[float],
+                 controller_active: Optional[bool], adopted: bool = True,
+                 session: Optional[str] = None,
+                 as_of: Optional[datetime] = None,
+                 error: Optional[str] = None) -> Row:
     """`1.00 PINNED` and `1.00 computed` are different facts and the panel must
     never let them look alike.
 
@@ -169,11 +177,24 @@ def exposure_row(*, exposure: float, controller_active: bool) -> Row:
     a DECISION. Spelling out PINNED means the change is visible rather than
     inferred from a value that did not move.
     """
-    if controller_active:
+    if error or exposure is None or controller_active is None:
+        return Row("exposure", "Exposure", "UNKNOWN", UNKNOWN,
+                   error or "no durable controller/plan exposure", as_of)
+    where = f" · decision {session}" if session else ""
+    if controller_active and adopted:
         return Row("exposure", "Exposure", f"{exposure:.2f}", OK,
-                   "controller active", None)
-    return Row("exposure", "Exposure", f"{exposure:.2f} PINNED", PENDING,
-               "controller not active — exposure does not vary", None)
+                   f"durable current controller plan{where}", as_of,
+                   freshness=timedelta(days=4))
+    if controller_active:
+        return Row("exposure", "Exposure", f"{exposure:.2f} NOT ADOPTED", WARN,
+                   f"canonical controller decision has no current plan{where}",
+                   as_of, freshness=timedelta(days=4))
+    status = PENDING if adopted else WARN
+    detail = ("durable current rollout pins exposure at 1.00"
+              if adopted else "pinned rollout has no current plan")
+    return Row("exposure", "Exposure", f"{exposure:.2f} PINNED", status,
+               detail + where, as_of,
+               freshness=(timedelta(days=4) if as_of else None))
 
 
 #: A verdict older than this describes a corpus that has since been through a
@@ -279,12 +300,14 @@ def ingest_row(*, kind: Optional[str], status: Optional[str],
     return Row("ingest", "Ingest", f"{kind} complete", OK, detail, updated_at)
 
 
-def book_row(*, available: bool, slots_used: Optional[int] = None,
+def book_row(*, available: Optional[bool], slots_used: Optional[int] = None,
              slots_total: Optional[int] = None, nav: Optional[float] = None,
              cash: Optional[float] = None, blocked: Optional[int] = None,
              unresolved_terminals: Optional[int] = None,
+             unpriced_securities: Optional[int] = None,
              pending_actions: Optional[int] = None,
-             as_of: Optional[datetime] = None) -> Row:
+             as_of: Optional[datetime] = None,
+             error: Optional[str] = None) -> Row:
     """The book, with `blocked` and `unresolved` on the SAME LINE as the NAV.
 
     Not a layout preference. An unresolved terminal freezes admissions while
@@ -292,19 +315,26 @@ def book_row(*, available: bool, slots_used: Optional[int] = None,
     plausible total is still printable. Putting the caveats beside the NAV means
     you cannot read the NAV without reading whether it can be trusted.
 
-    `available=False` until item E persists a live book. Rendered PENDING, not
-    FAIL: "the execution path is not built" is a project state, and colouring it
-    like an outage teaches an operator to ignore red.
+    `available=False` means the database was read successfully and no canonical
+    state has yet been prepared. An unreadable/malformed state is UNKNOWN, never
+    folded into that known absence.
     """
+    if error or available is None:
+        return Row("book", "Book", "UNKNOWN", UNKNOWN,
+                   error or "canonical state could not be read", as_of)
     if not available:
-        return Row("book", "Book", "NOT YET LIVE", PENDING,
-                   "no persisted book — awaiting the execution projection "
-                   "(deployment item E)", as_of)
+        return Row("book", "Book", "NOT PREPARED", PENDING,
+                   "no canonical SessionState has been persisted", as_of)
+    if None in (slots_used, slots_total, nav, cash):
+        return Row("book", "Book", "UNKNOWN", UNKNOWN,
+                   "canonical state lacks book valuation or slot fields", as_of)
     flags = []
     if blocked:
-        flags.append(f"BLOCKED {blocked}")
+        flags.append("BLOCKED")
     if unresolved_terminals:
         flags.append(f"UNRESOLVED TERMINALS {unresolved_terminals}")
+    if unpriced_securities:
+        flags.append(f"UNPRICED {unpriced_securities}")
     status = FAIL if flags else OK
     detail = " · ".join(flags) if flags else (
         f"cash ${cash:,.0f} · {pending_actions or 0} pending")
@@ -313,8 +343,11 @@ def book_row(*, available: bool, slots_used: Optional[int] = None,
                status, detail, as_of, freshness=timedelta(days=4))
 
 
-def terminals_row(*, counters: Optional[dict],
-                  as_of: Optional[datetime] = None) -> Row:
+def terminals_row(*, counters: Optional[dict] = None,
+                  current_unresolved: Optional[int] = None,
+                  current_pending: Optional[int] = None,
+                  as_of: Optional[datetime] = None,
+                  error: Optional[str] = None) -> Row:
     """The settlement counters, which are the honest headline.
 
     A book that BLOCKS its terminations completes and reports a plausible
@@ -323,6 +356,27 @@ def terminals_row(*, counters: Optional[dict],
     nonzero `unresolved_terminal_events` means the book is blocking rather than
     settling, and every number downstream of it is unevaluable.
     """
+    if error:
+        return Row("terminals", "Terminals", "UNKNOWN", UNKNOWN, error, as_of)
+    if current_unresolved is not None or current_pending is not None:
+        if current_unresolved is None or current_pending is None:
+            return Row("terminals", "Terminals", "UNKNOWN", UNKNOWN,
+                       "canonical terminal state is incomplete", as_of)
+        value = (f"unresolved {current_unresolved} · "
+                 f"carried {current_pending}")
+        if current_unresolved:
+            return Row("terminals", "Terminals",
+                       f"UNRESOLVED {current_unresolved}", FAIL,
+                       value + " · canonical current state", as_of,
+                       freshness=timedelta(days=4))
+        if current_pending:
+            return Row("terminals", "Terminals", value, WARN,
+                       "terms are still inside the documented carry window",
+                       as_of, freshness=timedelta(days=4))
+        return Row("terminals", "Terminals", "CLEAR", OK,
+                   "no unresolved or carried terminal event in canonical state; "
+                   "cumulative settlement mix is not persisted here",
+                   as_of, freshness=timedelta(days=4))
     if not counters:
         return Row("terminals", "Terminals", "NONE YET", PENDING,
                    "no terminal events resolved on this book", as_of)
@@ -345,27 +399,96 @@ def terminals_row(*, counters: Optional[dict],
                "no unresolved terminal events", as_of)
 
 
-def broker_row(*, available: bool, positions: Optional[int] = None,
+def broker_row(*, available: Optional[bool], positions: Optional[int] = None,
                agrees: Optional[bool] = None,
-               as_of: Optional[datetime] = None) -> Row:
+               completeness: Optional[str] = None,
+               runtime_state: Optional[str] = None,
+               working_orders: Optional[int] = None,
+               active_commands: Optional[int] = None,
+               uncertain_commands: Optional[int] = None,
+               command_as_of: Optional[datetime] = None,
+               as_of: Optional[datetime] = None,
+               error: Optional[str] = None) -> Row:
     """Broker state, shown for RECONCILIATION only.
 
     The dependency direction is `shadow -> Sentinel -> broker`, never the
-    reverse, so this row must never read as an input to anything. It answers one
-    question — does the paper account match what the shadow believes — and the
-    shadow is authoritative when they disagree.
+    reverse, so this row must never read as an input to anything. The rich form
+    shows the newest persisted observation and command-journal hazards without
+    claiming a reconciliation verdict that was not made durable. The legacy
+    `agrees` form remains for pure-model callers that already hold a verdict.
     """
+    if error or available is None:
+        return Row("broker", "Broker", "UNKNOWN", UNKNOWN,
+                   error or "durable broker evidence could not be read", as_of)
     if not available:
         return Row("broker", "Broker", "NOT SYNCED", PENDING,
-                   "no broker read yet", as_of)
-    if agrees is False:
-        return Row("broker", "Broker", f"{positions} positions", FAIL,
-                   "DISAGREES with the shadow — the shadow is authoritative",
-                   as_of, freshness=timedelta(days=4))
-    return Row("broker", "Broker", f"{positions} positions", OK,
-               "agrees with the shadow", as_of, freshness=timedelta(days=4))
+                   "no durable broker observation yet", as_of)
+    if positions is None:
+        return Row("broker", "Broker", "UNKNOWN", UNKNOWN,
+                   "broker observation has no position count", as_of)
+
+    # Backward-compatible pure-model surface for callers that already have a
+    # reconciliation verdict but not the richer durable observation fields.
+    if completeness is None and runtime_state is None:
+        if agrees is False:
+            return Row("broker", "Broker", f"{positions} positions", FAIL,
+                       "DISAGREES with the shadow — the shadow is authoritative",
+                       as_of, freshness=timedelta(days=4))
+        return Row("broker", "Broker", f"{positions} positions", OK,
+                   "agrees with the shadow", as_of,
+                   freshness=timedelta(days=4))
+
+    complete = str(completeness or "").upper()
+    runtime = str(runtime_state or "").upper()
+    working = int(working_orders or 0)
+    active = int(active_commands or 0)
+    uncertain = int(uncertain_commands or 0)
+    value = f"{positions} positions · {working} working"
+    journal_age = (f" · journal {command_as_of.isoformat()}"
+                   if command_as_of else "")
+    detail = (f"observation {complete or 'UNKNOWN'} · reconciliation "
+              f"{runtime or 'UNKNOWN'} · {active} active command(s)"
+              f"{journal_age}")
+    if not complete or not runtime:
+        return Row("broker", "Broker", value, UNKNOWN,
+                   detail, as_of, freshness=timedelta(days=4))
+    if complete != "COMPLETE":
+        return Row("broker", "Broker", value, FAIL,
+                   detail, as_of, freshness=timedelta(days=4))
+    if runtime != "RUNNING" or uncertain:
+        if uncertain:
+            detail += f" · {uncertain} indeterminate command(s)"
+        return Row("broker", "Broker", value, FAIL,
+                   detail, as_of, freshness=timedelta(days=4))
+    return Row("broker", "Broker", value, OK, detail, as_of,
+               freshness=timedelta(days=4))
+
+
+def automation_row() -> Row:
+    """An explicit absence, not a guessed inactive state.
+
+    There is no scheduler/cycle-state/leader-lease schema in this deployment.
+    Saying INACTIVE would imply those controls exist and happen to be off.
+    """
+    return Row("automation", "Automation", "NOT INSTALLED", PENDING,
+               "daily preparation and paper execution remain separately "
+               "operator-invoked")
+
+
+def execution_authority_row() -> Row:
+    """Name the deliberate fail-closed certificate boundary.
+
+    A stored certificate-shaped row is not execution authority.  The public
+    authority gate refuses every certificate until a separately reviewed
+    trusted issuer/signature verifier exists, so this static row is more
+    truthful than projecting the presence of a database row.
+    """
+    return Row("authority", "Paper execution authority", "UNAVAILABLE", FAIL,
+               "trusted issuer/signature verification is disabled; stored "
+               "certificate rows are non-authoritative")
 
 
 __all__ = ["FAIL", "NO_PERFORMANCE_HERE", "OK", "PENDING", "Panel", "Row",
-           "UNKNOWN", "WARN", "book_row", "broker_row", "exposure_row",
-           "feed_row", "ingest_row", "ownership_row", "terminals_row"]
+           "UNKNOWN", "WARN", "automation_row", "book_row", "broker_row",
+           "execution_authority_row", "exposure_row", "feed_row", "ingest_row",
+           "ownership_row", "terminals_row"]

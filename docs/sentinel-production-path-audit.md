@@ -173,8 +173,8 @@ convergence, not a paper-deployment outcome.
 | Breadth inputs are not produced | Closed by the production holdings adapter and session transition |
 | SPY sensing is not wired | Closed through the published `closeadj` loader |
 | Controller state is not restored or persisted | Closed in version-3 canonical state |
-| Exposure remains pinned to 1.00 | Closed by the production decision adapter |
-| Execution is unreachable | Closed behind a separate explicitly confirmed paper command |
+| Exposure remains pinned to 1.00 | Implemented as the default durable rollout; controller exposure remains blocked behind an explicit certified transition |
+| Execution is unreachable | Gateway implemented, but intentionally unreachable until trusted certificate issuance/signature verification is separately reviewed |
 | No clean-path/restart evidence | Closed for the specified simulator and durable-boundary scenarios |
 | Runtime rule lives in the handoff artifact tree | Still true; digest verification makes it explicit and reproducible |
 
@@ -198,6 +198,12 @@ convergence, not a paper-deployment outcome.
 7. **Historical corpus remains external.** Exact full-history differential
    reproduction still depends on access to the pinned Sharadar corpus and is
    distinct from runtime activation.
+8. **System certification still blocks submission.** Execution requires a
+   trusted-issuer-authenticated activation profile with zero strict xfails,
+   Wealth Core `GO`, and exact runtime/source identity. No trust root or
+   signature verifier exists; installation and runtime authorization therefore
+   refuse all unsigned profiles, including legacy database rows. The gateway is
+   implemented but intentionally non-executable.
 
 Operator commands and expected checkpoints are intentionally not duplicated
 here. `docs/sentinel-paper-activation.md` is the sole runbook.

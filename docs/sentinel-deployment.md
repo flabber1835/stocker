@@ -291,6 +291,40 @@ Once it works, enabling the controller changes **how much** of an
 already-certified Wealth Core target is executed. It must never change **what**
 Wealth Core wants to own.
 
+The stage is executable state, not an operator convention. Behavioural
+PostgreSQL owns a versioned rollout row that is created as `PINNED_1_00`.
+Preparation in that mode stamps an exposure of exactly `1` into the durable
+plan even though the controller continues to advance in the canonical shadow.
+The controller's transition remains recorded for audit and restart equivalence;
+it does not become execution exposure until the rollout mode changes.
+
+The transition is deliberately separate from daily preparation, but it is not
+currently available. An operator-confirmed SHA-256 authenticates manifest
+bytes, not the issuer of the `PASS`/`GO` statements inside them. The repository
+does not yet define a trusted public key, detached signature, issuer policy, or
+rotation ceremony. Consequently:
+
+```text
+install-system-certificate       always REFUSED before file or database access
+set-paper-rollout-mode CONTROLLER
+                                 always REFUSED by runtime authority validation
+execute-paper-plan               always REFUSED before its first broker read
+```
+
+The refusal applies to unsigned rows installed by an older build or restored
+from backup as well as to new operator-authored files. The exact-byte parser,
+durable certificate schema, profile validation, audit events, and revocation
+surface are retained as non-authoritative groundwork only. A later PR must
+document and implement trusted issuance and runtime signature verification
+together before these commands can become operational.
+
+The current certification harness also does not emit an activation profile
+while the known strict xfails and Wealth Core `NO-GO` remain. Even after those
+evidence gaps are resolved, a signed profile must explicitly allow
+`CONTROLLER` and record controller certification `PASS`; changing mode will
+then increment the rollout version and require a newly prepared plan. A
+previously durable plan must remain stale even if its numeric target is 1.00.
+
 ## 7. The shadow-independence falsifier, stated correctly
 
 The weak version — "Sentinel disabled equals Sentinel at 100%" — proves almost
@@ -1270,11 +1304,66 @@ no published port, applies archived WAL through that exact post-base marker and
 LSN, checks the canonical tables, then
 removes only that named container and volume. It never writes the primary.
 
+`archive_command` publishes each WAL filename as an immutable object. Merely
+finding the final pathname is not success: an existing regular, non-symlink
+file is accepted only when its byte length and contents exactly match the
+completed source WAL. A new archive is copied to a unique hidden temporary
+file in the destination directory, checked against a stable source size and
+byte-compared, fsynced, and then atomically renamed without clobbering. The
+destination directory is fsynced after publication. If another invocation won
+the name race, its final file must pass the same exact comparison before the
+retry succeeds. Copy, validation, fsync, or rename failure removes only the
+temporary file and returns failure; it must never leave a final pathname that
+a retry can mistake for a complete segment. A mismatched or partial final file
+is a hard archive failure and PostgreSQL retains the source WAL for operator
+repair.
+
 Run base backup daily, status/age monitoring at least hourly, and a restore
 drill after every schema/certification change and at least monthly. Retention is
 owned by the second target: keep at least seven daily and four weekly verified
 base backups plus all WAL needed from the oldest retained base. Never prune WAL
 until a newer base has passed both `pg_verifybackup` and the restore drill.
+
+### 10h. The panel reports durable facts, never deployment-stage placeholders
+
+The read-only panel is an operational projection of the canonical PostgreSQL
+records. Once the production state and execution projection exist, it must not
+keep reporting hard-coded scaffolding values (an assumed `1.00 PINNED`, book
+unavailable, broker unavailable). Those values look safe while hiding the
+system that is actually prepared. A genuine durable pinned rollout still
+displays `1.00 PINNED`, but only after the state/plan/rollout records agree.
+
+```text
+ownership     canonical account binding; SENTINEL OWNED records the historical
+              flat handover boundary and never claims that current positions
+              are flat; the broker row is the current-position evidence
+authority     UNAVAILABLE/FAIL while trusted issuer/signature verification is
+              disabled; a stored certificate row is non-authoritative
+exposure      one unsuperseded execution plan, checked against the canonical
+              processed-session cursor and durable rollout state; PINNED_1_00
+              displays 1.00 PINNED even while the shadow controller continues
+              computing its independent decision, while CONTROLLER must equal
+              that canonical decision and name its certificate
+book          canonical v3 SessionState: slots, estimated NAV, shadow cash,
+              pending actions, blocked decision and unresolved terminals
+terminals     current unresolved and carried terminal state from that same
+              canonical envelope; cumulative settlement mix is not invented
+broker        newest durable broker observation plus unresolved command-journal
+              state; rendering the panel never performs a broker read
+automation    NOT INSTALLED until a separately designed durable scheduler,
+              leader lease, kill switch and alert outbox actually exist
+```
+
+Every query has the panel's existing connection and statement timeouts. The
+runtime schema is feature-detected before a table is queried, so an older or
+partial database renders the affected rows `UNKNOWN` instead of taking down the
+page or substituting zero. A missing canonical record is named as not yet
+prepared/observed; malformed JSON, multiple current plans, cursor/decision/plan
+disagreement, or an unreadable required table is `UNKNOWN` and is included in
+the source-error banner. Each value carries the timestamp of the durable fact
+it describes. The panel imports no execution adapter and receives no Alpaca
+credentials, so refreshes remain SELECT-only and cannot become unattended
+broker traffic.
 
 ## 11. `execution_model` activation is a versioned operational event
 

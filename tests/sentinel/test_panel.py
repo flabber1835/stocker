@@ -13,6 +13,7 @@ regression matter and neither is cosmetic:
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 import pytest
 
@@ -138,7 +139,7 @@ class TestPendingIsNotFailure:
             assert r.status is model.PENDING, r.key
 
     def test_the_book_row_NAMES_what_it_is_waiting_for(self):
-        assert "item E" in model.book_row(available=False).detail
+        assert "SessionState" in model.book_row(available=False).detail
 
 
 # ── 4. the rows that carry the real warnings ─────────────────────────────────
@@ -157,9 +158,12 @@ class TestTheRowsThatMatter:
         assert r.status is model.WARN
         assert "part-way" in r.detail
 
-    def test_established_ownership_is_OK(self):
+    def test_established_ownership_does_not_claim_current_flatness(self):
         r = model.ownership_row(state="SENTINEL_OWNERSHIP_ESTABLISHED", at=NOW)
-        assert r.status is model.OK and "FLAT CONFIRMED" in r.value
+        assert r.status is model.OK and r.value == "SENTINEL OWNED"
+        assert "historical flat handover" in r.detail
+        assert "current positions" in r.detail
+        assert "FLAT" not in r.value
 
     def test_a_CORRUPT_log_is_UNKNOWN_not_reassuring(self):
         r = model.ownership_row(state=None, at=None, error="torn line 3")
@@ -175,6 +179,35 @@ class TestTheRowsThatMatter:
         assert "PINNED" in r.value and r.status is model.PENDING
         live = model.exposure_row(exposure=0.55, controller_active=True)
         assert "PINNED" not in live.value and live.status is model.OK
+
+    def test_unknown_runtime_values_never_fall_back_to_placeholders(self):
+        rows = (
+            model.exposure_row(exposure=None, controller_active=None),
+            model.book_row(available=None),
+            model.terminals_row(error="state unreadable"),
+            model.broker_row(available=None),
+        )
+        assert all(row.status is model.UNKNOWN for row in rows)
+        assert all(row.value == "UNKNOWN" for row in rows)
+
+    def test_automation_names_the_absence_of_a_scheduler(self):
+        row = model.automation_row()
+        assert row.value == "NOT INSTALLED"
+        assert row.status is model.PENDING
+        assert "operator-invoked" in row.detail
+
+    def test_execution_authority_names_the_missing_trust_root(self):
+        row = model.execution_authority_row()
+        assert row.value == "UNAVAILABLE"
+        assert row.status is model.FAIL
+        assert "trusted issuer/signature verification is disabled" in row.detail
+        assert "non-authoritative" in row.detail
+
+    def test_the_panel_always_includes_the_fail_closed_authority_row(self):
+        panel = build_panel(state_dir="/nonexistent", database_url="", now=NOW)
+        row = panel.row("authority")
+        assert row is not None
+        assert row.value == "UNAVAILABLE" and row.status is model.FAIL
 
     def test_a_stalled_ingest_has_a_TIGHT_freshness_budget(self):
         r = model.ingest_row(kind="seed", status="running", chunks_done=2,
@@ -361,6 +394,236 @@ class TestItCannotHang:
             "matters most during an outage")
 
 
+# ── 4c. runtime rows are durable facts ───────────────────────────────────────
+
+class TestRuntimeRowsAreDurableFacts:
+
+    @staticmethod
+    def _state():
+        return {
+            "version": 3,
+            "last_processed_session": "2026-08-12",
+            "wealth_core": {
+                "slots": {"0": {}, "1": {}},
+                "episodes": {"0": {}},
+                "cash": "350",
+                "unresolved_terminals": {},
+                "terminal_pending_terms": {},
+            },
+            "pending": [{"security_id": "SEC-B"}],
+            "last_evidence": {
+                "wealth_core": {
+                    "blocked": False,
+                    "estimated_equity": "1000",
+                },
+            },
+            "last_decision": {
+                "session": "2026-08-12",
+                "target_core_exposure": "0.55",
+            },
+        }
+
+    @staticmethod
+    def _connection():
+        class Connection:
+            closed = False
+
+            def cursor(self):
+                return self
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def execute(self, *_args):
+                return None
+
+            def rollback(self):
+                return None
+
+            def close(self):
+                self.closed = True
+
+        return Connection()
+
+    def _install_sources(self, monkeypatch, *, schema=None, state=None,
+                         plan=None, rollout=None, observation=None,
+                         commands=None):
+        from sentinel.feed import store as feed_store
+        from sentinel.panel import sources
+
+        conn = self._connection()
+        complete_schema = {
+            table: set(columns)
+            for table, columns in sources._RUNTIME_COLUMNS.items()
+        }
+        monkeypatch.setattr(feed_store, "connect", lambda _dsn: conn)
+        monkeypatch.setattr(
+            sources, "_runtime_schema",
+            lambda _conn: complete_schema if schema is None else schema)
+        monkeypatch.setattr(sources, "_canonical_state", lambda _conn: state)
+        monkeypatch.setattr(sources, "_current_plan", lambda _conn: plan)
+        monkeypatch.setattr(
+            sources, "_rollout_state",
+            lambda _conn: rollout or {
+                "mode": "CONTROLLER", "version": 2,
+                "certificate_sha256": "cert-controller",
+                "updated_at": NOW,
+            })
+        monkeypatch.setattr(
+            sources, "_latest_observation", lambda _conn: observation)
+        monkeypatch.setattr(
+            sources, "_active_commands", lambda _conn: commands)
+        return sources, conn
+
+    def test_current_plan_book_and_observation_replace_the_old_placeholders(
+            self, monkeypatch):
+        state = {
+            "session": "2026-08-12", "state": self._state(),
+            "updated_at": NOW,
+        }
+        plan = {
+            "plan_id": "sentinel-plan", "decision_session": "2026-08-12",
+            "effective_session": "2026-08-13",
+            "target_exposure": Decimal("0.55"),
+            "unpriced_securities": [], "created_at": NOW,
+            "rollout_mode": "CONTROLLER", "rollout_version": 2,
+            "rollout_certificate_sha256": "cert-controller",
+        }
+        observation = {
+            "observed_at": NOW, "completeness": "COMPLETE",
+            "positions": {"SEC-A": "10", "SEC-Z": "0"},
+            "orders": [{"state": "ACKNOWLEDGED"}],
+            "runtime_state": "RUNNING",
+        }
+        commands = {
+            "counts": {"ACKNOWLEDGED": 1}, "updated_at": NOW,
+        }
+        sources, conn = self._install_sources(
+            monkeypatch, state=state, plan=plan, observation=observation,
+            commands=commands)
+
+        rows, errors = sources._runtime_rows("postgresql://panel@db/sentinel")
+
+        assert errors == []
+        by_key = {row.key: row for row in rows}
+        assert by_key["exposure"].value == "0.55"
+        assert "durable current controller plan" in by_key["exposure"].detail
+        assert by_key["book"].value.startswith("1/2 slots · NAV $1,000")
+        assert "1 pending" in by_key["book"].detail
+        assert by_key["terminals"].value == "CLEAR"
+        assert by_key["broker"].value == "1 positions · 1 working"
+        assert by_key["broker"].status is model.OK
+        assert conn.closed
+
+    def test_plan_state_mismatch_is_unknown_not_a_computed_exposure(
+            self, monkeypatch):
+        state = {
+            "session": "2026-08-12", "state": self._state(),
+            "updated_at": NOW,
+        }
+        plan = {
+            "plan_id": "sentinel-plan", "decision_session": "2026-08-11",
+            "effective_session": "2026-08-12",
+            "target_exposure": Decimal("1"),
+            "unpriced_securities": [], "created_at": NOW,
+            "rollout_mode": "CONTROLLER", "rollout_version": 2,
+            "rollout_certificate_sha256": "cert-controller",
+        }
+        sources, _conn = self._install_sources(
+            monkeypatch, state=state, plan=plan, observation=None,
+            commands={"counts": {}, "updated_at": None})
+
+        rows, errors = sources._runtime_rows("postgresql://panel@db/sentinel")
+
+        exposure = next(row for row in rows if row.key == "exposure")
+        assert exposure.status is model.UNKNOWN
+        assert "disagree" in exposure.detail
+        assert errors, "a plan/state mismatch was hidden from the source banner"
+
+    def test_pinned_rollout_reports_one_even_when_controller_decides_point55(
+            self, monkeypatch):
+        state = {
+            "session": "2026-08-12", "state": self._state(),
+            "updated_at": NOW,
+        }
+        plan = {
+            "plan_id": "sentinel-plan", "decision_session": "2026-08-12",
+            "effective_session": "2026-08-13",
+            "target_exposure": Decimal("1"),
+            "unpriced_securities": [], "created_at": NOW,
+            "rollout_mode": "PINNED_1_00", "rollout_version": 1,
+            "rollout_certificate_sha256": None,
+        }
+        rollout = {
+            "mode": "PINNED_1_00", "version": 1,
+            "certificate_sha256": None, "updated_at": NOW,
+        }
+        sources, _conn = self._install_sources(
+            monkeypatch, state=state, plan=plan, rollout=rollout,
+            observation=None, commands={"counts": {}, "updated_at": None})
+
+        rows, errors = sources._runtime_rows("postgresql://panel@db/sentinel")
+        exposure = next(row for row in rows if row.key == "exposure")
+
+        assert errors == []
+        assert exposure.value == "1.00 PINNED"
+        assert exposure.status is model.PENDING
+
+    def test_partial_schema_is_feature_detected_and_never_queried(
+            self, monkeypatch):
+        sources, conn = self._install_sources(
+            monkeypatch, schema={}, state=pytest.fail, plan=pytest.fail,
+            rollout=pytest.fail, observation=pytest.fail,
+            commands=pytest.fail)
+
+        rows, errors = sources._runtime_rows("postgresql://panel@db/sentinel")
+
+        assert all(row.status is model.UNKNOWN for row in rows)
+        assert len(errors) == 5
+        assert all("missing schema" in error for error in errors)
+        assert conn.closed
+
+    def test_malformed_canonical_json_does_not_hide_broker_evidence(
+            self, monkeypatch):
+        malformed = self._state()
+        malformed["last_evidence"]["wealth_core"]["estimated_equity"] = "NaN"
+        state = {
+            "session": "2026-08-12", "state": malformed,
+            "updated_at": NOW,
+        }
+        observation = {
+            "observed_at": NOW, "completeness": "COMPLETE",
+            "positions": {}, "orders": [], "runtime_state": "RUNNING",
+        }
+        sources, _conn = self._install_sources(
+            monkeypatch, state=state, plan=None, observation=observation,
+            commands={"counts": {}, "updated_at": None})
+
+        rows, errors = sources._runtime_rows("postgresql://panel@db/sentinel")
+        by_key = {row.key: row for row in rows}
+
+        assert by_key["book"].status is model.UNKNOWN
+        assert by_key["exposure"].status is model.UNKNOWN
+        assert by_key["terminals"].status is model.UNKNOWN
+        assert by_key["broker"].status is model.OK
+        assert any("state" in error for error in errors)
+
+    def test_incomplete_or_indeterminate_broker_evidence_never_reads_clean(
+            self):
+        incomplete = model.broker_row(
+            available=True, positions=3, completeness="TRUNCATED",
+            runtime_state="RECONCILING")
+        uncertain = model.broker_row(
+            available=True, positions=3, completeness="COMPLETE",
+            runtime_state="RUNNING", uncertain_commands=1)
+        assert incomplete.status is model.FAIL
+        assert uncertain.status is model.FAIL
+        assert "indeterminate" in uncertain.detail
+
+
 # ── 5. it cannot act ─────────────────────────────────────────────────────────
 
 class TestItCannotAct:
@@ -447,7 +710,10 @@ class TestItCannotAct:
         for table in (
                 "sentinel_account_binding", "sentinel_bars",
                 "sentinel_corpus_publications",
-                "sentinel_readiness_snapshots", "feed_ingest_runs"):
+                "sentinel_readiness_snapshots", "feed_ingest_runs",
+                "sentinel_processed_sessions", "sentinel_execution_plans",
+                "sentinel_rollout_state", "sentinel_observations",
+                "sentinel_commands"):
             assert table in sql
         assert sql.count("LIMIT 0") == len(app_mod._REQUIRED_SCHEMA_PROBES)
         assert conn.closed

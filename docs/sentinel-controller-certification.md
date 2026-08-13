@@ -481,17 +481,24 @@ tape parity vs CORRECTED  UNVERIFIED    reachable, and the right target. See
                                         below
 ```
 
-**The right target is the corrected tape, and it is still unverified.**
-`docs/sentinel-reference-implementation/PROVENANCE.md` states it plainly: *"Not
-verified: that running `sentinel_1p1_standalone.py` against raw Sharadar
-reproduces `sentinel_1p1_daily.csv`. That needs the corpus. The tape is stored;
-the producer is unverified."* That run — 5,032 sessions, corrected lineage —
-is what F(a) and F(b) should be aimed at. Aiming them at 7,061 was aiming at the
-wrong artefact.
+**The right target is the corrected tape. Its reference producer is now
+reproduced; the production chain is not.** As recorded in
+`docs/sentinel-reference-implementation/PROVENANCE.md`, running
+`sentinel_1p1_standalone.py` against the exact pinned 32-file raw-Sharadar
+corpus independently reproduced the committed 5,032-session summary on
+2026-08-12. That establishes the historical reference producer and tape.
 
-`UNCERTIFIED_BREADTH` therefore STANDS, and the reason is now specific: not "the
-engine is unproven" but "the engine has never been run against the corpus and
-compared to the tape of its own lineage".
+It does **not** certify the production path. The still-owed differential is the
+canonical production chain — raw published corpus -> Wealth Core holdings ->
+production breadth -> SPY regime -> controller transition — compared over all
+5,032 corrected-lineage sessions. That run must use the production components,
+not the standalone reference producer, and record its corpus and source
+identity. Aiming it at 7,061 would still be aiming at the wrong artefact.
+
+`UNCERTIFIED_BREADTH` therefore STANDS, and the reason is now specific: not
+"the reference producer is unproven" but "the canonical production chain has
+never been driven across the pinned corpus and compared to the corrected tape
+of its own lineage".
 
 ### 7d. Step 1's offline half is DONE: `sentinel/breadth/`
 
@@ -528,3 +535,106 @@ What the module deliberately does NOT do: read a tape, read the corpus, read
 anything under `docs/`, or fall back to a frozen output. A fallback is how a
 reconstruction quietly becomes a replay, and there is a test asserting the
 absence rather than a comment promising it.
+
+### 7f. The production forward-chain driver now exists; its NAS run is still owed
+
+`tools/sentinel_forward_chain.py` is the one-shot, broker-free driver for the
+corrected-lineage differential described in §7c. It does not reproduce any
+strategy, breadth, SPY, book, or controller rule. Under one PostgreSQL
+`REPEATABLE READ, READ ONLY` transaction and one shared publication pin it
+calls the production components directly:
+
+```text
+SessionState.fresh
+  -> warm_session_state                 first 40 sessions, features only
+  -> load_published_session             every subsequent production session
+  -> advance_state                      canonical Wealth Core + breadth + SPY
+                                           + controller transition
+```
+
+The 40-session feature-only prefix is required because the production loader
+demands a complete dated 41-session SPY tail. It does not omit portfolio
+history: Wealth Core requires 127 continuous closes before any admission, so
+no episode, pending order, controller stress transition, or terminal
+entitlement can exist in that prefix. By the first possible admission, the
+controller's shorter NAV, breadth and stop windows have also been rebuilt by
+ordinary production advances. The runner refuses unless the full XNYS chain is
+exactly 7,188 sessions from 1998-01-02 through 2026-07-31 and the reference is
+exactly 5,032 sessions from 2006-07-31 through 2026-07-31.
+
+The allocation time basis is explicit and tested. In the corrected standalone,
+`allocation[D]` is what was decided at D-1's close and became effective at D's
+open. Therefore the runner makes both of these checks:
+
+```text
+reference allocation[D]      == production decision[D-1]
+production decision[D]       == reference allocation[D+1]
+reference parent[D]          == production parent decision[D]
+```
+
+Comparing the close-D production target to `allocation[D]` would be a one-day
+look-ahead error. The redundant next-row check is intentional: it makes that
+wrong alignment fail even though the following row also checks the effective
+allocation. Same-row controller inputs (`shadow_equity`, drawdown, damaged and
+green breadth, r20, r40, stops20 and base stress duration) are compared exactly
+with `Decimal(str(production_float))`; no tolerance may be widened. The tape's
+scalar live `nav` and `open_shadow_equity` have no canonical production-state
+equivalent and are not recomputed here, because doing so would introduce the
+second portfolio implementation this architecture forbids.
+
+That alignment creates one explicit end boundary, not a hidden dropped check.
+On a full pass, all 5,032 effective allocations pin production decisions from
+2006-07-28 through 2026-07-30, and the redundant next-row comparison pins 5,031
+close decisions from 2006-07-31 through 2026-07-30. The production target
+decided at the final 2026-07-31 close would become effective on the next XNYS
+session, but the frozen tape has no next row. Its value is recorded in
+`final_close_decision_boundary` with status
+`NOT_COMPARABLE_NO_NEXT_REFERENCE_SESSION` and is excluded from the verdict.
+The final row's same-close parent decision and every observation field are
+still compared. No existing oracle contains the corrected lineage's next-row
+allocation, so assigning an expected value to that final ramp target would
+invent evidence.
+
+Before parsing, the runner requires the reference bytes to equal the exact
+`sentinel_1p1_daily.csv` SHA-256 named by
+`docs/sentinel-reference-implementation/SHA256SUMS.txt`, and it requires that
+manifest entry to equal the frozen digest compiled into the runner. A CRLF
+checkout or a change even to reference-only `nav` therefore refuses instead of
+quietly producing a different falsifier with the same shape. `.gitattributes`
+marks this one CSV `-text` so Windows cannot rewrite those bytes on checkout.
+
+The JSON result records the first causal divergence, final in-memory state
+fingerprint and explicit final-decision boundary, complete pinned-corpus
+identity/hash, reference and checksum-manifest byte hashes,
+production module hash, runner hash, controller/Wealth Core strategy identity,
+and certified-environment identity. It is written with atomic no-clobber
+publication when `--output` is supplied. The process always rolls its database
+transaction back. It imports no execution or broker module and cannot create,
+cancel, replace or submit an order.
+
+After rebuilding `sentinel-test:latest` from the reviewed commit, the
+authoritative NAS command is:
+
+```bash
+export FORWARD_CHAIN_ARTIFACT=/volume1/sentinel-certification/forward-chain.json
+test ! -e "${FORWARD_CHAIN_ARTIFACT}"
+docker run --rm --entrypoint python \
+  --network sentinel_default \
+  -e SENTINEL_DATABASE_URL="postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel" \
+  -v "$(dirname "${FORWARD_CHAIN_ARTIFACT}"):/evidence" \
+  sentinel-test:latest \
+  -m tools.sentinel_forward_chain \
+  --output "/evidence/$(basename "${FORWARD_CHAIN_ARTIFACT}")"
+```
+
+Exit 0 means the production differential itself was exact; exit 1 names the
+first divergence; exit 2 means the evidence boundary was unavailable or
+invalid. Even exit 0 does not modify runtime certification authority. The
+artifact, host/image manifest and corpus identity still require independent
+review before any gate is changed.
+
+**This command has not been run on the NAS in this change.** No full-history
+result is claimed, `UNCERTIFIED_BREADTH` remains in force, and Sentinel remains
+NO-GO. Implementing and unit-falsifying the driver closes the missing-tool gap;
+the authoritative full-corpus execution and review remain operational evidence
+to collect later.

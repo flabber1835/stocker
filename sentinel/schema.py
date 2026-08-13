@@ -67,6 +67,59 @@ DDL = (
         ON sentinel_ownership_events (state)""",
 
     # ------------------------------------------------------------------
+    # SYSTEM CERTIFICATION SUBSTRATE. The exact manifest bytes are retained,
+    # not a path to a mounted file. They are deliberately non-authoritative
+    # until a separately reviewed trusted issuer/signature verifier exists;
+    # runtime execution currently refuses every row before its first broker
+    # read.
+    # ------------------------------------------------------------------
+    """CREATE TABLE IF NOT EXISTS sentinel_system_certificates (
+        certificate_sha256  TEXT PRIMARY KEY,
+        manifest_bytes      BYTEA       NOT NULL,
+        manifest            JSONB       NOT NULL,
+        allowed_rollout_modes JSONB     NOT NULL,
+        installed_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        revoked_at          TIMESTAMPTZ,
+        revocation_reason   TEXT,
+        CHECK ((revoked_at IS NULL AND revocation_reason IS NULL)
+            OR (revoked_at IS NOT NULL AND revocation_reason IS NOT NULL)))""",
+    """CREATE UNIQUE INDEX IF NOT EXISTS idx_sentinel_one_active_certificate
+        ON sentinel_system_certificates ((1)) WHERE revoked_at IS NULL""",
+    """CREATE TABLE IF NOT EXISTS sentinel_system_certificate_events (
+        seq                 BIGSERIAL PRIMARY KEY,
+        certificate_sha256  TEXT        NOT NULL,
+        action              TEXT        NOT NULL
+                            CHECK (action IN ('INSTALLED','REVOKED')),
+        detail              TEXT        NOT NULL,
+        at                  TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+
+    # ------------------------------------------------------------------
+    # EXPOSURE ROLLOUT. New databases are deliberately pinned at 1.00. A
+    # controller transition names the certificate that authorized it and every
+    # transition increments the durable version, even when the resulting
+    # numeric exposure may happen to remain 1.00.
+    # ------------------------------------------------------------------
+    """CREATE TABLE IF NOT EXISTS sentinel_rollout_state (
+        id                  INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        mode                TEXT        NOT NULL
+                            CHECK (mode IN ('PINNED_1_00','CONTROLLER')),
+        version             BIGINT      NOT NULL CHECK (version >= 1),
+        certificate_sha256  TEXT,
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CHECK ((mode = 'PINNED_1_00' AND certificate_sha256 IS NULL)
+            OR (mode = 'CONTROLLER' AND certificate_sha256 IS NOT NULL)))""",
+    """INSERT INTO sentinel_rollout_state (id,mode,version)
+        VALUES (1,'PINNED_1_00',1) ON CONFLICT (id) DO NOTHING""",
+    """CREATE TABLE IF NOT EXISTS sentinel_rollout_events (
+        seq                 BIGSERIAL PRIMARY KEY,
+        version             BIGINT      NOT NULL UNIQUE,
+        from_mode           TEXT        NOT NULL,
+        to_mode             TEXT        NOT NULL,
+        certificate_sha256  TEXT,
+        reason              TEXT        NOT NULL,
+        at                  TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+
+    # ------------------------------------------------------------------
     # EXECUTION PLANS. Immutable. A new session's decision creates a NEW plan
     # and may supersede the previous one's UNSENT commands; it never edits one.
     # ------------------------------------------------------------------
@@ -90,6 +143,9 @@ DDL = (
         cash_residual           NUMERIC     NOT NULL DEFAULT 0,
         unpriced_securities     JSONB       NOT NULL DEFAULT '[]'::jsonb,
         defensive_security      TEXT,
+        rollout_mode            TEXT        NOT NULL DEFAULT 'PINNED_1_00',
+        rollout_version         BIGINT      NOT NULL DEFAULT 1,
+        rollout_certificate_sha256 TEXT,
         target_basket           JSONB       NOT NULL DEFAULT '{}'::jsonb,
         superseded_by           TEXT,
         created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
@@ -114,6 +170,13 @@ DDL = (
         DEFAULT '[]'::jsonb""",
     """ALTER TABLE sentinel_execution_plans
         ADD COLUMN IF NOT EXISTS defensive_security TEXT""",
+    """ALTER TABLE sentinel_execution_plans
+        ADD COLUMN IF NOT EXISTS rollout_mode TEXT NOT NULL
+        DEFAULT 'PINNED_1_00'""",
+    """ALTER TABLE sentinel_execution_plans
+        ADD COLUMN IF NOT EXISTS rollout_version BIGINT NOT NULL DEFAULT 1""",
+    """ALTER TABLE sentinel_execution_plans
+        ADD COLUMN IF NOT EXISTS rollout_certificate_sha256 TEXT""",
 
     # ------------------------------------------------------------------
     # THE COMMAND JOURNAL. One row per client_key, which is the whole point:

@@ -39,6 +39,17 @@ _REQUIRED_SCHEMA_PROBES = (
     "date_from, date_to, chunks_total, chunks_done, rows_written, "
     "rows_dropped, current_chunk, error_message "
     "FROM feed_ingest_runs LIMIT 0",
+    "SELECT cursor_name, session, state, updated_at "
+    "FROM sentinel_processed_sessions LIMIT 0",
+    "SELECT plan_id, decision_session, effective_session, target_exposure, "
+    "unpriced_securities, rollout_mode, rollout_version, "
+    "rollout_certificate_sha256, superseded_by, created_at "
+    "FROM sentinel_execution_plans LIMIT 0",
+    "SELECT id, mode, version, certificate_sha256, updated_at "
+    "FROM sentinel_rollout_state LIMIT 0",
+    "SELECT seq, observed_at, completeness, positions, orders, runtime_state "
+    "FROM sentinel_observations LIMIT 0",
+    "SELECT state, updated_at FROM sentinel_commands LIMIT 0",
 )
 
 

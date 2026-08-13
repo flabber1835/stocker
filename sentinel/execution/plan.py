@@ -47,6 +47,9 @@ class ExecutionPlan:
     cash_residual: Decimal = Decimal(0)
     unpriced_securities: tuple[str, ...] = ()
     defensive_security: Optional[str] = None
+    rollout_mode: str = "PINNED_1_00"
+    rollout_version: int = 1
+    rollout_certificate_sha256: Optional[str] = None
     superseded_by: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -58,6 +61,18 @@ class ExecutionPlan:
             raise TypeError("account_cash must be Decimal")
         if not isinstance(self.cash_residual, Decimal):
             raise TypeError("cash_residual must be Decimal")
+        if self.rollout_mode not in {"PINNED_1_00", "CONTROLLER"}:
+            raise ValueError(f"unknown rollout_mode {self.rollout_mode!r}")
+        if not isinstance(self.rollout_version, int) or self.rollout_version < 1:
+            raise ValueError("rollout_version must be a positive integer")
+        if (self.rollout_mode == "PINNED_1_00"
+                and self.rollout_certificate_sha256 is not None):
+            raise ValueError(
+                "pinned rollout plan cannot carry controller authority")
+        if (self.rollout_mode == "CONTROLLER"
+                and not self.rollout_certificate_sha256):
+            raise ValueError(
+                "controller rollout plan requires certificate identity")
         for security_id, qty in self.target_basket.items():
             if not isinstance(qty, Decimal):
                 raise TypeError(
@@ -97,9 +112,17 @@ class ExecutionPlan:
             "cash_residual": str(self.cash_residual),
             "unpriced_securities": sorted(self.unpriced_securities),
             "defensive_security": self.defensive_security,
+            "rollout_mode": self.rollout_mode,
+            "rollout_version": self.rollout_version,
+            "rollout_certificate_sha256": self.rollout_certificate_sha256,
         }
         blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+        # This digest is also the production plan id suffix. Truncating it to
+        # 64 bits made a hash collision a mutation-authority bypass: two
+        # different economic baskets could share one durable id. Keep the full
+        # SHA-256 so plan identity has the same strength as the source and
+        # certification identities it carries.
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
     def to_dict(self) -> dict:
         return {
@@ -125,6 +148,11 @@ class ExecutionPlan:
             "cash_residual": str(self.cash_residual),
             "unpriced_securities": sorted(self.unpriced_securities),
             "defensive_security": self.defensive_security,
+            "rollout": {
+                "mode": self.rollout_mode,
+                "version": self.rollout_version,
+                "certificate_sha256": self.rollout_certificate_sha256,
+            },
             "fingerprint": self.fingerprint(),
             "superseded_by": self.superseded_by,
         }

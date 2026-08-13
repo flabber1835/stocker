@@ -357,6 +357,23 @@ def test_operational_refusals_are_caught_as_attention_exit(
     assert conn.closed
 
 
+def test_certificate_install_is_reserved_and_refuses_before_file_or_database(
+        monkeypatch, capsys):
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("reserved certificate command touched external state")
+
+    monkeypatch.setattr(Path, "read_bytes", forbidden)
+    monkeypatch.setattr(feed_store, "connect", forbidden)
+    result = cli._install_system_certificate(
+        _config(), SimpleNamespace(
+            manifest="operator-authored.json",
+            confirm_manifest_sha256="a" * 64,
+            confirm_paper_execution_authority=True))
+
+    assert result == cli.EXIT_NOT_ESTABLISHED
+    assert "trusted issuer/signature" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(
     "refusal_type", [
         alpaca.MalformedBrokerPayload,
@@ -405,9 +422,26 @@ def test_command_parser_preserves_required_confirmations_and_warmup_default(
         seen["execute"] = (actual_config, vars(args))
         return cli.EXIT_OK
 
+    def install_certificate(actual_config, args):
+        seen["install_certificate"] = (actual_config, vars(args))
+        return cli.EXIT_OK
+
+    def revoke_certificate(actual_config, args):
+        seen["revoke_certificate"] = (actual_config, vars(args))
+        return cli.EXIT_OK
+
+    def set_rollout(actual_config, args):
+        seen["rollout"] = (actual_config, vars(args))
+        return cli.EXIT_OK
+
     monkeypatch.setattr(cli, "_prepare_paper_plan", prepare)
     monkeypatch.setattr(cli, "_inspect_paper_account", inspect)
     monkeypatch.setattr(cli, "_execute_paper_plan", execute)
+    monkeypatch.setattr(
+        cli, "_install_system_certificate", install_certificate)
+    monkeypatch.setattr(
+        cli, "_revoke_system_certificate", revoke_certificate)
+    monkeypatch.setattr(cli, "_set_paper_rollout_mode", set_rollout)
 
     assert cli.main([
         "inspect-paper-account", "--expect-account", "paper-123",
@@ -424,3 +458,21 @@ def test_command_parser_preserves_required_confirmations_and_warmup_default(
         "--confirm-effective-session", "2026-08-13",
         "--confirm-submit-paper-orders"]) == cli.EXIT_OK
     assert seen["execute"][1]["confirm_submit_paper_orders"] is True
+    assert cli.main([
+        "install-system-certificate", "--manifest", "manifest.json",
+        "--confirm-manifest-sha256", "a" * 64,
+        "--confirm-paper-execution-authority"]) == cli.EXIT_OK
+    assert seen["install_certificate"][1][
+        "confirm_paper_execution_authority"] is True
+    assert cli.main([
+        "revoke-system-certificate", "--certificate-sha256", "a" * 64,
+        "--reason", "operator kill switch",
+        "--confirm-revoke-system-certificate"]) == cli.EXIT_OK
+    assert seen["revoke_certificate"][1][
+        "confirm_revoke_system_certificate"] is True
+    assert cli.main([
+        "set-paper-rollout-mode", "--mode", "CONTROLLER",
+        "--reason", "reviewed transition",
+        "--confirm-controller-rollout"]) == cli.EXIT_OK
+    assert seen["rollout"][1]["mode"] == "CONTROLLER"
+    assert seen["rollout"][1]["confirm_controller_rollout"] is True

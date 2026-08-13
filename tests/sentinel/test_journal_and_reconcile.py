@@ -286,7 +286,9 @@ class TestPlans:
             account_cash=Decimal("98765.43"),
             cash_residual=Decimal("4321.09"),
             unpriced_securities=("SEC-ZZZ", "SENTINEL:BIL"),
-            defensive_security="SENTINEL:BIL")
+            defensive_security="SENTINEL:BIL",
+            rollout_mode="CONTROLLER", rollout_version=4,
+            rollout_certificate_sha256="certificate-sha256")
 
         journal.save_plan(conn, plan)
         loaded = journal.load_plan(conn, plan.plan_id)
@@ -356,6 +358,11 @@ class TestReconciliation:
         result = run(R.reconcile(broker=b, conn=conn, binding=None,
                                  deployment=DEPLOY))
         assert result.clean and result.runtime_state is RuntimeState.RUNNING
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT runtime_state FROM sentinel_observations "
+                "ORDER BY seq DESC LIMIT 1")
+            assert cur.fetchone()[0] == RuntimeState.RUNNING.value
 
     def test_a_WRONG_ACCOUNT_is_refused_before_anything_is_compared(self, conn):
         b = SimulatedBroker(account=BrokerAccountIdentity("sim", "SOMEONE-ELSE"))

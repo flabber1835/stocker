@@ -135,7 +135,8 @@ _PLAN_ECONOMICS = ("decision_session", "effective_session", "target_exposure",
                    "deployment_id", "broker", "broker_account_id",
                    "takeover_epoch", "publication_fingerprint", "account_nav",
                    "account_cash", "cash_residual", "unpriced_securities",
-                   "defensive_security",
+                   "defensive_security", "rollout_mode", "rollout_version",
+                   "rollout_certificate_sha256",
                    "target_basket")
 
 
@@ -158,6 +159,9 @@ def _plan_economics(plan: ExecutionPlan) -> dict:
         "cash_residual": str(plan.cash_residual),
         "unpriced_securities": sorted(plan.unpriced_securities),
         "defensive_security": plan.defensive_security,
+        "rollout_mode": plan.rollout_mode,
+        "rollout_version": plan.rollout_version,
+        "rollout_certificate_sha256": plan.rollout_certificate_sha256,
         "target_basket": {k: str(v) for k, v in sorted(plan.target_basket.items())},
     }
 
@@ -171,8 +175,9 @@ def save_plan(conn, plan: ExecutionPlan, *, commit: bool = True) -> None:
             " strategy_fingerprint, deployment_id, broker, broker_account_id,"
             " takeover_epoch, publication_fingerprint, account_nav,"
             " account_cash, cash_residual, unpriced_securities, defensive_security,"
+            " rollout_mode,rollout_version,rollout_certificate_sha256,"
             " target_basket)"
-            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
             # IDEMPOTENT ON IDENTICAL CONTENT ONLY. A re-derived plan for the
             # same session is normal after a restart; a plan with the SAME id
             # and DIFFERENT content is a bug, and DO NOTHING would hide it. The
@@ -190,6 +195,8 @@ def save_plan(conn, plan: ExecutionPlan, *, commit: bool = True) -> None:
              str(plan.cash_residual),
              json.dumps(sorted(plan.unpriced_securities)),
              plan.defensive_security,
+             plan.rollout_mode, plan.rollout_version,
+             plan.rollout_certificate_sha256,
              json.dumps({k: str(v) for k, v in plan.target_basket.items()},
                         sort_keys=True)))
     if commit:
@@ -230,6 +237,7 @@ def load_plan(conn, plan_id: str) -> Optional[ExecutionPlan]:
             " broker, broker_account_id, takeover_epoch,"
             " publication_fingerprint, account_nav, account_cash, cash_residual,"
             " unpriced_securities, defensive_security, target_basket,"
+            " rollout_mode,rollout_version,rollout_certificate_sha256,"
             " superseded_by FROM sentinel_execution_plans WHERE plan_id = %s",
             (plan_id,))
         row = cur.fetchone()
@@ -254,7 +262,9 @@ def load_plan(conn, plan_id: str) -> Optional[ExecutionPlan]:
         unpriced_securities=tuple(str(item) for item in unpriced),
         defensive_security=str(row[17]) if row[17] else None,
         target_basket={k: Decimal(v) for k, v in basket.items()},
-        superseded_by=str(row[19]) if row[19] else None)
+        rollout_mode=str(row[19]), rollout_version=int(row[20]),
+        rollout_certificate_sha256=str(row[21]) if row[21] else None,
+        superseded_by=str(row[22]) if row[22] else None)
 
 
 def latest_plan(conn) -> Optional[ExecutionPlan]:
@@ -750,14 +760,14 @@ def _terminal_recovery_binding(conn) -> tuple[str, str, datetime]:
 
 
 def record_observation(conn, observation: BrokerObservation,
-                       runtime_state: str = "") -> None:
+                       runtime_state: str = "") -> int:
     """Retained because a reconciliation dispute is unanswerable without knowing
     what the broker actually said at the time."""
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_observations (observed_at,"
             " terminal_recovery_through, completeness, positions, orders,"
-            " runtime_state) VALUES (%s,%s,%s,%s,%s,%s)",
+            " runtime_state) VALUES (%s,%s,%s,%s,%s,%s) RETURNING seq",
             (observation.observed_at, observation.terminal_recovery_through,
              observation.completeness.value,
              json.dumps({k: str(v) for k, v in
@@ -769,4 +779,26 @@ def record_observation(conn, observation: BrokerObservation,
                           "filled": str(o.filled_quantity)}
                          for o in observation.orders]),
              runtime_state))
+        seq = int(cur.fetchone()[0])
+    conn.commit()
+    return seq
+
+
+def finalize_observation_runtime(conn, seq: int, runtime_state: str) -> None:
+    """Attach the completed reconciliation verdict to its exact observation.
+
+    The audit row is inserted before recovery because a crash must retain the
+    evidence that was read. Its initial ``RECONCILING`` value is therefore not
+    the final classification. Updating by the returned sequence only after all
+    adoption/synchronisation/classification work completes keeps the durable
+    panel truthful without ever rewriting the observed broker payload.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE sentinel_observations SET runtime_state=%s WHERE seq=%s",
+            (str(runtime_state), int(seq)))
+        if cur.rowcount != 1:
+            raise RuntimeError(
+                f"broker observation {seq} vanished before reconciliation "
+                "could record its final runtime state")
     conn.commit()

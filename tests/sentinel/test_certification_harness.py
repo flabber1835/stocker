@@ -31,6 +31,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.support.postgres import _EphemeralPostgres
+
+from sentinel.feed import store as feed_store
+
 ROOT = Path(__file__).resolve().parents[2]
 REPO = Path(os.environ.get("SENTINEL_REPO_ROOT") or ROOT)
 SCRIPT = REPO / "scripts" / "sentinel-certify.sh"
@@ -63,6 +67,44 @@ def line_of(needle: str) -> int:
         if needle in line and not line.lstrip().startswith("#"):
             return i
     raise AssertionError(f"{needle!r} not found in an executable line")
+
+
+RESET_TABLES = (
+    "sentinel_bar_split_repairs",
+    "sentinel_bars",
+    "sentinel_spy_total_return",
+    "sentinel_actions",
+    "sentinel_universe",
+    "sentinel_ingest_rejections",
+    "sentinel_rejection_truncation",
+    "sentinel_corpus_anomalies",
+    "sentinel_corpus_publications",
+    "sentinel_readiness_snapshots",
+    "sentinel_sep_staging",
+    "feed_ingest_runs",
+)
+
+
+def corpus_reset_sql() -> str:
+    """Read the statement the production certification command actually runs."""
+    body = text()
+    reset_step = body.index('step "3/9  DISCARDING the corpus tables"')
+    start = body.index("\nDO $$", reset_step) + 1
+    end = body.index("\nSQL", start)
+    return body[start:end]
+
+
+@pytest.fixture(scope="module")
+def certification_reset_pg():
+    try:
+        server = _EphemeralPostgres()
+        server.start()
+    except Exception as exc:  # noqa: BLE001 -- unavailable binary skips this tier
+        pytest.skip(f"ephemeral Postgres unavailable: {exc}")
+    try:
+        yield server
+    finally:
+        server.stop()
 
 
 # ── 1. nothing destructive happens before the gates ──────────────────────────
@@ -118,6 +160,111 @@ class TestTheIrreversibleStepComesLAST:
         # And the reason survives in the file, because the next person to reach
         # for `down --volumes` will be reading comments, not this test.
         assert "never `down --volumes`" in text()
+
+    def test_the_current_feed_schema_resets_in_one_atomic_statement(
+            self, certification_reset_pg):
+        """Exercise the production DO block against PostgreSQL, not a parser.
+
+        `sentinel_bar_split_repairs` references `sentinel_bars`. PostgreSQL
+        rejects sequential TRUNCATEs even in one transaction and even when the
+        child is empty, so the former loop stopped certification at step 3.
+        Keeping a repair row here makes that FK load-bearing. The second half
+        proves an unlisted future child fails closed without partially clearing
+        the explicitly named corpus tables.
+        """
+        conn = feed_store.connect(certification_reset_pg.sync_dsn)
+        try:
+            feed_store.ensure_schema(conn)
+            run_id = "00000000-0000-0000-0000-000000000001"
+            with conn.cursor() as cur:
+                cur.execute("CREATE TABLE certification_reset_state "
+                            "(marker TEXT PRIMARY KEY)")
+                cur.execute("INSERT INTO certification_reset_state VALUES "
+                            "('durable-state-must-survive')")
+                cur.execute("INSERT INTO sentinel_bars (security_id, session, "
+                            "ticker, close_unadjusted) VALUES "
+                            "('SEC-1', '2026-08-12', 'ONE', 10)")
+                cur.execute("INSERT INTO sentinel_bar_split_repairs "
+                            "(security_id, session, split_ratio, "
+                            "prior_split_ratio, last_written_run_id) VALUES "
+                            f"('SEC-1', '2026-08-12', 2, 1, '{run_id}')")
+                cur.execute("INSERT INTO sentinel_spy_total_return "
+                            "(session, closeadj) VALUES ('2026-08-12', 100)")
+                cur.execute("INSERT INTO sentinel_actions "
+                            "(ticker, session, action) VALUES "
+                            "('ONE', '2026-08-12', 'split')")
+                cur.execute("INSERT INTO sentinel_universe "
+                            "(permaticker, ticker, snapshot_date) VALUES "
+                            "('SEC-1', 'ONE', '2026-08-12')")
+                cur.execute("INSERT INTO sentinel_ingest_rejections "
+                            "(ticker, session, reason) VALUES "
+                            "('BAD', '2026-08-12', 'unresolved')")
+                cur.execute("INSERT INTO sentinel_rejection_truncation "
+                            "(run_id, chunk, window_start, window_end, retained, "
+                            f"truncated) VALUES ('{run_id}', 'chunk', "
+                            "'2026-08-12', '2026-08-12', 1, 1)")
+                cur.execute("INSERT INTO sentinel_corpus_anomalies "
+                            "(kind, ticker, session) VALUES "
+                            "('TEST', 'ONE', '2026-08-12')")
+                cur.execute("INSERT INTO sentinel_corpus_publications "
+                            f"(run_id) VALUES ('{run_id}')")
+                cur.execute("INSERT INTO sentinel_readiness_snapshots "
+                            "(ready, checks_passed, checks_total) VALUES "
+                            "(FALSE, 0, 1)")
+                cur.execute("INSERT INTO sentinel_sep_staging "
+                            "(run_id, chunk, session, ticker) VALUES "
+                            f"('{run_id}', 'chunk', '2026-08-12', 'ONE')")
+                cur.execute("INSERT INTO feed_ingest_runs (run_id, kind) "
+                            f"VALUES ('{run_id}', 'seed')")
+            conn.commit()
+
+            reset_sql = corpus_reset_sql()
+            executable = "\n".join(line.split("--", 1)[0]
+                                     for line in reset_sql.splitlines())
+            assert "CASCADE" not in executable.upper()
+            assert executable.upper().count("TRUNCATE TABLE") == 1
+
+            with conn.cursor() as cur:
+                cur.execute(reset_sql)
+            conn.commit()
+
+            with conn.cursor() as cur:
+                for table in RESET_TABLES:
+                    cur.execute(f"SELECT count(*) FROM {table}")
+                    assert cur.fetchone()[0] == 0, table
+                cur.execute("SELECT marker FROM certification_reset_state")
+                assert cur.fetchone()[0] == "durable-state-must-survive"
+
+                # Simulate a later schema adding an unreviewed FK child. The
+                # explicit reset must refuse it, not acquire CASCADE semantics.
+                cur.execute("INSERT INTO sentinel_bars (security_id, session, "
+                            "ticker, close_unadjusted) VALUES "
+                            "('SEC-2', '2026-08-12', 'TWO', 20)")
+                cur.execute("INSERT INTO sentinel_actions "
+                            "(ticker, session, action) VALUES "
+                            "('TWO', '2026-08-12', 'split')")
+                cur.execute("CREATE TABLE unreviewed_feed_child ("
+                            "security_id TEXT NOT NULL, session DATE NOT NULL, "
+                            "FOREIGN KEY (security_id, session) REFERENCES "
+                            "sentinel_bars (security_id, session))")
+                cur.execute("INSERT INTO unreviewed_feed_child VALUES "
+                            "('SEC-2', '2026-08-12')")
+            conn.commit()
+
+            with pytest.raises(Exception):  # driver-specific FK exception
+                with conn.cursor() as cur:
+                    cur.execute(reset_sql)
+            conn.rollback()
+
+            with conn.cursor() as cur:
+                cur.execute("SELECT count(*) FROM sentinel_bars")
+                assert cur.fetchone()[0] == 1
+                cur.execute("SELECT count(*) FROM sentinel_actions")
+                assert cur.fetchone()[0] == 1
+                cur.execute("SELECT count(*) FROM unreviewed_feed_child")
+                assert cur.fetchone()[0] == 1
+        finally:
+            conn.close()
 
 
 # ── 2. the closure comparison is AUTOMATED ───────────────────────────────────

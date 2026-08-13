@@ -119,7 +119,8 @@ nor departed stop episodes can be inferred safely.
 
 The production adapter now aggregates the canonical filled shadow episodes and
 committed pending entries/exits by permanent security id, applies the durable
-controller exposure, keeps Wealth Core cash distinct from the defensive sleeve,
+rollout exposure (exactly 1.00 until a certified controller transition), keeps
+Wealth Core cash distinct from the defensive sleeve,
 and projects the result to whole `Decimal` shares through the existing
 execution projection. Missing marks preserve still-wanted observed quantities;
 they never become an implicit liquidation. BIL is defensive-only, and an
@@ -134,11 +135,18 @@ may read the paper broker for account and reconciliation evidence, but it has no
 broker submit, cancel, replace, or close operation.
 
 Current-plan inspection reads only PostgreSQL. The separate execution gateway
-reloads the durable current plan itself, repeats paper URL, certification,
+reloads the durable current plan itself, repeats paper URL, trusted system
+certificate/rollout, adapter certification,
 ownership, account, readiness, publication, frontier, state, session, and
 reconciliation checks, then delegates to the existing executor. Reductions run
 before increases; increases wait for filled reductions and a fresh complete,
 clean re-observation and re-sizing pass.
+
+The gateway is deliberately unreachable in this revision. The repository has
+no reviewed certificate issuer/signature trust root, so installation refuses
+and runtime authority rejects even pre-existing unsigned certificate rows. This
+is independent of the remaining strict xfails and Wealth Core `NO-GO`, which
+also remain unresolved.
 
 ## Operational boundary after Stage 2
 

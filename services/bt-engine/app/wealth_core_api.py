@@ -56,6 +56,7 @@ from stock_strategy_shared.wealth_core.risk_profile import PROFILE_NAME
 from stock_strategy_shared.wealth_core.signals import REQUIRED_CLOSES
 
 from app.jobs_busy import (
+    CorpusGenerationUnavailable,
     acquire_corpus_read_lock,
     acquire_job_start_gate,
     busy_detail,
@@ -329,6 +330,10 @@ class WealthCoreJobRequest(BaseModel):
     baseline_hashes: dict | None = None
     # BASELINE_REPLAY only.
     expected_hashes: dict | None = None
+    # The exact READY bt_data_version from the independently retained expected-
+    # hash artifact. Hashes without their generation can be replayed against a
+    # later in-place vendor correction and misreported as an engine divergence.
+    expected_data_version: str | None = None
     # CHAIN_REHEARSAL only. How much per-session diagnostic detail the rehearsal
     # keeps in memory; see `wealth_core_chain.RETENTION_MODES`. Retention never
     # influences execution — every hash, counter and certification output is
@@ -398,6 +403,17 @@ def _validate(req: WealthCoreJobRequest) -> None:
             raise HTTPException(422, (
                 "a baseline_replay records no change — it reproduces the "
                 "reference stream. Use mode=experiment."))
+        if not req.expected_data_version:
+            raise HTTPException(422, (
+                "baseline_replay requires expected_data_version from the "
+                "retained expected-hash artifact. Hashes without the exact "
+                "corpus generation can be checked against later data and turn "
+                "a corpus change into a false engine divergence."))
+    elif req.expected_data_version is not None:
+        raise HTTPException(422, (
+            "expected_data_version is baseline_replay-only. Refused rather "
+            "than ignored so a caller cannot believe a generation pin applied "
+            f"to mode={req.mode!r}."))
 
     if req.mode == "experiment":
         if not req.change:
@@ -446,6 +462,18 @@ def _split_warmup(all_sessions, start_iso: str):
     return before[-WARMUP_SESSIONS:], [s for s in all_sessions if s >= start_iso]
 
 
+def _exclusive_prior_session(all_sessions, warmup_sessions) -> str | None:
+    """Trading session immediately before retained feature history."""
+    if not warmup_sessions:
+        return None
+    first = warmup_sessions[0]
+    try:
+        index = list(all_sessions).index(first)
+    except ValueError:
+        return None
+    return str(all_sessions[index - 1]) if index > 0 else None
+
+
 def corpus_date_range(req: WealthCoreJobRequest) -> tuple[date, date]:
     """The corpus range as DATE OBJECTS, never strings.
 
@@ -464,6 +492,23 @@ def corpus_date_range(req: WealthCoreJobRequest) -> tuple[date, date]:
     return req.start_date, req.end_date
 
 
+def require_expected_data_generation(req: WealthCoreJobRequest,
+                                     generation) -> None:
+    """Bind expected hashes to the READY generation held by this snapshot."""
+    if req.mode != "baseline_replay":
+        return
+    expected = req.expected_data_version
+    if not expected:  # `_validate` owns the HTTP-facing shape; fail closed too.
+        raise CorpusGenerationUnavailable(
+            "baseline replay has no expected_data_version")
+    if generation.version != expected:
+        raise CorpusGenerationUnavailable(
+            "baseline replay expected bt-data generation "
+            f"{expected!r}, but the locked READY snapshot is "
+            f"{generation.version!r}. Re-run the expected-hash producer; no "
+            "corpus loader query was issued.")
+
+
 async def _load_corpus(req: WealthCoreJobRequest) -> dict:
     """Read the corpus through the BACKTESTER's loader, in a worker thread.
 
@@ -475,7 +520,8 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
     from app.live.wealth_core_replay import (  # COPYed at image build
         ACTIONS_CAVEATS, CAVEATS, DERIVED_SPLIT_CAVEATS, REQUIRE_ACTIONS,
         CorporateActionsUnavailable, RawPriceDomainUnavailable,
-        assert_raw_price_domain, dividends_from_actions, load_actions,
+        actions_after_session, assert_raw_price_domain,
+        dividends_from_actions, load_actions,
         load_bars, load_identity, load_meta, load_sessions, sessions_index,
         split_ratios_from_actions, terminal_events_from_actions,
         unusable_dividend_rows)
@@ -501,6 +547,12 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
             "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
         await acquire_corpus_read_lock(aconn)
         generation = await load_ready_data_generation(aconn)
+        # This check is deliberately before `_ThreadConn` exists and therefore
+        # before the canonical loader can issue its first corpus query.  The
+        # expected hashes and this generation came from one retained artifact;
+        # checking after load would spend hours computing an answer over data
+        # the request never authorised.
+        require_expected_data_generation(req, generation)
         conn = _ThreadConn(aconn, loop)
 
         def _work() -> dict:
@@ -520,6 +572,16 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
                     f"while the benchmark is measured fully invested from day "
                     f"one. Remedy: request a later start_date, or backfill "
                     f"bt_prices further back.")
+            actions_exclusive_prior_session = _exclusive_prior_session(
+                all_sessions, warmup_sessions)
+            if actions_exclusive_prior_session is None:
+                raise RawPriceDomainUnavailable(
+                    f"the {WARMUP_SESSIONS} retained warm-up sessions have no "
+                    f"immediately preceding trading session inside the "
+                    f"{WARMUP_CALENDAR_DAYS}-calendar-day lookup. That session "
+                    f"is the exclusive corporate-action cutoff; without it a "
+                    f"weekend/holiday event at the boundary cannot be placed "
+                    f"without guessing. Backfill further or widen the lookup.")
 
             # Universe/identity are point-in-time inputs, not present-day
             # metadata. The replay boundary is the requested end session; a
@@ -566,9 +628,18 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
             #                        first session, for a security the run never
             #                        held. Dropping is correct — the security
             #                        simply has no bars after it delisted.
+            #
+            # The full index is still TRIMMED to 126 warm-up sessions. Actions
+            # on or before its immediately preceding trading session must be
+            # removed first; otherwise `snap_to_session` puts them all on the
+            # boundary. The cutoff is EXCLUSIVE so a weekend/holiday event
+            # between prior and first retained session correctly maps forward.
             idx = sessions_index(sessions)
             full_idx = sessions_index([*warmup_sessions, *sessions])
-            action_rows = load_actions(conn, warmup_from, end)
+            source_action_rows = load_actions(conn, warmup_from, end)
+            actions_first_retained_session = warmup_sessions[0]
+            action_rows = actions_after_session(
+                source_action_rows, actions_exclusive_prior_session)
             measured_action_rows = [r for r in action_rows
                                     if str(r["date"]) >= str(start)]
             # The benchmark, over the SAME sessions. Fail-soft: no rows means
@@ -578,7 +649,8 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
             use_actions = bool(action_rows)
             if not use_actions and REQUIRE_ACTIONS:
                 raise CorporateActionsUnavailable(
-                    f"bt_actions is empty between {start} and {end} and "
+                    f"bt_actions has no rows in the retained causal window "
+                    f"after {actions_exclusive_prior_session} through {end} and "
                     f"WEALTH_CORE_REQUIRE_ACTIONS is set. Remedy: POST "
                     f"/jobs/backfill-actions on bt-data.")
 
@@ -615,6 +687,13 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
                     "raw_close_coverage": round(coverage, 4),
                     "split_source": "actions" if use_actions else "derived",
                     "actions_rows": len(action_rows),
+                    "actions_rows_loaded": len(source_action_rows),
+                    "actions_rows_at_or_before_prior_cutoff":
+                        len(source_action_rows) - len(action_rows),
+                    "actions_first_retained_session":
+                        actions_first_retained_session,
+                    "actions_exclusive_prior_session":
+                        actions_exclusive_prior_session,
                     "terminal_events_applied": len(terminal),
                     "split_reconciliation": dict(sorted(reconciliation.items())),
                     "dividend_rows_unusable": dropped,

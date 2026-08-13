@@ -348,18 +348,45 @@ if [ "$KEEP" -eq 0 ]; then
   ${COMPOSE} exec -T sentinel-postgres \
     psql -U sentinel -d sentinel -v ON_ERROR_STOP=1 <<'SQL' || fail "the corpus could not be discarded — NOT proceeding, because the seed upserts and stale rows would survive into a corpus believed to be fresh"
 DO $$
-DECLARE t text;
+DECLARE
+  t text;
+  present_tables text;
+  reset_tables CONSTANT text[] := ARRAY[
+    'sentinel_bar_split_repairs',
+    'sentinel_bars',
+    'sentinel_spy_total_return',
+    'sentinel_actions',
+    'sentinel_universe',
+    'sentinel_ingest_rejections',
+    'sentinel_rejection_truncation',
+    'sentinel_corpus_anomalies',
+    'sentinel_corpus_publications',
+    'sentinel_readiness_snapshots',
+    'sentinel_sep_staging',
+    'feed_ingest_runs'
+  ];
 BEGIN
-  FOREACH t IN ARRAY ARRAY['sentinel_bars','sentinel_actions',
-                           'sentinel_universe','sentinel_ingest_rejections',
-                           'sentinel_rejection_truncation',
-                           'sentinel_corpus_anomalies','feed_ingest_runs']
-  LOOP
-    IF to_regclass(t) IS NOT NULL THEN
-      EXECUTE format('TRUNCATE TABLE %I', t);
-      RAISE NOTICE 'truncated %', t;
-    ELSE
+  -- PostgreSQL requires a referenced parent and every FK child being reset to
+  -- appear in the SAME TRUNCATE statement. Sequential TRUNCATEs remain invalid
+  -- even inside this transaction and even when the child is empty. Assemble
+  -- one explicit statement rather than using CASCADE: a new, unreviewed child
+  -- must stop certification instead of being erased implicitly.
+  SELECT string_agg(format('%I.%I', 'public', candidate.table_name), ', '
+                    ORDER BY candidate.ordinality)
+    INTO present_tables
+    FROM unnest(reset_tables) WITH ORDINALITY
+         AS candidate(table_name, ordinality)
+   WHERE to_regclass(format('%I.%I', 'public', candidate.table_name)) IS NOT NULL;
+
+  IF present_tables IS NOT NULL THEN
+    EXECUTE 'TRUNCATE TABLE ' || present_tables;
+  END IF;
+
+  FOREACH t IN ARRAY reset_tables LOOP
+    IF to_regclass(format('%I.%I', 'public', t)) IS NULL THEN
       RAISE NOTICE 'absent (nothing to truncate): %', t;
+    ELSE
+      RAISE NOTICE 'truncated %', t;
     END IF;
   END LOOP;
 END $$;

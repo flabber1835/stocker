@@ -38,6 +38,7 @@ sentinel/feed/readiness.py           the data contract + persisted verdicts
 sentinel/core/catchup.py             convergence after absence, re-projection
 sentinel/core/decision.py            canonical shadow/controller -> stamped plan
 sentinel/paper.py                    read-only preparation + strict execution gate
+sentinel/authority.py                fail-closed certificate gate + rollout mode
 sentinel/core/cashflow.py            external cash as a declared event
 ```
 
@@ -67,6 +68,77 @@ happens when that process is interrupted, duplicated, or resumed from a backup
 that is behind the broker.
 
 ---
+
+### The rehearsal manifest is evidence, not execution authority
+
+A manifest whose lifecycle is `FINALIZED` and whose verdict is `PASS` is still
+not, by itself, permission to submit an order. In particular, that shape can
+coexist with strict expected-hash xfails or a Wealth Core `NO-GO`. Turning those
+two generic strings directly into a runtime gate would convert known
+certification debt into broker authority.
+
+Paper execution therefore requires a separately issued and cryptographically
+authenticated activation profile in the manifest. The profile names:
+
+```text
+schema                         sentinel.paper_execution_authority/1
+status                         AUTHORIZED
+scope                          ALPACA_PAPER
+strict_xfails                  exactly 0
+wealth_core_certification      GO
+allowed_rollout_modes          PINNED_1_00 and/or CONTROLLER
+controller_certification       PASS when CONTROLLER is allowed
+runtime_identity_hash          exact certified environment/source identity
+strategy_identity              strategy id + controller rule + Wealth Core hash
+```
+
+An operator-supplied SHA-256 authenticates bytes, not the party that asserted
+`PASS`, `GO`, or `AUTHORIZED` inside them. Shape, completion, and runtime-hash
+validation therefore cannot turn a self-authored JSON file into broker
+authority. This repository does not yet define a trusted issuer/public key or
+detached-signature verification contract. Until that separately reviewed trust
+root exists, `install-system-certificate` refuses before reading the file or
+opening PostgreSQL, and the execution gate rejects every certificate row,
+including an unsigned row restored from or installed by an older build.
+
+The durable schema, exact-byte parser, runtime/source/strategy checks, audit
+events, and revocation path are retained as the non-authoritative substrate for
+a future signed issuer. They are not an activation path today.
+
+The certification harness does not currently issue or sign this activation
+profile. That is fail-closed and intentional while strict xfails and the Wealth
+Core `NO-GO` remain. A future certification decision must define the issuer,
+emit and authenticate the profile deliberately, and enable installation and
+runtime verification together. Editing a generic `PASS` manifest or inserting
+a PostgreSQL row is never a supported activation path.
+
+### Rollout exposure is durable intent
+
+The actuator has one versioned, one-row rollout state. A new database starts at
+`PINNED_1_00`; this is a real operational mode, not a UI label and not an
+inference from a numeric exposure. Every execution plan records the rollout
+mode, rollout version, and the certificate that authorized a controller
+transition, and those fields participate in the plan's economic fingerprint.
+
+```text
+PINNED_1_00   plan target exposure is exactly Decimal("1")
+CONTROLLER    plan target exposure is the durable controller decision
+```
+
+Changing to `CONTROLLER` is a separately named, confirmed and audited command.
+It requires authenticated authority whose profile allows CONTROLLER and says
+controller certification is `PASS`; because trusted issuance is not yet
+implemented, this transition currently refuses. Changing back to
+`PINNED_1_00` is explicit and versioned, but is a de-risking administrative
+transition and does not require controller authority. A plan prepared under an
+earlier rollout version is stale even when its numeric exposure happens to
+equal the current one.
+
+The deterministic production plan id is `sentinel-` followed by the complete
+64-hex SHA-256 of its immutable economics. It is not a shortened display hash:
+that id is mutation authority at the broker and therefore retains the full
+collision resistance of the source, state, and certification identities it
+binds.
 
 ## 0. Why this layer needs its own contract
 
@@ -1227,6 +1299,16 @@ broker no longer exposes enough history to reconstruct it, exact reconstruction
 is impossible. No code fixes missing information. This is why WAL archiving to a
 second target and periodic verified restore drills are part of the architecture
 rather than operations paperwork.
+
+The archive boundary is durable publication, not pathname existence. A WAL
+archive command may report success only after a same-directory temporary copy
+has matched the completed source in size and content, the file has been
+fsynced, a no-clobber atomic rename has published it, and the destination
+directory has been fsynced. An already-published name is idempotent only when
+its size and bytes exactly match the source; a partial or different object
+fails closed. This prevents a failed copy from becoming false evidence that a
+segment is recoverable and then allowing PostgreSQL to recycle its only good
+source.
 
 ---
 

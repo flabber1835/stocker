@@ -257,7 +257,8 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
             runtime_state=RuntimeState.BROKER_DEGRADED,
             detail=f"broker unreachable: {exc}")
 
-    journal.record_observation(conn, observation, RuntimeState.RECONCILING.value)
+    observation_seq = journal.record_observation(
+        conn, observation, RuntimeState.RECONCILING.value)
 
     if not observation.is_complete:
         # A short or self-inconsistent read cannot support the conclusions
@@ -556,6 +557,12 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     if not adoption_conflicts:
         journal.advance_terminal_recovery_watermark(
             conn, recovery_through)
+
+    # The evidence row was committed before recovery on purpose. Now that the
+    # complete reconciliation has a verdict, bind that verdict to the exact row
+    # so read-only operational surfaces do not report the temporary
+    # RECONCILING placeholder forever.
+    journal.finalize_observation_runtime(conn, observation_seq, state.value)
 
     return ReconciliationResult(
         runtime_state=state, observation=observation, expected=expected,

@@ -605,10 +605,11 @@ five sessions), and `exact=1` never revised the verdict it superseded. Fixed in
 thing". **`SESSION_USABLE_THRESHOLD` stays 0.95** — the input was wrong, not the
 limit, and lowering it would have hidden the bug behind a green light.
 
-### Steps 5, 6 and 9 are BLOCKED — and it is a missing producer, not a run
+### Steps 5, 6 and 9 are runnable; their NAS evidence is still outstanding
 
 Step 5 requires `expected_hashes` "supplied by the BACKTESTER", and bt-engine
-rightly refuses to compute them itself. **Nothing in the repo produces them.**
+rightly refuses to compute them itself. Before the one-shot producer landed,
+**nothing in the repo produced them:**
 
 ```text
 run_wealth_core_replay()   services/backtester/app/wealth_core_replay.py:833
@@ -619,10 +620,75 @@ backtester container       has only DATABASE_URL -> live postgres. BT_DATABASE_U
 parity_cli                 runs only the synthetic golden scenario, never a corpus
 ```
 
-Closing it needs a route on the backtester running `run_wealth_core_replay` and
-returning the seven hashes, plus read-only access to bt-postgres over the
-published host port (the posture the evaluator already uses). Agreed shape:
-background job + run row, mirroring bt-engine rather than inventing a second one.
+The producer is a **certification-only one-shot command**, not a revived
+backtester service.  `tools.wealth_core_expected_hashes` imports the canonical
+`services/backtester/app/wealth_core_replay.py` loader and calls the shared
+Wealth Core engine once.  It runs from `sentinel-test`, which already carries
+the retired-stack SQLAlchemy dependency for corpus certification; neither the
+Sentinel runtime image nor a long-running HTTP surface gains that dependency.
+
+The command holds one `REPEATABLE READ, READ ONLY` transaction and the same
+non-blocking shared corpus lock as bt-engine.  Inside that snapshot it requires:
+
+```text
+bt_data_version.status       READY
+bt_data_version.source_mode  sharadar
+requested start and end      actual first and last measured sessions
+warm-up                      exactly the last 126 pre-start sessions
+causal ACTION boundary       retain action dates strictly after the trading
+                             session immediately preceding the first warm-up
+                             session; weekend/holiday actions between them map
+                             to that first retained session
+split source                 authoritative ACTIONS, never derived prices
+ACTION ingestion evidence    one successful Sharadar bt_actions run whose
+                             recorded bounds cover every queried action date
+hashes                       exactly HASH_ORDER's seven 64-hex digests
+```
+
+The 400-calendar-day lookup is only a net for finding 126 trading sessions plus
+the immediately preceding trading session, which is required as an exclusive
+ACTION cutoff. Prices at or before that cutoff are not retained causal input.
+An action whose raw vendor date is at or before the cutoff is likewise dropped
+before mapping; otherwise `snap_to_session` shifts it onto the first retained
+session and invents a split or dividend there. The cutoff is deliberately not
+the first retained date: an ex-date can be a weekend or exchange holiday, and a
+valid event between the prior session and the first retained session must map
+forward to that first session. If the wider calendar query cannot identify the
+prior session, production refuses instead of guessing. Ingestion evidence and
+`actions_rows_loaded` describe the wider source query;
+`actions_first_retained_session`, `actions_exclusive_prior_session`, consumed
+`actions_rows`, `actions_sha256`, and all mappings describe the exact causal
+boundary and rows that survived it.
+
+Its JSON output binds those hashes to the requested and observed window, the
+BT generation UUID/update time, row/security/action counts, the exact successful
+ACTIONS ingestion-run marker, a digest of the ACTIONS rows actually consumed,
+the normalised measured-input source, and a supplemental causal-input digest
+covering all 126 feature warm-up sessions plus the measured sessions.  The
+supplemental digest does not become an eighth parity hash; the seven-hash
+contract remains unchanged.  Producer, Wealth Core, canonical-loader, and full
+runtime-environment identities are recorded separately, so a result never
+identifies only two of the three code paths that made it. The producer refuses
+unless that environment reports the certified interpreter, exact package pins,
+both source trees, and the in-image lock digest; a developer environment may
+inspect inputs but cannot emit a `ready` certification artifact.
+
+`--output` is the evidence path: it writes a same-directory temporary file,
+fsyncs it, installs it with an atomic no-clobber hard link, and fsyncs the
+directory where the platform supports directory fsync.  An existing target is
+a refusal, and a failed run leaves no target.  Stdout remains available only
+for interactive inspection.
+
+The DSN is explicit through `BT_DATABASE_URL`, is never printed, and must name
+the installed psycopg 3 driver (`postgresql+psycopg://...`).  The command writes
+no run row: the retained JSON artifact is the immutable handoff to bt-engine's
+separately invoked `baseline_replay`.  That request must carry the artifact's
+exact `corpus.version` as `expected_data_version`.  Under bt-engine's same
+shared corpus lock and `REPEATABLE READ, READ ONLY` snapshot, the endpoint reads
+the current READY generation and refuses a mismatch *before the first corpus
+loader query*.  A failed or partial invocation therefore cannot leave a
+plausible successful job record, and hashes produced from one generation cannot
+be silently checked against another.
 
 **Also correct the claim while doing it.** Step 5 does NOT prove independent
 implementation: bt-engine's `_load_corpus` imports `app.live.wealth_core_replay`,
@@ -956,7 +1022,7 @@ fire during a grace, one step before the hash would have moved.
 | authoritative ACTIONS ingested | **done 2026-08-06** | `bt_actions` 664,039 rows, 1998-01-01..2026-12-31 |
 | authoritative ACTIONS / data parity | **pending** | needs a run whose `provenance.split_source == "actions"` — step 7 |
 | a dated replay is a backtest FROM its start date | **fixed 2026-08-07** | pre-start warm-up in `_load_corpus`/`_split_warmup`, threaded to all three modes and to BOTH the chain and bulk feeds; tests/bt_engine/test_wealth_core_warmup.py (19). The first 2021-2023 rehearsal is VOID — it ran unwarmed |
-| exact Sharadar control (baseline_replay) | **BLOCKED** | no producer for the backtester-side hashes; see "Resuming this work". When unblocked it proves IMAGE/ENVIRONMENT parity, NOT independent implementation — one loader, COPYed; see step 5 |
+| exact Sharadar control (baseline_replay) | **RUNNABLE; NAS EVIDENCE OUTSTANDING** | `python -m tools.wealth_core_expected_hashes` now emits the complete provenance-bound seven-hash artifact from one locked read-only Sharadar snapshot. The producer and request handoff are locally falsified, but the authoritative NAS producer + `baseline_replay` run has not been performed. That run proves IMAGE/ENVIRONMENT parity, NOT independent implementation — one loader, COPYed; see step 5 |
 | independent implementation parity | **not proven, and not provable by step 5** | would need a second loader written against the same spec; no such thing exists |
 | live activation | disabled by default | — |
 | performance measurement | **built 2026-08-06** | `shared/.../wealth_core/performance.py`; a rehearsal now persists CAGR / drawdown / turnover on the run row, surviving the >400-session elision. Derived output — asserted not to move any of the seven hashes |
@@ -1053,8 +1119,9 @@ never cleared. Exits are unaffected in both regimes.
 
 ## Required evidence sequence (all remaining steps need the NAS)
 
-**Status: 1-4 DONE (2026-08-06). 7 is next and runnable. 5, 6 and 9 are blocked
-on the missing backtester-side hash producer — see "Resuming this work" above.**
+**Status: 1-4 DONE (2026-08-06). Steps 5-9 are runnable and still require their
+NAS evidence. The producer closes the software gap; it does not turn an unrun
+comparison into a certification result.**
 
 Ports on the NAS: **bt-data 8030**, **bt-engine 8031** (published host ports; the
 two stacks share no docker network by design).
@@ -1100,20 +1167,74 @@ two stacks share no docker network by design).
    re-run, while a ticker with no coverage means the vendor has none and
    re-running changes nothing. 97% looks identical in aggregate either way.
 
-5. **[BLOCKED — no producer for the expected hashes]** **`baseline_replay` over the authoritative period.** Require all SEVEN hashes
+5. **[RUNNABLE — evidence not yet run]** **`baseline_replay` over the authoritative period.** Require all SEVEN hashes
    to match. The expected hashes come FROM the backtester — the endpoint refuses
    to recompute them (that would prove only that the tunnel agrees with itself)
    and refuses a partial set.
 
    ```bash
-   curl -sX POST localhost:8031/wealth-core/jobs/run \
-     -H 'content-type: application/json' -d '{
-       "mode": "baseline_replay", "start_date": "...", "end_date": "...",
-       "expected_hashes": { ...seven... }}'
+   START=2021-01-04
+   END=2023-12-29
+   STAMP="${START}_${END}"
+   mkdir -p artifacts/sentinel
+   HASH_ART="artifacts/sentinel/wealth-core-expected-hashes-${STAMP}.json"
+   [ -n "${BT_DATABASE_URL:-}" ] || { echo "BT_DATABASE_URL is required" >&2; exit 1; }
+   [ ! -e "${HASH_ART}" ] || { echo "refusing to overwrite ${HASH_ART}" >&2; exit 1; }
+
+   # One read-only, repeatable-read transaction; no service and no run-row write.
+   # --output is atomic and refuses to overwrite an existing artifact.
+   docker run --rm --network host --user "$(id -u):$(id -g)" \
+     --entrypoint python \
+     -v "$(pwd)/artifacts/sentinel:/artifacts" \
+     -e BT_DATABASE_URL="${BT_DATABASE_URL}" \
+     sentinel-test:latest -m tools.wealth_core_expected_hashes \
+     --start "${START}" --end "${END}" \
+     --output "/artifacts/$(basename "${HASH_ART}")"
+   python3 - "${HASH_ART}" <<'PY'
+   import json, re, sys
+   a = json.load(open(sys.argv[1]))
+   order = ("normalized_input", "candidate_audit", "decision", "order",
+            "daily_state", "daily_equity", "final_result")
+   assert a["status"] == "ready"
+   assert tuple(a["hashes"]) == order
+   assert all(re.fullmatch(r"[0-9a-f]{64}", a["hashes"][k]) for k in order)
+   assert a["corpus"]["status"] == "READY"
+   assert a["corpus"]["source_mode"] == "sharadar"
+   assert a["corpus"]["split_source"] == "actions"
+   assert a["corpus"]["actions_ingestion"]["coverage_complete"] is True
+   assert a["window"]["warmup_sessions"] == 126
+   assert re.fullmatch(r"[0-9a-f]{64}", a["corpus"]["causal_input_sha256"])
+   assert re.fullmatch(r"[0-9a-f]{64}", a["corpus"]["actions_sha256"])
+   assert a["provenance"]["runtime_environment"]["certified"] is True
+   assert re.fullmatch(
+       r"[0-9a-f]{64}",
+       a["provenance"]["runtime_environment"]["image_lock_sha256"])
+   PY
+
+   BASELINE_REQ="artifacts/sentinel/wealth-core-baseline-${STAMP}.json"
+   python3 - "${HASH_ART}" "${BASELINE_REQ}" <<'PY'
+   import json, sys
+   source, target = sys.argv[1:]
+   artifact = json.load(open(source))
+   request = {
+       "mode": "baseline_replay",
+       "start_date": artifact["window"]["requested_start"],
+       "end_date": artifact["window"]["requested_end"],
+       "expected_hashes": artifact["hashes"],
+       "expected_data_version": artifact["corpus"]["version"],
+   }
+   open(target, "x").write(json.dumps(request, indent=2, sort_keys=True) + "\n")
+   PY
+   curl -sS -X POST localhost:8031/wealth-core/jobs/run \
+     -H 'content-type: application/json' --data-binary "@${BASELINE_REQ}"
    curl -s localhost:8031/wealth-core/runs/latest
    ```
 
-   Check `provenance.split_source == "actions"` on the result before reading any
+   Check the POST response names a run id. Poll the latest row until it is
+   terminal, then require `status == "success"`, all seven persisted hashes to
+   equal `${HASH_ART}`, the exact requested window, and
+   `provenance.split_source == "actions"` and
+   `provenance.bt_data_version == artifact.corpus.version` before reading any
    other number.
 
    **WHAT THIS STEP PROVES, STATED EXACTLY — it is narrower than it looks.**
@@ -1128,7 +1249,8 @@ two stacks share no docker network by design).
    stays in the record permanently; it is not a caveat to be dropped once the
    step goes green.
 
-6. **[BLOCKED on 5]** **Repeat it** and require byte-identical persisted artifacts.
+6. **[PENDING step 5 evidence]** **Repeat it** from a newly named artifact and
+   require byte-identical hashes and provenance-bound persisted artifacts.
 
 7. **[NEXT — runnable now, NOT blocked on 5]** **`chain_rehearsal` over the same period.** Require: the run reaches
    `status: success` (a divergence RAISES, so a success row means the live path
@@ -1147,7 +1269,7 @@ two stacks share no docker network by design).
 8. **Restart cuts** through admissions, exits, dividends, terminal actions,
    cooldowns and defensive state, over the authoritative data.
 
-9. **[BLOCKED on 5]** **Cross-engine parity over the authoritative data**, not only the golden
+9. **[PENDING step 5 evidence]** **Cross-engine parity over the authoritative data**, not only the golden
    stream.
 
 10. Keep `execution_model=target_portfolio` until every one of the above passes.

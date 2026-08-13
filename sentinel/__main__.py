@@ -36,6 +36,7 @@ from dataclasses import replace
 from datetime import datetime
 import json
 import logging
+from pathlib import Path
 import sys
 from zoneinfo import ZoneInfo
 
@@ -672,7 +673,7 @@ async def _adopt_restored(config: SentinelConfig, args) -> int:
 
 def _paper_refusal_types() -> tuple[type[BaseException], ...]:
     """Safety refusals reported as an operator checkpoint, not a traceback."""
-    from sentinel import binding as binding_mod, handover, paper
+    from sentinel import authority, binding as binding_mod, handover, paper
     from sentinel.controller import frozen_rule
     from sentinel.core import catchup
     from sentinel.execution import alpaca, certification, contract, executor, journal
@@ -681,6 +682,7 @@ def _paper_refusal_types() -> tuple[type[BaseException], ...]:
 
     return (
         paper.PaperActivationRefused,
+        authority.AuthorityRefused,
         binding_mod.AccountNotBound,
         binding_mod.AccountMismatch,
         handover.MigrationRefused,
@@ -830,6 +832,105 @@ async def _execute_paper_plan(config: SentinelConfig, args) -> int:
     return EXIT_NOT_ESTABLISHED if result.needs_attention else EXIT_OK
 
 
+def _current_system_identities() -> tuple[dict, dict]:
+    """Compute the exact runtime and strategy identities used by authority."""
+    from sentinel import identity
+    from sentinel.controller.frozen_rule import load as load_controller
+    from sentinel.core.decision import runtime_strategy_identity
+
+    controller = load_controller()
+    return (identity.rehearsal_identity(),
+            runtime_strategy_identity(controller))
+
+
+def _install_system_certificate(config: SentinelConfig, args) -> int:
+    """Refuse until formal certificate bytes have a trusted issuer."""
+    from sentinel import authority
+
+    # Refuse before reading an operator file or opening PostgreSQL.  A supplied
+    # digest authenticates bytes, not the party that asserted PASS/GO inside
+    # them, so accepting it would turn self-attestation into broker authority.
+    try:
+        authority.install_system_certificate(
+            None, manifest_bytes=b"",
+            confirm_sha256=args.confirm_manifest_sha256,
+            runtime_identity={}, strategy_identity={}, commit=False)
+    except authority.AuthorityRefused as exc:
+        return _paper_refused(exc)
+    raise AssertionError("certificate installation unexpectedly enabled")
+
+
+def _revoke_system_certificate(config: SentinelConfig, args) -> int:
+    """Revoke the exact active certificate under the execution writer lock."""
+    from sentinel import authority, schema
+    from sentinel.execution import journal
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = feed_store.connect(config.database_url)
+    try:
+        schema.ensure_schema(conn)
+        with journal.writer_lock(conn):
+            authority.revoke_system_certificate(
+                conn, certificate_sha256=args.certificate_sha256,
+                reason=args.reason, commit=False)
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        conn.close()
+    print(json.dumps({
+        "revoked": True,
+        "broker_contacted": False,
+        "certificate_sha256": args.certificate_sha256,
+    }, indent=2))
+    return EXIT_OK
+
+
+def _set_paper_rollout_mode(config: SentinelConfig, args) -> int:
+    """Perform one explicit, audited exposure-rollout transition."""
+    from sentinel import authority, schema
+    from sentinel.execution import journal
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    mode = authority.RolloutMode(args.mode)
+    if (mode is authority.RolloutMode.CONTROLLER
+            and not args.confirm_controller_rollout):
+        print("REFUSED: --confirm-controller-rollout is required",
+              file=sys.stderr)
+        return EXIT_CONFIG
+    if (mode is authority.RolloutMode.PINNED_1_00
+            and not args.confirm_pinned_rollout):
+        print("REFUSED: --confirm-pinned-rollout is required",
+              file=sys.stderr)
+        return EXIT_CONFIG
+    runtime, strategy = _current_system_identities()
+    conn = feed_store.connect(config.database_url)
+    try:
+        schema.ensure_schema(conn)
+        with journal.writer_lock(conn):
+            before = authority.load_rollout_state(conn)
+            rollout = authority.set_rollout_mode(
+                conn, mode=mode, reason=args.reason,
+                runtime_identity=runtime, strategy_identity=strategy,
+                commit=False)
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        conn.close()
+    print(json.dumps({
+        "changed": rollout.version != before.version,
+        "broker_contacted": False,
+        "rollout": rollout.to_dict(),
+        "prepare_new_plan_required": True,
+    }, indent=2))
+    return EXIT_OK
+
+
 async def _establish(config: SentinelConfig) -> int:
     """RETIRED. Kept so the old invocation fails loudly rather than mysteriously.
 
@@ -933,6 +1034,31 @@ def main(argv: list[str] | None = None) -> int:
     execute.add_argument("--confirm-effective-session", required=True)
     execute.add_argument(
         "--confirm-submit-paper-orders", action="store_true", required=True)
+    install_cert = sub.add_parser(
+        "install-system-certificate",
+        help="reserved: refuses until trusted certificate issuance exists")
+    install_cert.add_argument("--manifest", required=True)
+    install_cert.add_argument("--confirm-manifest-sha256", required=True)
+    install_cert.add_argument(
+        "--confirm-paper-execution-authority",
+        action="store_true", required=True)
+    revoke_cert = sub.add_parser(
+        "revoke-system-certificate",
+        help="revoke the exact active execution certificate; no broker")
+    revoke_cert.add_argument("--certificate-sha256", required=True)
+    revoke_cert.add_argument("--reason", required=True)
+    revoke_cert.add_argument(
+        "--confirm-revoke-system-certificate",
+        action="store_true", required=True)
+    rollout = sub.add_parser(
+        "set-paper-rollout-mode",
+        help="change pinned/controller exposure mode explicitly; no broker")
+    rollout.add_argument(
+        "--mode", required=True,
+        choices=("PINNED_1_00", "CONTROLLER"))
+    rollout.add_argument("--reason", required=True)
+    rollout.add_argument("--confirm-controller-rollout", action="store_true")
+    rollout.add_argument("--confirm-pinned-rollout", action="store_true")
     mig = sub.add_parser("migrate-account",
                          help="ONE-TIME administrative handover: remove the "
                               "legacy book and BIND this account")
@@ -1001,6 +1127,12 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(_current_paper_plan(config))
         if args.command == "execute-paper-plan":
             return asyncio.run(_execute_paper_plan(config, args))
+        if args.command == "install-system-certificate":
+            return _install_system_certificate(config, args)
+        if args.command == "revoke-system-certificate":
+            return _revoke_system_certificate(config, args)
+        if args.command == "set-paper-rollout-mode":
+            return _set_paper_rollout_mode(config, args)
         if args.command == "migrate-account":
             return asyncio.run(_migrate_account(config, args))
         if args.command == "adopt-restored-account":

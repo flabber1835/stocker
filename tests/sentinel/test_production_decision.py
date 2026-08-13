@@ -8,6 +8,7 @@ from decimal import Decimal
 import pytest
 
 from sentinel.binding import AccountBinding, AccountMismatch, AccountNotBound
+from sentinel.authority import RolloutMode, RolloutState
 from sentinel.controller import frozen_rule
 from sentinel.controller.machine import Controller
 from sentinel.core.decision import (
@@ -145,7 +146,7 @@ def _working_order(security_id: str, ticker: str, *, side: Side,
 
 
 def _build(state: SessionState, *, observation=None, marks=None,
-           binding=None, account=None):
+           binding=None, account=None, rollout=None):
     return build_execution_plan(
         state=state, binding=binding or _binding(),
         publication=_publication(), account_snapshot=account or _account(),
@@ -153,7 +154,8 @@ def _build(state: SessionState, *, observation=None, marks=None,
         marks=marks or {"sec-a": "100", DEFENSIVE_SECURITY_ID: "90"},
         tickers={"sec-a": "AAA", DEFENSIVE_SECURITY_ID: "BIL"},
         decision_session=DECISION_SESSION,
-        effective_session=EFFECTIVE_SESSION)
+        effective_session=EFFECTIVE_SESSION,
+        rollout_state=rollout)
 
 
 def test_shadow_target_aggregates_episodes_and_signed_pending_entries():
@@ -186,22 +188,40 @@ def test_decision_refuses_a_noncanonical_controller_snapshot():
         shadow_target(state)
 
 
-def test_projection_keeps_wealth_core_cash_separate_from_the_bil_sleeve():
+def test_default_rollout_pins_exposure_to_one_and_keeps_wealth_core_cash():
     state = _state(episodes=[_episode(0, "sec-a", "AAA", 10)])
 
     result = _build(state)
 
-    # Core weight is 10 * $100 / $2,000 = .5.  Sentinel exposes .55 of that
-    # shadow, while BIL receives exactly 1-.55 rather than sweeping the rest.
+    # Core weight is 10 * $100 / $2,000 = .5. The default rollout exposes one
+    # times that shadow and does not sweep Wealth Core's own cash into BIL.
     assert result.plan.target_basket == {
-        "sec-a": Decimal("27"), DEFENSIVE_SECURITY_ID: Decimal("50")}
-    assert result.plan.cash_residual == Decimal("2800.00")
+        "sec-a": Decimal("50"), DEFENSIVE_SECURITY_ID: Decimal("0")}
+    assert result.plan.cash_residual == Decimal("5000.0")
     assert result.plan.account_nav == Decimal("10000")
-    assert result.plan.target_exposure == Decimal("0.55")
+    assert result.plan.target_exposure == Decimal("1")
+    assert result.plan.rollout_mode == "PINNED_1_00"
+    assert result.plan.rollout_version == 1
     assert result.plan.unpriced_securities == ()
     assert result.plan.defensive_security == DEFENSIVE_SECURITY_ID
     assert result.target_tickers == {
         "sec-a": "AAA", DEFENSIVE_SECURITY_ID: "BIL"}
+
+
+def test_explicit_controller_rollout_uses_controller_exposure_and_is_stamped():
+    state = _state(episodes=[_episode(0, "sec-a", "AAA", 10)])
+    rollout = RolloutState(
+        RolloutMode.CONTROLLER, 4, certificate_sha256="a" * 64)
+
+    result = _build(state, rollout=rollout)
+
+    assert result.plan.target_basket == {
+        "sec-a": Decimal("27"), DEFENSIVE_SECURITY_ID: Decimal("50")}
+    assert result.plan.cash_residual == Decimal("2800.00")
+    assert result.plan.target_exposure == Decimal("0.55")
+    assert result.plan.rollout_mode == "CONTROLLER"
+    assert result.plan.rollout_version == 4
+    assert result.plan.rollout_certificate_sha256 == "a" * 64
 
 
 def test_plan_carries_every_identity_and_has_a_restart_stable_id():
@@ -264,7 +284,10 @@ def test_unpriced_wanted_bil_is_preserved_but_dropped_core_remains_zero():
         orders=[_working_order(
             DEFENSIVE_SECURITY_ID, "BIL", side=Side.BUY, quantity="3")])
 
-    result = _build(state, observation=observation, marks={"sec-a": "100"})
+    result = _build(
+        state, observation=observation, marks={"sec-a": "100"},
+        rollout=RolloutState(
+            RolloutMode.CONTROLLER, 2, certificate_sha256="a" * 64))
 
     assert "sec-a" not in result.plan.target_basket
     assert result.plan.target_basket[DEFENSIVE_SECURITY_ID] == Decimal("11")

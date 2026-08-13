@@ -18,9 +18,129 @@ def test_backup_overlay_archives_wal_to_an_operator_target():
     assert "SENTINEL_BACKUP_DIR:?" in text
     assert "archive_mode=on" in text
     assert "archive_command=" in text
-    assert "test -f /sentinel-backup/wal/%f || cp" in text
+    assert "/usr/local/libexec/sentinel-archive-wal.sh" in text
+    assert "test -f /sentinel-backup/wal/%f || cp" not in text
     assert "/sentinel-backup/wal" in text
     assert "/sentinel-backup/base" in text
+
+
+def test_wal_archive_contract_requires_verified_atomic_durable_publication():
+    text = _read("scripts/sentinel-archive-wal.sh")
+    assert 'mktemp "$archive_dir/.${wal_name}.part.XXXXXX"' in text
+    assert 'cmp -s -- "$source_wal" "$temporary"' in text
+    assert 'sync "$temporary"' in text
+    assert 'mv -T --no-clobber -- "$temporary" "$target"' in text
+    assert 'sync "$archive_dir"' in text
+    assert text.index('sync "$temporary"') < text.index("mv -T --no-clobber")
+    assert text.index("mv -T --no-clobber") < text.rindex('sync "$archive_dir"')
+
+
+def _archive_wal(source: Path, archive: Path, name: str, *, env=None):
+    return subprocess.run(
+        ["sh", str(ROOT / "scripts/sentinel-archive-wal.sh"),
+         str(source), name, str(archive)],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_wal_archive_success_and_identical_retry_are_idempotent(tmp_path):
+    if os.name == "nt":
+        return
+    archive = tmp_path / "wal"
+    archive.mkdir()
+    source = tmp_path / "source-wal"
+    source.write_bytes((b"sentinel-wal\x00" * 4096) + b"complete")
+    name = "000000010000000000000001"
+
+    first = _archive_wal(source, archive, name)
+    assert first.returncode == 0, first.stderr
+    target = archive / name
+    assert target.read_bytes() == source.read_bytes()
+    assert not list(archive.glob(f".{name}.part.*"))
+    inode = target.stat().st_ino
+
+    retry = _archive_wal(source, archive, name)
+    assert retry.returncode == 0, retry.stderr
+    assert target.stat().st_ino == inode
+    assert target.read_bytes() == source.read_bytes()
+    assert not list(archive.glob(f".{name}.part.*"))
+
+
+def test_wal_archive_refuses_partial_or_mismatched_final(tmp_path):
+    if os.name == "nt":
+        return
+    source = tmp_path / "source-wal"
+    source.write_bytes(b"abcdefgh")
+    name = "000000010000000000000002"
+
+    for existing in (b"abc", b"abcdEfgh"):
+        archive = tmp_path / f"wal-{len(existing)}-{existing.hex()}"
+        archive.mkdir()
+        target = archive / name
+        target.write_bytes(existing)
+        result = _archive_wal(source, archive, name)
+        assert result.returncode != 0
+        assert "existing archive differs from source" in result.stderr
+        assert target.read_bytes() == existing
+        assert not list(archive.glob(f".{name}.part.*"))
+
+
+def test_wal_archive_copy_failure_leaves_no_final_or_temporary(tmp_path):
+    if os.name == "nt":
+        return
+    archive = tmp_path / "wal"
+    archive.mkdir()
+    source = tmp_path / "source-wal"
+    source.write_bytes(b"complete source WAL")
+    name = "000000010000000000000003"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_cp = fake_bin / "cp"
+    fake_cp.write_text(
+        "#!/bin/sh\n"
+        "for destination do :; done\n"
+        "printf partial > \"$destination\"\n"
+        "exit 1\n"
+    )
+    fake_cp.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+    }
+
+    result = _archive_wal(source, archive, name, env=env)
+    assert result.returncode != 0
+    assert "copy failed" in result.stderr
+    assert not (archive / name).exists()
+    assert not list(archive.glob(f".{name}.part.*"))
+
+
+def test_wal_archive_file_fsync_failure_leaves_no_final(tmp_path):
+    if os.name == "nt":
+        return
+    archive = tmp_path / "wal"
+    archive.mkdir()
+    source = tmp_path / "source-wal"
+    source.write_bytes(b"complete source WAL")
+    name = "000000010000000000000004"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_sync = fake_bin / "sync"
+    fake_sync.write_text("#!/bin/sh\nexit 1\n")
+    fake_sync.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+    }
+
+    result = _archive_wal(source, archive, name, env=env)
+    assert result.returncode != 0
+    assert "could not fsync temporary archive" in result.stderr
+    assert not (archive / name).exists()
+    assert not list(archive.glob(f".{name}.part.*"))
 
 
 def test_base_backup_is_physical_streamed_and_verified_before_promotion():

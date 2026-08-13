@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT / "shared"))
 
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
-from sentinel import binding, handover, paper, schema  # noqa: E402
+from sentinel import authority, binding, handover, paper, schema  # noqa: E402
 from sentinel.broker import CloseResult  # noqa: E402
 from sentinel.config import DEFAULT_BASE_URL, LiveEndpointRefused  # noqa: E402
 from sentinel.controller.frozen_rule import (  # noqa: E402
@@ -132,6 +132,13 @@ def simulator_is_certified(monkeypatch):
     monkeypatch.setattr(paper, "load_controller", lambda: CONFIG)
     monkeypatch.setattr(
         paper, "runtime_strategy_identity", lambda _config: dict(IDENTITY))
+    monkeypatch.setattr(
+        paper, "require_execution_authority",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            certificate_sha256="test-system-certificate"))
+    monkeypatch.setattr(
+        paper.system_identity, "rehearsal_identity",
+        lambda: {"identity_hash": "test-runtime"})
 
 
 def _broker(*, equity="1000", cash="1000", account=ACCOUNT):
@@ -1050,6 +1057,59 @@ def test_restart_cash_authority_uses_durable_average_fill_price(conn, pg):
 
 
 class TestStrictExecutionGate:
+    def test_missing_system_certificate_refuses_before_broker_read(
+            self, conn, pg, monkeypatch):
+        _install_current_authorities(conn)
+        _ready(monkeypatch)
+
+        def refuse(*_args, **_kwargs):
+            other = feed_store.connect(pg.sync_dsn)
+            try:
+                with other.cursor() as cur:
+                    cur.execute(
+                        "SELECT pg_try_advisory_lock(%s)",
+                        (journal.WRITER_LOCK_KEY,))
+                    acquired = cur.fetchone()[0]
+                    if acquired:
+                        cur.execute(
+                            "SELECT pg_advisory_unlock(%s)",
+                            (journal.WRITER_LOCK_KEY,))
+                other.commit()
+            finally:
+                other.close()
+            assert acquired is False, (
+                "system certificate was checked outside the writer lock")
+            raise authority.AuthorityRefused(
+                "no active system certificate is installed")
+
+        monkeypatch.setattr(paper, "require_execution_authority", refuse)
+        broker = _broker()
+
+        with pytest.raises(authority.AuthorityRefused, match="no active"):
+            _execute(conn, broker)
+
+        assert broker.calls == []
+        assert _mutations(broker) == []
+
+    def test_rollout_version_change_stales_plan_before_broker_read(
+            self, conn, monkeypatch):
+        _install_current_authorities(conn)
+        _ready(monkeypatch)
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE sentinel_rollout_state SET version=version+1"
+                " WHERE id=1")
+        conn.commit()
+        broker = _broker()
+
+        with pytest.raises(
+                paper.PaperActivationRefused,
+                match="rollout mode/version authority is stale"):
+            _execute(conn, broker)
+
+        assert broker.calls == []
+        assert _mutations(broker) == []
+
     def test_half_day_after_close_refuses_before_broker_read(
             self, conn, monkeypatch):
         """A DAY order at 13:01 must not queue into the next session."""

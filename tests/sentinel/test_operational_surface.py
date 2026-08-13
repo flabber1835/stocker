@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -75,6 +76,7 @@ def test_bt_engine_startup_and_health_fail_closed():
 def test_all_active_python_images_require_artifact_hashes():
     for name in ("Dockerfile.sentinel", "Dockerfile.base",
                  "services/bt-engine/Dockerfile",
+                 "services/bt-engine/Dockerfile.test",
                  "services/bt-data/Dockerfile"):
         text = _read(name)
         assert "--require-hashes" in text, name
@@ -84,6 +86,88 @@ def test_all_active_python_images_require_artifact_hashes():
     for name in ("Dockerfile.sentinel", "Dockerfile.base"):
         text = _read(name)
         assert "--no-build-isolation" in text
+
+
+def test_shell_entrypoints_are_forced_to_lf_in_every_checkout():
+    attributes = _read(".gitattributes").splitlines()
+    assert "*.sh text eol=lf" in attributes
+
+
+def test_pull_requests_run_the_complete_sentinel_safety_suite():
+    workflow = _read(".github/workflows/sentinel-safety.yml")
+    assert "pull_request:" in workflow
+    assert "branches: [main]" in workflow
+    assert "permissions:\n  contents: read" in workflow
+    assert "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683" \
+        in workflow
+    assert "docker build -f Dockerfile.sentinel -t sentinel:latest" in workflow
+    assert "docker build -f Dockerfile.sentinel-test" in workflow
+    assert "sentinel-test:ci tests/sentinel -q" in workflow
+    assert "--network none" in workflow
+    assert "bash -n scripts/sentinel-certify.sh scripts/sentinel-archive-wal.sh" \
+        in workflow
+    assert "docker-compose.sentinel-backup.yml" in workflow
+    assert "fetch-depth: 2" in workflow
+    assert "git diff --check HEAD^ HEAD" in workflow
+
+
+def test_pull_requests_execute_the_bt_engine_boundary_in_its_built_image():
+    workflow = _read(".github/workflows/sentinel-safety.yml")
+    lens = _read("services/bt-engine/Dockerfile.test")
+    lock = (SUITE / "tests/bt_engine/requirements.lock").read_text()
+
+    # A fresh checkout has no mutable local base tag.  Build it first, then the
+    # production image, and only then layer the test runner on that image.
+    base = "docker build -f Dockerfile.base -t stocker-base:latest"
+    engine = ("docker build -f services/bt-engine/Dockerfile "
+              "-t stocker-bt-engine:ci")
+    test_image = "-f services/bt-engine/Dockerfile.test"
+    assert base in workflow
+    assert engine in workflow
+    assert test_image in workflow
+    assert workflow.index(base) < workflow.index(engine) < workflow.index(
+        test_image)
+
+    # Both direct falsifier suites execute with the network disabled.  Merely
+    # copying their source under Sentinel's inspection root would not exercise
+    # the generation pin or causal action filter.
+    run = workflow[workflow.index(
+        "docker run --rm --network none stocker-bt-engine-test:ci"):]
+    assert "tests/bt_engine/test_wealth_core_api.py" in run
+    assert "tests/bt_engine/test_wealth_core_warmup.py" in run
+    assert "set -o pipefail" in workflow
+    assert "grep -Eq '[0-9]+ skipped'" in workflow
+    assert "exit 1" in run
+    skip_summary = re.compile(r"[0-9]+ skipped")
+    assert skip_summary.search("91 passed, 1 skipped in 1.0s")
+    assert not skip_summary.search("91 passed, 1 xfailed in 1.0s")
+
+    # The checkout exists for source assertions only.  Runtime imports are
+    # pinned to /app and the build itself proves neither module came from the
+    # non-importable inspection bundle.
+    assert "ARG BT_ENGINE_IMAGE=" in lens
+    assert "FROM ${BT_ENGINE_IMAGE}" in lens
+    assert "BT_ENGINE_REPO_ROOT=/work/repo" in lens
+    assert "PYTHONPATH=/app:/work" in lens
+    assert "api.__file__.startswith('/app/app/')" in lens
+    assert "replay.__file__.startswith('/app/app/live/')" in lens
+    assert "COPY services/bt-engine/app/ /work/repo/" in lens
+    assert "COPY services/bt-engine/app/ /work/services/" not in lens
+
+    # Test tooling is byte-authenticated and may not replace a production
+    # dependency while claiming to test the deployable engine.
+    assert "--require-hashes" in lens
+    assert "--no-deps" in lens
+    assert "pip check" in lens
+    assert "pytest==8.4.2" in lock
+    locked_names = {
+        line.split("==", 1)[0].strip().lower()
+        for line in lock.splitlines()
+        if line and not line.lstrip().startswith(("#", "--")) and "==" in line
+    }
+    for runtime_dependency in ("sqlalchemy", "asyncpg", "fastapi", "pandas",
+                               "numpy", "pydantic"):
+        assert runtime_dependency not in locked_names
 
 
 def test_expected_golden_drift_is_exact_strict_xfail_not_a_suite_mask():

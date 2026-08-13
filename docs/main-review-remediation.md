@@ -103,6 +103,15 @@ migration, preparation, and execution.
    schema probes must pass before a service reports healthy.
 6. Dependency installation is hash-checked. A version-only closure remains
    identity evidence but is not accepted as byte-reproducible certification.
+7. Pull requests run the complete `tests/sentinel` suite in the pinned Sentinel
+   test image with network access disabled. Changes to the production bt-engine
+   boundary are also exercised through a hash-locked test lens layered on the
+   freshly built production bt-engine image: the lens may copy repository files
+   for inspection, but executable `app` imports must resolve from the production
+   image and the run must fail if any focused test skips. Shell, Compose, and
+   whitespace validation follow. Local matrices remain useful evidence, but
+   they are never described as an independent repository check until GitHub
+   records that workflow result.
 
 ## 6. Legacy migration and recovery decisions
 
