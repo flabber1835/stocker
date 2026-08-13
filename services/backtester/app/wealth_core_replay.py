@@ -704,6 +704,29 @@ def actions_after_session(rows: Iterable[dict],
     return [row for row in rows if str(row["date"]) > cutoff]
 
 
+def actions_effective_in_sessions(
+        rows: Iterable[dict], sessions_sorted: Sequence[str],
+        included_sessions: Iterable[str]) -> list[dict]:
+    """Actions whose mapped effective session belongs to ``included_sessions``.
+
+    ACTIONS dates are calendar dates. Comparing the raw date with a measured
+    window boundary drops a Sunday or exchange holiday immediately before the
+    first measured session even though ``snap_to_session`` makes the event
+    effective on that session. Conversely, mapping against only the measured
+    calendar shifts every warm-up event onto measured day one.
+
+    Callers therefore pass the complete retained causal calendar for mapping
+    and the measured sessions as the inclusion set. Rows keep their original
+    order and date; the downstream action-specific loader performs the same
+    mapping against the same complete calendar.
+    """
+    included = {str(session) for session in included_sessions}
+    return [
+        row for row in rows
+        if snap_to_session(str(row["date"]), sessions_sorted) in included
+    ]
+
+
 # ── permanent security identity ─────────────────────────────────────────────
 # A TICKER IS AN OBSERVATION LABEL. The permanent identity owns the economic
 # state, and using the ticker as `security_id` gets it wrong in both directions:
@@ -1108,6 +1131,7 @@ __all__ = ["ACTIONS_CAVEATS", "CAVEATS", "DERIVED_SPLIT_CAVEATS",
            "IdentityResolver", "IdentityUnresolvable", "SECURITY_ID_PREFIX",
            "permanent_id", "load_identity",
            "unusable_dividend_rows", "load_actions", "actions_after_session",
+           "actions_effective_in_sessions",
            "load_sessions",
            "reconcile_split",
            "sessions_index", "snap_to_session", "split_ratios_from_actions",

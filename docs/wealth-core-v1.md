@@ -764,6 +764,13 @@ READY generation to that exact version before it invokes any corpus loader; a
 mismatch refuses instead of turning a vendor-data change into an apparent
 engine divergence.
 
+The baseline is intentionally not configurable. It accepts only the canonical
+producer inputs: `starting_cash=1000000`, empty `config`, and empty
+`eligibility`. Those empty diffs instantiate the canonical strategy,
+eligibility, and certified volatility-profile defaults in both images. A
+non-default cash base or any strategy/eligibility override is an `experiment`
+and is refused as a baseline before the corpus is read.
+
 The loader reaches back 400 calendar days only to locate the final 126 trading
 sessions needed for feature warm-up plus their immediately preceding trading
 session. That prior session is the exclusive ACTION cutoff: rows dated on or
@@ -772,6 +779,14 @@ it are preserved, including weekend or holiday ex-dates that correctly map to
 the first retained trading session. If the prior session is unavailable the
 run refuses; using the first retained date as the cutoff would incorrectly drop
 those valid non-session events.
+
+Terminal rows have a second boundary: inclusion in the measured window is based
+on the row's mapped effective trading session, not its raw calendar date. The
+mapping uses the complete retained warm-up plus measured calendar first. This
+keeps a Sunday or exchange-holiday action that becomes effective on the first
+measured session, and excludes actions whose effective sessions remain in
+warm-up or fall outside the measured range. The expected-hash producer and
+bt-engine baseline call the same canonical helper.
 
 **Read the result in this order.** `provenance.split_source` first: `derived`
 means `bt_actions` is empty and the run is NOT certified-reproducible (remedy:

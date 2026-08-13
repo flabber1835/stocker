@@ -253,7 +253,13 @@ and a corpus publication pin:
 - the plan's rollout mode/version and certificate stamp exactly match the
   current durable rollout state. New databases start `PINNED_1_00`; changing
   to `CONTROLLER` is a separate audited administrative command and invalidates
-  every plan prepared under the prior version;
+  every plan prepared under the prior version. Changing back to
+  `PINNED_1_00` is also separate and versioned, requires the literal
+  `--confirm-pinned-rollout-may-increase-exposure` acknowledgement, and must
+  never be described as de-risking: it forces 100% Wealth Core exposure and
+  can increase risk from a controller target of 0, 0.55, or 0.65. A missing
+  rollout singleton is corruption; preparation/execution refuse and startup
+  does not recreate it;
 - a `SENTINEL_OWNED` binding whose full identity matches both the plan and a
   fresh typed broker account snapshot;
 - explicit confirmation of the paper account id, plan id, effective session,

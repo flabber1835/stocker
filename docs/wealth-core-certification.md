@@ -690,6 +690,25 @@ loader query*.  A failed or partial invocation therefore cannot leave a
 plausible successful job record, and hashes produced from one generation cannot
 be silently checked against another.
 
+`baseline_replay` is the canonical control, not a configurable replay. It
+therefore accepts exactly the producer's behavioural defaults: starting cash
+`1_000_000.0`, no `config` overrides and no `eligibility` overrides. The latter
+also pins the certified volatility profile through the default
+`WealthCoreConfig` and `EligibilityConfig`. Any variant belongs in `experiment`
+and is refused by the baseline endpoint before corpus loading. Together with the
+generation check above and the seven expected hashes, this prevents a request
+from attaching the producer's identity to a different capital base, eligibility
+universe or strategy configuration.
+
+Terminal ACTIONS are selected by their **effective trading session**, never by
+comparing the raw vendor date with the measured start. The canonical loader
+first snaps each row against the complete retained warm-up plus measured
+calendar, then keeps only rows whose mapped session is in the measured window.
+Thus a Sunday or exchange holiday immediately before the first measured session
+is retained when it maps forward to that session, while an event that maps into
+warm-up or beyond the measured range is excluded. The producer and
+`baseline_replay` use the same helper for this boundary.
+
 **Also correct the claim while doing it.** Step 5 does NOT prove independent
 implementation: bt-engine's `_load_corpus` imports `app.live.wealth_core_replay`,
 the BACKTESTER's own loader, COPYed in at image build ("ONE CORPUS LOADER, NOT

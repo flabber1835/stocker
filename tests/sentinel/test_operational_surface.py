@@ -102,13 +102,53 @@ def test_pull_requests_run_the_complete_sentinel_safety_suite():
         in workflow
     assert "docker build -f Dockerfile.sentinel -t sentinel:latest" in workflow
     assert "docker build -f Dockerfile.sentinel-test" in workflow
-    assert "sentinel-test:ci tests/sentinel -q" in workflow
+    assert "tests/sentinel -q -ra" in workflow
+    assert "tee /tmp/sentinel-complete.txt" in workflow
+    assert "the complete Sentinel run skipped tests" in workflow
     assert "--network none" in workflow
-    assert "bash -n scripts/sentinel-certify.sh scripts/sentinel-archive-wal.sh" \
-        in workflow
     assert "docker-compose.sentinel-backup.yml" in workflow
     assert "fetch-depth: 2" in workflow
-    assert "git diff --check HEAD^ HEAD" in workflow
+    assert "git diff --check HEAD^1 HEAD" in workflow
+
+
+def test_pull_request_ci_proves_it_is_testing_the_synthetic_merge():
+    workflow = _read(".github/workflows/sentinel-safety.yml")
+    assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in workflow
+    assert 'if [ "$GITHUB_EVENT_NAME" = "pull_request" ]' in workflow
+    assert "git rev-list --parents -n 1 HEAD" in workflow
+    assert 'if [ "$parent_count" -ne 2 ]' in workflow
+    assert "pull-request checkout is not a synthetic merge commit" in workflow
+    assert "git merge-base --is-ancestor HEAD^1 HEAD" in workflow
+    assert "git merge-base --is-ancestor HEAD^2 HEAD" in workflow
+
+
+def test_ci_compiles_python_and_syntax_checks_every_tracked_shell_script():
+    workflow = _read(".github/workflows/sentinel-safety.yml")
+    assert workflow.count("-m compileall -q -f") == 2
+    for path in ("/app/sentinel", "/usr/local/lib/python3.12/site-packages/stock_strategy_shared",
+                 "/work/tests/sentinel", "/work/tools", "/work/repo/scripts",
+                 "/app/app", "/shared/stock_strategy_shared",
+                 "/work/tests/bt_engine"):
+        assert path in workflow
+    assert "mapfile -d '' shell_scripts < <(git ls-files -z -- '*.sh')" \
+        in workflow
+    assert 'if [ "${#shell_scripts[@]}" -eq 0 ]' in workflow
+    assert 'bash -n "${shell_scripts[@]}"' in workflow
+
+
+def test_ci_pytest_logs_are_pipefail_safe_and_distinguish_skip_from_xfail():
+    workflow = _read(".github/workflows/sentinel-safety.yml")
+    assert workflow.count("set -euo pipefail") >= 4
+    assert workflow.count("-q -ra 2>&1 | tee") == 2
+    assert workflow.count("[0-9]+ skipped") == 2
+
+    # The gate is intentionally specific to ordinary skips. Strict xfails are
+    # reported by pytest's -ra summary and remain visible certification debt;
+    # the word "xfailed" must not be misclassified as an ordinary skip.
+    skip_summary = re.compile(r"(^|, )[0-9]+ skipped(,| in |$)")
+    assert skip_summary.search("1865 passed, 1 skipped in 10.0s")
+    assert skip_summary.search("1 skipped in 1.0s")
+    assert not skip_summary.search("434 passed, 3 xfailed in 10.0s")
 
 
 def test_pull_requests_execute_the_bt_engine_boundary_in_its_built_image():
@@ -135,8 +175,8 @@ def test_pull_requests_execute_the_bt_engine_boundary_in_its_built_image():
         "docker run --rm --network none stocker-bt-engine-test:ci"):]
     assert "tests/bt_engine/test_wealth_core_api.py" in run
     assert "tests/bt_engine/test_wealth_core_warmup.py" in run
-    assert "set -o pipefail" in workflow
-    assert "grep -Eq '[0-9]+ skipped'" in workflow
+    assert "set -euo pipefail" in workflow
+    assert "[0-9]+ skipped" in workflow
     assert "exit 1" in run
     skip_summary = re.compile(r"[0-9]+ skipped")
     assert skip_summary.search("91 passed, 1 skipped in 1.0s")

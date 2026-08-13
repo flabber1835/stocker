@@ -115,6 +115,19 @@ class FakeBT:
     def sessions_index(sessions):
         return list(sessions)
 
+    def actions_effective_in_sessions(self, rows, sessions, included):
+        included = set(included)
+        selected = [
+            row for row in rows
+            if next((s for s in sessions if s >= str(row["date"])), None)
+            in included
+        ]
+        self.observed["terminal_filter_input"] = list(rows)
+        self.observed["terminal_filter_sessions"] = list(sessions)
+        self.observed["terminal_filter_included"] = included
+        self.observed["terminal_filter_output"] = selected
+        return selected
+
     def split_ratios_from_actions(self, actions, _sessions):
         self.observed["split_actions"] = list(actions)
         mapping = {}
@@ -143,8 +156,9 @@ class FakeBT:
     def load_bars(_conn, _start, _end, **_kwargs):
         return {}
 
-    @staticmethod
-    def terminal_events_from_actions(*_args, **_kwargs):
+    def terminal_events_from_actions(self, rows, sessions, **_kwargs):
+        self.observed["terminal_actions"] = list(rows)
+        self.observed["terminal_sessions"] = list(sessions)
         return []
 
     @staticmethod
@@ -269,6 +283,33 @@ class TestWindowAndSource:
         assert source["actions_sha256"] == TOOL.actions_sha256(
             bt.observed["split_actions"])
 
+    @pytest.mark.parametrize(("start", "end", "raw_date"), [
+        ("2024-07-08", "2024-07-09", "2024-07-07"),  # Sunday -> Monday
+        ("2022-04-18", "2022-04-19", "2022-04-15"),  # Good Friday
+    ])
+    def test_terminal_rows_are_selected_by_EFFECTIVE_session(
+            self, start, end, raw_date):
+        bt = FakeBT(start=start, end=end)
+        start_day = date.fromisoformat(start)
+        raw_day = date.fromisoformat(raw_date)
+        history = []
+        cursor = start_day - timedelta(days=1)
+        while len(history) < 127:
+            if cursor.weekday() < 5 and cursor != raw_day:
+                history.append(str(cursor))
+            cursor -= timedelta(days=1)
+        bt.sessions = [*reversed(history), start, end]
+        row = {"date": raw_date, "ticker": "AAA", "action": "delisted",
+               "value": None, "contraticker": None}
+        bt.actions = [row]
+
+        TOOL.load_corpus(
+            SnapshotConn(), start=start, end=end, bt=bt)
+
+        assert bt.observed["terminal_filter_output"] == [row]
+        assert bt.observed["terminal_actions"] == [row]
+        assert bt.observed["terminal_sessions"] == bt.sessions[1:]
+
     def test_nonempty_actions_without_a_covering_ingest_are_refused(self):
         bt = FakeBT(actions=True)
         with pytest.raises(TOOL.ExpectedHashesRefused,
@@ -344,6 +385,13 @@ def test_the_run_warms_the_shared_feed_and_uses_streaming_hashes(monkeypatch):
     assert captured["hash_mode"] == "streaming"
     assert captured["sessions"] == ["S001"]
     assert tuple(captured["feed"]._seen_sessions) == tuple(warmup)
+    from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
+    from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
+    assert captured["starting_cash"] == 1_000_000.0
+    assert captured["cfg"] == WealthCoreConfig()
+    assert captured["eligibility_cfg"] == EligibilityConfig()
+    assert captured["cfg"].volatility_profile == \
+        captured["eligibility_cfg"].volatility_profile
     assert tuple(hashes) == HASH_ORDER
     assert config_hash
 
@@ -575,6 +623,25 @@ def test_the_producer_is_copied_and_bound_as_a_certification_input():
     inputs = {(Path(source).relative_to(REPO).as_posix(), logical)
               for source, logical in module._certification_input_spec(REPO)}
     assert ("tools", "tools") in inputs
+
+
+def test_producer_and_baseline_share_the_effective_session_boundary():
+    producer = (ROOT / "tools" / "wealth_core_expected_hashes.py").read_text()
+    load = producer[producer.index("def load_corpus("):
+                    producer.index("def run_corpus(")]
+    assert "measured_actions = bt.actions_effective_in_sessions(\n" \
+           "        action_rows, full_index, measured)" in load
+    assert "terminal_events_from_actions(\n" \
+           "        measured_actions, full_index," in load
+
+    baseline = (REPO / "services" / "bt-engine" / "app" /
+                "wealth_core_api.py").read_text()
+    corpus = baseline[baseline.index("async def _load_corpus"):
+                      baseline.index("def _execute(")]
+    assert "measured_action_rows = actions_effective_in_sessions(\n" \
+           "                action_rows, full_idx, sessions)" in corpus
+    assert "terminal_events_from_actions(\n" \
+           "                    measured_action_rows, full_idx," in corpus
 
 
 class TestTheDatabaseAuthorityIsExplicit:

@@ -56,6 +56,10 @@ EXIT_OK = 0
 EXIT_CONFIG = 1
 EXIT_NOT_ESTABLISHED = 2
 
+PINNED_ROLLOUT_RISK_WARNING = (
+    "PINNED_1_00 forces 100% Wealth Core exposure and may increase exposure "
+    "and risk from the current controller allocation")
+
 
 def _setup_logging(verbose: bool) -> None:
     logging.basicConfig(
@@ -904,13 +908,27 @@ def _set_paper_rollout_mode(config: SentinelConfig, args) -> int:
               file=sys.stderr)
         return EXIT_CONFIG
     if (mode is authority.RolloutMode.PINNED_1_00
-            and not args.confirm_pinned_rollout):
-        print("REFUSED: --confirm-pinned-rollout is required",
-              file=sys.stderr)
+            and not args.confirm_pinned_rollout_may_increase_exposure):
+        print(
+            "REFUSED: --confirm-pinned-rollout-may-increase-exposure is "
+            f"required because {PINNED_ROLLOUT_RISK_WARNING}",
+            file=sys.stderr)
         return EXIT_CONFIG
-    runtime, strategy = _current_system_identities()
-    conn = feed_store.connect(config.database_url)
+    if mode is authority.RolloutMode.PINNED_1_00:
+        print(f"WARNING: {PINNED_ROLLOUT_RISK_WARNING}", file=sys.stderr)
+
+    runtime: dict = {}
+    strategy: dict = {}
+    conn = None
     try:
+        # Pinned mode is self-describing (exactly Decimal("1")); it neither
+        # consumes nor authenticates a controller decision.  Loading the frozen
+        # rule here made a damaged controller artefact block the explicit
+        # pinned transition with a traceback even though that identity is not
+        # part of the transition.
+        if mode is authority.RolloutMode.CONTROLLER:
+            runtime, strategy = _current_system_identities()
+        conn = feed_store.connect(config.database_url)
         schema.ensure_schema(conn)
         with journal.writer_lock(conn):
             before = authority.load_rollout_state(conn)
@@ -921,13 +939,17 @@ def _set_paper_rollout_mode(config: SentinelConfig, args) -> int:
     except _paper_refusal_types() as exc:
         return _paper_refused(exc)
     finally:
-        conn.close()
-    print(json.dumps({
+        if conn is not None:
+            conn.close()
+    output = {
         "changed": rollout.version != before.version,
         "broker_contacted": False,
         "rollout": rollout.to_dict(),
         "prepare_new_plan_required": True,
-    }, indent=2))
+    }
+    if mode is authority.RolloutMode.PINNED_1_00:
+        output["risk_warning"] = PINNED_ROLLOUT_RISK_WARNING
+    print(json.dumps(output, indent=2))
     return EXIT_OK
 
 
@@ -1052,13 +1074,24 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true", required=True)
     rollout = sub.add_parser(
         "set-paper-rollout-mode",
-        help="change pinned/controller exposure mode explicitly; no broker")
+        help="change exposure mode explicitly; PINNED_1_00 may increase risk",
+        description=(
+            "Change the durable paper rollout mode without broker contact. "
+            "PINNED_1_00 forces 100% Wealth Core exposure and may increase "
+            "exposure and risk from the current controller allocation."))
     rollout.add_argument(
         "--mode", required=True,
         choices=("PINNED_1_00", "CONTROLLER"))
     rollout.add_argument("--reason", required=True)
-    rollout.add_argument("--confirm-controller-rollout", action="store_true")
-    rollout.add_argument("--confirm-pinned-rollout", action="store_true")
+    rollout.add_argument(
+        "--confirm-controller-rollout", action="store_true",
+        help="confirm the separately authorized controller transition")
+    rollout.add_argument(
+        "--confirm-pinned-rollout-may-increase-exposure",
+        action="store_true",
+        help=(
+            "acknowledge that forcing 100%% Wealth Core exposure may "
+            "increase risk"))
     mig = sub.add_parser("migrate-account",
                          help="ONE-TIME administrative handover: remove the "
                               "legacy book and BIND this account")

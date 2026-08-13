@@ -24,6 +24,21 @@ jobs:
           # proposed diff instead of the already-clean working tree.
           fetch-depth: 2
 
+      - name: Verify the checked-out pull-request merge result
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            parent_count="$(git rev-list --parents -n 1 HEAD | awk '{print NF - 1}')"
+            if [ "$parent_count" -ne 2 ]; then
+              echo "REFUSED: pull-request checkout is not a synthetic merge commit" >&2
+              exit 1
+            fi
+            git merge-base --is-ancestor HEAD^1 HEAD
+            git merge-base --is-ancestor HEAD^2 HEAD
+          fi
+
       - name: Build the pinned Sentinel runtime and test images
         run: |
           docker build -f Dockerfile.sentinel -t sentinel:latest .
@@ -38,18 +53,37 @@ jobs:
             -f services/bt-engine/Dockerfile.test \
             -t stocker-bt-engine-test:ci .
 
+      - name: Compile the executable Python and test surfaces
+        run: |
+          docker run --rm --network none --entrypoint python \
+            sentinel-test:ci -m compileall -q -f \
+            /app/sentinel \
+            /usr/local/lib/python3.12/site-packages/stock_strategy_shared \
+            /work/tests/sentinel /work/tools /work/repo/scripts
+          docker run --rm --network none --entrypoint python \
+            stocker-bt-engine-test:ci -m compileall -q -f \
+            /app/app /shared/stock_strategy_shared /work/tests/bt_engine
+
       - name: Run the complete Sentinel suite without network access
         run: |
-          docker run --rm --network none sentinel-test:ci tests/sentinel -q
+          set -euo pipefail
+          docker run --rm --network none sentinel-test:ci \
+            tests/sentinel -q -ra 2>&1 | tee /tmp/sentinel-complete.txt
+          if grep -Eq '(^|, )[0-9]+ skipped(,| in |$)' \
+              /tmp/sentinel-complete.txt; then
+            echo 'REFUSED: the complete Sentinel run skipped tests' >&2
+            exit 1
+          fi
 
       - name: Run the changed bt-engine boundary without network access or skips
         run: |
-          set -o pipefail
+          set -euo pipefail
           docker run --rm --network none stocker-bt-engine-test:ci \
             tests/bt_engine/test_wealth_core_api.py \
             tests/bt_engine/test_wealth_core_warmup.py \
-            -q -rA | tee /tmp/bt-engine-focused.txt
-          if grep -Eq '[0-9]+ skipped' /tmp/bt-engine-focused.txt; then
+            -q -ra 2>&1 | tee /tmp/bt-engine-focused.txt
+          if grep -Eq '(^|, )[0-9]+ skipped(,| in |$)' \
+              /tmp/bt-engine-focused.txt; then
             echo 'REFUSED: the merge-critical bt-engine run skipped tests' >&2
             exit 1
           fi
@@ -59,10 +93,20 @@ jobs:
           SENTINEL_POSTGRES_PASSWORD: ci-not-a-production-secret
           SENTINEL_BACKUP_DIR: /tmp/sentinel-ci-backup
         run: |
-          bash -n scripts/sentinel-certify.sh scripts/sentinel-archive-wal.sh
+          set -euo pipefail
+          mapfile -d '' shell_scripts < <(git ls-files -z -- '*.sh')
+          if [ "${#shell_scripts[@]}" -eq 0 ]; then
+            echo 'REFUSED: no tracked shell scripts were found' >&2
+            exit 1
+          fi
+          bash -n "${shell_scripts[@]}"
           mkdir -p "$SENTINEL_BACKUP_DIR/wal" "$SENTINEL_BACKUP_DIR/base"
           docker compose \
             -f docker-compose.sentinel.yml \
             -f docker-compose.sentinel-backup.yml \
             config --quiet
-          git diff --check HEAD^ HEAD
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            git diff --check HEAD^1 HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi

@@ -277,7 +277,6 @@ def load_corpus(conn, *, start: str, end: str, bt) -> dict[str, Any]:
             "splits are forbidden for certification")
 
     full_index = bt.sessions_index([*warmup, *measured])
-    measured_index = bt.sessions_index(measured)
     splits = bt.split_ratios_from_actions(action_rows, full_index)
     dividends = bt.dividends_from_actions(action_rows, full_index)
     reconciliation: dict[str, int] = {}
@@ -291,11 +290,11 @@ def load_corpus(conn, *, start: str, end: str, bt) -> dict[str, Any]:
         bars = {session: [bar for bar in rows if bar.security_id in meta]
                 for session, rows in bars.items()}
     normalized_bars = sum(len(rows) for rows in bars.values())
-    measured_actions = [row for row in action_rows
-                        if str(row["date"]) >= start]
+    measured_actions = bt.actions_effective_in_sessions(
+        action_rows, full_index, measured)
     unresolved = getattr(identity, "unresolved", {})
     terminals = bt.terminal_events_from_actions(
-        measured_actions, measured_index, known_securities=set(meta),
+        measured_actions, full_index, known_securities=set(meta),
         identity=identity, meta=meta, unresolved=unresolved)
 
     return {

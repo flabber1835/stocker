@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 import datetime as dt
 import json
 from decimal import Decimal
@@ -11,8 +12,9 @@ from types import SimpleNamespace
 import pytest
 
 from sentinel import __main__ as cli
-from sentinel import paper, schema
+from sentinel import authority, paper, schema
 from sentinel.config import DEFAULT_BASE_URL, SentinelConfig
+from sentinel.controller import frozen_rule
 from sentinel.execution import alpaca, contract, executor, journal
 from sentinel.execution.contract import (
     BrokerAccountIdentity,
@@ -372,6 +374,99 @@ def test_certificate_install_is_reserved_and_refuses_before_file_or_database(
 
     assert result == cli.EXIT_NOT_ESTABLISHED
     assert "trusted issuer/signature" in capsys.readouterr().err
+
+
+def _rollout_args(mode: str, *, confirm_controller: bool = False,
+                  confirm_pinned_risk: bool = False):
+    return SimpleNamespace(
+        mode=mode, reason="reviewed transition",
+        confirm_controller_rollout=confirm_controller,
+        confirm_pinned_rollout_may_increase_exposure=confirm_pinned_risk)
+
+
+def test_pinned_rollout_does_not_load_broken_controller_and_warns_of_risk(
+        monkeypatch, capsys):
+    calls = []
+    conn = _Connection()
+    monkeypatch.setattr(feed_store, "connect", lambda _url: conn)
+    monkeypatch.setattr(schema, "ensure_schema", lambda actual: None)
+
+    @contextmanager
+    def locked(actual):
+        calls.append(("lock", actual))
+        yield
+
+    monkeypatch.setattr(journal, "writer_lock", locked)
+    before = authority.RolloutState(
+        authority.RolloutMode.CONTROLLER, 4, "a" * 64)
+    after = authority.RolloutState(
+        authority.RolloutMode.PINNED_1_00, 5, None)
+    monkeypatch.setattr(authority, "load_rollout_state", lambda actual: before)
+
+    def set_mode(actual, **kwargs):
+        calls.append(("set", actual, kwargs))
+        return after
+
+    monkeypatch.setattr(authority, "set_rollout_mode", set_mode)
+    monkeypatch.setattr(
+        cli, "_current_system_identities",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("pinned transition loaded broken controller")))
+
+    assert cli._set_paper_rollout_mode(
+        _config(), _rollout_args(
+            "PINNED_1_00", confirm_pinned_risk=True)) == cli.EXIT_OK
+
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+    assert output["changed"] is True
+    assert output["rollout"]["mode"] == "PINNED_1_00"
+    assert output["risk_warning"] == cli.PINNED_ROLLOUT_RISK_WARNING
+    assert "may increase exposure and risk" in captured.err
+    set_call = next(call for call in calls if call[0] == "set")
+    assert set_call[2]["runtime_identity"] == {}
+    assert set_call[2]["strategy_identity"] == {}
+    assert conn.closed
+
+
+def test_pinned_rollout_requires_literal_exposure_increase_acknowledgement(
+        monkeypatch, capsys):
+    monkeypatch.setattr(
+        feed_store, "connect",
+        lambda _url: (_ for _ in ()).throw(
+            AssertionError("missing confirmation opened database")))
+
+    assert cli._set_paper_rollout_mode(
+        _config(), _rollout_args("PINNED_1_00")) == cli.EXIT_CONFIG
+    refusal = capsys.readouterr().err
+    assert "--confirm-pinned-rollout-may-increase-exposure" in refusal
+    assert "forces 100% Wealth Core exposure" in refusal
+
+
+def test_controller_identity_failure_is_an_operator_refusal_not_traceback(
+        monkeypatch, capsys):
+    monkeypatch.setattr(
+        cli, "_current_system_identities",
+        lambda: (_ for _ in ()).throw(
+            frozen_rule.FrozenRuleTampered("controller digest mismatch")))
+    monkeypatch.setattr(
+        feed_store, "connect",
+        lambda _url: (_ for _ in ()).throw(
+            AssertionError("failed identity opened database")))
+
+    assert cli._set_paper_rollout_mode(
+        _config(), _rollout_args(
+            "CONTROLLER", confirm_controller=True)) == cli.EXIT_NOT_ESTABLISHED
+    assert "REFUSED: controller digest mismatch" in capsys.readouterr().err
+
+
+def test_rollout_help_names_pinned_exposure_increase_risk(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["set-paper-rollout-mode", "--help"])
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "forces 100% Wealth Core exposure" in help_text
+    assert "--confirm-pinned-rollout-may-increase-exposure" in help_text
 
 
 @pytest.mark.parametrize(

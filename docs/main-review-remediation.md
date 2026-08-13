@@ -104,14 +104,39 @@ migration, preparation, and execution.
 6. Dependency installation is hash-checked. A version-only closure remains
    identity evidence but is not accepted as byte-reproducible certification.
 7. Pull requests run the complete `tests/sentinel` suite in the pinned Sentinel
-   test image with network access disabled. Changes to the production bt-engine
-   boundary are also exercised through a hash-locked test lens layered on the
-   freshly built production bt-engine image: the lens may copy repository files
-   for inspection, but executable `app` imports must resolve from the production
-   image and the run must fail if any focused test skips. Shell, Compose, and
-   whitespace validation follow. Local matrices remain useful evidence, but
-   they are never described as an independent repository check until GitHub
-   records that workflow result.
+   test image with network access disabled. The workflow must be running
+   GitHub's synthetic merge commit, not only the feature-branch tip. Changes to
+   the production bt-engine boundary are also exercised through a hash-locked
+   test lens layered on the freshly built production bt-engine image: the lens
+   may copy repository files for inspection, but executable `app` imports must
+   resolve from the production image. Both pytest runs retain the complete
+   outcome summary (pass, fail, skip, xfail and xpass), and any ordinary skip is
+   a failure. The workflow explicitly compiles the executable Python and test
+   surfaces, runs `bash -n` over every tracked `*.sh`, resolves Compose, and
+   applies whitespace validation to the synthetic merge result. Local matrices
+   remain useful evidence, but they are never described as an independent
+   repository check until GitHub records that workflow result.
+8. `Sentinel safety / certification-and-durability` is a repository workflow
+   check, but it is **not currently a required branch-protection check**. No PR
+   or document may call it required until a repository administrator changes
+   the `main` ruleset. The outstanding administrative action is: in repository
+   Settings -> Rules (or the existing `main` branch-protection rule), enable
+   "Require status checks to pass before merging", select the exact check name
+   `Sentinel safety / certification-and-durability`, require the branch to be up
+   to date so the synthetic merge is tested, save the rule, and verify on a new
+   pull request that GitHub labels that check `Required`. This implementation
+   deliberately does not change repository protection.
+
+The three strict Wealth Core xfails are one certification debt expressed at
+three boundaries, not three independent defects: the golden pin itself, the
+derived-performance non-interference guard, and the fresh-interpreter guard all
+observe the same pending `final_result` hash movement. The movement is caused by
+additive terminal reconciliation audit fields. The existing economic hashes,
+cash, positions and decisions are unchanged. Removing the xfails or re-pinning
+is forbidden until the 2021-2023 authoritative rehearsal proves the documented
+episode and $283.04 reconciliation conditions. Until that NAS evidence is
+reviewed and a re-pin is separately authorized, Wealth Core remains `NO-GO` and
+CI must report the three strict xfails truthfully rather than masking them.
 
 ## 6. Legacy migration and recovery decisions
 

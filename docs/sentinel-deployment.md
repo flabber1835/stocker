@@ -298,6 +298,14 @@ plan even though the controller continues to advance in the canonical shadow.
 The controller's transition remains recorded for audit and restart equivalence;
 it does not become execution exposure until the rollout mode changes.
 
+`PINNED_1_00` describes the actuator, not a low-risk posture. An explicit
+transition from `CONTROLLER` back to `PINNED_1_00` can move exposure from 0,
+0.55, or 0.65 to 1.00 and therefore **increase** risk. It is never labelled a
+de-risking action and its CLI confirmation names that exposure-increase risk.
+The rollout singleton is seeded only when its table is genuinely created; a
+missing row in an existing table is corruption and routine startup refuses
+rather than silently recreating operational intent.
+
 The transition is deliberately separate from daily preparation, but it is not
 currently available. An operator-confirmed SHA-256 authenticates manifest
 bytes, not the issuer of the `PASS`/`GO` statements inside them. The repository

@@ -116,9 +116,14 @@ a PostgreSQL row is never a supported activation path.
 
 The actuator has one versioned, one-row rollout state. A new database starts at
 `PINNED_1_00`; this is a real operational mode, not a UI label and not an
-inference from a numeric exposure. Every execution plan records the rollout
-mode, rollout version, and the certificate that authorized a controller
-transition, and those fields participate in the plan's economic fingerprint.
+inference from a numeric exposure. That initial row is seeded only when the
+rollout table is genuinely created (including an upgrade from a schema that did
+not yet have the table). Routine schema checks never recreate a missing row.
+Once the table exists, absence of its singleton row is durable-state corruption
+and every operational reader refuses until an operator investigates; restart is
+not a repair mechanism. Every execution plan records the rollout mode, rollout
+version, and the certificate that authorized a controller transition, and those
+fields participate in the plan's economic fingerprint.
 
 ```text
 PINNED_1_00   plan target exposure is exactly Decimal("1")
@@ -129,8 +134,11 @@ Changing to `CONTROLLER` is a separately named, confirmed and audited command.
 It requires authenticated authority whose profile allows CONTROLLER and says
 controller certification is `PASS`; because trusted issuance is not yet
 implemented, this transition currently refuses. Changing back to
-`PINNED_1_00` is explicit and versioned, but is a de-risking administrative
-transition and does not require controller authority. A plan prepared under an
+`PINNED_1_00` is also explicit and versioned and does not require controller
+identity or controller authority. It is **not a de-risking transition**:
+`PINNED_1_00` forces 100% Wealth Core exposure, so moving from a controller
+target below 1.00 increases exposure and risk. Its confirmation flag and
+operator output state that fact without euphemism. A plan prepared under an
 earlier rollout version is stale even when its numeric exposure happens to
 equal the current one.
 

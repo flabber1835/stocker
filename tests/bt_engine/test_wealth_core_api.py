@@ -181,9 +181,45 @@ class TestBaselineReplayRefusals:
         assert "missing" in str(e.value.detail)
 
     def test_a_COMPLETE_hash_set_is_accepted(self):
-        api._validate(req(mode="baseline_replay",
-                          expected_hashes={k: "x" for k in HASH_ORDER},
-                          expected_data_version="generation-7"))
+        request = req(mode="baseline_replay",
+                      expected_hashes={k: "x" for k in HASH_ORDER},
+                      expected_data_version="generation-7")
+        api._validate(request)
+
+        from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
+        from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
+
+        cfg = api._apply(WealthCoreConfig(), request.config,
+                         "WealthCoreConfig")
+        eligibility = api._apply(
+            EligibilityConfig(), request.eligibility, "EligibilityConfig")
+        assert request.starting_cash == api.CANONICAL_BASELINE_STARTING_CASH
+        assert cfg == WealthCoreConfig()
+        assert eligibility == EligibilityConfig()
+        assert cfg.config_hash() == WealthCoreConfig().config_hash()
+        assert cfg.volatility_profile == eligibility.volatility_profile
+
+    @pytest.mark.parametrize("override, named_input", [
+        ({"starting_cash": 999_999.0}, "starting_cash"),
+        ({"config": {"n_slots": 20}}, "WealthCoreConfig"),
+        ({"config": {"volatility_profile": "simple_returns_v1"}},
+         "volatility profile"),
+        ({"eligibility": {"min_dollar_volume_20d": 1.0}},
+         "EligibilityConfig"),
+        ({"eligibility": {"volatility_profile": "simple_returns_v1"}},
+         "volatility profile"),
+    ])
+    def test_a_baseline_rejects_every_NONCANONICAL_behavioral_input(
+            self, override, named_input):
+        request = dict(
+            mode="baseline_replay",
+            expected_hashes={k: "x" for k in HASH_ORDER},
+            expected_data_version="generation-7")
+        request.update(override)
+        with pytest.raises(HTTPException) as exc:
+            api._validate(req(**request))
+        assert named_input in str(exc.value.detail)
+        assert "experiment" in str(exc.value.detail)
 
     def test_hashes_without_their_exact_data_generation_are_refused(self):
         with pytest.raises(HTTPException) as exc:

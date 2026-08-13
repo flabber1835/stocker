@@ -27,6 +27,12 @@ book. Making it unrepresentable is cheaper than detecting it.
 """
 from __future__ import annotations
 
+_SCHEMA_LOCK = (1_397_050_964, 1_380_928_588)  # ASCII SENT / ROLL.
+
+_INITIAL_ROLLOUT_STATE = """INSERT INTO sentinel_rollout_state
+    (id,mode,version) VALUES (1,'PINNED_1_00',1)
+    ON CONFLICT (id) DO NOTHING"""
+
 DDL = (
     # ------------------------------------------------------------------
     # WHO WE ARE, AND WHOSE ACCOUNT THIS IS.
@@ -94,7 +100,10 @@ DDL = (
         at                  TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
 
     # ------------------------------------------------------------------
-    # EXPOSURE ROLLOUT. New databases are deliberately pinned at 1.00. A
+    # EXPOSURE ROLLOUT. New databases are deliberately pinned at 1.00. The
+    # singleton is seeded by ensure_schema ONLY when this table did not exist;
+    # keeping the insert out of this replayed DDL is what makes deletion of the
+    # operational row a refusal rather than an implicit reset on restart. A
     # controller transition names the certificate that authorized it and every
     # transition increments the durable version, even when the resulting
     # numeric exposure may happen to remain 1.00.
@@ -108,8 +117,6 @@ DDL = (
         updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         CHECK ((mode = 'PINNED_1_00' AND certificate_sha256 IS NULL)
             OR (mode = 'CONTROLLER' AND certificate_sha256 IS NOT NULL)))""",
-    """INSERT INTO sentinel_rollout_state (id,mode,version)
-        VALUES (1,'PINNED_1_00',1) ON CONFLICT (id) DO NOTHING""",
     """CREATE TABLE IF NOT EXISTS sentinel_rollout_events (
         seq                 BIGSERIAL PRIMARY KEY,
         version             BIGINT      NOT NULL UNIQUE,
@@ -389,7 +396,22 @@ DDL = (
 
 
 def ensure_schema(conn) -> None:
+    """Create/upgrade behavioural schema without repairing operational intent.
+
+    The transaction-scoped lock makes the table-existence decision and DDL one
+    serialized migration.  This matters on first boot: PostgreSQL's
+    ``CREATE TABLE IF NOT EXISTS`` is not itself a concurrency-safe migration
+    coordinator.  The initial rollout row belongs to the migration that creates
+    its table.  Once that table exists, a missing row is corruption and this
+    routine deliberately leaves it missing so operational readers fail closed.
+    """
     with conn.cursor() as cur:
+        cur.execute(
+            "SELECT pg_advisory_xact_lock(%s,%s)", _SCHEMA_LOCK)
+        cur.execute("SELECT to_regclass('sentinel_rollout_state')")
+        rollout_table_existed = cur.fetchone()[0] is not None
         for statement in DDL:
             cur.execute(statement)
+        if not rollout_table_existed:
+            cur.execute(_INITIAL_ROLLOUT_STATE)
     conn.commit()

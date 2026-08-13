@@ -29,6 +29,7 @@ from app.wealth_core_replay import (  # noqa: E402
     TERMINAL_ACTIONS,
     TERMINAL_ACTION_SIDES,
     ActionSide,
+    actions_effective_in_sessions,
     reconcile_split,
     sessions_index,
     snap_to_session,
@@ -83,6 +84,36 @@ class TestSnappingToARealSession:
         """None, not the last session. Clamping backwards would fire a merger
         that has not happened yet."""
         assert snap_to_session("2022-04-01", SESSIONS) is None
+
+
+class TestMeasuredActionSelectionUsesTheEffectiveSession:
+
+    FULL = sessions_index([
+        "2022-03-03", "2022-03-04", "2022-03-07", "2022-03-08"])
+    MEASURED = sessions_index(["2022-03-07", "2022-03-08"])
+
+    def test_a_SUNDAY_before_day_one_is_retained_for_MONDAY(self):
+        row = action(date="2022-03-06")
+        assert actions_effective_in_sessions(
+            [row], self.FULL, self.MEASURED) == [row]
+
+    def test_an_EXCHANGE_HOLIDAY_before_day_one_is_retained(self):
+        # Friday 2022-04-15 was Good Friday. The supplied trading calendar, not
+        # weekday arithmetic, establishes that the event becomes effective on
+        # Monday's open.
+        full = sessions_index(["2022-04-14", "2022-04-18", "2022-04-19"])
+        measured = sessions_index(["2022-04-18", "2022-04-19"])
+        row = action(date="2022-04-15")
+        assert actions_effective_in_sessions([row], full, measured) == [row]
+
+    def test_rows_effective_OUTSIDE_the_measured_window_are_excluded(self):
+        rows = [
+            action(ticker="WARMUP", date="2022-03-04"),
+            action(ticker="MEASURED", date="2022-03-06"),
+            action(ticker="AFTER", date="2022-03-09"),
+        ]
+        assert actions_effective_in_sessions(
+            rows, self.FULL, self.MEASURED) == [rows[1]]
 
 
 # ── splits ──────────────────────────────────────────────────────────────────

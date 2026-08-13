@@ -427,6 +427,42 @@ class TestActionsAreIndexedAgainstTheRightWindow:
         assert ("AAA", "2021-01-04") not in full
         assert full == {("AAA", "2020-11-02"): 1.5}
 
+    @pytest.mark.parametrize(("raw_date", "expected"), [
+        ("2022-03-06", ["SUNDAY"]),       # Sunday -> Monday
+        ("2022-04-15", ["GOOD_FRIDAY"]), # exchange holiday -> Monday
+    ])
+    def test_effective_session_filter_keeps_non_session_day_one_actions(
+            self, raw_date, expected):
+        wcr = self._replay()
+        if raw_date.startswith("2022-03"):
+            sessions = wcr.sessions_index([
+                "2022-03-04", "2022-03-07", "2022-03-08"])
+            ticker = "SUNDAY"
+        else:
+            sessions = wcr.sessions_index([
+                "2022-04-14", "2022-04-18", "2022-04-19"])
+            ticker = "GOOD_FRIDAY"
+        measured = sessions[1:]
+        rows = [{"ticker": ticker, "date": raw_date,
+                 "action": "delisted", "value": None}]
+        selected = wcr.actions_effective_in_sessions(
+            rows, sessions, measured)
+        assert [row["ticker"] for row in selected] == expected
+
+    def test_effective_session_filter_excludes_both_sides_of_the_window(self):
+        wcr = self._replay()
+        sessions = wcr.sessions_index([
+            "2022-03-04", "2022-03-07", "2022-03-08"])
+        measured = sessions[1:]
+        rows = [
+            {"ticker": "WARMUP", "date": "2022-03-04"},
+            {"ticker": "MEASURED", "date": "2022-03-06"},
+            {"ticker": "AFTER", "date": "2022-03-09"},
+        ]
+        selected = wcr.actions_effective_in_sessions(
+            rows, sessions, measured)
+        assert [row["ticker"] for row in selected] == ["MEASURED"]
+
     def test_prior_or_older_actions_drop_but_weekend_actions_map_forward(
             self):
         """The calendar net is wider than the retained feature history.
@@ -468,16 +504,20 @@ class TestActionsAreIndexedAgainstTheRightWindow:
         assert body.index("action_rows = actions_after_session(") < body.index(
             "dividends_from_actions(action_rows, full_idx)")
 
-    def test_the_loader_drops_pre_start_rows_before_deriving_terminal_events(self):
-        """Terminal events keep the MEASURED index, so a pre-start delisting must
-        be removed from the ROWS instead — otherwise it snaps forward and the run
-        fires a terminal action on session one for a security it never held."""
+    def test_producer_and_baseline_select_terminals_by_EFFECTIVE_session(self):
+        """Both consumers map on the complete causal calendar before filtering.
+
+        This preserves Sunday/holiday rows that become effective on measured
+        day one without shifting warm-up events onto that session.
+        """
         src = open(api.__file__).read()
         body = src[src.index("async def _load_corpus"):src.index("def _execute(")]
         assert "actions_exclusive_prior_session = _exclusive_prior_session(" \
                in body
         assert "actions_first_retained_session = warmup_sessions[0]" in body
-        assert "measured_action_rows = [r for r in action_rows" in body
-        assert "terminal_events_from_actions(\n                    measured_action_rows, idx," in body
+        assert "measured_action_rows = actions_effective_in_sessions(\n" \
+               "                action_rows, full_idx, sessions)" in body
+        assert "terminal_events_from_actions(\n" \
+               "                    measured_action_rows, full_idx," in body
         assert "split_ratios_from_actions(action_rows, full_idx)" in body
         assert "dividends_from_actions(action_rows, full_idx)" in body

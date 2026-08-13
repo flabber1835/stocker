@@ -133,6 +133,7 @@ def _engine_identity() -> dict:
 
 
 WARMUP_SESSIONS = REQUIRED_CLOSES - 1
+CANONICAL_BASELINE_STARTING_CASH = 1_000_000.0
 
 #: Calendar days queried back to FIND those sessions. 126 sessions is ~183
 #: calendar days; 400 leaves room for holidays and a thin patch without a second
@@ -409,6 +410,23 @@ def _validate(req: WealthCoreJobRequest) -> None:
                 "retained expected-hash artifact. Hashes without the exact "
                 "corpus generation can be checked against later data and turn "
                 "a corpus change into a false engine divergence."))
+        if req.starting_cash != CANONICAL_BASELINE_STARTING_CASH:
+            raise HTTPException(422, (
+                "baseline_replay uses the producer's canonical starting_cash "
+                f"{CANONICAL_BASELINE_STARTING_CASH}; received "
+                f"{req.starting_cash!r}. Use mode=experiment for a different "
+                "capital base."))
+        if req.config:
+            raise HTTPException(422, (
+                "baseline_replay accepts no WealthCoreConfig overrides; it "
+                "reproduces the producer's canonical strategy and volatility "
+                "profile defaults. Use mode=experiment for a variant."))
+        if req.eligibility:
+            raise HTTPException(422, (
+                "baseline_replay accepts no EligibilityConfig overrides; it "
+                "reproduces the producer's canonical eligibility and "
+                "volatility profile defaults. Use mode=experiment for a "
+                "variant."))
     elif req.expected_data_version is not None:
         raise HTTPException(422, (
             "expected_data_version is baseline_replay-only. Refused rather "
@@ -520,7 +538,8 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
     from app.live.wealth_core_replay import (  # COPYed at image build
         ACTIONS_CAVEATS, CAVEATS, DERIVED_SPLIT_CAVEATS, REQUIRE_ACTIONS,
         CorporateActionsUnavailable, RawPriceDomainUnavailable,
-        actions_after_session, assert_raw_price_domain,
+        actions_after_session, actions_effective_in_sessions,
+        assert_raw_price_domain,
         dividends_from_actions, load_actions,
         load_bars, load_identity, load_meta, load_sessions, sessions_index,
         split_ratios_from_actions, terminal_events_from_actions,
@@ -634,14 +653,13 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
             # removed first; otherwise `snap_to_session` puts them all on the
             # boundary. The cutoff is EXCLUSIVE so a weekend/holiday event
             # between prior and first retained session correctly maps forward.
-            idx = sessions_index(sessions)
             full_idx = sessions_index([*warmup_sessions, *sessions])
             source_action_rows = load_actions(conn, warmup_from, end)
             actions_first_retained_session = warmup_sessions[0]
             action_rows = actions_after_session(
                 source_action_rows, actions_exclusive_prior_session)
-            measured_action_rows = [r for r in action_rows
-                                    if str(r["date"]) >= str(start)]
+            measured_action_rows = actions_effective_in_sessions(
+                action_rows, full_idx, sessions)
             # The benchmark, over the SAME sessions. Fail-soft: no rows means
             # no comparison, never a failed run.
             benchmark_closes = load_benchmark_closes(
@@ -665,7 +683,8 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
                                  reconciliation=reconciliation, dividends=divs,
                                  identity=identity)
                 terminal = terminal_events_from_actions(
-                    measured_action_rows, idx, known_securities=set(meta),
+                    measured_action_rows, full_idx,
+                    known_securities=set(meta),
                     identity=identity, meta=meta, unresolved=identity.unresolved)
             else:
                 bars = load_bars(conn, warmup_from, end, identity=identity)
