@@ -79,6 +79,18 @@ class TestTheAnchorsAreReal:
         assert "2024-12-25" not in C.sessions_in_range("2024-12-23", "2024-12-27")
         assert "2024-03-29" not in C.sessions_in_range("2024-03-27", "2024-04-01")
 
+    def test_half_day_close_is_read_from_the_real_xnys_schedule(self):
+        """A constant 16:00 boundary gets this production session wrong."""
+        skip_without_calendar()
+        opened, closed = C.session_window("2024-11-29")
+
+        assert (opened.hour, opened.minute) == (9, 30)
+        assert (closed.hour, closed.minute) == (13, 0)
+        assert C.latest_closed_session("2024-11-29T12:59:00-05:00") \
+            == "2024-11-27"
+        assert C.latest_closed_session("2024-11-29T13:01:00-05:00") \
+            == "2024-11-29"
+
 
 class TestTheFailure:
     """Each case states the frontier, the moment, and what a DAY COUNT said."""

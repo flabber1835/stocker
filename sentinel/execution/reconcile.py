@@ -37,21 +37,23 @@ until a human acknowledges, while continuing to allow reductions — never to
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from datetime import date
+from dataclasses import dataclass, field, replace
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Callable, Mapping, Optional
 
-from sentinel.execution.contract import BrokerObservation, ExecutionBroker
+from sentinel.execution.contract import (
+    BrokerObservation, Completeness, ExecutionBroker)
 from sentinel.execution.identity import DeploymentIdentity, is_sentinel_key
-from sentinel.execution.states import CommandState, RuntimeState
+from sentinel.execution.states import (
+    CommandState, RuntimeState, can_transition, is_terminal)
 
 log = logging.getLogger(__name__)
 
 #: `security_id -> cumulative share-count multiplier over the gap`.
 #: Injected rather than queried inline so the rule can be tested without a
 #: corpus, and so the caller decides which window "the gap" means.
-ActionLookup = Callable[[str], Decimal]
+ActionLookup = Callable[..., Decimal]
 
 
 @dataclass
@@ -88,6 +90,74 @@ class ReconciliationResult:
         }
 
 
+def _validate_recovery_observation(
+        observation: BrokerObservation, *, stored) -> tuple[str, ...]:
+    """Validate replay rows before one may age beyond the watermark."""
+    known = {command.client_key: command for command in stored}
+    conflicts: list[str] = []
+    for order in observation.orders:
+        if not is_sentinel_key(order.client_key):
+            continue
+        if (not order.is_working
+                and (order.submitted_at is None
+                     or order.submitted_at.tzinfo is None)):
+            conflicts.append(
+                f"Sentinel broker order {order.broker_order_id} has no aware "
+                "submission timestamp")
+            continue
+        command = known.get(order.client_key)
+        if command is not None:
+            conflict = _order_command_conflict(order, command)
+            if conflict:
+                conflicts.append(conflict)
+    return tuple(conflicts)
+
+
+def _order_command_conflict(order, command) -> Optional[str]:
+    """Return why positive broker evidence cannot describe this command."""
+    prefix = f"broker order {order.broker_order_id}/{order.client_key}"
+    if order.client_key != command.client_key:
+        return f"{prefix} does not carry durable key {command.client_key}"
+    if (command.broker_order_id is not None
+            and order.broker_order_id != command.broker_order_id):
+        return (f"{prefix} changed durable broker id "
+                f"{command.broker_order_id}")
+    if order.instrument.security_id != command.security_id:
+        return (f"{prefix} changed durable security {command.security_id} to "
+                f"{order.instrument.security_id}")
+    if order.side is not command.side:
+        return f"{prefix} changed durable side {command.side.value}"
+    if order.quantity != command.quantity:
+        return (f"{prefix} changed durable quantity {command.quantity} to "
+                f"{order.quantity}")
+    if order.filled_quantity < command.filled_quantity:
+        return (f"{prefix} regressed durable fill {command.filled_quantity} "
+                f"to {order.filled_quantity}")
+    if (order.filled_quantity == command.filled_quantity
+            and order.filled_average_price
+            != command.filled_average_price):
+        return (f"{prefix} changed average fill price without new fill "
+                f"({command.filled_average_price} -> "
+                f"{order.filled_average_price})")
+    if is_terminal(command.state) and order.state is not command.state:
+        return (f"{prefix} changed durable terminal state "
+                f"{command.state.value} to {order.state.value}")
+    if (command.state not in (
+            CommandState.SEND_PENDING, CommandState.UNKNOWN)
+            and order.state is not command.state
+            and not can_transition(command.state, order.state)):
+        return (f"{prefix} regressed/incompatibly changed lifecycle "
+                f"{command.state.value} to {order.state.value}")
+    return None
+
+
+def _order_observation_fingerprint(order) -> tuple:
+    return (
+        order.broker_order_id, order.client_key,
+        order.instrument.security_id, order.side, order.quantity,
+        order.state, order.filled_quantity, order.filled_average_price)
+
+
 def age_book_through_actions(expected: Mapping[str, Decimal],
                              actions: ActionLookup) -> dict:
     """Apply the share-count effect of corporate actions over the gap.
@@ -108,7 +178,8 @@ def age_book_through_actions(expected: Mapping[str, Decimal],
     return aged
 
 
-def expected_book_from_commands(commands) -> dict:
+def expected_book_from_commands(commands, actions: Optional[ActionLookup] = None
+                                ) -> dict:
     """What Sentinel believes it holds, from its own filled commands.
 
     Deliberately built from the JOURNAL rather than from the last observation:
@@ -120,8 +191,18 @@ def expected_book_from_commands(commands) -> dict:
     for command in commands:
         if command.filled_quantity == 0:
             continue
-        signed = (command.filled_quantity
-                  if command.side.value == "BUY" else -command.filled_quantity)
+        quantity = command.filled_quantity
+        if actions is not None:
+            try:
+                since = (command.created_at.date()
+                         if command.created_at is not None else None)
+                ratio = actions(command.security_id, since)
+            except TypeError:
+                # Compatibility for the deliberately tiny one-argument pure
+                # lookup used by component tests and non-corpus callers.
+                ratio = actions(command.security_id)
+            quantity *= ratio if ratio and ratio > 0 else Decimal(1)
+        signed = quantity if command.side.value == "BUY" else -quantity
         book[command.security_id] = book.get(command.security_id,
                                              Decimal(0)) + signed
     return {k: v for k, v in book.items() if v != 0}
@@ -154,7 +235,11 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     #    `reconcile` directly (as the tests do) is read-mostly and does not
     #    submit.
     try:
-        observation = await broker.observe()
+        recovery_checkpoint = journal.terminal_recovery_checkpoint(conn)
+        recovery_floor = journal.terminal_recovery_floor(conn)
+        observation = await broker.observe_with_terminal_recovery(
+            submitted_after=recovery_floor,
+            processed_through=recovery_checkpoint)
     except Exception as exc:                                  # noqa: BLE001
         return ReconciliationResult(
             runtime_state=RuntimeState.BROKER_DEGRADED,
@@ -170,11 +255,34 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
             detail=f"observation is {observation.completeness.value}; "
                    f"reconciliation needs a COMPLETE one")
 
+    recovery_through = observation.terminal_recovery_through
+    if recovery_through is None:
+        return ReconciliationResult(
+            runtime_state=RuntimeState.RECONCILING,
+            observation=observation,
+            detail="complete observation omitted its terminal-recovery upper "
+                   "boundary; processed history cannot advance")
+    recovery_through = recovery_through.astimezone(timezone.utc)
+    if recovery_through < recovery_checkpoint:
+        return ReconciliationResult(
+            runtime_state=RuntimeState.RECONCILING,
+            observation=observation,
+            detail=("terminal-recovery upper boundary predates its durable "
+                    f"checkpoint ({recovery_through.isoformat()} < "
+                    f"{recovery_checkpoint.isoformat()})"))
+
     # 4. RECOVER by key namespace. An order carrying one of our keys but missing
     #    from the journal is HISTORY — typically a restored backup that predates
     #    it — and must be adopted, never duplicated and never called foreign.
     stored = journal.load_commands(conn, deployment)
     known_keys = {c.client_key for c in stored}
+    overlap_conflicts = _validate_recovery_observation(
+        observation, stored=stored)
+    if overlap_conflicts:
+        return ReconciliationResult(
+            runtime_state=RuntimeState.RECONCILING,
+            observation=observation,
+            detail="; ".join(overlap_conflicts))
     recovered = tuple(o for o in observation.orders
                       if is_sentinel_key(o.client_key)
                       and o.client_key not in known_keys)
@@ -221,18 +329,157 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     #     and the accusation would return.
     resolved = []
     for command in stored:
-        before_state, before_filled = command.state, command.filled_quantity
+        before_state = command.state
+        before_filled = command.filled_quantity
+        before_average = command.filled_average_price
+        before_broker_order_id = command.broker_order_id
         if command.state is CommandState.SEND_PENDING:
             # Persisted so the history records WHY the outcome was re-asked.
             command = recovery.promote_to_unknown(command)
             journal.save_command(conn, command, previous=CommandState.SEND_PENDING)
             before_state = CommandState.UNKNOWN
-        if recovery.needs_resolution(command):
+
+        # The observation is complete for OPEN orders only. A durable command
+        # whose receipt was established cannot become terminal merely because
+        # it disappeared from that set: ask for its exact client key and add
+        # positive terminal evidence to this reconciliation snapshot. A
+        # missing exact lookup remains UNKNOWN and continues to block overlap.
+        exact_missing_known = False
+        if (command.state in (
+                CommandState.ACKNOWLEDGED,
+                CommandState.PARTIALLY_FILLED,
+                CommandState.CANCEL_PENDING)
+                and observation.by_client_key(command.client_key) is None):
+            try:
+                exact = await broker.find_by_client_key(command.client_key)
+            except Exception as exc:                          # noqa: BLE001
+                return ReconciliationResult(
+                    runtime_state=RuntimeState.BROKER_DEGRADED,
+                    observation=observation,
+                    detail=(f"exact lookup failed for durable command "
+                            f"{command.client_key}: {exc}"))
+            if exact is None:
+                command = command.transition(
+                    CommandState.UNKNOWN,
+                    detail="missing from complete open orders without exact "
+                           "terminal evidence")
+                exact_missing_known = True
+            else:
+                conflict = _order_command_conflict(exact, command)
+                if conflict:
+                    return ReconciliationResult(
+                        runtime_state=RuntimeState.RECONCILING,
+                        observation=observation,
+                        detail=conflict)
+            if exact is not None and exact.is_working:
+                inconsistent = replace(
+                    observation,
+                    orders=observation.orders + (exact,),
+                    completeness=Completeness.INCONSISTENT)
+                return ReconciliationResult(
+                    runtime_state=RuntimeState.RECONCILING,
+                    observation=inconsistent,
+                    detail=(f"exact lookup reports durable command "
+                            f"{command.client_key} working although the "
+                            "complete open-order read omitted it"))
+            elif exact is not None:
+                observation = replace(
+                    observation, orders=observation.orders + (exact,))
+
+        if exact_missing_known:
+            pass
+        elif recovery.needs_resolution(command):
             # UNKNOWN *and* SEND_PENDING. The latter is the crash window the
             # persist-before-send ordering exists to create, and skipping it
             # left that window with no recovery path at all.
-            command = await recovery.resolve_indeterminate(
-                broker, command, observation)
+            observed_positive = observation.by_client_key(command.client_key)
+            positive = observed_positive
+            # A terminal row from the bounded closed scan is already positive
+            # evidence and must beat an exact 404. A working open row still
+            # gets the exact-key receipt check that resolves UNKNOWN submits.
+            if positive is None or positive.is_working:
+                try:
+                    exact = await broker.find_by_client_key(
+                        command.client_key)
+                except Exception as exc:                      # noqa: BLE001
+                    return ReconciliationResult(
+                        runtime_state=RuntimeState.BROKER_DEGRADED,
+                        observation=observation,
+                        detail=(f"exact lookup failed for indeterminate "
+                                f"command {command.client_key}: {exc}"))
+                if exact is None and observed_positive is not None:
+                    inconsistent = replace(
+                        observation,
+                        completeness=Completeness.INCONSISTENT)
+                    return ReconciliationResult(
+                        runtime_state=RuntimeState.RECONCILING,
+                        observation=inconsistent,
+                        detail=(f"complete open observation reports "
+                                f"indeterminate command {command.client_key}, "
+                                "but exact lookup reports it absent"))
+                positive = exact
+                if positive is not None:
+                    conflict = _order_command_conflict(positive, command)
+                    if conflict:
+                        return ReconciliationResult(
+                            runtime_state=RuntimeState.RECONCILING,
+                            observation=observation,
+                            detail=conflict)
+                    if (observed_positive is None
+                            and positive.is_working):
+                        inconsistent = replace(
+                            observation,
+                            orders=observation.orders + (positive,),
+                            completeness=Completeness.INCONSISTENT)
+                        return ReconciliationResult(
+                            runtime_state=RuntimeState.RECONCILING,
+                            observation=inconsistent,
+                            detail=(f"exact lookup reports indeterminate "
+                                    f"command {command.client_key} working "
+                                    "although the complete open-order read "
+                                    "omitted it"))
+                    if observed_positive is None:
+                        observation = replace(
+                            observation,
+                            orders=observation.orders + (positive,))
+                    elif (_order_observation_fingerprint(positive)
+                          != _order_observation_fingerprint(
+                              observed_positive)):
+                        inconsistent = replace(
+                            observation,
+                            completeness=Completeness.INCONSISTENT)
+                        return ReconciliationResult(
+                            runtime_state=RuntimeState.RECONCILING,
+                            observation=inconsistent,
+                            detail=(f"open and exact observations disagree for "
+                                    f"indeterminate command "
+                                    f"{command.client_key}"))
+            if positive is not None:
+                command = command.transition(
+                    positive.state,
+                    broker_order_id=positive.broker_order_id,
+                    filled_quantity=positive.filled_quantity,
+                    filled_average_price=positive.filled_average_price,
+                    detail="resolved by positive broker evidence")
+            elif not command.broker_order_id:
+                command = command.transition(
+                    CommandState.CANCELLED,
+                    detail="no order under this key in a COMPLETE observation "
+                           "- never landed")
+            if (command.state in (
+                    CommandState.ACKNOWLEDGED,
+                    CommandState.PARTIALLY_FILLED,
+                    CommandState.CANCEL_PENDING)
+                    and observation.by_client_key(command.client_key) is None):
+                inconsistent = replace(
+                    observation,
+                    completeness=Completeness.INCONSISTENT)
+                return ReconciliationResult(
+                    runtime_state=RuntimeState.RECONCILING,
+                    observation=inconsistent,
+                    detail=(f"exact lookup reports indeterminate command "
+                            f"{command.client_key} working although the "
+                            "complete open-order read omitted it"))
         elif command.state in (CommandState.ACKNOWLEDGED,
                                CommandState.PARTIALLY_FILLED):
             command = recovery.apply_observation(command, observation)
@@ -240,10 +487,13 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
             # Also observation-driven, and for the same reason: the broker's
             # acceptance of a cancel is not proof that it happened.
             command = recovery.confirm_cancellation(command, observation)
-        # A PARTIAL that grows without changing state is still progress, so the
-        # persist condition watches the quantity as well as the state.
+        # A PARTIAL that grows without changing state is still progress. Its
+        # average fill price is cash authority after restart, so persist that
+        # economics even when state and quantity happen to be unchanged.
         if (command.state is not before_state
-                or command.filled_quantity != before_filled):
+                or command.filled_quantity != before_filled
+                or command.filled_average_price != before_average
+                or command.broker_order_id != before_broker_order_id):
             journal.save_command(conn, command, previous=before_state)
         resolved.append(command)
 
@@ -252,9 +502,12 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     # 5. AGE THE BOOK THROUGH CORPORATE ACTIONS, before comparing anything.
     expected_raw = expected_book_from_commands(resolved)
     lookup = actions or (lambda _sid: Decimal(1))
-    expected = age_book_through_actions(expected_raw, lookup)
-    applied = {sid: lookup(sid) for sid in expected_raw
-               if lookup(sid) not in (None, Decimal(1))}
+    expected = expected_book_from_commands(resolved, actions=lookup)
+    applied = {
+        sid: (expected[sid] / raw)
+        for sid, raw in expected_raw.items()
+        if raw != 0 and sid in expected and expected[sid] != raw
+    }
 
     # 6. CLASSIFY WHAT SURVIVES.
     observed = observation.positions_by_security()
@@ -266,7 +519,11 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
 
     state = RuntimeState.RUNNING
     detail = "reconciled"
-    if unresolved:
+    if adoption_conflicts:
+        state = RuntimeState.RECONCILING
+        detail = (f"{len(adoption_conflicts)} recovered order(s) conflict "
+                  "with durable command authority")
+    elif unresolved:
         state = RuntimeState.RECONCILING
         detail = f"{len(unresolved)} command(s) still UNKNOWN"
     elif foreign_positions or foreign_orders:
@@ -279,6 +536,14 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         log.info("sentinel: aged %d holding(s) through corporate actions "
                  "before classification: %s", len(applied),
                  ", ".join(f"{k} x{v}" for k, v in sorted(applied.items())))
+
+    # LAST DURABLE WRITE. Observation audit rows, recovered-command adoption,
+    # and every ordinary progress update commit before this point. A crash any
+    # earlier therefore replays the same overlapped broker window. A conflict
+    # deliberately leaves the old boundary so the evidence cannot age out.
+    if not adoption_conflicts:
+        journal.advance_terminal_recovery_watermark(
+            conn, recovery_through)
 
     return ReconciliationResult(
         runtime_state=state, observation=observation, expected=expected,
@@ -334,9 +599,9 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
             # exists for. An exact-session join would silently drop every such
             # action, and a dropped split is a book that reconciles against the
             # wrong share count.
-            "SELECT sub.security_id, COALESCE(EXP(SUM(LN(sub.value))), 1)"
+            "SELECT sub.security_id, sub.session, sub.value"
             " FROM ("
-            "   SELECT b.security_id, a.value"
+            "   SELECT b.security_id, a.session, a.value"
             "     FROM sentinel_actions a"
             "     CROSS JOIN LATERAL ("
             "        SELECT security_id FROM sentinel_bars"
@@ -347,6 +612,18 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
             f"      AND REGEXP_REPLACE(LOWER(a.action), '[^a-z]', '', 'g') ~ '({verbs})'"
             "      AND a.value IS NOT NULL AND a.value > 0"
             " ) sub"
-            " GROUP BY sub.security_id", (start, end))
-        ratios = {str(sid): Decimal(str(ratio)) for sid, ratio in cur.fetchall()}
-    return lambda security_id: ratios.get(security_id, Decimal(1))
+            " ORDER BY sub.security_id, sub.session", (start, end))
+        events: dict[str, list[tuple[date, Decimal]]] = {}
+        for sid, session, value in cur.fetchall():
+            events.setdefault(str(sid), []).append(
+                (session, Decimal(str(value))))
+
+    def lookup(security_id: str, since: Optional[date] = None) -> Decimal:
+        lower = max(start, since) if since is not None else start
+        ratio = Decimal(1)
+        for session, value in events.get(security_id, ()):
+            if session > lower:
+                ratio *= value
+        return ratio
+
+    return lookup

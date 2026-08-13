@@ -36,15 +36,15 @@ sessions that already advanced — and Wealth Core's state is path-dependent, so
 a replayed session double-ages every episode. Written before, a crash SKIPS a
 session, which is the silent one.
 
-## Wealth Core is a SEAM here, not a dependency
+## The state transition remains an explicit seam
 
-`advance_state` and `decide` are injected. That is deliberate and it is not
-abstraction for its own sake: Wealth Core is built and NOT ACTIVATED (see
-docs/wealth-core-certification.md), and the exposure controller does not exist
-yet — item E pins exposure at 1.00. Wiring either in here would mean this
-module could not be tested or shipped until both land, and it would put a
-NO-GO engine on the production path. The orchestration is the thing being built
-and the thing being certified; what it drives is supplied by the caller.
+`advance_state` and `decide` are injected so this transaction coordinator stays
+independent of strategy and broker implementation details. Production supplies
+the canonical version-3 `SessionState` transition through
+`core.production.advance_and_persist` and the current-plan decision adapter;
+tests may supply smaller deterministic seams. That preserves one catch-up and
+one durability implementation without creating a second portfolio or state
+machine.
 
 ## Re-projection is not replay
 
@@ -251,10 +251,9 @@ def catch_up(conn, *, through, missed, advance_state: Callable,
     """
     with journal.writer_lock(conn):
         try:
-            return _catch_up_locked(conn, through=_d(through),
-                                    missed=[_d(m) for m in missed],
-                                    advance_state=advance_state, decide=decide,
-                                    state=state)
+            return catch_up_locked(conn, through=through, missed=missed,
+                                   advance_state=advance_state, decide=decide,
+                                   state=state)
         except BaseException:
             # ROLL BACK THE SESSION THAT DID NOT FINISH.
             #
@@ -267,6 +266,25 @@ def catch_up(conn, *, through, missed, advance_state: Callable,
             # make impossible, arriving through the error path.
             conn.rollback()
             raise
+
+
+def catch_up_locked(conn, *, through, missed, advance_state: Callable,
+                    decide: Callable, state=None) -> CatchUpResult:
+    """`catch_up` while the caller already holds the single-writer lock.
+
+    Production preparation holds that lock across its broker reconciliation,
+    corpus pin, state transition and plan adoption. Releasing and reacquiring it
+    between those acts would make the evidence used for the plan stale before
+    the plan became current. Ordinary callers should use :func:`catch_up`.
+    """
+    try:
+        return _catch_up_locked(conn, through=_d(through),
+                                missed=[_d(m) for m in missed],
+                                advance_state=advance_state, decide=decide,
+                                state=state)
+    except BaseException:
+        conn.rollback()
+        raise
 
 
 class SessionsIncomplete(ValueError):
@@ -367,7 +385,7 @@ def _catch_up_locked(conn, *, through: date, missed, advance_state, decide,
         state = resume_state(conn)
 
     replayed = 0
-    for session in owed:
+    for index, session in enumerate(owed):
         # ONE TRANSACTION per session, and the seam is handed the connection so
         # it can write its own durable state inside it. Nothing can force it to
         # — so `_mark_processed` also persists whatever it returns, in the same
@@ -376,14 +394,21 @@ def _catch_up_locked(conn, *, through: date, missed, advance_state, decide,
         # (silent, permanent, and the worse one).
         state = advance_state(conn, session.isoformat(), state)
         _mark_processed(conn, session, state)
-        conn.commit()
+        # Historical sessions become durable one at a time. The FINAL session
+        # deliberately remains in this transaction until its one current plan
+        # has been saved and every older plan superseded. Committing here left a
+        # crash window in which the state said today while yesterday's plan was
+        # still executable.
+        if index < len(owed) - 1:
+            conn.commit()
         replayed += 1
 
     plan = decide(through.isoformat(), state)
     superseded = 0
     if plan is not None:
-        journal.save_plan(conn, plan)
-        superseded = journal.supersede_all_but(conn, plan.plan_id) or 0
+        journal.save_plan(conn, plan, commit=False)
+        superseded = journal.supersede_all_but(
+            conn, plan.plan_id, commit=False) or 0
         plan = journal.load_plan(conn, plan.plan_id)
     _mark_processed(conn, through, state)
     conn.commit()

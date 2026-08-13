@@ -117,6 +117,21 @@ def previous_sessions(end: date | str, count: int) -> list[str]:
     return [d.date().isoformat() for d in cal.sessions[lo:idx + 1]]
 
 
+def next_session(after: date | str) -> str:
+    """The first XNYS session strictly after ``after``.
+
+    Decision close ``t`` becomes executable at the next eligible session, not
+    at the next calendar day and never on ``t`` itself. Keeping this beside the
+    continuity calendar prevents a CLI from inventing a separate weekend and
+    holiday rule at the broker boundary.
+    """
+    import pandas as pd                      # noqa: PLC0415
+
+    anchor = pd.Timestamp(str(after)) + pd.Timedelta(days=1)
+    return _calendar().date_to_session(
+        anchor, direction="next").date().isoformat()
+
+
 # ── freshness, in SESSIONS ───────────────────────────────────────────────────
 #
 # `readiness` used to answer this in calendar days:
@@ -138,11 +153,9 @@ def previous_sessions(end: date | str, count: int) -> list[str]:
 # make the corpus stale and a session that traded and is missing is stale by
 # exactly one session.
 
-#: When an XNYS session is finished for ingest purposes. The regular close is
-#: 16:00 ET (13:00 on a half day, which is EARLIER, so this bound holds for
-#: both). Vendors publish EOD data 1-2h later; that lag is the INGEST's
-#: business, not the calendar's — a session that has closed is owed, and how
-#: long the fetch takes to satisfy it is a separate fact with its own alarm.
+#: The ordinary-session close, retained as display vocabulary only. It is NOT a
+#: timing authority: XNYS half-days close at 13:00 ET, and every decision below
+#: reads the pinned exchange calendar's actual per-session schedule.
 SESSION_CLOSE_HOUR_ET = 16
 
 #: IANA rather than a fixed offset: the ET/EDT transition moves, and a hardcoded
@@ -213,6 +226,27 @@ class Freshness:
                 "reason": self.reason}
 
 
+def session_window(session: date | str) -> tuple[_dt.datetime, _dt.datetime]:
+    """The calendar-defined XNYS open/close interval in exchange-local time.
+
+    A named effective session is an authority, not merely a date. Resolving its
+    schedule here keeps preparation freshness and the broker-submit gateway on
+    one clock, including 13:00 ET half-day closes. A non-session is refused
+    rather than silently moved to a neighbouring trading day.
+    """
+    import pandas as pd                      # noqa: PLC0415 — with the calendar
+    from zoneinfo import ZoneInfo             # noqa: PLC0415
+
+    label = pd.Timestamp(str(session))
+    cal = _calendar()
+    if not cal.is_session(label):
+        raise ValueError(f"{session} is not an {EXCHANGE} session")
+    tz = ZoneInfo(EXCHANGE_TZ)
+    opened = cal.session_open(label).to_pydatetime().astimezone(tz)
+    closed = cal.session_close(label).to_pydatetime().astimezone(tz)
+    return opened, closed
+
+
 def latest_closed_session(now_et=None) -> str:
     """The most recent XNYS session whose close has passed.
 
@@ -224,15 +258,23 @@ def latest_closed_session(now_et=None) -> str:
 
     now = _now_et(now_et)
     cal = _calendar()
-    # A day that IS a session but has not closed yet is not owed, so step back
-    # one calendar day before resolving and let `direction="previous"` land on
-    # the last session at or before that.
-    anchor = now.date()
-    if not (cal.is_session(pd.Timestamp(anchor))
-            and now.hour >= SESSION_CLOSE_HOUR_ET):
-        anchor = anchor - _dt.timedelta(days=1)
-    return cal.date_to_session(pd.Timestamp(anchor),
-                               direction="previous").date().isoformat()
+    today = pd.Timestamp(now.date())
+
+    # On a session date, today's session is owed exactly when its own scheduled
+    # close has passed. A hard-coded 16:00 boundary delays half-day preparation
+    # and, worse, can let an execution gateway believe a 13:00-close session is
+    # still open. On a non-session date the most recent prior session has, by
+    # definition, already closed.
+    candidate = cal.date_to_session(today, direction="previous")
+    if candidate.date() == now.date():
+        _opened, closed = session_window(candidate.date().isoformat())
+        if now < closed:
+            index = cal.sessions.get_loc(candidate)
+            if index <= 0:                                  # pragma: no cover
+                raise CalendarUnavailable(
+                    "the XNYS calendar has no session before the current open")
+            candidate = cal.sessions[index - 1]
+    return candidate.date().isoformat()
 
 
 def freshness(frontier: Optional[str], now_et=None) -> Freshness:
@@ -272,10 +314,11 @@ def freshness(frontier: Optional[str], now_et=None) -> Freshness:
                 reason=f"the corpus holds {frontier}, a session in the FUTURE "
                        f"relative to {today}. A clock is wrong — this system's "
                        f"or the vendor's. Not a staleness fault.")
+        _opened, closed = session_window(frontier)
         return Freshness(
             expected_session=expected, frontier=frontier, early=True,
             reason=f"frontier {frontier} is today's session, published before "
-                   f"its {SESSION_CLOSE_HOUR_ET}:00 ET close. Current, and "
+                   f"its {closed:%H:%M} ET close. Current, and "
                    f"ahead of what is owed rather than behind it.")
 
     missing = tuple(s for s in sessions_in_range(frontier, expected)
@@ -336,5 +379,6 @@ def unexpected_sessions(expected: Sequence[str], actual: Iterable[str]) -> list[
 
 __all__ = ["CalendarUnavailable", "EXCHANGE", "EXCHANGE_TZ", "Freshness",
            "SESSION_CLOSE_HOUR_ET", "calendar_version", "freshness",
-           "latest_closed_session", "missing_sessions", "previous_sessions",
+           "latest_closed_session", "missing_sessions", "next_session",
+           "previous_sessions", "session_window",
            "sessions_in_range", "unexpected_sessions"]

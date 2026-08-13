@@ -99,7 +99,26 @@ async def migrate_account(*, broker: SentinelBroker, conn,
                           sleep=None, notes: str = "") -> MigrationResult:
     """Remove the legacy book and bind the account. Refuses if already bound."""
     import asyncio
+    from sentinel.execution import journal
+
     sleep = sleep or asyncio.sleep
+
+    # Migration shares the execution writer authority. The unbound check and
+    # the first broker-native close can therefore never race preparation,
+    # execution, or a restored-host epoch adoption in another process.
+    with journal.writer_lock(conn):
+        return await _migrate_account_locked(
+            broker=broker, conn=conn, deployment_id=deployment_id,
+            expected_account=expected_account, max_cycles=max_cycles,
+            poll_seconds=poll_seconds, sleep=sleep, notes=notes)
+
+
+async def _migrate_account_locked(*, broker: SentinelBroker, conn,
+                                  deployment_id: str,
+                                  expected_account: Optional[str],
+                                  max_cycles: int, poll_seconds: float,
+                                  sleep, notes: str) -> MigrationResult:
+    """Migration body; caller owns the single-writer lock."""
 
     # 1. ALREADY OURS? This is the de-arming, and it is checked FIRST so no
     #    broker call is made against a bound account by a command that could
@@ -113,19 +132,30 @@ async def migrate_account(*, broker: SentinelBroker, conn,
             f"Sentinel already owns would liquidate a Wealth Core book. If this "
             f"is a replacement host, use adopt-restored-account.")
 
+    if not expected_account or not str(expected_account).strip():
+        raise MigrationRefused(
+            "migrate-account requires an exact expected paper account id. "
+            "Credentials identify where a request would go; they are not "
+            "human approval to liquidate whatever unbound account they reach.")
+
     account = await broker.account()
     observed_id = _account_id(account)
-    if expected_account and observed_id and observed_id != expected_account:
+    if observed_id and observed_id != expected_account:
         raise MigrationRefused(
             f"connected to account {observed_id}, expected {expected_account}. "
             f"Refusing to liquidate an account nobody named.")
-    if expected_account and not observed_id:
+    if not observed_id:
         raise MigrationRefused(
             f"the broker did not report an account id, so it cannot be checked "
             f"against the expected {expected_account}. An unverifiable account "
             f"is not a matching one.")
 
-    store: OwnershipStore = PostgresOwnershipStore(conn)
+    # Keep every local ownership transition in the same transaction as the
+    # final binding.  Broker-side cancellation/liquidation is recovered from a
+    # fresh observation after a crash; a half-persisted local handover cannot
+    # be recovered safely because it can claim ownership without an account
+    # binding.  The writer-lock context rolls this transaction back on error.
+    store: OwnershipStore = PostgresOwnershipStore(conn, autocommit=False)
 
     # 2. The existing, tested state machine does the cancel/liquidate/reconcile
     #    work. It is unchanged — what changed is that only THIS command can
@@ -162,10 +192,10 @@ async def migrate_account(*, broker: SentinelBroker, conn,
     deferred = PostgresOwnershipStore(conn, autocommit=False)
     record(deferred, OwnershipState.SENTINEL_OWNERSHIP_ESTABLISHED,
            reason="legacy book removed; flat confirmed by two observations",
-           deployment_id=deployment_id, broker_account_id=observed_id or "")
+           deployment_id=deployment_id, broker_account_id=observed_id)
     binding_mod.bind(
         conn, deployment_id=deployment_id, broker=_broker_name(broker),
-        broker_account_id=observed_id or "unknown", notes=notes, commit=False)
+        broker_account_id=observed_id, notes=notes, commit=False)
     conn.commit()
     bound = binding_mod.require(conn)
 

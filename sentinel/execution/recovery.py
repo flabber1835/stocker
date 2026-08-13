@@ -8,8 +8,7 @@ recorded as failure and a cancel API returning 200 was recorded as cancelled.
 ```text
 send()                  PLANNED -> SEND_PENDING -> whatever the broker says
 resolve_unknown()       UNKNOWN -> the truth, by exact key lookup
-confirm_cancellation()  CANCEL_PENDING -> CANCELLED, by ABSENCE from a
-                        COMPLETE observation
+confirm_cancellation()  CANCEL_PENDING -> terminal only on positive evidence
 apply_observation()     keep a working command in step with reality
 ```
 
@@ -142,7 +141,18 @@ async def resolve_unknown(broker: ExecutionBroker, command: Command,
         return command.transition(found.state,
                                   broker_order_id=found.broker_order_id,
                                   filled_quantity=found.filled_quantity,
+                                  filled_average_price=(
+                                      found.filled_average_price),
                                   detail="resolved by key lookup")
+
+    # A durable broker id is positive evidence that the POST landed. An exact
+    # lookup which cannot currently return it is not evidence that the order
+    # never existed; keep the command unresolved rather than freeing its
+    # security for a duplicate. Only a SEND_PENDING/UNKNOWN command whose
+    # receipt was never established may use exact absence as never-landed
+    # evidence.
+    if command.broker_order_id:
+        return command
 
     observation.require_complete(
         f"resolving {command.client_key} as never-landed")
@@ -153,7 +163,7 @@ async def resolve_unknown(broker: ExecutionBroker, command: Command,
 
 def confirm_cancellation(command: Command,
                          observation: BrokerObservation) -> Command:
-    """CANCEL_PENDING -> CANCELLED, and only by ABSENCE.
+    """Resolve CANCEL_PENDING only from positive broker evidence.
 
     "The broker accepted the cancel" and "the order is gone" are different
     facts, and only the second is safe to act on. A broker that accepted every
@@ -173,17 +183,28 @@ def confirm_cancellation(command: Command,
             return command.transition(
                 still_there.state,
                 filled_quantity=still_there.filled_quantity,
+                filled_average_price=still_there.filled_average_price,
                 detail="cancel lost the race to a fill")
         if still_there.state is S.CANCELLED:
             # Positive evidence, which beats absence: the broker is reporting
             # the order as cancelled rather than us inferring it from a gap.
-            return command.transition(S.CANCELLED,
+            return command.transition(
+                                      S.CANCELLED,
+                                      filled_quantity=still_there.filled_quantity,
+                                      filled_average_price=(
+                                          still_there.filled_average_price),
                                       detail="observed CANCELLED at the broker")
         return command            # unchanged: still working, retry next cycle
 
-    observation.require_complete(f"confirming {command.client_key} cancelled")
-    return command.transition(S.CANCELLED, detail="absent from a COMPLETE "
-                                                  "observation")
+    # The complete observation enumerates OPEN orders only. Absence proves that
+    # this order is no longer open, but cannot distinguish CANCELLED from FILLED
+    # or REJECTED. Reconciliation exact-looks up known nonterminal commands
+    # before calling here; if no positive evidence was available, remain
+    # unresolved and block overlapping work.
+    observation.require_complete(f"resolving {command.client_key} cancellation")
+    return command.transition(
+        S.UNKNOWN,
+        detail="missing from complete open orders without terminal evidence")
 
 
 def apply_observation(command: Command,
@@ -201,10 +222,15 @@ def apply_observation(command: Command,
     found = observation.by_client_key(command.client_key)
     if found is None:
         return command
-    if found.state is command.state and found.filled_quantity == command.filled_quantity:
+    if (found.state is command.state
+            and found.filled_quantity == command.filled_quantity
+            and found.filled_average_price == command.filled_average_price
+            and found.broker_order_id == command.broker_order_id):
         return command
     return command.transition(found.state,
+                              broker_order_id=found.broker_order_id,
                               filled_quantity=found.filled_quantity,
+                              filled_average_price=found.filled_average_price,
                               detail="synced from observation")
 
 

@@ -61,7 +61,8 @@ def conn(pg):
         for t in ("sentinel_account_binding", "sentinel_ownership_events",
                   "sentinel_commands", "sentinel_command_events",
                   "sentinel_execution_plans", "sentinel_fills",
-                  "sentinel_observations"):
+                  "sentinel_observations",
+                  "sentinel_terminal_recovery_watermark"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     c.commit()
     schema.ensure_schema(c)
@@ -150,12 +151,40 @@ class TestBinding:
         key_before = CommandIdentity(deployment=before.identity, plan_id="p",
                                      security_id="S").client_key
 
-        after = B.adopt_restored(conn, notes="replacement host")
+        after = B.adopt_restored(
+            conn, observed=BrokerAccountIdentity("sim", "ACC-123"),
+            expected_account="ACC-123", notes="replacement host")
         key_after = CommandIdentity(deployment=after.identity, plan_id="p",
                                     security_id="S").client_key
 
         assert after.takeover_epoch == before.takeover_epoch + 1
         assert key_before != key_after
+        event = PostgresOwnershipStore(conn).events()[-1]
+        assert event.detail["reason"] == "RESTORED_HOST_ADOPTED"
+        assert event.detail["previous_takeover_epoch"] == 1
+        assert event.detail["takeover_epoch"] == 2
+
+    @pytest.mark.parametrize(
+        ("observed", "confirmed"),
+        [
+            (BrokerAccountIdentity("sim", "OTHER"), "ACC-123"),
+            (BrokerAccountIdentity("sim", "ACC-123"), "OTHER"),
+            (None, "ACC-123"),
+        ])
+    def test_adoption_mismatch_does_not_change_epoch_or_append_event(
+            self, conn, observed, confirmed):
+        before = B.bind(
+            conn, deployment_id="nas-1", broker="sim",
+            broker_account_id="ACC-123")
+        events_before = PostgresOwnershipStore(conn).events()
+
+        with pytest.raises(B.AccountMismatch):
+            B.adopt_restored(
+                conn, observed=observed, expected_account=confirmed,
+                notes="wrong replacement")
+
+        assert B.require(conn) == before
+        assert PostgresOwnershipStore(conn).events() == events_before
 
 
 class TestPostgresOwnershipStore:
@@ -222,6 +251,29 @@ class TestMigrationCannotReArm:
                 expected_account="ACC-123", sleep=_nosleep))
         assert broker.closes == []
 
+    def test_missing_expected_account_refuses_before_liquidating(self, conn):
+        broker = AccountBroker(positions={"AAPL": 10})
+
+        with pytest.raises(
+                handover.MigrationRefused, match="expected paper account id"):
+            run(handover.migrate_account(
+                broker=broker, conn=conn, deployment_id="nas-1",
+                expected_account=None, sleep=_nosleep))
+
+        assert broker.closes == []
+        assert B.load(conn) is None
+
+    def test_unreadable_broker_account_refuses_before_liquidating(self, conn):
+        broker = AccountBroker(positions={"AAPL": 10}, account_id="")
+
+        with pytest.raises(handover.MigrationRefused, match="did not report"):
+            run(handover.migrate_account(
+                broker=broker, conn=conn, deployment_id="nas-1",
+                expected_account="ACC-123", sleep=_nosleep))
+
+        assert broker.closes == []
+        assert B.load(conn) is None
+
 
 class TestMigrationRequiresStableFlatness:
     def test_a_clean_handover_binds_the_account(self, conn):
@@ -272,15 +324,33 @@ class TestMigrationRequiresStableFlatness:
         with pytest.raises(handover.MigrationRefused):
             run(handover.migrate_account(
                 broker=broker, conn=conn, deployment_id="nas-1",
-                expected_account=None, sleep=_nosleep))
+                expected_account="ACC-123", sleep=_nosleep))
 
     def test_binding_and_events_land_together(self, conn):
         broker = AccountBroker(positions={}, fills_after=0)
         run(handover.migrate_account(
             broker=broker, conn=conn, deployment_id="nas-1",
-            expected_account=None, sleep=_nosleep))
+            expected_account="ACC-123", sleep=_nosleep))
         assert B.load(conn) is not None
         assert ownership_established(PostgresOwnershipStore(conn))
+
+    def test_failure_between_final_event_and_binding_rolls_both_back(
+            self, conn, monkeypatch):
+        broker = AccountBroker(positions={}, fills_after=0)
+        real_bind = B.bind
+
+        def die_after_deferred_event(*args, **kwargs):
+            raise RuntimeError("crash before binding")
+
+        monkeypatch.setattr(B, "bind", die_after_deferred_event)
+        with pytest.raises(RuntimeError, match="before binding"):
+            run(handover.migrate_account(
+                broker=broker, conn=conn, deployment_id="nas-1",
+                expected_account="ACC-123", sleep=_nosleep))
+
+        assert B.load(conn) is None
+        assert not ownership_established(PostgresOwnershipStore(conn))
+        monkeypatch.setattr(B, "bind", real_bind)
 
 
 class TestTheRetiredCommand:

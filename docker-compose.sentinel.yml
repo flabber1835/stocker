@@ -1,18 +1,20 @@
 # Sentinel — its OWN compose project, deliberately.
 #
-#   docker compose -f docker-compose.sentinel.yml run --rm sentinel status
-#   docker compose -f docker-compose.sentinel.yml run --rm sentinel plan
-#   docker compose -f docker-compose.sentinel.yml run --rm sentinel migrate-account
+# Operator commands and checkpoints live only in
+# docs/sentinel-paper-activation.md. This file supplies the run-only CLI
+# container; it does not define an activation sequence.
 #
 # `name:` keeps this out of the directory-derived project the Stocker compose
 # files use, so `docker compose down --remove-orphans` on either side can never
 # evict the other's containers — the same reasoning that gave the backtest stack
 # `name: stocker-bt`, and the same accident it exists to prevent.
 #
-# THERE IS NO LONG-RUNNING ENGINE SERVICE HERE YET, and that is intentional. The
-# execution layer is built and certified against a simulator; the multi-session
-# catch-up orchestrator that would drive it on a schedule is not. A `restart:
-# unless-stopped` service is warranted when that lands, not before.
+# THERE IS NO LONG-RUNNING OR SCHEDULED ENGINE SERVICE HERE, and that is
+# intentional. Multi-session catch-up, durable plan preparation, inspection,
+# and separately confirmed paper execution exist as operator-invoked CLI paths.
+# The `cli` profile prevents ordinary Compose startup from invoking any of them.
+# Autonomous timing and a restart policy would be a separate reviewed deployment
+# decision, not a consequence of the production path existing.
 #
 # The handover is `migrate-account` and it REFUSES against a bound account, so a
 # restart cannot re-attempt a liquidation. That is a property of the code and of
@@ -100,7 +102,7 @@ services:
     # identity record captures the resolved image DIGEST — which is stronger
     # than a tag, since a tag can be moved and a digest cannot.
     image: sentinel:latest
-    # run-only: `docker compose up` must not start a liquidation.
+    # run-only: `docker compose up` must not prepare, migrate, or execute.
     profiles: ["cli"]
     # The engine's own ceiling. Deliberately LARGER than the panel's and
     # SMALLER than the host, so a certification or backfill run cannot starve

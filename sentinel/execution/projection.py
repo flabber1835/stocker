@@ -94,6 +94,7 @@ class Projection:
 def project(*, shadow_weights: Mapping[str, Decimal], exposure: Decimal,
             nav: Decimal, marks: Mapping[str, Decimal],
             defensive_security: Optional[str] = None,
+            defensive_weight: Optional[Decimal] = None,
             lot: Decimal = Decimal(1)) -> Projection:
     """`shadow target x exposure -> whole shares`.
 
@@ -112,7 +113,10 @@ def project(*, shadow_weights: Mapping[str, Decimal], exposure: Decimal,
     # compares perfectly happily, sails through a range check and produces an
     # infinite target notional. Neither is caught by an `isinstance` test, so a
     # bounds check written without this is a bounds check with two holes.
-    for label, value in (("exposure", exposure), ("nav", nav), ("lot", lot)):
+    scalars = [("exposure", exposure), ("nav", nav), ("lot", lot)]
+    if defensive_weight is not None:
+        scalars.append(("defensive_weight", defensive_weight))
+    for label, value in scalars:
         if not isinstance(value, Decimal):
             raise TypeError(f"{label} must be Decimal")
         if not value.is_finite():
@@ -126,6 +130,14 @@ def project(*, shadow_weights: Mapping[str, Decimal], exposure: Decimal,
         raise ProjectionRefused(f"nav must be non-negative, got {nav}")
     if lot <= 0:
         raise ProjectionRefused(f"lot must be positive, got {lot}")
+    if defensive_weight is not None:
+        if defensive_weight < 0 or defensive_weight > 1:
+            raise ProjectionRefused(
+                f"defensive_weight must be in [0, 1], got {defensive_weight}")
+        if exposure + defensive_weight > 1:
+            raise ProjectionRefused(
+                f"Core exposure {exposure} plus defensive weight "
+                f"{defensive_weight} exceeds 1")
 
     # ── THE UNLEVERED ENVELOPE, ENFORCED RATHER THAN DOCUMENTED ──────────────
     #
@@ -207,16 +219,19 @@ def project(*, shadow_weights: Mapping[str, Decimal], exposure: Decimal,
 
     defensive_qty = Decimal(0)
     if defensive_security is not None:
-        # The sleeve absorbs what the core did not take — INCLUDING the part
-        # deliberately not invested because exposure < 1. That is the whole
-        # mechanism: Sentinel moves money between the core and T-bills, so a
-        # 0.55 exposure is not "45% idle cash", it is "45% in the sleeve".
+        # Production supplies an explicit `(1 - exposure)` weight. The legacy
+        # default remains the whole residual for callers that intentionally use
+        # this projector as a full cash sweep.
+        defensive_notional = (residual if defensive_weight is None
+                              else nav * defensive_weight)
         price = marks.get(defensive_security)
-        if price is not None and price > 0 and residual > 0:
-            defensive_qty = (residual / price).to_integral_value(
+        price_ok = (isinstance(price, Decimal) and price.is_finite()
+                    and price > 0)
+        if price_ok and defensive_notional > 0:
+            defensive_qty = (defensive_notional / price).to_integral_value(
                 rounding=ROUND_DOWN)
             residual -= defensive_qty * price
-        elif residual > 0:
+        elif defensive_notional > 0:
             unpriced.append(defensive_security)
 
     return Projection(

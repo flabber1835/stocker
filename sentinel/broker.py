@@ -161,7 +161,11 @@ class AlpacaSentinelBroker(SentinelBroker):
         require two consecutive agreeing observations — see
         docs/sentinel-execution-contract.md §5.3.
         """
-        orders = await self._adapter.list_orders(status="open")
+        # The administrative adapter's contract is COMPLETE OR RAISE. Alpaca
+        # pages this read by stable order id; deliberately let an incomplete
+        # response propagate so migration cannot convert a capped prefix into
+        # an empty/flat account.
+        orders = await self._adapter.list_orders(status="open", limit=500)
         positions = await self._adapter.get_positions()
         held = {p.ticker: float(p.qty or 0.0) for p in positions}
         open_orders: list[OpenOrder] = []

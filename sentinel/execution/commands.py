@@ -72,6 +72,7 @@ class Command:
     state: CommandState = CommandState.PLANNED
     broker_order_id: Optional[str] = None
     filled_quantity: Decimal = Decimal(0)
+    filled_average_price: Optional[Decimal] = None
     created_at: Optional[datetime] = None
     detail: str = ""
     #: Set ONLY on a command ADOPTED from the broker after a restore. Such a key
@@ -91,6 +92,15 @@ class Command:
                 f"Command.quantity must be positive, got {self.quantity}. "
                 f"Direction is carried by `side`; a signed quantity would give "
                 f"two representations of one intent and let them disagree.")
+        if not isinstance(self.filled_quantity, Decimal):
+            raise TypeError("Command.filled_quantity must be Decimal")
+        if self.filled_average_price is not None:
+            if not isinstance(self.filled_average_price, Decimal):
+                raise TypeError("Command.filled_average_price must be Decimal")
+            if (not self.filled_average_price.is_finite()
+                    or self.filled_average_price <= 0):
+                raise ValueError(
+                    "Command.filled_average_price must be finite and positive")
 
     @property
     def client_key(self) -> str:

@@ -144,6 +144,12 @@ class BrokerAdapter(abc.ABC):
 
     @abc.abstractmethod
     async def list_orders(self, *, status: str = "all", limit: int = 500) -> list[BrokerOrder]:
+        """Return every matching order; ``limit`` is a per-page size.
+
+        An adapter whose broker cannot prove exhaustion must raise. Returning a
+        truncated prefix is unsafe for administrative consumers that use an
+        empty result as authority to establish ownership.
+        """
         ...
 
     @abc.abstractmethod

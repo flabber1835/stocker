@@ -105,11 +105,13 @@ RUN pip install --no-cache-dir --no-deps /shared/
 COPY docs/sentinel-handoff/00_README/ ./docs/sentinel-handoff/00_README/
 COPY sentinel/ /app/sentinel/
 
-# The ownership log lives HERE and this path must be a mounted volume — see
-# docker-compose.sentinel.yml. Created in the image so a misconfigured run fails
-# on a permission error rather than silently writing into the container's
-# ephemeral layer, where the record would vanish on the next `up -d` and the
-# following start would liquidate a Sentinel-owned book.
+# `ownership.jsonl` lives HERE as retained audit evidence — see
+# docker-compose.sentinel.yml. The canonical ownership authority is the account
+# binding in PostgreSQL, beside the behavioral state it protects. Losing this
+# file cannot re-arm a liquidation: ordinary startup has no legacy-book
+# liquidation path, and only the explicit `migrate-account` operation may enter
+# that administrative state machine. The directory still exists in the image so
+# a configured audit-volume mount has a stable, writable target.
 ENV SENTINEL_STATE_DIR=/var/lib/sentinel
 RUN mkdir -p /var/lib/sentinel
 

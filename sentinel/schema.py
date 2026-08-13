@@ -80,9 +80,40 @@ DDL = (
         shadow_snapshot_hash    TEXT,
         sentinel_transition_hash TEXT,
         strategy_fingerprint    TEXT,
+        deployment_id           TEXT,
+        broker                  TEXT,
+        broker_account_id       TEXT,
+        takeover_epoch          BIGINT,
+        publication_fingerprint TEXT,
+        account_nav             NUMERIC     NOT NULL DEFAULT 0,
+        account_cash            NUMERIC     NOT NULL DEFAULT 0,
+        cash_residual           NUMERIC     NOT NULL DEFAULT 0,
+        unpriced_securities     JSONB       NOT NULL DEFAULT '[]'::jsonb,
+        defensive_security      TEXT,
         target_basket           JSONB       NOT NULL DEFAULT '{}'::jsonb,
         superseded_by           TEXT,
         created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+    """ALTER TABLE sentinel_execution_plans
+        ADD COLUMN IF NOT EXISTS deployment_id TEXT""",
+    """ALTER TABLE sentinel_execution_plans
+        ADD COLUMN IF NOT EXISTS broker TEXT""",
+    """ALTER TABLE sentinel_execution_plans
+        ADD COLUMN IF NOT EXISTS broker_account_id TEXT""",
+    """ALTER TABLE sentinel_execution_plans
+        ADD COLUMN IF NOT EXISTS takeover_epoch BIGINT""",
+    """ALTER TABLE sentinel_execution_plans
+        ADD COLUMN IF NOT EXISTS publication_fingerprint TEXT""",
+    """ALTER TABLE sentinel_execution_plans
+        ADD COLUMN IF NOT EXISTS account_nav NUMERIC NOT NULL DEFAULT 0""",
+    """ALTER TABLE sentinel_execution_plans
+        ADD COLUMN IF NOT EXISTS account_cash NUMERIC NOT NULL DEFAULT 0""",
+    """ALTER TABLE sentinel_execution_plans
+        ADD COLUMN IF NOT EXISTS cash_residual NUMERIC NOT NULL DEFAULT 0""",
+    """ALTER TABLE sentinel_execution_plans
+        ADD COLUMN IF NOT EXISTS unpriced_securities JSONB NOT NULL
+        DEFAULT '[]'::jsonb""",
+    """ALTER TABLE sentinel_execution_plans
+        ADD COLUMN IF NOT EXISTS defensive_security TEXT""",
 
     # ------------------------------------------------------------------
     # THE COMMAND JOURNAL. One row per client_key, which is the whole point:
@@ -104,6 +135,7 @@ DDL = (
         state            TEXT        NOT NULL,
         broker_order_id  TEXT,
         filled_quantity  NUMERIC     NOT NULL DEFAULT 0,
+        filled_average_price NUMERIC,
         detail           TEXT,
         -- ADOPTED FROM THE BROKER rather than created here. Its client_key was
         -- minted by a previous generation of this appliance and CANNOT be
@@ -117,6 +149,8 @@ DDL = (
         updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
     """ALTER TABLE sentinel_commands
         ADD COLUMN IF NOT EXISTS recovered BOOLEAN NOT NULL DEFAULT FALSE""",
+    """ALTER TABLE sentinel_commands
+        ADD COLUMN IF NOT EXISTS filled_average_price NUMERIC""",
     # AT MOST ONE IN-FLIGHT COMMAND PER SECURITY, enforced by the database and
     # not only by `authorize`. The application check can be bypassed by a bug or
     # a second process; this cannot. UNKNOWN is in the list deliberately — an
@@ -169,10 +203,24 @@ DDL = (
     """CREATE TABLE IF NOT EXISTS sentinel_observations (
         seq          BIGSERIAL PRIMARY KEY,
         observed_at  TIMESTAMPTZ NOT NULL,
+        terminal_recovery_through TIMESTAMPTZ,
         completeness TEXT        NOT NULL,
         positions    JSONB       NOT NULL DEFAULT '{}'::jsonb,
         orders       JSONB       NOT NULL DEFAULT '[]'::jsonb,
         runtime_state TEXT)""",
+    """ALTER TABLE sentinel_observations
+        ADD COLUMN IF NOT EXISTS terminal_recovery_through TIMESTAMPTZ""",
+
+    # A broker response being durable is not proof that it was PROCESSED. This
+    # watermark advances only after all Sentinel-keyed terminal rows in the
+    # bounded recovery window have been adopted/synchronized. A crash before
+    # this one-row commit therefore replays the window instead of skipping it.
+    """CREATE TABLE IF NOT EXISTS sentinel_terminal_recovery_watermark (
+        id                INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        broker            TEXT        NOT NULL,
+        broker_account_id TEXT        NOT NULL,
+        processed_through TIMESTAMPTZ NOT NULL,
+        updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
 
     # ------------------------------------------------------------------
     # CATCH-UP. How far the deterministic replay has advanced.

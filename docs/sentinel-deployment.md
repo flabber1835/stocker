@@ -189,41 +189,51 @@ use Stocker's target/orphan path rejected — orphan_confirmation_days = 2 is
                                  change and must not wait two builds for one
 ```
 
-Sentinel therefore owns an explicit, one-time startup liquidation:
+Sentinel therefore owns an explicit, one-time **operator-invoked migration**.
+It is not an ordinary startup action. `prepare-paper-plan`,
+`current-paper-plan`, `execute-paper-plan`, Compose startup, and the panel have
+no path to it. Only the separately named `migrate-account` command may enter
+this state machine, and it refuses a bound account before its first broker
+call:
 
 ```text
-SENTINEL START
+OPERATOR INSPECTS THE NAMED PAPER ACCOUNT
       |
       v
-CONNECT TO ALPACA PAPER ACCOUNT
+EXPLICIT migrate-account --expect-account <ACCOUNT_ID>
+      |
+      v
+REFUSE IF ANY SENTINEL BINDING EXISTS
       |
       v
 READ ACTUAL POSITIONS + OPEN ORDERS + CASH
       |
       v
-LEGACY POSITIONS PRESENT? --no--> FLAT_CONFIRMED
+LEGACY POSITIONS PRESENT? --no--> STABLE FLAT CHECK
       | yes
       v
-CANCEL INCOMPATIBLE LEGACY OPEN ORDERS
+CANCEL THE NAMED LEGACY OPEN ORDERS
       |
       v
-ISSUE LEGACY_STOCKER_BOOK_LIQUIDATION INTENT
+BROKER-NATIVE CLOSE OF EACH LEGACY POSITION
       |
       v
-DELTA / RISK / EXECUTOR  ->  ALPACA PAPER SELL ORDERS
+RE-OBSERVE; RE-RUN EXPLICITLY AFTER A CRASH IF STILL UNBOUND
       |
       v
-RECONCILE FILLS
+REQUIRE TWO CONSECUTIVE AGREEING FLAT READS
       |
       v
-ACCOUNT FLAT? --no--> retain pending intent, retry, re-reconcile
-      | yes
-      v
-FLAT_CONFIRMED  (PERSISTED)
+COMMIT FLAT/OWNERSHIP EVENTS + ACCOUNT BINDING TOGETHER
       |
       v
-INITIALIZE SENTINEL / WEALTH CORE PAPER STATE
+STOP. A SEPARATE prepare-paper-plan MAY NOW ADOPT A PLAN
 ```
+
+The broker-native close is a narrow administrative exception to the normal
+share-level command journal. It removes a book Sentinel did not create; it may
+not be used for daily target maintenance. The separately authorized production
+plan continues through the durable executor only.
 
 ### Rules this sequence must satisfy
 
@@ -232,15 +242,16 @@ TYPED REASON      LEGACY_STOCKER_BOOK_LIQUIDATION — its own reason code. It is
                   NOT a Wealth Core sell signal and NOT a Sentinel severe-stress
                   decision, and must never be readable as either in the audit
 BYPASSES          the orphan-confirmation timer
-IDEMPOTENT        a restart mid-liquidation submits no duplicate orders
-NON-DESTRUCTIVE   a restart AFTER flat does not liquidate the newly initialised
-                  Sentinel book. This is the dangerous one: the same code path
-                  that empties a legacy book will happily empty a live one
+IDEMPOTENT        an explicit re-run after interruption observes the broker
+                  first and acts only on the remaining inherited book
+NON-DESTRUCTIVE   after binding, migrate-account refuses before broker contact;
+                  ordinary startup can never re-arm the migration
 RECONCILED        account state is re-read from Alpaca before every retry;
                   never act on a cached view
 PERSISTED         the FLAT_CONFIRMED transition survives restart
-GATING            Wealth Core does not bootstrap until reconciliation has
-                  reached an explicitly acceptable state
+GATING            canonical preparation cannot adopt an executable plan until
+                  the binding exists and a further typed execution-adapter
+                  reconciliation is COMPLETE, RUNNING, and clean
 ```
 
 The ownership boundary this buys:
@@ -1056,21 +1067,20 @@ rather than by hand:
 ```bash
 scripts/sentinel-measure.sh seed  -- sentinel feed-seed --date-from 1998-01-01
 scripts/sentinel-measure.sh daily -- sentinel feed-daily
-scripts/sentinel-measure.sh plan  -- sentinel plan
+scripts/sentinel-measure.sh plan  -- sentinel target-book --sessions 253 --cash 100000
 scripts/sentinel-measure.sh ready -- sentinel check-data
 ```
 
 Each writes `artifacts/envelope/<phase>-<stamp>.{csv,json,log}` — a per-sample
 CSV, a peak/headroom report, and the phase's own output.
 
-**The catch-up phase cannot be measured yet.** `sentinel/core/catchup.py` is
-built and tested, but `sentinel/__main__.py` exposes no verb for it: the CLI
-offers `status`, `feed-status`, `feed-seed`, `feed-daily`, `migration-plan`,
-`target-book`, `check-data`, `rejection-audit`, `feed-repair`, `identity`,
-`plan`, `migrate-account`, `adopt-restored-account` and `establish-ownership`,
-and none of them reaches the orchestrator. That is a wiring gap rather than a
-measurement one, and #15 is short one phase until it closes. Do not substitute
-a different phase and label it catch-up.
+**Catch-up is now reached only through `prepare-paper-plan`.** That command
+holds the publication pin and writer lock, advances canonical missed sessions,
+and adopts the latest plan. It is broker-read-only but deliberately writes
+behavioral state, so measure it only after the named paper account has passed
+the ownership and migration checkpoints in the activation runbook. There is no
+generic catch-up verb, scheduler, or Compose startup hook: exposing the state
+transition does not make it autonomous.
 
 ### What it samples, and why each one is there
 
@@ -1248,16 +1258,24 @@ J  Extend snapshot/restart certification across every new object
 Restart tests must cover: fast severe, slow severe, both, mid-ramp, partially
 executed, and while the shadow and paper books intentionally differ.
 
+The paper-only preparation, explicit execution authority, and exact operator
+sequence are defined in `docs/sentinel-paper-activation.md`. That runbook is the
+only supported path from an inherited paper account to a Sentinel target. In
+particular, `prepare-paper-plan` cannot migrate or submit, `execute-paper-plan`
+cannot choose or rebuild a plan, and neither command may be scheduled or made a
+deployment default by this change.
+
 ## 13. Definition of the first milestone
 
 Not "Sentinel produced orders." This:
 
-> Stocker is shut down; Sentinel starts against the Alpaca paper account, safely
-> and idempotently removes the legacy Stocker paper portfolio, establishes a
-> clean persisted ownership boundary, boots the canonical Wealth Core engine from
-> valid data, and thereafter maintains a deterministic 100%-exposure Wealth Core
-> paper book with correct decisions, next-open execution, reconciliation and
-> restart behaviour.
+> Stocker is shut down; an operator explicitly runs Sentinel's one-time
+> `migrate-account` command against the named Alpaca paper account, which safely
+> and idempotently removes the legacy Stocker paper portfolio and establishes a
+> clean persisted ownership boundary. Only then does a separate preparation
+> boot the canonical Wealth Core engine from valid data and a separate confirmed
+> execution maintain a deterministic paper book with correct decisions,
+> next-session execution, reconciliation, and restart behaviour.
 
 Only after that milestone passes does the Sentinel risk controller get activated
 and certified against the frozen oracle.

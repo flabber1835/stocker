@@ -52,7 +52,9 @@ def order(oid="b-1", *, side=Side.BUY, qty="10", filled="0",
           state=S.ACKNOWLEDGED, key=None, instrument=INSTR):
     return BrokerOrder(broker_order_id=oid, client_key=key, instrument=instrument,
                        side=side, state=state, quantity=Decimal(qty),
-                       filled_quantity=Decimal(filled))
+                       filled_quantity=Decimal(filled),
+                       filled_average_price=(Decimal("100")
+                                             if Decimal(filled) else None))
 
 
 def pos(qty="10", instrument=INSTR):
@@ -167,6 +169,33 @@ class TestUnknownIsAState:
 
 
 class TestObservationCompleteness:
+    @pytest.mark.parametrize(
+        ("qty", "filled", "average", "match"),
+        [
+            ("10", "11", "100", "between zero and quantity"),
+            ("10", "1", None, "requires filled_average_price"),
+            ("10", "10", "100", "full quantity"),
+        ])
+    def test_malformed_recovery_economics_are_not_observations(
+            self, qty, filled, average, match):
+        state = S.FILLED if filled == qty and qty == "10" else S.ACKNOWLEDGED
+        if match == "full quantity":
+            filled = "9"
+            state = S.FILLED
+        with pytest.raises(ValueError, match=match):
+            BrokerOrder(
+                broker_order_id="malformed", client_key="sntl-malformed",
+                instrument=INSTR, side=Side.BUY, state=state,
+                quantity=Decimal(qty), filled_quantity=Decimal(filled),
+                filled_average_price=(Decimal(average) if average else None),
+                submitted_at=NOW)
+
+    def test_one_client_key_cannot_name_two_broker_orders(self):
+        first = order(oid="broker-a", key="sntl-one-key")
+        second = order(oid="broker-b", key="sntl-one-key")
+        with pytest.raises(ValueError, match="multiple broker ids"):
+            obs(orders=(first, second))
+
     def test_a_truncated_read_cannot_support_an_irreversible_conclusion(self):
         with pytest.raises(IncompleteObservation):
             obs(completeness=Completeness.TRUNCATED).require_complete("resolving")

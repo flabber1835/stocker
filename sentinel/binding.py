@@ -164,7 +164,8 @@ def bind(conn, *, deployment_id: str, broker: str, broker_account_id: str,
                           notes=notes)
 
 
-def adopt_restored(conn, *, notes: str = "") -> AccountBinding:
+def adopt_restored(conn, *, observed, expected_account: str,
+                   notes: str = "") -> AccountBinding:
     """Increment the takeover epoch for a restored appliance.
 
     Deliberately does NOT verify that the previous appliance is stopped, because
@@ -174,15 +175,43 @@ def adopt_restored(conn, *, notes: str = "") -> AccountBinding:
     contract §11.1, and this function's job is to make the new appliance's keys
     disjoint so that if the obligation was skipped, the damage is attributable.
     """
-    current = require(conn)
-    with conn.cursor() as cur:
-        cur.execute(
-            "UPDATE sentinel_account_binding"
-            " SET takeover_epoch = takeover_epoch + 1, updated_at = NOW(),"
-            "     notes = %s WHERE id = 1",
-            (notes or current.notes,))
-    conn.commit()
-    return require(conn)
+    from sentinel.execution import journal
+
+    # The epoch participates in every command key. Bumping it while an executor
+    # has validated the old binding would split one invocation across two
+    # generations, so adoption shares the execution writer authority. Broker
+    # identity is proven BEFORE the update; doing that after a commit orphaned
+    # the old keyspace even when the replacement had the wrong credentials.
+    with journal.writer_lock(conn):
+        current = require(conn)
+        if (not expected_account
+                or str(expected_account) != current.broker_account_id):
+            raise AccountMismatch(
+                "restored-host paper-account confirmation does not exactly "
+                f"match bound account {current.broker_account_id}")
+        if not current.identity.matches_account(observed):
+            raise AccountMismatch(
+                f"replacement credentials do not identify bound account "
+                f"{current.broker}/{current.broker_account_id}; takeover epoch "
+                f"{current.takeover_epoch} remains unchanged")
+        next_epoch = current.takeover_epoch + 1
+        from sentinel.ownership import OwnershipState
+        from sentinel.store import PostgresOwnershipStore, record
+        record(
+            PostgresOwnershipStore(conn, autocommit=False),
+            OwnershipState.SENTINEL_OWNERSHIP_ESTABLISHED,
+            reason="RESTORED_HOST_ADOPTED",
+            broker_account_id=current.broker_account_id,
+            previous_takeover_epoch=current.takeover_epoch,
+            takeover_epoch=next_epoch)
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE sentinel_account_binding"
+                " SET takeover_epoch = takeover_epoch + 1, updated_at = NOW(),"
+                "     notes = %s WHERE id = 1",
+                (notes or current.notes,))
+        conn.commit()
+        return require(conn)
 
 
 def verify(conn, observed) -> AccountBinding:

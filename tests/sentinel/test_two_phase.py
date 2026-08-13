@@ -63,8 +63,10 @@ from sentinel.execution.contract import (  # noqa: E402
 )
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity  # noqa: E402
 from sentinel.execution.plan import ExecutionPlan  # noqa: E402
-from sentinel.execution.simulator import SimulatedBroker  # noqa: E402
-from sentinel.execution.states import CommandState as CS  # noqa: E402
+from sentinel.execution.simulator import FaultKind, SimulatedBroker  # noqa: E402
+from sentinel.execution.states import (  # noqa: E402
+    CommandState as CS, RuntimeState,
+)
 from sentinel.feed import store as feed_store  # noqa: E402
 
 D = Decimal
@@ -96,7 +98,8 @@ def conn(pg):
         for t in ("sentinel_account_binding", "sentinel_ownership_events",
                   "sentinel_commands", "sentinel_command_events",
                   "sentinel_execution_plans", "sentinel_fills",
-                  "sentinel_observations"):
+                  "sentinel_observations",
+                  "sentinel_terminal_recovery_watermark"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     c.commit()
     schema.ensure_schema(c)
@@ -128,11 +131,12 @@ def settles_on_the_second_read(sim_hook=None):
     return [None, during_settle]
 
 
-def a_plan(basket, pid="plan-1"):
+def a_plan(basket, pid="plan-1", *, unpriced=()):
     return ExecutionPlan(plan_id=pid, decision_session=TODAY,
                          effective_session=TODAY, target_exposure=D(1),
                          target_basket={k: D(v) for k, v in basket.items()},
-                         data_version=1)
+                         data_version=1,
+                         unpriced_securities=tuple(unpriced))
 
 
 def seed_held(conn, b, instrument, qty, *, plan_id="plan-0"):
@@ -156,6 +160,15 @@ def run(conn, b, plan, **kw):
     return asyncio.run(E.execute_session(
         broker=b, conn=conn, deployment=DEPLOY, plan=plan,
         instruments=INSTRUMENTS, today=TODAY, **kw))
+
+
+def restart_run(pg, b, plan, **kw):
+    """A second process: no Python state survives, only broker + Postgres."""
+    restarted = feed_store.connect(pg.sync_dsn)
+    try:
+        return run(restarted, b, plan, **kw)
+    finally:
+        restarted.close()
 
 
 def submits(b):
@@ -185,6 +198,34 @@ def phase_of(b, security_id: str) -> int:
     raise AssertionError(f"{security_id} was never submitted: {b.calls}")
 
 
+class TestSimulatedCashReservations:
+    def test_two_working_buys_cannot_spend_the_same_cash(self):
+        b = broker(equity=D("100"), cash=D("100"), buying_power=D("100"))
+
+        first = asyncio.run(b.submit(
+            client_key="buy-a", instrument=AAA,
+            side=Side.BUY, quantity=D(1)))
+        blocked = asyncio.run(b.submit(
+            client_key="buy-b", instrument=BBB,
+            side=Side.BUY, quantity=D(1)))
+
+        assert first.state is CS.ACKNOWLEDGED
+        assert blocked.state is CS.REJECTED
+        assert b._by_key("buy-b") is None
+
+        # Terminal cancellation releases the first reservation.  Exactly one
+        # replacement may then spend the $100, and filling it cannot drive the
+        # simulated cash account negative.
+        asyncio.run(b.cancel(first.broker_order_id))
+        replacement = asyncio.run(b.submit(
+            client_key="buy-b-retry", instrument=BBB,
+            side=Side.BUY, quantity=D(1)))
+        assert replacement.state is CS.ACKNOWLEDGED
+
+        b.fill("buy-b-retry")
+        assert b.cash == b.buying_power == D(0)
+
+
 class TestTheFailure:
     def test_the_BUY_is_sized_after_the_SELL_has_SETTLED(self, conn):
         """The headline, stated as a sequence.
@@ -201,6 +242,29 @@ class TestTheFailure:
             f"the buy was sized against the same observation as the sell: "
             f"{b.calls}")
         assert len(result.submitted) == 2
+
+    def test_filled_but_unsettled_cash_defers_the_buy(self, conn):
+        """Position settlement is not cash buying-power settlement."""
+        def withhold_proceeds(sim):
+            sim.buying_power = sim.cash - D("5000")
+
+        b = broker(
+            buying_power=D("100000"),
+            observe_hooks=settles_on_the_second_read(withhold_proceeds))
+        seed_held(conn, b, AAA, 50)
+
+        async def cash_authority(_observation):
+            account = await b.account_snapshot()
+            if account.buying_power != account.cash:
+                raise RuntimeError("cash-only settlement is not observable")
+
+        result = run(
+            conn, b, a_plan({"SEC-AAA": "0", "SEC-BBB": "100"}),
+            increase_authority=cash_authority)
+
+        assert [sid for sid, _ in submits(b)] == ["SEC-AAA"]
+        assert "SEC-BBB" in result.deferred
+        assert "cash-only settlement" in result.detail
 
     def test_a_FOREIGN_fill_BETWEEN_the_phases_is_seen(self, conn):
         """The quantity, concretely.
@@ -300,6 +364,423 @@ class TestTheAsymmetryWhenTheSETTLEFails:
 
         assert len(result.submitted) == 1
         assert b.calls.count("get_positions") <= 2, b.calls
+
+
+class TestOnlyReconciledFillsCanFundIncreases:
+    @pytest.mark.parametrize(
+        ("fault", "terminal_state"),
+        [
+            (FaultKind.REJECT, CS.REJECTED),
+            (FaultKind.NEVER_RECEIVED, CS.CANCELLED),
+        ],
+        ids=["rejected", "unknown-never-landed"],
+    )
+    def test_a_reduction_without_a_fill_cannot_fund_a_buy(
+            self, conn, fault, terminal_state):
+        """Terminal does not mean FILLED. A rejected or never-landed sale is
+        no longer working, but it produced no proceeds."""
+        b = broker(submit_faults=[fault])
+        seed_held(conn, b, AAA, 50)
+
+        result = run(conn, b, a_plan({"SEC-AAA": "0", "SEC-BBB": "100"}),
+                     settle_cycles=1)
+
+        assert [command.security_id for command in result.submitted] == ["SEC-AAA"]
+        assert "SEC-BBB" in result.deferred
+        reduction = journal.load_commands(conn, DEPLOY, plan_id="plan-1")[0]
+        assert reduction.state is terminal_state
+        assert reduction.filled_quantity == D(0)
+
+    def test_an_UNKNOWN_reduction_is_resolved_again_between_phases(self, conn):
+        """The timeout may conceal a live sale. Reconciliation must resolve
+        its exact key, then still wait for a full observed fill before buying."""
+        b = broker(submit_faults=[FaultKind.ACCEPT_THEN_TIMEOUT])
+        seed_held(conn, b, AAA, 50)
+
+        result = run(conn, b, a_plan({"SEC-AAA": "0", "SEC-BBB": "100"}),
+                     settle_cycles=1)
+
+        assert [command.security_id for command in result.submitted] == ["SEC-AAA"]
+        assert "SEC-BBB" in result.deferred
+        reduction = journal.load_commands(conn, DEPLOY, plan_id="plan-1")[0]
+        assert reduction.state is CS.ACKNOWLEDGED
+        assert f"find:{reduction.client_key}" in b.calls
+
+    def test_a_PARTIAL_reduction_cannot_fund_the_whole_buy(self, conn):
+        def partly_fill_sale(sim):
+            sale = next(o for o in sim._orders.values()
+                        if o.instrument.security_id == "SEC-AAA")
+            sim.fill(sale.client_key, "25")
+
+        b = broker(observe_hooks=[None, partly_fill_sale])
+        seed_held(conn, b, AAA, 50)
+
+        result = run(conn, b, a_plan({"SEC-AAA": "0", "SEC-BBB": "100"}),
+                     settle_cycles=1)
+
+        assert [command.security_id for command in result.submitted] == ["SEC-AAA"]
+        assert "SEC-BBB" in result.deferred
+        reduction = journal.load_commands(conn, DEPLOY, plan_id="plan-1")[0]
+        assert reduction.state is CS.PARTIALLY_FILLED
+        assert reduction.filled_quantity == D(25)
+
+    def test_a_CANCELLED_reduction_cannot_fund_a_buy(self, conn):
+        def cancel_sale(sim):
+            sale = next(o for o in sim._orders.values()
+                        if o.instrument.security_id == "SEC-AAA")
+            sale.state = CS.CANCELLED
+
+        b = broker(observe_hooks=[None, cancel_sale])
+        seed_held(conn, b, AAA, 50)
+
+        result = run(conn, b, a_plan({"SEC-AAA": "0", "SEC-BBB": "100"}),
+                     settle_cycles=1)
+
+        assert [sid for sid, _ in submits(b)] == ["SEC-AAA"]
+        assert "SEC-BBB" in result.deferred
+        reduction = journal.load_commands(conn, DEPLOY, plan_id="plan-1")[0]
+        assert reduction.state is CS.CANCELLED
+        assert reduction.filled_quantity == D(0)
+
+    def test_an_ABSENT_reduction_cannot_fund_a_buy(self, conn):
+        """Ordinary acknowledged commands do not infer a terminal state from
+        absence. Phase two must therefore keep the command UNKNOWN and reject
+        the increase."""
+        def lose_sale(sim):
+            sim._orders.clear()
+
+        b = broker(observe_hooks=[None, lose_sale])
+        seed_held(conn, b, AAA, 50)
+
+        result = run(conn, b, a_plan({"SEC-AAA": "0", "SEC-BBB": "100"}),
+                     settle_cycles=1)
+
+        assert [command.security_id for command in result.submitted] == ["SEC-AAA"]
+        assert "SEC-BBB" in result.deferred
+        reduction = journal.load_commands(conn, DEPLOY, plan_id="plan-1")[0]
+        # Open-order silence cannot establish FILLED/CANCELLED/REJECTED.  The
+        # exact lookup also found no positive terminal evidence, so the durable
+        # command becomes UNKNOWN and continues to block every increase.
+        assert reduction.state is CS.UNKNOWN
+
+
+class TestTheReductionBarrierSurvivesRestart:
+    @pytest.mark.parametrize(
+        "submit_fault",
+        [None, FaultKind.ACCEPT_THEN_TIMEOUT],
+        ids=["ordinary-ack", "timeout-resolved-to-ack"],
+    )
+    def test_a_working_SELL_netted_to_zero_still_blocks_the_BUY(
+            self, conn, pg, submit_fault):
+        """On restart, held + committed SELL equals the zero target.
+
+        The freshly computed AAA delta is therefore NONE.  The durable working
+        reduction must nevertheless remain a global barrier for the unrelated
+        BBB increase until a complete reconciliation observes the sale FILLED.
+        """
+        faults = [] if submit_fault is None else [submit_fault]
+        b = broker(submit_faults=faults)
+        seed_held(conn, b, AAA, 50)
+        plan = a_plan({"SEC-AAA": "0", "SEC-BBB": "100"})
+
+        first = run(conn, b, plan, settle_cycles=1)
+        sale = first.submitted[0]
+        assert sale.security_id == "SEC-AAA"
+        assert "SEC-BBB" in first.deferred
+        assert journal.load_commands(
+            conn, DEPLOY, plan_id=plan.plan_id)[0].state is CS.ACKNOWLEDGED
+
+        b.calls.clear()
+        second = restart_run(pg, b, plan, settle_cycles=1)
+
+        assert second.submitted == ()
+        assert "SEC-BBB" in second.deferred
+        assert not any(call.startswith("submit:") for call in b.calls)
+
+        b.fill(sale.client_key)
+        b.calls.clear()
+        after_fill = restart_run(pg, b, plan, settle_cycles=1)
+
+        assert [command.security_id for command in after_fill.submitted] == [
+            "SEC-BBB"]
+        assert [sid for sid, _ in submits(b)] == ["SEC-BBB"]
+
+    def test_a_PARTIAL_SELL_netted_to_zero_survives_restart_as_a_barrier(
+            self, conn, pg):
+        b = broker()
+        seed_held(conn, b, AAA, 50)
+        plan = a_plan({"SEC-AAA": "0", "SEC-BBB": "100"})
+
+        first = run(conn, b, plan, settle_cycles=1)
+        sale = first.submitted[0]
+        b.fill(sale.client_key, "25")
+
+        b.calls.clear()
+        second = restart_run(pg, b, plan, settle_cycles=1)
+
+        assert second.submitted == ()
+        assert "SEC-BBB" in second.deferred
+        stored = journal.load_commands(
+            conn, DEPLOY, plan_id=plan.plan_id)[0]
+        assert stored.state is CS.PARTIALLY_FILLED
+        assert stored.filled_quantity == D("25")
+        assert not any(call.startswith("submit:") for call in b.calls)
+
+        b.fill(sale.client_key)
+        b.calls.clear()
+        after_fill = restart_run(pg, b, plan, settle_cycles=1)
+
+        assert [command.security_id for command in after_fill.submitted] == [
+            "SEC-BBB"]
+
+    def test_a_smaller_old_SELL_does_not_satisfy_a_blocked_new_SELL(
+            self, conn, pg):
+        """An existing sale can be both real and insufficient.
+
+        Fifty AAA are held and this plan already has a working SELL 20, so its
+        zero target still needs another SELL 30.  The overlap guard correctly
+        refuses that second sale.  Even if the old 20 fills during the settle
+        poll, it must not be mistaken for the missing 30; BBB remains deferred.
+        """
+        b = broker()
+        seed_held(conn, b, AAA, 50)
+        current = a_plan(
+            {"SEC-AAA": "0", "SEC-BBB": "100"}, pid="current-plan")
+        E.adopt_plan(conn, current)
+        identity = CommandIdentity(
+            deployment=DEPLOY, plan_id=current.plan_id,
+            security_id=AAA.security_id)
+        outcome = asyncio.run(b.submit(
+            client_key=identity.client_key, instrument=AAA,
+            side=Side.SELL, quantity=D("20")))
+        journal.save_command(conn, Command(
+            identity=identity, instrument=AAA, side=Side.SELL,
+            quantity=D("20"), state=outcome.state,
+            broker_order_id=outcome.broker_order_id))
+        b.observe_hooks = [None, fill_everything_resting]
+        b.calls.clear()
+        result = restart_run(pg, b, current, settle_cycles=1)
+
+        assert result.submitted == ()
+        assert "SEC-AAA" in result.refused
+        assert "SEC-BBB" in result.deferred
+        assert not any(call.startswith("submit:") for call in b.calls)
+        commands = journal.load_commands(conn, DEPLOY)
+        assert [(command.identity.plan_id, command.security_id,
+                 command.quantity, command.state)
+                for command in commands if command.side is Side.SELL] == [
+                    ("current-plan", "SEC-AAA", D("20"), CS.ACKNOWLEDGED)]
+
+
+class TestUnavailablePriceAuthorityIsOneWay:
+    def test_a_cancelled_preservation_BUY_does_not_become_a_fresh_BUY(self, conn):
+        """The plan preserved a wanted, unpriced name while a BUY was working.
+
+        If that order later cancels, `desired - held - committed` becomes a
+        positive delta.  Preservation is not price authority for a replacement
+        order, so the executor must refuse instead of blindly restoring it.
+        """
+        b = broker()
+        priced = a_plan({"SEC-AAA": "100"}, pid="priced-plan")
+        original = run(conn, b, priced)
+        working_buy = original.submitted[0]
+        resting = b._by_key(working_buy.client_key)
+        assert resting is not None and resting.state is CS.ACKNOWLEDGED
+
+        # This is the evidence the unpriced plan was prepared from: the wanted
+        # quantity was preserved entirely by the still-working BUY.  It cancels
+        # before execution's fresh observation, exposing a new BUY delta.
+        unpriced = a_plan(
+            {"SEC-AAA": "100"}, pid="unpriced-plan",
+            unpriced=("SEC-AAA",))
+        resting.state = CS.CANCELLED
+        b.calls.clear()
+
+        result = run(conn, b, unpriced)
+
+        assert result.submitted == ()
+        assert "SEC-AAA" in result.refused
+        assert "unpriced" in result.refused["SEC-AAA"].lower()
+        assert not any(call.startswith("submit:") for call in b.calls)
+
+    def test_an_unpriced_name_may_still_be_reduced(self, conn):
+        b = broker()
+        seed_held(conn, b, AAA, 50)
+        plan = a_plan(
+            {"SEC-AAA": "0"}, unpriced=("SEC-AAA",))
+
+        result = run(conn, b, plan)
+
+        assert [(command.security_id, command.side, command.quantity)
+                for command in result.submitted] == [
+                    ("SEC-AAA", Side.SELL, D("50"))]
+        assert "SEC-AAA" not in result.refused
+
+
+class TestSamePlanCommandRevisionRecovery:
+    @staticmethod
+    def commands(conn, plan, security_id="SEC-BBB"):
+        return sorted(
+            (command for command in journal.load_commands(
+                conn, DEPLOY, plan_id=plan.plan_id)
+             if command.security_id == security_id),
+            key=lambda command: command.identity.revision)
+
+    def test_an_identical_PLANNED_crash_remnant_reuses_revision_zero(
+            self, conn, pg):
+        b = broker()
+        plan = a_plan({"SEC-BBB": "100"})
+        E.adopt_plan(conn, plan)
+        planned = Command(
+            identity=CommandIdentity(
+                deployment=DEPLOY, plan_id=plan.plan_id,
+                security_id=BBB.security_id),
+            instrument=BBB, side=Side.BUY, quantity=D("100"))
+        journal.save_command(conn, planned)
+
+        result = restart_run(pg, b, plan)
+
+        assert len(result.submitted) == 1
+        assert result.submitted[0].client_key == planned.client_key
+        assert result.submitted[0].identity.revision == 0
+        assert len(self.commands(conn, plan)) == 1
+        assert [event["to"] for event in journal.command_history(
+            conn, planned.client_key)] == [
+                "PLANNED", "SEND_PENDING", "ACKNOWLEDGED"]
+
+    def test_a_changed_PLANNED_remnant_is_superseded_not_rewritten(
+            self, conn, pg):
+        b = broker()
+        plan = a_plan({"SEC-BBB": "100"})
+        E.adopt_plan(conn, plan)
+        stale = Command(
+            identity=CommandIdentity(
+                deployment=DEPLOY, plan_id=plan.plan_id,
+                security_id=BBB.security_id),
+            instrument=BBB, side=Side.BUY, quantity=D("50"))
+        journal.save_command(conn, stale)
+
+        result = restart_run(pg, b, plan)
+
+        replacement = result.submitted[0]
+        assert replacement.identity.revision == 1
+        assert replacement.quantity == D("100")
+        assert replacement.client_key != stale.client_key
+        old, new = self.commands(conn, plan)
+        assert (old.identity.revision, old.state,
+                old.quantity) == (0, CS.SUPERSEDED, D("50"))
+        assert (new.identity.revision, new.state,
+                new.quantity) == (1, CS.ACKNOWLEDGED, D("100"))
+
+    def test_a_CANCELLED_command_is_not_resurrected_on_restart(self, conn, pg):
+        b = broker()
+        plan = a_plan({"SEC-BBB": "100"})
+        first = run(conn, b, plan)
+        original = first.submitted[0]
+        b._by_key(original.client_key).state = CS.CANCELLED
+
+        result = restart_run(pg, b, plan)
+
+        replacement = result.submitted[0]
+        assert replacement.identity.revision == 1
+        assert replacement.client_key != original.client_key
+        old, new = self.commands(conn, plan)
+        assert (old.identity.revision, old.state) == (0, CS.CANCELLED)
+        assert (new.identity.revision, new.state) == (1, CS.ACKNOWLEDGED)
+        assert [event["to"] for event in journal.command_history(
+            conn, original.client_key)] == [
+                "PLANNED", "SEND_PENDING", "ACKNOWLEDGED", "CANCELLED"]
+
+    def test_a_REJECTED_command_is_not_resurrected_on_restart(self, conn, pg):
+        b = broker(submit_faults=[FaultKind.REJECT])
+        plan = a_plan({"SEC-BBB": "100"})
+        first = run(conn, b, plan)
+        original = first.submitted[0]
+        assert original.state is CS.REJECTED
+
+        result = restart_run(pg, b, plan)
+
+        replacement = result.submitted[0]
+        assert replacement.identity.revision == 1
+        assert replacement.client_key != original.client_key
+        old, new = self.commands(conn, plan)
+        assert (old.identity.revision, old.state) == (0, CS.REJECTED)
+        assert (new.identity.revision, new.state) == (1, CS.ACKNOWLEDGED)
+        assert [event["to"] for event in journal.command_history(
+            conn, original.client_key)] == [
+                "PLANNED", "SEND_PENDING", "REJECTED"]
+
+    def test_a_PARTIAL_then_CANCELLED_command_restarts_at_remaining_revision(
+            self, conn, pg):
+        b = broker()
+        plan = a_plan({"SEC-BBB": "100"})
+        first = run(conn, b, plan)
+        original = first.submitted[0]
+        b.fill(original.client_key, "40")
+
+        at_partial_boundary = restart_run(pg, b, plan)
+        assert at_partial_boundary.submitted == ()
+        partial, = self.commands(conn, plan)
+        assert partial.state is CS.PARTIALLY_FILLED
+        assert partial.filled_quantity == D("40")
+
+        b._by_key(original.client_key).state = CS.CANCELLED
+        result = restart_run(pg, b, plan)
+
+        replacement = result.submitted[0]
+        assert replacement.identity.revision == 1
+        assert replacement.quantity == D("60")
+        assert replacement.client_key != original.client_key
+        old, new = self.commands(conn, plan)
+        assert (old.identity.revision, old.state,
+                old.filled_quantity) == (0, CS.CANCELLED, D("40"))
+        assert (new.identity.revision, new.state,
+                new.quantity) == (1, CS.ACKNOWLEDGED, D("60"))
+
+
+class TestPhaseTwoReconcilesTheWorldAgain:
+    def test_FOREIGN_activity_arriving_between_phases_blocks_the_buy(self, conn):
+        def fill_then_add_foreign_position(sim):
+            fill_everything_resting(sim)
+            sim.seed_position(BBB, "30")
+
+        b = broker(observe_hooks=[None, fill_then_add_foreign_position])
+        seed_held(conn, b, AAA, 50)
+
+        result = run(conn, b, a_plan({"SEC-AAA": "0", "SEC-BBB": "100"}),
+                     settle_cycles=1)
+
+        assert [sid for sid, _ in submits(b)] == ["SEC-AAA"]
+        assert "SEC-BBB" in result.deferred
+        assert result.runtime_state is RuntimeState.FOREIGN_ACTIVITY
+        assert result.reconciliation is not None
+        assert not result.reconciliation.clean
+
+    def test_account_identity_is_rechecked_between_phases(self, conn):
+        b = broker(observe_hooks=settles_on_the_second_read())
+        seed_held(conn, b, AAA, 50)
+
+        # Initial reconcile, reduction authorisation and increase pre-flight
+        # each identify the account. The fourth check is the fresh phase-two
+        # reconciliation; make only that check see the switched account.
+        original_identify = b.identify_account
+        identify_calls = 0
+
+        async def identify_account():
+            nonlocal identify_calls
+            identify_calls += 1
+            if identify_calls == 4:
+                b.account = BrokerAccountIdentity("sim", "OTHER-ACCOUNT")
+            return await original_identify()
+
+        b.identify_account = identify_account
+
+        with pytest.raises(B.AccountMismatch):
+            run(conn, b, a_plan({"SEC-AAA": "0", "SEC-BBB": "100"}),
+                settle_cycles=1)
+
+        submitted = journal.load_commands(conn, DEPLOY, plan_id="plan-1")
+        assert [command.security_id for command in submitted] == ["SEC-AAA"]
 
 
 class TestNothingIsSubmittedTwice:

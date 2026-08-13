@@ -123,7 +123,8 @@ class TestR1StoppedIsNotARejection:
 STATE_TABLES = ("sentinel_account_binding", "sentinel_ownership_events",
                 "sentinel_commands", "sentinel_command_events",
                 "sentinel_execution_plans", "sentinel_fills",
-                "sentinel_observations")
+                "sentinel_observations",
+                "sentinel_terminal_recovery_watermark")
 
 
 @pytest.fixture(scope="module")

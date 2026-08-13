@@ -94,7 +94,8 @@ def conns(pg):
         for t in ("sentinel_account_binding", "sentinel_ownership_events",
                   "sentinel_commands", "sentinel_command_events",
                   "sentinel_execution_plans", "sentinel_fills",
-                  "sentinel_observations"):
+                  "sentinel_observations",
+                  "sentinel_terminal_recovery_watermark"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     a.commit()
     schema.ensure_schema(a)
