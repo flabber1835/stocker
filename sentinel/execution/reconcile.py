@@ -122,7 +122,13 @@ def _order_command_conflict(order, command) -> Optional[str]:
             and order.broker_order_id != command.broker_order_id):
         return (f"{prefix} changed durable broker id "
                 f"{command.broker_order_id}")
-    if order.instrument.security_id != command.security_id:
+    from sentinel.execution.commands import is_legacy_migration
+    migration_identity_matches = (
+        is_legacy_migration(command)
+        and command.instrument.broker_id is not None
+        and order.instrument.broker_id == command.instrument.broker_id)
+    if (order.instrument.security_id != command.security_id
+            and not migration_identity_matches):
         return (f"{prefix} changed durable security {command.security_id} to "
                 f"{order.instrument.security_id}")
     if order.side is not command.side:
@@ -189,6 +195,12 @@ def expected_book_from_commands(commands, actions: Optional[ActionLookup] = None
     """
     book: dict = {}
     for command in commands:
+        from sentinel.execution.commands import is_legacy_migration
+        if is_legacy_migration(command):
+            # These SELLs removed the inherited pre-ownership book. Counting
+            # them as ordinary fills reconstructs a negative Sentinel holding
+            # immediately after a successful flat handover.
+            continue
         if command.filled_quantity == 0:
             continue
         quantity = command.filled_quantity

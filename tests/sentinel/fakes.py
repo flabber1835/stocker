@@ -8,6 +8,8 @@ once.
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
+from decimal import Decimal
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -15,6 +17,8 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'shared'))
 
 from sentinel.broker import CloseResult, SentinelBroker  # noqa: E402
+from sentinel.execution.contract import CommandOutcome  # noqa: E402
+from sentinel.execution.states import CommandState  # noqa: E402
 from sentinel.ownership import AccountObservation, OpenOrder  # noqa: E402
 
 
@@ -30,6 +34,7 @@ class FakeBroker(SentinelBroker):
         self.closes: list[str] = []             # every close ATTEMPT, in order
         self.cancelled: list[str] = []
         self._age: dict[str, int] = {}
+        self._by_key: dict[str, OpenOrder] = {}
 
     async def account(self):
         return None
@@ -43,8 +48,16 @@ class FakeBroker(SentinelBroker):
                 if self._age[o.order_id] > self.fills_after:
                     self.orders.remove(o)
                     self.positions.pop(o.ticker, None)
+                    if o.client_key:
+                        self._by_key[o.client_key] = replace(
+                            o, state=CommandState.FILLED,
+                            filled_quantity=o.quantity,
+                            filled_average_price=Decimal("100"))
         return AccountObservation(
-            positions=dict(self.positions), open_orders=tuple(self.orders)
+            positions=dict(self.positions),
+            position_security_ids={
+                ticker: f"asset-{ticker}" for ticker in self.positions},
+            open_orders=tuple(self.orders)
         )
 
     async def cancel_orders(self, order_ids):
@@ -60,3 +73,25 @@ class FakeBroker(SentinelBroker):
         oid = f"close-{ticker}-{len(self.closes)}"
         self.orders.append(OpenOrder(order_id=oid, ticker=ticker, side="sell"))
         return CloseResult(ticker, oid, "accepted", None)
+
+    async def find_liquidation(self, client_key):
+        return self._by_key.get(client_key)
+
+    async def submit_liquidation(self, command):
+        ticker = command.instrument.symbol
+        self.closes.append(ticker)
+        if ticker in self.fail_close:
+            return CommandOutcome(
+                CommandState.REJECTED, detail="halted")
+        oid = f"close-{ticker}-{len(self.closes)}"
+        order = OpenOrder(
+            order_id=oid, ticker=ticker, side="sell",
+            client_key=command.client_key,
+            state=CommandState.ACKNOWLEDGED,
+            quantity=command.quantity, filled_quantity=Decimal(0),
+            broker_instrument_id=command.instrument.broker_id)
+        self.orders.append(order)
+        self._by_key[command.client_key] = order
+        return CommandOutcome(
+            CommandState.ACKNOWLEDGED, broker_order_id=oid,
+            detail="accepted")

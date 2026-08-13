@@ -60,8 +60,11 @@ observation of the account onto the next state plus the actions that justify it;
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from enum import Enum
-from typing import Mapping
+from typing import Mapping, Optional
+
+from sentinel.execution.states import CommandState
 
 
 class OwnershipState(str, Enum):
@@ -101,6 +104,12 @@ class OpenOrder:
     order_id: str
     ticker: str
     side: str
+    client_key: Optional[str] = None
+    state: CommandState = CommandState.ACKNOWLEDGED
+    quantity: Decimal = Decimal(0)
+    filled_quantity: Decimal = Decimal(0)
+    filled_average_price: Optional[Decimal] = None
+    broker_instrument_id: Optional[str] = None
 
     @property
     def is_sell(self) -> bool:
@@ -116,7 +125,11 @@ class AccountObservation:
     as held would keep the machine liquidating something that no longer exists.
     """
 
-    positions: Mapping[str, float] = field(default_factory=dict)
+    positions: Mapping[str, Decimal | float | int] = field(default_factory=dict)
+    #: ticker -> broker-native stable asset identity. The production migration
+    #: adapter always populates this; tiny pure state-machine fixtures may omit
+    #: it because they never mint a broker command.
+    position_security_ids: Mapping[str, str] = field(default_factory=dict)
     open_orders: tuple[OpenOrder, ...] = ()
 
     def held_tickers(self) -> tuple[str, ...]:
@@ -124,6 +137,23 @@ class AccountObservation:
 
     def tickers_with_open_sell(self) -> frozenset[str]:
         return frozenset(o.ticker for o in self.open_orders if o.is_sell)
+
+    def quantity(self, ticker: str) -> Decimal:
+        value = self.positions[ticker]
+        quantity = value if isinstance(value, Decimal) else Decimal(str(value))
+        if not quantity.is_finite() or quantity <= 0:
+            raise ValueError(
+                f"legacy position {ticker} has non-positive/non-finite "
+                f"quantity {value!r}")
+        return quantity
+
+    def security_id(self, ticker: str) -> str:
+        value = str(self.position_security_ids.get(ticker) or "").strip()
+        if not value:
+            raise ValueError(
+                f"legacy position {ticker} has no stable broker asset id; a "
+                "mutable symbol cannot mint a recoverable liquidation key")
+        return value
 
     def is_flat(self) -> bool:
         """Flat means no positions AND nothing working that could create one.

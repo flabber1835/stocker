@@ -646,10 +646,10 @@ consumer — the editable install caches the module list and the backtest stack 
 no `shared/` bind-mount. Never pass `--volumes` to any compose command.
 
 Before touching anything, check nothing is in flight (`curl -s
-localhost:8030/runs/latest`). One trap already hit: `scripts/deploy-wealth-core.sh`
-curls the coverage endpoint ~1 minute after recreating bt-data, and bt-data
-re-applies `init_bt.sql` on startup — so the connection is RESET and the step
-fails spuriously. Re-run rather than diagnose.
+localhost:8030/runs/latest`). `scripts/deploy-wealth-core.sh` is now a
+fail-closed tombstone for the retired service graph. Current build/freeze is
+`scripts/sentinel-certify.sh`; the frozen engine starts through
+`scripts/bt-engine-up.sh --no-build --start ... --end ...`.
 
 ## The 2021-2023 rehearsal, and what its settlement counters do NOT say
 

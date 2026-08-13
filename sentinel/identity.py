@@ -307,18 +307,23 @@ def _digest_query(conn, sql: str, params: tuple) -> dict:
     completely unchanged. Only reading the values detects that, which is why
     this scans rather than samples.
     """
-    h = hashlib.sha256()
-    n = 0
     with conn.cursor() as cur:
         cur.execute(sql, params)
-        for row in cur:
-            n += 1
-            h.update(repr(tuple(row)).encode())
-            h.update(b"\n")
+        return _digest_rows(cur)
+
+
+def _digest_rows(rows) -> dict:
+    """Digest already-ordered rows, including derived calendar fields."""
+    h = hashlib.sha256()
+    n = 0
+    for row in rows:
+        n += 1
+        h.update(repr(tuple(row)).encode())
+        h.update(b"\n")
     return {"rows": n, "hash": h.hexdigest() if n else None}
 
 
-def corpus(conn, *, start: str, end: str) -> dict:
+def _corpus_pinned(conn, *, start: str, end: str, publication_record) -> dict:
     """Identity of the data over [start, end] — the interval being certified.
 
     THREE digests, not one. The vendor tables and the normalised corpus are
@@ -327,23 +332,53 @@ def corpus(conn, *, start: str, end: str) -> dict:
     what review #4 did), while different ACTIONS means the vendor did. One
     combined hash would say only that something moved.
     """
+    from sentinel.feed import calendar
+    from sentinel.feed.publication import effective_split_ratio, visible_predicate
+
     bars = _digest_query(
         conn,
         "SELECT session, security_id, ticker, close_signal, close_unadjusted,"
-        " open_unadjusted, volume, split_ratio, dividend_per_share"
-        " FROM sentinel_bars WHERE session BETWEEN %s AND %s"
+        " open_unadjusted, volume,"
+        f" {effective_split_ratio('b')}, dividend_per_share"
+        " FROM sentinel_bars b WHERE session BETWEEN %s AND %s"
+        f" AND {visible_predicate('b')}"
         " ORDER BY session, security_id", (start, end))
-    actions = _digest_query(
-        conn,
-        "SELECT session, ticker, action, value, contraticker"
-        " FROM sentinel_actions WHERE session BETWEEN %s AND %s"
-        " ORDER BY session, ticker, action", (start, end))
+    raw_start, raw_end = calendar.action_date_window(start, end)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT session, ticker, action, value, contraticker"
+            " FROM sentinel_actions a WHERE session BETWEEN %s AND %s"
+            f" AND {visible_predicate('a')}"
+            " ORDER BY session, ticker, action", (raw_start, raw_end))
+        action_rows = []
+        for raw_session, ticker, action, value, contraticker in cur:
+            effective = calendar.session_on_or_after(str(raw_session))
+            if start <= effective <= end:
+                # Preserve both dates.  The raw value proves what the vendor
+                # supplied; the effective value proves where Sentinel applied
+                # it under the pinned XNYS calendar contract.
+                action_rows.append((str(raw_session), effective, ticker,
+                                    action, value, contraticker))
+    actions = _digest_rows(action_rows)
     universe = _digest_query(
         conn,
         "SELECT permaticker, ticker, category, related_tickers,"
         " first_price_date, last_price_date, is_delisted, snapshot_date"
-        " FROM sentinel_universe"
+        " FROM sentinel_universe u"
+        f" WHERE {visible_predicate('u')}"
         " ORDER BY permaticker, ticker, snapshot_date", ())
+    from sentinel.feed.store import published_spy_total_return
+
+    spy = _digest_rows(published_spy_total_return(conn, start, end))
+    repairs = _digest_query(
+        conn,
+        "SELECT rr.security_id, rr.session, rr.prior_split_ratio,"
+        " rr.split_ratio, rp.version"
+        " FROM sentinel_bar_split_repairs rr"
+        " JOIN sentinel_corpus_publications rp"
+        "   ON rp.run_id = rr.last_written_run_id"
+        " WHERE rr.session BETWEEN %s AND %s"
+        " ORDER BY rr.session, rr.security_id, rp.version", (start, end))
     # THE REFUSALS ARE PART OF THE CORPUS'S IDENTITY. Without them two seeds
     # with identical accepted bars and completely different dropped evidence
     # digest the same, and the claim "this interval is complete" rests on
@@ -372,13 +407,16 @@ def corpus(conn, *, start: str, end: str) -> dict:
     with conn.cursor() as cur:
         cur.execute("SELECT MIN(session), MAX(session),"
                     " COUNT(DISTINCT session), COUNT(DISTINCT security_id)"
-                    " FROM sentinel_bars WHERE session BETWEEN %s AND %s",
+                    " FROM sentinel_bars b WHERE session BETWEEN %s AND %s"
+                    f" AND {visible_predicate('b')}",
                     (start, end))
         lo, hi, sessions, securities = cur.fetchone()
         cur.execute("SHOW server_version")
         server_version = str(cur.fetchone()[0])
     out = {
         "window": {"start": start, "end": end},
+        "data_version": publication_record.version,
+        "publication": publication_record.to_dict(),
         "postgres_server_version": server_version,
         "postgres_certified": server_version.split()[0].startswith(
             CERTIFIED_POSTGRES_VERSION),
@@ -389,16 +427,31 @@ def corpus(conn, *, start: str, end: str) -> dict:
         "normalised_bars": bars,
         "vendor_actions": actions,
         "vendor_universe": universe,
+        "spy_total_return": spy,
+        "applied_repairs": repairs,
         "refusals": rejections,
         "anomalies": anomalies,
         "refusal_truncation": truncation,
     }
     out["corpus_hash"] = _sha(json.dumps(
-        {k: out[k] for k in ("normalised_bars", "vendor_actions",
-                             "vendor_universe", "refusals", "anomalies",
-                             "refusal_truncation")},
+        {k: out[k] for k in ("data_version", "normalised_bars",
+                             "vendor_actions", "vendor_universe",
+                             "spy_total_return", "applied_repairs", "refusals",
+                             "anomalies", "refusal_truncation")},
         sort_keys=True).encode())
     return out
+
+
+def corpus(conn, *, start: str, end: str) -> dict:
+    """Hash one coherent published snapshot, named by its held data version."""
+    from sentinel.feed import publication
+    from sentinel.feed.sharadar import validate_date_range
+
+    start, end = validate_date_range(start, end)
+    with publication.pinned(conn) as pinned:
+        publication.assert_coherent(conn)
+        return _corpus_pinned(
+            conn, start=start, end=end, publication_record=pinned)
 
 
 def rehearsal_identity(conn=None, *, start: Optional[str] = None,

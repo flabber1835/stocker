@@ -397,16 +397,110 @@ class TestItCannotAct:
         src = inspect.getsource(sources)
         assert "build_broker" not in src and "broker" not in src.split("\n\n")[0]
 
-    def test_health_does_NO_io(self):
-        """Stocker's lesson: a `/health` that probes a dependency reports
-        someone else's outage as its own death and blows the healthcheck
-        budget."""
-        import inspect
-
+    def test_health_refuses_when_database_configuration_is_missing(
+            self, monkeypatch):
+        from fastapi import HTTPException
         from sentinel.panel import app as app_mod
-        src = inspect.getsource(app_mod.health)
-        for marker in ("connect", "build_panel", "open(", "await"):
-            assert marker not in src
+
+        monkeypatch.delenv("SENTINEL_DATABASE_URL", raising=False)
+        with pytest.raises(HTTPException) as raised:
+            app_mod.health()
+        assert raised.value.status_code == 503
+        assert "SENTINEL_DATABASE_URL is unset" in raised.value.detail
+
+    def test_health_proves_the_required_database_schema(self, monkeypatch):
+        from sentinel.feed import store as feed_store
+        from sentinel.panel import app as app_mod
+
+        class Conn:
+            def __init__(self):
+                self.statements = []
+                self.closed = False
+
+            def cursor(self):
+                return self
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def execute(self, statement):
+                self.statements.append(str(statement))
+
+            def close(self):
+                self.closed = True
+
+        conn = Conn()
+        opened = []
+        monkeypatch.setenv(
+            "SENTINEL_DATABASE_URL", "postgresql://panel@db/sentinel")
+        monkeypatch.setattr(
+            feed_store, "connect",
+            lambda dsn: opened.append(dsn) or conn)
+
+        assert app_mod.health() == {
+            "status": "ready", "service": "sentinel-panel"}
+        assert opened and "connect_timeout=" in opened[0]
+        sql = "\n".join(conn.statements)
+        for table in (
+                "sentinel_account_binding", "sentinel_bars",
+                "sentinel_corpus_publications",
+                "sentinel_readiness_snapshots", "feed_ingest_runs"):
+            assert table in sql
+        assert sql.count("LIMIT 0") == len(app_mod._REQUIRED_SCHEMA_PROBES)
+        assert conn.closed
+
+    def test_health_refuses_an_old_or_partial_schema_and_closes(
+            self, monkeypatch):
+        from fastapi import HTTPException
+        from sentinel.feed import store as feed_store
+        from sentinel.panel import app as app_mod
+
+        class Conn:
+            closed = False
+
+            def cursor(self):
+                return self
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def execute(self, statement):
+                if "sentinel_bars" in str(statement):
+                    raise RuntimeError("column last_written_run_id missing")
+
+            def close(self):
+                self.closed = True
+
+        conn = Conn()
+        monkeypatch.setenv(
+            "SENTINEL_DATABASE_URL", "postgresql://panel@db/sentinel")
+        monkeypatch.setattr(feed_store, "connect", lambda _dsn: conn)
+
+        with pytest.raises(HTTPException) as raised:
+            app_mod.health()
+        assert raised.value.status_code == 503
+        assert "schema not ready" in raised.value.detail
+        assert "last_written_run_id missing" in raised.value.detail
+        assert conn.closed
+
+    def test_health_reloads_database_configuration_each_request(
+            self, monkeypatch):
+        from sentinel.panel import app as app_mod
+
+        seen = []
+        monkeypatch.setattr(
+            app_mod, "_probe_database", lambda dsn: seen.append(dsn))
+        monkeypatch.setenv("SENTINEL_DATABASE_URL", "postgresql://first/db")
+        app_mod.health()
+        monkeypatch.setenv("SENTINEL_DATABASE_URL", "postgresql://second/db")
+        app_mod.health()
+        assert seen == ["postgresql://first/db", "postgresql://second/db"]
 
 
 # ── 6. it renders ────────────────────────────────────────────────────────────

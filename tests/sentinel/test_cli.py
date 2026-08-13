@@ -13,10 +13,12 @@ it never saw.
 """
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -26,6 +28,7 @@ sys.path.insert(0, str(ROOT / "shared"))
 
 from fakes import FakeBroker  # noqa: E402
 from sentinel import __main__ as cli  # noqa: E402
+from sentinel import broker as broker_mod, handover, schema  # noqa: E402
 from sentinel.config import (  # noqa: E402
     DEFAULT_BASE_URL,
     LiveEndpointRefused,
@@ -33,7 +36,10 @@ from sentinel.config import (  # noqa: E402
     SentinelConfig,
 )
 from sentinel.store import FileOwnershipStore, ownership_established  # noqa: E402
+from sentinel.execution import journal  # noqa: E402
 from sentinel.feed import calendar, readiness, store as feed_store  # noqa: E402
+from stock_strategy_shared.broker.alpaca import (  # noqa: E402
+    IncompleteOrderList, MalformedBrokerPayload)
 
 
 def env(**over):
@@ -242,6 +248,46 @@ class TestEstablishOwnershipIsRetired:
             "migrate-account", "--deployment-id", "nas-1",
             "--expect-account", "ACC-123"]) \
             == cli.EXIT_CONFIG
+
+    @pytest.mark.parametrize("error", [
+        broker_mod.AdministrativeObservationRefused("bad position side"),
+        IncompleteOrderList("open-order pagination incomplete"),
+        MalformedBrokerPayload("malformed broker JSON"),
+        journal.WriterLockUnavailable("writer already active"),
+        journal.StoredKeyMismatch("durable key mismatch"),
+        NotImplementedError("exact single-order cancellation unavailable"),
+    ], ids=[
+        "administrative-observation", "incomplete-orders", "malformed-json",
+        "writer-lock", "stored-key", "exact-cancel-unsupported",
+    ])
+    def test_migrate_account_safety_failures_are_controlled_refusals(
+            self, error, monkeypatch, tmp_path, capsys):
+        class Connection:
+            closed = False
+
+            def close(self):
+                self.closed = True
+
+        connection = Connection()
+        config = SentinelConfig.from_env(env(
+            SENTINEL_STATE_DIR=str(tmp_path),
+            SENTINEL_DATABASE_URL="postgresql://test/db"))
+        monkeypatch.setattr(feed_store, "connect", lambda _url: connection)
+        monkeypatch.setattr(schema, "ensure_schema", lambda _conn: None)
+        monkeypatch.setattr(cli, "build_broker", lambda _config: object())
+
+        async def refuse(**_kwargs):
+            raise error
+
+        monkeypatch.setattr(handover, "migrate_account", refuse)
+        args = SimpleNamespace(
+            deployment_id="nas-1", expect_account="ACC-123", notes="ticket")
+
+        assert asyncio.run(cli._migrate_account(config, args)) \
+            == cli.EXIT_NOT_ESTABLISHED
+        stderr = capsys.readouterr().err
+        assert stderr == f"REFUSED: {error}\n"
+        assert connection.closed is True
 
     def test_adoption_requires_the_human_assertion(self, monkeypatch, tmp_path,
                                                    capsys):

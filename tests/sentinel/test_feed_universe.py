@@ -20,7 +20,36 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
 from sentinel.feed import universe as U  # noqa: E402
+from sentinel.feed import publication as P  # noqa: E402
+from sentinel.feed import store as S  # noqa: E402
 from sentinel.feed.domains import normalise_sep_rows, NormalisationReport  # noqa: E402
+from tests.support.postgres import _EphemeralPostgres  # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def pg():
+    try:
+        server = _EphemeralPostgres()
+        server.start()
+    except Exception as exc:                                  # noqa: BLE001
+        pytest.skip(f"ephemeral Postgres unavailable: {exc}")
+    try:
+        yield server
+    finally:
+        server.stop()
+
+
+@pytest.fixture()
+def conn(pg):
+    c = S.connect(pg.sync_dsn)
+    with c.cursor() as cur:
+        cur.execute("SELECT tablename FROM pg_tables WHERE schemaname='public'")
+        for (table,) in cur.fetchall():
+            cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
+    c.commit()
+    S.ensure_schema(c)
+    yield c
+    c.close()
 
 
 class TestTheParseThatBrokeTheReference:
@@ -146,3 +175,27 @@ class TestTheResolverDrivesTheFeed:
         assert list(normalise_sep_rows(rows, resolve_identity=r.resolve,
                                        report=rep)) == []
         assert rep.dropped_no_identity == 1
+
+
+class TestUniversePublication:
+    def test_an_unpublished_snapshot_cannot_change_identity_resolution(self, conn):
+        run1 = S.IngestRun(conn, "seed").progress.run_id
+        U.write_universe(
+            conn, [{"ticker": "ABC", "permaticker": "P1",
+                    "firstpricedate": "2000-01-01"}],
+            "2024-01-01", run_id=run1)
+        P.publish(conn, run_id=run1)
+
+        run2 = S.IngestRun(conn, "daily").progress.run_id
+        U.write_universe(
+            conn, [{"ticker": "ABC", "permaticker": "P2",
+                    "firstpricedate": "2000-01-01"}],
+            "2024-01-02", run_id=run2)
+        conn.commit()  # durable candidate at the pre-publication crash boundary
+
+        assert U.load_resolver(conn).resolve("ABC", "2024-01-02") == "P1"
+        assert not P.coherence(conn).coherent
+        assert P.current(conn).version == 1
+        P.publish(conn, run_id=run2)
+        assert U.load_resolver(conn).resolve("ABC", "2024-01-02") is None, (
+            "two published overlapping identities must refuse as ambiguous")

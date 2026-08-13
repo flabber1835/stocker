@@ -71,6 +71,17 @@ def skip_without_calendar():
 
 
 class TestTheAnchorsAreReal:
+    def test_the_certified_calendar_explicitly_covers_the_1998_seed(self):
+        skip_without_calendar()
+        assert C.CALENDAR_START <= "1998-01-01"
+        assert C.sessions_in_range("1998-01-01", "1998-01-12") == [
+            "1998-01-02", "1998-01-05", "1998-01-06", "1998-01-07",
+            "1998-01-08", "1998-01-09", "1998-01-12"]
+
+    def test_a_reversed_calendar_range_refuses(self):
+        with pytest.raises(ValueError, match="reversed date range"):
+            C.sessions_in_range("2024-02-01", "2024-01-01")
+
     def test_the_calendar_agrees_with_the_dates_this_file_reasons_about(self):
         skip_without_calendar()
         nov = C.sessions_in_range("2024-11-25", "2024-12-02")

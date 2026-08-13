@@ -663,8 +663,11 @@ volatility dispersion.
 # replay the SEP stage so the as-traded price exists (hours)
 scripts/backfill-sep-raw-close.sh
 
-# deploy and verify, in the order verification depends on
-scripts/deploy-wealth-core.sh
+# build and verify the current Sentinel/certification graph
+scripts/sentinel-certify.sh --start YYYY-MM-DD --end YYYY-MM-DD --keep-corpus
+
+# start the exact frozen rehearsal image, without rebuilding it
+scripts/bt-engine-up.sh --no-build --start YYYY-MM-DD --end YYYY-MM-DD
 
 # the seven hashes, from inside any container that has the shared package
 python -m stock_strategy_shared.wealth_core.parity_cli --engine backtester

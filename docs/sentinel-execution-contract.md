@@ -289,15 +289,18 @@ it is NEVER retried in a loop
 An autonomous retry against an unfillable remainder is an infinite loop that
 looks like activity.
 
-### 4.4 What is exempt
+### 4.4 Administrative migration uses the same identity law
 
-**The one-time account migration is an administrative act, not autonomous
-execution**, and may use broker-native close. It is operator-invoked, runs once,
-and its whole purpose is to remove a book Sentinel did not create and will never
-reason about again. Requiring it to be rebuilt on the new command model before it
-can be used would put a rewrite in front of a safety fix for no gain.
+The one-time account migration remains an explicitly invoked administrative
+act, but it is no longer exempt from recoverable command identity. Every legacy
+SELL is persisted as `PLANNED` and `SEND_PENDING` with an account/epoch-bound
+client key before transport. A timeout becomes `UNKNOWN` and must be resolved
+through exact client-key lookup before another SELL can be minted. Complete
+positions/open-orders reads still decide when the inherited book is flat; they
+never prove that an uncertain submit did not land.
 
-Operator/emergency tooling is likewise exempt, and must be labelled as such.
+Emergency tooling is outside certified execution and must be labelled as such.
+It is not part of the migration, preparation, or execution commands.
 
 ---
 

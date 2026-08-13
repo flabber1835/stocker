@@ -1,4 +1,4 @@
-"""Both entry paths authenticate. The coverage gate has a number in it.
+"""Only a database row can finalize. The coverage gate has a number in it.
 
 TWO HOLES, both of the same kind: a check that exists on one path and not the
 other, and a check that verifies a field is PRESENT rather than what it says.
@@ -45,8 +45,9 @@ def flat(p: Path) -> str:
     fails on the wrap is testing the formatter."""
     return " ".join(p.read_text().split())
 
-sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(REPO / "scripts"))
 import sentinel_rehearsal as R  # noqa: E402
+import sentinel_manifest as manifest_module  # noqa: E402
 
 START, END = "2021-01-04", "2023-12-29"
 
@@ -79,14 +80,12 @@ def envelope(**over):
 
 
 def run(tmp_path, env):
-    p = tmp_path / "env.json"
-    p.write_text(json.dumps(env))
-    return R.authenticate(p, tmp_path / "book.json", START, END)
+    return R.validate_envelope(env, tmp_path / "book.json", START, END)
 
 
-class TestOneValidatorForBothPaths:
+class TestDatabaseOnlyFinalization:
 
-    def test_a_well_formed_envelope_authenticates(self, tmp_path):
+    def test_a_well_formed_database_row_validates(self, tmp_path):
         assert run(tmp_path, envelope()) == 0
         assert json.loads((tmp_path / "book.json").read_text())["held"] == ["AAA"]
 
@@ -125,18 +124,25 @@ class TestOneValidatorForBothPaths:
         env["summary"]["book_artifact"]["window"]["start"] = "2022-01-03"
         assert run(tmp_path, env) == 1
 
-    def test_an_OLD_schema_is_refused_with_the_remedy(self, tmp_path, capsys):
+    def test_an_OLD_schema_is_refused(self, tmp_path, capsys):
         assert run(tmp_path, envelope(schema="old/0")) == 1
-        assert "re-export" in capsys.readouterr().err
+        assert "schema is" in capsys.readouterr().err
 
-    def test_the_finalizer_uses_the_validator_on_BOTH_paths(self):
+    def test_the_finalizer_has_only_the_database_run_id_path(self):
         body = FINAL.read_text()
-        assert body.count("sentinel_rehearsal.py authenticate") == 1
-        code = [l for l in body.splitlines()
-                if l.strip() and not l.lstrip().startswith("#")]
-        auth = next(i for i, l in enumerate(code) if "authenticate" in l)
-        fi = next(i for i, l in enumerate(code) if 'if [ -n "${FROM_JSON}" ]' in l)
-        assert auth > fi, "the validator runs inside a branch, not after both"
+        assert "sentinel_rehearsal.py finalize" in body
+        assert "--run-id" in body
+        assert "--from-json" not in body
+        # Prose may correctly say that a generation does not authenticate a
+        # different generation. The forbidden surface is the retired command,
+        # not the English verb in a safety comment.
+        assert "sentinel_rehearsal.py authenticate" not in body
+
+    def test_the_cli_exposes_no_file_finalization_verb(self):
+        source = VALIDATOR.read_text()
+        assert 'sub.add_parser("finalize")' in source
+        assert 'sub.add_parser("authenticate")' not in source
+        assert 'add_argument("--envelope")' not in source
 
     def test_the_book_is_only_written_when_authentication_PASSES(self, tmp_path):
         run(tmp_path, envelope(status="failed"))
@@ -188,7 +194,8 @@ class TestTheCoverageGateHasANumberInIt:
 
     def gate(self):
         body = FINAL.read_text()
-        return body[body.index("cov = tr.get"):body.index("missing = [k for k")]
+        return body[body.index("cov = tr.get"):
+                    body.index("# THE ENGINE THAT PRODUCED THE NUMBERS")]
 
     def test_it_compares_against_1_0_not_merely_None(self):
         g = self.gate()
@@ -358,34 +365,64 @@ class TestTheEngineIsFrozenNotJustSelfReported:
         body = flat(self.MANIFEST)
         assert "bt_engine_app_source_hash" in body
 
-    def test_the_loader_hash_is_read_OUT_OF_THE_IMAGE(self):
-        """`services/bt-engine/Dockerfile` assembles /app/app from FOUR source
-        trees — bt-engine's own app plus files copied in from pipeline,
-        portfolio-builder and backtester. A digest of `services/bt-engine/app`
-        alone is a DIFFERENT tree from the one the run hashes, so the
-        comparison would have failed on every run. A gate that always fires is
-        as useless as one that never does, and far likelier to be switched
-        off."""
+    def test_the_loader_hash_compares_the_IMAGE_with_the_assembled_checkout(self):
+        """Hash the artifact and the exact checkout sources Docker assembles."""
         body = flat(self.MANIFEST)
         assert "package_source_hash('/app/app')" in body
         assert '"docker", "run", "--rm", "--entrypoint", "python"' in body
-        assert '"services" / "bt-engine" / "app"' not in body, (
-            "the checkout path is still being hashed, which is not the tree "
-            "the image assembles")
+        assert "_assembled_bt_engine_spec(root)" in body
+        assert '"bt_engine_app": engine_hash' in body
+        assert "checkout_hash != image_hash" in body
 
-    def test_the_dockerfile_really_does_assemble_from_several_trees(self):
-        """The premise of the test above, checked rather than asserted — if the
-        Dockerfile stopped doing this, hashing the checkout would become
-        correct and the comment would be misleading."""
+    def test_every_bt_engine_COPY_source_exists_on_a_clean_checkout(self):
+        """Certification must not name source deleted from current main."""
         df = (REPO / "services" / "bt-engine" / "Dockerfile").read_text()
-        into_app = [l for l in df.splitlines()
-                    if l.startswith("COPY") and "./app/" in l]
-        assert len({l.split()[1].split("/")[1] for l in into_app}) > 1, into_app
+        sources = []
+        for line in df.splitlines():
+            if not line.startswith("COPY ") or line.rstrip().endswith("\\"):
+                continue
+            sources.extend(line.split()[1:-1])
+        assert sources
+        missing = [path for path in sources if not (REPO / path).exists()]
+        assert not missing, f"bt-engine COPY names missing source(s): {missing}"
+        assert not any("services/pipeline" in path or
+                       "services/portfolio-builder" in path
+                       for path in sources)
 
-    def test_an_uncomputable_loader_hash_REFUSES(self):
-        body = flat(self.MANIFEST)
-        assert "bt_engine_app_source_hash could not be read out of" in body
-        assert 'if not m["bt_engine_app_source_hash"]' in body
+    def test_backtest_compose_has_no_erased_service_or_public_bind(self):
+        body = (REPO / "docker-compose.backtest.yml").read_text()
+        assert "bt-scheduler:" not in body
+        assert "services/bt-scheduler" not in body
+        assert "./strategies" not in body and "./sweeps" not in body
+        assert "BT_POSTGRES_PASSWORD:-" not in body
+        for port in ("5434:5432", "8030:8000", "8031:8000"):
+            assert f'127.0.0.1:{port}' in body
+
+    def test_an_uncomputable_loader_hash_REFUSES(
+            self, tmp_path, monkeypatch, capsys):
+        commit = "a" * 40
+        images = {
+            key: {"ref": key, "id": "sha256:" + "b" * 64,
+                  "source_revision": commit, "repo_digests": []}
+            for key in manifest_module.REQUIRED_IMAGES
+        }
+        record = {
+            "git_commit": commit,
+            "git_tree_clean": True,
+            "git_dirty_paths": [],
+            **images,
+            "checkout_source_hashes": {"bt_engine_app": "clean"},
+            "image_source_hashes": {"bt_engine_app": None},
+            "distributions_hash": "d" * 64,
+            "requirements_lock_sha256": "l" * 64,
+        }
+        monkeypatch.setattr(
+            manifest_module, "build", lambda *_args, **_kwargs: record)
+
+        assert manifest_module.main([
+            str(tmp_path), "W", "lock", "--require-images"]) == 1
+        assert "REFUSED: image source hash bt_engine_app could not be read" \
+            in capsys.readouterr().out
 
     def test_certify_BUILDS_bt_engine_before_the_manifest(self):
         body = self.CERTIFY.read_text()

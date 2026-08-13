@@ -178,7 +178,7 @@ services:
     # liquidate an account.
     entrypoint: ["python"]
     ports:
-      - "8004:8000"
+      - "127.0.0.1:8004:8000"
     environment:
       SENTINEL_STATE_DIR: /var/lib/sentinel
       SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel
@@ -190,7 +190,8 @@ services:
       # must never be able to write it.
       - sentinel_state:/var/lib/sentinel:ro
     healthcheck:
-      # Liveness only — the route performs no IO. See sentinel/panel/app.py.
+      # Bounded database/schema readiness; read-only and broker-free. See
+      # sentinel/panel/app.py.
       test: ["CMD-SHELL",
              "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3).status==200 else 1)\""]
       interval: 30s

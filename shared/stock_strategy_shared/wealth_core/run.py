@@ -36,7 +36,12 @@ from stock_strategy_shared.wealth_core.eligibility import (
     TerminalState,
 )
 from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
-from stock_strategy_shared.wealth_core.feed import Feed, SecurityMeta, VendorBar
+from stock_strategy_shared.wealth_core.feed import (
+    Feed,
+    SecurityMeta,
+    VendorBar,
+    validate_session_stream,
+)
 from stock_strategy_shared.wealth_core.hashes import quantize as _quantize
 from stock_strategy_shared.wealth_core.ledger import Ledger
 from stock_strategy_shared.wealth_core.state import PortfolioState
@@ -247,6 +252,20 @@ def run_sessions(*, sessions: Sequence[str],
     and a strategy whose position ages and episode peaks cannot survive a
     restart is a different strategy after every deploy.
     """
+    # Validate the complete driver stream before constructing or mutating any
+    # canonical state. A repeated session is not an idempotent retry here: it
+    # would reapply corporate actions, dividends and rolling observations.
+    validate_session_stream(sessions, context="run")
+
+    seen_terminal_events: set[tuple[str, str]] = set()
+    for ev in terminal_events:
+        key = (ev.session, ev.security_id)
+        if key in seen_terminal_events:
+            raise ValueError(
+                f"duplicate terminal event for {ev.security_id!r} on "
+                f"{ev.session!r}; one economic action would be applied twice")
+        seen_terminal_events.add(key)
+
     cfg = cfg or WealthCoreConfig()
     state = state if state is not None else PortfolioState.fresh(
         starting_cash, cfg.n_slots if hasattr(cfg, "n_slots") else 25)
@@ -331,11 +350,15 @@ def run_sessions(*, sessions: Sequence[str],
     # Orders still queued at the end are REPORTED, not dropped. An exit that
     # never found a tradeable open is a position the run is still holding for a
     # reason, and a summary that omits it reads as a clean finish.
-    out.unfilled_at_end = [
-        {"security_id": p.security_id, "ticker": p.ticker,
-         "operation": p.operation.value, "shares": p.shares,
-         "signal_session": p.signal_session, "sessions_waiting": p.sessions_waiting}
-        for p in pending]
+    out.unfilled_at_end = []
+    for p in pending:
+        row = {"security_id": p.security_id, "ticker": p.ticker,
+               "operation": p.operation.value, "shares": p.shares,
+               "signal_session": p.signal_session,
+               "sessions_waiting": p.sessions_waiting}
+        if p.transformations:
+            row["transformations"] = list(p.transformations)
+        out.unfilled_at_end.append(row)
 
     # FINAL-SESSION ACCOUNTING. Marks come from the last session's bars, so the
     # book is valued at its final VALID close rather than at whatever was last

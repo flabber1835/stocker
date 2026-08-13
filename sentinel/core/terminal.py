@@ -119,6 +119,9 @@ def terminal_from_action(row: Mapping, session: str, *,
     contra_name = vendor_symbol(row.get("contraname"))
 
     ref = f"actions/{action}"
+    vendor_session = row.get("vendor_session")
+    if vendor_session and str(vendor_session) != str(session):
+        ref += f" vendor_date={vendor_session} effective_session={session}"
     if deal_value_musd is not None:
         ref += f" deal_value_musd={deal_value_musd:g}"
     if contra_name:
@@ -209,11 +212,15 @@ class TerminalRow:
     disposition: str            # resolved | excluded | unresolved
     reason: str = ""
     security_id: Optional[str] = None
+    effective_session: Optional[str] = None
 
     def describe(self) -> str:
-        return (f"{self.session} {self.ticker} {self.action.upper()}"
+        when = (f"{self.session}->{self.effective_session}"
+                if self.effective_session and self.effective_session != self.session
+                else self.session)
+        return (f"{when} {self.ticker} {self.action.upper()}"
                 f" reason={self.reason}" if self.reason
-                else f"{self.session} {self.ticker} {self.action.upper()}")
+                else f"{when} {self.ticker} {self.action.upper()}")
 
 
 @dataclass(frozen=True)
@@ -282,7 +289,9 @@ class TerminalLoadResult:
             # ticker, the action and the reason — "unresolved: 1" is a number
             # nobody can act on.
             "unresolved_rows": [
-                {"session": r.session, "ticker": r.ticker, "action": r.action,
+                {"vendor_session": r.session,
+                 "effective_session": r.effective_session,
+                 "ticker": r.ticker, "action": r.action,
                  "reason": r.reason} for r in self.unresolved],
         }
 
@@ -348,7 +357,14 @@ def load_terminal_events(conn, *, start: str, end: str,
     match no holding, so the action would silently return NOT_HELD and the
     termination would be invisible rather than refused.
     """
+    from sentinel.feed import calendar
     from sentinel.feed.publication import visible_predicate
+
+    # Query raw dates that can snap into the requested effective-session window.
+    # A Saturday acquisition requested for Monday must be discovered on Monday,
+    # not stranded forever because no run processes Saturdays.
+    effective_window = set(calendar.sessions_in_range(start, end))
+    raw_start, raw_end = calendar.action_date_window(start, end)
 
     with conn.cursor() as cur:
         # PUBLISHED ONLY, exactly as the bars are. A corpus that hides the
@@ -359,7 +375,7 @@ def load_terminal_events(conn, *, start: str, end: str,
             "SELECT ticker, session, action, value, contraticker"
             " FROM sentinel_actions a WHERE session BETWEEN %s AND %s"
             f"   AND {visible_predicate('a')}"
-            " ORDER BY session, ticker, action", (start, end))
+            " ORDER BY session, ticker, action", (raw_start, raw_end))
         rows = cur.fetchall()
 
     priced = _corpus_tickers(conn, start, end)
@@ -370,19 +386,24 @@ def load_terminal_events(conn, *, start: str, end: str,
     for ticker, session, action, value, contraticker in rows:
         s, tk = str(session), str(ticker)
         act = (action or "").lower()
-        key = (tk.upper(), s, act)
+        effective = calendar.session_on_or_after(s)
+        # Raw vendor dates are retained for audit, but execution identity is the
+        # effective exchange session.  Saturday and Sunday rows that both snap
+        # to Monday describe one economic terminal event, not two applications.
+        key = (tk.upper(), effective, act)
 
         def _row(disposition, reason="", sid=None):
             return TerminalRow(ticker=tk, session=s, action=act,
                                disposition=disposition, reason=reason,
-                               security_id=sid)
+                               security_id=sid,
+                               effective_session=effective)
 
         if key in seen:
             audit.append(_row("excluded", EXCLUDED_DUPLICATE))
             continue
         seen.add(key)
 
-        if not (start <= s <= end):          # defensive; the SQL already bounds it
+        if effective not in effective_window:
             audit.append(_row("excluded", EXCLUDED_OUTSIDE_WINDOW))
             continue
 
@@ -405,9 +426,9 @@ def load_terminal_events(conn, *, start: str, end: str,
             continue
 
         if resolve_with_reason is not None:
-            sid, why = resolve_with_reason(tk, s)
+            sid, why = resolve_with_reason(tk, effective)
         elif resolve_identity is not None:
-            sid, why = resolve_identity(tk, s), "NO_PERMANENT_ID"
+            sid, why = resolve_identity(tk, effective), "NO_PERMANENT_ID"
         else:
             sid, why = None, "NO_PERMANENT_ID"
 
@@ -417,7 +438,8 @@ def load_terminal_events(conn, *, start: str, end: str,
 
         terms = terminal_from_action(
             {"ticker": ticker, "action": action, "value": value,
-             "contraticker": contraticker}, s, security_id=sid)
+             "contraticker": contraticker, "vendor_session": s}, effective,
+            security_id=sid)
         if terms is None:
             # The identity resolved and the mapping still produced nothing. That
             # is a mapping gap, not an identity one, and it must not be filed as

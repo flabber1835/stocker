@@ -65,6 +65,21 @@ class FeedError(ValueError):
     test can assert the contract fired rather than matching message text."""
 
 
+def validate_session_stream(sessions: Sequence[str], *, context: str) -> None:
+    """Require one strictly increasing, unique market-session stream."""
+    previous: str | None = None
+    for i, session in enumerate(sessions):
+        if not isinstance(session, str) or not session:
+            raise FeedError(
+                f"{context} session at index {i} must be a non-empty string")
+        if previous is not None and session <= previous:
+            shape = "duplicate" if session == previous else "out of order"
+            raise FeedError(
+                f"{context} session stream is not strictly increasing: "
+                f"{session!r} is {shape} after {previous!r}")
+        previous = session
+
+
 @dataclass(frozen=True)
 class VendorBar:
     """One security, one session, EXACTLY as storage has it.
@@ -293,14 +308,40 @@ class Feed:
     def _advance_session(self, session: str) -> int:
         """One global index per market session, assigned in arrival order.
 
-        Idempotent per session so a warmup followed by an advance over the same
-        date cannot double-count and silently make every window look gapped.
+        Duplicate or out-of-order application is refused. Idempotence here
+        would double-apply splits and rolling observations while making a
+        replayed path look legitimate after restart.
         """
         if session in self._seen_sessions:
-            return self._seen_sessions[session]
+            raise FeedError(f"duplicate feed session {session!r}")
+        if self._seen_sessions:
+            previous = max(self._seen_sessions,
+                           key=self._seen_sessions.__getitem__)
+            if session <= previous:
+                raise FeedError(
+                    f"feed session {session!r} is out of order after "
+                    f"{previous!r}")
         self._session_index += 1
         self._seen_sessions[session] = self._session_index
         return self._session_index
+
+    @staticmethod
+    def _validated_bars(session: str,
+                        bars: Iterable[VendorBar]) -> list[VendorBar]:
+        ordered = sorted(bars, key=lambda b: (b.security_id, b.ticker))
+        seen: set[str] = set()
+        for b in ordered:
+            if b.session != session:
+                raise FeedError(
+                    f"bar for {b.security_id!r} is session {b.session!r}, not "
+                    f"{session!r} — a session boundary error here shifts every "
+                    f"signal by a day and nothing downstream can detect it")
+            if b.security_id in seen:
+                raise FeedError(
+                    f"duplicate bar for {b.security_id!r} on {session!r}: the "
+                    f"split factor would be applied twice")
+            seen.add(b.security_id)
+        return ordered
 
     def _series_for(self, bar: VendorBar) -> SecuritySeries:
         s = self.series.get(bar.security_id)
@@ -331,10 +372,12 @@ class Feed:
         point — a separate "restore" implementation is where the split-adjustment
         basis would silently diverge between a fresh run and a resumed one.
         """
+        validate_session_stream(sessions, context="warmup")
         for session in sessions:
+            ordered = self._validated_bars(
+                session, bars_by_session.get(session, ()))
             idx = self._advance_session(session)
-            for b in sorted(bars_by_session.get(session, ()),
-                            key=lambda x: (x.security_id, x.ticker)):
+            for b in ordered:
                 self._series_for(b).append(b, idx)
 
     def advance(self, session: str, bars: Iterable[VendorBar],
@@ -347,20 +390,9 @@ class Feed:
         the same reason `leadership_population` sorts.
         """
         terminal_states = terminal_states or {}
+        ordered = self._validated_bars(session, bars)
         idx = self._advance_session(session)
-        ordered = sorted(bars, key=lambda b: (b.security_id, b.ticker))
-        seen: set[str] = set()
         for b in ordered:
-            if b.session != session:
-                raise FeedError(
-                    f"bar for {b.security_id!r} is session {b.session!r}, not "
-                    f"{session!r} — a session boundary error here shifts every "
-                    f"signal by a day and nothing downstream can detect it")
-            if b.security_id in seen:
-                raise FeedError(
-                    f"duplicate bar for {b.security_id!r} on {session!r}: the "
-                    f"split factor would be applied twice")
-            seen.add(b.security_id)
             self._series_for(b).append(b, idx)
 
         elig_inputs = [
@@ -399,5 +431,5 @@ class Feed:
 __all__ = [
     "Feed", "FeedError", "NormalisedSession", "SecurityMeta", "SecuritySeries",
     "VendorBar", "build_signal_series", "to_daily_bar", "to_eligibility_input",
-    "PriceDomainError",
+    "validate_session_stream", "PriceDomainError",
 ]

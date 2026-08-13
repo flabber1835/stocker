@@ -8,6 +8,8 @@ from decimal import Decimal
 import pytest
 
 from sentinel.binding import AccountBinding, AccountMismatch, AccountNotBound
+from sentinel.controller import frozen_rule
+from sentinel.controller.machine import Controller
 from sentinel.core.decision import (
     DEFENSIVE_SECURITY_ID,
     build_execution_plan,
@@ -67,12 +69,15 @@ def _state(*, episodes=(), pending=(), equity="2000",
             "sessions": [], "session_indices": [], "signal_closes": [],
             "raw_closes": [], "volumes": [],
         }
+    controller = Controller(frozen_rule.load()).initial_state()
+    controller["last_session"] = DECISION_SESSION.isoformat()
+    controller["last_target_core"] = float(exposure)
     return SessionState(
         wealth_core=portfolio.to_dict(),
         pending=[item.to_dict() for item in pending],
         ledger={"events": []}, last_known=dict(last_known or {}),
         feed={"session_index": -1, "seen_sessions": {}, "series": anchors},
-        controller={}, shadow_peak_nav=2_000,
+        controller=controller, shadow_peak_nav=2_000,
         last_processed_session=DECISION_SESSION.isoformat(), data_version=7,
         strategy_identity={
             "strategy": "sentinel-test",
@@ -171,6 +176,14 @@ def test_shadow_target_aggregates_episodes_and_signed_pending_entries():
 
     assert target.shares == {"returning": Decimal("12")}
     assert target.tickers == {"closing": "CLS", "returning": "RET"}
+
+
+def test_decision_refuses_a_noncanonical_controller_snapshot():
+    state = _state(episodes=[_episode(0, "sec-a", "AAA", 10)])
+    state.controller = {}
+
+    with pytest.raises(ValueError, match="controller state schema mismatch"):
+        shadow_target(state)
 
 
 def test_projection_keeps_wealth_core_cash_separate_from_the_bil_sleeve():

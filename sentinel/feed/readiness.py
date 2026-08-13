@@ -41,6 +41,8 @@ one nobody enforces.
 from __future__ import annotations
 
 import datetime as _dt
+import math
+import statistics
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -61,6 +63,18 @@ REQUIRED_SESSIONS = REQUIRED_CLOSES
 #: engine will run, with no margin for a vendor gap.
 PREFERRED_SESSIONS = 252
 
+# Production loads a dated 41-session tail (20-session return plus the dated
+# volatility context and operational margin).  Keep readiness about corpus
+# completeness; the SPY sensor remains isolated to its certified consumer.
+REQUIRED_SPY_SESSIONS = 41
+
+# The newest cross-section is compared with the recent, production-shaped
+# population rather than with an absolute ticker count.  IPOs/delistings make an
+# exact equality wrong; losing more than one fifth of the population in one
+# ingest is not an ordinary market event and must not establish a frontier.
+FRONTIER_POPULATION_LOOKBACK = 20
+MIN_FRONTIER_POPULATION_RATIO = 0.80
+
 # MAX_FRONTIER_AGE_DAYS IS GONE, not retuned. It was 4 calendar days — "a
 # weekend plus a holiday" — and a day budget cannot express "a session I should
 # have": at the width a Thanksgiving weekend needs, a Tuesday frontier read on
@@ -77,6 +91,7 @@ PASS, WARN, FAIL = "PASS", "WARN", "FAIL"
 #: rule is how a report starts describing a corpus the engine cannot load.
 _VISIBLE_BARS = _publication.visible_predicate("b")
 _VISIBLE_ACTIONS = _publication.visible_predicate("a")
+_VISIBLE_UNIVERSE = _publication.visible_predicate("u")
 
 
 def _window_start(frontier: str) -> str:
@@ -272,8 +287,12 @@ def _add_version_checks(conn, r: "Readiness") -> None:
               f"{published.previous_version})", published.version)
         return
 
-    stamped = _q1(conn, "SELECT COUNT(*) FROM sentinel_bars"
-                        " WHERE last_written_run_id IS NOT NULL") or 0
+    stamped = sum(int(_q1(
+        conn, f"SELECT COUNT(*) FROM {table}"
+              " WHERE last_written_run_id IS NOT NULL") or 0)
+        for table in ("sentinel_bars", "sentinel_actions",
+                      "sentinel_spy_total_return", "sentinel_universe",
+                      "sentinel_bar_split_repairs"))
     if stamped:
         # Covered by the coherence FAIL above; named separately so the operator
         # sees the consequence as well as the cause.
@@ -324,6 +343,69 @@ def check_readiness(conn, *, today: Optional[str] = None,
     total = _q1(conn, "SELECT COUNT(DISTINCT session) FROM sentinel_bars b"
                       f" WHERE {_VISIBLE_BARS}")
     r.add("sessions", PASS, f"{total:,} distinct sessions to {frontier}", total)
+
+    # A single valid bar used to establish the newest session and barely moved
+    # the 127-session aggregate domain percentages.  Compare the frontier's
+    # security population with the preceding sessions so a truncated last page
+    # cannot masquerade as a tradeable close.
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT session, COUNT(DISTINCT security_id) FROM sentinel_bars b"
+            " WHERE session <= %s"
+            f"   AND {_VISIBLE_BARS}"
+            " GROUP BY session ORDER BY session DESC LIMIT %s",
+            (frontier, FRONTIER_POPULATION_LOOKBACK + 1))
+        populations = [(str(s), int(n)) for s, n in cur.fetchall()]
+    frontier_population = populations[0][1] if populations else 0
+    baseline_counts = [n for _s, n in populations[1:]]
+    if not baseline_counts:
+        r.add("frontier population", FAIL,
+              "no prior session population exists, so the newest cross-section "
+              "cannot be shown materially complete", frontier_population)
+    else:
+        baseline = float(statistics.median(baseline_counts))
+        minimum = max(1, math.ceil(baseline * MIN_FRONTIER_POPULATION_RATIO))
+        value = {"frontier": frontier_population, "recent_median": baseline,
+                 "minimum": minimum, "lookback": len(baseline_counts)}
+        if frontier_population < minimum:
+            r.add("frontier population", FAIL,
+                  f"only {frontier_population:,} securities are present on "
+                  f"{frontier}; recent median is {baseline:,.1f} and the "
+                  f"material-completeness floor is {minimum:,} "
+                  f"({MIN_FRONTIER_POPULATION_RATIO:.0%}). A partial newest "
+                  f"page cannot establish a tradeable frontier.", value)
+        else:
+            r.add("frontier population", PASS,
+                  f"{frontier_population:,} securities on {frontier} versus "
+                  f"recent median {baseline:,.1f}", value)
+
+    expected_spy = _cal.previous_sessions(frontier, REQUIRED_SPY_SESSIONS)
+    from sentinel.feed.store import published_spy_total_return
+
+    spy_rows = [(session, float(close)) for session, close in
+                published_spy_total_return(conn, expected_spy[0], frontier)]
+    actual_spy = [session for session, close in spy_rows
+                  if math.isfinite(close) and close > 0]
+    bad_spy = [session for session, close in spy_rows
+               if not math.isfinite(close) or close <= 0]
+    missing_spy = sorted(set(expected_spy) - set(actual_spy))
+    unexpected_spy = sorted(set(actual_spy) - set(expected_spy))
+    benchmark_value = {"required": REQUIRED_SPY_SESSIONS,
+                       "present": len(actual_spy),
+                       "missing": missing_spy,
+                       "unexpected": unexpected_spy,
+                       "invalid": bad_spy}
+    if actual_spy != expected_spy or bad_spy:
+        r.add("frontier benchmark", FAIL,
+              f"frontier {frontier} requires the exact published "
+              f"{REQUIRED_SPY_SESSIONS}-session SPY total-return tail; "
+              f"missing={missing_spy}, unexpected={unexpected_spy}, "
+              f"invalid={bad_spy}",
+              benchmark_value)
+    else:
+        r.add("frontier benchmark", PASS,
+              f"SPY total-return tail is complete through {frontier}",
+              benchmark_value)
 
     # ── continuity, against an INDEPENDENT calendar ──────────────────────────
     # THE DEFECT THIS REPLACES (measured 2026-08-09): this check used to select
@@ -477,7 +559,9 @@ def check_readiness(conn, *, today: Optional[str] = None,
     securities = _q1(conn, "SELECT COUNT(DISTINCT security_id)"
                            " FROM sentinel_bars b WHERE session >= %s"
                            f"   AND {_VISIBLE_BARS}", (window_start,))
-    listed = _q1(conn, "SELECT COUNT(DISTINCT permaticker) FROM sentinel_universe")
+    listed = _q1(conn, "SELECT COUNT(DISTINCT permaticker)"
+                       " FROM sentinel_universe u"
+                       f" WHERE {_VISIBLE_UNIVERSE}")
     if not listed:
         r.add("identity", FAIL,
               "sentinel_universe is EMPTY, so every bar was keyed on its ticker "
@@ -491,8 +575,9 @@ def check_readiness(conn, *, today: Optional[str] = None,
     # ── issuer keys ──────────────────────────────────────────────────────────
     # Without these the GOOG/GOOGL class of defect is not merely present, it is
     # UNDETECTABLE: the duplicate-issuer invariant has nothing to compare.
-    with_related = _q1(conn, "SELECT COUNT(*) FROM sentinel_universe"
-                             " WHERE related_tickers IS NOT NULL") or 0
+    with_related = _q1(conn, "SELECT COUNT(*) FROM sentinel_universe u"
+                             " WHERE related_tickers IS NOT NULL"
+                             f" AND {_VISIBLE_UNIVERSE}") or 0
     if listed and with_related == 0:
         r.add("issuer keys", FAIL,
               "no security carries related_tickers, so every issuer key falls "

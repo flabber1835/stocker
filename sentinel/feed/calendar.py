@@ -51,6 +51,16 @@ from typing import Iterable, Optional, Sequence
 #: two cannot drift into disagreeing about whether a day existed.
 EXCHANGE = "XNYS"
 
+# Explicit rather than exchange_calendars' rolling, wall-clock-relative default.
+# The lower bound covers Sentinel's supported seed start; the upper bound is a
+# fixed operational horizon so the same package build exposes the same session
+# axis regardless of the year in which a process starts.
+# Construction begins before the supported seed boundary.  exchange_calendars
+# treats a closed bound (New Year's Day 1998) as before its first session and
+# rejects an otherwise valid seed request starting on that holiday.
+CALENDAR_START = "1997-01-01"
+CALENDAR_END = "2100-12-31"
+
 
 class CalendarUnavailable(RuntimeError):
     """The session calendar could not be loaded.
@@ -73,7 +83,8 @@ def _calendar():
             "be verified. A corpus with a hole in it is indistinguishable from "
             "a complete one without it."
         ) from exc
-    return xcals.get_calendar(EXCHANGE)
+    return xcals.get_calendar(
+        EXCHANGE, start=CALENDAR_START, end=CALENDAR_END)
 
 
 def calendar_version() -> str:
@@ -93,9 +104,44 @@ def sessions_in_range(start: date | str, end: date | str) -> list[str]:
     """Every exchange session in [start, end], inclusive, as ISO dates."""
     import pandas as pd                      # noqa: PLC0415 — with the calendar
 
+    _validate_range(start, end)
     s = _calendar().sessions_in_range(pd.Timestamp(str(start)),
                                       pd.Timestamp(str(end)))
     return [d.date().isoformat() for d in s]
+
+
+def session_on_or_after(day: date | str) -> str:
+    """The first XNYS session on or after a raw vendor calendar date."""
+    import pandas as pd                      # noqa: PLC0415
+
+    return _calendar().date_to_session(
+        pd.Timestamp(str(day)), direction="next").date().isoformat()
+
+
+def action_date_window(start: date | str, end: date | str) -> tuple[str, str]:
+    """Raw vendor dates whose effective sessions can fall in ``[start, end]``.
+
+    For the first requested exchange session, every raw date after the preceding
+    exchange session can snap onto it.  This derives the boundary from XNYS
+    instead of guessing a calendar-day lookback.
+    """
+    _validate_range(start, end)
+    effective = sessions_in_range(start, end)
+    if not effective:
+        return str(start), str(end)
+    prior = previous_sessions(effective[0], 2)
+    if len(prior) < 2:
+        raw_start = CALENDAR_START
+    else:
+        raw_start = (_dt.date.fromisoformat(prior[-2])
+                     + _dt.timedelta(days=1)).isoformat()
+    return raw_start, str(end)
+
+
+def _validate_range(start: date | str, end: date | str) -> None:
+    lo, hi = date.fromisoformat(str(start)), date.fromisoformat(str(end))
+    if lo > hi:
+        raise ValueError(f"reversed date range: {lo} is after {hi}")
 
 
 def previous_sessions(end: date | str, count: int) -> list[str]:
@@ -377,8 +423,9 @@ def unexpected_sessions(expected: Sequence[str], actual: Iterable[str]) -> list[
     return sorted({str(a) for a in actual} - want)
 
 
-__all__ = ["CalendarUnavailable", "EXCHANGE", "EXCHANGE_TZ", "Freshness",
+__all__ = ["CALENDAR_END", "CALENDAR_START", "CalendarUnavailable", "EXCHANGE",
+           "EXCHANGE_TZ", "Freshness", "action_date_window",
            "SESSION_CLOSE_HOUR_ET", "calendar_version", "freshness",
            "latest_closed_session", "missing_sessions", "next_session",
-           "previous_sessions", "session_window",
+           "previous_sessions", "session_on_or_after", "session_window",
            "sessions_in_range", "unexpected_sessions"]

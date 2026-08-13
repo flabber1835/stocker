@@ -23,6 +23,7 @@ unasserted: the cost of getting it wrong is a destroyed corpus.
 from __future__ import annotations
 
 import json
+import importlib.util
 import os
 import subprocess
 import sys
@@ -35,6 +36,15 @@ REPO = Path(os.environ.get("SENTINEL_REPO_ROOT") or ROOT)
 SCRIPT = REPO / "scripts" / "sentinel-certify.sh"
 LOCKER = REPO / "scripts" / "sentinel-lock.sh"
 MANIFEST = REPO / "scripts" / "sentinel_manifest.py"
+
+
+def manifest_module():
+    spec = importlib.util.spec_from_file_location(
+        "sentinel_manifest_under_test", MANIFEST)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def text() -> str:
@@ -131,13 +141,11 @@ class TestTheRebuildProvesTheLock:
         edited to match a rebuild records a wish, not what was installed."""
         assert "not edit the lock to agree" in text().lower()
 
-    def test_the_locker_does_not_CLAIM_hashes_it_does_not_produce(self):
-        """`--hashes` said in its header that it adds per-artefact digests and
-        the implementation explicitly does not. Honest at runtime is not enough
-        when the header is what someone reads before trusting the lock."""
+    def test_the_locker_generates_and_checks_artifact_hashes(self):
         body = LOCKER.read_text()
-        assert "PER-ARTEFACT HASHES ARE NOT IMPLEMENTED" in body
-        assert "generate-hashes" in body
+        assert "--generate-hashes" in body
+        assert "--hash=sha256:" in body
+        assert "--no-emit-trusted-host" in body
 
 
 # ── 3. the artefact is NAMED ─────────────────────────────────────────────────
@@ -165,7 +173,7 @@ class TestTheManifestNamesTheBuiltIMAGE:
         "identity_hash", "distributions_hash", "requirements_lock_sha256",
         "sentinel_source_hash", "wealth_core_source_hash", "corpus_hash",
         "book_artifact_sha256", "rejection_audit_sha256", "rehearsal_hashes",
-        "postgres_image", "sentinel_test_image"])
+        "postgres_image", "bt_data_image", "sentinel_test_image"])
     def test_every_required_field_is_present(self, field):
         assert field in MANIFEST.read_text()
 
@@ -190,6 +198,8 @@ class TestTheManifestNamesTheBuiltIMAGE:
         assert m["requirements_lock_sha256"] == "locksha"
         assert m["wealth_core_source_hash"] == "wh"
         assert "sentinel_runtime_image" in m
+        assert m["schema"] == "sentinel.certification_manifest/2"
+        assert m["lifecycle"] == "FROZEN"
 
     def test_the_unfilled_fields_are_NULL_not_absent(self, tmp_path):
         """So an incomplete manifest is visibly incomplete rather than a
@@ -204,8 +214,200 @@ class TestTheManifestNamesTheBuiltIMAGE:
         subprocess.run([sys.executable, str(MANIFEST), str(art), "W", "l"],
                        capture_output=True, text=True, cwd=str(ROOT))
         m = json.loads((art / "manifest-W.json").read_text())
-        for k in ("corpus_hash", "book_artifact_sha256", "rehearsal_hashes"):
+        for k in ("corpus_hash", "parity_generations",
+                  *manifest_module().COMPLETION_FIELDS,
+                  "last_finalization_attempt"):
             assert k in m and m[k] is None
+
+
+class TestSourceBytesBindTheImage:
+
+    def test_operator_activation_runbook_is_a_certification_input(self):
+        module = manifest_module()
+        sources = {Path(source).relative_to(ROOT).as_posix()
+                   for source, _logical in
+                   module._certification_input_spec(ROOT)}
+        assert "docs/sentinel-paper-activation.md" in sources
+
+    def test_overlay_hash_matches_docker_copy_semantics(self, tmp_path):
+        module = manifest_module()
+        base = tmp_path / "base"
+        overlay = tmp_path / "overlay"
+        (base / "live").mkdir(parents=True)
+        overlay.mkdir()
+        (base / "live" / "reader.py").write_text("old\n")
+        (overlay / "reader.py").write_text("new\n")
+        spec = [(base, ""), (overlay, "live")]
+        digest = module.bundle_source_hash(spec, python_only=True)
+
+        (base / "live" / "reader.py").write_text("shadowed bytes\n")
+        assert module.bundle_source_hash(spec, python_only=True) == digest
+        (overlay / "reader.py").write_text("changed final bytes\n")
+        assert module.bundle_source_hash(spec, python_only=True) != digest
+
+    def test_matching_revision_label_does_not_excuse_dirty_image_bytes(
+            self, tmp_path, monkeypatch, capsys):
+        module = manifest_module()
+        commit = "a" * 40
+        images = {
+            key: {"ref": key, "id": "sha256:" + "b" * 64,
+                  "source_revision": commit, "repo_digests": []}
+            for key in module.REQUIRED_IMAGES
+        }
+        record = {
+            "git_commit": commit,
+            "git_tree_clean": True,
+            "git_dirty_paths": [],
+            **images,
+            "checkout_source_hashes": {"sentinel": "clean"},
+            "image_source_hashes": {"sentinel": "dirty"},
+            "distributions_hash": "d" * 64,
+            "requirements_lock_sha256": "l" * 64,
+        }
+        monkeypatch.setattr(module, "build", lambda *a, **k: record)
+        rc = module.main([
+            str(tmp_path), "W", "lock", "--require-images"])
+        assert rc == 1
+        assert "source differs between the clean checkout" in capsys.readouterr().out
+
+
+class TestCertificationManifestLifecycle:
+
+    @staticmethod
+    def ready(module):
+        return {
+            "lifecycle": "READY_FOR_REHEARSAL",
+            "verdict": None,
+            "failures": [],
+            "last_finalization_attempt": None,
+            **{key: "stale" for key in module.COMPLETION_FIELDS},
+        }
+
+    def test_a_failed_attempt_retains_evidence_but_not_completion(self):
+        module = manifest_module()
+        manifest = self.ready(module)
+        module.begin_finalization(manifest)
+        assert manifest["lifecycle"] == "FINALIZING"
+        assert all(manifest[key] is None for key in module.COMPLETION_FIELDS)
+
+        attempt = {key: f"attempt-{key}"
+                   for key in module.COMPLETION_FIELDS}
+        module.finish_finalization(manifest, attempt, ["generation moved"])
+        assert manifest["lifecycle"] == "BLOCKED"
+        assert manifest["verdict"] == "BLOCKED"
+        assert all(manifest[key] is None for key in module.COMPLETION_FIELDS)
+        assert manifest["last_finalization_attempt"][
+            "book_artifact_sha256"] == "attempt-book_artifact_sha256"
+        assert manifest["failures"] == ["generation moved"]
+
+        module.block_finalization(manifest, ["finalizer exited non-zero"])
+        assert manifest["failures"] == [
+            "generation moved", "finalizer exited non-zero"]
+        assert manifest["last_finalization_attempt"][
+            "book_artifact_sha256"] == "attempt-book_artifact_sha256"
+
+    def test_interrupted_finalizing_state_is_restartable(self):
+        module = manifest_module()
+        manifest = self.ready(module)
+        prior = {"book_artifact_sha256": "prior", "failures": ["prior"]}
+        manifest["lifecycle"] = "FINALIZING"
+        manifest["last_finalization_attempt"] = prior
+        module.begin_finalization(manifest)
+        assert manifest["lifecycle"] == "FINALIZING"
+        assert manifest["last_finalization_attempt"] == prior
+        assert all(manifest[key] is None for key in module.COMPLETION_FIELDS)
+
+        attempt = {key: f"restart-{key}"
+                   for key in module.COMPLETION_FIELDS}
+        module.finish_finalization(manifest, attempt, [])
+        assert manifest["lifecycle"] == "FINALIZED"
+        assert manifest["last_finalization_attempt"][
+            "book_artifact_sha256"] == "restart-book_artifact_sha256"
+        assert manifest["failures"] == []
+
+    def test_only_a_gate_clean_attempt_publishes_completion(self):
+        module = manifest_module()
+        manifest = self.ready(module)
+        module.begin_finalization(manifest)
+        attempt = {key: f"attempt-{key}"
+                   for key in module.COMPLETION_FIELDS}
+        module.finish_finalization(manifest, attempt, [])
+        assert manifest["lifecycle"] == "FINALIZED"
+        assert manifest["verdict"] == "PASS"
+        assert manifest["failures"] == []
+        assert all(manifest[key] == attempt[key]
+                   for key in module.COMPLETION_FIELDS)
+
+    def test_missing_settlement_evidence_cannot_finalize(self):
+        module = manifest_module()
+        manifest = self.ready(module)
+        module.begin_finalization(manifest)
+        attempt = {key: f"attempt-{key}"
+                   for key in module.COMPLETION_FIELDS}
+        attempt["settlement_counters"] = None
+        module.finish_finalization(manifest, attempt, [])
+        assert manifest["lifecycle"] == "BLOCKED"
+        assert manifest["settlement_counters"] is None
+        assert "attempted settlement_counters is null" in manifest["failures"]
+
+    def test_shell_exit_is_derived_from_the_authoritative_lifecycle(self):
+        body = (REPO / "scripts" /
+                "sentinel-finalize-rehearsal.sh").read_text()
+        assert 'authoritative_failures = list(m.get("failures") or [])' in body
+        assert 'm.get("lifecycle") == "FINALIZED"' in body
+        assert 'm.get("verdict") == "PASS"' in body
+        assert "sys.exit(1 if failures else 0)" not in body
+
+    @pytest.mark.parametrize("mutation", [
+        "run_generation", "source_mode", "run_status", "sentinel_generation",
+        "identity", "corpus_hash"])
+    def test_exact_parity_and_run_provenance_are_required(self, mutation):
+        module = manifest_module()
+        manifest = {
+            "identity_hash": "identity-1",
+            "corpus_hash": "corpus-1",
+            "parity_generations": {
+                "sentinel_data_version": "sentinel-g1",
+                "canonical_data_version": "bt-g1",
+                "canonical_source_mode": "real",
+            },
+        }
+        final_identity = {
+            "identity_hash": "identity-1",
+            "corpus": {"data_version": "sentinel-g1",
+                       "corpus_hash": "corpus-1"},
+        }
+        summary = {"provenance": {
+            "bt_data_version": "bt-g1",
+            "bt_data_source_mode": "real",
+            "bt_data_status": "READY",
+        }}
+        targets = {
+            "run_generation": (summary["provenance"], "bt_data_version"),
+            "source_mode": (summary["provenance"], "bt_data_source_mode"),
+            "run_status": (summary["provenance"], "bt_data_status"),
+            "sentinel_generation": (final_identity["corpus"], "data_version"),
+            "identity": (final_identity, "identity_hash"),
+            "corpus_hash": (final_identity["corpus"], "corpus_hash"),
+        }
+        target, key = targets[mutation]
+        target[key] = "different"
+        _, failures = module.finalization_provenance_failures(
+            manifest, final_identity, summary)
+        assert failures, mutation
+
+
+class TestParityAuthoritiesAreExplicit:
+
+    def test_certification_has_no_known_password_dsn_fallback(self):
+        body = text()
+        assert '[ -n "${SENTINEL_DATABASE_URL:-}" ] || fail' in body
+        assert '[ -n "${BT_DATABASE_URL:-}" ] || fail' in body
+        parity = body[body.index("Both authorities are explicit"):]
+        assert "postgresql://sentinel:sentinel@" not in parity
+        assert "postgresql://btuser:btpass@" not in parity
+        assert '-e SENTINEL_DATABASE_URL="${SENTINEL_DATABASE_URL}"' in parity
+        assert '-e BT_DATABASE_URL="${BT_DATABASE_URL}"' in parity
 
 
 # ── 4. evidence is retained where it can be found ────────────────────────────
@@ -424,19 +626,12 @@ class TestTheFinalizerClosesTheLoop:
             assert claim in body, claim
         assert "mode is" in body and "not 'chain_rehearsal'" in body
 
-    def test_BOTH_entry_paths_reach_the_validator(self):
-        """`--from-json` used to skip the authentication entirely, so a
-        hand-written file with the right book window bypassed every check the
-        `--run-id` path had just gained."""
+    def test_only_a_fresh_database_read_can_finalize(self):
         body = self.FINAL.read_text()
-        code = [l for l in body.splitlines()
-                if l.strip() and not l.lstrip().startswith("#")]
-        auth = [i for i, l in enumerate(code) if "authenticate" in l]
-        assert len(auth) == 1, "the validator is invoked more than once"
-        branch_end = next(i for i, l in enumerate(code) if l.strip() == "fi")
-        assert auth[0] > branch_end, (
-            "the validator runs inside the --run-id branch, so --from-json "
-            "still bypasses it")
+        assert "sentinel_rehearsal.py finalize" in body
+        assert "--run-id" in body and "BT_DATABASE_URL" in body
+        assert "--from-json" not in body
+        assert "sentinel_rehearsal.py authenticate" not in body
 
     def test_it_records_the_SPEC_the_run_actually_used(self):
         assert "rehearsal_spec" in self.FINAL.read_text()
@@ -477,16 +672,24 @@ class TestTheFinalizerGATESRatherThanNarrates:
 
     def test_the_evidence_is_STILL_written_when_blocked(self):
         body = self.FINAL.read_text()
-        assert body.index("mp.write_text") < body.index("failures = [])".rstrip(")")), (
-            "the manifest must be written before the gate runs, so a blocked "
-            "run still leaves the operator something to read")
+        assert "last_finalization_attempt" in MANIFEST.read_text()
+        assert body.index("finish_finalization") < body.rindex("mp.write_text"), (
+            "the blocked/finalized lifecycle result is not persisted")
 
     def test_a_nonzero_RESIDUAL_blocks(self):
         assert "not 0 — at" in self.FINAL.read_text()
 
     def test_the_failure_message_is_BLOCKED_not_finalized(self):
         body = self.FINAL.read_text()
-        assert "is not a certified rehearsal" in body
+        assert "the certification conditions were NOT met" in body
+        assert "attempted evidence and failure list are retained" in body
+
+    def test_the_exact_parity_generation_and_source_mode_are_gates(self):
+        body = MANIFEST.read_text()
+        for field in ("sentinel_data_version", "canonical_data_version",
+                      "canonical_source_mode", "bt_data_version",
+                      "bt_data_source_mode", "bt_data_status"):
+            assert field in body
 
 
 class TestTheLockScriptPointsAtTheREBUILD:
@@ -534,15 +737,15 @@ class TestTheBaseIsRebuiltBeforeTheEngine:
     def test_the_base_is_built_UNCONDITIONALLY(self):
         step1 = self.build_step()
         assert "-t stocker-base:latest -f Dockerfile.base" in step1
-        # No `if` guarding it — a conditional rebuild is the trap, not the fix.
-        for line in step1.splitlines():
-            if "Dockerfile.base" in line and not line.lstrip().startswith("#"):
-                assert line.strip().startswith("docker build"), line
+        command = step1[step1.rindex("docker build", 0,
+                                     step1.index("Dockerfile.base")):
+                        step1.index("Dockerfile.base")]
+        assert "if " not in command
 
     def test_it_is_built_BEFORE_bt_engine(self):
         step1 = self.build_step()
         assert step1.index("-t stocker-base:latest -f Dockerfile.base") \
-            < step1.index("docker-compose.backtest.yml build bt-engine")
+            < step1.index("docker-compose.backtest.yml build")
 
     def test_it_is_a_BUILD_and_starts_nothing(self):
         """Stocker is retired. A certification step may rebuild the image that
@@ -555,8 +758,25 @@ class TestTheBaseIsRebuiltBeforeTheEngine:
                 assert " up" not in line, line
 
     def test_bt_engine_is_built_before_anything_is_destroyed(self):
-        assert line_of("docker-compose.backtest.yml build bt-engine") \
+        assert line_of("bt-data bt-engine") \
             < line_of("TRUNCATE TABLE")
+
+    def test_every_source_image_is_labeled_with_the_frozen_commit(self):
+        certify = text()
+        assert 'SOURCE_GIT_SHA="$(git rev-parse HEAD)"' in certify
+        assert certify.count("--build-arg SOURCE_GIT_SHA") >= 3
+        for path in ("Dockerfile.sentinel", "Dockerfile.base",
+                     "Dockerfile.sentinel-test",
+                     "services/bt-engine/Dockerfile",
+                     "services/bt-data/Dockerfile"):
+            body = (REPO / path).read_text()
+            assert "org.opencontainers.image.revision" in body, path
+
+    def test_verify_only_refuses_a_stale_source_revision(self):
+        body = MANIFEST.read_text()
+        assert "SOURCE_IMAGES" in body
+        assert 'revision != m["git_commit"]' in body
+        assert "was built from" in body
 
 
 class TestTheEngineWealthCoreIsComparedBeforeTruncate:
@@ -822,16 +1042,17 @@ class TestTheResourceMeasurementHarness:
                           if l.strip() and not l.strip().startswith("#"))
         assert "run -T --name" in code
 
-    def test_the_catchup_GAP_is_recorded_rather_than_papered_over(self):
-        """sentinel/core/catchup.py is built and tested and has no CLI verb, so
-        #15 is short one phase. The harness must say so — substituting another
-        phase and labelling it catch-up would make the artefact a lie."""
+    def test_the_production_catchup_entry_point_is_measurable(self):
+        """Measure the real transactional preparation command, not a proxy."""
         import re
         verbs = set(re.findall(r'sub\.add_parser\(\s*"([a-z-]+)"',
                                (REPO / "sentinel" / "__main__.py").read_text()))
         if "catch-up" in verbs or "catchup" in verbs:
-            return                       # wired since; this guard is done
-        assert "NOT MEASURABLE TODAY" in self.body()
+            return
+        assert "prepare-paper-plan" in verbs
+        body = self.body()
+        assert "prepare-paper-plan" in body
+        assert "production catch-up entry point" in body
 
     # ── the evidence must not be broader than what was measured ─────────────
 

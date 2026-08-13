@@ -37,6 +37,13 @@ docs/
 !docs/sentinel-breadth-reconstruction/
 !docs/sentinel-reference-implementation/
 
+# Certification-input records inspected and hashed from the clean test image.
+# Keep these exceptions narrow: the rest of docs/ is human evidence and does
+# not belong in an image build context.
+!docs/main-review-remediation.md
+!docs/sentinel-deployment.md
+!docs/sentinel-paper-activation.md
+
 # Runtime artifacts (written at runtime, not part of any build)
 artifacts/
 

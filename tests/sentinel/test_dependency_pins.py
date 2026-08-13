@@ -39,6 +39,8 @@ from sentinel import identity as ident  # noqa: E402
 
 DOCKERFILE = REPO / "Dockerfile.sentinel"
 REQUIREMENTS = REPO / "sentinel" / "requirements.txt"
+TEST_DOCKERFILE = REPO / "Dockerfile.sentinel-test"
+TEST_REQUIREMENTS_LOCK = ROOT / "tests" / "requirements.lock"
 
 
 class TestEveryDependencyIsPinnedExactly:
@@ -69,11 +71,12 @@ class TestEveryDependencyIsPinnedExactly:
         """A pin file the image does not read is a document, not a control."""
         text = DOCKERFILE.read_text()
         assert "sentinel/requirements" in text
-        assert "-r /tmp/req/requirements.txt" in text, (
-            "the declared pins are not installed at all")
         assert "-r /tmp/req/requirements.lock" in text, (
-            "the RESOLVED CLOSURE is never preferred, so a rebuild re-resolves "
+            "the RESOLVED CLOSURE is never installed, so a rebuild re-resolves "
             "the transitive set and is not reproducible")
+        assert "--require-hashes" in text
+        assert "--only-binary=:all:" in text
+        assert "PIP_TRUSTED_HOST" not in text
         assert not re.search(r'pip install[^\n]*"[a-zA-Z_\-]+>=', text), (
             "a package is still installed with a floating version on the "
             "command line, bypassing the pin file entirely")
@@ -95,6 +98,70 @@ class TestTheBaseImageIsPinnedByDigest:
         drifts from the Dockerfile, the record describes an image that was never
         built and the whole record becomes untrustworthy."""
         assert ident.CERTIFIED_BASE_DIGEST in DOCKERFILE.read_text()
+
+
+class TestTheCertificationTestToolsAreArtifactLocked:
+    EXPECTED = {
+        "greenlet": "3.5.5",
+        "iniconfig": "2.1.0",
+        "packaging": "25.0",
+        "pluggy": "1.6.0",
+        "pygments": "2.19.2",
+        "pytest": "8.4.2",
+        "pytest-asyncio": "1.2.0",
+        "sqlalchemy": "2.0.44",
+        "typing-extensions": "4.16.0",
+    }
+
+    @staticmethod
+    def _blocks() -> dict[str, tuple[str, str]]:
+        lines = TEST_REQUIREMENTS_LOCK.read_text().splitlines()
+        starts = [i for i, line in enumerate(lines)
+                  if "==" in line and not line.lstrip().startswith("#")]
+        blocks = {}
+        for pos, start in enumerate(starts):
+            end = starts[pos + 1] if pos + 1 < len(starts) else len(lines)
+            pin = lines[start].strip().rstrip(" \\")
+            name, version = pin.split("==", 1)
+            blocks[name.lower().replace("_", "-")] = (
+                version, "\n".join(lines[start:end]))
+        return blocks
+
+    def test_the_delta_lock_is_complete_exact_and_hashed(self):
+        blocks = self._blocks()
+        assert {name: version for name, (version, _) in blocks.items()} == self.EXPECTED
+        for name, (_, block) in blocks.items():
+            assert "--hash=sha256:" in block, name
+
+    @staticmethod
+    def _assert_locked_install(text: str) -> None:
+        assert "COPY tests/requirements.lock /tmp/test-req/requirements.lock" in text
+        install = next(line for line in text.splitlines()
+                       if "pip install" in line and "/tmp/test-req/requirements.lock" in line)
+        for flag in ("--require-hashes", "--only-binary=:all:", "--no-deps"):
+            assert flag in install
+        assert "pip check" in text
+        assert not re.search(r"pip install[^\n]*(pytest|SQLAlchemy)==", text, re.I)
+
+    def test_the_test_image_installs_only_the_reviewed_delta_lock(self):
+        self._assert_locked_install(
+            TEST_DOCKERFILE.read_text().replace("\\\n", " "))
+
+    def test_the_async_broker_suite_has_its_reviewed_plugin(self):
+        broker_suite = (ROOT / "tests" / "broker" / "test_symbology.py").read_text()
+        assert "@pytest.mark.asyncio" in broker_suite
+        assert self._blocks()["pytest-asyncio"][0] == "1.2.0"
+
+    @pytest.mark.parametrize("removed", [
+        "--require-hashes",
+        "--only-binary=:all:",
+        "--no-deps",
+        "pip check",
+    ])
+    def test_the_guard_fails_when_a_lock_control_is_removed(self, removed):
+        text = TEST_DOCKERFILE.read_text().replace("\\\n", " ")
+        with pytest.raises(AssertionError):
+            self._assert_locked_install(text.replace(removed, ""))
 
 
 class TestTheRecordDescribesTHISEnvironment:
@@ -221,7 +288,18 @@ class TestTheWHOLECLOSUREIsFingerprinted:
         for line in lock.read_text().splitlines():
             if "==" in line and not line.strip().startswith("#"):
                 n, _, v = line.strip().partition("==")
-                locked[n.lower().replace("_", "-")] = v
+                locked[n.lower().replace("_", "-")] = v.rstrip(" \\")
         for name, version in ident.pinned_requirements().items():
             assert locked.get(name) == version, (
                 f"{name} is pinned {version} and locked {locked.get(name)}")
+
+    def test_every_locked_distribution_has_an_artifact_hash(self):
+        lock = REPO / "sentinel" / "requirements.lock"
+        lines = lock.read_text().splitlines()
+        starts = [i for i, line in enumerate(lines)
+                  if "==" in line and not line.lstrip().startswith("#")]
+        assert starts
+        for pos, start in enumerate(starts):
+            end = starts[pos + 1] if pos + 1 < len(starts) else len(lines)
+            block = "\n".join(lines[start:end])
+            assert "--hash=sha256:" in block, lines[start]

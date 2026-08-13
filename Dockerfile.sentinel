@@ -23,10 +23,12 @@
 # loudly instead of quietly producing a second answer.
 FROM python:3.12-slim@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36
 
+ARG SOURCE_GIT_SHA=unknown
+LABEL org.opencontainers.image.revision=${SOURCE_GIT_SHA}
+
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_TRUSTED_HOST="pypi.org files.pythonhosted.org pypi.python.org"
+    PYTHONDONTWRITEBYTECODE=1
 
 RUN sed -i 's/MinProtocol = TLSv1.2/MinProtocol = TLSv1.2\nMaxProtocol = TLSv1.2/' \
     /etc/ssl/openssl.cnf
@@ -40,31 +42,16 @@ RUN sed -i 's/MinProtocol = TLSv1.2/MinProtocol = TLSv1.2\nMaxProtocol = TLSv1.2
 # appearing anywhere in the identity record that claims to name the
 # environment. They are pinned in requirements.txt for exactly that reason.
 #
-# THE LOCK WINS WHEN IT EXISTS. `requirements.txt` pins the DIRECT
-# dependencies; pip resolves everything underneath them freely, so two builds a
-# month apart can declare the same versions and install different closures.
-# `sentinel/requirements.lock` is that closure read back OUT of a real build by
-# `scripts/sentinel-lock.sh`. It does not exist until the first Python 3.12.13
-# build has happened — which is why this falls back rather than requiring it,
-# and why the fallback prints loudly instead of passing quietly.
-#
-# `identity` fingerprints the installed set either way, so an unlocked build
-# can never be MISTAKEN for a locked one; the lock is what makes it
-# REPRODUCIBLE.
-COPY sentinel/requirements*.* /tmp/req/
-RUN if [ -f /tmp/req/requirements.lock ]; then \
-        echo "installing the RESOLVED CLOSURE (requirements.lock)"; \
-        pip install --no-cache-dir -r /tmp/req/requirements.lock; \
-    else \
-        echo "*** NO requirements.lock — installing from requirements.txt and"; \
-        echo "*** letting pip resolve the transitive closure. This build is"; \
-        echo "*** NOT reproducible. Run scripts/sentinel-lock.sh against it,"; \
-        echo "*** commit the lock, and rebuild before certifying anything."; \
-        pip install --no-cache-dir -r /tmp/req/requirements.txt; \
-    fi
+# THE HASH LOCK IS MANDATORY. `requirements.txt` records direct choices and the
+# generated lock records the complete resolved closure plus accepted artifact
+# digests. There is no unlocked fallback: a production image whose dependency
+# bytes cannot be authenticated is not a certifiable image.
+COPY sentinel/requirements.txt sentinel/requirements.lock /tmp/req/
+RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
+        -r /tmp/req/requirements.lock
 
 COPY shared/ /shared/
-RUN pip install --no-cache-dir --no-deps /shared/
+RUN pip install --no-cache-dir --no-build-isolation --no-deps /shared/
 
 # The Postgres driver. NOT a transitive dependency of `shared/`, which declares
 # only pydantic and pyyaml — every Stocker service installed its own driver, so

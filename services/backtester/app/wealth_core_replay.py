@@ -129,10 +129,11 @@ _COVERAGE_SQL = text("""
 # a single continuous security, and momentum was computed straight across the
 # discontinuity between two different businesses.
 #
-# The LATEST non-null label per security, never "newest snapshot only": a fresh
-# universe snapshot writes NULLs that a later fetch backfills, so keying on the
-# newest snapshot goes blind the first time one lands. Same rule as the live
-# sector readers, for the same reason.
+# The latest non-null label per security AS OF the replay end, never "newest
+# snapshot only": a fresh universe snapshot writes NULLs that a later fetch
+# backfills, so keying on the newest snapshot goes blind the first time one
+# lands. Rows learned after the replay boundary are future information and must
+# not change a historical result.
 _META_SQL = text("""
     SELECT permaticker,
            (ARRAY_REMOVE(ARRAY_AGG(ticker ORDER BY snapshot_date DESC), NULL))[1]
@@ -144,6 +145,7 @@ _META_SQL = text("""
            MIN(first_price_date) AS first_price_date
       FROM bt_universe
      WHERE permaticker IS NOT NULL
+       AND snapshot_date <= :as_of
      GROUP BY permaticker
 """)
 
@@ -155,6 +157,7 @@ _IDENTITY_SQL = text("""
            MAX(last_price_date)  AS last_price_date
       FROM bt_universe
      WHERE permaticker IS NOT NULL AND ticker IS NOT NULL
+       AND snapshot_date <= :as_of
      GROUP BY permaticker, ticker
 """)
 
@@ -796,21 +799,23 @@ class IdentityResolver:
         return None
 
 
-def load_identity(conn) -> IdentityResolver:
-    return IdentityResolver(conn.execute(_IDENTITY_SQL).mappings())
+def load_identity(conn, *, as_of: str) -> IdentityResolver:
+    """Point-in-time identity rows available by the replay boundary."""
+    return IdentityResolver(
+        conn.execute(_IDENTITY_SQL, {"as_of": as_of}).mappings())
 
 
-def load_meta(conn) -> dict[str, SecurityMeta]:
+def load_meta(conn, *, as_of: str) -> dict[str, SecurityMeta]:
     """One SecurityMeta per PERMANENT security, keyed on `P:<permaticker>`.
 
-    `ticker` here is the security's LATEST symbol — a display label and the
-    input to the certified issuer-key construction, which is transcribed and
-    must not change. Keying meta per permanent security is what makes that key
-    stable: one row per company means the issuer key cannot move when the symbol
-    does, which it did when meta was keyed on the ticker.
+    `ticker` here is the security's latest symbol KNOWN BY `as_of` — a display
+    label and the input to the certified issuer-key construction, which is
+    transcribed and must not change. Keying meta per permanent security is what
+    makes that key stable: one row per company means the issuer key cannot move
+    when the symbol does, which it did when meta was keyed on the ticker.
     """
     out: dict[str, SecurityMeta] = {}
-    for r in conn.execute(_META_SQL).mappings():
+    for r in conn.execute(_META_SQL, {"as_of": as_of}).mappings():
         sid = permanent_id(r["permaticker"])
         if sid is None:
             continue
@@ -987,8 +992,11 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
     if not sessions:
         raise RawPriceDomainUnavailable("no sessions in range")
 
-    meta = load_meta(conn)
-    identity = load_identity(conn)
+    # Universe and identity are decision inputs too. Pin them to the replay
+    # boundary so a later ingest cannot rewrite a historical result with future
+    # labels, categories or listing windows.
+    meta = load_meta(conn, as_of=req.end_date)
+    identity = load_identity(conn, as_of=req.end_date)
 
     # ── the authoritative corporate-action stream ────────────────────────────
     sessions_sorted = sessions_index(sessions)

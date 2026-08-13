@@ -77,6 +77,11 @@ COMPARED_FIELDS = ("raw_close", "raw_open", "volume", "split_ratio",
 #: representation rather than on data.
 TOLERANCE = 1e-9
 
+# Must match the cross-process bt-data/bt-engine corpus lock.  This tool cannot
+# import bt-engine's `app` package because it deliberately imports the
+# backtester's `app` package as the canonical loader owner.
+BT_CORPUS_LOCK_KEY = 0x4254_434F_5250_5553
+
 
 @dataclass
 class ParityReport:
@@ -103,6 +108,9 @@ class ParityReport:
     examples: list[dict] = field(default_factory=list)
     examples_truncated: int = 0
     unavailable: Optional[str] = None
+    sentinel_data_version: Optional[int] = None
+    canonical_data_version: Optional[str] = None
+    canonical_source_mode: Optional[str] = None
 
     def note_missing(self, key, *, max_report: int) -> None:
         self.missing_count += 1
@@ -126,6 +134,9 @@ class ParityReport:
                 "unavailable": self.unavailable,
                 "sentinel_bars": self.sentinel_bars,
                 "canonical_bars": self.canonical_bars,
+                "sentinel_data_version": self.sentinel_data_version,
+                "canonical_data_version": self.canonical_data_version,
+                "canonical_source_mode": self.canonical_source_mode,
                 "missing_from_sentinel": self.missing_count,
                 "extra_in_sentinel": self.extra_count,
                 # The capped SAMPLES, named so nobody reads them as the whole
@@ -223,6 +234,12 @@ def run(sentinel_conn, *, start: str, end: str,
     unchanged: this reads a database, it does not depend on a Stocker service.
     """
     from sentinel.core import loader
+    from sentinel.feed import publication
+
+    if end < start:
+        return ParityReport(window=(start, end), unavailable=(
+            "end precedes start; reversed corpus windows are refused before "
+            "either database is read"))
 
     url = bt_database_url or os.environ.get("BT_DATABASE_URL")
     if not url:
@@ -245,23 +262,49 @@ def run(sentinel_conn, *, start: str, end: str,
             f"({exc!r}); it lives in the backtester and must be on the path"))
 
     try:
+        with publication.pinned(sentinel_conn) as sentinel_publication:
+            publication.assert_coherent(sentinel_conn)
+            mine = loader.load_window(sentinel_conn, start=start, end=end)
+
         engine = sa.create_engine(url)
         with engine.connect() as bt_conn:
-            identity = bt.load_identity(bt_conn)
-            actions = bt.load_actions(bt_conn, start, end)
-            sessions = bt.load_sessions(bt_conn, start, end)
-            splits = bt.split_ratios_from_actions(actions, sessions)
-            divs = bt.dividends_from_actions(actions, sessions)
-            canonical = bt.load_bars(bt_conn, start, end,
-                                     authoritative_splits=splits,
-                                     dividends=divs, identity=identity)
+            with bt_conn.begin():
+                bt_conn.execute(sa.text(
+                    "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
+                locked = bt_conn.execute(sa.text(
+                    "SELECT pg_try_advisory_xact_lock_shared(:key)"),
+                    {"key": BT_CORPUS_LOCK_KEY}).scalar_one()
+                if not locked:
+                    raise RuntimeError(
+                        "canonical corpus publication is in progress")
+                generation = bt_conn.execute(sa.text(
+                    "SELECT version::text, status, source_mode "
+                    "FROM bt_data_version WHERE id = 1")).first()
+                if generation is None or str(generation[1]).upper() != "READY":
+                    status = None if generation is None else generation[1]
+                    raise RuntimeError(
+                        f"canonical corpus is {status!r}, not READY")
+                if not generation[0] or not generation[2]:
+                    raise RuntimeError(
+                        "READY canonical generation lacks version/source_mode")
+                identity = bt.load_identity(bt_conn, as_of=end)
+                actions = bt.load_actions(bt_conn, start, end)
+                sessions = bt.load_sessions(bt_conn, start, end)
+                splits = bt.split_ratios_from_actions(actions, sessions)
+                divs = bt.dividends_from_actions(actions, sessions)
+                canonical = bt.load_bars(bt_conn, start, end,
+                                         authoritative_splits=splits,
+                                         dividends=divs, identity=identity)
     except Exception as exc:                                 # noqa: BLE001
         return ParityReport(window=(start, end), unavailable=(
             f"the canonical corpus could not be read: {exc!r}"))
 
-    mine = loader.load_window(sentinel_conn, start=start, end=end)
-    return compare(mine.bars_by_session, canonical, window=(start, end),
-                   max_report=max_report)
+    report = compare(mine.bars_by_session, canonical, window=(start, end),
+                     max_report=max_report)
+    report.sentinel_data_version = sentinel_publication.version
+    report.canonical_data_version = str(generation[0])
+    report.canonical_source_mode = str(generation[2])
+    return report
 
 
 def main(argv=None) -> int:

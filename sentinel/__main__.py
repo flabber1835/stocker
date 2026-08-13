@@ -552,7 +552,6 @@ async def _migrate_account(config: SentinelConfig, args) -> int:
     one refuses outright against a bound account, and the binding lives in
     PostgreSQL beside the state it protects.
     """
-    from sentinel import binding as binding_mod
     from sentinel import handover, schema
     from sentinel.feed import store as feed_store
 
@@ -573,18 +572,41 @@ async def _migrate_account(config: SentinelConfig, args) -> int:
             expected_account=args.expect_account,
             max_cycles=config.max_cycles, poll_seconds=config.poll_seconds,
             notes=args.notes or "")
-    except (handover.MigrationRefused, binding_mod.AlreadyBound) as exc:
-        print(f"REFUSED: {exc}", file=sys.stderr)
-        return EXIT_NOT_ESTABLISHED
-    except OwnershipNotEstablished as exc:
-        log.error("sentinel: HANDOVER INCOMPLETE — %s", exc)
-        return EXIT_NOT_ESTABLISHED
+    except _migration_refusal_types() as exc:
+        return _paper_refused(exc)
     finally:
         conn.close()
 
     print(json.dumps({"migrated": True, "cycles": result.cycles,
                       "binding": result.binding.to_dict()}, indent=2))
     return EXIT_OK
+
+
+def _migration_refusal_types() -> tuple[type[BaseException], ...]:
+    """Expected fail-closed migration outcomes, suitable for a supervisor.
+
+    These exceptions all mean the administrative observation or durable command
+    authority was insufficient. They remain refusals with exit 2, but are not
+    programming faults that benefit an operator from a traceback.
+    """
+    from sentinel import broker as broker_mod
+    from sentinel import binding as binding_mod, handover
+    from sentinel.execution import journal
+    from stock_strategy_shared.broker import alpaca as shared_alpaca
+
+    return (
+        handover.MigrationRefused,
+        binding_mod.AlreadyBound,
+        OwnershipNotEstablished,
+        broker_mod.AdministrativeObservationRefused,
+        shared_alpaca.IncompleteOrderList,
+        shared_alpaca.MalformedBrokerPayload,
+        journal.WriterLockUnavailable,
+        journal.CommandEconomicsChanged,
+        journal.RecoveredOrderConflict,
+        journal.StoredKeyMismatch,
+        NotImplementedError,
+    )
 
 
 async def _adopt_restored(config: SentinelConfig, args) -> int:

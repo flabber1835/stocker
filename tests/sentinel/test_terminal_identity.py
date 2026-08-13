@@ -39,6 +39,8 @@ sys.path.insert(0, str(ROOT / "shared"))
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
 from sentinel.core import terminal as T  # noqa: E402
+from sentinel import identity as identity_record  # noqa: E402
+from sentinel.feed import publication as P  # noqa: E402
 from sentinel.feed import readiness as R  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
 from sentinel.feed.domains import NormalisedBar  # noqa: E402
@@ -165,6 +167,42 @@ class TestResolutionIsEffectiveDateBased:
     def test_an_UNKNOWN_symbol_is_NO_PERMANENT_ID(self):
         sid, why = self._reuse().resolve_with_reason("NOPE", "2020-01-02")
         assert sid is None and why == "NO_PERMANENT_ID"
+
+    def test_a_weekend_terminal_keeps_vendor_date_but_applies_on_monday(self, conn):
+        monday = "2024-12-30"
+        saturday = "2024-12-28"
+        bars(conn, ["AAA"])
+        universe(conn, [("P:AAA", "AAA", "2000-01-01", None)])
+        action(conn, "AAA", saturday)
+
+        loaded = load(conn, start=monday, end=monday)
+        assert len(loaded.events) == 1
+        assert loaded.events[0].session == monday
+        assert "vendor_date=2024-12-28" in loaded.events[0].reference
+        assert loaded.rows[0].session == saturday
+        assert loaded.rows[0].effective_session == monday
+
+        P.publish(conn, window_start=monday, window_end=monday)
+        corpus = identity_record.corpus(conn, start=monday, end=monday)
+        assert corpus["vendor_actions"]["rows"] == 1, (
+            "the published corpus identity omitted a raw weekend action that "
+            "Sentinel applies on the requested Monday")
+
+        # Neither the preceding Friday nor Tuesday receives it.
+        assert load(conn, start="2024-12-27", end="2024-12-27").events == []
+        assert load(conn, start="2024-12-31", end="2024-12-31").events == []
+
+    def test_two_raw_weekend_rows_snapping_to_monday_apply_only_once(self, conn):
+        monday = "2024-12-30"
+        bars(conn, ["AAA"])
+        universe(conn, [("P:AAA", "AAA", "2000-01-01", None)])
+        action(conn, "AAA", "2024-12-28")
+        action(conn, "AAA", "2024-12-29")
+
+        loaded = load(conn, start=monday, end=monday)
+        assert len(loaded.events) == 1
+        assert [row.reason for row in loaded.excluded] == [T.EXCLUDED_DUPLICATE]
+        assert loaded.conservation_holds()
 
     def test_a_plain_interval_gap_is_distinguished_from_reuse(self):
         r = IdentityResolver([Listing("P:ONE", "AAA", "2020-01-01", "2021-01-01")])

@@ -517,6 +517,7 @@ class _MigrationBridge:
         self.execution_broker = execution_broker
         self.closes = []
         self.liquidation_keys = {}
+        self.liquidation_orders = {}
         self.observations = []
 
     async def account(self):
@@ -525,16 +526,30 @@ class _MigrationBridge:
     async def observe(self):
         observed = await self.execution_broker.observe()
         positions = {
-            position.instrument.symbol: float(position.quantity)
+            position.instrument.symbol: position.quantity
+            for position in observed.positions if position.quantity
+        }
+        identities = {
+            position.instrument.symbol: (
+                position.instrument.broker_id
+                or f"asset-{position.instrument.security_id}")
             for position in observed.positions if position.quantity
         }
         orders = tuple(
             OpenOrder(
                 order_id=order.broker_order_id,
                 ticker=order.instrument.symbol,
-                side=order.side.value)
+                side=order.side.value,
+                client_key=order.client_key, state=order.state,
+                quantity=order.quantity,
+                filled_quantity=order.filled_quantity,
+                filled_average_price=order.filled_average_price,
+                broker_instrument_id=(order.instrument.broker_id
+                                      or f"asset-{order.instrument.security_id}"))
             for order in observed.orders if order.is_working)
-        result = AccountObservation(positions=positions, open_orders=orders)
+        result = AccountObservation(
+            positions=positions, position_security_ids=identities,
+            open_orders=orders)
         self.observations.append(result)
         return result
 
@@ -557,6 +572,32 @@ class _MigrationBridge:
         return CloseResult(
             ticker=ticker, broker_order_id=None,
             status=None, error="position disappeared before close")
+
+    async def submit_liquidation(self, command):
+        ticker = command.instrument.symbol
+        self.closes.append(ticker)
+        outcome = await self.execution_broker.submit(
+            client_key=command.client_key,
+            instrument=BrokerInstrument(
+                security_id="LEGACY", symbol=ticker,
+                broker_id=command.instrument.broker_id),
+            side=Side.SELL, quantity=command.quantity)
+        self.liquidation_keys[ticker] = command.client_key
+        self.liquidation_orders[command.client_key] = outcome.broker_order_id
+        return outcome
+
+    async def find_liquidation(self, client_key):
+        order = await self.execution_broker.find_by_client_key(client_key)
+        if order is None:
+            return None
+        return OpenOrder(
+            order_id=order.broker_order_id,
+            ticker=order.instrument.symbol, side=order.side.value,
+            client_key=order.client_key, state=order.state,
+            quantity=order.quantity,
+            filled_quantity=order.filled_quantity,
+            filled_average_price=order.filled_average_price,
+            broker_instrument_id=order.instrument.broker_id)
 
 
 async def _nosleep(_seconds):
@@ -658,6 +699,8 @@ def test_real_fresh_boot_pipeline_is_restart_equivalent_and_adopts_one_plan(
         session=DECISION.isoformat(), data_version=pinned.version,
         bars=(bar(DECISION.isoformat(), len(warm)),), meta=meta,
         sectors={AAA.security_id: "Information Technology"},
+        spy_sessions=tuple(sessions[-41:]),
+        spy_expected_sessions=tuple(sessions[-41:]),
         spy_closeadj=tuple(
             400.0 + index + (0.25 if index % 3 == 0 else 0.0)
             for index in range(41)))

@@ -41,6 +41,16 @@ python-dateutil==2.9.0.post0
 # [binary] so there is no libpq or build-essential in the runtime image.
 psycopg[binary]==3.3.4
 
+# The base image already carries pip, and it is part of the recorded installed
+# closure. Naming it here makes the hash lock cover those bytes too.
+pip==25.0.1
+
+# Local shared-package builds run with build isolation disabled.  Pinning the
+# backend here prevents pip from downloading an unauthenticated temporary build
+# environment after the runtime closure has already passed its hash check.
+setuptools==80.9.0
+wheel==0.45.1
+
 # ── the HTTP client, reachable from the corpus fetch AND the broker adapter ──
 httpx==0.28.1
 

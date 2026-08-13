@@ -215,7 +215,7 @@ LEGACY POSITIONS PRESENT? --no--> STABLE FLAT CHECK
 CANCEL THE NAMED LEGACY OPEN ORDERS
       |
       v
-BROKER-NATIVE CLOSE OF EACH LEGACY POSITION
+DURABLY JOURNAL ONE ACCOUNT-BOUND, EXACT-SIZED SELL PER LEGACY POSITION
       |
       v
 RE-OBSERVE; RE-RUN EXPLICITLY AFTER A CRASH IF STILL UNBOUND
@@ -230,10 +230,14 @@ COMMIT FLAT/OWNERSHIP EVENTS + ACCOUNT BINDING TOGETHER
 STOP. A SEPARATE prepare-paper-plan MAY NOW ADOPT A PLAN
 ```
 
-The broker-native close is a narrow administrative exception to the normal
-share-level command journal. It removes a book Sentinel did not create; it may
-not be used for daily target maintenance. The separately authorized production
-plan continues through the durable executor only.
+Migration uses the same recoverable command-identity law as ordinary execution:
+each exact-sized SELL and its account/epoch-bound client key are durable before
+transport, and an uncertain submit remains `UNKNOWN` until exact-key recovery.
+The administrative command remains separate because it removes a book Sentinel
+did not create; it may not be used for daily target maintenance. A short,
+missing-side, or otherwise malformed inherited position refuses migration rather
+than expanding exposure. The separately authorized production plan continues
+through the durable executor only.
 
 ### Rules this sequence must satisfy
 
@@ -242,8 +246,8 @@ TYPED REASON      LEGACY_STOCKER_BOOK_LIQUIDATION — its own reason code. It is
                   NOT a Wealth Core sell signal and NOT a Sentinel severe-stress
                   decision, and must never be readable as either in the audit
 BYPASSES          the orphan-confirmation timer
-IDEMPOTENT        an explicit re-run after interruption observes the broker
-                  first and acts only on the remaining inherited book
+IDEMPOTENT        an explicit re-run after interruption resolves every durable
+                  exact client key before acting on the remaining inherited book
 NON-DESTRUCTIVE   after binding, migrate-account refuses before broker contact;
                   ordinary startup can never re-arm the migration
 RECONCILED        account state is re-read from Alpaca before every retry;
@@ -546,7 +550,7 @@ normalised corpus hash            sentinel_bars over the certified interval
 ```
 
 ```bash
-docker compose -f docker-compose.sentinel.yml run --rm sentinel \
+$COMPOSE run --rm sentinel \
   identity --require-certified --start 2021-01-04 --end 2023-12-29
 ```
 
@@ -556,7 +560,7 @@ corpus digests are produced by reading rows back out of that server, so a minor
 upgrade can move `corpus_hash` without a single row changing. A warning would
 have been the wrong shape: it prints, and then the run proceeds.
 
-**The whole dependency closure is fingerprinted, and should also be LOCKED.**
+**The whole dependency closure is fingerprinted and artifact-hash LOCKED.**
 `requirements.txt` pins the direct dependencies; pip resolves everything
 underneath them, so two builds can declare identical versions and install
 different closures. `identity` therefore hashes every installed distribution and
@@ -565,34 +569,26 @@ one environment. That makes them *distinguishable*; `sentinel/requirements.lock`
 is what makes them *reproducible*:
 
 ```bash
-scripts/sentinel-lock.sh          # read the closure OUT of a real build
+scripts/sentinel-lock.sh          # resolve the closure and emit SHA-256 hashes
 git add sentinel/requirements.lock && git commit
-# rebuild — the Dockerfile prefers the lock — and confirm distributions_hash
-# is unchanged. If it moved, do NOT edit the lock to agree.
+# rebuild — the Dockerfile requires the lock — and verify the image identity
 ```
 
-The lock cannot exist before the first Python 3.12.13 build produces it, so the
-Dockerfile falls back to `requirements.txt` and says loudly that the build is
-not reproducible — and **`sentinel-certify.sh` STOPS on a missing lock, before
-the truncate.** That check used to sit at the end, as a warning, after the
-corpus had been destroyed and hours spent rebuilding it. A refusal that comes
-after the irreversible step is not a refusal. The rebuild comparison is
-automated too: the harness stores `distributions_hash` and fails if it moved.
+The Dockerfile has no unlocked or version-only fallback. It installs with
+`--require-hashes --only-binary=:all:` and normal TLS verification; a missing
+hash, changed artifact, source-only release, or missing lock fails the image
+build. **`sentinel-certify.sh` also stops on a missing or unhashed lock before
+the truncate.** A refusal that comes after an irreversible step is not a
+refusal. The harness stores `distributions_hash` and still fails if the loaded
+closure differs from the previous certified environment.
 
 **The lock is bound to the IMAGE, not to the checkout.** `identity` reports
 `image_lock_sha256` — the digest of the lock file baked in at `/tmp/req` — and
 the harness requires it to equal the checkout's. `--verify-only` does not
-rebuild, so without that binding an old unlocked image passes the moment a lock
-appears on the host, proving only that the generator was run. The unlocked
-bootstrap build records its closure *before* it exits, so the locked rebuild has
-something to be compared against; once it reproduces, that baseline is retired
-and later runs compare against the last certified run instead.
-
-`--hashes` on the lock script does NOT produce per-artefact digests. `pip
-freeze` reports versions; digests need a hash-checked resolve against the same
-index. The flag makes the omission loud rather than implying the stronger
-claim — a version-only lock proves the same versions were installed, not the
-same bytes.
+rebuild, so without that binding an old image could pass beside a newly edited
+lock. The committed hash list is the reviewed trust decision; regeneration is a
+dependency change and requires the same review and certification as a pin
+change.
 
 ### 10d. The record must name the BUILT IMAGE, not only its inputs
 
@@ -673,17 +669,26 @@ built from loader source that changed afterwards, which the Wealth Core hash
 would not catch because Wealth Core had not moved.
 
 The loader hash is read OUT OF THE BUILT IMAGE, not from the checkout. The
-bt-engine Dockerfile assembles `/app/app` from four source trees — its own app
-plus files copied in from pipeline, portfolio-builder and backtester — so a
-digest of `services/bt-engine/app` alone is a different tree from the one the
-run hashes, and the comparison would have failed on every run. A gate that
-always fires is as useless as one that never does, and far likelier to be
-switched off.
+bt-engine Dockerfile assembles `/app/app` from its certification app plus the
+two surviving backtester corpus adapters. Deleted Stocker pipeline,
+portfolio-builder and scheduler sources are not certification dependencies.
+A digest of `services/bt-engine/app` alone is still different from the image
+tree, so the artefact itself remains the hashing authority.
 
 Finalization also re-checks `git HEAD == manifest.git_commit` and a clean tree.
 Everything else binds images and hashes; this binds the CHECKOUT — without it
 the manifest can name commit A while the tree has become B, and every artefact
 comparison still passes because they all compare against values frozen from A.
+
+The revision label is necessary and not sufficient. A Docker build labels the
+commit named by `HEAD`; it cannot prove that the build context was clean. A
+dirty build from commit A can therefore carry the label for A. Cleaning the
+checkout and running `--verify-only` must not turn that image into evidence for
+the clean commit. The frozen manifest hashes the clean checkout and the
+corresponding paths read back out of each image, then requires exact equality:
+Sentinel, Wealth Core, bt-data's corpus writer, the assembled bt-engine app, and
+the certification test/input bundle. A missing path or unequal digest refuses
+before corpus mutation. Image labels bind ancestry; source hashes bind bytes.
 
 `scripts/bt-engine-up.sh` makes the same comparison BEFORE the run, so a
 drifted engine costs a second rather than three hours. `ALLOW_DRIFT=1` starts
@@ -800,12 +805,28 @@ than from whatever the tag pointed at before the build. An ordinary
 certification path refuses: a rehearsal started the casual way cannot be
 certified by accident, only re-run.
 
-**Both entry paths authenticate.** `--from-json` used to skip the run checks
-entirely and go straight to reading `book_artifact`, so a hand-written file with
-the right window and fabricated equivalence and reconciliation fields bypassed
-everything `--run-id` had. `scripts/sentinel_rehearsal.py` is now the single
-validator both paths call, and it requires an ENVELOPE it exported — an old
-summary export is refused with the remedy.
+**Only the database path can finalize.** JSON envelopes remain useful audit and
+transport artefacts, but validating fields supplied by the file is not
+authentication. `scripts/sentinel-finalize-rehearsal.sh` therefore requires a
+run id and `BT_DATABASE_URL`; it reads and validates the authoritative row in
+one invocation. There is no `--from-json` finalization entrance.
+
+The real-corpus parity report is frozen into the manifest, not merely printed
+beside it. It names Sentinel's published `data_version`, the canonical bt-data
+generation, and the canonical `source_mode`. The rehearsal row records the
+generation it actually loaded under `summary.provenance`. Finalization requires
+the canonical generation and source mode to match exactly and requires the
+current Sentinel identity/corpus hash to remain the one parity certified.
+Passing parity on G1 and rehearsing or finalizing against G2 is a refusal even
+when both generations independently report `READY`.
+
+Manifest completion is a state transition, not the presence of several hashes.
+The frozen record begins `FROZEN`, becomes `READY_FOR_REHEARSAL` only after the
+corpus identity and parity generations are bound, and becomes `FINALIZED` only
+after every final gate passes. Any failed finalization persists `BLOCKED` plus
+its failure list and keeps all completion fields null. The attempted evidence is
+retained separately for diagnosis; it cannot make a blocked manifest look
+complete merely because hashing happened before a later gate failed.
 
 **The envelope separates the ROW's claims from the RUN's payload**, permanently:
 
@@ -877,7 +898,7 @@ did any intersect a holding, a pending terminal episode, or a corporate action
 ```
 
 ```bash
-docker compose -f docker-compose.sentinel.yml run --rm sentinel \
+$COMPOSE run --rm sentinel \
   rejection-audit --start 2021-01-04 --end 2023-12-29 \
   --held AAPL,MSFT --pending-terminal XYZ
 ```
@@ -1202,6 +1223,58 @@ peak against a declared limit. A fully green certification says nothing about
 whether the seed fits in 1g. That is why #15 is a separate job with its own
 harness rather than a step folded into the existing one — and why the compose
 limits stay provisional until the artefacts above exist.
+
+### 10g. PostgreSQL requires a second-target backup, not only a volume
+
+`sentinel_pgdata` is the canonical strategy state, account binding, current
+plan, execution journal and corpus. A named volume protects it from container
+replacement; it does not protect it from disk loss, corruption or operator
+error. Production operation therefore includes continuous WAL archiving to an
+operator-owned second durable target, periodic physical base backups, an age
+alarm and an isolated restore drill.
+
+The backup location must be absolute, pre-created, outside this repository and
+outside Docker's data root. A separate NAS backup dataset or mounted backup
+share is appropriate. The scripts refuse root, home, repository, missing and
+symlink targets, verify the target is not below Docker's data root, and require
+a different backing device. If a remote mount layer reports the same Linux
+device number (or Docker's root is not inspectable), the operator must first
+verify independent durability and set
+`SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED=1`. The scripts also run a write probe
+as the PostgreSQL container uid; host-root writability is not sufficient.
+
+```bash
+export SENTINEL_BACKUP_DIR=/mnt/second-target/sentinel
+mkdir -p "$SENTINEL_BACKUP_DIR/wal" "$SENTINEL_BACKUP_DIR/base"
+
+COMPOSE="bash scripts/sentinel-compose.sh --run"
+
+# One reviewed restart enables archive_mode; it never removes a volume.
+$COMPOSE up -d --force-recreate sentinel-postgres
+$COMPOSE exec -T sentinel-postgres psql -U sentinel -d sentinel -Atc \
+  "SHOW archive_mode"
+# checkpoint: on
+
+scripts/sentinel-base-backup.sh
+scripts/sentinel-backup-status.sh
+scripts/sentinel-restore-drill.sh
+```
+
+Checkpoints are `verified_base_backup:...`, `backup_ready:true`, and
+`restore_drill_ready:true`. A base backup is not promoted as ready until a
+unique recovery marker written after the base has crossed `archive_command`.
+Status refuses disabled archiving, a stale last success, or a failure newer
+than the last success. The restore drill copies the newest base backup to a
+uniquely named disposable Docker volume, starts PostgreSQL with no network and
+no published port, applies archived WAL through that exact post-base marker and
+LSN, checks the canonical tables, then
+removes only that named container and volume. It never writes the primary.
+
+Run base backup daily, status/age monitoring at least hourly, and a restore
+drill after every schema/certification change and at least monthly. Retention is
+owned by the second target: keep at least seven daily and four weekly verified
+base backups plus all WAL needed from the oldest retained base. Never prune WAL
+until a newer base has passed both `pg_verifybackup` and the restore drill.
 
 ## 11. `execution_model` activation is a versioned operational event
 

@@ -89,6 +89,21 @@ def fetcher(sep_rows, action_rows=(), ticker_rows=None):
 
 
 class TestSeed:
+    def test_a_reversed_range_refuses_before_a_run_row_exists(self, conn):
+        called = []
+
+        def fetch(*args, **kwargs):
+            called.append((args, kwargs))
+            return []
+
+        with pytest.raises(ValueError, match="reversed date range"):
+            ingest.seed(conn, date_from="2024-02-01", date_to="2024-01-01",
+                        fetch=fetch)
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM feed_ingest_runs")
+            assert cur.fetchone()[0] == 0
+        assert called == []
+
     def test_it_chunks_by_YEAR_and_publishes_each(self, conn, pg):
         rows = [sep_row("AAA", "2020-06-01"), sep_row("AAA", "2021-06-01"),
                 sep_row("BBB", "2022-06-01")]
@@ -240,3 +255,64 @@ class TestYearChunks:
     def test_a_single_day_is_one_chunk(self):
         assert sharadar.year_chunks("2024-05-05", "2024-05-05") == \
             [("2024-05-05", "2024-05-05")]
+
+
+class _Response:
+    status_code = 200
+    headers = {}
+
+    def __init__(self, payload):
+        self.payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self.payload
+
+
+class _Http:
+    class TimeoutException(Exception):
+        pass
+
+    class TransportError(Exception):
+        pass
+
+    def __init__(self, payloads):
+        self.payloads = list(payloads)
+        outer = self
+
+        class Client:
+            def __init__(self, **_kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def get(self, *_args, **_kwargs):
+                return _Response(outer.payloads.pop(0))
+
+        self.Client = Client
+
+
+def _page(next_cursor):
+    return {"datatable": {"columns": [{"name": "ticker"}], "data": [["AAA"]]},
+            "meta": {"next_cursor_id": next_cursor}}
+
+
+class TestPaginationMustProgress:
+    def test_a_repeated_cursor_refuses_instead_of_looping(self, monkeypatch):
+        monkeypatch.setenv("SHARADAR_API_KEY", "test-only")
+        http = _Http([_page("same"), _page("same")])
+        with pytest.raises(sharadar.PaginationError, match="repeated cursor"):
+            list(sharadar.fetch_table(sharadar.SEP, http=http, sleep=lambda _: None))
+
+    def test_the_page_cap_is_a_hard_completeness_bound(self, monkeypatch):
+        monkeypatch.setenv("SHARADAR_API_KEY", "test-only")
+        monkeypatch.setattr(sharadar, "FETCH_MAX_PAGES", 1)
+        with pytest.raises(sharadar.PaginationError, match="bounded cap"):
+            list(sharadar.fetch_table(
+                sharadar.SEP, http=_Http([_page("more")]), sleep=lambda _: None))

@@ -45,7 +45,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from sentinel.feed import actions_map, calendar
+from sentinel.feed import actions_map, calendar, publication
 
 
 @dataclass(frozen=True)
@@ -121,9 +121,12 @@ def _authoritative_splits(conn, start: str, end: str) -> dict:
     that holds it correctly on the following session. Using the ingest's own
     mapping is what makes the audit's answer the same question the ingest asked.
     """
+    raw_start, raw_end = calendar.action_date_window(start, end)
     with conn.cursor() as cur:
         cur.execute("SELECT ticker, session, action, value FROM sentinel_actions"
-                    " WHERE session BETWEEN %s AND %s", (start, end))
+                    " a WHERE session BETWEEN %s AND %s"
+                    f" AND {publication.visible_predicate('a')}",
+                    (raw_start, raw_end))
         rows = [{"ticker": t, "date": str(d), "action": a, "value": v}
                 for t, d, a, v in cur.fetchall()]
     return actions_map.split_ratios_from_actions(
@@ -132,13 +135,17 @@ def _authoritative_splits(conn, start: str, end: str) -> dict:
 
 def audit(conn, *, start: str, end: str) -> AuditResult:
     """Which stored bars provably contradict ACTIONS over `[start, end]`?"""
+    from sentinel.feed.sharadar import validate_date_range
+
+    start, end = validate_date_range(start, end)
     result = AuditResult(start=start, end=end)
     splits = _authoritative_splits(conn, start, end)
     result.actions_splits = len(splits)
 
     with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM sentinel_bars"
-                    " WHERE session BETWEEN %s AND %s", (start, end))
+        cur.execute("SELECT COUNT(*) FROM sentinel_bars b"
+                    " WHERE session BETWEEN %s AND %s"
+                    f" AND {publication.visible_predicate('b')}", (start, end))
         result.bars_examined = int(cur.fetchone()[0])
 
         # Only the bars ACTIONS has an opinion about. Pulling the window's bars
@@ -146,8 +153,11 @@ def audit(conn, *, start: str, end: str) -> AuditResult:
         # handful of rows — the audit must be cheap enough to run routinely, or
         # it will not be run.
         for (tkr, sess), stated in sorted(splits.items()):
-            cur.execute("SELECT security_id, split_ratio FROM sentinel_bars"
-                        " WHERE ticker = %s AND session = %s", (tkr, sess))
+            cur.execute(
+                "SELECT security_id,"
+                f" {publication.effective_split_ratio('b')}"
+                " FROM sentinel_bars b WHERE ticker = %s AND session = %s"
+                f" AND {publication.visible_predicate('b')}", (tkr, sess))
             row = cur.fetchone()
             if row is None:
                 # No bar at all is a COVERAGE question, not a ratio one, and it
@@ -179,37 +189,71 @@ def audit(conn, *, start: str, end: str) -> AuditResult:
 def repair(conn, *, start: str, end: str, dry_run: bool = True) -> dict:
     """Make every provably-wrong bar agree with ACTIONS.
 
-    A DIRECT UPDATE, deliberately, and the only place in the package that is
-    allowed to lower a `split_ratio`. The ingest's upsert refuses to downgrade a
-    ratio to 1.0 because absence of evidence must not overwrite evidence; a
-    repair is the opposite situation — evidence, applied on purpose, by a human
-    who invoked it, with the before-and-after recorded.
+    The effective ratio may move down as well as up, but the visible base row is
+    never edited. The repair is a stamped append-only overlay and becomes
+    readable only through its atomic corpus publication.
 
     Dry by default. The command that rewrites share counts is not one to make
     convenient.
     """
-    result = audit(conn, start=start, end=end)
-    applied = 0
-    if not dry_run and result.confirmed:
-        with conn.cursor() as cur:
-            for d in result.confirmed:
-                cur.execute(
-                    "UPDATE sentinel_bars SET split_ratio = %s"
-                    " WHERE security_id = %s AND session = %s",
-                    (d.authoritative, d.security_id, d.session))
-                applied += cur.rowcount
-                cur.execute(
-                    "INSERT INTO sentinel_corpus_anomalies"
-                    " (kind, ticker, session, detail) VALUES (%s,%s,%s,%s)"
-                    " ON CONFLICT (kind, ticker, session) DO UPDATE SET"
-                    " detail = EXCLUDED.detail",
-                    ("SPLIT_RATIO_REPAIRED", d.ticker, d.session,
-                     f"stored={d.stored:.6g} -> ACTIONS={d.authoritative:.6g}"))
-        conn.commit()
+    if dry_run:
+        result = audit(conn, start=start, end=end)
+        applied = 0
+        published = None
+    else:
+        from sentinel.feed import store
+
+        # Applied repairs are append-only overlays.  The base bar a visible
+        # generation names is never updated.  Candidate rows and the publication
+        # pointer commit together while readers are excluded by this lock.
+        with store.corpus_write_lock(conn):
+            publication.assert_coherent(conn)
+            result = audit(conn, start=start, end=end)
+            applied = 0
+            published = None
+            if result.confirmed:
+                run = store.IngestRun(
+                    conn, "repair", date_from=start, date_to=end, chunks_total=1)
+                try:
+                    with conn.cursor() as cur:
+                        for d in result.confirmed:
+                            cur.execute(
+                                "INSERT INTO sentinel_bar_split_repairs"
+                                " (security_id,session,split_ratio,"
+                                "  prior_split_ratio,last_written_run_id)"
+                                " VALUES (%s,%s,%s,%s,%s)",
+                                (d.security_id, d.session, d.authoritative,
+                                 d.stored, run.progress.run_id))
+                            applied += cur.rowcount
+                            cur.execute(
+                                "INSERT INTO sentinel_corpus_anomalies"
+                                " (kind,ticker,session,detail) VALUES (%s,%s,%s,%s)"
+                                " ON CONFLICT (kind,ticker,session) DO UPDATE SET"
+                                " detail = EXCLUDED.detail",
+                                ("SPLIT_RATIO_REPAIRED", d.ticker, d.session,
+                                 f"run={run.progress.run_id} "
+                                 f"stored={d.stored:.6g} -> "
+                                 f"ACTIONS={d.authoritative:.6g}"))
+                        cur.execute(
+                            "UPDATE feed_ingest_runs SET status='success',"
+                            " chunks_done=1, rows_written=%s, completed_at=NOW(),"
+                            " updated_at=NOW(), current_chunk='repairs'"
+                            " WHERE run_id=%s", (applied, run.progress.run_id))
+                    # `publish` commits the candidate overlay, run state, and
+                    # publication pointer atomically.  It propagates failure.
+                    published = publication.publish(
+                        conn, run_id=run.progress.run_id,
+                        window_start=start, window_end=end,
+                        evidence={"kind": "repair", "rows_written": applied})
+                except BaseException as exc:                    # noqa: BLE001
+                    conn.rollback()
+                    run.finish("failed", f"{type(exc).__name__}: {exc}")
+                    raise
 
     out = result.to_dict()
     out["dry_run"] = dry_run
     out["rows_updated"] = applied
+    out["published_version"] = published.version if published else None
     out["residual_risk"] = (
         "Splits ACTIONS never recorded are NOT repaired by this command and are "
         "not visible to its audit. Only a contiguous reseed over the affected "

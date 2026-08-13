@@ -283,7 +283,8 @@ class TestTheImageCarriesItsRUNTIME_DEPENDENCIES:
 
         missing = []
         for mod, sites in sorted(deps.items()):
-            group = _ALTERNATIVES.get(mod, {mod})
+            group = (_ALTERNATIVES.get(mod, {mod}) |
+                     {mod.replace("_", "-"), mod.replace("-", "_")})
             if any(g in installs or g in shared_declares for g in group):
                 continue
             missing.append(f"{mod} (imported at {sorted(sites)[0]})")
@@ -557,6 +558,80 @@ PKG_ROOT = ROOT                                       # holds sentinel/
 SUITE_ROOT = Path(__file__).resolve().parents[2]      # holds tests/
 
 
+class TestTheCleanCertificationImageInspectionBundle:
+    """The image carries every input used by its own certification tests.
+
+    Host tests previously passed because these files existed in the checkout;
+    the clean image failed only after its expensive setup because `/work/repo`
+    contained a smaller tree. Pin both halves of the deliberate split here.
+    """
+
+    REPO_INPUTS = {
+        ".dockerignore",
+        ".env.example",
+        "Dockerfile.base",
+        "Dockerfile.sentinel",
+        "Dockerfile.sentinel-test",
+        "Makefile",
+        "README.md",
+        "docker-compose.backtest.yml",
+        "docker-compose.sentinel-backup.yml",
+        "docker-compose.sentinel.yml",
+        "docs/main-review-remediation.md",
+        "docs/sentinel-deployment.md",
+        "docs/sentinel-paper-activation.md",
+        "scripts/",
+        "sentinel/",
+        "shared/",
+        "services/backtester/",
+        "services/bt-data/",
+        "services/bt-engine/",
+    }
+    WORK_INPUTS = {
+        "services/backtester/": "/work/services/backtester/",
+        "tests/": "/work/tests/",
+        "tools/": "/work/tools/",
+    }
+
+    @staticmethod
+    def _copy_pairs() -> set[tuple[str, str]]:
+        pairs = set()
+        for line in (ROOT / "Dockerfile.sentinel-test").read_text().splitlines():
+            match = re.match(r"^COPY\s+(\S+)\s+(\S+)$", line.strip())
+            if match:
+                pairs.add(match.groups())
+        return pairs
+
+    def test_every_repository_inspection_input_is_copied_to_the_nonimportable_root(self):
+        pairs = self._copy_pairs()
+        missing = []
+        for source in sorted(self.REPO_INPUTS):
+            destination = "/work/repo/" + source
+            if (source, destination) not in pairs:
+                missing.append((source, destination))
+        assert not missing, missing
+
+    def test_runnable_suite_inputs_stay_on_the_work_root(self):
+        pairs = self._copy_pairs()
+        missing = [(source, destination)
+                   for source, destination in self.WORK_INPUTS.items()
+                   if (source, destination) not in pairs]
+        assert not missing, missing
+        for relative in (
+            "tests/requirements.lock",
+            "tests/sentinel/test_backup_contract.py",
+            "tests/sentinel/test_operational_surface.py",
+        ):
+            assert (SUITE_ROOT / relative).is_file(), relative
+
+    def test_the_inspected_docs_survive_the_pruned_build_context(self):
+        ignored = (ROOT / ".dockerignore").read_text().splitlines()
+        for path in ("docs/main-review-remediation.md",
+                     "docs/sentinel-deployment.md",
+                     "docs/sentinel-paper-activation.md"):
+            assert f"!{path}" in ignored
+
+
 def _repo_paths_named_by(tree_dir: str, base: Path) -> list[tuple[str, int, str, Path]]:
     """(file, line, path relative to `base`) for every repo file the code names.
 
@@ -821,12 +896,19 @@ class TestEveryRepoPathTheCodeREADS_IsCopiedIn:
             + "; ".join(bad))
 
     @staticmethod
-    def _dest_sources(prefix: str) -> list[str]:
-        """COPY sources whose DESTINATION is under `prefix` in the test image."""
+    def _dest_sources(prefix: str, *, exclude_prefix: str | None = None) -> list[str]:
+        """COPY sources whose DESTINATION is under ``prefix``.
+
+        A source may deliberately be copied to both the import-side ``/work``
+        tree and the inspection-only ``/work/repo`` tree.  Classification is
+        therefore by destination, never by deduplicating equal source names.
+        """
         out = []
         for line in (ROOT / "Dockerfile.sentinel-test").read_text().splitlines():
-            m = re.match(rf"^COPY\s+(\S+)\s+{re.escape(prefix)}", line.strip())
-            if m:
+            m = re.match(r"^COPY\s+(\S+)\s+(\S+)", line.strip())
+            if (m and m.group(2).startswith(prefix)
+                    and not (exclude_prefix
+                             and m.group(2).startswith(exclude_prefix))):
                 out.append(m.group(1).rstrip("/"))
         return out
 
@@ -839,7 +921,8 @@ class TestEveryRepoPathTheCodeREADS_IsCopiedIn:
         reason."""
         named = _repo_paths_named_by("tests/sentinel", SUITE_ROOT)
         repo_side = self._dest_sources("/work/repo/")
-        work_side = [s for s in self._dest_sources("/work/") if s not in repo_side]
+        work_side = self._dest_sources(
+            "/work/", exclude_prefix="/work/repo/")
         if PKG_ROOT == SUITE_ROOT:
             # A CHECKOUT. There is one tree, `_rel` tags everything with the
             # first root it matches, and the split carries no information — so

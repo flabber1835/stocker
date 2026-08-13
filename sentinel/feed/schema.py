@@ -161,6 +161,8 @@ DDL = [
         snapshot_date    DATE NOT NULL,
         PRIMARY KEY (permaticker, ticker, snapshot_date))""",
     """ALTER TABLE sentinel_universe ADD COLUMN IF NOT EXISTS sector TEXT""",
+    """ALTER TABLE sentinel_universe
+        ADD COLUMN IF NOT EXISTS last_written_run_id UUID""",
 
     # PROGRESS. Written per chunk and COMMITTED, so `feed-status` from another
     # process — or after a crash — sees the truth rather than a stale guess.
@@ -219,6 +221,28 @@ DDL = [
     """CREATE INDEX IF NOT EXISTS idx_sentinel_actions_written_by
         ON sentinel_actions (last_written_run_id)
         WHERE last_written_run_id IS NOT NULL""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_universe_written_by
+        ON sentinel_universe (last_written_run_id)
+        WHERE last_written_run_id IS NOT NULL""",
+
+    # APPLIED REPAIRS ARE APPEND-ONLY GENERATIONS. A repair must not UPDATE the
+    # base bar a published decision may already name. Readers overlay the newest
+    # repair whose run has a publication; an interrupted repair therefore leaves
+    # the preceding effective ratio intact rather than hiding or rewriting it.
+    """CREATE TABLE IF NOT EXISTS sentinel_bar_split_repairs (
+        security_id        TEXT NOT NULL,
+        session            DATE NOT NULL,
+        split_ratio        DOUBLE PRECISION NOT NULL CHECK (split_ratio > 0),
+        prior_split_ratio  DOUBLE PRECISION NOT NULL CHECK (prior_split_ratio > 0),
+        last_written_run_id UUID NOT NULL,
+        repaired_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (security_id, session, last_written_run_id),
+        FOREIGN KEY (security_id, session)
+            REFERENCES sentinel_bars (security_id, session) ON DELETE CASCADE)""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_split_repairs_written_by
+        ON sentinel_bar_split_repairs (last_written_run_id)""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_split_repairs_bar
+        ON sentinel_bar_split_repairs (security_id, session)""",
 
     """CREATE TABLE IF NOT EXISTS feed_ingest_runs (
         run_id        UUID PRIMARY KEY,

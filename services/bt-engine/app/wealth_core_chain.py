@@ -531,8 +531,8 @@ def rehearse_chain(*, sessions: Sequence[str],
         # indicator, and a run that later DIVERGES publishes no final metrics at
         # all however healthy its running figures looked.
         if on_progress is not None and (
-                len(out.sessions) % max(1, progress_every) == 0
-                or len(out.sessions) == len(sessions)):
+                len(out.session_facts) % max(1, progress_every) == 0
+                or len(out.session_facts) == len(sessions)):
             on_progress(_progress_snapshot(
                 out.session_facts, sessions, starting_cash, session,
                 benchmark_closes, benchmark_ticker))

@@ -181,7 +181,8 @@ def pg():
 def conn(pg):
     c = S.connect(pg.sync_dsn)
     with c.cursor() as cur:
-        for t in ("sentinel_bars", "sentinel_actions", "sentinel_universe",
+        for t in ("sentinel_bar_split_repairs", "sentinel_corpus_publications",
+                  "sentinel_bars", "sentinel_actions", "sentinel_universe",
                   "sentinel_corpus_anomalies", "feed_ingest_runs"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     c.commit()
@@ -206,6 +207,16 @@ def ratio_of(conn, sid, session) -> float:
     with conn.cursor() as cur:
         cur.execute("SELECT split_ratio FROM sentinel_bars"
                     " WHERE security_id=%s AND session=%s", (sid, session))
+        return float(cur.fetchone()[0])
+
+
+def effective_ratio_of(conn, sid, session) -> float:
+    from sentinel.feed import publication
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT " + publication.effective_split_ratio("b") +
+            " FROM sentinel_bars b WHERE security_id=%s AND session=%s",
+            (sid, session))
         return float(cur.fetchone()[0])
 
 
@@ -342,7 +353,10 @@ class TestRepair:
         out = repair.repair(conn, start="2021-01-04", end="2021-01-15",
                             dry_run=False)
         assert out["rows_updated"] == 1
-        assert ratio_of(conn, "P-AAA", "2021-01-11") == 2.0
+        assert ratio_of(conn, "P-AAA", "2021-01-11") == 1.0, (
+            "the visible base generation must never be edited in place")
+        assert effective_ratio_of(conn, "P-AAA", "2021-01-11") == 2.0
+        assert out["published_version"] is not None
         assert repair.audit(conn, start="2021-01-04", end="2021-01-15").clean
 
         with conn.cursor() as cur:
@@ -366,4 +380,47 @@ class TestRepair:
         assert ratio_of(conn, "P-AAA", "2021-01-11") == 4.0, "upsert cannot"
 
         repair.repair(conn, start="2021-01-04", end="2021-01-15", dry_run=False)
-        assert ratio_of(conn, "P-AAA", "2021-01-11") == 1.0, "repair can"
+        assert ratio_of(conn, "P-AAA", "2021-01-11") == 4.0, "base is immutable"
+        assert effective_ratio_of(conn, "P-AAA", "2021-01-11") == 1.0, \
+            "published repair can lower the effective ratio"
+
+    def test_an_unpublished_repair_candidate_is_invisible(self, conn):
+        from sentinel.feed import publication
+
+        put_bar(conn, "P-AAA", "2021-01-11", "AAA", 50.0, 50.0, ratio=1.0)
+        run = S.IngestRun(conn, "repair").progress.run_id
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_bar_split_repairs"
+                " (security_id,session,split_ratio,prior_split_ratio,"
+                "  last_written_run_id) VALUES (%s,%s,2,1,%s)",
+                ("P-AAA", "2021-01-11", run))
+        conn.commit()
+
+        assert effective_ratio_of(conn, "P-AAA", "2021-01-11") == 1.0
+        assert not publication.coherence(conn).coherent
+
+    def test_a_publication_failure_rolls_back_the_repair_generation(
+            self, conn, monkeypatch):
+        from sentinel.feed import publication
+
+        put_bar(conn, "P-AAA", "2021-01-11", "AAA", 50.0, 50.0, ratio=1.0)
+        S.write_actions(conn, [{"ticker": "AAA", "date": "2021-01-11",
+                                "action": "split", "value": 2.0}])
+        prior = publication.publish(conn, window_start="2021-01-04",
+                                    window_end="2021-01-15")
+
+        def fail_publish(*_args, **_kwargs):
+            raise RuntimeError("injected publication crash")
+
+        monkeypatch.setattr(publication, "publish", fail_publish)
+        with pytest.raises(RuntimeError, match="injected publication crash"):
+            repair.repair(conn, start="2021-01-04", end="2021-01-15",
+                          dry_run=False)
+
+        assert publication.current(conn).version == prior.version
+        assert ratio_of(conn, "P-AAA", "2021-01-11") == 1.0
+        assert effective_ratio_of(conn, "P-AAA", "2021-01-11") == 1.0
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM sentinel_bar_split_repairs")
+            assert cur.fetchone()[0] == 0

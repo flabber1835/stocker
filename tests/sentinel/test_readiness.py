@@ -45,7 +45,7 @@ def conn(pg):
     c = S.connect(pg.sync_dsn)
     with c.cursor() as cur:
         for t in ("sentinel_bars", "sentinel_actions", "sentinel_universe",
-                  "feed_ingest_runs"):
+                  "sentinel_spy_total_return", "feed_ingest_runs"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     c.commit()
     S.ensure_schema(c)
@@ -79,6 +79,11 @@ def load(conn, n_sessions=300, *, open_=99.0, volume=1e6, actions=True,
                 for i in range(n_secs)]
         S.write_bars(conn, bars)
     with conn.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO sentinel_spy_total_return (session, closeadj)"
+            " VALUES (%s, 100) ON CONFLICT (session) DO UPDATE SET closeadj=100",
+            [(session,) for session in
+             sessions(n_sessions)[-R.REQUIRED_SPY_SESSIONS:]])
         if universe:
             for i in range(n_secs):
                 cur.execute(
@@ -165,6 +170,42 @@ class TestWhatARowCountWouldMiss:
         load(conn, n_sessions=300, actions=False)
         r = R.check_readiness(conn, today=TODAY)
         assert by_name(r)["actions"].status == R.FAIL
+
+    def test_a_TINY_frontier_cross_section_fails_despite_full_history(self, conn):
+        """One newest row barely moves aggregate coverage but collapses ranking."""
+        load(conn, n_sessions=300, n_secs=20)
+        frontier = sessions(300)[-1]
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM sentinel_bars WHERE session=%s"
+                        " AND security_id <> 'P0'", (frontier,))
+        conn.commit()
+
+        r = R.check_readiness(conn, today=TODAY)
+        c = by_name(r)["frontier population"]
+        assert c.status == R.FAIL
+        assert c.value["frontier"] == 1
+        assert by_name(r)["signal domain"].status == R.PASS, (
+            "the falsifier must defeat the old aggregate-domain check")
+
+    def test_a_missing_frontier_SPY_sensor_row_fails(self, conn):
+        load(conn)
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM sentinel_spy_total_return WHERE session=%s",
+                        (sessions(300)[-1],))
+        conn.commit()
+        c = by_name(R.check_readiness(conn, today=TODAY))["frontier benchmark"]
+        assert c.status == R.FAIL and "SPY" in c.detail
+
+    def test_a_missing_interior_SPY_sensor_row_fails(self, conn):
+        load(conn)
+        missing = sessions(300)[-10]
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM sentinel_spy_total_return WHERE session=%s",
+                        (missing,))
+        conn.commit()
+        c = by_name(R.check_readiness(conn, today=TODAY))["frontier benchmark"]
+        assert c.status == R.FAIL
+        assert missing in c.value["missing"]
 
 
 class TestTheReportItself:

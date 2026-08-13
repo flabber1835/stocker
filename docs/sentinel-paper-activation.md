@@ -21,9 +21,10 @@ execute-paper-plan   broker writes, but only after explicit account/plan/session
 ```
 
 The existing `migrate-account` command remains a separate fifth, administrative
-operation. It is the only path that may classify an unbound account as legacy,
-cancel legacy orders, or use broker-native liquidation. Neither preparation nor
-execution imports or calls that path. Migration itself requires an exact
+operation. It is the only path that may classify an unbound account as legacy
+or cancel legacy orders. Its exact-sized SELLs use durable execution-journal
+keys; it does not use the unidentifiable broker-native close endpoint. Neither
+preparation nor execution imports or calls that path. Migration itself requires an exact
 `--expect-account` value and refuses an absent or unreadable broker account id;
 paper credentials alone are never liquidation authority.
 
@@ -334,7 +335,7 @@ is a separate operator action and this implementation did not perform it.
 Set the compose command once in the shell:
 
 ```bash
-COMPOSE="docker compose $(bash scripts/sentinel-compose.sh)"
+COMPOSE="bash scripts/sentinel-compose.sh --run"
 ```
 
 ### Clean-checkout one-time prerequisites
@@ -351,6 +352,8 @@ These checks deliberately print no secret:
 : "${ALPACA_SECRET_KEY:?set the approved paper account secret}"
 : "${SHARADAR_API_KEY:?set the Sharadar key}"
 : "${SENTINEL_POSTGRES_PASSWORD:?set a non-default database password}"
+: "${SENTINEL_BACKUP_DIR:?set the independently durable backup target}"
+test -d "$SENTINEL_BACKUP_DIR/wal" -a -d "$SENTINEL_BACKUP_DIR/base"
 test "${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}" = \
   "https://paper-api.alpaca.markets"
 $COMPOSE build sentinel

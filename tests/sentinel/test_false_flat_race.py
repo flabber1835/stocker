@@ -41,12 +41,16 @@ import asyncio
 import inspect
 import sys
 from pathlib import Path
+from decimal import Decimal
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
-from sentinel.broker import AlpacaSentinelBroker  # noqa: E402
+from sentinel.broker import (  # noqa: E402
+    AdministrativeObservationRefused, AlpacaSentinelBroker)
 from sentinel.ownership import (  # noqa: E402
     AccountObservation, OwnershipState as S, plan_startup)
 from stock_strategy_shared.broker.base import (  # noqa: E402
@@ -87,7 +91,10 @@ class FillsBetweenReadsAdapter(BrokerAdapter):
     async def get_positions(self) -> list[BrokerPosition]:
         pre = not self.filled
         self._tick("positions")
-        return [] if pre else [BrokerPosition(ticker=self.ticker, qty=self.qty)]
+        return [] if pre else [BrokerPosition(
+            ticker=self.ticker, qty=Decimal(str(self.qty)),
+            side="long",
+            broker_instrument_id="asset-legacy")]
 
     async def list_orders(self, *, status: str = "all", limit: int = 500):
         pre = not self.filled
@@ -96,6 +103,8 @@ class FillsBetweenReadsAdapter(BrokerAdapter):
             return []
         return [BrokerOrder(
             broker_order_id="legacy-buy-1", status=None, raw_status="new",
+            symbol=self.ticker, side="buy", quantity=Decimal("10"),
+            filled_qty=Decimal(0), broker_instrument_id="asset-legacy",
             raw={"status": "new", "symbol": self.ticker, "side": "buy"})]
 
     async def get_order(self, broker_order_id: str):
@@ -150,15 +159,12 @@ def test_the_rejected_ordering_really_does_lose_the_position():
 
 
 def test_orders_before_positions_cannot_conclude_flat():
-    """The shipped ordering, against the identical fixture."""
+    """The three-read observation detects the fill crossing its boundary."""
     adapter = FillsBetweenReadsAdapter()
-    observation = asyncio.run(AlpacaSentinelBroker(adapter).observe())
+    with pytest.raises(AdministrativeObservationRefused, match="changed across"):
+        asyncio.run(AlpacaSentinelBroker(adapter).observe())
 
-    assert adapter.reads == ["orders", "positions"], (
-        "orders must be read FIRST; positions-first is the ordering that can "
-        "lose an object entirely")
-    assert observation.held_tickers() == ("LEGACY",)
-    assert observation.is_flat() is False
+    assert adapter.reads == ["orders", "positions", "orders"]
 
 
 def test_the_false_flat_would_have_established_ownership_irreversibly():
@@ -171,9 +177,8 @@ def test_the_false_flat_would_have_established_ownership_irreversibly():
         "SENTINEL_OWNERSHIP_ESTABLISHED, so a single bad observation ends the "
         "migration permanently")
 
-    safe = asyncio.run(AlpacaSentinelBroker(FillsBetweenReadsAdapter()).observe())
-    assert plan_startup(state=S.UNINITIALIZED, observation=safe,
-                        ownership_established=False).next_state is not S.FLAT_CONFIRMED
+    with pytest.raises(AdministrativeObservationRefused):
+        asyncio.run(AlpacaSentinelBroker(FillsBetweenReadsAdapter()).observe())
 
 
 def test_source_reads_orders_before_positions():

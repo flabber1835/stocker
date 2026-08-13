@@ -112,13 +112,25 @@ class TestCommandJournal:
         assert loaded.filled_average_price == Decimal("101.234567")
         assert isinstance(loaded.filled_average_price, Decimal)
 
-    def test_the_stored_key_must_RECOMPUTE_under_the_current_binding(self, conn):
-        """A row that no longer recomputes belongs to a previous generation —
-        a different account, or a bumped takeover epoch. Loading it silently
-        would attribute a predecessor's order to this one."""
+    def test_a_prior_epoch_recomputes_under_its_STORED_minting_identity(
+            self, conn):
+        """Adoption fences NEW intent; it does not erase predecessor orders.
+
+        The current binding may load an older epoch only because the row carries
+        the exact identity that minted its key. Rebuilding that row under epoch
+        two would produce a different key and strand both terminal history and
+        any still-working broker obligation.
+        """
         journal.save_command(conn, cmd())
         other = DeploymentIdentity("nas-1", "sim", "SIM-ACCOUNT", 2)
-        with pytest.raises(journal.StoredKeyMismatch):
+        loaded = journal.load_commands(conn, other)
+        assert loaded[0].identity.deployment == DEPLOY
+        assert loaded[0].client_key == cmd().client_key
+
+    def test_a_different_account_still_cannot_load_the_row(self, conn):
+        journal.save_command(conn, cmd())
+        other = DeploymentIdentity("nas-1", "sim", "OTHER", 2)
+        with pytest.raises(journal.StoredKeyMismatch, match="not current"):
             journal.load_commands(conn, other)
 
     def test_every_transition_is_appended(self, conn):

@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 from sqlalchemy import text
 
+from app.jobs_busy import load_ready_data_generation
 from app.sim import FACTOR_LOOKBACK_DAYS
 
 # ── Memory-lean loading (full-history runs) ───────────────────────────────────
@@ -38,7 +39,7 @@ _NUM_COLS = ("open", "close", "adjusted_close", "volume")
 
 
 async def load_data_version(engine) -> str | None:
-    """The corpus version bt-data stamps after every successful write.
+    """The READY version bt-data publishes after a complete writer job.
 
     Returns None when the table/row is absent, which the caller treats as
     "disable the factor cache" — see factor_cache.data_fingerprint. Fail-closed
@@ -47,10 +48,8 @@ async def load_data_version(engine) -> str | None:
     did not change when data was CORRECTED IN PLACE."""
     try:
         async with engine.connect() as conn:
-            row = (await conn.execute(text(
-                "SELECT version::text, updated_at FROM bt_data_version WHERE id = 1"
-            ))).first()
-        return str(row[0]) if row and row[0] else None
+            generation = await load_ready_data_generation(conn)
+        return generation.version
     except Exception:  # noqa: BLE001 — pre-migration DB, permissions, anything
         return None
 

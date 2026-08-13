@@ -343,20 +343,28 @@ class CommandEconomicsChanged(RuntimeError):
 #: Fields a client key is a promise about. They may never change under it; a
 #: genuinely new intent needs `CommandIdentity.superseding()`, which mints a new
 #: key precisely so the old promise stays intact.
-_IMMUTABLE = ("security_id", "side", "quantity", "symbol")
+_IMMUTABLE = ("security_id", "side", "quantity", "symbol",
+              "deployment_id", "broker", "broker_account_id",
+              "takeover_epoch")
 
 
 def _assert_economics_unchanged(cur, command: Command) -> None:
-    cur.execute("SELECT security_id, side, quantity, symbol FROM sentinel_commands"
+    cur.execute("SELECT security_id, side, quantity, symbol, deployment_id,"
+                " broker, broker_account_id, takeover_epoch"
+                " FROM sentinel_commands"
                 " WHERE client_key = %s", (command.client_key,))
     row = cur.fetchone()
     if row is None:
         return
     stored = {"security_id": str(row[0]), "side": str(row[1]),
-              "quantity": Decimal(str(row[2])), "symbol": str(row[3])}
+              "quantity": Decimal(str(row[2])), "symbol": str(row[3]),
+              "deployment_id": str(row[4]), "broker": str(row[5]),
+              "broker_account_id": str(row[6]),
+              "takeover_epoch": int(row[7])}
     incoming = {"security_id": command.security_id, "side": command.side.value,
                 "quantity": command.quantity,
-                "symbol": command.instrument.symbol}
+                "symbol": command.instrument.symbol,
+                **command.identity.deployment.to_dict()}
     differs = {k: (stored[k], incoming[k]) for k in _IMMUTABLE
                if stored[k] != incoming[k]}
     if differs:
@@ -385,9 +393,10 @@ def save_command(conn, command: Command, *, previous: Optional[CommandState] = N
         _assert_economics_unchanged(cur, command)
         cur.execute(
             "INSERT INTO sentinel_commands (client_key, plan_id, security_id,"
-            " revision, symbol, broker_instrument_id, side, quantity, state,"
+            " revision, deployment_id, broker, broker_account_id,"
+            " takeover_epoch, symbol, broker_instrument_id, side, quantity, state,"
             " broker_order_id, filled_quantity, filled_average_price, detail)"
-            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
             " ON CONFLICT (client_key) DO UPDATE SET"
             " state = EXCLUDED.state,"
             " broker_order_id = COALESCE(EXCLUDED.broker_order_id,"
@@ -398,7 +407,12 @@ def save_command(conn, command: Command, *, previous: Optional[CommandState] = N
             "     sentinel_commands.filled_average_price),"
             " detail = EXCLUDED.detail, updated_at = NOW()",
             (command.client_key, command.identity.plan_id, command.security_id,
-             command.identity.revision, command.instrument.symbol,
+             command.identity.revision,
+             command.identity.deployment.deployment_id,
+             command.identity.deployment.broker,
+             command.identity.deployment.broker_account_id,
+             command.identity.deployment.takeover_epoch,
+             command.instrument.symbol,
              command.instrument.broker_id, command.side.value,
              str(command.quantity), command.state.value,
              command.broker_order_id, str(command.filled_quantity),
@@ -449,14 +463,18 @@ def adopt_recovered_order(conn, order, *, deployment: DeploymentIdentity) -> Non
             cur.execute("SAVEPOINT adopt_recovered")
             cur.execute(
                 "INSERT INTO sentinel_commands (client_key, plan_id, security_id,"
-                " revision, symbol, broker_instrument_id, side, quantity, state,"
+                " revision, deployment_id, broker, broker_account_id,"
+                " takeover_epoch, symbol, broker_instrument_id, side, quantity, state,"
                 " broker_order_id, filled_quantity, filled_average_price, detail,"
                 " recovered, created_at)"
-                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,"
                 " COALESCE(%s,NOW()))"
                 " ON CONFLICT (client_key) DO NOTHING",
                 (order.client_key, RECOVERED_PLAN_ID,
-                 order.instrument.security_id, 0, order.instrument.symbol,
+                 order.instrument.security_id, 0,
+                 deployment.deployment_id, deployment.broker,
+                 deployment.broker_account_id, deployment.takeover_epoch,
+                 order.instrument.symbol,
                  order.instrument.broker_id, order.side.value,
                  str(order.quantity), order.state.value, order.broker_order_id,
                  str(order.filled_quantity),
@@ -493,10 +511,27 @@ RECOVERED_PLAN_ID = "RECOVERED"
 
 
 def _row_to_command(row, deployment: DeploymentIdentity) -> Command:
-    (client_key, plan_id, security_id, revision, symbol, broker_instrument_id,
+    (client_key, plan_id, security_id, revision, deployment_id, broker,
+     broker_account_id, takeover_epoch, symbol, broker_instrument_id,
      side, quantity, state, broker_order_id, filled, filled_average_price,
      detail, recovered, created_at) = row
-    identity = CommandIdentity(deployment=deployment, plan_id=str(plan_id),
+    stored_deployment = DeploymentIdentity(
+        deployment_id=str(deployment_id), broker=str(broker),
+        broker_account_id=str(broker_account_id),
+        takeover_epoch=int(takeover_epoch))
+    if (stored_deployment.deployment_id != deployment.deployment_id
+            or stored_deployment.broker != deployment.broker
+            or stored_deployment.broker_account_id
+            != deployment.broker_account_id
+            or stored_deployment.takeover_epoch > deployment.takeover_epoch):
+        raise StoredKeyMismatch(
+            f"stored command {client_key} belongs to "
+            f"{stored_deployment.to_dict()}, not current bound namespace "
+            f"{deployment.to_dict()}. A restored adoption may reconcile prior "
+            "epochs of the same deployment/account, never another account or "
+            "a future generation.")
+    identity = CommandIdentity(deployment=stored_deployment,
+                               plan_id=str(plan_id),
                                security_id=str(security_id),
                                revision=int(revision))
     command = Command(
@@ -523,10 +558,8 @@ def _row_to_command(row, deployment: DeploymentIdentity) -> Command:
         # order to the current generation.
         raise StoredKeyMismatch(
             f"stored client_key {client_key} does not recompute from its own "
-            f"row under the current binding (would be {command.client_key}). "
-            f"The account binding or takeover epoch has changed; these commands "
-            f"belong to a previous generation and must be recovered, not "
-            f"resumed.")
+            f"stored minting identity (would be {command.client_key}). The "
+            f"row's durable identity metadata cannot explain its key.")
     return command
 
 
@@ -534,7 +567,8 @@ class StoredKeyMismatch(RuntimeError):
     """A journal row cannot be reconstructed under the current binding."""
 
 
-_COMMAND_COLUMNS = ("client_key, plan_id, security_id, revision, symbol,"
+_COMMAND_COLUMNS = ("client_key, plan_id, security_id, revision, deployment_id,"
+                    " broker, broker_account_id, takeover_epoch, symbol,"
                     " broker_instrument_id, side, quantity, state,"
                     " broker_order_id, filled_quantity, filled_average_price,"
                     " detail, recovered, created_at")

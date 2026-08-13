@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import os
 import time
+from datetime import date
 from typing import Callable, Iterator, Mapping, Optional
 
 NDL_BASE = os.getenv("NDL_BASE_URL",
@@ -46,6 +47,7 @@ FETCH_TIMEOUT_SECS = float(os.getenv("SHARADAR_FETCH_TIMEOUT", "120"))
 FETCH_MAX_RETRIES = int(os.getenv("SHARADAR_FETCH_RETRIES", "6"))
 FETCH_BACKOFF_BASE = float(os.getenv("SHARADAR_FETCH_BACKOFF", "2.0"))
 RATE_LIMIT_BACKOFF_CAP = float(os.getenv("SHARADAR_429_BACKOFF_CAP", "900"))
+FETCH_MAX_PAGES = int(os.getenv("SHARADAR_FETCH_MAX_PAGES", "100000"))
 
 RETRYABLE_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
 
@@ -59,6 +61,10 @@ TICKERS = "TICKERS"
 
 class MissingApiKey(RuntimeError):
     pass
+
+
+class PaginationError(RuntimeError):
+    """The vendor cursor stream cannot prove complete forward progress."""
 
 
 def retry_delay(attempt: int, status: Optional[int],
@@ -100,21 +106,38 @@ def fetch_table(table: str, params: Mapping[str, str] | None = None, *,
     key = _api_key()
     url = f"{NDL_BASE}/{table}.json"
     cursor: Optional[str] = None
+    seen_cursors: set[str] = set()
+    pages = 0
+
+    if FETCH_MAX_PAGES <= 0:
+        raise PaginationError("SHARADAR_FETCH_MAX_PAGES must be positive")
 
     with http.Client(timeout=FETCH_TIMEOUT_SECS) as client:
         while True:
+            if pages >= FETCH_MAX_PAGES:
+                raise PaginationError(
+                    f"{table} pagination exceeded the bounded cap of "
+                    f"{FETCH_MAX_PAGES:,} pages")
             q = {"api_key": key, **(params or {})}
             if cursor:
                 q["qopts.cursor_id"] = cursor
             resp = _get_with_retry(client, url, q, http=http, sleep=sleep)
+            pages += 1
             payload = resp.json()
             dt = payload.get("datatable") or {}
             cols = [c["name"] for c in (dt.get("columns") or [])]
             for row in dt.get("data") or []:
                 yield dict(zip(cols, row))
-            cursor = (payload.get("meta") or {}).get("next_cursor_id")
-            if not cursor:
+            next_cursor = (payload.get("meta") or {}).get("next_cursor_id")
+            if not next_cursor:
                 return
+            next_cursor = str(next_cursor)
+            if next_cursor in seen_cursors:
+                raise PaginationError(
+                    f"{table} pagination repeated cursor {next_cursor!r} after "
+                    f"{pages:,} page(s); refusing an incomplete/infinite fetch")
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
 
 
 def _get_with_retry(client, url: str, params: dict, *, http, sleep):
@@ -161,7 +184,16 @@ def _is_transport_error(exc: Exception, http) -> bool:
 
 
 def date_params(date_from: str, date_to: str) -> dict:
+    validate_date_range(date_from, date_to)
     return {"date.gte": date_from, "date.lte": date_to}
+
+
+def validate_date_range(date_from: str, date_to: str) -> tuple[str, str]:
+    """Validate an inclusive ISO range before any durable run or vendor read."""
+    lo, hi = date.fromisoformat(str(date_from)), date.fromisoformat(str(date_to))
+    if lo > hi:
+        raise ValueError(f"reversed date range: {lo} is after {hi}")
+    return lo.isoformat(), hi.isoformat()
 
 
 def year_chunks(date_from: str, date_to: str) -> list[tuple[str, str]]:
@@ -171,6 +203,7 @@ def year_chunks(date_from: str, date_to: str) -> list[tuple[str, str]]:
     is thousands of cursor pages over hours, and a run that reports one unit of
     work reports nothing at all until it is finished.
     """
+    date_from, date_to = validate_date_range(date_from, date_to)
     y0, y1 = int(date_from[:4]), int(date_to[:4])
     out = []
     for y in range(y0, y1 + 1):

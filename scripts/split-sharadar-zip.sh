@@ -58,6 +58,31 @@ SRC="$(cd "$(dirname "$SRC")" && pwd)/$(basename "$SRC")"
 BASE="$(basename "$SRC" .zip)"
 [ -n "$OUT_DIR" ] || OUT_DIR="$(dirname "$SRC")/${BASE}_years"
 
+# Both recursive removals below are deliberate replacement operations, so the
+# target must be reduced to one explicit, dedicated child before either can run.
+# Refuse broad names even when the caller supplies --force; force authorizes
+# replacing a split, never guessing whether a home/repository/root path is one.
+OUT_PARENT="$(cd "$(dirname "$OUT_DIR")" 2>/dev/null && pwd -P)" || {
+    echo "output parent does not exist: $(dirname "$OUT_DIR")" >&2
+    exit 2
+}
+OUT_NAME="$(basename "$OUT_DIR")"
+case "$OUT_NAME" in
+    *_years) ;;
+    *) echo "REFUSED: output must be a dedicated *_years directory" >&2; exit 2 ;;
+esac
+OUT_DIR="$OUT_PARENT/$OUT_NAME"
+case "$OUT_DIR" in
+    /|"${HOME:-__unset__}"|"$ROOT")
+        echo "REFUSED: output is a broad protected path: $OUT_DIR" >&2
+        exit 2 ;;
+esac
+[ ! -L "$OUT_DIR" ] || { echo "REFUSED: output is a symlink: $OUT_DIR" >&2; exit 2; }
+[ ! -L "$OUT_DIR.part" ] || {
+    echo "REFUSED: staging output is a symlink: $OUT_DIR.part" >&2
+    exit 2
+}
+
 # A finished split is a DIRECTORY of files, so "partly written" and "complete"
 # look identical from outside. Build into .part and rename the whole directory at
 # the end — the same reason the download writes a .part ZIP. An interrupted run
@@ -67,7 +92,7 @@ if [ -d "$OUT_DIR" ] && [ "$FORCE" -eq 0 ]; then
     echo "output exists: $OUT_DIR (use --force to replace)" >&2
     exit 1
 fi
-rm -rf "$OUT_DIR.part"
+rm -rf -- "$OUT_DIR.part"
 mkdir -p "$OUT_DIR.part"
 
 echo "source : $SRC"
@@ -188,7 +213,7 @@ if [ "$N_PARTS" -eq 0 ]; then
     exit 1
 fi
 
-rm -rf "$OUT_DIR"
+rm -rf -- "$OUT_DIR"
 mv "$OUT_DIR.part" "$OUT_DIR"
 echo "$N_PARTS year file(s) written"
 echo

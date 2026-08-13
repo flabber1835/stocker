@@ -25,9 +25,11 @@ from stock_strategy_shared.wealth_core.state import PortfolioState
 from stock_strategy_shared.wealth_core.terminal import TerminalTerms
 
 from sentinel.breadth.classifier import Holding, session_breadth
+from sentinel.breadth.returns import lag_return
 from sentinel.controller.frozen_rule import ControllerConfig
-from sentinel.controller.machine import Controller, Observation
-from sentinel.regime.spy import spy_regime
+from sentinel.controller.machine import (
+    Controller, Observation, validate_controller_state)
+from sentinel.regime.spy import MIN_CLOSES, dated_spy_regime
 
 ENVELOPE_VERSION = 3
 LEGACY_ENVELOPE_VERSION = 2
@@ -43,7 +45,8 @@ _PLAN_EVIDENCE_FIELDS = (
 
 
 def _hash(value) -> str:
-    blob = json.dumps(value, sort_keys=True, separators=(",", ":"))
+    blob = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
@@ -222,7 +225,9 @@ class SessionState:
         raw["feed"] = _bounded_feed_dict(raw["feed"], protected)
         raw["last_known"] = _bounded_last_known(raw["last_known"], protected)
         raw["last_evidence"] = _bounded_evidence(raw["last_evidence"])
+        raw["controller"] = validate_controller_state(raw["controller"])
         raw["version"] = ENVELOPE_VERSION
+        json.dumps(raw, sort_keys=True, allow_nan=False)
         return raw
 
     @classmethod
@@ -242,7 +247,10 @@ class SessionState:
             migrated.get("last_known") or {}, protected)
         migrated["last_evidence"] = _bounded_evidence(
             migrated.get("last_evidence"))
+        migrated["controller"] = validate_controller_state(
+            migrated.get("controller") or {})
         migrated["version"] = ENVELOPE_VERSION
+        json.dumps(migrated, sort_keys=True, allow_nan=False)
         state = cls(**migrated)
         missing = REQUIRED_IDENTITY_FIELDS - set(state.strategy_identity)
         if missing:
@@ -272,6 +280,8 @@ class PublishedSession:
     meta: Mapping[str, SecurityMeta]
     sectors: Mapping[str, str | None]
     spy_closeadj: Sequence[float | None]
+    spy_sessions: Sequence[str] = ()
+    spy_expected_sessions: Sequence[str] = ()
     terminal_events: Sequence[TerminalTerms] = ()
     feed_anchors: Mapping[str, FeedAnchor] = field(default_factory=dict)
 
@@ -297,8 +307,10 @@ def warm_session_state(state: SessionState | Mapping, window, *,
             or env.pending or ledger.events or env.controller_session_history):
         raise ValueError("feature-only warm-up requires a fresh canonical state")
     sessions = list(window.sessions)
-    if not sessions or sessions != sorted(sessions):
-        raise ValueError("warm-up window must contain ordered sessions")
+    if (not sessions
+            or any(left >= right for left, right in zip(sessions, sessions[1:]))):
+        raise ValueError(
+            "warm-up window sessions must be strictly increasing and unique")
     elig = eligibility_config or EligibilityConfig()
     feed = Feed(window.meta, elig)
     feed.warmup(sessions, window.bars_by_session)
@@ -313,18 +325,32 @@ def load_published_session(conn, session: str, *, spy_sessions: int = 41,
                            ) -> PublishedSession:
     """Load one coherent production input snapshot from the published corpus."""
     from sentinel.core.loader import load_meta, load_terminal_events
-    from sentinel.feed.publication import assert_coherent, current, visible_predicate
+    from sentinel.feed.calendar import previous_sessions
+    from sentinel.feed.publication import (
+        assert_coherent, current, effective_split_ratio, visible_predicate,
+    )
     from sentinel.feed.universe import load_resolver
 
     assert_coherent(conn)
     publication = current(conn)
     if publication is None:
         raise RuntimeError("the corpus has never been published")
+    if (isinstance(spy_sessions, bool) or not isinstance(spy_sessions, int)
+            or spy_sessions < MIN_CLOSES):
+        raise ValueError(
+            f"spy_sessions must be an integer >= {MIN_CLOSES}")
+    expected_spy_sessions = previous_sessions(session, spy_sessions)
+    if (len(expected_spy_sessions) != spy_sessions
+            or expected_spy_sessions[-1] != session):
+        raise RuntimeError(
+            f"{session} is not the end of a complete {spy_sessions}-session "
+            "XNYS SPY window")
     meta = load_meta(conn)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT security_id,ticker,close_unadjusted,open_unadjusted,volume,"
-            " split_ratio,dividend_per_share FROM sentinel_bars b"
+            f" {effective_split_ratio('b')} AS split_ratio,"
+            " dividend_per_share FROM sentinel_bars b"
             f" WHERE session=%s AND {visible_predicate('b')}"
             " ORDER BY security_id", (session,))
         bars = [VendorBar(session, str(sid), str(ticker), close, op, volume,
@@ -332,19 +358,25 @@ def load_published_session(conn, session: str, *, spy_sessions: int = 41,
                           bool(close and volume))
                 for sid, ticker, close, op, volume, split, div in cur.fetchall()]
         cur.execute(
-            "SELECT closeadj FROM sentinel_spy_total_return r"
+            "SELECT session,closeadj FROM sentinel_spy_total_return r"
             f" WHERE session<=%s AND {visible_predicate('r')}"
             " ORDER BY session DESC LIMIT %s", (session, spy_sessions))
-        spy = [float(row[0]) for row in reversed(cur.fetchall())]
+        spy_rows = list(reversed(cur.fetchall()))
+        actual_spy_sessions = [str(row[0]) for row in spy_rows]
+        spy = [float(row[1]) for row in spy_rows]
         cur.execute(
             "SELECT permaticker,(ARRAY_REMOVE(ARRAY_AGG(sector ORDER BY"
-            " snapshot_date DESC),NULL))[1] FROM sentinel_universe"
-            " WHERE permaticker IS NOT NULL GROUP BY permaticker")
+            " snapshot_date DESC),NULL))[1] FROM sentinel_universe u"
+            " WHERE permaticker IS NOT NULL"
+            f" AND {visible_predicate('u')} GROUP BY permaticker")
         sectors = {str(sid): sector for sid, sector in cur.fetchall()}
     if not bars:
         raise RuntimeError(f"no published bars for {session}")
-    if len(spy) < spy_sessions:
-        raise RuntimeError(f"only {len(spy)} published SPY closeadj observations")
+    if actual_spy_sessions != expected_spy_sessions:
+        raise RuntimeError(
+            "published SPY closeadj rows are not the exact dated XNYS tail "
+            f"ending {session}: expected {expected_spy_sessions}, got "
+            f"{actual_spy_sessions}")
     resolver = load_resolver(conn)
     terminals = load_terminal_events(
         conn, start=session, end=session,
@@ -356,7 +388,9 @@ def load_published_session(conn, session: str, *, spy_sessions: int = 41,
     if missing:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT security_id,split_ratio FROM sentinel_bars b"
+                "SELECT security_id,"
+                f" {effective_split_ratio('b')} AS split_ratio"
+                " FROM sentinel_bars b"
                 " WHERE security_id=ANY(%s) AND session<%s AND "
                 f"{visible_predicate('b')} ORDER BY security_id,session",
                 (missing, session))
@@ -391,7 +425,10 @@ def load_published_session(conn, session: str, *, spy_sessions: int = 41,
                 f"{session}; refusing a default split/identity anchor")
     return PublishedSession(
         session=session, data_version=publication.version, bars=bars, meta=meta,
-        sectors=sectors, spy_closeadj=spy, terminal_events=terminals,
+        sectors=sectors, spy_closeadj=spy,
+        spy_sessions=actual_spy_sessions,
+        spy_expected_sessions=expected_spy_sessions,
+        terminal_events=terminals,
         feed_anchors=anchors)
 
 
@@ -446,9 +483,8 @@ def _return(series: SecuritySeries, horizon: int) -> float | None:
     except ValueError:
         return None
     now, then = series.signal_closes[-1], series.signal_closes[i]
-    if now is None or then is None or then <= 0:
-        return None
-    return float(now) / float(then) - 1.0
+    value = lag_return(now, then)
+    return value if math.isfinite(value) else None
 
 
 def holdings_from_shadow(state: PortfolioState, feed: Feed,
@@ -542,7 +578,10 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
     stops = [stop_session for stop_session in stops
              if stop_session in recent_session_set]
     damaged = list(env.breadth_history) + [breadth.damaged_breadth]
-    regime = spy_regime(published.spy_closeadj)
+    regime = dated_spy_regime(
+        published.spy_sessions, published.spy_closeadj,
+        decision_session=published.session,
+        expected_sessions=published.spy_expected_sessions)
     ob = Observation(
         session=published.session, shadow_nav=nav,
         damaged_breadth=breadth.damaged_breadth,

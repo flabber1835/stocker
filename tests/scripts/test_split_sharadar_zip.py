@@ -204,6 +204,20 @@ def test_it_refuses_to_clobber_an_existing_split_without_force(src):
     assert 'if [ -d "$OUT_DIR" ] && [ "$FORCE" -eq 0 ]' in src
 
 
+def test_recursive_replacement_requires_a_dedicated_resolved_target(src):
+    guard = src[:src.index('rm -rf -- "$OUT_DIR.part"')]
+    assert 'pwd -P' in guard
+    assert '*_years' in guard
+    assert 'output is a broad protected path' in guard
+    assert 'output is a symlink' in guard
+    assert 'staging output is a symlink' in guard
+
+
+def test_recursive_removals_use_the_validated_literal_target(src):
+    assert 'rm -rf -- "$OUT_DIR.part"' in src
+    assert 'rm -rf -- "$OUT_DIR"' in src
+
+
 def test_the_source_zip_is_mounted_READ_ONLY(src):
     """A multi-GB download nobody wants to repeat. The splitter has no reason to
     be able to write to it."""

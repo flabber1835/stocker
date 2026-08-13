@@ -33,11 +33,13 @@ from sentinel import binding as B, schema  # noqa: E402
 from sentinel.execution import (  # noqa: E402
     certification, executor, journal, reconcile as R)
 from sentinel.execution import alpaca as A  # noqa: E402
+from sentinel.execution.commands import Command  # noqa: E402
 from sentinel.execution.alpaca import (  # noqa: E402
     AlpacaExecutionBroker, UnmappedBrokerStatus, map_status)
 from sentinel.execution.contract import (  # noqa: E402
     BrokerAccountIdentity, BrokerInstrument, Completeness, Side)
-from sentinel.execution.identity import DeploymentIdentity  # noqa: E402
+from sentinel.execution.identity import (  # noqa: E402
+    CommandIdentity, DeploymentIdentity)
 from sentinel.execution.plan import ExecutionPlan  # noqa: E402
 from sentinel.execution.simulator import SimulatedBroker  # noqa: E402
 from sentinel.execution.states import CommandState as S  # noqa: E402
@@ -906,16 +908,43 @@ class TestStaleBackupRestore:
             run(R.reconcile(broker=elsewhere, conn=conn, binding=None,
                             deployment=DEPLOY))
 
-    def test_a_takeover_epoch_bump_makes_stored_commands_UNRESUMABLE(self, conn):
-        """Adoption fences the keyspace. Stored commands from the previous
-        generation must be RECOVERED, not silently resumed as this one's."""
-        self._setup(conn)
+    def test_a_takeover_reconciles_prior_epoch_terminal_and_inflight_rows(
+            self, conn):
+        """Adoption fences new intent without stranding predecessor history.
+
+        Both a terminal fill and an order that can still trade retain the exact
+        epoch-one keys the broker knows. Reconstructing either under epoch two
+        would make the terminal position foreign and the working order
+        unresolvable.
+        """
+        broker, _snapshot, working = self._setup(conn)
+        historic = BrokerInstrument(
+            security_id="SEC-HIST", symbol="HIST", broker_id="b-HIST")
+        broker.seed_position(historic, "3")
+        journal.save_command(conn, Command(
+            identity=CommandIdentity(
+                deployment=DEPLOY, plan_id="historic-plan",
+                security_id=historic.security_id),
+            instrument=historic, side=Side.BUY, quantity=D(3),
+            state=S.FILLED, broker_order_id="historic-order",
+            filled_quantity=D(3), filled_average_price=D(50)))
+
         B.adopt_restored(
             conn, observed=BrokerAccountIdentity("sim", "SIM-ACCOUNT"),
             expected_account="SIM-ACCOUNT", notes="replacement host")
         adopted = B.require(conn).identity
-        with pytest.raises(journal.StoredKeyMismatch):
-            journal.load_commands(conn, adopted)
+        assert adopted.takeover_epoch == 2
+
+        rec = run(R.reconcile(
+            broker=broker, conn=conn, binding=None, deployment=adopted))
+        assert rec.runtime_state.value == "RUNNING"
+        assert rec.foreign_positions == ()
+        stored = journal.load_commands(conn, adopted)
+        assert {command.identity.deployment.takeover_epoch for command in stored} \
+            == {1}
+        assert working.client_key in {command.client_key for command in stored}
+        assert "historic-order" in {
+            command.broker_order_id for command in stored}
 
 
 # ── malformed payloads are UNUSABLE, not defaulted ───────────────────────────

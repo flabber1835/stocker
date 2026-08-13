@@ -23,59 +23,73 @@
 # Usage:
 #   scripts/sentinel-finalize-rehearsal.sh --start 2021-01-04 --end 2023-12-29 \
 #       --run-id <bt_wealth_core_runs.run_id>
-#   ... --from-json artifacts/bt/rehearsal-<id>.json     # if already exported
 set -euo pipefail
 
-COMPOSE="docker compose -f docker-compose.sentinel.yml"
+COMPOSE="bash scripts/sentinel-compose.sh --run"
 RUN="${COMPOSE} run --rm -T sentinel"
 ART="artifacts/sentinel"
-START=""; END=""; RUN_ID=""; FROM_JSON=""
+START=""; END=""; RUN_ID=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --start) START="$2"; shift 2 ;;
     --end) END="$2"; shift 2 ;;
     --run-id) RUN_ID="$2"; shift 2 ;;
-    --from-json) FROM_JSON="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 [ -n "$START" ] && [ -n "$END" ] || { echo "--start and --end are required" >&2; exit 2; }
-[ -n "$RUN_ID" ] || [ -n "$FROM_JSON" ] || {
-  echo "one of --run-id or --from-json is required" >&2; exit 2; }
+[ -n "$RUN_ID" ] || { echo "--run-id is required" >&2; exit 2; }
 
 RUNSTAMP="${START}_${END}"
 BOOK="${ART}/book-${RUNSTAMP}.json"
+MANIFEST="${ART}/manifest-${RUNSTAMP}.json"
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
-fail() { printf '\n\033[31mFINALIZATION BLOCKED: %s\033[0m\n' "$*" >&2; exit 1; }
+mark_blocked() {
+  local reason="$1"
+  [ -f "${MANIFEST}" ] || return 0
+  python3 - "${MANIFEST}" "${reason}" <<'PY' || true
+import json, sys
+from pathlib import Path
+from scripts.sentinel_manifest import block_finalization
+path, reason = Path(sys.argv[1]), sys.argv[2]
+m = json.loads(path.read_text())
+if m.get("lifecycle") != "FINALIZED":
+    block_finalization(m, [reason])
+    path.write_text(json.dumps(m, indent=2, sort_keys=True))
+PY
+}
+fail() {
+  local reason="$*"
+  mark_blocked "${reason}"
+  printf '\n\033[31mFINALIZATION BLOCKED: %s\033[0m\n' "${reason}" >&2
+  exit 1
+}
 
 mkdir -p "${ART}"
+[ -f "${MANIFEST}" ] || fail "${MANIFEST} does not exist; run scripts/sentinel-certify.sh first"
+python3 - "${MANIFEST}" <<'PY' || fail "the manifest is not ready for finalization"
+import json, sys
+from pathlib import Path
+from scripts.sentinel_manifest import begin_finalization
+path = Path(sys.argv[1])
+m = json.loads(path.read_text())
+try:
+    begin_finalization(m)
+except ValueError as exc:
+    raise SystemExit(str(exc)) from exc
+path.write_text(json.dumps(m, indent=2, sort_keys=True))
+PY
 
 # ── 1. extract the book the RUN emitted ──────────────────────────────────────
-step "1/4  extracting and AUTHENTICATING the rehearsal"
-if [ -n "${FROM_JSON}" ]; then
-  SRC="${FROM_JSON}"
-else
-  SRC="${ART}/rehearsal-${RUN_ID}.json"
-  # BT_DATABASE_URL is the published host port the evaluator's bt_sql_query
-  # already uses — no shared docker network, so Sentinel's isolation from the
-  # retired stack is unchanged.
-  [ -n "${BT_DATABASE_URL:-}" ] || fail "BT_DATABASE_URL is unset, so the
-  rehearsal row cannot be read. Export it, or pass --from-json with an
-  envelope EXPORTED BY THIS SCRIPT — not an arbitrary summary."
-  python3 scripts/sentinel_rehearsal.py export --run-id "${RUN_ID}" --out "${SRC}" \
-    || fail "the rehearsal row could not be exported"
-fi
-
-# ONE VALIDATOR, BOTH PATHS. `--from-json` used to skip the authentication
-# entirely and go straight to reading `book_artifact`, so a hand-written file
-# with the right window and fabricated equivalence/reconciliation fields
-# bypassed every check the --run-id path had just gained. A second entrance
-# with weaker locks is not a second entrance, it is the entrance.
-python3 scripts/sentinel_rehearsal.py authenticate \
-  --envelope "${SRC}" --book-out "${BOOK}" \
+step "1/4  reading and validating the authoritative rehearsal row"
+SRC="${ART}/rehearsal-${RUN_ID}.json"
+[ -n "${BT_DATABASE_URL:-}" ] || fail "BT_DATABASE_URL is unset, so the
+rehearsal row cannot be read. Offline JSON is audit evidence, not authority."
+python3 scripts/sentinel_rehearsal.py finalize \
+  --run-id "${RUN_ID}" --envelope-out "${SRC}" --book-out "${BOOK}" \
   --start "${START}" --end "${END}" \
-  || fail "the rehearsal envelope was REFUSED"
+  || fail "the authoritative rehearsal row was REFUSED"
 
 # ── 2. the REAL rejection audit ──────────────────────────────────────────────
 step "2/4  the rejection audit, against the REALISED book"
@@ -97,16 +111,25 @@ ${COMPOSE} run --rm -T -v "${PWD}/${BOOK}:/tmp/certified-book.json:ro" \
   relax the audit to clear it."
 
 # ── 3. and 4. close the manifest ─────────────────────────────────────────────
+FINAL_IDENTITY="${ART}/identity-final-${RUNSTAMP}.json"
+${RUN} identity --require-certified --start "${START}" --end "${END}" \
+  > "${FINAL_IDENTITY}" \
+  || fail "the final Sentinel environment/corpus identity could not be read"
+
 step "3/4  completing the certification manifest"
-python3 - "${ART}" "${RUNSTAMP}" "${SRC}" <<'PY' || fail "the certification conditions were NOT met. The evidence HAS been written — read the BLOCKED lines above and ${ART}/manifest-${RUNSTAMP}.json. A rehearsal whose session path did not reproduce its bulk replay, or whose terminal episodes do not reconcile, is not a certified rehearsal."
-import hashlib, json, os, subprocess, sys
+python3 - "${ART}" "${RUNSTAMP}" "${SRC}" "${FINAL_IDENTITY}" <<'PY' || fail "the certification conditions were NOT met. The attempted evidence and failure list are retained in ${MANIFEST}. A rehearsal whose generation moved, whose session path did not reproduce its bulk replay, or whose terminal episodes do not reconcile is not certified."
+import hashlib, json, subprocess, sys
 from pathlib import Path
-art, stamp, src = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
+from scripts.sentinel_manifest import (
+    finalization_provenance_failures, finish_finalization)
+art, stamp, src, final_identity_path = (
+    Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3]), Path(sys.argv[4]))
 mp = art / f"manifest-{stamp}.json"
 if not mp.exists():
     sys.exit(f"{mp} does not exist — run scripts/sentinel-certify.sh first")
 m = json.loads(mp.read_text())
 env = json.loads(src.read_text())
+final_identity = json.loads(final_identity_path.read_text())
 # THE ROW'S CLAIMS AND THE RUN'S PAYLOAD, read from where each actually lives.
 # They used to be flattened into one object, so a payload field could answer a
 # question the database row was supposed to answer.
@@ -116,16 +139,23 @@ spec = env.get("spec") or {}
 def sha(p):
     return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 
-m["book_artifact_sha256"] = sha(art / f"book-{stamp}.json")
-m["rejection_audit_sha256"] = sha(art / f"rejection-audit-final-{stamp}.json")
-# THE HASHES THE REHEARSAL ITSELF PRODUCED. Without them the manifest names the
-# environment and the corpus and says nothing about the run they produced.
-m["rehearsal_hashes"] = env.get("parity_hashes") or summary.get("bulk_hashes") or None
-m["rehearsal_run_id"] = env.get("run_id")
-m["rehearsal_spec"] = spec or None
-m["rehearsal_equivalence"] = summary.get("equivalence") or None
-m["settlement_counters"] = summary.get("settlement_counters") or None
-m["terminal_reconciliation"] = summary.get("terminal_reconciliation") or None
+attempt = {
+    "book_artifact_sha256": sha(art / f"book-{stamp}.json"),
+    "rejection_audit_sha256": sha(
+        art / f"rejection-audit-final-{stamp}.json"),
+    # THE HASHES THE REHEARSAL ITSELF PRODUCED. Without them the manifest
+    # names the environment/corpus and says nothing about the resulting run.
+    "rehearsal_hashes": (env.get("parity_hashes")
+                         or summary.get("bulk_hashes") or None),
+    "rehearsal_run_id": env.get("run_id"),
+    "rehearsal_spec": spec or None,
+    "rehearsal_equivalence": summary.get("equivalence") or None,
+    "settlement_counters": summary.get("settlement_counters") or None,
+    "terminal_reconciliation": summary.get("terminal_reconciliation") or None,
+    "final_identity_hash": final_identity.get("identity_hash"),
+    "final_corpus_hash": (final_identity.get("corpus") or {}).get(
+        "corpus_hash"),
+}
 
 def sh(*c):
     try:
@@ -139,17 +169,27 @@ def sh(*c):
 # answers "what does the tag point at now" and would accept any correctly
 # self-identifying artefact that happens to run after the freeze.
 ident = spec.get("engine_identity") or {}
-m["bt_engine_identity"] = ident or None
-
-mp.write_text(json.dumps(m, indent=2, sort_keys=True))
+attempt["bt_engine_identity"] = ident or None
 
 # ── THE CERTIFICATION CONDITIONS, AS GATES ───────────────────────────────────
-# These were RECORDED and then narrated to the operator. "REHEARSAL FINALIZED"
-# meant evidence exists, not that it passed — so a run with unreconciled
-# episodes or a non-zero residual printed green.
-eq = m.get("rehearsal_equivalence") or {}
-tr = m.get("terminal_reconciliation") or {}
+# Attempt evidence is assembled separately from completion evidence. Only a
+# run that passes every gate below copies these fields into the manifest's
+# completion surface and reaches FINALIZED.
+eq = attempt.get("rehearsal_equivalence") or {}
+tr = attempt.get("terminal_reconciliation") or {}
 failures = []
+if m.get("lifecycle") != "FINALIZING":
+    failures.append(
+        f"manifest lifecycle is {m.get('lifecycle')!r}, not FINALIZING")
+
+# THE EXACT CORPUS GENERATIONS. A READY G2 does not authenticate parity that
+# was measured on G1. The run row is authoritative for what bt-engine loaded;
+# the final Sentinel identity is authoritative for what the final audit read.
+provenance, provenance_failures = finalization_provenance_failures(
+    m, final_identity, summary)
+attempt["run_provenance"] = provenance or None
+failures.extend(provenance_failures)
+
 for k in ("state_hash_matches", "ledger_hash_matches", "final_cash_matches"):
     if eq.get(k) is not True:
         failures.append(f"equivalence.{k} is {eq.get(k)!r} — the session-by-"
@@ -272,17 +312,19 @@ if sh("git", "status", "--porcelain") != "":
         "the working tree is DIRTY at finalization, so no commit identifies "
         "what produced this evidence")
 
-missing = [k for k in ("corpus_hash", "book_artifact_sha256",
-                       "rejection_audit_sha256", "rehearsal_hashes")
-           if not m.get(k)]
-for k in missing:
-    failures.append(f"{k} is still null")
+for key in ("corpus_hash", "parity_generations"):
+    if not m.get(key):
+        failures.append(f"{key} is still null")
+finish_finalization(m, attempt, failures)
+mp.write_text(json.dumps(m, indent=2, sort_keys=True))
 
-for f in failures:
+authoritative_failures = list(m.get("failures") or [])
+for f in authoritative_failures:
     print(f"  BLOCKED: {f}")
 print(f"  cash_coverage_fraction: {cov}")
 print(f"  -> {mp}")
-sys.exit(1 if failures else 0)
+sys.exit(0 if m.get("lifecycle") == "FINALIZED" and
+         m.get("verdict") == "PASS" else 1)
 PY
 
 step "4/4  what to read, in this order"

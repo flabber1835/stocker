@@ -128,6 +128,14 @@ DDL = (
         plan_id          TEXT        NOT NULL,
         security_id      TEXT        NOT NULL,
         revision         INT         NOT NULL DEFAULT 0,
+        -- The identity which MINTED client_key. It is stored on every command
+        -- rather than inferred from today's binding: a restored-host adoption
+        -- increments takeover_epoch, while predecessor commands remain real
+        -- broker obligations under their original keys.
+        deployment_id    TEXT        NOT NULL,
+        broker           TEXT        NOT NULL,
+        broker_account_id TEXT       NOT NULL,
+        takeover_epoch   BIGINT      NOT NULL,
         symbol           TEXT        NOT NULL,
         broker_instrument_id TEXT,
         side             TEXT        NOT NULL,
@@ -147,6 +155,35 @@ DDL = (
         recovered        BOOLEAN     NOT NULL DEFAULT FALSE,
         created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+    # Existing databases predate per-command identity. Before adoption, every
+    # such row was minted by the one binding present at that time, so the
+    # binding is the only deterministic backfill. Commands with no binding fail
+    # the NOT NULL conversion instead of being attributed by guesswork.
+    """ALTER TABLE sentinel_commands
+        ADD COLUMN IF NOT EXISTS deployment_id TEXT""",
+    """ALTER TABLE sentinel_commands
+        ADD COLUMN IF NOT EXISTS broker TEXT""",
+    """ALTER TABLE sentinel_commands
+        ADD COLUMN IF NOT EXISTS broker_account_id TEXT""",
+    """ALTER TABLE sentinel_commands
+        ADD COLUMN IF NOT EXISTS takeover_epoch BIGINT""",
+    """UPDATE sentinel_commands c
+          SET deployment_id = b.deployment_id,
+              broker = b.broker,
+              broker_account_id = b.broker_account_id,
+              takeover_epoch = b.takeover_epoch
+         FROM sentinel_account_binding b
+        WHERE b.id = 1
+          AND (c.deployment_id IS NULL OR c.broker IS NULL
+               OR c.broker_account_id IS NULL OR c.takeover_epoch IS NULL)""",
+    """ALTER TABLE sentinel_commands
+        ALTER COLUMN deployment_id SET NOT NULL""",
+    """ALTER TABLE sentinel_commands
+        ALTER COLUMN broker SET NOT NULL""",
+    """ALTER TABLE sentinel_commands
+        ALTER COLUMN broker_account_id SET NOT NULL""",
+    """ALTER TABLE sentinel_commands
+        ALTER COLUMN takeover_epoch SET NOT NULL""",
     """ALTER TABLE sentinel_commands
         ADD COLUMN IF NOT EXISTS recovered BOOLEAN NOT NULL DEFAULT FALSE""",
     """ALTER TABLE sentinel_commands
