@@ -133,7 +133,7 @@ def simulator_is_certified(monkeypatch):
     monkeypatch.setattr(
         paper, "runtime_strategy_identity", lambda _config: dict(IDENTITY))
     monkeypatch.setattr(
-        paper, "require_execution_authority",
+        paper, "require_current_authority",
         lambda *_args, **_kwargs: SimpleNamespace(
             certificate_sha256="test-system-certificate"))
     monkeypatch.setattr(
@@ -1082,7 +1082,7 @@ class TestStrictExecutionGate:
             raise authority.AuthorityRefused(
                 "no active system certificate is installed")
 
-        monkeypatch.setattr(paper, "require_execution_authority", refuse)
+        monkeypatch.setattr(paper, "require_current_authority", refuse)
         broker = _broker()
 
         with pytest.raises(authority.AuthorityRefused, match="no active"):

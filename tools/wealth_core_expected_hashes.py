@@ -402,6 +402,9 @@ def produce(conn, *, start: str, end: str, bt=None) -> dict[str, Any]:
     hashes = validate_hashes(raw_hashes)
 
     from stock_strategy_shared import identity_hashes
+    from stock_strategy_shared.runtime_identity import (
+        wealth_core_baseline_identity,
+    )
     from stock_strategy_shared.wealth_core.run import STRATEGY_ID, STRATEGY_VERSION
 
     wealth_core_hash = identity_hashes.wealth_core_source_hash()
@@ -436,6 +439,11 @@ def produce(conn, *, start: str, end: str, bt=None) -> dict[str, Any]:
             "the expected-hash producer is not running in the certified, "
             "source-known, lock-identified Sentinel test environment")
 
+    behavior_identity = wealth_core_baseline_identity()
+    if config_hash != behavior_identity["engine_config_hash"]:
+        raise ExpectedHashesRefused(
+            "baseline run config differs from the canonical behavior identity")
+
     sessions = corpus["sessions"]
     warmup = corpus["warmup_sessions"]
     return {
@@ -464,6 +472,7 @@ def produce(conn, *, start: str, end: str, bt=None) -> dict[str, Any]:
             "strategy_version": STRATEGY_VERSION,
             "starting_cash": 1_000_000.0,
             "config_hash": config_hash,
+            "behavior_identity": behavior_identity,
             "final_cash": round(float(result.state.cash), 2),
             "final_positions": len(result.state.episodes),
             "blocked_sessions": len(result.blocked_sessions),

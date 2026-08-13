@@ -3,9 +3,10 @@
 **Status: IMPLEMENTED, NOT ACTIVATED.** The canonical Wealth Core shadow,
 frozen exposure controller, version-3 production `SessionState`, daily
 transition, and paper-plan decision adapter now exist. The separately
-authorized paper execution path is implemented and simulator-tested; no
-migration, broker submission, deployment, scheduler, or activation is implied
-by this document.
+authorized paper execution path is implemented and simulator-tested. The
+disabled-by-default Stage 4 orchestration and signed authority contract are in
+`sentinel-stage-4-automation.md`; neither their installation nor this document
+implies migration, broker submission, certificate issuance, or activation.
 
 > **THE EXECUTION LAYER BELOW "execution projection" IS NOW BUILT**, and its
 > rules live in `docs/sentinel-execution-contract.md` — command identity, the

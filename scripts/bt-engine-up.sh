@@ -71,10 +71,19 @@ if [ -z "${ID}" ]; then
   echo "         certified. Build it first, or pass the right --project-name." >&2
   exit 1
 fi
+REVISION=$(docker image inspect "${REF}" --format \
+  '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+  2>/dev/null || true)
+if [ -z "${REVISION}" ] || [ "${REVISION}" = "unknown" ]; then
+  echo "REFUSED: ${REF} has no immutable source revision label." >&2
+  echo "         Rebuild it through the certification harness." >&2
+  exit 1
+fi
 
 echo "== bt-engine image"
 echo "   ref ${REF}"
 echo "   id  ${ID}"
+echo "   rev ${REVISION}"
 
 # CHECK AGAINST THE FROZEN MANIFEST NOW, not after a three-hour rehearsal.
 # The finalizer refuses a run whose engine image differs from the one the
@@ -151,6 +160,7 @@ if [ -n "${USE_MANIFEST}" ] && [ "${ALLOW_DRIFT:-0}" != "1" ]; then
 fi
 
 BT_ENGINE_IMAGE="${REF}" BT_ENGINE_IMAGE_ID="${ID}" \
+  BT_ENGINE_SOURCE_REVISION="${REVISION}" \
   ${COMPOSE} up -d --force-recreate bt-engine
 
 echo

@@ -73,6 +73,43 @@ _RUNTIME_COLUMNS = {
     "sentinel_commands": {
         "state", "updated_at"},
 }
+
+# Automation is optional at the panel boundary so an older database can say
+# NOT INSTALLED instead of making the whole read-only service fail to start.
+# Once any of these relations exists, however, a partial shape is corruption
+# and is surfaced as UNKNOWN.  The three authority-verdict columns are
+# intentionally *not* required yet: their absence means UNKNOWN, never a
+# lifecycle-derived validity claim.
+_AUTOMATION_COLUMNS = {
+    "sentinel_automation_control": {
+        "id", "enabled", "generation", "kill_switch_engaged",
+        "certificate_sha256", "updated_at"},
+    "sentinel_automation_lease": {
+        "id", "holder_id", "fence_token", "control_generation",
+        "heartbeat_at", "expires_at"},
+    "sentinel_automation_cycles": {
+        "cycle_id", "state", "decision_session", "effective_session",
+        "last_clean_reconciliation_id", "next_wake_at", "failure_code",
+        "failure_detail", "updated_at", "created_at"},
+    "sentinel_alert_outbox": {
+        "state", "ack_state", "updated_at"},
+    "sentinel_automation_service_instances": {
+        "instance_id", "state", "heartbeat_at", "next_wake_at",
+        "last_error", "updated_at"},
+}
+_AUTHORITY_COLUMNS = {
+    "sentinel_execution_authority_state": {
+        "id", "generation", "active_certificate_sha256", "updated_at"},
+    "sentinel_signed_execution_certificates": {
+        "certificate_sha256", "key_id", "expires_at"},
+    "sentinel_execution_certificate_lifecycle": {
+        "certificate_sha256", "status"},
+    "sentinel_execution_certificate_revocations": {
+        "certificate_sha256"},
+    "sentinel_execution_key_revocations": {"key_id"},
+}
+_AUTHORITY_VERDICT_COLUMNS = frozenset({
+    "authority_verdict", "authority_detail", "authority_checked_at"})
 _ACTIVE_COMMAND_STATES = (
     "PLANNED", "SEND_PENDING", "ACKNOWLEDGED", "UNKNOWN",
     "PARTIALLY_FILLED", "CANCEL_PENDING",
@@ -193,8 +230,36 @@ def _runtime_schema(conn) -> dict[str, set[str]]:
     return found
 
 
+def _automation_schema(conn) -> dict[str, set[str]]:
+    expected = {**_AUTOMATION_COLUMNS, **_AUTHORITY_COLUMNS}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT table_name, column_name FROM information_schema.columns"
+            " WHERE table_schema = ANY(current_schemas(false))"
+            " AND table_name = ANY(%s)",
+            (list(expected),))
+        rows = cur.fetchall()
+    found = {table: set() for table in expected}
+    for table, column in rows:
+        if str(table) in found:
+            found[str(table)].add(str(column))
+    return found
+
+
 def _schema_error(found: Mapping[str, set[str]], table: str) -> str | None:
     missing = _RUNTIME_COLUMNS[table] - set(found.get(table) or ())
+    if not missing:
+        return None
+    return f"missing schema {table}({', '.join(sorted(missing))})"
+
+
+def _optional_schema_error(
+        found: Mapping[str, set[str]], table: str,
+        expected: Mapping[str, set[str]]) -> str | None:
+    columns = set(found.get(table) or ())
+    if not columns:
+        return None
+    missing = expected[table] - columns
     if not missing:
         return None
     return f"missing schema {table}({', '.join(sorted(missing))})"
@@ -582,6 +647,399 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                 pass
 
 
+def _automation_control(conn, found: Mapping[str, set[str]]) -> dict:
+    columns = set(found.get("sentinel_automation_control") or ())
+    verdict_columns = _AUTHORITY_VERDICT_COLUMNS.issubset(columns)
+    optional = (
+        ",authority_verdict,authority_detail,authority_checked_at"
+        if verdict_columns else ",NULL,NULL,NULL")
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT enabled,generation,kill_switch_engaged,certificate_sha256,"
+            " updated_at"
+            f"{optional} FROM sentinel_automation_control WHERE id=1")
+        rows = cur.fetchall()
+    if len(rows) != 1:
+        raise ValueError("durable automation control singleton is missing")
+    (enabled, generation, killed, certificate_sha256, updated,
+     verdict, detail, checked) = rows[0]
+    return {
+        "enabled": bool(enabled), "generation": int(generation),
+        "killed": bool(killed), "updated_at": _utc(updated),
+        "certificate_sha256": (
+            str(certificate_sha256) if certificate_sha256 else None),
+        "authority_verdict": verdict,
+        "authority_detail": detail,
+        "authority_checked_at": _utc(checked),
+    }
+
+
+def _automation_lease(conn, generation: int) -> dict:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT holder_id,fence_token,heartbeat_at,expires_at,"
+            " (holder_id IS NOT NULL AND control_generation=%s"
+            "  AND expires_at > clock_timestamp())"
+            " FROM sentinel_automation_lease WHERE id=1",
+            (generation,))
+        rows = cur.fetchall()
+    if len(rows) != 1:
+        raise ValueError("durable automation lease singleton is missing")
+    holder, fence, heartbeat, expires, active = rows[0]
+    return {
+        "holder": holder, "fence": int(fence),
+        "heartbeat_at": _utc(heartbeat), "expires_at": _utc(expires),
+        "active": bool(active),
+    }
+
+
+def _latest_automation_cycle(conn) -> dict | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT cycle_id,state,decision_session,effective_session,"
+            " next_wake_at,"
+            " (SELECT prior.last_clean_reconciliation_id"
+            "    FROM sentinel_automation_cycles prior"
+            "   WHERE prior.last_clean_reconciliation_id IS NOT NULL"
+            "   ORDER BY prior.updated_at DESC,prior.created_at DESC LIMIT 1),"
+            " failure_code,"
+            " failure_detail,updated_at"
+            " FROM sentinel_automation_cycles"
+            " ORDER BY decision_session DESC,created_at DESC LIMIT 1")
+        row = cur.fetchone()
+    if row is None:
+        return None
+    (cycle_id, state, decision_session, effective_session, next_wake,
+     clean, failure_code, failure_detail, updated_at) = row
+    return {
+        "cycle_id": str(cycle_id), "state": str(state),
+        "decision_session": str(decision_session),
+        "effective_session": str(effective_session),
+        "next_wake_at": _utc(next_wake),
+        "clean_reconciliation_id": clean,
+        "failure_code": failure_code, "failure_detail": failure_detail,
+        "updated_at": _utc(updated_at),
+    }
+
+
+def _automation_alert_counts(conn) -> dict:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT"
+            " COUNT(*) FILTER (WHERE state IN ('PENDING','DELIVERING')) ,"
+            " COUNT(*) FILTER (WHERE state='DEAD_LETTER'),"
+            " COUNT(*) FILTER (WHERE ack_state='UNACKNOWLEDGED'),"
+            " MAX(updated_at) FROM sentinel_alert_outbox")
+        row = cur.fetchone()
+    if row is None:
+        raise ValueError("durable alert outbox aggregate returned no row")
+    pending, dead, unacknowledged, updated_at = row
+    return {
+        "pending": int(pending), "dead_letter": int(dead),
+        "unacknowledged": int(unacknowledged),
+        "updated_at": _utc(updated_at),
+    }
+
+
+def _latest_automation_instance(conn) -> dict | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT instance_id,state,heartbeat_at,next_wake_at,last_error"
+            " FROM sentinel_automation_service_instances"
+            " ORDER BY heartbeat_at DESC LIMIT 1")
+        row = cur.fetchone()
+    if row is None:
+        return None
+    instance_id, state, heartbeat, next_wake, last_error = row
+    return {
+        "instance_id": str(instance_id), "state": str(state),
+        "heartbeat_at": _utc(heartbeat), "next_wake_at": _utc(next_wake),
+        "last_error": last_error,
+    }
+
+
+def _service_authority_verdict(
+        conn, found: Mapping[str, set[str]]) -> dict | None:
+    """Read only a verdict persisted by authority validation.
+
+    The lifecycle query below is never promoted into a verdict.  During the
+    schema transition the verdict may live on control or on the latest service
+    instance; accepting either keeps the panel read-compatible without making
+    either location an authority decision.
+    """
+    control_columns = set(found.get("sentinel_automation_control") or ())
+    if _AUTHORITY_VERDICT_COLUMNS.issubset(control_columns):
+        # Already returned with the control singleton so no second read is
+        # necessary.  The caller fills it from that snapshot.
+        return None
+    instance_columns = set(
+        found.get("sentinel_automation_service_instances") or ())
+    if not _AUTHORITY_VERDICT_COLUMNS.issubset(instance_columns):
+        return None
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT authority_verdict,authority_detail,authority_checked_at"
+            " FROM sentinel_automation_service_instances"
+            " ORDER BY heartbeat_at DESC LIMIT 1")
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return {
+        "authority_verdict": row[0], "authority_detail": row[1],
+        "authority_checked_at": _utc(row[2]),
+    }
+
+
+def _authority_lifecycle(conn) -> dict:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT a.generation,a.active_certificate_sha256,a.updated_at,"
+            " c.expires_at,l.status,"
+            " (cr.certificate_sha256 IS NOT NULL),"
+            " (kr.key_id IS NOT NULL),"
+            " (a.active_certificate_sha256 IS NOT NULL"
+            "  AND l.status='ACTIVE'"
+            "  AND c.expires_at > clock_timestamp()"
+            "  AND cr.certificate_sha256 IS NULL"
+            "  AND kr.key_id IS NULL)"
+            " FROM sentinel_execution_authority_state a"
+            " LEFT JOIN sentinel_signed_execution_certificates c"
+            "   ON c.certificate_sha256=a.active_certificate_sha256"
+            " LEFT JOIN sentinel_execution_certificate_lifecycle l"
+            "   ON l.certificate_sha256=a.active_certificate_sha256"
+            " LEFT JOIN sentinel_execution_certificate_revocations cr"
+            "   ON cr.certificate_sha256=a.active_certificate_sha256"
+            " LEFT JOIN sentinel_execution_key_revocations kr"
+            "   ON kr.key_id=c.key_id"
+            " WHERE a.id=1")
+        rows = cur.fetchall()
+    if not rows:
+        return {
+            "authority_generation": None, "certificate_sha256": None,
+            "expires_at": None, "lifecycle_status": None,
+            "lifecycle_current": False,
+        }
+    if len(rows) != 1:
+        raise ValueError("execution authority singleton is not unique")
+    (generation, digest, _updated, expires, lifecycle, cert_revoked,
+     key_revoked, lifecycle_current) = rows[0]
+    if cert_revoked or key_revoked:
+        lifecycle = "REVOKED"
+    if digest is not None and lifecycle is None:
+        lifecycle = "MISSING LIFECYCLE"
+    return {
+        "authority_generation": int(generation),
+        "certificate_sha256": str(digest) if digest else None,
+        "expires_at": _utc(expires),
+        "lifecycle_status": str(lifecycle) if lifecycle else None,
+        "lifecycle_current": bool(lifecycle_current),
+    }
+
+
+def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
+    """SELECT-only automation, lease, cycle, alert, and authority projection."""
+    if not database_url:
+        detail = "SENTINEL_DATABASE_URL is unset"
+        return ([
+            model.execution_authority_row(installed=None, error=detail),
+            model.automation_row(installed=None, error=detail),
+            model.automation_leader_row(installed=None, error=detail),
+            model.automation_cycle_row(installed=None, error=detail),
+            model.automation_alerts_row(installed=None, error=detail),
+        ], [detail])
+
+    from sentinel.feed import store as feed_store
+
+    conn = None
+    try:
+        conn = feed_store.connect(_bounded_dsn(database_url))
+        found, schema_error = _read(
+            conn, _automation_schema, STATEMENT_TIMEOUT_MS, default={})
+        if schema_error:
+            detail = f"automation schema: {schema_error}"
+            return ([
+                model.execution_authority_row(installed=None, error=detail),
+                model.automation_row(installed=None, error=detail),
+                model.automation_leader_row(installed=None, error=detail),
+                model.automation_cycle_row(installed=None, error=detail),
+                model.automation_alerts_row(installed=None, error=detail),
+            ], [detail])
+
+        automation_present = any(
+            found.get(table) for table in _AUTOMATION_COLUMNS)
+        authority_present = any(
+            found.get(table) for table in _AUTHORITY_COLUMNS)
+        if not automation_present:
+            automation = [
+                model.automation_row(installed=False),
+                model.automation_leader_row(installed=False),
+                model.automation_cycle_row(installed=False),
+                model.automation_alerts_row(installed=False),
+            ]
+            control = None
+        else:
+            core_errors = {
+                table: _optional_schema_error(
+                    found, table, _AUTOMATION_COLUMNS)
+                for table in _AUTOMATION_COLUMNS
+            }
+            core_errors = {
+                table: error for table, error in core_errors.items() if error}
+            missing_tables = [
+                table for table in _AUTOMATION_COLUMNS
+                if not found.get(table)]
+            for table in missing_tables:
+                core_errors[table] = f"missing schema {table}"
+            if core_errors:
+                detail = "; ".join(core_errors.values())
+                automation = [
+                    model.automation_row(installed=None, error=detail),
+                    model.automation_leader_row(installed=None, error=detail),
+                    model.automation_cycle_row(installed=None, error=detail),
+                    model.automation_alerts_row(installed=None, error=detail),
+                ]
+                control = None
+            else:
+                control, control_error = _read(
+                    conn, lambda c: _automation_control(c, found),
+                    STATEMENT_TIMEOUT_MS, default=None)
+                if control_error or control is None:
+                    detail = control_error or "automation control is missing"
+                    automation = [
+                        model.automation_row(installed=True, error=detail),
+                        model.automation_leader_row(
+                            installed=True, error=detail),
+                        model.automation_cycle_row(
+                            installed=True, error=detail),
+                        model.automation_alerts_row(
+                            installed=True, error=detail),
+                    ]
+                else:
+                    lease, lease_error = _read(
+                        conn,
+                        lambda c: _automation_lease(c, control["generation"]),
+                        STATEMENT_TIMEOUT_MS, default=None)
+                    cycle, cycle_error = _read(
+                        conn, _latest_automation_cycle,
+                        STATEMENT_TIMEOUT_MS, default=None)
+                    instance, instance_error = _read(
+                        conn, _latest_automation_instance,
+                        STATEMENT_TIMEOUT_MS, default=None)
+                    alerts, alerts_error = _read(
+                        conn, _automation_alert_counts,
+                        STATEMENT_TIMEOUT_MS, default=None)
+                    cycle_view = dict(cycle or {})
+                    if instance:
+                        if cycle_view.get("next_wake_at") is None:
+                            cycle_view["next_wake_at"] = instance["next_wake_at"]
+                        if (not cycle_view.get("failure_detail")
+                                and instance.get("last_error")):
+                            cycle_view["failure_code"] = "SERVICE_ERROR"
+                            cycle_view["failure_detail"] = instance["last_error"]
+                    automation = [
+                        model.automation_row(
+                            installed=True, enabled=control["enabled"],
+                            killed=control["killed"],
+                            generation=control["generation"],
+                            updated_at=control["updated_at"]),
+                        model.automation_leader_row(
+                            installed=True, enabled=control["enabled"],
+                            killed=control["killed"],
+                            error=lease_error, **(lease or {})),
+                        model.automation_cycle_row(
+                            installed=True, enabled=control["enabled"],
+                            error=cycle_error or instance_error, **cycle_view),
+                        model.automation_alerts_row(
+                            installed=True, error=alerts_error,
+                            as_of=(alerts or {}).get("updated_at"),
+                            **{key: value for key, value in (alerts or {}).items()
+                               if key != "updated_at"}),
+                    ]
+
+        authority_errors: list[str] = []
+        runtime_verdict = None
+        runtime_detail = None
+        checked_at = None
+        if control is not None:
+            runtime_verdict = control.get("authority_verdict")
+            runtime_detail = control.get("authority_detail")
+            checked_at = control.get("authority_checked_at")
+        if runtime_verdict is None and automation_present:
+            service_verdict, verdict_error = _read(
+                conn, lambda c: _service_authority_verdict(c, found),
+                STATEMENT_TIMEOUT_MS, default=None)
+            if verdict_error:
+                authority_errors.append(verdict_error)
+            if service_verdict:
+                runtime_verdict = service_verdict["authority_verdict"]
+                runtime_detail = service_verdict["authority_detail"]
+                checked_at = service_verdict["authority_checked_at"]
+
+        if not authority_present:
+            authority = model.execution_authority_row(installed=False)
+        else:
+            authority_schema_errors = [
+                error for table in _AUTHORITY_COLUMNS
+                if (error := _optional_schema_error(
+                    found, table, _AUTHORITY_COLUMNS))]
+            authority_schema_errors.extend(
+                f"missing schema {table}" for table in _AUTHORITY_COLUMNS
+                if not found.get(table))
+            if authority_schema_errors:
+                authority_errors.extend(authority_schema_errors)
+                authority = model.execution_authority_row(
+                    installed=None, error="; ".join(authority_schema_errors))
+            else:
+                lifecycle, lifecycle_error = _read(
+                    conn, _authority_lifecycle,
+                    STATEMENT_TIMEOUT_MS, default=None)
+                if lifecycle_error:
+                    authority_errors.append(lifecycle_error)
+                    authority = model.execution_authority_row(
+                        installed=True, error=lifecycle_error,
+                        runtime_verdict=runtime_verdict,
+                        runtime_detail=runtime_detail, checked_at=checked_at)
+                else:
+                    lifecycle_view = dict(lifecycle or {})
+                    verdict_binding_matches = bool(
+                        control is not None
+                        and control.get("certificate_sha256")
+                        and lifecycle_view.get("certificate_sha256")
+                        and control["certificate_sha256"]
+                        == lifecycle_view["certificate_sha256"])
+                    authority = model.execution_authority_row(
+                        installed=True, runtime_verdict=runtime_verdict,
+                        runtime_detail=runtime_detail, checked_at=checked_at,
+                        verdict_binding_matches=verdict_binding_matches,
+                        **lifecycle_view)
+
+        raw_errors = (
+            ([] if not automation_present else
+             [row.detail for row in automation if row.status is model.UNKNOWN])
+            + authority_errors)
+        errors = []
+        for error in raw_errors:
+            rendered = f"automation {error}"
+            if rendered not in errors:
+                errors.append(rendered)
+        return [authority, *automation], errors
+    except Exception as exc:                                  # noqa: BLE001
+        detail = _short(exc)
+        return ([
+            model.execution_authority_row(installed=None, error=detail),
+            model.automation_row(installed=None, error=detail),
+            model.automation_leader_row(installed=None, error=detail),
+            model.automation_cycle_row(installed=None, error=detail),
+            model.automation_alerts_row(installed=None, error=detail),
+        ], [f"automation database: {detail}"])
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:                                 # noqa: BLE001
+                pass
+
+
 def _runtime_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
     """Canonical state, current plan and durable broker evidence.
 
@@ -780,14 +1238,16 @@ def build_panel(*, state_dir: Path, database_url: str,
     errors.extend(feed_errs)
     runtime_rows, runtime_errs = _runtime_rows(database_url)
     errors.extend(runtime_errs)
+    automation_rows, automation_errs = _automation_rows(database_url)
+    errors.extend(automation_errs)
 
     rows = [
         own,
-        model.execution_authority_row(),
+        automation_rows[0],
         runtime_rows[0],
         *feed_rows,
         *runtime_rows[1:],
-        model.automation_row(),
+        *automation_rows[1:],
     ]
     return model.Panel(rows=rows, now=now, source_errors=errors)
 

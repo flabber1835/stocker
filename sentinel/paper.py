@@ -21,9 +21,8 @@ from sentinel.authority import (
     AuthorityRefused,
     RolloutMode,
     load_rollout_state,
-    require_execution_authority,
 )
-from sentinel.config import assert_paper_url
+from sentinel.config import DEFAULT_BASE_URL, assert_paper_url
 from sentinel.controller.frozen_rule import ControllerConfig, load as load_controller
 from sentinel.controller.machine import Controller
 from sentinel.core import catchup
@@ -43,13 +42,26 @@ from sentinel.core.production import (
 )
 from sentinel.execution import executor, journal
 from sentinel.execution import reconcile as reconciliation
+from sentinel.execution.authority_gate import (
+    build_fresh_execution_guard,
+    require_current_authority,
+)
 from sentinel.execution.certification import require_certified
 from sentinel.execution.commands import committed_quantity
 from sentinel.execution.contract import (
+    BrokerAccountIdentity,
     BrokerAccountSnapshot,
     BrokerInstrument,
     BrokerObservation,
     ExecutionBroker,
+)
+from sentinel.execution.guarded import (
+    AutomationExecutionGrant,
+    BrokerAuthorityRefused,
+    BrokerOperation,
+    GuardedExecutionBroker,
+    ManualExecutionGrant,
+    PaperPreparationGrant,
 )
 from sentinel.execution.plan import ExecutionPlan
 from sentinel.execution.states import RuntimeState
@@ -58,8 +70,12 @@ from sentinel.feed import calendar, publication, readiness, store as feed_store
 DEFENSIVE_SYMBOL = "BIL"
 
 
-class PaperActivationRefused(RuntimeError):
+class PaperActivationRefused(BrokerAuthorityRefused):
     """A preparation or execution authority check failed."""
+
+
+class PaperRetryableRefused(PaperActivationRefused):
+    """Temporary readiness or settlement evidence is not yet usable."""
 
 
 @dataclass(frozen=True)
@@ -236,6 +252,15 @@ def _require_certified_paper_broker(broker: ExecutionBroker) -> None:
     """
     from sentinel.execution.alpaca import AlpacaExecutionBroker
     from sentinel.execution.simulator import SimulatedBroker
+    from sentinel.guarded_administration import (
+        GuardedAdministrativeExecutionBroker)
+
+    if isinstance(broker, GuardedAdministrativeExecutionBroker):
+        # This one explicit read-only wrapper validated its concrete adapter at
+        # construction and exposes only a certification recheck, never its
+        # transport object. Arbitrary duck-typed wrappers remain refused.
+        broker.require_certified_adapter()
+        return
 
     if isinstance(broker, AlpacaExecutionBroker):
         require_certified("alpaca")
@@ -354,7 +379,7 @@ def _readiness_or_refuse(conn, *, now_et=None):
     if report.ready:
         return report
     detail = "; ".join(f"{c.name}: {c.detail}" for c in report.failures)
-    raise PaperActivationRefused(f"corpus readiness failed: {detail}")
+    raise PaperRetryableRefused(f"corpus readiness failed: {detail}")
 
 
 def _execution_observation_time(value: date | datetime | None) -> datetime:
@@ -379,7 +404,7 @@ def _execution_window_or_refuse(session: date, now_et: datetime) -> None:
     """Require the actual instant to lie inside the named XNYS session."""
     opened, closed = calendar.session_window(session)
     if not (opened <= now_et < closed):
-        raise PaperActivationRefused(
+        raise PaperRetryableRefused(
             f"paper execution time {now_et.isoformat()} is outside the "
             f"certified XNYS execution window for {session}: "
             f"[{opened.isoformat()}, {closed.isoformat()}). The gateway will "
@@ -390,7 +415,13 @@ def _clean_or_refuse(result, *, purpose: str) -> BrokerObservation:
     observation = result.observation
     if (result.runtime_state is not RuntimeState.RUNNING or not result.clean
             or observation is None or not observation.is_complete):
-        raise PaperActivationRefused(
+        error = (PaperRetryableRefused
+                 if (result.runtime_state in {
+                     RuntimeState.BROKER_DEGRADED, RuntimeState.RECONCILING}
+                     or (observation is not None
+                         and not observation.is_complete))
+                 else PaperActivationRefused)
+        raise error(
             f"{purpose} requires COMPLETE, RUNNING, clean reconciliation; "
             f"got {result.runtime_state.value}: {result.detail}")
     return observation
@@ -424,7 +455,7 @@ def _account_or_refuse(snapshot: BrokerAccountSnapshot, binding,
             "Sentinel requires a cash-only paper account and will not rely on "
             "margin to make a DAY market order affordable")
     if snapshot.status.upper() != "ACTIVE":
-        raise PaperActivationRefused(
+        raise PaperRetryableRefused(
             f"paper account status is {snapshot.status!r}, not ACTIVE")
     blocked = [
         name for name in (
@@ -432,15 +463,33 @@ def _account_or_refuse(snapshot: BrokerAccountSnapshot, binding,
         if getattr(snapshot, name)
     ]
     if blocked:
-        raise PaperActivationRefused(
+        raise PaperRetryableRefused(
             "paper account is not available for submission: "
             + ", ".join(blocked))
     if abs(snapshot.buying_power - snapshot.cash) > Decimal("1.00"):
-        raise PaperActivationRefused(
+        error = (PaperRetryableRefused
+                 if snapshot.buying_power < snapshot.cash
+                 else PaperActivationRefused)
+        raise error(
             f"paper account buying power {snapshot.buying_power} does not "
             f"match cash {snapshot.cash}. Lower buying power is unsettled; "
             "higher buying power exposes margin. Increases wait for cash-only "
             "settlement")
+
+
+def _recovery_account_identity_or_refuse(
+        snapshot: BrokerAccountSnapshot, binding,
+        expected_account: str) -> None:
+    """Prove identity without applying submission-time account economics."""
+    if not binding.identity.matches_account(snapshot.identity):
+        raise PaperActivationRefused(
+            f"broker identity {snapshot.identity.broker}/"
+            f"{snapshot.identity.account_id} does not match binding "
+            f"{binding.broker}/{binding.broker_account_id}")
+    if snapshot.identity.account_id != expected_account:
+        raise PaperActivationRefused(
+            f"connected to paper account {snapshot.identity.account_id}, "
+            f"expected {expected_account}")
 
 
 def _cash_authority_or_refuse(conn, *, plan: ExecutionPlan, deployment,
@@ -554,6 +603,195 @@ def _assert_deterministic_plan_id(plan: ExecutionPlan) -> None:
             f"economic identity {expected!r}; the stored plan is corrupt")
 
 
+def _fresh_connection_factory(conn):
+    """Derive a fresh-connection factory without exposing or logging the DSN."""
+    dsn = getattr(getattr(conn, "info", None), "dsn", "")
+    if not dsn:
+        raise PaperActivationRefused(
+            "paper broker authority requires a fresh PostgreSQL connection "
+            "for every operation")
+    def open_fresh():
+        try:
+            import psycopg
+            return psycopg.connect(
+                dsn, autocommit=False, connect_timeout=5)
+        except ModuleNotFoundError:                           # pragma: no cover
+            import psycopg2
+            return psycopg2.connect(dsn, connect_timeout=5)
+    return open_fresh
+
+
+def _validate_automation_grant(conn, grant: AutomationExecutionGrant):
+    from sentinel.automation import store as automation_store
+    from sentinel.automation.model import CycleState, LeaderPermit
+
+    control = automation_store.load_control(conn)
+    if not control.enabled or control.kill_switch_engaged:
+        raise PaperActivationRefused(
+            "automation is disabled or its kill switch is engaged")
+    bound = control.binding
+    if bound is None:
+        raise PaperActivationRefused("automation control has no durable binding")
+    expected = (
+        grant.broker_account_id, grant.takeover_epoch,
+        grant.rollout_mode, grant.rollout_version,
+        grant.certificate_sha256, grant.control_generation,
+    )
+    actual = (
+        bound.broker_account_id, bound.takeover_epoch,
+        bound.rollout_mode, bound.rollout_version,
+        bound.certificate_sha256, control.generation,
+    )
+    if actual != expected:
+        raise PaperActivationRefused(
+            "automation grant does not match durable control authority")
+    placeholder = datetime.now(ZoneInfo("UTC"))
+    permit = LeaderPermit(
+        holder_id=grant.holder_id, fence_token=grant.fence_token,
+        control_generation=grant.control_generation,
+        acquired_at=placeholder, expires_at=placeholder)
+    automation_store.require_leader(conn, permit)
+    cycle = automation_store.load_cycle(conn, grant.cycle_id)
+    current_generation = cycle.control_generation == grant.control_generation
+    if current_generation:
+        cycle_expected = (
+            grant.control_generation, grant.broker_account_id,
+            grant.takeover_epoch, grant.rollout_mode, grant.rollout_version,
+            grant.certificate_sha256,
+        )
+        cycle_actual = (
+            cycle.control_generation, cycle.broker_account_id,
+            cycle.takeover_epoch, cycle.rollout_mode, cycle.rollout_version,
+            cycle.certificate_sha256,
+        )
+        if cycle_actual != cycle_expected:
+            raise PaperActivationRefused(
+                "automation cycle does not match its live fencing grant")
+    else:
+        # Only read-only recovery may cross a generation boundary. The core's
+        # sole adoption operation proves that this is a transport-capable old
+        # obligation for the same deployment/account/takeover identity and
+        # stamps the current live fence without rewriting its historical
+        # rollout/certificate identity. Those stale economics are deliberately
+        # not compared with current authority and can never execute.
+        if (grant.operation_scope != "RECOVER"
+                or cycle.control_generation >= grant.control_generation
+                or not automation_store.cycle_transport_capable(cycle)
+                or not automation_store.adoption_identity_matches(
+                    cycle, control)
+                or cycle.last_fence_token != grant.fence_token):
+            raise PaperActivationRefused(
+                "old-generation automation cycle lacks current fenced "
+                "read-only recovery adoption")
+    if grant.operation_scope == "PREPARE":
+        allowed = {CycleState.PREPARING}
+    elif grant.operation_scope == "RECOVER":
+        allowed = {
+            CycleState.DISCOVERED, CycleState.REFRESHING_DATA,
+            CycleState.EXECUTING, CycleState.RECONCILING,
+            CycleState.RETRY_WAIT,
+        }
+    else:
+        allowed = {CycleState.EXECUTING, CycleState.RECONCILING,
+                   CycleState.RETRY_WAIT}
+    if cycle.state not in allowed:
+        raise PaperActivationRefused(
+            f"automation cycle state {cycle.state.value} does not permit "
+            f"{grant.operation_scope.lower()} broker access")
+    return control, cycle
+
+
+def _validate_broker_grant(conn, grant, _operation: BrokerOperation,
+                           result, *, now_provider) -> None:
+    """Fresh database-only grant proof run before and after every broker read."""
+    from sentinel.handover import assert_no_legacy_path
+
+    binding = assert_no_legacy_path(conn)
+    reported = (result.identity if isinstance(result, BrokerAccountSnapshot)
+                else result if isinstance(result, BrokerAccountIdentity)
+                else None)
+    if reported is not None and not binding.identity.matches_account(reported):
+        raise PaperActivationRefused(
+            "broker result identity does not match the durable binding")
+    rollout = load_rollout_state(conn)
+    now_et = now_provider()
+    if now_et.tzinfo is None:
+        raise PaperActivationRefused("broker authority clock is timezone-naive")
+    current = publication.require_current(conn)
+    frontier = feed_store.latest_visible_session(conn)
+    runtime_strategy = runtime_strategy_identity(load_controller())
+
+    if isinstance(grant, AutomationExecutionGrant):
+        _control, cycle = _validate_automation_grant(conn, grant)
+        if (binding.broker_account_id != grant.broker_account_id
+                or binding.takeover_epoch != grant.takeover_epoch):
+            raise PaperActivationRefused(
+                "automation grant account/takeover identity is stale")
+        decision_session = cycle.decision_session
+        if grant.operation_scope == "EXECUTE":
+            state, plan, _cursor = _state_and_plan_or_refuse(conn)
+            if (cycle.plan_id != plan.plan_id
+                    or cycle.plan_fingerprint != plan.fingerprint()):
+                raise PaperActivationRefused(
+                    "automation cycle does not name the durable current plan")
+            _readiness_or_refuse(conn, now_et=now_et)
+            _execution_window_or_refuse(plan.effective_session, now_et)
+            _assert_plan_authorities(
+                conn, state=state, plan=plan, binding=binding,
+                pinned=current, frontier=str(frontier), today=now_et.date(),
+                runtime_identity=runtime_strategy, rollout=rollout)
+            return
+        if grant.operation_scope == "RECOVER":
+            return
+    elif isinstance(grant, PaperPreparationGrant):
+        if binding.broker_account_id != grant.expected_account:
+            raise PaperActivationRefused(
+                "paper preparation grant account is stale")
+        decision_session = grant.decision_session
+    elif isinstance(grant, ManualExecutionGrant):
+        state, plan, _cursor = _state_and_plan_or_refuse(conn)
+        if (grant.confirm_paper_account != binding.broker_account_id
+                or grant.confirm_plan_id != plan.plan_id
+                or grant.confirm_effective_session != plan.effective_session):
+            raise PaperActivationRefused(
+                "manual execution grant no longer names current authority")
+        _readiness_or_refuse(conn, now_et=now_et)
+        _execution_window_or_refuse(plan.effective_session, now_et)
+        _assert_plan_authorities(
+            conn, state=state, plan=plan, binding=binding, pinned=current,
+            frontier=str(frontier), today=now_et.date(),
+            runtime_identity=runtime_strategy, rollout=rollout)
+        return
+    else:                                                       # pragma: no cover
+        raise PaperActivationRefused("unknown guarded broker grant")
+
+    _readiness_or_refuse(conn, now_et=now_et)
+    latest_closed = calendar.latest_closed_session(now_et)
+    if (decision_session.isoformat() != latest_closed
+            or str(frontier) != decision_session.isoformat()):
+        raise PaperActivationRefused(
+            "preparation grant no longer names the latest closed published "
+            "XNYS session")
+
+
+def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
+                  now_provider, strategy_provider,
+                  automation_config_sha256: str | None = None
+                  ) -> GuardedExecutionBroker:
+    guard = build_fresh_execution_guard(
+        connection_factory=_fresh_connection_factory(conn),
+        paper_base_url=base_url,
+        runtime_identity=system_identity.rehearsal_identity,
+        strategy_identity=strategy_provider,
+        validate_grant=lambda fresh, current_grant, operation, result: (
+            _validate_broker_grant(
+                fresh, current_grant, operation, result,
+                now_provider=now_provider)),
+        automation_config_sha256=automation_config_sha256,
+        authority_check=require_current_authority)
+    return GuardedExecutionBroker(inner=broker, grant=grant, guard=guard)
+
+
 async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                              through: date | str,
                              expected_account: Optional[str] = None,
@@ -561,6 +799,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                              controller_config: ControllerConfig | None = None,
                              strategy_identity: Mapping | None = None,
                              now_et: datetime | None = None,
+                             automation_grant: AutomationExecutionGrant | None = None,
+                             automation_config_sha256: str | None = None,
                              ) -> PreparationResult:
     """Advance and adopt one current plan without any broker mutation."""
     assert_paper_url(base_url)
@@ -569,6 +809,13 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
     through_date = (through if isinstance(through, date)
                     else date.fromisoformat(str(through)))
     through_text = through_date.isoformat()
+    if expected_account is None or not str(expected_account).strip():
+        raise PaperActivationRefused(
+            "paper preparation requires the exact expected account id")
+    if (automation_grant is not None
+            and automation_grant.operation_scope != "PREPARE"):
+        raise PaperActivationRefused(
+            "automation preparation requires a PREPARE-scoped grant")
     config = controller_config or load_controller()
     identity = dict(strategy_identity or runtime_strategy_identity(config))
 
@@ -579,13 +826,6 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
         from sentinel.handover import assert_no_legacy_path
         binding = assert_no_legacy_path(conn)
         rollout = load_rollout_state(conn)
-        if rollout.mode is RolloutMode.CONTROLLER:
-            # A revoked controller certificate may not continue producing new
-            # controller-mode intent. PINNED preparation remains available so
-            # certification can be completed without manufacturing authority.
-            require_execution_authority(
-                conn, runtime_identity=system_identity.rehearsal_identity(),
-                strategy_identity=identity, required_mode=rollout.mode)
         with publication.pinned(conn, commit=False) as pinned:
             observation_time = (now_et if now_et is not None else
                                 datetime.now(ZoneInfo(calendar.EXCHANGE_TZ)))
@@ -602,6 +842,49 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 raise PaperActivationRefused(
                     f"requested decision session {through_text} is not the "
                     f"published frontier {frontier}")
+
+            authority_kwargs = dict(
+                runtime_identity=system_identity.rehearsal_identity(),
+                strategy_identity=identity, required_mode=rollout.mode,
+                paper_base_url=base_url,
+                current_publication_version=pinned.version,
+                automation_config_sha256=automation_config_sha256)
+            if automation_grant is not None:
+                automation_certificate = require_current_authority(
+                    conn, required_operation="AUTOMATION", **authority_kwargs)
+                certificate = require_current_authority(
+                    conn, required_operation="PREPARE_READ", **authority_kwargs)
+                if (automation_certificate.certificate_sha256
+                        != certificate.certificate_sha256
+                        or automation_grant.certificate_sha256
+                        != certificate.certificate_sha256):
+                    raise PaperActivationRefused(
+                        "automation preparation grant and signed authority "
+                        "do not match")
+                grant = automation_grant
+            else:
+                certificate = require_current_authority(
+                    conn, required_operation="PREPARE_READ", **authority_kwargs)
+                grant = PaperPreparationGrant(
+                    expected_account=str(expected_account),
+                    decision_session=through_date)
+            if (rollout.mode is RolloutMode.CONTROLLER
+                    and rollout.certificate_sha256
+                    != certificate.certificate_sha256):
+                raise PaperActivationRefused(
+                    "controller rollout and signed execution authority differ")
+            if now_et is None:
+                clock = lambda: datetime.now(ZoneInfo(calendar.EXCHANGE_TZ))
+            else:
+                clock = lambda: observation_time
+            strategy_provider = (
+                (lambda: runtime_strategy_identity(load_controller()))
+                if controller_config is None and strategy_identity is None
+                else lambda: dict(identity))
+            broker = _guard_broker(
+                conn=conn, broker=broker, grant=grant, base_url=base_url,
+                now_provider=clock, strategy_provider=strategy_provider,
+                automation_config_sha256=automation_config_sha256)
 
             existing_raw = catchup.resume_state(conn)
             existing_cursor = catchup.last_processed_session(conn)
@@ -916,8 +1199,10 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
         try:
             resolved = await broker.resolve_instrument(
                 security_id=security_id, symbol=str(symbol))
+        except BrokerAuthorityRefused:
+            raise
         except Exception as exc:                              # noqa: BLE001
-            raise PaperActivationRefused(
+            raise PaperRetryableRefused(
                 f"cannot resolve broker instrument {security_id}/{symbol}: "
                 f"{type(exc).__name__}: {exc}") from exc
         if (resolved.security_id != security_id
@@ -934,21 +1219,19 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
     return instruments
 
 
-async def execute_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
-                             confirm_account: str, confirm_plan_id: str,
-                             confirm_effective_session: date | str,
-                             confirm_submit: bool,
-                             today: date | datetime | None = None
-                             ) -> ExecutionResult:
-    """Execute only the durable current paper plan after explicit confirmation."""
+async def _execute_current_paper_plan(
+        *, conn, broker: ExecutionBroker, base_url: str,
+        grant: ManualExecutionGrant | AutomationExecutionGrant,
+        today: date | datetime | None = None,
+        automation_config_sha256: str | None = None) -> ExecutionResult:
+    """One durable-plan gateway shared by manual and automation grants."""
     assert_paper_url(base_url)
     _require_certified_paper_broker(broker)
-    if not confirm_submit:
+    if (isinstance(grant, AutomationExecutionGrant)
+            and grant.operation_scope != "EXECUTE"):
         raise PaperActivationRefused(
-            "--confirm-submit-paper-orders is required")
-    effective = (confirm_effective_session
-                 if isinstance(confirm_effective_session, date)
-                 else date.fromisoformat(str(confirm_effective_session)))
+            "automation execution requires an EXECUTE-scoped grant")
+    real_clock = today is None
     now_et = _execution_observation_time(today)
     today = now_et.date()
     schema.ensure_schema(conn)
@@ -962,20 +1245,46 @@ async def execute_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             _readiness_or_refuse(conn, now_et=now_et)
             frontier = feed_store.latest_visible_session(conn)
             state, plan, _cursor = _state_and_plan_or_refuse(conn)
-            if confirm_account != binding.broker_account_id:
-                raise PaperActivationRefused("paper-account confirmation mismatch")
-            if confirm_plan_id != plan.plan_id:
-                raise PaperActivationRefused("plan-id confirmation mismatch")
-            if effective != plan.effective_session:
-                raise PaperActivationRefused("effective-session confirmation mismatch")
+            if isinstance(grant, ManualExecutionGrant):
+                if grant.confirm_paper_account != binding.broker_account_id:
+                    raise PaperActivationRefused(
+                        "paper-account confirmation mismatch")
+                if grant.confirm_plan_id != plan.plan_id:
+                    raise PaperActivationRefused("plan-id confirmation mismatch")
+                if grant.confirm_effective_session != plan.effective_session:
+                    raise PaperActivationRefused(
+                        "effective-session confirmation mismatch")
+                confirmed_account = grant.confirm_paper_account
+            else:
+                _control, cycle = _validate_automation_grant(conn, grant)
+                if (cycle.plan_id != plan.plan_id
+                        or cycle.plan_fingerprint != plan.fingerprint()):
+                    raise PaperActivationRefused(
+                        "automation cycle does not name the current plan")
+                confirmed_account = grant.broker_account_id
             _assert_plan_authorities(
                 conn, state=state, plan=plan, binding=binding, pinned=pinned,
                 frontier=str(frontier), today=today,
                 runtime_identity=strategy_identity, rollout=rollout)
-            certificate = require_execution_authority(
-                conn, runtime_identity=system_identity.rehearsal_identity(),
+            authority_kwargs = dict(
+                runtime_identity=system_identity.rehearsal_identity(),
                 strategy_identity=strategy_identity,
-                required_mode=rollout.mode)
+                required_mode=rollout.mode,
+                paper_base_url=base_url,
+                current_publication_version=pinned.version,
+                automation_config_sha256=automation_config_sha256)
+            if isinstance(grant, AutomationExecutionGrant):
+                automation_certificate = require_current_authority(
+                    conn, required_operation="AUTOMATION", **authority_kwargs)
+            certificate = require_current_authority(
+                conn, required_operation="EXECUTE_READ", **authority_kwargs)
+            if (isinstance(grant, AutomationExecutionGrant)
+                    and (automation_certificate.certificate_sha256
+                         != certificate.certificate_sha256
+                         or grant.certificate_sha256
+                         != certificate.certificate_sha256)):
+                raise PaperActivationRefused(
+                    "automation grant and signed execution authority differ")
             if (rollout.mode is RolloutMode.CONTROLLER
                     and rollout.certificate_sha256
                     != certificate.certificate_sha256):
@@ -987,8 +1296,19 @@ async def execute_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             # actual XNYS schedule, so a 13:00 half-day close is a hard stop.
             _execution_window_or_refuse(plan.effective_session, now_et)
 
+            if real_clock:
+                clock = lambda: datetime.now(ZoneInfo(calendar.EXCHANGE_TZ))
+            else:
+                clock = lambda: now_et
+            broker = _guard_broker(
+                conn=conn, broker=broker, grant=grant, base_url=base_url,
+                now_provider=clock,
+                strategy_provider=lambda: runtime_strategy_identity(
+                    load_controller()),
+                automation_config_sha256=automation_config_sha256)
+
             account = await broker.account_snapshot()
-            _account_or_refuse(account, binding, confirm_account)
+            _account_or_refuse(account, binding, confirmed_account)
             actions = _action_lookup(conn, state, today)
             target_actions = _target_action_lookup(conn, plan, today)
             _refuse_target_changing_actions(state, plan, target_actions)
@@ -1006,7 +1326,7 @@ async def execute_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             async def authorize_increases(fresh_observation):
                 fresh_account = await broker.account_snapshot()
                 _account_or_refuse(
-                    fresh_account, binding, confirm_account)
+                    fresh_account, binding, confirmed_account)
                 _cash_authority_or_refuse(
                     conn, plan=plan, deployment=binding.identity,
                     account=fresh_account,
@@ -1020,7 +1340,92 @@ async def execute_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                                    session=session)
 
 
-def current_paper_plan(conn) -> dict:
+async def execute_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
+                             confirm_account: str, confirm_plan_id: str,
+                             confirm_effective_session: date | str,
+                             confirm_submit: bool,
+                             today: date | datetime | None = None
+                             ) -> ExecutionResult:
+    """Execute the current plan only with the exact manual confirmations."""
+    if not confirm_submit:
+        raise PaperActivationRefused("--confirm-submit-paper-orders is required")
+    effective = (confirm_effective_session
+                 if isinstance(confirm_effective_session, date)
+                 else date.fromisoformat(str(confirm_effective_session)))
+    grant = ManualExecutionGrant(
+        confirm_paper_account=confirm_account,
+        confirm_plan_id=confirm_plan_id,
+        confirm_effective_session=effective,
+        confirm_submit_paper_orders=True)
+    return await _execute_current_paper_plan(
+        conn=conn, broker=broker, base_url=base_url,
+        grant=grant, today=today)
+
+
+async def execute_automated_paper_plan(
+        *, conn, broker: ExecutionBroker, base_url: str,
+        grant: AutomationExecutionGrant,
+        automation_config_sha256: str,
+        today: date | datetime | None = None) -> ExecutionResult:
+    """Execute the same current plan through a fenced automation grant."""
+    return await _execute_current_paper_plan(
+        conn=conn, broker=broker, base_url=base_url, grant=grant,
+        today=today, automation_config_sha256=automation_config_sha256)
+
+
+async def recover_automated_paper_cycle(
+        *, conn, broker: ExecutionBroker, base_url: str,
+        grant: AutomationExecutionGrant,
+        automation_config_sha256: str):
+    """Read-only reconciliation for restart/pre-publication automation recovery."""
+    if grant.operation_scope != "RECOVER":
+        raise PaperActivationRefused(
+            "automation recovery requires a RECOVER-scoped grant")
+    assert_paper_url(base_url)
+    _require_certified_paper_broker(broker)
+    schema.ensure_schema(conn)
+    with journal.writer_lock(conn):
+        from sentinel.handover import assert_no_legacy_path
+        binding = assert_no_legacy_path(conn)
+        rollout = load_rollout_state(conn)
+        strategy = runtime_strategy_identity(load_controller())
+        current = publication.require_current(conn)
+        authority_kwargs = dict(
+            runtime_identity=system_identity.rehearsal_identity(),
+            strategy_identity=strategy, required_mode=rollout.mode,
+            paper_base_url=base_url,
+            current_publication_version=current.version,
+            automation_config_sha256=automation_config_sha256)
+        automated = require_current_authority(
+            conn, required_operation="AUTOMATION", **authority_kwargs)
+        readable = require_current_authority(
+            conn, required_operation="EXECUTE_READ", **authority_kwargs)
+        if (automated.certificate_sha256 != readable.certificate_sha256
+                or grant.certificate_sha256 != readable.certificate_sha256):
+            raise PaperActivationRefused(
+                "automation recovery grant and signed authority differ")
+        _validate_automation_grant(conn, grant)
+        clock = lambda: datetime.now(ZoneInfo(calendar.EXCHANGE_TZ))
+        broker = _guard_broker(
+            conn=conn, broker=broker, grant=grant, base_url=base_url,
+            now_provider=clock,
+            strategy_provider=lambda: runtime_strategy_identity(
+                load_controller()),
+            automation_config_sha256=automation_config_sha256)
+        account = await broker.account_snapshot()
+        _recovery_account_identity_or_refuse(
+            account, binding, grant.broker_account_id)
+        raw = catchup.resume_state(conn)
+        state = SessionState.from_dict(raw) if raw is not None else None
+        actions = (_action_lookup(conn, state, clock().date())
+                   if state is not None else None)
+        result = await reconciliation.reconcile(
+            broker=broker, conn=conn, binding=None,
+            deployment=binding.identity, actions=actions)
+        return result
+
+
+def current_paper_plan(conn, *, base_url: str = DEFAULT_BASE_URL) -> dict:
     """Inspect current durable authorities without contacting the broker."""
     state, plan, cursor = _state_and_plan_or_refuse(conn)
     from sentinel.handover import assert_no_legacy_path
@@ -1063,9 +1468,11 @@ def current_paper_plan(conn) -> dict:
                  or plan.target_exposure == Decimal(1))),
     }
     try:
-        certificate = require_execution_authority(
+        certificate = require_current_authority(
             conn, runtime_identity=system_identity.rehearsal_identity(),
-            strategy_identity=runtime_identity, required_mode=rollout.mode)
+            strategy_identity=runtime_identity, required_mode=rollout.mode,
+            required_operation="EXECUTE_READ", paper_base_url=base_url,
+            current_publication_version=current.version)
         checks["system_certificate_valid"] = (
             rollout.mode is not RolloutMode.CONTROLLER
             or rollout.certificate_sha256 == certificate.certificate_sha256)
@@ -1104,7 +1511,9 @@ def build_security_resolver(conn, session: str):
 
 __all__ = [
     "DEFENSIVE_SYMBOL", "ExecutionResult", "PaperAccountInspection",
-    "PaperActivationRefused", "PreparationResult", "build_security_resolver",
-    "current_paper_plan", "execute_paper_plan", "inspect_paper_account",
-    "prepare_paper_plan",
+    "PaperActivationRefused", "PaperRetryableRefused", "PreparationResult",
+    "build_security_resolver",
+    "current_paper_plan", "execute_automated_paper_plan",
+    "execute_paper_plan", "inspect_paper_account", "prepare_paper_plan",
+    "recover_automated_paper_cycle",
 ]

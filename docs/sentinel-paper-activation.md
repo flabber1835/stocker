@@ -28,7 +28,8 @@ preparation nor execution imports or calls that path. Migration itself requires 
 `--expect-account` value and refuses an absent or unreadable broker account id;
 paper credentials alone are never liquidation authority.
 
-`inspect-paper-account --expect-account <ACCOUNT_ID>` is the mandatory
+`inspect-paper-account --deployment-id <DEPLOYMENT_ID> --expect-account
+<ACCOUNT_ID>` is the mandatory
 read-only approval checkpoint before that administrative operation. It uses the
 same certified typed Alpaca execution adapter as preparation, asserts the exact
 paper endpoint, reads the typed account snapshot, then requires a COMPLETE
@@ -54,6 +55,18 @@ must never run twice, while an already-bound, flat account may proceed to
 reconciliation gates pass. On a clean database the inspection checks for the
 binding relation without creating it; an absent relation is reported as
 `UNBOUND`, and inspection remains read-only.
+
+Inspection, migration preview, migration, and restored-host adoption all use a
+separate offline-signed administrative certificate. Its subject names the exact
+deployment, paper account, and takeover epoch, its operation set contains only
+`ADMIN_INSPECT`, `ADMIN_MIGRATE`, and/or `ADMIN_ADOPT`, and unattended authority
+is false. It is staged and activated without broker access before any of these
+commands may construct a broker. The guard rechecks signature, expiry,
+revocation, runtime and publication identities before and after every read and
+immediately before each exact-id cancel or named liquidation submit. It can
+never authorize `execute-paper-plan` or automation. The committed trust root is
+disabled, so the commands below remain expected refusals until formal
+certification and reviewed public-root enrollment.
 
 The legacy `plan` command is retired because it derived ownership from the old
 JSONL audit log. It cannot be used as an approval surface. Use
@@ -369,13 +382,30 @@ Set the compose command once in the shell:
 COMPOSE="bash scripts/sentinel-compose.sh --run"
 ```
 
+The mutable base CLI is only for development and non-authoritative local
+checks. It carries neither broker credentials nor artifact identity, and its
+parser refuses every broker/admin/authority-enabling command before
+configuration or database construction. Every signed-authority lifecycle
+command and every command that can read or mutate the broker must use the
+digest-pinned wrapper literally: `bash scripts/sentinel-authorized-cli.sh`.
+The wrapper selects the distinct marker-bearing authorized image by digest;
+the application additionally requires its baked marker and the overlay's exact
+intent flag. The shell must name the exact certified Git commit and
+runtime/test image digests.
+
+Set `SENTINEL_AUTHORITY_ARTIFACTS_DIR` to the existing dedicated host directory
+holding reviewed offline certificates. The wrapper mounts only that directory,
+read-only, at `/var/lib/sentinel-authority`; every `--certificate` argument
+below names the in-container path. A host path is not visible inside the
+authorized CLI and must not be substituted.
+
 ### Clean-checkout one-time prerequisites
 
 Export the paper-only endpoint, the exact paper-account credentials, the
 Sharadar key, and a non-default database password into the current shell before
 running these checks. Compose may also read the repository `.env`, but a value
 stored only there is not necessarily exported to this shell; source an approved
-environment file with export semantics or export the four values explicitly.
+environment file with export semantics or export every value explicitly.
 These checks deliberately print no secret:
 
 ```bash
@@ -384,6 +414,11 @@ These checks deliberately print no secret:
 : "${SHARADAR_API_KEY:?set the Sharadar key}"
 : "${SENTINEL_POSTGRES_PASSWORD:?set a non-default database password}"
 : "${SENTINEL_BACKUP_DIR:?set the independently durable backup target}"
+: "${SENTINEL_GIT_COMMIT:?set the exact certified Git commit}"
+: "${SENTINEL_RUNTIME_IMAGE_DIGEST:?set the certified runtime image digest}"
+: "${SENTINEL_TEST_IMAGE_DIGEST:?set the certified test image digest}"
+: "${SENTINEL_AUTHORITY_ARTIFACTS_DIR:?set the reviewed authority directory}"
+test -d "$SENTINEL_AUTHORITY_ARTIFACTS_DIR"
 test -d "$SENTINEL_BACKUP_DIR/wal" -a -d "$SENTINEL_BACKUP_DIR/base"
 test "${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}" = \
   "https://paper-api.alpaca.markets"
@@ -416,10 +451,26 @@ account.
 ```bash
 $COMPOSE run --rm sentinel feed-daily
 $COMPOSE run --rm sentinel check-data --today <POST_CLOSE_ET_ISO_8601>
-$COMPOSE run --rm sentinel inspect-paper-account \
+bash scripts/sentinel-authorized-cli.sh install-administrative-certificate \
+  --certificate /var/lib/sentinel-authority/<OFFLINE_ADMIN_CERTIFICATE> \
+  --confirm-certificate-sha256 <ADMIN_CERTIFICATE_SHA256> \
+  --deployment-id <STABLE_DEPLOYMENT_ID> \
+  --expect-account <PAPER_ACCOUNT_ID> --takeover-epoch 1 \
+  --reason '<CHANGE_TICKET>' \
+  --confirm-install-administrative-certificate
+bash scripts/sentinel-authorized-cli.sh activate-administrative-certificate \
+  --certificate-sha256 <ADMIN_CERTIFICATE_SHA256> \
+  --deployment-id <STABLE_DEPLOYMENT_ID> \
+  --expect-account <PAPER_ACCOUNT_ID> --takeover-epoch 1 \
+  --reason '<CHANGE_TICKET>' \
+  --confirm-activate-administrative-certificate
+bash scripts/sentinel-authorized-cli.sh inspect-paper-account \
+  --deployment-id <STABLE_DEPLOYMENT_ID> \
   --expect-account <PAPER_ACCOUNT_ID>
 $COMPOSE run --rm sentinel status
-$COMPOSE run --rm sentinel migration-plan --sessions 253
+bash scripts/sentinel-authorized-cli.sh migration-plan --sessions 253 \
+  --deployment-id <STABLE_DEPLOYMENT_ID> \
+  --expect-account <PAPER_ACCOUNT_ID>
 $COMPOSE run --rm sentinel target-book --sessions 253 --cash <PAPER_ACCOUNT_EQUITY>
 ```
 
@@ -454,7 +505,7 @@ If the account is already bound and contains no inherited book, the durable
 read-only preparation may also be run tonight:
 
 ```bash
-$COMPOSE run --rm sentinel prepare-paper-plan \
+bash scripts/sentinel-authorized-cli.sh prepare-paper-plan \
   --through <DECISION_CLOSE> --warmup-sessions 252 \
   --expect-account <PAPER_ACCOUNT_ID>
 $COMPOSE run --rm sentinel current-paper-plan
@@ -476,13 +527,18 @@ inspection output does not itself grant migration authority, and migration's
 own fresh complete reads remain the liquidation authority:
 
 ```bash
-$COMPOSE run --rm sentinel inspect-paper-account \
+bash scripts/sentinel-authorized-cli.sh inspect-paper-account \
+  --deployment-id <STABLE_DEPLOYMENT_ID> \
   --expect-account <PAPER_ACCOUNT_ID>
-$COMPOSE run --rm sentinel migrate-account \
+bash scripts/sentinel-authorized-cli.sh migrate-account \
   --deployment-id <STABLE_DEPLOYMENT_ID> \
   --expect-account <PAPER_ACCOUNT_ID> \
   --notes '<CHANGE_TICKET>'
 $COMPOSE run --rm sentinel status
+bash scripts/sentinel-authorized-cli.sh revoke-administrative-certificate \
+  --certificate-sha256 <ADMIN_CERTIFICATE_SHA256> \
+  --reason '<MIGRATION_COMPLETE_CHANGE_TICKET>' \
+  --confirm-revoke-administrative-certificate
 ```
 
 Pre-migration checkpoint: account id and endpoint are exact, the observation is
@@ -498,11 +554,51 @@ machine observed no working legacy order or position, obtained two stable flat
 observations, and persisted a `SENTINEL_OWNED` binding for the expected account.
 Do not treat an accepted cancel or close request as this checkpoint.
 
+### Restored-host adoption (recovery only, not tomorrow's migration)
+
+A replacement host must first revoke or rotate the old host's Alpaca paper
+credentials. It then uses a newly issued `ADMIN_ADOPT` certificate whose subject
+names the exact current durable deployment/account/takeover epoch. A migration
+certificate cannot authorize adoption, and adoption is never a normal restart:
+
+```bash
+bash scripts/sentinel-authorized-cli.sh install-administrative-certificate \
+  --certificate /var/lib/sentinel-authority/<OFFLINE_ADMIN_ADOPT_CERTIFICATE> \
+  --confirm-certificate-sha256 <ADMIN_ADOPT_CERTIFICATE_SHA256> \
+  --deployment-id <BOUND_DEPLOYMENT_ID> \
+  --expect-account <PAPER_ACCOUNT_ID> \
+  --takeover-epoch <CURRENT_TAKEOVER_EPOCH> \
+  --reason '<RESTORE_CHANGE_TICKET>' \
+  --confirm-install-administrative-certificate
+bash scripts/sentinel-authorized-cli.sh activate-administrative-certificate \
+  --certificate-sha256 <ADMIN_ADOPT_CERTIFICATE_SHA256> \
+  --deployment-id <BOUND_DEPLOYMENT_ID> \
+  --expect-account <PAPER_ACCOUNT_ID> \
+  --takeover-epoch <CURRENT_TAKEOVER_EPOCH> \
+  --reason '<RESTORE_CHANGE_TICKET>' \
+  --confirm-activate-administrative-certificate
+bash scripts/sentinel-authorized-cli.sh adopt-restored-account \
+  --confirm-old-credentials-revoked \
+  --confirm-paper-account <PAPER_ACCOUNT_ID> \
+  --notes '<RESTORE_CHANGE_TICKET>'
+bash scripts/sentinel-authorized-cli.sh revoke-administrative-certificate \
+  --certificate-sha256 <ADMIN_ADOPT_CERTIFICATE_SHA256> \
+  --reason '<RESTORE_ADOPTION_COMPLETE_TICKET>' \
+  --confirm-revoke-administrative-certificate
+```
+
+The replacement account read must match the signed and durable account before
+the epoch changes. Signature, expiry, revocation, image/runtime facts, binding,
+and account are rechecked on a fresh database connection under the writer lock
+immediately before the increment. Success increments the epoch exactly once;
+the `ADMIN_ADOPT` certificate names the old epoch and is stale immediately.
+Any mismatch or lost authority leaves the epoch unchanged.
+
 ### Settlement, complete re-observation, preparation, and inspection
 
 ```bash
 $COMPOSE run --rm sentinel check-data --today <ACTUAL_ET_ISO_8601>
-$COMPOSE run --rm sentinel prepare-paper-plan \
+bash scripts/sentinel-authorized-cli.sh prepare-paper-plan \
   --through <DECISION_CLOSE> --warmup-sessions 252 \
   --expect-account <PAPER_ACCOUNT_ID>
 $COMPOSE run --rm sentinel current-paper-plan
@@ -544,20 +640,24 @@ its first broker read when invoked before the open or at/after the close; do not
 use a late invocation to queue the plan into a later session.
 
 Execution also requires separately reviewed, trusted system-certification
-authority. The repository cannot produce an authorized manifest while the
-strict xfails and Wealth Core `NO-GO` remain, and it has no trusted
-issuer/signature verifier. Do not edit a generic `PASS` manifest, confirm its
-hash, or insert a database row to manufacture authority.
+authority. The offline evidence producer, issuer, signature verifier, and
+rotation/revocation lifecycle are implemented, but the current evidence bundle
+is deterministically blocked by the strict xfails and Wealth Core `NO-GO`.
+The only committed public root is `DISABLED`; no real root, real certificate,
+or activation evidence was enrolled by this work. Do not edit a generic `PASS`
+manifest, confirm its hash, or insert a database row to manufacture authority.
 
-`install-system-certificate` is a reserved command and currently returns
-`REFUSED` before reading the named file or opening PostgreSQL. The runtime gate
-also refuses unsigned rows left by an older build or restored backup. There is
-therefore no valid installation command or final-submission checkpoint in this
-revision. `current-paper-plan` must report `system_certificate_valid: false`.
+`install-system-certificate` is implemented, but it is valid only through
+`bash scripts/sentinel-authorized-cli.sh` with the independently retained
+evidence bundle and exact digest-selected runtime. In the committed
+configuration signature/root verification refuses, and unsigned rows from an
+older build or restored backup never count. There is therefore no valid
+installation or final-submission checkpoint today; `current-paper-plan` must
+report `system_certificate_valid: false`.
 
-When a later PR defines a trust root, signed issuance, verification, and
-rotation/revocation semantics, this section must be replaced with that exact
-reviewed installation ceremony. Enabling controller exposure remains a
+After a later formal certification clears every blocker and enrolls a reviewed
+real root, follow the exact signed installation/activation ceremony in
+`docs/sentinel-stage-4-automation.md`. Enabling controller exposure remains a
 separate audited transition and requires a newly prepared plan.
 
 ### Final separately authorized paper submission
@@ -567,7 +667,7 @@ the authority boundary is reviewable, but **must not be run** in this revision:
 the trusted-certificate gate always refuses before the first broker read.
 
 ```bash
-$COMPOSE run --rm sentinel execute-paper-plan \
+bash scripts/sentinel-authorized-cli.sh execute-paper-plan \
   --confirm-paper-account <PAPER_ACCOUNT_ID> \
   --confirm-plan-id <PLAN_ID> \
   --confirm-effective-session <YYYY-MM-DD> \

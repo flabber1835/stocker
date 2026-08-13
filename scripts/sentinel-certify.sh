@@ -92,7 +92,13 @@ if [ "$VERIFY_ONLY" -eq 0 ]; then
   # would only make a network hiccup look like a build failure.
   ${COMPOSE} build --build-arg SOURCE_GIT_SHA="${SOURCE_GIT_SHA}" \
     sentinel sentinel-panel
-  docker build --network host --build-arg SOURCE_GIT_SHA="${SOURCE_GIT_SHA}" \
+  docker build --network host \
+    --build-arg SENTINEL_RUNTIME_BASE_IMAGE=sentinel:latest \
+    --build-arg SOURCE_GIT_SHA="${SOURCE_GIT_SHA}" \
+    -t sentinel-authorized:latest -f Dockerfile.sentinel-authorized .
+  docker build --network host \
+    --build-arg SENTINEL_IMAGE=sentinel-authorized:latest \
+    --build-arg SOURCE_GIT_SHA="${SOURCE_GIT_SHA}" \
     -t sentinel-test:latest -f Dockerfile.sentinel-test .
   # STOCKER-BASE FIRST, UNCONDITIONALLY. `services/bt-engine/Dockerfile` begins
   # `FROM stocker-base:latest`, which is a MUTABLE tag holding the `shared/`
@@ -121,6 +127,11 @@ if [ "$VERIFY_ONLY" -eq 0 ]; then
     docker compose -f docker-compose.backtest.yml build \
       --build-arg SOURCE_GIT_SHA="${SOURCE_GIT_SHA}" bt-data bt-engine
 fi
+
+# `wealth_core_baseline_run` verifies the engine dependency lock and complete
+# installed distribution closure against the manifest.  The canonical expected
+# hash producer is part of the test image, so both files must be rebuilt after
+# either source changes; the manifest's source-image checks below enforce that.
 
 # ── 2. name the environment ──────────────────────────────────────────────────
 step "2/9  naming the environment"
@@ -325,6 +336,27 @@ python3 scripts/sentinel_manifest.py "${ART}" "${RUNSTAMP}" "${LOCK_SHA}" \
   || fail "the artefact manifest is incomplete — every image it names must
   resolve, and the source tree must be clean, BEFORE anything is destroyed."
 
+# The lifecycle manifest at the path above is intentionally updated after
+# corpus parity and again after rehearsal. Preserve the exact FROZEN bytes in a
+# separate inode by atomic no-clobber publication while they still exist; the
+# test-run record and evidence bundler consume this retained object rather than
+# trusting its asserted hash.
+PRE_SUITE_MANIFEST="${ART}/manifest-frozen-${RUNSTAMP}.json"
+python3 scripts/sentinel_test_run.py retain-manifest \
+  --manifest "${ART}/manifest-${RUNSTAMP}.json" \
+  --output "${PRE_SUITE_MANIFEST}" \
+  || fail "the exact FROZEN manifest bytes could not be retained by atomic
+  no-clobber publication"
+
+# Signed execution authority is deployable on another host, so its test record
+# cannot name only local Docker image ids. Require exactly one immutable content
+# digest for both images before the destructive corpus reset, not after it.
+TEST_IMAGE_REF=$(python3 scripts/sentinel_test_run.py validate-manifest \
+  --manifest "${PRE_SUITE_MANIFEST}" --print-test-ref) \
+  || fail "the runtime and test images do not each have one immutable registry
+  digest. Push the exact built images and repeat identity recording; local tags
+  and self-asserted environment values are not certification provenance."
+
 # ── 3-4. the corpus ──────────────────────────────────────────────────────────
 if [ "$KEEP" -eq 0 ]; then
   step "3/9  DISCARDING the corpus tables"
@@ -400,14 +432,34 @@ fi
 
 # ── 5. the suite, inside the image ───────────────────────────────────────────
 step "5/9  the Sentinel suite, INSIDE the certified image"
+INVENTORY_LOG="${ART}/suite-inventory-${RUNSTAMP}.txt"
+INVENTORY_CMD=(docker run --rm --network none "${TEST_IMAGE_REF}" --collect-only -q tests/sentinel)
 set +e
-SUITE=$(docker run --rm sentinel-test:latest tests/sentinel -q -rs 2>&1)
+"${INVENTORY_CMD[@]}" > "${INVENTORY_LOG}" 2>&1
+INVENTORY_RC=$?
+set -e
+[ "${INVENTORY_RC}" -eq 0 ] \
+  || fail "the certified test image could not collect the exact suite inventory"
+
+SUITE_LOG="${ART}/suite-${RUNSTAMP}.txt"
+SUITE_CMD=(docker run --rm --network none "${TEST_IMAGE_REF}" tests/sentinel -q -rs)
+set +e
+SUITE=$("${SUITE_CMD[@]}" 2>&1)
 SUITE_RC=$?
 set -e
 echo "${SUITE}" | tail -25
-echo "${SUITE}" > "${ART}/suite-${RUNSTAMP}.txt"
-[ "${SUITE_RC}" -eq 0 ] \
-  || fail "the suite does not pass in the image that would produce the evidence"
+printf '%s\n' "${SUITE}" > "${SUITE_LOG}"
+
+# This producer consumes only bytes emitted by the commands above. It binds the
+# exact pre-suite manifest, immutable runtime/test digests, canonical command,
+# sorted unique collection inventory and retained pytest log. It publishes by
+# atomic no-clobber only when the exit/status counts prove a complete run.
+python3 scripts/sentinel_test_run.py publish \
+  --manifest "${PRE_SUITE_MANIFEST}" \
+  --inventory-log "${INVENTORY_LOG}" --pytest-log "${SUITE_LOG}" \
+  --exit-code "${SUITE_RC}" \
+  --output "${ART}/test-run-${RUNSTAMP}.json" -- "${SUITE_CMD[@]}" \
+  || fail "the suite did not produce complete certification-test-run evidence"
 
 # A SKIP is a failure HERE, and only here. Every Postgres-backed test in this
 # suite skips itself when initdb/pg_ctl are missing, the pin tests skip outside

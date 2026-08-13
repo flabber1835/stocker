@@ -200,6 +200,10 @@ call:
 OPERATOR INSPECTS THE NAMED PAPER ACCOUNT
       |
       v
+STAGE + ACTIVATE AN OFFLINE-SIGNED ADMINISTRATIVE CERTIFICATE
+FOR THE EXACT PROPOSED DEPLOYMENT / ACCOUNT / EPOCH 1
+      |
+      v
 EXPLICIT migrate-account --expect-account <ACCOUNT_ID>
       |
       v
@@ -238,6 +242,25 @@ did not create; it may not be used for daily target maintenance. A short,
 missing-side, or otherwise malformed inherited position refuses migration rather
 than expanding exposure. The separately authorized production plan continues
 through the durable executor only.
+
+The inspection and handover commands are not exceptions to signed runtime
+authority. Before a binding exists, the operator stages and activates a
+certificate whose signed operation set is limited to `ADMIN_INSPECT` and/or
+`ADMIN_MIGRATE` and whose subject names the proposed deployment, exact paper
+account, and epoch 1. `inspect-paper-account` and `migration-plan` therefore
+require both `--deployment-id` and `--expect-account`; neither can infer the
+future deployment from credentials. `migrate-account` requires the separate
+`ADMIN_MIGRATE` operation. A restored-host adoption uses a fresh
+`ADMIN_ADOPT` certificate naming the exact current deployment/account/epoch.
+
+Certificate staging, activation, and revocation contact no broker. The active
+administrative certificate is verified before broker construction, around
+each broker read, and immediately before every exact-id cancel or durable named
+SELL. Its operations are structurally disjoint from ordinary paper execution,
+and a signed admin certificate cannot authorize `execute-paper-plan` or the
+automation service. The committed trust-root file remains disabled in this
+change, so real administrative broker commands continue to refuse until formal
+certification and reviewed root enrollment occur.
 
 ### Rules this sequence must satisfy
 
@@ -306,25 +329,24 @@ The rollout singleton is seeded only when its table is genuinely created; a
 missing row in an existing table is corruption and routine startup refuses
 rather than silently recreating operational intent.
 
-The transition is deliberately separate from daily preparation, but it is not
-currently available. An operator-confirmed SHA-256 authenticates manifest
-bytes, not the issuer of the `PASS`/`GO` statements inside them. The repository
-does not yet define a trusted public key, detached signature, issuer policy, or
-rotation ceremony. Consequently:
+The transition is deliberately separate from daily preparation. An
+operator-confirmed SHA-256 authenticates manifest bytes, not the issuer of the
+`PASS`/`GO` statements inside them. The signed offline issuer and runtime trust
+contract lives in `sentinel-stage-4-automation.md`; the current NO-GO and strict
+xfails mean no real certificate may be issued in this work. Consequently, until
+later formal certification and real public-root enrollment:
 
 ```text
-install-system-certificate       always REFUSED before file or database access
+install-system-certificate       refuses every unsigned/untrusted certificate
 set-paper-rollout-mode CONTROLLER
-                                 always REFUSED by runtime authority validation
-execute-paper-plan               always REFUSED before its first broker read
+                                 refuses without a valid signed certificate
+execute-paper-plan               refuses before broker read without that chain
 ```
 
 The refusal applies to unsigned rows installed by an older build or restored
-from backup as well as to new operator-authored files. The exact-byte parser,
-durable certificate schema, profile validation, audit events, and revocation
-surface are retained as non-authoritative groundwork only. A later PR must
-document and implement trusted issuance and runtime signature verification
-together before these commands can become operational.
+from backup as well as to new operator-authored files. Service installation is
+also inert: Stage 4 starts disabled and killed. Certificate installation,
+automation activation, and kill release are three separate audited boundaries.
 
 The current certification harness also does not emit an activation profile
 while the known strict xfails and Wealth Core `NO-GO` remain. Even after those
@@ -1111,8 +1133,8 @@ would interpolate.
 
 ## 10f. The resource envelope is MEASURED, and the measurement is an artefact
 
-`docker-compose.sentinel.yml` sets three limits under a comment that says what
-they are:
+`docker-compose.sentinel.yml` sets four service limits under comments that say
+what they are:
 
 > SET EARLY AND GENEROUSLY, tightened to the measured envelope later. The value
 > is not the point yet; ENFORCEMENT is.
@@ -1120,6 +1142,7 @@ they are:
 ```text
 sentinel-postgres   mem_limit 1g    cpus 1.5   shm_size 1gb
 sentinel            mem_limit 2g    cpus 2.0
+sentinel-automation mem_limit 2g    cpus 1.0   profile: automation
 sentinel-panel      mem_limit 512m  cpus 0.5
 ```
 
@@ -1141,9 +1164,11 @@ CSV, a peak/headroom report, and the phase's own output.
 holds the publication pin and writer lock, advances canonical missed sessions,
 and adopts the latest plan. It is broker-read-only but deliberately writes
 behavioral state, so measure it only after the named paper account has passed
-the ownership and migration checkpoints in the activation runbook. There is no
-generic catch-up verb, scheduler, or Compose startup hook: exposing the state
-transition does not make it autonomous.
+the ownership and migration checkpoints in the activation runbook. Stage 4
+invokes that same canonical preparation path from its separately reviewed
+scheduler; there is no second catch-up implementation. The scheduler's Compose
+service is omitted unless the `automation` profile is explicit, and it starts
+durably disabled and killed.
 
 ### What it samples, and why each one is there
 
@@ -1345,8 +1370,10 @@ displays `1.00 PINNED`, but only after the state/plan/rollout records agree.
 ownership     canonical account binding; SENTINEL OWNED records the historical
               flat handover boundary and never claims that current positions
               are flat; the broker row is the current-position evidence
-authority     UNAVAILABLE/FAIL while trusted issuer/signature verification is
-              disabled; a stored certificate row is non-authoritative
+authority     a runtime authority verdict only when the automation service has
+              durably persisted one; certificate lifecycle/revocation/expiry
+              facts remain explicitly labelled lifecycle-only and never
+              manufacture a VALID verdict
 exposure      one unsuperseded execution plan, checked against the canonical
               processed-session cursor and durable rollout state; PINNED_1_00
               displays 1.00 PINNED even while the shadow controller continues
@@ -1358,8 +1385,10 @@ terminals     current unresolved and carried terminal state from that same
               canonical envelope; cumulative settlement mix is not invented
 broker        newest durable broker observation plus unresolved command-journal
               state; rendering the panel never performs a broker read
-automation    NOT INSTALLED until a separately designed durable scheduler,
-              leader lease, kill switch and alert outbox actually exist
+automation    durable installed/enabled/kill policy; leader holder/fence/
+              heartbeat/expiry; last/next cycle, last clean reconciliation and
+              current failure; pending/dead-letter/unacknowledged outbox facts;
+              fresh installation is DISABLED and KILLED
 ```
 
 Every query has the panel's existing connection and statement timeouts. The

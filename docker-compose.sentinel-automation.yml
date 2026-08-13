@@ -1,0 +1,63 @@
+# Explicit signed-authority overlay. Do not pass this file for ordinary manual
+# CLI or panel operation: required immutable artifact facts intentionally make
+# merged Compose resolution fail until an operator names reviewed artifacts.
+x-sentinel-authorized-environment: &sentinel-authorized-environment
+  ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+  ALPACA_API_KEY: ${ALPACA_API_KEY:-}
+  ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
+  SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel
+  SHARADAR_API_KEY: ${SHARADAR_API_KEY:-}
+  SENTINEL_GIT_COMMIT: ${SENTINEL_GIT_COMMIT:?set exact built Git commit}
+  SENTINEL_RUNTIME_IMAGE_DIGEST: ${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable runtime image digest}
+  SENTINEL_TEST_IMAGE_DIGEST: ${SENTINEL_TEST_IMAGE_DIGEST:?set immutable certification test image digest}
+  SENTINEL_AUTHORIZED_RUNTIME: SIGNED_DIGEST_SERVICE_V1
+  SENTINEL_AUTOMATION_PUBLICATION_DELAY_SECONDS: ${SENTINEL_AUTOMATION_PUBLICATION_DELAY_SECONDS:-900}
+  SENTINEL_AUTOMATION_EXECUTION_DELAY_SECONDS: ${SENTINEL_AUTOMATION_EXECUTION_DELAY_SECONDS:-60}
+  SENTINEL_AUTOMATION_LEASE_SECONDS: ${SENTINEL_AUTOMATION_LEASE_SECONDS:-45}
+  SENTINEL_AUTOMATION_HEARTBEAT_SECONDS: ${SENTINEL_AUTOMATION_HEARTBEAT_SECONDS:-10}
+  SENTINEL_AUTOMATION_CONTROL_POLL_SECONDS: ${SENTINEL_AUTOMATION_CONTROL_POLL_SECONDS:-10}
+  SENTINEL_AUTOMATION_RETRY_BASE_SECONDS: ${SENTINEL_AUTOMATION_RETRY_BASE_SECONDS:-30}
+  SENTINEL_AUTOMATION_RETRY_MAX_SECONDS: ${SENTINEL_AUTOMATION_RETRY_MAX_SECONDS:-900}
+  SENTINEL_AUTOMATION_ALERT_CLAIM_SECONDS: ${SENTINEL_AUTOMATION_ALERT_CLAIM_SECONDS:-60}
+  SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS: ${SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS:-8}
+
+services:
+  # Run-once signed/admin/broker command membrane. The wrapper invokes this
+  # service by exact name; it cannot fall back to the mutable development CLI.
+  sentinel-authorized-cli:
+    image: ${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel-authorized}@${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable SENTINEL_RUNTIME_IMAGE_DIGEST}
+    profiles: ["authorized-cli"]
+    restart: "no"
+    mem_limit: 2g
+    cpus: 1.0
+    command: ["status"]
+    environment:
+      <<: *sentinel-authorized-environment
+      SENTINEL_AUTHORITY_ARTIFACTS_DIR: /var/lib/sentinel-authority
+    volumes:
+      - sentinel_state:/var/lib/sentinel
+      - type: bind
+        source: ${SENTINEL_AUTHORITY_ARTIFACTS_DIR:-./artifacts/authority}
+        target: /var/lib/sentinel-authority
+        read_only: true
+    depends_on:
+      sentinel-postgres:
+        condition: service_healthy
+
+  sentinel-automation:
+    image: ${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel-authorized}@${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable SENTINEL_RUNTIME_IMAGE_DIGEST}
+    profiles: ["automation"]
+    restart: unless-stopped
+    mem_limit: 2g
+    cpus: 1.0
+    command: ["automation-run"]
+    environment: *sentinel-authorized-environment
+    healthcheck:
+      test: ["CMD", "python", "-m", "sentinel", "automation-health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      sentinel-postgres:
+        condition: service_healthy

@@ -46,5 +46,9 @@ Thumbs.db
 .coverage
 htmlcov/
 
+# Local agent dependency sandboxes
+.codex-piptools/
+.codex-testvenv/
+
 # Ad-hoc RSS sampling during a Wealth Core rehearsal (scripts/wc-progress.sh companion)
 wc-rss.log

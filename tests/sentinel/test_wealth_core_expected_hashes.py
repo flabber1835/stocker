@@ -417,8 +417,13 @@ def test_the_artifact_binds_hashes_to_window_corpus_and_source(monkeypatch):
         blocked_sessions=[])
 
     monkeypatch.setattr(TOOL, "load_corpus", lambda *_args, **_kw: corpus)
+    from stock_strategy_shared.runtime_identity import (
+        wealth_core_baseline_identity,
+    )
+    canonical_config_hash = wealth_core_baseline_identity()["engine_config_hash"]
     monkeypatch.setattr(
-        TOOL, "run_corpus", lambda _corpus: (result, hashes, "config-hash"))
+        TOOL, "run_corpus",
+        lambda _corpus: (result, hashes, canonical_config_hash))
     from stock_strategy_shared import identity_hashes
     monkeypatch.setattr(identity_hashes, "wealth_core_source_hash",
                         lambda: "b" * 64)
@@ -449,6 +454,13 @@ def test_the_artifact_binds_hashes_to_window_corpus_and_source(monkeypatch):
     assert out["provenance"]["runtime_identity_hash"] == "d" * 64
     assert out["provenance"]["runtime_environment"]["certified"] is True
     assert out["provenance"]["transaction_read_only"] is True
+    behavior = out["run"]["behavior_identity"]
+    assert behavior["starting_cash"] == out["run"]["starting_cash"]
+    assert behavior["engine_config_hash"] == out["run"]["config_hash"]
+    assert len(behavior["wealth_core_config_sha256"]) == 64
+    assert len(behavior["eligibility_config_sha256"]) == 64
+    assert behavior["wealth_core_config"]["n_slots"] == 25
+    assert behavior["eligibility_config"]["min_history_sessions"] == 126
 
     sql = "\n".join(statement for statement, _ in conn.calls).upper()
     for mutation in ("INSERT ", "UPDATE ", "DELETE ", "TRUNCATE ",

@@ -60,6 +60,7 @@ services:
       # Injected by scripts/bt-engine-up.sh. Certification refuses an empty id.
       BT_ENGINE_IMAGE_ID: ${BT_ENGINE_IMAGE_ID:-}
       BT_ENGINE_IMAGE: ${BT_ENGINE_IMAGE:-}
+      BT_ENGINE_SOURCE_REVISION: ${BT_ENGINE_SOURCE_REVISION:-}
     volumes:
       - bt_factor_cache:/factor-cache
     healthcheck:

@@ -2,7 +2,10 @@ name: Sentinel safety
 
 on:
   pull_request:
-    branches: [main]
+    # PR #84 is intentionally the review base for the separate Stage 4 stack.
+    # Keep both review boundaries executable; this does not make the check a
+    # repository-ruleset requirement.
+    branches: [main, codex/main-review-remediation]
   workflow_dispatch:
 
 permissions:
@@ -41,15 +44,30 @@ jobs:
 
       - name: Build the pinned Sentinel runtime and test images
         run: |
-          docker build -f Dockerfile.sentinel -t sentinel:latest .
-          docker build -f Dockerfile.sentinel-test -t sentinel-test:ci .
+          docker build \
+            --build-arg SOURCE_GIT_SHA="${GITHUB_SHA}" \
+            -f Dockerfile.sentinel -t sentinel:latest .
+          docker build \
+            --build-arg SENTINEL_RUNTIME_BASE_IMAGE=sentinel:latest \
+            --build-arg SOURCE_GIT_SHA="${GITHUB_SHA}" \
+            -f Dockerfile.sentinel-authorized \
+            -t sentinel-authorized:ci .
+          docker build \
+            --build-arg SENTINEL_IMAGE=sentinel-authorized:ci \
+            --build-arg SOURCE_GIT_SHA="${GITHUB_SHA}" \
+            -f Dockerfile.sentinel-test -t sentinel-test:ci .
 
       - name: Build the production bt-engine and its pinned test lens
         run: |
-          docker build -f Dockerfile.base -t stocker-base:latest .
-          docker build -f services/bt-engine/Dockerfile -t stocker-bt-engine:ci .
+          docker build \
+            --build-arg SOURCE_GIT_SHA="${GITHUB_SHA}" \
+            -f Dockerfile.base -t stocker-base:latest .
+          docker build \
+            --build-arg SOURCE_GIT_SHA="${GITHUB_SHA}" \
+            -f services/bt-engine/Dockerfile -t stocker-bt-engine:ci .
           docker build \
             --build-arg BT_ENGINE_IMAGE=stocker-bt-engine:ci \
+            --build-arg SOURCE_GIT_SHA="${GITHUB_SHA}" \
             -f services/bt-engine/Dockerfile.test \
             -t stocker-bt-engine-test:ci .
 
@@ -92,6 +110,10 @@ jobs:
         env:
           SENTINEL_POSTGRES_PASSWORD: ci-not-a-production-secret
           SENTINEL_BACKUP_DIR: /tmp/sentinel-ci-backup
+          SENTINEL_GIT_COMMIT: 0000000000000000000000000000000000000000
+          SENTINEL_RUNTIME_IMAGE_DIGEST: sha256:0000000000000000000000000000000000000000000000000000000000000000
+          SENTINEL_TEST_IMAGE_DIGEST: sha256:1111111111111111111111111111111111111111111111111111111111111111
+          SENTINEL_AUTHORITY_ARTIFACTS_DIR: /tmp/sentinel-ci-authority
         run: |
           set -euo pipefail
           mapfile -d '' shell_scripts < <(git ls-files -z -- '*.sh')
@@ -100,11 +122,22 @@ jobs:
             exit 1
           fi
           bash -n "${shell_scripts[@]}"
-          mkdir -p "$SENTINEL_BACKUP_DIR/wal" "$SENTINEL_BACKUP_DIR/base"
+          mkdir -p "$SENTINEL_BACKUP_DIR/wal" "$SENTINEL_BACKUP_DIR/base" \
+            "$SENTINEL_AUTHORITY_ARTIFACTS_DIR"
           docker compose \
             -f docker-compose.sentinel.yml \
             -f docker-compose.sentinel-backup.yml \
             config --quiet
+          docker compose \
+            -f docker-compose.sentinel.yml \
+            -f docker-compose.sentinel-backup.yml \
+            -f docker-compose.sentinel-automation.yml \
+            --profile automation config --quiet
+          docker compose \
+            -f docker-compose.sentinel.yml \
+            -f docker-compose.sentinel-backup.yml \
+            -f docker-compose.sentinel-automation.yml \
+            --profile authorized-cli config --quiet
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             git diff --check HEAD^1 HEAD
           else

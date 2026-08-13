@@ -1,11 +1,13 @@
 # The certified image, plus the tooling needed to TEST it. Nothing else.
 #
 # WHY A SECOND IMAGE INSTEAD OF ADDING pytest TO THE FIRST. A test run must
-# exercise the environment a rehearsal actually runs in — the same interpreter,
+# exercise the environment production actually runs in — the same interpreter,
 # the same exchange_calendars, the same pandas — and installing test tooling
 # into the runtime image would change that environment while claiming to verify
-# it. Layering on top keeps every runtime layer byte-identical: `sentinel:latest`
-# is the artefact, and this is a lens on it.
+# it. Layering on top keeps every runtime layer byte-identical:
+# `sentinel-authorized:latest` is the deployable artefact, and this is a lens on
+# it. The lens receives no broker credentials and does not set the separately
+# required authorized-intent flag, so the baked marker cannot enable transport.
 #
 # WHY NOT RUN THE SUITE ON THE HOST. The whole point of the pins is that the
 # host's Python is not the certified one. A green suite on a developer's 3.11
@@ -18,7 +20,7 @@
 # It copied `sentinel/` and `shared/` into /work and put /work first on
 # PYTHONPATH. Pytest then imported the fresh CHECKOUT, not the runtime code:
 #
-#     sentinel:latest holds stale or wrong /app/sentinel
+#     deployable runtime holds stale or wrong /app/sentinel
 #       + the test layer copies correct source into /work
 #       -> every test green, artefact never executed
 #
@@ -32,7 +34,7 @@
 # and the compose file are inputs to assertions about the image, not code to
 # import). That copy lives at /work/repo, which is never on sys.path, and
 # `SENTINEL_REPO_ROOT` points the inspecting tests at it.
-ARG SENTINEL_IMAGE=sentinel:latest
+ARG SENTINEL_IMAGE=sentinel-authorized:latest
 FROM ${SENTINEL_IMAGE}
 ARG SOURCE_GIT_SHA=unknown
 LABEL org.opencontainers.image.revision=${SOURCE_GIT_SHA}
@@ -105,7 +107,10 @@ COPY sentinel/ /work/repo/sentinel/
 COPY shared/ /work/repo/shared/
 COPY Dockerfile.base /work/repo/Dockerfile.base
 COPY Dockerfile.sentinel /work/repo/Dockerfile.sentinel
+COPY Dockerfile.sentinel-authorized /work/repo/Dockerfile.sentinel-authorized
+COPY deploy/sentinel-authorized-runtime-v1 /work/repo/deploy/sentinel-authorized-runtime-v1
 COPY docker-compose.sentinel.yml /work/repo/docker-compose.sentinel.yml
+COPY docker-compose.sentinel-automation.yml /work/repo/docker-compose.sentinel-automation.yml
 COPY Dockerfile.sentinel-test /work/repo/Dockerfile.sentinel-test
 # The certification harness resolves the bt-engine image out of THIS file and
 # refuses a build context that hides a COPY source, so both are inputs to
@@ -123,6 +128,7 @@ COPY README.md /work/repo/README.md
 COPY docs/main-review-remediation.md /work/repo/docs/main-review-remediation.md
 COPY docs/sentinel-deployment.md /work/repo/docs/sentinel-deployment.md
 COPY docs/sentinel-paper-activation.md /work/repo/docs/sentinel-paper-activation.md
+COPY docs/sentinel-stage-4-automation.md /work/repo/docs/sentinel-stage-4-automation.md
 # bt-engine RUNS the rehearsal and bt-data INGESTS the corpus, so several tests
 # read their source to check what the engine records and how the feed maps a
 # vendor row. INSPECTION ONLY — under /work/repo, never /work, so nothing here

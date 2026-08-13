@@ -311,7 +311,7 @@ class TestTheImageCarriesItsRUNTIME_DEPENDENCIES:
         adapter rather than stopping inside `sentinel/`."""
         deps = _reachable_third_party()
         sites = {s for v in deps.values() for s in v}
-        assert any("broker/base.py" in s for s in sites), (
+        assert any("broker/base.py" in s.replace("\\", "/") for s in sites), (
             "the import walk never reached the broker adapter, so it cannot "
             "vouch for the liquidation path")
 
@@ -571,15 +571,19 @@ class TestTheCleanCertificationImageInspectionBundle:
         ".env.example",
         "Dockerfile.base",
         "Dockerfile.sentinel",
+        "Dockerfile.sentinel-authorized",
         "Dockerfile.sentinel-test",
         "Makefile",
         "README.md",
         "docker-compose.backtest.yml",
+        "docker-compose.sentinel-automation.yml",
         "docker-compose.sentinel-backup.yml",
         "docker-compose.sentinel.yml",
         "docs/main-review-remediation.md",
         "docs/sentinel-deployment.md",
         "docs/sentinel-paper-activation.md",
+        "docs/sentinel-stage-4-automation.md",
+        "deploy/sentinel-authorized-runtime-v1",
         "scripts/",
         "sentinel/",
         "shared/",

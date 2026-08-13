@@ -38,7 +38,8 @@ sentinel/feed/readiness.py           the data contract + persisted verdicts
 sentinel/core/catchup.py             convergence after absence, re-projection
 sentinel/core/decision.py            canonical shadow/controller -> stamped plan
 sentinel/paper.py                    read-only preparation + strict execution gate
-sentinel/authority.py                fail-closed certificate gate + rollout mode
+sentinel/authority.py                signed certificate gate + rollout mode
+sentinel/automation/                 disabled-by-default Stage 4 orchestration
 sentinel/core/cashflow.py            external cash as a declared event
 ```
 
@@ -47,8 +48,8 @@ sentinel/core/cashflow.py            external cash as a declared event
 ```text
 no live or paper broker has ever been contacted by this code
 no migration or paper-plan execution has been run by the implementation work
-the production activation path is operator-invoked; no scheduler or deployment
-    default runs it automatically
+the manual activation path remains operator-invoked; Stage 4 is installed only
+    through its profile and starts disabled with its kill switch engaged
 the RECONSTRUCTION tier of corpus versioning is deferred
 crash injection is LOGICAL (state, journal, stale restore), not SIGKILL
 the resource limits are declared and ENFORCED (every service carries
@@ -95,22 +96,54 @@ strategy_identity              strategy id + controller rule + Wealth Core hash
 An operator-supplied SHA-256 authenticates bytes, not the party that asserted
 `PASS`, `GO`, or `AUTHORIZED` inside them. Shape, completion, and runtime-hash
 validation therefore cannot turn a self-authored JSON file into broker
-authority. This repository does not yet define a trusted issuer/public key or
-detached-signature verification contract. Until that separately reviewed trust
-root exists, `install-system-certificate` refuses before reading the file or
-opening PostgreSQL, and the execution gate rejects every certificate row,
-including an unsigned row restored from or installed by an older build.
+authority. The signed-envelope, offline-issuer, public-root, rotation,
+revocation, and repeated mutation-gate contract is specified in
+`sentinel-stage-4-automation.md` section 7. Editing a generic `PASS` manifest or
+inserting a PostgreSQL row is never a supported activation path.
 
-The durable schema, exact-byte parser, runtime/source/strategy checks, audit
-events, and revocation path are retained as the non-authoritative substrate for
-a future signed issuer. They are not an activation path today.
+The certification harness does not issue this activation certificate while
+strict xfails and the Wealth Core `NO-GO` remain. Implementing and testing the
+issuer does not enroll a real root, create a real certificate, activate
+automation, or authorize a broker. Those remain explicit post-review and
+post-certification operations.
 
-The certification harness does not currently issue or sign this activation
-profile. That is fail-closed and intentional while strict xfails and the Wealth
-Core `NO-GO` remain. A future certification decision must define the issuer,
-emit and authenticate the profile deliberately, and enable installation and
-runtime verification together. Editing a generic `PASS` manifest or inserting
-a PostgreSQL row is never a supported activation path.
+The schema-3 execution-authority manifest and evidence index are generated only
+by `tools/sentinel_authority_evidence.py` from retained producer artifacts. A
+reviewed forward-chain artifact is a no-clobber derivative bound to the exact
+raw report digest; resource and publication-policy PASS verdicts are computed,
+not typed. The issuer requires the producer's base manifest, test summary,
+automation configuration, resource policy, and all underlying evidence bytes in
+the same indexed bundle. A deterministic blocked bundle is the correct output
+while Wealth Core is `NO-GO` or a strict xfail remains.
+
+The signed bindings for Git commit, runtime image digest, and test image digest
+are compared at installation and every broker authority check with separately
+configured deployment facts. Absence or drift refuses. The broker-capable
+runtime is a distinct image, built from the reviewed Sentinel runtime by
+`Dockerfile.sentinel-authorized`; it adds one fixed marker that is absent from
+the ordinary image and changes the resulting image digest. Automation Compose
+selects that authorized image by the same configured digest. The CLI refuses
+every broker/admin/authority-enabling command unless both the baked marker and
+the overlay's exact intent flag are present, before configuration, database, or
+broker construction. The ordinary Compose service carries neither Alpaca
+credentials nor artifact-identity environment values.
+
+The certification test image is a tooling lens layered on that exact authorized
+runtime, not a sibling built from the ordinary runtime. It receives no broker
+credentials and does not set the authorized intent flag, so the marker alone
+cannot enable broker access. Tests and the formal production forward-chain
+therefore import `/app/sentinel` and Wealth Core from the bytes that will be
+deployed, while test-only PostgreSQL binaries, fixtures, and the frozen
+reference remain outside the production image.
+
+Manual signed certificate, administrative, inspection, migration, preparation,
+and execution commands use the separate digest-qualified
+`scripts/sentinel-authorized-cli.sh` surface. Copying claim-shaped environment
+strings into `sentinel:latest` is insufficient because that image does not
+contain the baked marker. A host administrator who can replace images or mount
+arbitrary files into containers already has direct database and deployment
+authority and is outside the application membrane; the supported Compose and
+CLI surfaces do not provide such a bypass.
 
 ### Rollout exposure is durable intent
 
@@ -378,6 +411,28 @@ client key before transport. A timeout becomes `UNKNOWN` and must be resolved
 through exact client-key lookup before another SELL can be minted. Complete
 positions/open-orders reads still decide when the inherited book is flat; they
 never prove that an uncertain submit did not land.
+
+Administrative does not mean unsigned. Before binding, a distinct active
+offline-signed certificate names the proposed deployment, exact Alpaca paper
+account, epoch 1, and only `ADMIN_INSPECT` and/or `ADMIN_MIGRATE`. Restored-host
+adoption uses `ADMIN_ADOPT` against the exact current binding and epoch. These
+permissions are disjoint from execution permissions and never authorize a
+daily plan, automation, a generic broker submit, or a cancel outside the exact
+migration state machine.
+
+The command verifies that authority before constructing a broker. The
+administrative adapter then re-verifies signature, expiry, revocation, runtime
+identity, paper endpoint, exact subject, and publication-policy chain on a
+fresh database connection around each read and immediately before every
+broker mutation. Exact-id cancellation is checked per id, not once for a
+batch, and each ID must appear in the latest complete observation. A submit
+must be the durable `SEND_PENDING` named legacy-migration SELL for the exact
+signed deployment/account/epoch, full observed Decimal quantity, and observed
+broker asset after all working orders disappear; generic broker close/cancel-
+all/submit never crosses this membrane. The final account binding or takeover-
+epoch increment repeats the check inside the execution writer lock. Loss of
+authority fails closed and does not reinterpret a durable `UNKNOWN` submit as
+absent.
 
 Emergency tooling is outside certified execution and must be labelled as such.
 It is not part of the migration, preparation, or execution commands.

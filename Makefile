@@ -1,6 +1,6 @@
 .PHONY: help test lint sentinel-up sentinel-down status panel check-data \
         feed-seed feed-daily feed-status feed-repair identity certify \
-        base-image sentinel-image
+        base-image sentinel-image sentinel-authorized-image
 
 # ── Sentinel ────────────────────────────────────────────────────────────────
 #
@@ -38,6 +38,7 @@ help:
 	@echo "  make identity       what this environment and corpus ARE"
 	@echo "  make certify        the in-image certification suite"
 	@echo "  make sentinel-image build sentinel:$(GIT_SHA)"
+	@echo "  make sentinel-authorized-image build the broker-command membrane"
 	@echo ""
 	@echo "  migrate-account and adopt-restored-account are DELIBERATELY absent."
 	@echo "  They change account ownership and are run by hand, read first."
@@ -65,11 +66,10 @@ lint:
 # the application image was only `sentinel:latest`, so a running container could
 # not say which commit it was.
 #
-# The compose file keeps the literal `latest` alias deliberately: interpolating
-# a tag there would trip scripts/compose_image.py, which refuses `${...}`
-# because it cannot know the environment Compose ran with. Pinning is verified
-# through the identity record's image DIGEST instead — stronger than a tag,
-# since a tag can be moved.
+# Ordinary Compose defaults to the local `latest` alias; certification and
+# measurement explicitly supply an immutable repository digest and verify the
+# resolved container identity. Runtime authority binds that digest as a
+# deployment fact, which is stronger than a movable tag.
 base-image:
 	@test -n "$(GIT_SHA)" || { echo "REFUSED: source has no Git commit identity"; exit 2; }
 	@test -z "$$(git status --porcelain)" || { echo "REFUSED: source tree is dirty"; exit 2; }
@@ -82,6 +82,14 @@ sentinel-image:
 	docker build --network host --build-arg SOURCE_GIT_SHA=$$(git rev-parse HEAD) \
 	    -t sentinel:$(GIT_SHA) -t sentinel:latest -f Dockerfile.sentinel .
 	@echo "built sentinel:$(GIT_SHA)"
+
+sentinel-authorized-image: sentinel-image
+	docker build --network host \
+	    --build-arg SENTINEL_RUNTIME_BASE_IMAGE=sentinel:$(GIT_SHA) \
+	    --build-arg SOURCE_GIT_SHA=$$(git rev-parse HEAD) \
+	    -t sentinel-authorized:$(GIT_SHA) -t sentinel-authorized:latest \
+	    -f Dockerfile.sentinel-authorized .
+	@echo "built sentinel-authorized:$(GIT_SHA)"
 
 # ── running ─────────────────────────────────────────────────────────────────
 #

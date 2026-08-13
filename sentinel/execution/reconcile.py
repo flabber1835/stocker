@@ -45,6 +45,7 @@ from typing import Callable, Mapping, Optional
 from sentinel.execution.contract import (
     BrokerObservation, Completeness, ExecutionBroker)
 from sentinel.execution.identity import DeploymentIdentity, is_sentinel_key
+from sentinel.execution.guarded import BrokerAuthorityRefused
 from sentinel.execution.states import (
     CommandState, RuntimeState, can_transition, is_terminal)
 
@@ -68,6 +69,7 @@ class ReconciliationResult:
     foreign_orders: tuple = ()
     unresolved: tuple = ()
     detail: str = ""
+    observation_id: Optional[int] = None
 
     @property
     def clean(self) -> bool:
@@ -87,6 +89,7 @@ class ReconciliationResult:
             "unresolved": [c.client_key for c in self.unresolved],
             "clean": self.clean,
             "detail": self.detail,
+            "observation_id": self.observation_id,
         }
 
 
@@ -234,6 +237,8 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     from sentinel import binding as binding_mod
     try:
         identity = await broker.identify_account()
+    except BrokerAuthorityRefused:
+        raise
     except Exception as exc:                                  # noqa: BLE001
         return ReconciliationResult(
             runtime_state=RuntimeState.BROKER_DEGRADED,
@@ -252,6 +257,8 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         observation = await broker.observe_with_terminal_recovery(
             submitted_after=recovery_floor,
             processed_through=recovery_checkpoint)
+    except BrokerAuthorityRefused:
+        raise
     except Exception as exc:                                  # noqa: BLE001
         return ReconciliationResult(
             runtime_state=RuntimeState.BROKER_DEGRADED,
@@ -265,6 +272,7 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         # below, all of which are about ABSENCE.
         return ReconciliationResult(
             runtime_state=RuntimeState.RECONCILING, observation=observation,
+            observation_id=observation_seq,
             detail=f"observation is {observation.completeness.value}; "
                    f"reconciliation needs a COMPLETE one")
 
@@ -273,6 +281,7 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         return ReconciliationResult(
             runtime_state=RuntimeState.RECONCILING,
             observation=observation,
+            observation_id=observation_seq,
             detail="complete observation omitted its terminal-recovery upper "
                    "boundary; processed history cannot advance")
     recovery_through = recovery_through.astimezone(timezone.utc)
@@ -280,6 +289,7 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         return ReconciliationResult(
             runtime_state=RuntimeState.RECONCILING,
             observation=observation,
+            observation_id=observation_seq,
             detail=("terminal-recovery upper boundary predates its durable "
                     f"checkpoint ({recovery_through.isoformat()} < "
                     f"{recovery_checkpoint.isoformat()})"))
@@ -295,6 +305,7 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         return ReconciliationResult(
             runtime_state=RuntimeState.RECONCILING,
             observation=observation,
+            observation_id=observation_seq,
             detail="; ".join(overlap_conflicts))
     recovered = tuple(o for o in observation.orders
                       if is_sentinel_key(o.client_key)
@@ -365,6 +376,8 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
                 and observation.by_client_key(command.client_key) is None):
             try:
                 exact = await broker.find_by_client_key(command.client_key)
+            except BrokerAuthorityRefused:
+                raise
             except Exception as exc:                          # noqa: BLE001
                 return ReconciliationResult(
                     runtime_state=RuntimeState.BROKER_DEGRADED,
@@ -414,6 +427,8 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
                 try:
                     exact = await broker.find_by_client_key(
                         command.client_key)
+                except BrokerAuthorityRefused:
+                    raise
                 except Exception as exc:                      # noqa: BLE001
                     return ReconciliationResult(
                         runtime_state=RuntimeState.BROKER_DEGRADED,
@@ -568,7 +583,8 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         runtime_state=state, observation=observation, expected=expected,
         observed=observed, corporate_actions=applied,
         recovered_orders=recovered, foreign_positions=foreign_positions,
-        foreign_orders=foreign_orders, unresolved=unresolved, detail=detail)
+        foreign_orders=foreign_orders, unresolved=unresolved, detail=detail,
+        observation_id=observation_seq)
 
 
 #: Action verbs this lookup can express as a share-count multiplier. Named so

@@ -18,17 +18,20 @@ published Sharadar corpus through canonical Wealth Core state, breadth and SPY
 evidence, the controller transition, share-level projection, one durable current
 plan, and the existing execution membrane.
 
-This is **implemented, not activated**. The repository still defines no
-scheduled or long-running decision engine. Compose starts only PostgreSQL and
-the read-only panel by default; preparation, inspection, migration, and
-execution remain distinct manual operations. Alpaca paper is the only accepted
-broker endpoint, and no implementation or documentation change authorizes a
-legacy-book migration or a paper-order submission. The sole operator command
-sequence and checkpoints are in `docs/sentinel-paper-activation.md`.
+This is **implemented, not activated**. The repository now defines a separate,
+profile-gated Stage 4 service, but ordinary Compose still starts only PostgreSQL
+and the read-only panel. A fresh automation control row is disabled and killed,
+the committed trust root is disabled, and the service cannot authorize a broker
+read or mutation. Preparation, inspection, migration, and execution also remain
+available as distinct manual operations through the authorized image membrane.
+Alpaca paper is the only accepted broker endpoint. The manual handover sequence
+and checkpoints remain in `docs/sentinel-paper-activation.md`; the separately
+reviewed automation lifecycle is in `docs/sentinel-stage-4-automation.md`.
 
-The honest production status is therefore **production path implemented and
-simulator/restart tested; deployment and paper activation remain operator-gated
-and have not occurred**.
+The honest production status is therefore **manual and automated software paths
+implemented and simulator/restart tested; formal certification, deployment,
+automation activation, account migration, and paper activation remain gated and
+have not occurred**.
 
 ## Trace of the implemented path
 
@@ -41,9 +44,12 @@ starts Sentinel's PostgreSQL and read-only panel. Its Sentinel service remains a
 run-only CLI profile, so ordinary `docker compose up` cannot prepare a plan,
 migrate an account, or submit an order.
 
-There is deliberately no scheduler. Adding autonomous timing, retry policy, or
-a long-running engine is a separate deployment decision; Stage 2 does not hide
-one in Compose or a restart policy.
+Stage 2 deliberately contains no scheduler. Stage 4 adds a distinct
+profile-gated automation overlay with durable timing, retry policy, lease
+fencing, kill state, and restart recovery. The automation tables are seeded
+disabled and killed; the service cannot be resolved without immutable artifact
+identities and cannot pass its broker membrane without current signed authority.
+Ordinary Compose startup still cannot prepare, migrate, or submit.
 
 ### 2. Data ingestion, publication, and readiness
 
@@ -174,7 +180,7 @@ convergence, not a paper-deployment outcome.
 | SPY sensing is not wired | Closed through the published `closeadj` loader |
 | Controller state is not restored or persisted | Closed in version-3 canonical state |
 | Exposure remains pinned to 1.00 | Implemented as the default durable rollout; controller exposure remains blocked behind an explicit certified transition |
-| Execution is unreachable | Gateway implemented, but intentionally unreachable until trusted certificate issuance/signature verification is separately reviewed |
+| Execution is unreachable | The manual and automated gateways plus signed verification are implemented, but the committed root is disabled and certification evidence remains blocked |
 | No clean-path/restart evidence | Closed for the specified simulator and durable-boundary scenarios |
 | Runtime rule lives in the handoff artifact tree | Still true; digest verification makes it explicit and reproducible |
 
@@ -184,9 +190,10 @@ convergence, not a paper-deployment outcome.
    an image is deployed, a paper account is migrated, or any order is submitted.
 2. **Paper only.** The live endpoint and all unknown endpoints remain refused;
    there is no environment override.
-3. **No scheduler.** Daily preparation and final execution are separate manual
-   actions. Missed sessions converge when preparation is invoked, but nothing
-   invokes it automatically.
+3. **Automation is inert by default.** Manual preparation and execution remain
+   separate commands. The Stage 4 scheduler is an explicit immutable-image
+   profile whose durable control row starts disabled and killed; enabling it
+   additionally requires reviewed signed authority and explicit activation.
 4. **DAY market timing.** The adapter does not provide MOO/OPG semantics, so the
    operator owns effective-session timing.
 5. **Migration stays administrative.** An inherited book must be inspected,
@@ -200,10 +207,11 @@ convergence, not a paper-deployment outcome.
    distinct from runtime activation.
 8. **System certification still blocks submission.** Execution requires a
    trusted-issuer-authenticated activation profile with zero strict xfails,
-   Wealth Core `GO`, and exact runtime/source identity. No trust root or
-   signature verifier exists; installation and runtime authorization therefore
-   refuse all unsigned profiles, including legacy database rows. The gateway is
-   implemented but intentionally non-executable.
+   Wealth Core `GO`, and exact runtime/source identity. The offline issuer and
+   signature verifier exist, but the committed root is disabled and the
+   producer cannot emit authorized evidence while those certification blockers
+   remain. Unsigned legacy rows never become authority; the gateway remains
+   intentionally non-executable in the committed configuration.
 
 Operator commands and expected checkpoints are intentionally not duplicated
 here. `docs/sentinel-paper-activation.md` is the sole runbook.

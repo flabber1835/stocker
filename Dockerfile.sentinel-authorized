@@ -1,0 +1,14 @@
+# Broker-capable Sentinel membrane.
+#
+# This image is deliberately distinct from the ordinary read-only/development
+# runtime.  The application requires the baked marker below, plus the explicit
+# overlay intent flag, before it will dispatch any command that can construct a
+# broker or enable signed authority.  The base image never receives this file.
+ARG SENTINEL_RUNTIME_BASE_IMAGE=sentinel:latest
+FROM ${SENTINEL_RUNTIME_BASE_IMAGE}
+
+ARG SOURCE_GIT_SHA=unknown
+LABEL org.opencontainers.image.revision=${SOURCE_GIT_SHA}
+
+COPY deploy/sentinel-authorized-runtime-v1 \
+    /opt/sentinel/authorized-runtime-v1

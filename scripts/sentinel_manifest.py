@@ -14,7 +14,7 @@ is named, the record describes a recipe rather than the artefact.
 ```text
 inputs, from inside          the artefact, from outside
 --------------------         --------------------------
-python 3.12.13               sentinel:latest      sha256:...
+python 3.12.13               sentinel-authorized:latest sha256:...
 base image digest            sentinel-test:latest sha256:...
 package closure              postgres:16          sha256:...
 sentinel/wealth core source  the git commit they were built from
@@ -292,8 +292,11 @@ def _certification_input_spec(root: Path, *, image: bool = False):
         (repo / "services" / "bt-data", "services/bt-data"),
         (repo / "Dockerfile.base", ""),
         (repo / "Dockerfile.sentinel", ""),
+        (repo / "Dockerfile.sentinel-authorized", ""),
         (repo / "Dockerfile.sentinel-test", ""),
+        (repo / "deploy" / "sentinel-authorized-runtime-v1", "deploy"),
         (repo / "docker-compose.sentinel.yml", ""),
+        (repo / "docker-compose.sentinel-automation.yml", ""),
         (repo / "docker-compose.backtest.yml", ""),
         (repo / "docker-compose.sentinel-backup.yml", ""),
         (repo / ".dockerignore", ""),
@@ -305,6 +308,7 @@ def _certification_input_spec(root: Path, *, image: bool = False):
         (repo / "docs" / "main-review-remediation.md", "docs"),
         (repo / "docs" / "sentinel-deployment.md", "docs"),
         (repo / "docs" / "sentinel-paper-activation.md", "docs"),
+        (repo / "docs" / "sentinel-stage-4-automation.md", "docs"),
     ]
 
 
@@ -385,6 +389,24 @@ def bt_engine_app_source_hash(ref: str) -> str | None:
     return out or None
 
 
+def bt_engine_runtime_identity(ref: str) -> dict | None:
+    """Read the dependency identity from the exact built bt-engine image."""
+    out = sh(
+        "docker", "run", "--rm", "--entrypoint", "python", ref, "-c",
+        "import json;"
+        "from stock_strategy_shared.runtime_identity import dependency_identity;"
+        "print(json.dumps(dependency_identity('/app/requirements.lock'),"
+        "sort_keys=True,separators=(',',':')))"
+    )
+    try:
+        value = json.loads(out) if out else None
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(value, dict):
+        return None
+    return value
+
+
 def build(art: Path, stamp: str, lock_sha: str,
           postgres_ref: str = "postgres:16",
           bt_engine_ref: str = "stocker-bt-engine:latest",
@@ -393,6 +415,7 @@ def build(art: Path, stamp: str, lock_sha: str,
     env = rec["environment"]
     checkout_hashes = checkout_source_hashes(Path.cwd())
     engine_hash = bt_engine_app_source_hash(bt_engine_ref)
+    engine_runtime = bt_engine_runtime_identity(bt_engine_ref)
     image_hashes = {
         "sentinel": env["sentinel_source"]["hash"],
         "wealth_core": env["wealth_core_source"]["hash"],
@@ -422,7 +445,7 @@ def build(art: Path, stamp: str, lock_sha: str,
         "git_dirty_paths": [l for l in
                             (sh("git", "status", "--porcelain") or "").splitlines()
                             if l.strip()][:50],
-        "sentinel_runtime_image": image("sentinel:latest"),
+        "sentinel_runtime_image": image("sentinel-authorized:latest"),
         "sentinel_test_image": image("sentinel-test:latest"),
         # THE PINNED, DIGEST-QUALIFIED REFERENCE from compose — not the bare
         # `postgres:16` tag. PostgreSQL PRODUCES the corpus being certified, so
@@ -441,6 +464,7 @@ def build(art: Path, stamp: str, lock_sha: str,
         # source that changed after this manifest was frozen.
         "bt_engine_image": image(bt_engine_ref),
         "bt_engine_app_source_hash": engine_hash,
+        "bt_engine_runtime_identity": engine_runtime,
         "checkout_source_hashes": checkout_hashes,
         "image_source_hashes": image_hashes,
         "identity_hash": rec["identity_hash"],
@@ -521,6 +545,20 @@ def main(argv=None) -> int:
             problems.append(
                 f"{key} was built from {revision}, not current "
                 f"git_commit {m['git_commit']}")
+    engine_runtime = m.get("bt_engine_runtime_identity")
+    if (not isinstance(engine_runtime, dict)
+            or set(engine_runtime) != {
+                "requirements_lock_sha256", "distributions_sha256",
+                "distributions_count"}
+            or any(not isinstance(engine_runtime.get(field), str)
+                   or len(engine_runtime[field]) != 64
+                   for field in (
+                       "requirements_lock_sha256", "distributions_sha256"))
+            or type(engine_runtime.get("distributions_count")) is not int
+            or engine_runtime["distributions_count"] < 1):
+        problems.append(
+            "bt_engine_runtime_identity could not be read from the built "
+            "engine; its exact dependency closure is unknown")
     checkout_hashes = m["checkout_source_hashes"]
     image_hashes = m["image_source_hashes"]
     for key in sorted(checkout_hashes):

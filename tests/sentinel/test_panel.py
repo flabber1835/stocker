@@ -190,24 +190,66 @@ class TestTheRowsThatMatter:
         assert all(row.status is model.UNKNOWN for row in rows)
         assert all(row.value == "UNKNOWN" for row in rows)
 
-    def test_automation_names_the_absence_of_a_scheduler(self):
+    def test_automation_names_the_absence_of_durable_control(self):
         row = model.automation_row()
         assert row.value == "NOT INSTALLED"
         assert row.status is model.PENDING
-        assert "operator-invoked" in row.detail
+        assert "control schema" in row.detail
 
-    def test_execution_authority_names_the_missing_trust_root(self):
+    def test_execution_authority_names_the_missing_schema(self):
         row = model.execution_authority_row()
-        assert row.value == "UNAVAILABLE"
+        assert row.value == "NOT INSTALLED"
         assert row.status is model.FAIL
-        assert "trusted issuer/signature verification is disabled" in row.detail
-        assert "non-authoritative" in row.detail
+        assert "authority schema" in row.detail
 
     def test_the_panel_always_includes_the_fail_closed_authority_row(self):
         panel = build_panel(state_dir="/nonexistent", database_url="", now=NOW)
         row = panel.row("authority")
         assert row is not None
-        assert row.value == "UNAVAILABLE" and row.status is model.FAIL
+        assert row.value == "UNKNOWN" and row.status is model.UNKNOWN
+
+    def test_disabled_and_killed_are_healthy_policy_but_not_ready(self):
+        disabled = model.automation_row(
+            installed=True, enabled=False, killed=True, generation=3)
+        killed = model.automation_row(
+            installed=True, enabled=True, killed=True, generation=4)
+
+        assert disabled.value == "DISABLED"
+        assert disabled.status is model.PENDING
+        assert "supervisor-healthy" in disabled.detail
+        assert killed.value == "ENABLED · KILLED"
+        assert killed.status is model.WARN
+
+    def test_lifecycle_active_never_manufactures_a_runtime_verdict(self):
+        row = model.execution_authority_row(
+            installed=True, lifecycle_status="ACTIVE",
+            certificate_sha256="a" * 64, authority_generation=7,
+            expires_at=NOW + timedelta(days=1), lifecycle_current=True)
+
+        assert row.value == "UNKNOWN" and row.status is model.UNKNOWN
+        assert "no durable runtime authority verdict" in row.detail
+        assert "lifecycle-only: ACTIVE" in row.detail
+
+    @pytest.mark.parametrize(
+        ("lifecycle_status", "certificate_sha256", "lifecycle_current"),
+        (("REVOKED", "a" * 64, False),
+         ("ACTIVE", "a" * 64, False),
+         (None, None, False)),
+    )
+    def test_lifecycle_failure_overrides_a_cached_runtime_pass(
+            self, lifecycle_status, certificate_sha256, lifecycle_current):
+        row = model.execution_authority_row(
+            installed=True, runtime_verdict="PASS",
+            runtime_detail="claims matched before lifecycle changed",
+            checked_at=NOW, lifecycle_status=lifecycle_status,
+            certificate_sha256=certificate_sha256,
+            expires_at=NOW - timedelta(seconds=1),
+            authority_generation=8, lifecycle_current=lifecycle_current,
+            verdict_binding_matches=True)
+
+        assert row.status is model.FAIL
+        assert "LIFECYCLE INVALID" in row.value
+        assert "cannot override" in row.detail
 
     def test_a_stalled_ingest_has_a_TIGHT_freshness_budget(self):
         r = model.ingest_row(kind="seed", status="running", chunks_done=2,
@@ -625,6 +667,248 @@ class TestRuntimeRowsAreDurableFacts:
 
 
 # ── 5. it cannot act ─────────────────────────────────────────────────────────
+
+class TestAutomationRowsAreDurableFacts:
+
+    @staticmethod
+    def _connection():
+        class Connection:
+            closed = False
+
+            def cursor(self):
+                return self
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def execute(self, *_args):
+                return None
+
+            def rollback(self):
+                return None
+
+            def close(self):
+                self.closed = True
+
+        return Connection()
+
+    def _install(self, monkeypatch, *, found=None, control=None,
+                 lease=None, cycle=None, alerts=None, lifecycle=None,
+                 instance=None, service_verdict=None):
+        from sentinel.feed import store as feed_store
+        from sentinel.panel import sources
+
+        conn = self._connection()
+        complete = {
+            table: set(columns) for table, columns in {
+                **sources._AUTOMATION_COLUMNS,
+                **sources._AUTHORITY_COLUMNS,
+            }.items()
+        }
+        monkeypatch.setattr(feed_store, "connect", lambda _dsn: conn)
+        monkeypatch.setattr(
+            sources, "_automation_schema",
+            lambda _conn: complete if found is None else found)
+        monkeypatch.setattr(
+            sources, "_automation_control", lambda _conn, _found: control)
+        monkeypatch.setattr(
+            sources, "_automation_lease",
+            lambda _conn, _generation: lease)
+        monkeypatch.setattr(
+            sources, "_latest_automation_cycle", lambda _conn: cycle)
+        monkeypatch.setattr(
+            sources, "_automation_alert_counts", lambda _conn: alerts)
+        monkeypatch.setattr(
+            sources, "_latest_automation_instance", lambda _conn: instance)
+        monkeypatch.setattr(
+            sources, "_authority_lifecycle", lambda _conn: lifecycle)
+        monkeypatch.setattr(
+            sources, "_service_authority_verdict",
+            lambda _conn, _found: service_verdict)
+        return sources, conn
+
+    def test_projects_policy_lease_cycle_alerts_and_persisted_verdict(
+            self, monkeypatch):
+        sources, conn = self._install(
+            monkeypatch,
+            control={
+                "enabled": True, "generation": 9, "killed": False,
+                "certificate_sha256": "a" * 64,
+                "updated_at": NOW, "authority_verdict": "VALID",
+                "authority_detail": "all runtime claims matched",
+                "authority_checked_at": NOW,
+            },
+            lease={
+                "holder": "appliance-a", "fence": 41,
+                "heartbeat_at": NOW,
+                "expires_at": NOW + timedelta(seconds=30), "active": True,
+            },
+            cycle={
+                "cycle_id": "cycle-2026-08-13", "state": "RETRY_WAIT",
+                "decision_session": "2026-08-12",
+                "effective_session": "2026-08-13",
+                "next_wake_at": NOW + timedelta(minutes=2),
+                "clean_reconciliation_id": "recon-clean-8",
+                "failure_code": "PUBLICATION_PENDING",
+                "failure_detail": "waiting for pinned publication",
+                "updated_at": NOW,
+            },
+            alerts={
+                "pending": 2, "dead_letter": 1, "unacknowledged": 3,
+                "updated_at": NOW,
+            },
+            lifecycle={
+                "authority_generation": 7,
+                "certificate_sha256": "a" * 64,
+                "expires_at": NOW + timedelta(days=2),
+                "lifecycle_status": "ACTIVE", "lifecycle_current": True,
+            })
+
+        rows, errors = sources._automation_rows(
+            "postgresql://panel@db/sentinel")
+        by_key = {row.key: row for row in rows}
+
+        assert errors == []
+        assert by_key["automation"].value == "ENABLED · KILL RELEASED"
+        assert by_key["automation_leader"].value == "appliance-a · fence 41"
+        assert by_key["automation_cycle"].value == "RETRY_WAIT"
+        assert "recon-clean-8" in by_key["automation_cycle"].detail
+        assert "PUBLICATION_PENDING" in by_key["automation_cycle"].detail
+        assert by_key["automation_alerts"].value == (
+            "2 pending · 1 DLQ · 3 unacked")
+        assert by_key["automation_alerts"].status is model.FAIL
+        assert by_key["authority"].value.startswith("VALID")
+        assert by_key["authority"].status is model.OK
+        assert "lifecycle-only: ACTIVE" in by_key["authority"].detail
+        assert conn.closed
+
+    def test_absent_optional_runtime_verdict_stays_unknown(self, monkeypatch):
+        sources, _conn = self._install(
+            monkeypatch,
+            control={
+                "enabled": False, "generation": 1, "killed": True,
+                "certificate_sha256": "b" * 64,
+                "updated_at": NOW, "authority_verdict": None,
+                "authority_detail": None, "authority_checked_at": None,
+            },
+            lease={
+                "holder": None, "fence": 0, "heartbeat_at": None,
+                "expires_at": None, "active": False,
+            }, cycle=None,
+            alerts={
+                "pending": 0, "dead_letter": 0, "unacknowledged": 0,
+                "updated_at": None,
+            },
+            lifecycle={
+                "authority_generation": 3,
+                "certificate_sha256": "b" * 64,
+                "expires_at": NOW + timedelta(days=1),
+                "lifecycle_status": "ACTIVE", "lifecycle_current": True,
+            })
+
+        rows, errors = sources._automation_rows(
+            "postgresql://panel@db/sentinel")
+        authority = next(row for row in rows if row.key == "authority")
+
+        assert errors == []
+        assert authority.status is model.UNKNOWN
+        assert "no durable runtime authority verdict" in authority.detail
+
+    def test_source_projection_never_renders_revoked_cached_pass_green(
+            self, monkeypatch):
+        sources, _conn = self._install(
+            monkeypatch,
+            control={
+                "enabled": True, "generation": 10, "killed": False,
+                "certificate_sha256": "c" * 64,
+                "updated_at": NOW, "authority_verdict": "PASS",
+                "authority_detail": "valid before revocation",
+                "authority_checked_at": NOW,
+            },
+            lease={
+                "holder": "appliance-a", "fence": 42,
+                "heartbeat_at": NOW,
+                "expires_at": NOW + timedelta(seconds=30), "active": True,
+            }, cycle=None,
+            alerts={
+                "pending": 0, "dead_letter": 0, "unacknowledged": 0,
+                "updated_at": NOW,
+            },
+            lifecycle={
+                "authority_generation": 9,
+                "certificate_sha256": "c" * 64,
+                "expires_at": NOW + timedelta(days=1),
+                "lifecycle_status": "REVOKED", "lifecycle_current": False,
+            })
+
+        rows, errors = sources._automation_rows(
+            "postgresql://panel@db/sentinel")
+        authority = next(row for row in rows if row.key == "authority")
+
+        assert errors == []
+        assert authority.status is model.FAIL
+        assert "LIFECYCLE INVALID" in authority.value
+        assert "REVOKED" in authority.detail
+
+    def test_completely_absent_schema_is_not_installed_not_unreadable(
+            self, monkeypatch):
+        sources, _conn = self._install(
+            monkeypatch, found={}, control=pytest.fail, lease=pytest.fail,
+            cycle=pytest.fail, alerts=pytest.fail, lifecycle=pytest.fail)
+
+        rows, errors = sources._automation_rows(
+            "postgresql://panel@db/sentinel")
+        by_key = {row.key: row for row in rows}
+
+        assert errors == []
+        assert by_key["automation"].value == "NOT INSTALLED"
+        assert by_key["authority"].value == "NOT INSTALLED"
+
+    def test_partial_schema_is_unknown_and_never_queried(self, monkeypatch):
+        from sentinel.panel import sources as source_module
+
+        partial = {
+            table: set() for table in {
+                **source_module._AUTOMATION_COLUMNS,
+                **source_module._AUTHORITY_COLUMNS,
+            }
+        }
+        partial["sentinel_automation_control"] = {"id", "enabled"}
+        sources, _conn = self._install(
+            monkeypatch, found=partial, control=pytest.fail,
+            lease=pytest.fail, cycle=pytest.fail, alerts=pytest.fail,
+            lifecycle=pytest.fail)
+
+        rows, errors = sources._automation_rows(
+            "postgresql://panel@db/sentinel")
+
+        assert errors
+        assert all(row.status is model.UNKNOWN for row in rows[1:])
+        assert "missing schema sentinel_automation_control" in errors[0]
+
+    def test_automation_panel_queries_are_structurally_select_only(self):
+        import inspect
+        import re
+
+        from sentinel.panel import sources
+
+        query_functions = (
+            sources._automation_schema, sources._automation_control,
+            sources._automation_lease, sources._latest_automation_cycle,
+            sources._automation_alert_counts,
+            sources._latest_automation_instance,
+            sources._service_authority_verdict,
+            sources._authority_lifecycle,
+        )
+        body = "\n".join(inspect.getsource(fn) for fn in query_functions)
+        assert re.search(
+            r"\b(INSERT|UPDATE|DELETE|TRUNCATE|ALTER|CREATE|DROP)\b", body
+        ) is None
+        assert "build_broker" not in body
+
 
 class TestItCannotAct:
 

@@ -33,6 +33,13 @@ _INITIAL_ROLLOUT_STATE = """INSERT INTO sentinel_rollout_state
     (id,mode,version) VALUES (1,'PINNED_1_00',1)
     ON CONFLICT (id) DO NOTHING"""
 
+_INITIAL_AUTOMATION_CONTROL = """INSERT INTO sentinel_automation_control
+    (id,enabled,generation,kill_switch_engaged)
+    VALUES (1,FALSE,1,TRUE) ON CONFLICT (id) DO NOTHING"""
+
+_INITIAL_AUTOMATION_LEASE = """INSERT INTO sentinel_automation_lease
+    (id,fence_token) VALUES (1,0) ON CONFLICT (id) DO NOTHING"""
+
 DDL = (
     # ------------------------------------------------------------------
     # WHO WE ARE, AND WHOSE ACCOUNT THIS IS.
@@ -98,6 +105,128 @@ DDL = (
                             CHECK (action IN ('INSTALLED','REVOKED')),
         detail              TEXT        NOT NULL,
         at                  TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+
+    # Signed authority is deliberately separate from the retained unsigned
+    # manifest substrate above.  An old/restored self-attested row can therefore
+    # never become trusted merely because a verifier was added later.
+    """CREATE TABLE IF NOT EXISTS sentinel_signed_execution_certificates (
+        install_sequence       BIGSERIAL   UNIQUE NOT NULL,
+        certificate_sha256     TEXT        PRIMARY KEY
+                                           CHECK (certificate_sha256 ~ '^[0-9a-f]{64}$'),
+        certificate_id         TEXT        UNIQUE NOT NULL,
+        key_id                 TEXT        NOT NULL,
+        envelope_bytes         BYTEA       NOT NULL,
+        envelope               JSONB       NOT NULL,
+        claims                 JSONB       NOT NULL,
+        issuer_generation      BIGINT      NOT NULL CHECK (issuer_generation >= 1),
+        supersedes_certificate_sha256 TEXT REFERENCES
+                                           sentinel_signed_execution_certificates
+                                           (certificate_sha256),
+        not_before             TIMESTAMPTZ NOT NULL,
+        expires_at             TIMESTAMPTZ NOT NULL,
+        installed_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CHECK (not_before < expires_at))""",
+    """CREATE TABLE IF NOT EXISTS sentinel_execution_certificate_lifecycle (
+        certificate_sha256     TEXT        PRIMARY KEY REFERENCES
+                                           sentinel_signed_execution_certificates
+                                           (certificate_sha256),
+        status                 TEXT        NOT NULL
+                                           CHECK (status IN
+                                           ('STAGED','ACTIVE','RETIRED','REVOKED')),
+        activated_at           TIMESTAMPTZ,
+        retired_at             TIMESTAMPTZ,
+        revoked_at             TIMESTAMPTZ,
+        revocation_reason      TEXT,
+        CHECK ((status = 'REVOKED' AND revoked_at IS NOT NULL
+                 AND revocation_reason IS NOT NULL)
+            OR (status <> 'REVOKED' AND revoked_at IS NULL
+                 AND revocation_reason IS NULL)))""",
+    """CREATE UNIQUE INDEX IF NOT EXISTS
+        idx_sentinel_one_active_signed_certificate
+        ON sentinel_execution_certificate_lifecycle ((1))
+        WHERE status = 'ACTIVE'""",
+    """CREATE TABLE IF NOT EXISTS sentinel_execution_authority_state (
+        id                     INT         PRIMARY KEY CHECK (id = 1),
+        generation             BIGINT      NOT NULL CHECK (generation >= 0),
+        highest_issuer_generation BIGINT   NOT NULL CHECK
+                                           (highest_issuer_generation >= 0),
+        active_certificate_sha256 TEXT REFERENCES
+                                           sentinel_signed_execution_certificates
+                                           (certificate_sha256),
+        updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS sentinel_execution_certificate_revocations (
+        certificate_sha256     TEXT        PRIMARY KEY REFERENCES
+                                           sentinel_signed_execution_certificates
+                                           (certificate_sha256),
+        reason                 TEXT        NOT NULL CHECK (LENGTH(BTRIM(reason)) > 0),
+        revoked_at             TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS sentinel_execution_key_revocations (
+        key_id                 TEXT        PRIMARY KEY,
+        reason                 TEXT        NOT NULL CHECK (LENGTH(BTRIM(reason)) > 0),
+        revoked_at             TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS sentinel_execution_certificate_events (
+        seq                    BIGSERIAL   PRIMARY KEY,
+        authority_generation   BIGINT      NOT NULL CHECK (authority_generation >= 0),
+        certificate_sha256     TEXT        NOT NULL,
+        action                 TEXT        NOT NULL CHECK (action IN
+                                           ('STAGED','ACTIVATED','ROTATED',
+                                            'RETIRED','REVOKED','KEY_REVOKED')),
+        detail                 TEXT        NOT NULL,
+        at                     TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+
+    # Administrative broker access happens before the first account binding,
+    # so it cannot borrow the bound execution-certificate singleton above.
+    # Its operation vocabulary is disjoint and its lifecycle is independently
+    # monotonic.  Exact signed bytes remain the authority in both cases.
+    """CREATE TABLE IF NOT EXISTS sentinel_signed_administrative_certificates (
+        install_sequence       BIGSERIAL   UNIQUE NOT NULL,
+        certificate_sha256     TEXT        PRIMARY KEY
+                                           CHECK (certificate_sha256 ~ '^[0-9a-f]{64}$'),
+        certificate_id         TEXT        UNIQUE NOT NULL,
+        key_id                 TEXT        NOT NULL,
+        envelope_bytes         BYTEA       NOT NULL,
+        envelope               JSONB       NOT NULL,
+        claims                 JSONB       NOT NULL,
+        issuer_generation      BIGINT      NOT NULL CHECK (issuer_generation >= 1),
+        supersedes_certificate_sha256 TEXT REFERENCES
+                                           sentinel_signed_administrative_certificates
+                                           (certificate_sha256),
+        not_before             TIMESTAMPTZ NOT NULL,
+        expires_at             TIMESTAMPTZ NOT NULL,
+        status                 TEXT        NOT NULL CHECK (status IN
+                                           ('STAGED','ACTIVE','RETIRED','REVOKED')),
+        installed_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        activated_at           TIMESTAMPTZ,
+        retired_at             TIMESTAMPTZ,
+        revoked_at             TIMESTAMPTZ,
+        revocation_reason      TEXT,
+        CHECK (not_before < expires_at),
+        CHECK ((status = 'REVOKED' AND revoked_at IS NOT NULL
+                 AND revocation_reason IS NOT NULL)
+            OR (status <> 'REVOKED' AND revoked_at IS NULL
+                 AND revocation_reason IS NULL)))""",
+    """CREATE UNIQUE INDEX IF NOT EXISTS
+        idx_sentinel_one_active_administrative_certificate
+        ON sentinel_signed_administrative_certificates ((1))
+        WHERE status = 'ACTIVE'""",
+    """CREATE TABLE IF NOT EXISTS sentinel_administrative_authority_state (
+        id                     INT         PRIMARY KEY CHECK (id = 1),
+        generation             BIGINT      NOT NULL CHECK (generation >= 0),
+        highest_issuer_generation BIGINT   NOT NULL CHECK
+                                           (highest_issuer_generation >= 0),
+        active_certificate_sha256 TEXT REFERENCES
+                                           sentinel_signed_administrative_certificates
+                                           (certificate_sha256),
+        updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+    """CREATE TABLE IF NOT EXISTS sentinel_administrative_certificate_events (
+        seq                    BIGSERIAL   PRIMARY KEY,
+        authority_generation   BIGINT      NOT NULL CHECK (authority_generation >= 0),
+        certificate_sha256     TEXT        NOT NULL,
+        action                 TEXT        NOT NULL CHECK (action IN
+                                           ('STAGED','ACTIVATED','ROTATED',
+                                            'RETIRED','REVOKED','KEY_REVOKED')),
+        detail                 TEXT        NOT NULL,
+        at                     TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
 
     # ------------------------------------------------------------------
     # EXPOSURE ROLLOUT. New databases are deliberately pinned at 1.00. The
@@ -392,6 +521,202 @@ DDL = (
         attribution   TEXT NOT NULL
                       CHECK (attribution IN ('DECLARED','MARKET','UNEXPLAINED')),
         reconciled_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+
+    # ------------------------------------------------------------------
+    # STAGE 4 AUTOMATION.  Installation is inert: the genuinely new table is
+    # seeded disabled and killed.  Missing rows in existing singleton tables
+    # are corruption and are deliberately NOT repaired by ensure_schema().
+    # ------------------------------------------------------------------
+    """CREATE TABLE IF NOT EXISTS sentinel_automation_control (
+        id                  INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        enabled             BOOLEAN     NOT NULL DEFAULT FALSE,
+        generation          BIGINT      NOT NULL DEFAULT 1 CHECK (generation >= 1),
+        kill_switch_engaged BOOLEAN     NOT NULL DEFAULT TRUE,
+        deployment_id       TEXT,
+        broker              TEXT,
+        broker_account_id   TEXT,
+        takeover_epoch      BIGINT CHECK (takeover_epoch >= 1),
+        certificate_sha256  TEXT CHECK (
+            certificate_sha256 IS NULL OR certificate_sha256 ~ '^[0-9a-f]{64}$'),
+        rollout_mode        TEXT,
+        rollout_version     BIGINT CHECK (rollout_version >= 1),
+        config_sha256       TEXT CHECK (
+            config_sha256 IS NULL OR config_sha256 ~ '^[0-9a-f]{64}$'),
+        authority_verdict   TEXT CHECK (
+            authority_verdict IS NULL OR authority_verdict IN ('PASS','FAIL')),
+        authority_detail    TEXT,
+        authority_checked_at TIMESTAMPTZ,
+        enabled_at          TIMESTAMPTZ,
+        disabled_at         TIMESTAMPTZ,
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        CHECK (NOT enabled OR (
+            deployment_id IS NOT NULL AND broker IS NOT NULL
+            AND broker_account_id IS NOT NULL AND takeover_epoch IS NOT NULL
+            AND certificate_sha256 IS NOT NULL AND rollout_mode IS NOT NULL
+            AND rollout_version IS NOT NULL AND config_sha256 IS NOT NULL)))""",
+    """ALTER TABLE sentinel_automation_control
+        ADD COLUMN IF NOT EXISTS authority_verdict TEXT CHECK (
+            authority_verdict IS NULL OR authority_verdict IN ('PASS','FAIL'))""",
+    """ALTER TABLE sentinel_automation_control
+        ADD COLUMN IF NOT EXISTS authority_detail TEXT""",
+    """ALTER TABLE sentinel_automation_control
+        ADD COLUMN IF NOT EXISTS authority_checked_at TIMESTAMPTZ""",
+    """CREATE TABLE IF NOT EXISTS sentinel_automation_events (
+        seq                 BIGSERIAL PRIMARY KEY,
+        generation          BIGINT      NOT NULL CHECK (generation >= 1),
+        action              TEXT        NOT NULL CHECK (action IN (
+            'ACTIVATED','DEACTIVATED','KILL_ENGAGED','KILL_RELEASED')),
+        actor               TEXT        NOT NULL,
+        reason              TEXT        NOT NULL,
+        detail              JSONB       NOT NULL DEFAULT '{}'::jsonb,
+        at                  TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_automation_events_generation
+        ON sentinel_automation_events (generation,seq)""",
+
+    """CREATE TABLE IF NOT EXISTS sentinel_automation_lease (
+        id                  INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        holder_id           TEXT,
+        fence_token         BIGINT      NOT NULL DEFAULT 0 CHECK (fence_token >= 0),
+        control_generation  BIGINT CHECK (control_generation >= 1),
+        acquired_at         TIMESTAMPTZ,
+        heartbeat_at        TIMESTAMPTZ,
+        expires_at          TIMESTAMPTZ,
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        CHECK ((holder_id IS NULL AND control_generation IS NULL
+                AND acquired_at IS NULL AND heartbeat_at IS NULL
+                AND expires_at IS NULL)
+            OR (holder_id IS NOT NULL AND control_generation IS NOT NULL
+                AND acquired_at IS NOT NULL AND heartbeat_at IS NOT NULL
+                AND expires_at IS NOT NULL)))""",
+
+    """CREATE TABLE IF NOT EXISTS sentinel_automation_cycles (
+        cycle_id                     TEXT PRIMARY KEY,
+        state                        TEXT        NOT NULL CHECK (state IN (
+            'DISCOVERED','REFRESHING_DATA','PREPARING','PLAN_READY',
+            'WAITING_OPEN','EXECUTING','RECONCILING','RETRY_WAIT',
+            'SUCCEEDED','MISSED_STATE_ONLY','SUPERSEDED','BLOCKED')),
+        decision_session             DATE        NOT NULL,
+        effective_session            DATE        NOT NULL,
+        deployment_id                TEXT        NOT NULL,
+        broker                       TEXT        NOT NULL,
+        broker_account_id            TEXT        NOT NULL,
+        takeover_epoch               BIGINT      NOT NULL CHECK (takeover_epoch >= 1),
+        control_generation           BIGINT      NOT NULL CHECK (control_generation >= 1),
+        certificate_sha256           TEXT        NOT NULL CHECK (
+            certificate_sha256 ~ '^[0-9a-f]{64}$'),
+        rollout_mode                 TEXT        NOT NULL,
+        rollout_version              BIGINT      NOT NULL CHECK (rollout_version >= 1),
+        config_sha256                TEXT        NOT NULL CHECK (
+            config_sha256 ~ '^[0-9a-f]{64}$'),
+        decision_close_at            TIMESTAMPTZ NOT NULL,
+        prepare_at                   TIMESTAMPTZ NOT NULL,
+        execution_open_at            TIMESTAMPTZ NOT NULL,
+        execute_at                   TIMESTAMPTZ NOT NULL,
+        execution_close_at           TIMESTAMPTZ NOT NULL,
+        historical_state_only        BOOLEAN     NOT NULL DEFAULT FALSE,
+        plan_id                      TEXT,
+        data_version                 TEXT,
+        publication_fingerprint      TEXT,
+        state_fingerprint            TEXT,
+        plan_fingerprint             TEXT,
+        last_clean_reconciliation_id TEXT,
+        attempt_count                INT         NOT NULL DEFAULT 0
+                                             CHECK (attempt_count >= 0),
+        next_wake_at                 TIMESTAMPTZ,
+        last_fence_token             BIGINT CHECK (last_fence_token >= 1),
+        failure_code                 TEXT,
+        failure_detail               TEXT,
+        diagnostic                   JSONB       NOT NULL DEFAULT '{}'::jsonb,
+        created_at                   TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        updated_at                   TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        completed_at                 TIMESTAMPTZ,
+        UNIQUE (deployment_id,broker,broker_account_id,takeover_epoch,
+                decision_session),
+        CHECK (decision_close_at <= prepare_at
+               AND prepare_at < execution_open_at),
+        CHECK (execution_open_at <= execute_at
+               AND execute_at < execution_close_at))""",
+    """ALTER TABLE sentinel_automation_cycles
+        ADD COLUMN IF NOT EXISTS historical_state_only BOOLEAN NOT NULL
+        DEFAULT FALSE""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_automation_cycles_due
+        ON sentinel_automation_cycles (state,next_wake_at,decision_session)""",
+    """CREATE TABLE IF NOT EXISTS sentinel_automation_cycle_events (
+        seq                 BIGSERIAL PRIMARY KEY,
+        cycle_id            TEXT        NOT NULL REFERENCES sentinel_automation_cycles(cycle_id),
+        from_state          TEXT,
+        to_state            TEXT        NOT NULL,
+        control_generation  BIGINT      NOT NULL,
+        fence_token         BIGINT      NOT NULL,
+        detail              JSONB       NOT NULL DEFAULT '{}'::jsonb,
+        at                  TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_automation_cycle_events
+        ON sentinel_automation_cycle_events (cycle_id,seq)""",
+
+    """CREATE TABLE IF NOT EXISTS sentinel_alert_outbox (
+        alert_id             TEXT PRIMARY KEY,
+        idempotency_key      TEXT        NOT NULL UNIQUE,
+        schema_version       INT         NOT NULL CHECK (schema_version >= 1),
+        event_type           TEXT        NOT NULL,
+        severity             TEXT        NOT NULL,
+        payload              JSONB       NOT NULL,
+        state                TEXT        NOT NULL CHECK (state IN (
+            'PENDING','DELIVERING','DELIVERED','DEAD_LETTER')),
+        attempt_count        INT         NOT NULL DEFAULT 0
+                                          CHECK (attempt_count >= 0),
+        max_attempts         INT         NOT NULL CHECK (max_attempts >= 1),
+        next_attempt_at      TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        delivery_holder      TEXT,
+        delivery_expires_at  TIMESTAMPTZ,
+        last_error           TEXT,
+        ack_state            TEXT        NOT NULL DEFAULT 'UNACKNOWLEDGED'
+                                          CHECK (ack_state IN (
+                                              'UNACKNOWLEDGED','ACKNOWLEDGED')),
+        acknowledged_by      TEXT,
+        acknowledged_at      TIMESTAMPTZ,
+        acknowledgement      TEXT,
+        created_at           TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        delivered_at         TIMESTAMPTZ,
+        CHECK ((delivery_holder IS NULL AND delivery_expires_at IS NULL)
+            OR (delivery_holder IS NOT NULL AND delivery_expires_at IS NOT NULL)),
+        CHECK ((ack_state = 'UNACKNOWLEDGED' AND acknowledged_by IS NULL
+                AND acknowledged_at IS NULL AND acknowledgement IS NULL)
+            OR (ack_state = 'ACKNOWLEDGED' AND acknowledged_by IS NOT NULL
+                AND acknowledged_at IS NOT NULL AND acknowledgement IS NOT NULL)))""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_alert_outbox_due
+        ON sentinel_alert_outbox (state,next_attempt_at)""",
+    """CREATE TABLE IF NOT EXISTS sentinel_alert_delivery_events (
+        seq                  BIGSERIAL PRIMARY KEY,
+        alert_id             TEXT        NOT NULL REFERENCES sentinel_alert_outbox(alert_id),
+        attempt              INT         NOT NULL CHECK (attempt >= 1),
+        action               TEXT        NOT NULL CHECK (action IN (
+            'CLAIMED','DELIVERED','RETRY_SCHEDULED','DEAD_LETTERED')),
+        holder_id            TEXT        NOT NULL,
+        error                TEXT,
+        at                   TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_alert_delivery_events
+        ON sentinel_alert_delivery_events (alert_id,seq)""",
+
+    """CREATE TABLE IF NOT EXISTS sentinel_automation_service_instances (
+        instance_id          TEXT PRIMARY KEY,
+        started_at           TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        heartbeat_at         TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        state                TEXT        NOT NULL,
+        next_wake_at         TIMESTAMPTZ,
+        last_error           TEXT,
+        authority_verdict    TEXT CHECK (
+            authority_verdict IS NULL OR authority_verdict IN ('PASS','FAIL')),
+        authority_detail     TEXT,
+        authority_checked_at TIMESTAMPTZ,
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())""",
+    """ALTER TABLE sentinel_automation_service_instances
+        ADD COLUMN IF NOT EXISTS authority_verdict TEXT CHECK (
+            authority_verdict IS NULL OR authority_verdict IN ('PASS','FAIL'))""",
+    """ALTER TABLE sentinel_automation_service_instances
+        ADD COLUMN IF NOT EXISTS authority_detail TEXT""",
+    """ALTER TABLE sentinel_automation_service_instances
+        ADD COLUMN IF NOT EXISTS authority_checked_at TIMESTAMPTZ""",
 )
 
 
@@ -408,10 +733,18 @@ def ensure_schema(conn) -> None:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT pg_advisory_xact_lock(%s,%s)", _SCHEMA_LOCK)
-        cur.execute("SELECT to_regclass('sentinel_rollout_state')")
-        rollout_table_existed = cur.fetchone()[0] is not None
+        cur.execute(
+            "SELECT to_regclass('sentinel_rollout_state'),"
+            " to_regclass('sentinel_automation_control'),"
+            " to_regclass('sentinel_automation_lease')")
+        (rollout_table, automation_control_table,
+         automation_lease_table) = cur.fetchone()
         for statement in DDL:
             cur.execute(statement)
-        if not rollout_table_existed:
+        if rollout_table is None:
             cur.execute(_INITIAL_ROLLOUT_STATE)
+        if automation_control_table is None:
+            cur.execute(_INITIAL_AUTOMATION_CONTROL)
+        if automation_lease_table is None:
+            cur.execute(_INITIAL_AUTOMATION_LEASE)
     conn.commit()

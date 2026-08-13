@@ -165,7 +165,7 @@ def bind(conn, *, deployment_id: str, broker: str, broker_account_id: str,
 
 
 def adopt_restored(conn, *, observed, expected_account: str,
-                   notes: str = "") -> AccountBinding:
+                   notes: str = "", authority_check=None) -> AccountBinding:
     """Increment the takeover epoch for a restored appliance.
 
     Deliberately does NOT verify that the previous appliance is stopped, because
@@ -194,6 +194,11 @@ def adopt_restored(conn, *, observed, expected_account: str,
                 f"replacement credentials do not identify bound account "
                 f"{current.broker}/{current.broker_account_id}; takeover epoch "
                 f"{current.takeover_epoch} remains unchanged")
+        if authority_check is not None:
+            # Certificate expiry/revocation can occur while the broker account
+            # read is in flight.  Revalidate inside the writer lock immediately
+            # before advancing the durable command-identity namespace.
+            authority_check()
         next_epoch = current.takeover_epoch + 1
         from sentinel.ownership import OwnershipState
         from sentinel.store import PostgresOwnershipStore, record

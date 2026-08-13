@@ -142,19 +142,25 @@ reconciliation checks, then delegates to the existing executor. Reductions run
 before increases; increases wait for filled reductions and a fresh complete,
 clean re-observation and re-sizing pass.
 
-The gateway is deliberately unreachable in this revision. The repository has
-no reviewed certificate issuer/signature trust root, so installation refuses
-and runtime authority rejects even pre-existing unsigned certificate rows. This
-is independent of the remaining strict xfails and Wealth Core `NO-GO`, which
-also remain unresolved.
+The gateway remains deliberately unreachable in the committed configuration.
+The later Stage 4 work implements offline signed issuance and runtime signature
+verification, but the committed public root is `DISABLED` and the evidence
+producer remains blocked by the strict xfails and Wealth Core `NO-GO`.
+Installation/runtime authority therefore refuse real activation as well as
+pre-existing unsigned certificate rows.
 
 ## Operational boundary after Stage 2
 
 This is an implemented, reviewable activation path; it is **not an activated
 deployment**. Alpaca paper remains the only permitted endpoint. The certified
 adapter submits operator-timed DAY market orders, not market-on-open orders.
-There is no scheduler or long-running engine service: preparation and execution
-remain separately invoked operator actions, and ordinary Compose startup cannot
-perform either one. No legacy migration or paper-order submission is authorized
-by this implementation record. The sole operator sequence and checkpoints are
-in `docs/sentinel-paper-activation.md`.
+That Stage 2 boundary remains true for the ordinary/manual Compose surface:
+preparation and execution are separately invoked operator actions, and ordinary
+Compose startup cannot perform either one. Stage 4 subsequently adds a separate
+profile-gated long-running service, durable scheduler, leader lease, kill
+switch, cycle journal, signed authority membrane, and alert outbox. It is seeded
+disabled and killed, uses an immutable-image overlay, and cannot gain broker
+authority from installation or startup. No legacy migration or paper-order
+submission is authorized by this implementation record. The operator sequence
+and checkpoints remain in `docs/sentinel-paper-activation.md`; the automation
+contract is in `docs/sentinel-stage-4-automation.md`.
