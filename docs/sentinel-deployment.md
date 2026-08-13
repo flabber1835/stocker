@@ -328,6 +328,102 @@ snapshot/replay contract — never inferred from price rows. Inferring them woul
 produce a fresh, looser peak on every restart: a risk control failing silently
 toward less protection.
 
+### 8a. Production snapshots persist a bounded restart image, not feed history
+
+`SessionState` is the authoritative one-session production envelope. Its feed
+member exists only to continue the next deterministic calculation; it is not a
+second copy of the versioned Sharadar corpus and must not grow as sessions pass.
+
+The production snapshot schema therefore persists an explicitly bounded feed
+restart image:
+
+```text
+global session index            absolute and monotonic across restarts
+recent session/index map        current plus exactly 126 prior market sessions
+active per-security anchor      security id, current ticker, current issuer id,
+                                cumulative split factor, retained only while
+                                rolling or path-dependent state needs it
+per-security rolling evidence   observations whose GLOBAL index is inside that
+                                same 127-session window: session, index, signal
+                                close, raw close and volume
+```
+
+The 127-session bound is derived rather than tuned. Wealth Core needs closes
+from `t-126` through `t` inclusive for eligibility, momentum and formation
+volatility. That window strictly contains the 20-session ADV input and
+Sentinel's 21/63-session holding breadth inputs. Controller NAV, breadth and
+completed-stop histories remain in their already-bounded top-level fields; SPY
+inputs remain published session inputs. No production calculation reads an
+older feed observation.
+
+Expiration is by **global market-session index**, not by a security's row count.
+At a boundary, the observation at `t-126` remains and `t-127` is discarded.
+Anchor ownership follows the same bounded-restart rule: keep an anchor when its
+series still has a retained observation, or when the security is named by
+authoritative path-dependent state. The latter includes a filled episode, a
+reserved slot or pending order, a security cooldown, and every unresolved or
+pending terminal/mark-carry record. `last_known` is a raw-mark cache, not a
+second market-data history, and is retained only for that path-dependent set.
+This keeps dormant universe members out of both maps without pruning a security
+whose next transition can still depend on its identity, split basis or stale
+mark.
+
+An evicted security may later print again. The production loader must then
+reconstruct the missing anchor from the **pinned corpus before** handing the
+session to Wealth Core: multiply every earlier published `split_ratio` for that
+permanent security id in session order, and resolve the issuer from the pinned
+security metadata. The query also proves whether any earlier published
+observation exists, so a genuine first observation may begin at factor `1.0`.
+If an earlier observation exists but either the split basis or issuer identity
+cannot be reconstructed, production fails closed. It must never take the
+canonical feed's new-series defaults for a returning security, because doing so
+would silently rebase its signal series or replace its issuer identity. A
+retained path-dependent anchor remains authoritative until that state clears;
+corpus reconstruction is only the re-entry path for an anchor already evicted.
+
+The persistence wrapper must canonicalise the prior envelope **before** asking
+the loader which current securities need corpus anchors. This sequencing is
+part of the restart contract, not an optimisation: a v2 or early-v3 envelope
+can still name a dormant series that migration will evict. Letting that raw name
+suppress corpus reconstruction and only then pruning it creates a first-upgrade
+restart failure exactly when the security returns. The loader's known-security
+set therefore comes only from the migrated, bounded feed image, and that same
+canonical envelope is the input to the session transition.
+
+Every persisted series that survives canonicalisation has a complete anchor.
+`security_id`, ticker, issuer id and cumulative split factor are required stored
+fields; the id must match the series-map key, labels must be non-empty, and the
+factor must be finite and positive. Loading never manufactures `S:<id>` or
+`1.0` for a retained rolling or path-dependent series. An incomplete legacy or
+current envelope fails closed because guessing either value can change issuer
+exclusivity or silently rebase every subsequent signal close.
+
+The boundedness contract applies to the feed restart image, `last_known`, and
+the other explicitly rolling caches. The top-level Wealth Core ledger is an
+immutable event history and intentionally grows when economic events occur.
+Therefore a quiescent or cache-only workload reaches a byte plateau after
+warm-up, while an envelope that continues posting ledger events grows only by
+those intentional events; the contract is not that every possible envelope is
+byte-constant.
+
+The evidence record is diagnostic, not authoritative state. `last_evidence`
+stores the observation, breadth inputs and a whitelisted plan summary, but never
+the plan's `state_after` or `pending_after` copies. Wealth Core state and pending
+orders exist exactly once, in the envelope's top-level `wealth_core` and
+`pending` fields.
+
+Snapshot schema v3 introduces this representation. A v2 envelope is migrated on
+load by deterministic pruning because it contains the same feed fields plus
+older observations and dormant anchors/marks; its embedded plan copies are
+removed at the same boundary. Early v3 envelopes are canonicalised by the same
+retention pass, so deploying the cardinality bound requires no parallel state or
+one-off rewrite. Complete anchors are a migration precondition rather than a
+field-defaulting opportunity. The migration changes storage shape only and must
+prove continuation parity against an uninterrupted run, including the case
+where a just-evicted security returns on the first upgraded session. V1 remains
+explicitly refused because it lacks lifetime shadow-peak and completed-stop
+event memory and cannot be repaired from a short history window.
+
 ## 9. Price-domain validation must be Wealth-Core-specific
 
 Do not assume live's Alpha-Vantage-adjusted `daily_prices` is equivalent to the
