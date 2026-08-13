@@ -1,4 +1,4 @@
-# Sentinel production path — Stage 1 implementation record
+# Sentinel production path — Stage 1 and Stage 2 implementation record
 
 ## Reuse decision
 
@@ -6,8 +6,7 @@ Stage 1 reuses the canonical `PortfolioState`, `PendingOrder`, `Ledger`, `Feed`,
 `SecuritySeries`, `SecurityMeta`, `VendorBar`, `TerminalTerms`, and
 `wealth_core.live.plan_session` types. The resulting envelope is stored through
 the existing `sentinel_processed_sessions.state` JSONB column by the existing
-`catch_up` transaction. Execution plans and command journals remain untouched
-until Stage 2.
+`catch_up` transaction.
 
 The envelope adds no parallel portfolio model. Its `wealth_core`, `pending`,
 `ledger`, and `feed` members are the existing types' restart representations.
@@ -15,10 +14,24 @@ It adds only composition-owned history: controller state, shadow NAVs, damaged
 breadth history, publication version, strategy/config hashes, the last decision,
 and its evidence.
 
+Stage 2 keeps that same version-3 `SessionState` as the only behavioral state.
+It connects the latest canonical shadow/controller decision to the existing
+`ExecutionPlan`, journal, reconciliation, and executor components. Broker
+observations remain execution evidence only; they do not feed Wealth Core or
+the controller.
+
 ## Changed production surfaces
 
 * `sentinel/core/production.py` — versioned envelope, published-session loader,
   holdings adapter, one-session composition, and catch-up callback.
+* `sentinel/core/decision.py` — production shadow-to-share adapter, including
+  committed pending entries/exits, controller exposure, BIL/cash treatment,
+  unavailable-price preservation, and immutable plan identity.
+* `sentinel/paper.py` — paper-only preparation, durable current-plan
+  inspection, and the separately confirmed execution gateway.
+* `sentinel/__main__.py` — explicit preparation, current-plan inspection, and
+  paper-execution commands. Exact operator invocations live only in
+  `docs/sentinel-paper-activation.md`.
 * `sentinel/controller/machine.py` — the production `step` that derives the
   parent severe state from observations instead of consuming an oracle parent
   allocation.
@@ -96,16 +109,44 @@ The envelope carries a deliberate schema version and the identity of the
 strategy, frozen controller rule, and canonical Wealth Core source.  Before any
 state is advanced, all three persisted identities must exactly match the
 running code/configuration.  A mismatch is refused; it is never treated as a
-fresh start.  Envelope version 2 introduces the lifetime peak and durable stop
-history.  Version 1 is explicitly refused because neither value can be safely
-inferred: rebuilding a peak from its truncated 64-session history would loosen
-risk, and reconstructing departed stop episodes from the current book is
-impossible.
+fresh start. Envelope version 2 introduced the lifetime peak and durable stop
+history. Version 3 bounds restart feed/evidence history while retaining every
+path-dependent security anchor; version 2 migrates deterministically to that
+shape on load. Version 1 is explicitly refused because neither its missing peak
+nor departed stop episodes can be inferred safely.
 
-## Deliberate Stage 2 boundary
+## Stage 2 production handoff (implemented 2026-08-12)
 
-Stage 1 produces and atomically persists the latest shadow/controller decision.
-It creates no execution plan, submits no broker command, and adds no scheduler.
-Stage 2 must project the latest shadow basket by `target_core_exposure`, add the
-defensive sleeve, stamp the execution identities, and hand the result to the
-existing journal/executor under freshness and ownership gates.
+The production adapter now aggregates the canonical filled shadow episodes and
+committed pending entries/exits by permanent security id, applies the durable
+controller exposure, keeps Wealth Core cash distinct from the defensive sleeve,
+and projects the result to whole `Decimal` shares through the existing
+execution projection. Missing marks preserve still-wanted observed quantities;
+they never become an implicit liquidation. BIL is defensive-only, and an
+unpriceable BIL sleeve remains cash while any committed BIL quantity is
+preserved.
+
+Preparation loads or creates the canonical state, performs a 252-session
+feature warm-up on fresh boot, advances every missed XNYS session through
+`advance_and_persist`, and transactionally adopts exactly one latest plan.
+Historical sessions update state only; their plans are superseded. Preparation
+may read the paper broker for account and reconciliation evidence, but it has no
+broker submit, cancel, replace, or close operation.
+
+Current-plan inspection reads only PostgreSQL. The separate execution gateway
+reloads the durable current plan itself, repeats paper URL, certification,
+ownership, account, readiness, publication, frontier, state, session, and
+reconciliation checks, then delegates to the existing executor. Reductions run
+before increases; increases wait for filled reductions and a fresh complete,
+clean re-observation and re-sizing pass.
+
+## Operational boundary after Stage 2
+
+This is an implemented, reviewable activation path; it is **not an activated
+deployment**. Alpaca paper remains the only permitted endpoint. The certified
+adapter submits operator-timed DAY market orders, not market-on-open orders.
+There is no scheduler or long-running engine service: preparation and execution
+remain separately invoked operator actions, and ordinary Compose startup cannot
+perform either one. No legacy migration or paper-order submission is authorized
+by this implementation record. The sole operator sequence and checkpoints are
+in `docs/sentinel-paper-activation.md`.

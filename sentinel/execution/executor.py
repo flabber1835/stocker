@@ -43,10 +43,10 @@ from typing import Mapping, Optional, Sequence
 
 from sentinel.execution import commands as C
 from sentinel.execution import journal, reconcile as R, recovery
-from sentinel.execution.contract import Completeness, ExecutionBroker
+from sentinel.execution.contract import Completeness, ExecutionBroker, Side
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
 from sentinel.execution.plan import ExecutionPlan
-from sentinel.execution.states import CommandState, RuntimeState
+from sentinel.execution.states import CommandState, RuntimeState, TERMINAL
 
 log = logging.getLogger(__name__)
 
@@ -92,9 +92,7 @@ def adopt_plan(conn, plan: ExecutionPlan) -> ExecutionPlan:
     nothing, which is what a restart mid-session needs.
     """
     _assert_executable(plan)
-    journal.save_plan(conn, plan)
-    journal.supersede_all_but(conn, plan.plan_id)
-    return journal.load_plan(conn, plan.plan_id)
+    return journal.adopt_current_plan(conn, plan)
 
 
 def _assert_current_plan(conn, plan: ExecutionPlan) -> None:
@@ -217,6 +215,7 @@ async def execute_session(*, broker: ExecutionBroker, conn,
                           actions: Optional[R.ActionLookup] = None,
                           min_increment: Decimal = Decimal(1),
                           settle_cycles: int = DEFAULT_SETTLE_CYCLES,
+                          increase_authority=None,
                           ) -> SessionResult:
     """TWO PHASES: reduce, settle, re-observe, re-size, increase.
 
@@ -298,7 +297,8 @@ async def execute_session(*, broker: ExecutionBroker, conn,
         return await _execute_session_locked(
             broker=broker, conn=conn, deployment=deployment, plan=plan,
             instruments=instruments, today=today, actions=actions,
-            min_increment=min_increment, settle_cycles=settle_cycles)
+            min_increment=min_increment, settle_cycles=settle_cycles,
+            increase_authority=increase_authority)
 
 
 async def _execute_session_locked(*, broker: ExecutionBroker, conn,
@@ -309,6 +309,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                                   actions: Optional[R.ActionLookup],
                                   min_increment: Decimal,
                                   settle_cycles: int = DEFAULT_SETTLE_CYCLES,
+                                  increase_authority=None,
                                   ) -> SessionResult:
     desired = plan.target_basket
 
@@ -326,6 +327,31 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     assert observation is not None                            # pragma: no cover
     runtime = rec.runtime_state
     open_commands = journal.in_flight_commands(conn, deployment)
+
+    # A reduction barrier survives the process that created it.  On restart a
+    # working SELL is already included in ``committed`` and can make the newly
+    # computed delta exactly zero.  That does not make its proceeds exist, and
+    # it must not let a different-security BUY step around the sale merely
+    # because this invocation did not submit it.
+    observed_working_sells = {
+        order.client_key: order
+        for order in observation.orders
+        if order.side is Side.SELL and order.is_working
+        and order.client_key
+    }
+    outstanding_reductions = {
+        command.client_key: command
+        for command in open_commands
+        if command.side is Side.SELL
+    }
+    # A broker-side Sentinel sale absent from a stale local journal is adopted
+    # by reconciliation above.  Keeping the observation in the union is a
+    # fail-closed backstop for an adoption conflict: the sale is still real and
+    # still blocks every increase even when its row could not be installed.
+    outstanding_reduction_keys = set(outstanding_reductions) \
+        | set(observed_working_sells)
+    unresolved_reduction_keys = sorted(
+        set(observed_working_sells) - set(outstanding_reductions))
 
     # 2. SIZE EVERYTHING against one observation, before acting on any of it.
     #    Sizing incrementally as we go would measure each delta against a book
@@ -370,13 +396,11 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         """Authorize and send, against the observation `candidates` were sized
         from. Returns the commands now outstanding."""
         for delta in await authorized(candidates, obs, commands):
-            command = C.build(
-                delta=delta,
-                identity=CommandIdentity(deployment=deployment,
-                                         plan_id=plan.plan_id,
-                                         security_id=delta.security_id),
-                instrument=instruments[delta.security_id])
-            sent = await _persist_and_send(conn, broker, command)
+            command, already_planned = _command_for_delta(
+                conn=conn, deployment=deployment, plan_id=plan.plan_id,
+                delta=delta, instrument=instruments[delta.security_id])
+            sent = await _persist_and_send(
+                conn, broker, command, already_planned=already_planned)
             submitted.append(sent)
             commands = commands + (sent,)
         return commands
@@ -389,7 +413,25 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     increases = [d for d in ordered
                  if d.is_increase and d.classification is not C.DeltaClass.NONE]
 
+    # Missing-price preservation is a one-way authority. The preparation read
+    # may carry a held/working quantity unchanged, but a later cancellation or
+    # partial fill must not turn that carried quantity into a newly-sized BUY:
+    # there is still no mark. Reductions remain possible and exact in shares.
+    unpriced_increases = [
+        d for d in increases if d.security_id in plan.unpriced_securities]
+    for delta in unpriced_increases:
+        refused[delta.security_id] = (
+            "UnpricedIncreaseRefused: no current trustworthy mark exists; "
+            "held/committed quantity may be preserved or reduced, never "
+            "increased")
+    increases = [
+        d for d in increases if d.security_id not in plan.unpriced_securities]
+
+    submitted_before_reductions = len(submitted)
     open_commands = await submit_all(reductions, observation, open_commands)
+    reduction_commands = tuple(submitted[submitted_before_reductions:])
+    outstanding_reduction_keys.update(
+        command.client_key for command in reduction_commands)
 
     # PRE-FLIGHT the increases against the pre-trade read, before spending a
     # settle on them. An increase blocked by FOREIGN_ACTIVITY, a binding
@@ -415,34 +457,85 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     #    with no reductions there are no proceeds to wait for, and with no
     #    increases there is nothing the second read would inform.
     settle_note = ""
-    if increases and submitted:
-        settled, observation = await _settle_reductions(
-            broker, [c.client_key for c in submitted], settle_cycles)
-        if not settled:
+    if increases and (reductions or outstanding_reduction_keys):
+        submitted_reductions = {c.security_id for c in reduction_commands}
+        missing_reductions = sorted(
+            d.security_id for d in reductions
+            if d.security_id not in submitted_reductions)
+        if unresolved_reduction_keys:
             deferred.extend(d.security_id for d in increases)
             increases = []
             settle_note = (
-                f"{len(deferred)} increase(s) DEFERRED — the reductions did not "
-                f"settle within {settle_cycles} cycles, so their proceeds do "
-                f"not exist. Buying against them would be buying on margin, "
-                f"which the long-only unlevered envelope excludes and which the "
-                f"broker will provide without being asked.")
+                f"{len(deferred)} increase(s) DEFERRED — working broker "
+                f"reduction(s) {unresolved_reduction_keys} could not be "
+                "attributed to durable commands. Reconciliation must adopt "
+                "every sale before its settlement can authorize a buy.")
+        elif missing_reductions:
+            deferred.extend(d.security_id for d in increases)
+            increases = []
+            settle_note = (
+                f"{len(deferred)} increase(s) DEFERRED — required "
+                f"reduction(s) {missing_reductions} were not submitted. Every "
+                f"required reduction must be observed FILLED in a fresh clean "
+                f"reconciliation before any increase may use its proceeds.")
         else:
-            # RE-SIZED against the fresh read. `desired` is unchanged — it comes
-            # from the plan and nowhere else — so only `held` and `committed`
-            # move, which is exactly the correction being made.
-            open_commands = journal.in_flight_commands(conn, deployment)
-            increases = [
-                C.compute_delta(security_id=d.security_id,
-                                desired=desired.get(d.security_id, Decimal(0)),
-                                observation=observation,
-                                min_increment=min_increment)
-                for d in increases]
-            # Only INCREASES may come out of the re-size. A reduction appearing
-            # here would be phase one's own fill read back as new work.
-            increases = [d for d in increases if d.is_increase]
+            settled, settled_rec, settle_reason = await _settle_reductions(
+                broker=broker, conn=conn, deployment=deployment,
+                plan_id=plan.plan_id,
+                client_keys=sorted(outstanding_reduction_keys),
+                cycles=settle_cycles, actions=actions)
+            if settled_rec is not None:
+                rec = settled_rec
+                runtime = rec.runtime_state
+                if rec.observation is not None:
+                    observation = rec.observation
+            if not settled:
+                deferred.extend(d.security_id for d in increases)
+                increases = []
+                settle_note = (
+                    f"{len(deferred)} increase(s) DEFERRED — the reductions "
+                    f"did not settle safely within {settle_cycles} cycles "
+                    f"({settle_reason}). Their proceeds do not exist unless a "
+                    f"fresh COMPLETE, RUNNING, clean reconciliation observes "
+                    f"every required reduction FILLED. Buying without that "
+                    f"proof would be buying on margin, which the long-only "
+                    f"unlevered envelope excludes and which the broker will "
+                    f"provide without being asked.")
+            else:
+                # RE-SIZED against the fresh reconciled read. `desired` is
+                # unchanged — it comes from the plan and nowhere else — so only
+                # `held` and `committed` move. Reconciliation, rather than a
+                # bare observation, is load-bearing here: it re-verifies the
+                # account and reclassifies foreign activity / UNKNOWN outcomes
+                # that may have appeared while the reductions were working.
+                assert rec.observation is not None            # pragma: no cover
+                observation = rec.observation
+                open_commands = journal.in_flight_commands(conn, deployment)
+                increases = [
+                    C.compute_delta(security_id=d.security_id,
+                                    desired=desired.get(d.security_id, Decimal(0)),
+                                    observation=observation,
+                                    min_increment=min_increment)
+                    for d in increases]
+                # Only INCREASES may come out of the re-size. A reduction
+                # appearing here would be phase one's own fill read back as new
+                # work.
+                increases = [d for d in increases if d.is_increase]
 
     # 5. PHASE TWO — INCREASES, against whichever observation is now current.
+    # The strict paper gateway supplies its account-cash authority here, at the
+    # last read-only boundary before any increase. It runs for pure buys too;
+    # cash can change after preflight even when there was no sale to settle.
+    if increases and increase_authority is not None:
+        try:
+            await increase_authority(observation)
+        except Exception as exc:                              # noqa: BLE001
+            deferred.extend(d.security_id for d in increases)
+            increases = []
+            settle_note = (
+                f"{len(deferred)} increase(s) DEFERRED — fresh increase "
+                f"authority failed ({type(exc).__name__}: {exc})")
+
     if increases:
         await submit_all(increases, observation, open_commands)
 
@@ -455,41 +548,143 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                          deferred=tuple(deferred), detail=detail)
 
 
-async def _settle_reductions(broker: ExecutionBroker, client_keys,
-                             cycles: int) -> tuple:
-    """Poll until the reductions stop being outstanding. Returns (settled, obs).
+async def _settle_reductions(*, broker: ExecutionBroker, conn,
+                             deployment: DeploymentIdentity, plan_id: str,
+                             client_keys, cycles: int,
+                             actions: Optional[R.ActionLookup]) -> tuple:
+    """Prove every reduction FILLED through a fresh clean reconciliation.
 
-    SETTLED means none of `client_keys` is still WORKING at the broker, and the
-    read that established it was COMPLETE. Both halves matter: an incomplete
-    read cannot prove an order is finished, and "the order is finished" is the
-    entire basis for believing the proceeds exist.
+    "Not working" is not settlement. A rejected, cancelled, never-landed or
+    partially-filled sale is also not working (or may be absent), and none of
+    those outcomes produced all of the proceeds the following buys assume.
 
-    `is_working`, not presence in the list. The order list deliberately includes
-    recent TERMINAL orders — without them a completed fill would vanish from the
-    observation and leave its command stuck at ACKNOWLEDGED — so a membership
-    test would find every sale still outstanding forever and defer every
-    increase this executor ever wanted to make.
+    Reconciliation is repeated rather than calling ``broker.observe`` directly
+    because the world can change while reductions rest. Each pass re-verifies
+    the account binding, resolves UNKNOWN/SEND_PENDING commands, synchronises
+    partial fills, and reclassifies foreign activity. Phase two is authorised
+    only by a COMPLETE observation whose reconciliation is RUNNING and clean,
+    with every named command durably FILLED for its full quantity.
 
-    Bounded rather than open-ended. A sale still working after `cycles` reads is
-    a sale whose proceeds are not arriving in this session, and waiting longer
-    turns a deferral — which is safe and visible — into a hang, which is
-    neither. No sleeping: the poll is a re-read, and how fast the caller's
-    broker answers is the caller's business.
+    Bounded rather than open-ended. A sale not proven filled after ``cycles``
+    reads is a sale whose proceeds are not available to this session; deferring
+    the increases is safe and visible, while waiting forever is neither.
     """
-    outstanding = set(client_keys)
-    observation = None
+    required = set(client_keys)
+    latest = None
+    reason = "no reconciliation completed"
     for _ in range(max(1, cycles)):
-        observation = await broker.observe()
-        if observation.completeness is not Completeness.COMPLETE:
+        latest = await R.reconcile(
+            broker=broker, conn=conn, binding=None,
+            deployment=deployment, actions=actions)
+        observation = latest.observation
+        if latest.runtime_state is not RuntimeState.RUNNING:
+            reason = (f"reconciliation is {latest.runtime_state.value}: "
+                      f"{latest.detail}")
             continue
-        working = {o.client_key for o in observation.orders
-                   if o.client_key and o.is_working}
-        if not (outstanding & working):
-            return True, observation
-    return False, observation
+        if (observation is None
+                or observation.completeness is not Completeness.COMPLETE):
+            completeness = (observation.completeness.value
+                            if observation is not None else "ABSENT")
+            reason = f"reconciliation observation is {completeness}"
+            continue
+        if not latest.clean:
+            reason = f"reconciliation is not clean: {latest.detail}"
+            continue
+
+        commands = {
+            command.client_key: command
+            for command in journal.load_commands(conn, deployment)
+            if command.client_key in required
+        }
+        missing = sorted(required - set(commands))
+        if missing:
+            reason = f"reduction command(s) absent from the journal: {missing}"
+            continue
+        not_filled = sorted(
+            f"{key}={command.state.value} "
+            f"({command.filled_quantity}/{command.quantity})"
+            for key, command in commands.items()
+            if (command.state is not CommandState.FILLED
+                or command.filled_quantity != command.quantity)
+        )
+        if not_filled:
+            reason = "reduction command(s) not FILLED: " + ", ".join(not_filled)
+            continue
+        return True, latest, "all required reductions reconciled FILLED"
+    return False, latest, reason
 
 
-async def _persist_and_send(conn, broker, command: C.Command) -> C.Command:
+def _same_command_economics(left: C.Command, right: C.Command) -> bool:
+    """Whether one durable PLANNED row is exactly the command being rebuilt."""
+    return (
+        left.security_id == right.security_id
+        and left.instrument.symbol == right.instrument.symbol
+        and left.instrument.broker_id == right.instrument.broker_id
+        and left.side is right.side
+        and left.quantity == right.quantity
+        and left.filled_quantity == right.filled_quantity == Decimal(0)
+        and left.broker_order_id is None
+    )
+
+
+def _command_for_delta(*, conn, deployment: DeploymentIdentity, plan_id: str,
+                       delta: C.Delta, instrument) -> tuple[C.Command, bool]:
+    """Build a command without ever re-opening a durable terminal identity.
+
+    Revision zero is deterministic for the first command. A crash may leave its
+    PLANNED row durable before the SEND_PENDING transition; only an exact rebuild
+    may resume that row and key. Once any revision reached the broker or became
+    terminal, fresh remaining work is a new side effect and therefore receives
+    ``max(revision) + 1``. Reusing revision zero there would make
+    ``save_command(PLANNED)`` overwrite CANCELLED/REJECTED/FILLED history and
+    silently resurrect a promise the broker already settled.
+
+    A non-identical PLANNED row is safe to supersede because it was never sent.
+    Its replacement still receives a new revision so both durable promises stay
+    auditable and a restart can reproduce the same choice.
+    """
+    previous = [
+        command for command in journal.load_commands(
+            conn, deployment, plan_id=plan_id)
+        if command.security_id == delta.security_id
+    ]
+    revision = 0
+    if previous:
+        latest = max(previous, key=lambda command: command.identity.revision)
+        revision = latest.identity.revision
+    identity = CommandIdentity(
+        deployment=deployment, plan_id=plan_id,
+        security_id=delta.security_id, revision=revision)
+    candidate = C.build(
+        delta=delta, identity=identity, instrument=instrument)
+
+    if not previous:
+        return candidate, False
+    if (latest.state is CommandState.PLANNED
+            and _same_command_economics(latest, candidate)):
+        return candidate, True
+    if latest.state is CommandState.PLANNED:
+        superseded = latest.transition(
+            CommandState.SUPERSEDED,
+            detail="superseded before send by newly observed exact delta")
+        journal.save_command(
+            conn, superseded, previous=CommandState.PLANNED)
+    elif latest.state not in TERMINAL:
+        # `authorize` must have caught this same-security in-flight command.
+        # Refuse loudly if a future caller bypasses that ordering rather than
+        # minting a second live promise beside it.
+        raise C.CommandRefused(
+            f"{delta.security_id}: revision {revision} is "
+            f"{latest.state.value}; a new revision requires terminal history")
+
+    identity = CommandIdentity(
+        deployment=deployment, plan_id=plan_id,
+        security_id=delta.security_id, revision=revision + 1)
+    return C.build(delta=delta, identity=identity, instrument=instrument), False
+
+
+async def _persist_and_send(conn, broker, command: C.Command, *,
+                            already_planned: bool = False) -> C.Command:
     """The three writes, in the order that makes a crash survivable.
 
     ```text
@@ -504,7 +699,8 @@ async def _persist_and_send(conn, broker, command: C.Command) -> C.Command:
     reconciliation to ask the broker what happened. That is the whole design,
     and it only works if the writes stay in this order.
     """
-    journal.save_command(conn, command)
+    if not already_planned:
+        journal.save_command(conn, command)
 
     pending = recovery.prepare_send(command)
     journal.save_command(conn, pending, previous=command.state)

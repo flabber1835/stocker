@@ -8,12 +8,14 @@ correctly.
 
 ## Three things this does that the Stocker adapter does not
 
-**It paginates, and admits when it did not finish.** `AlpacaBrokerAdapter.
-list_orders` issues one GET with `limit=500, direction=desc` and no pagination,
-so a busy account silently loses its OLDEST orders — exactly the stale resting
-ones that matter. Here the read pages backwards through `until` and reports
-`TRUNCATED` if it hits the page cap, so a caller can tell the difference between
-"there were no more" and "we stopped looking".
+**It paginates, and admits when it did not finish.** The complete open-order set
+pages backwards through Alpaca's stable `before_order_id` cursor and reports
+`TRUNCATED` at the declared cap. A separate bounded closed-order traversal
+recovers the interval since the durable processed watermark (plus overlap),
+also by `before_order_id`; it never mixes timestamp filters with that cursor.
+An inherited account's unbounded archive is not an open-order completeness
+dependency. Exact durable-key lookup supplies additional positive evidence for
+known commands that disappear from the open set.
 
 **It re-reads the orders after the positions.** No broker offers an atomic
 snapshot. Orders-first stops a mid-read fill making an object vanish; the third
@@ -39,10 +41,11 @@ import logging
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Optional, Sequence
+from urllib.parse import quote
 
 from sentinel.execution.contract import (
-    BrokerAccountIdentity, BrokerCapabilities, BrokerFill, BrokerInstrument,
-    BrokerObservation, BrokerOrder, BrokerPosition, CommandOutcome,
+    BrokerAccountIdentity, BrokerAccountSnapshot, BrokerCapabilities, BrokerFill,
+    BrokerInstrument, BrokerObservation, BrokerOrder, BrokerPosition, CommandOutcome,
     Completeness, ExecutionBroker, Side)
 from sentinel.execution.states import CommandState as S
 
@@ -204,6 +207,15 @@ def _required_dec(value, *, where: str, allow_negative: bool = False) -> Decimal
     return out
 
 
+def _required_bool(payload: dict, key: str, *, where: str) -> bool:
+    """Read an availability flag without treating malformed silence as False."""
+    value = payload.get(key)
+    if type(value) is not bool:  # bool is exact here; JSON 0/1 are malformed.
+        raise MalformedBrokerPayload(
+            f"{where}: {key} must be an explicit boolean, got {value!r}")
+    return value
+
+
 def _dec(value, default: Optional[Decimal] = None) -> Optional[Decimal]:
     """Decimal from the WIRE STRING, never via float.
 
@@ -235,6 +247,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
 
     def __init__(self, *, api_key: str, secret_key: str, base_url: str,
                  resolve_security_id=None, to_broker_symbol=None,
+                 from_broker_symbol=None,
                  http_provider=None) -> None:
         # THE PAPER GATE, AT THE CONSTRUCTOR. `sentinel/config.py` refuses a
         # non-paper `ALPACA_BASE_URL`, but that check guards the CONFIG path —
@@ -262,7 +275,8 @@ class AlpacaExecutionBroker(ExecutionBroker):
         # must not invent one, because a guess here silently retargets an order.
         self._resolve = resolve_security_id or (lambda symbol: symbol)
         self._to_symbol = to_broker_symbol or (lambda s: s.replace("-", "."))
-
+        self._from_symbol = (from_broker_symbol
+                             or (lambda s: s.replace(".", "-")))
     # -- transport ----------------------------------------------------------
     @property
     def _httpx(self):
@@ -285,63 +299,270 @@ class AlpacaExecutionBroker(ExecutionBroker):
     # -- identity -----------------------------------------------------------
     async def identify_account(self) -> BrokerAccountIdentity:
         payload = await self._get("/v2/account")
-        return BrokerAccountIdentity(
+        return self._account_identity(payload)
+
+    async def account_snapshot(self) -> BrokerAccountSnapshot:
+        payload = await self._get("/v2/account")
+        identity = self._account_identity(payload)
+        return BrokerAccountSnapshot(
+            identity=identity,
+            equity=_required_dec(payload.get("equity"), where="account equity"),
+            cash=_required_dec(payload.get("cash"), where="account cash",
+                               allow_negative=True),
+            buying_power=_required_dec(
+                payload.get("buying_power"), where="account buying power",
+                allow_negative=True),
+            multiplier=_required_dec(
+                payload.get("multiplier"), where="account multiplier"),
+            status=str(payload.get("status") or ""),
+            trading_blocked=_required_bool(
+                payload, "trading_blocked", where="account"),
+            account_blocked=_required_bool(
+                payload, "account_blocked", where="account"),
+            trade_suspended_by_user=_required_bool(
+                payload, "trade_suspended_by_user", where="account"))
+
+    @staticmethod
+    def _account_identity(payload: dict) -> BrokerAccountIdentity:
+        if not isinstance(payload, dict):
+            raise MalformedBrokerPayload(
+                "account payload must be an object")
+        identity = BrokerAccountIdentity(
             broker="alpaca",
             account_id=str(payload.get("account_number") or payload.get("id") or ""),
             raw=payload)
+        if not identity.account_id:
+            raise MalformedBrokerPayload(
+                "account payload has no account_number or id")
+        return identity
+
+    async def resolve_instrument(self, *, security_id: str,
+                                 symbol: str) -> BrokerInstrument:
+        """Resolve and verify Alpaca's stable asset identity before submit."""
+        broker_symbol = self._to_symbol(symbol)
+        payload = await self._get(f"/v2/assets/{quote(broker_symbol, safe='')}")
+        if not isinstance(payload, dict):
+            raise MalformedBrokerPayload(
+                f"asset lookup for {symbol!r} must return an object")
+        returned_symbol = str(payload.get("symbol") or "")
+        asset_id = str(payload.get("id") or "")
+        if not returned_symbol or not asset_id:
+            raise MalformedBrokerPayload(
+                f"asset lookup for {symbol!r} omitted symbol or stable asset id")
+        if str(payload.get("status") or "").lower() != "active":
+            raise MalformedBrokerPayload(
+                f"asset {returned_symbol!r} is not active")
+        if payload.get("tradable") is not True:
+            raise MalformedBrokerPayload(
+                f"asset {returned_symbol!r} is not tradable")
+        instrument = self._instrument(returned_symbol, asset_id)
+        if instrument.security_id != str(security_id):
+            raise MalformedBrokerPayload(
+                f"asset {returned_symbol!r}/{asset_id} resolves to permanent "
+                f"security {instrument.security_id!r}, not requested "
+                f"{security_id!r}")
+        return instrument
 
     # -- observation --------------------------------------------------------
     async def observe(self) -> BrokerObservation:
         """Orders, positions, orders again. See the contract §5.3."""
-        orders, complete_a = await self._list_orders()
+        return await self._observe_snapshot()
+
+    async def observe_with_terminal_recovery(
+            self, *, submitted_after: datetime,
+            processed_through: datetime) -> BrokerObservation:
+        """Observe open truth plus a bounded, replayable closed interval."""
+        floor = _required_aware_ts(
+            submitted_after, where="terminal recovery floor")
+        checkpoint = _required_aware_ts(
+            processed_through, where="processed terminal watermark")
+        recovery_through = datetime.now(timezone.utc)
+        if recovery_through < checkpoint:
+            raise MalformedBrokerPayload(
+                "terminal recovery clock is behind the durable processed "
+                f"watermark ({recovery_through.isoformat()} < "
+                f"{checkpoint.isoformat()}); refusing to skip broker history")
+        return await self._observe_snapshot(
+            terminal_floor=floor, recovery_through=recovery_through)
+
+    async def _observe_snapshot(
+            self, *, terminal_floor: Optional[datetime] = None,
+            recovery_through: Optional[datetime] = None) -> BrokerObservation:
+        opened, complete_open_a = await self._list_open_orders()
+        terminal_a: list = []
+        complete_terminal_a = True
+        if terminal_floor is not None:
+            terminal_a, complete_terminal_a = await self._list_closed_orders(
+                floor=terminal_floor, through=recovery_through)
+        orders, merged_a = _merge_order_sets(opened, terminal_a)
+
         positions = await self._list_positions()
-        recheck, complete_b = await self._list_orders()
+
+        reopened, complete_open_b = await self._list_open_orders()
+        terminal_b: list = []
+        complete_terminal_b = True
+        if terminal_floor is not None:
+            terminal_b, complete_terminal_b = await self._list_closed_orders(
+                floor=terminal_floor, through=recovery_through)
+        recheck, merged_b = _merge_order_sets(reopened, terminal_b)
 
         completeness = Completeness.COMPLETE
-        if not (complete_a and complete_b):
+        if not (complete_open_a and complete_open_b
+                and complete_terminal_a and complete_terminal_b):
             completeness = Completeness.TRUNCATED
-        elif _fingerprint(recheck) != _fingerprint(orders):
-            # The two halves describe different instants. Netting a working
-            # order against the position it has just become would produce a
-            # delta that sells a holding acquired seconds earlier.
+        elif (not merged_a or not merged_b
+              or _fingerprint(recheck) != _fingerprint(orders)):
             completeness = Completeness.INCONSISTENT
 
         return BrokerObservation(
             observed_at=datetime.now(timezone.utc), orders=tuple(recheck),
-            positions=tuple(positions), completeness=completeness)
+            positions=tuple(positions), completeness=completeness,
+            terminal_recovery_through=recovery_through)
 
-    async def _list_orders(self):
-        """Page backwards through the order list. Returns (orders, complete)."""
+    async def _list_open_orders(self):
+        """Page all currently open orders by stable exclusive broker id."""
         out: list = []
-        until: Optional[str] = None
+        seen_ids: set[str] = set()
+        before_order_id: Optional[str] = None
         for _page in range(MAX_PAGES):
-            params = {"status": "all", "limit": PAGE_SIZE, "direction": "desc"}
-            if until:
-                params["until"] = until
+            params = {"status": "open", "limit": PAGE_SIZE,
+                      "direction": "desc"}
+            if before_order_id:
+                params["before_order_id"] = before_order_id
             page = await self._get("/v2/orders", params)
+            if not isinstance(page, list):
+                raise MalformedBrokerPayload(
+                    "open-order response must be an array")
+            if len(page) > PAGE_SIZE:
+                raise MalformedBrokerPayload(
+                    f"open-order page contains {len(page)} rows for limit "
+                    f"{PAGE_SIZE}")
             if not page:
                 return out, True
-            out.extend(self._to_order(o) for o in page if isinstance(o, dict))
+            page_ids: list[str] = []
+            for item in page:
+                if not isinstance(item, dict):
+                    raise MalformedBrokerPayload(
+                        "open-order page contains a non-object row")
+                order_id = str(item.get("id") or "").strip()
+                if not order_id:
+                    raise MalformedBrokerPayload(
+                        "open-order row has no broker order id")
+                if order_id in seen_ids:
+                    raise MalformedBrokerPayload(
+                        f"open-order pagination repeated broker id "
+                        f"{order_id}")
+                seen_ids.add(order_id)
+                page_ids.append(order_id)
+                out.append(self._to_order(item))
             if len(page) < PAGE_SIZE:
                 return out, True
-            submitted = [o.get("submitted_at") for o in page
-                         if isinstance(o, dict) and o.get("submitted_at")]
-            if not submitted:
-                # Cannot advance the cursor, so we cannot claim completeness.
+            next_cursor = page_ids[-1]
+            if not next_cursor or next_cursor == before_order_id:
+                # Cannot advance the stable exclusive cursor, so we cannot
+                # claim completeness. A timestamp cursor is not a fallback:
+                # tied submitted_at values at a page boundary would be skipped.
                 return out, False
-            until = min(submitted)
+            before_order_id = next_cursor
         # HIT THE CAP. There may be more, and saying "complete" here is the
         # unstated assumption the contract exists to remove.
-        log.warning("sentinel: order list hit the %d-page cap; reporting "
-                    "TRUNCATED rather than assuming completeness", MAX_PAGES)
+        log.warning("sentinel: %s order list hit the %d-page cap; reporting "
+                    "TRUNCATED rather than assuming completeness",
+                    "open", MAX_PAGES)
+        return out, False
+
+    async def _list_closed_orders(self, *, floor: datetime,
+                                  through: datetime):
+        """Page closed history until a validated page crosses ``floor``.
+
+        Alpaca forbids timestamp filters with its order-id cursors. Submission
+        times are therefore validated locally, and equality with the inclusive
+        floor continues because a timestamp tie can span a page boundary.
+        """
+        floor = _required_aware_ts(floor, where="terminal recovery floor")
+        through = _required_aware_ts(
+            through, where="terminal recovery upper boundary")
+        if floor > through:
+            raise MalformedBrokerPayload(
+                "terminal recovery floor is later than its captured upper "
+                "boundary")
+
+        out: list = []
+        seen_ids: set[str] = set()
+        before_order_id: Optional[str] = None
+        previous_submitted: Optional[datetime] = None
+        for _page in range(MAX_PAGES):
+            params = {"status": "closed", "limit": PAGE_SIZE,
+                      "direction": "desc"}
+            if before_order_id:
+                params["before_order_id"] = before_order_id
+            page = await self._get("/v2/orders", params)
+            if not isinstance(page, list):
+                raise MalformedBrokerPayload(
+                    "closed-order response must be an array")
+            if len(page) > PAGE_SIZE:
+                raise MalformedBrokerPayload(
+                    f"closed-order page contains {len(page)} rows for limit "
+                    f"{PAGE_SIZE}")
+            if not page:
+                return out, True
+
+            page_ids: list[str] = []
+            oldest: Optional[datetime] = None
+            for item in page:
+                if not isinstance(item, dict):
+                    raise MalformedBrokerPayload(
+                        "closed-order page contains a non-object row")
+                order_id = str(item.get("id") or "").strip()
+                if not order_id:
+                    raise MalformedBrokerPayload(
+                        "closed-order row has no broker order id")
+                if order_id in seen_ids:
+                    raise MalformedBrokerPayload(
+                        "closed-order pagination repeated broker id "
+                        f"{order_id}")
+                seen_ids.add(order_id)
+                page_ids.append(order_id)
+
+                submitted = _required_aware_ts(
+                    item.get("submitted_at"),
+                    where=f"closed order {order_id} submitted_at")
+                if (previous_submitted is not None
+                        and submitted > previous_submitted):
+                    raise MalformedBrokerPayload(
+                        "closed-order pagination is not descending by "
+                        f"submitted_at at broker order {order_id}")
+                previous_submitted = submitted
+                oldest = submitted
+                if floor <= submitted <= through:
+                    out.append(self._to_order(item))
+
+            if len(page) < PAGE_SIZE:
+                return out, True
+            if oldest is not None and oldest < floor:
+                return out, True
+            next_cursor = page_ids[-1]
+            if not next_cursor or next_cursor == before_order_id:
+                return out, False
+            before_order_id = next_cursor
+
+        log.warning(
+            "sentinel: closed-order recovery hit the %d-page cap before "
+            "crossing %s; reporting TRUNCATED",
+            MAX_PAGES, floor.isoformat())
         return out, False
 
     async def _list_positions(self):
         payload = await self._get("/v2/positions")
+        if not isinstance(payload, list):
+            raise MalformedBrokerPayload(
+                "positions response must be an array")
         out = []
-        for p in payload or []:
+        seen_security_ids: set[str] = set()
+        for p in payload:
             if not isinstance(p, dict):
-                continue
+                raise MalformedBrokerPayload(
+                    "positions response contains a non-object row")
             symbol = str(p.get("symbol") or "")
             # A POSITION quantity may legitimately be negative at a broker
             # (a short), and Sentinel's envelope forbids holding one — so it is
@@ -349,14 +570,30 @@ class AlpacaExecutionBroker(ExecutionBroker):
             # zero here, which would make a short position INVISIBLE.
             qty = _required_dec(p.get("qty"), allow_negative=True,
                                 where=f"position {p.get('symbol')} qty")
+            instrument = self._instrument(symbol, p.get("asset_id"))
+            if instrument.security_id in seen_security_ids:
+                raise MalformedBrokerPayload(
+                    "positions response repeats permanent security "
+                    f"{instrument.security_id}")
+            seen_security_ids.add(instrument.security_id)
             out.append(BrokerPosition(
-                instrument=self._instrument(symbol, p.get("asset_id")),
-                quantity=qty or Decimal(0)))
+                instrument=instrument, quantity=qty or Decimal(0)))
         return out
 
-    def _instrument(self, symbol: str, asset_id=None) -> BrokerInstrument:
-        return BrokerInstrument(security_id=str(self._resolve(symbol)),
-                                symbol=symbol,
+    def _instrument(self, symbol: str, asset_id=None, *, as_of=None
+                    ) -> BrokerInstrument:
+        system_symbol = self._from_symbol(symbol)
+        try:
+            security_id = self._resolve(system_symbol, as_of)
+        except TypeError:
+            # Backward-compatible test/custom resolvers may accept only the
+            # symbol. Production accepts the point-in-time session as well.
+            security_id = self._resolve(system_symbol)
+        if security_id is None or not str(security_id).strip():
+            raise MalformedBrokerPayload(
+                f"instrument {symbol!r} has no permanent security identity")
+        return BrokerInstrument(security_id=str(security_id),
+                                symbol=system_symbol,
                                 broker_id=str(asset_id) if asset_id else None)
 
     def _to_order(self, payload: dict) -> BrokerOrder:
@@ -371,7 +608,9 @@ class AlpacaExecutionBroker(ExecutionBroker):
         return BrokerOrder(
             broker_order_id=str(payload.get("id") or ""),
             client_key=payload.get("client_order_id") or None,
-            instrument=self._instrument(symbol, payload.get("asset_id")),
+            instrument=self._instrument(
+                symbol, payload.get("asset_id"),
+                as_of=str(payload.get("submitted_at") or "")[:10] or None),
             side=_side(payload.get("side"),
                        where=f"order {payload.get('id')} side"),
             state=map_status(raw_status),
@@ -380,6 +619,12 @@ class AlpacaExecutionBroker(ExecutionBroker):
             filled_quantity=_required_dec(
                 payload.get("filled_qty"),
                 where=f"order {payload.get('id')} filled_qty"),
+            filled_average_price=(
+                _required_dec(
+                    payload.get("filled_avg_price"),
+                    where=f"order {payload.get('id')} filled_avg_price")
+                if payload.get("filled_avg_price") not in (None, "") else None),
+            submitted_at=_parse_ts(payload.get("submitted_at")),
             raw=payload)
 
     # -- recovery -----------------------------------------------------------
@@ -484,8 +729,23 @@ class AlpacaExecutionBroker(ExecutionBroker):
 
 
 def _fingerprint(orders) -> tuple:
-    return tuple(sorted((o.broker_order_id, o.state.value, str(o.filled_quantity))
-                        for o in orders))
+    return tuple(sorted((
+        o.broker_order_id, o.client_key or "", o.instrument.security_id,
+        o.side.value, str(o.quantity), o.state.value, str(o.filled_quantity),
+        str(o.filled_average_price) if o.filled_average_price is not None else "",
+        o.submitted_at.isoformat() if o.submitted_at is not None else "",
+    ) for o in orders))
+
+
+def _merge_order_sets(opened, closed) -> tuple[list, bool]:
+    """Merge one bounded read; overlap means open/closed raced."""
+    merged = {order.broker_order_id: order for order in opened}
+    stable = True
+    for order in closed:
+        if order.broker_order_id in merged:
+            stable = False
+        merged[order.broker_order_id] = order
+    return list(merged.values()), stable
 
 
 def _is_not_found(exc) -> bool:
@@ -500,3 +760,14 @@ def _parse_ts(value) -> Optional[datetime]:
         return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
         return None
+
+
+def _required_aware_ts(value, *, where: str) -> datetime:
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        parsed = _parse_ts(value)
+    if parsed is None or parsed.tzinfo is None:
+        raise MalformedBrokerPayload(
+            f"{where} must be a parseable timezone-aware timestamp")
+    return parsed.astimezone(timezone.utc)

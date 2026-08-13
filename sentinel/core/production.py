@@ -276,6 +276,38 @@ class PublishedSession:
     feed_anchors: Mapping[str, FeedAnchor] = field(default_factory=dict)
 
 
+def warm_session_state(state: SessionState | Mapping, window, *,
+                       publication_version: int,
+                       eligibility_config: EligibilityConfig | None = None
+                       ) -> SessionState:
+    """Prime canonical rolling feed features without inventing book history.
+
+    A fresh account has no episodes, peaks, ages, cooldowns, pending actions or
+    controller memory to reconstruct. Running those historical sessions through
+    ``plan_session`` would manufacture all of them. ``Feed.warmup`` is the
+    canonical feature-only path; its bounded restart form is installed into the
+    otherwise-fresh version-3 envelope and the decision session is advanced
+    later, exactly once.
+    """
+    env = (state if isinstance(state, SessionState)
+           else SessionState.from_dict(state))
+    portfolio = PortfolioState.from_dict(env.wealth_core)
+    ledger = Ledger.from_dict(env.ledger)
+    if (env.last_processed_session is not None or portfolio.episodes
+            or env.pending or ledger.events or env.controller_session_history):
+        raise ValueError("feature-only warm-up requires a fresh canonical state")
+    sessions = list(window.sessions)
+    if not sessions or sessions != sorted(sessions):
+        raise ValueError("warm-up window must contain ordered sessions")
+    elig = eligibility_config or EligibilityConfig()
+    feed = Feed(window.meta, elig)
+    feed.warmup(sessions, window.bars_by_session)
+    warmed = SessionState.from_dict(env.to_dict())
+    warmed.feed = _feed_to_dict(feed, set())
+    warmed.data_version = int(publication_version)
+    return warmed
+
+
 def load_published_session(conn, session: str, *, spy_sessions: int = 41,
                            known_feed_security_ids: Sequence[str] = ()
                            ) -> PublishedSession:
@@ -550,12 +582,14 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
 def advance_and_persist(conn, session: str, prior: SessionState | Mapping, *,
                         load_published,
                         controller_config: ControllerConfig,
-                        strategy_identity: Mapping, **kwargs) -> dict:
+                        strategy_identity: Mapping,
+                        commit_pin: bool = True, **kwargs) -> dict:
     """Catch-up callback: compute only; catch_up commits envelope + cursor."""
     from sentinel.feed.publication import pinned
     canonical_prior = SessionState.from_dict(
         prior.to_dict() if isinstance(prior, SessionState) else prior)
-    with pinned(conn) as publication:
+    pin = pinned(conn) if commit_pin else pinned(conn, commit=False)
+    with pin as publication:
         published = load_published(
             conn, session,
             known_feed_security_ids=tuple(
@@ -570,4 +604,5 @@ def advance_and_persist(conn, session: str, prior: SessionState | Mapping, *,
 
 __all__ = ["FeedAnchor", "PublishedSession", "REQUIRED_IDENTITY_FIELDS", "SessionState",
            "advance_and_persist",
-           "advance_state", "holdings_from_shadow", "load_published_session"]
+           "advance_state", "holdings_from_shadow", "load_published_session",
+           "warm_session_state"]

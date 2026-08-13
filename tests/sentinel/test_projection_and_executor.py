@@ -176,7 +176,8 @@ def conn(pg):
         for t in ("sentinel_account_binding", "sentinel_ownership_events",
                   "sentinel_commands", "sentinel_command_events",
                   "sentinel_execution_plans", "sentinel_fills",
-                  "sentinel_observations"):
+                  "sentinel_observations",
+                  "sentinel_terminal_recovery_watermark"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     c.commit()
     schema.ensure_schema(c)
@@ -339,18 +340,17 @@ class TestExecuteSession:
         first = b._by_key(submits[0].split(":", 1)[1])
         assert first.side is Side.SELL, "the sale goes first"
 
-    def test_a_refused_purchase_does_not_prevent_a_sale(self, conn):
-        """The asymmetry, exercised end to end: the sale is attempted first and
-        the purchase's fate cannot reach back and stop it."""
+    def test_a_rejected_sale_defers_the_purchase_it_would_fund(self, conn):
+        """The sale is attempted first; rejection creates no buy authority."""
         b = broker()
         seed_held(conn, b, BBB, 20)
         b.schedule_submit(F.REJECT)          # hits the FIRST submit = the sale
         result = go(b, conn, {"SEC-AAA": D(10), "SEC-BBB": D(0)})
 
-        assert len(result.submitted) == 2, "both attempted regardless"
-        by_side = {c.side: c.state for c in result.submitted}
-        assert by_side[Side.SELL] is S.REJECTED
-        assert by_side[Side.BUY] is S.ACKNOWLEDGED
+        assert len(result.submitted) == 1
+        assert result.submitted[0].side is Side.SELL
+        assert result.submitted[0].state is S.REJECTED
+        assert result.deferred == ("SEC-AAA",)
 
     def test_FOREIGN_ACTIVITY_blocks_buying_but_not_selling(self, conn):
         b = broker()

@@ -36,6 +36,8 @@ sentinel/feed/staging.py             the chunk sort, in PostgreSQL
 sentinel/feed/calendar.py            session freshness, not a day budget
 sentinel/feed/readiness.py           the data contract + persisted verdicts
 sentinel/core/catchup.py             convergence after absence, re-projection
+sentinel/core/decision.py            canonical shadow/controller -> stamped plan
+sentinel/paper.py                    read-only preparation + strict execution gate
 sentinel/core/cashflow.py            external cash as a declared event
 ```
 
@@ -43,13 +45,9 @@ sentinel/core/cashflow.py            external cash as a declared event
 
 ```text
 no live or paper broker has ever been contacted by this code
-the Sentinel controller (§7 of the architecture doc) is not wired to it
-Wealth Core is not wired to the projection that would fill a plan's basket.
-    `catchup.catch_up` takes `advance_state` and `decide` as SEAMS for exactly
-    this reason — the orchestration is built and certified, what it drives is
-    supplied by the caller, and Wealth Core is still NO-GO
-no CLI command drives `catch_up` yet: it would have to name the two seams
-    above, and naming them means choosing them
+no migration or paper-plan execution has been run by the implementation work
+the production activation path is operator-invoked; no scheduler or deployment
+    default runs it automatically
 the RECONSTRUCTION tier of corpus versioning is deferred
 crash injection is LOGICAL (state, journal, stale restore), not SIGKILL
 the resource limits are declared and ENFORCED (every service carries
@@ -382,11 +380,103 @@ BrokerCapabilities      what this adapter is certified to do
 > **An observation states whether it is complete. A truncated read is never
 > silently presented as a full one.**
 
-`AlpacaBrokerAdapter.list_orders` issues a single `GET` with `limit=500` and
-`direction=desc` and no pagination. Truncation therefore drops the *oldest*
-orders — precisely the stale resting ones most likely to be forgotten. On the
-path that decides "the account is flat", a bounded read was answering an
-unbounded question.
+The certified Alpaca adapter pages the complete **open** order set and reports
+`TRUNCATED` if that set reaches its declared cap. Pagination uses Alpaca's
+exclusive `before_order_id` cursor, advancing from the oldest order in each
+descending page. A timestamp `until` cursor is not a substitute: it is
+exclusive, so a page boundary containing multiple orders with the same
+`submitted_at` can skip the tied remainder and falsely declare the order set
+complete. On a path that can decide "there is no working order", a bounded or
+gapped read may never answer an unbounded question.
+
+Completeness also requires structurally trustworthy broker payloads. A
+non-array order or position collection, non-object row, missing broker order
+id, oversized order page, repeated id/security, or non-progressing cursor is
+malformed evidence and fails the read; it is never filtered into an apparently
+complete shorter list. Broker identity is what pagination, reconciliation, and
+recovery depend on, so silently dropping an unidentifiable row would make an
+absence conclusion unprovable.
+
+Lifetime terminal history is deliberately **not** part of observation
+completeness. An inherited account can hold more terminal orders than any
+bounded API traversal can enumerate; reading `status=all` would then make the
+account permanently `TRUNCATED` even when it has no open order. Completeness is
+therefore the conjunction of:
+
+```text
+all broker OPEN orders, stably paged
+all current positions
+all CLOSED orders back through the durable *processed-terminal* watermark
+    (with a bounded clock-skew overlap), stably paged for stale-restore recovery
+positive terminal evidence for each durable nonterminal Sentinel command,
+    fetched by exact client key when that command disappears from the open set
+```
+
+The closed-order recovery window is derived from PostgreSQL, not from wall-clock
+convenience. A dedicated, bound-account-scoped watermark means "every
+Sentinel-keyed terminal order submitted through this instant was durably
+adopted or synchronized." It survives a takeover-epoch change for that same
+broker account, but a watermark naming another account is corruption, not a
+fallback. It advances only after reconciliation has processed the complete
+recovery window. A raw
+`sentinel_observations.observed_at` row is **not** that witness: observations are
+recorded before adoption, so a crash in between must replay the same closed
+window. When no processed watermark exists, recovery starts at the binding's
+`established_at`; every query subtracts a fixed overlap for broker/host clock
+skew and boundary replay.
+
+Alpaca forbids combining `after`/`until` timestamps with its stable order-id
+cursors. Closed recovery therefore pages `status=closed,direction=desc` using
+only exclusive `before_order_id`. Every row must carry an aware, parseable
+`submitted_at`, pages must be non-increasing by that value, and a full page at
+the recovery floor is not exhaustion because tied timestamps can continue onto
+the next page. The traversal is complete only after a short page exhausts
+history or a validated descending page crosses strictly below the overlapped
+floor. Reaching the page cap first is incomplete evidence and blocks execution.
+The adapter captures an upper watermark before the read; rows newer than it may
+be observed but cannot advance that watermark, so work arriving during the read
+is replayed next time. A captured upper boundary older than the stored processed
+boundary is a clock rollback or corrupt future watermark and refuses; it never
+rewinds the cursor or treats the future boundary as already searched.
+
+The bounded window discovers a Sentinel-keyed fill that happened after a stale
+backup without making the account's lifetime terminal archive a readiness
+dependency. Adoption and command updates are idempotent, so a crash before the
+watermark commit causes safe replay rather than a gap.
+
+Overlap is validation, not merely duplicate suppression. A previously adopted
+client key must still name the same broker order, security, side and quantity;
+its fill quantity may not regress, and unchanged fill quantity may not acquire
+a different average price or terminal state. Every recovered row has a positive
+quantity, `0 <= filled <= quantity`, an aware submission timestamp, and an
+average fill price whenever anything filled. One client key attached to two
+broker ids is ambiguous ownership. Any violation leaves the old watermark in
+place and reconciliation blocked.
+
+Absence from the complete open set proves only "not open". It does **not** say
+FILLED, CANCELLED or REJECTED. A known `ACKNOWLEDGED`, `PARTIALLY_FILLED` or
+`CANCEL_PENDING` command missing from the open set is looked up by its exact
+client key before any transition. Positive terminal evidence is adopted. A
+missing or failed exact lookup leaves the command unresolved and blocks new
+overlapping work; terminal state is never inferred merely from open-order
+silence. `SEND_PENDING`/`UNKNOWN` retain their separately defined never-landed
+rule: exact key absence plus a complete open observation can prove that a POST
+whose receipt was never established did not land. Positive evidence already in
+the complete closed-recovery window is consulted first: an exact 404 can never
+erase a matching observed fill.
+
+Average fill price crosses the membrane as `Decimal` and is persisted on the
+durable command whenever fill progress is observed or a broker-only Sentinel
+order is adopted after restore. Cash reconciliation reads that durable value;
+it does not require a terminal order to remain in every future broker response.
+This is what makes restart cash authority bounded independently of account age.
+
+Historical orders are resolved by permanent identity at their own submission
+session, not at today's session. That timestamp is also persisted as the
+durable command boundary when a stale restore adopts a broker-only Sentinel
+order, so a later reconciliation applies only corporate actions that occurred
+after the recovered command. A rename/delisting in terminal history must not
+either retarget the security or block every current observation.
 
 Every observation carries `completeness ∈ {COMPLETE, TRUNCATED, PARTIAL}`, and:
 
@@ -459,7 +549,60 @@ target_exposure
 target_basket             security_id → Decimal quantity
 data_version              the corpus version consumed (§8)
 strategy_fingerprint
+deployment_id, broker, broker_account_id, takeover_epoch
+publication_fingerprint
+account_nav, account_cash, explicit cash_residual, unpriced securities,
+defensive instrument
 ```
+
+The production adapter and command authority are specified in
+`docs/sentinel-paper-activation.md`. In particular, final state advancement and
+plan adoption are one transaction, the effective session is the next XNYS
+session after the decision close, and the execution command accepts no plan
+economics from its caller. A same-session preparation retry verifies and keeps
+the already-current immutable plan; it does not silently re-size that plan from
+a later account observation. Readiness is always judged against the actual
+exchange-local observation time, never a caller-supplied future date.
+
+For a production Sentinel plan, `plan_id` is itself an authority, not an
+arbitrary database handle. Its only valid value is
+`sentinel-<ExecutionPlan.fingerprint()>`, recomputed from every immutable
+economic and identity field after the durable row is loaded. Same-session
+preparation, current-plan inspection, and execution refuse a mismatch. The
+execution gateway performs this check before any broker read or mutation, so a
+database edit that preserves the old id and state/publication stamps cannot be
+authorized merely by confirming that stale id.
+
+The account NAV is the immutable sizing input, but a fixed share plan is not
+invalidated merely because its holdings mark up or down overnight. Cash is the
+separate recovery authority. Initial adoption requires no working broker order
+and stamps the typed account-cash baseline. On retry/execution the strict
+gateway reconciles that baseline to every durable fill at the average fill
+price persisted with that command when the broker supplied positive evidence.
+Any residual cash movement is unexplained and refused; it
+is never guessed into P&L or a flow. The activation gateway has no same-session
+cash-flow re-projection authority: the adopted plan remains unexecuted, the
+flow is resolved and recorded separately, and a new plan is prepared from the
+next closed decision session. The general re-projection contract in section
+13.3 is not exposed as an activation-command override.
+
+The gateway additionally accepts only a cash-only paper account whose broker
+reports `status == ACTIVE`, all of `trading_blocked`, `account_blocked` and
+`trade_suspended_by_user` explicitly boolean and false, `multiplier == 1`, and
+buying power equal to cash (within the absolute cash-reconciliation tolerance).
+A missing or non-boolean availability flag is malformed broker evidence, never
+silently "unblocked". Buying power below cash means sale proceeds are not yet
+spendable; buying power above cash exposes margin. Both refuse before an
+increase. A DAY market order can still gap beyond its decision-close sizing
+mark, so software cannot prove a bounded fill cost before the fill. The
+cash-only broker envelope is therefore load-bearing: an unaffordable increase
+is rejected rather than funded by margin. This runtime account fact is checked
+on every preparation/execution entry and does not weaken the live-endpoint
+refusal.
+Binding creation and restored-host takeover-epoch adoption take the same
+single-writer advisory lock as preparation and execution, and those operations
+read the binding only after acquiring it. The full binding stamped into a plan
+or command therefore cannot change in the authority-to-side-effect gap.
 
 When a new session produces a new decision before the previous plan has
 completed, **history is not mutated**. A new plan is created and may supersede
@@ -497,17 +640,18 @@ Architecture invariant #3 already reads:
 
 > Pinned input history. Every snapshot and decision records `data_version`.
 
-`sentinel/feed/schema.py` has no `data_version`, no publication identity and no
-revision dimension; `sentinel_bars` is keyed `(security_id, session)` and written
-by a destructive upsert. **The invariant is adopted and unimplemented.** A
-Sharadar restatement currently rewrites, in place, the evidence underlying a
-decision that has already been recorded.
+The feed publication path assigns a monotonic `data_version`, records publication
+identity/evidence, pins every production decision to that version, and hides
+rows whose ingest run never became a publication. This implements the DETECTION
+tier: an operator can distinguish broker drift from moved history. Bar revision
+history is not retained, so a Sharadar restatement can still prevent exact
+reconstruction of an earlier decision's inputs.
 
-### 8.1 Two tiers, and which one is being built
+### 8.1 Two tiers, and their certification state
 
 ```text
 DETECTION       "this decision read v47; the corpus is now v52, so a replay
-                 may not reproduce it"                        ← BUILD NOW
+                 may not reproduce it"                        ← IMPLEMENTED
 RECONSTRUCTION  "show me exactly what v47 contained"          ← DEFERRED
 ```
 
@@ -515,6 +659,8 @@ Detection is what makes a divergence report interpretable — it separates "the
 broker drifted" from "the history moved", which is the question
 `sentinel-architecture.md` §5 actually poses. Reconstruction requires revision
 history and is a much larger build; it is deferred to the end of the sequence.
+
+The DETECTION tier is implemented; the RECONSTRUCTION tier remains deferred.
 
 ### 8.2 The publication record
 
@@ -682,9 +828,15 @@ the naive foreign-activity triggers, so without this rule the appliance latches 
 block on re-risking after every corporate action it slept through — which is
 every outage of more than a day or two in a 25-name book.
 
-Reconciliation therefore loads `sentinel_actions` for the entire gap interval and
-applies the implied share-count and identity changes to its expected book
-*before* comparing against the broker.
+Reconciliation therefore loads `sentinel_actions` from the earliest durable
+command through the observation and applies each supported share-count change
+to each command only when the action occurred after that command was created.
+The expected book is reconstructed from this action-aged lifetime basis before
+it is compared with the broker. Using only `(last decision, today]` would appear
+correct on the split day and forget the split as soon as the state cursor moved;
+applying one aggregate lifetime multiplier to every fill would instead multiply
+orders that were placed after the split. Neither is a durable reconciliation
+basis.
 
 ### 10.3 Foreign activity
 
@@ -729,7 +881,11 @@ The operating rule is therefore procedural and must be documented as such:
 ```text
 before activating a restored appliance against the same account,
 revoke or rotate the previous appliance's broker credentials
-then run an explicit adopt-restored-account, which increments takeover_epoch
+then run an explicit adopt-restored-account with the exact bound paper account
+confirmation. The replacement credentials must identify that account before
+anything durable changes. Account verification, the adoption audit event, and
+the takeover_epoch increment occur under the execution writer lock; a missing
+credential, unreadable identity, or mismatch leaves the old epoch untouched
 ```
 
 Ordinary reboots need none of this. Moving to a replacement host does.
@@ -839,21 +995,32 @@ So:
 2  PRE-FLIGHT the increases: anything that can never be authorised on this
    evidence is REFUSED here, with its real reason
 3  submit the reductions
-4  SETTLE — poll until none of them is still WORKING, bounded by settle_cycles
-5  re-observe, and RE-SIZE the increases against that read
-6  submit the increases
+4  SETTLE — reconcile until every required reduction is FILLED, bounded by
+   settle_cycles. REJECTED, CANCELLED, PARTIALLY_FILLED, UNKNOWN, absent, or
+   still-working reductions are not settlement
+5  re-observe; require COMPLETE, RUNNING, clean reconciliation
+6  in the strict paper path, re-read typed cash/buying power and require
+   `multiplier == 1` plus buying power equal to cash; filled-but-unsettled
+   proceeds are not spending authority
+7  RE-SIZE the increases against the post-fill read and submit them
 ```
 
-Steps 4-6 are skipped when there is nothing to settle for: a pure-buy session
+Steps 4-7 are skipped when there is nothing to settle for: a pure-buy session
 has no proceeds to wait on, and an unconditional extra round trip is latency for
 nothing.
 
-**Settled means not WORKING, on a COMPLETE read.** Both halves. The order list
-deliberately includes recent terminal orders — without them a completed fill
-vanishes from the observation and its command sticks at ACKNOWLEDGED — so a
-membership test would find every sale outstanding forever. And an incomplete
-read cannot prove an order finished, which is the entire basis for believing the
-proceeds exist.
+**Settled means every required reduction is FILLED, on a COMPLETE, clean
+reconciliation.** "Not working" is insufficient: rejected and cancelled orders
+are not working and create no proceeds; a partial fill creates only part of the
+proceeds. Reconciliation also repeats the account, UNKNOWN, foreign-activity and
+completeness checks so a world change between phases cannot authorize a buy.
+The set includes reductions already in flight at the start of this invocation,
+including ones created before a restart or by a superseded current-plan
+generation. Signed working quantity can make a newly-computed delta zero; it
+does not make the proceeds settled. Any durable or observed working SELL keeps
+the global increase barrier closed until reconciliation proves the required
+sale fully filled (or a later observation/plan establishes that no increase may
+depend on it).
 
 **Pre-flight before settle, because refused and deferred are different answers.**
 One means "never, on this evidence"; the other means "try again once the
@@ -919,12 +1086,14 @@ is not an ordering of trading sessions, and a re-run at 09:00 would look newer
 than the session it is behind. The pointer takes `GREATEST` on update, so a
 caller replaying an old window cannot rewind the frontier.
 
-**Wealth Core and the controller are seams.** `advance_state` and `decide` are
-injected. Wealth Core is built and NOT ACTIVATED, and the exposure controller
-does not exist yet — item E pins exposure at 1.00. Wiring either in would put a
-NO-GO engine on the production path and make the orchestration untestable until
-both land. The orchestration is what is being built and certified; what it
-drives is supplied by the caller.
+**Production names the canonical seams; tests may still inject them.** The paper
+preparation path advances canonical v3 state through `advance_and_persist` and
+converts the resulting Wealth Core shadow target plus controller exposure
+through the production decision adapter. `advance_state` and `decide` remain
+parameters of the catch-up kernel so transaction/restart behavior can be tested
+with deterministic falsifiers; that injection is not a second production
+portfolio or controller implementation. Historical catch-up advances state,
+while adoption leaves only the newest plan executable.
 
 ### 13.3 External cash is a first-class recovery event
 
@@ -1029,7 +1198,7 @@ validate integrity and certification identity
 verify account binding
 acquire single-writer lock
 enter RECONCILING
-recover broker orders and fills predating the checkpoint
+recover broker terminal orders since the processed watermark (with overlap)
 recover Sentinel-owned commands by client_key namespace
 advance missing corpus and strategy sessions
 rebuild the current execution target
@@ -1041,6 +1210,12 @@ only then ARM
 A broker order carrying a Sentinel client_key but absent from the restored
 database is **recovered history**, not foreign activity, and must not be
 duplicated.
+
+The recovery watermark is committed after that history is durable, never when
+the broker response is merely recorded. If the process dies after adoption but
+before the watermark update, the same closed rows are replayed and adopted
+idempotently. If it dies before adoption, the old watermark remains and the rows
+are asked for again. Those are the only two crash shapes; neither skips an order.
 
 ### 14.1 The information-theoretic limit
 

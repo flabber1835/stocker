@@ -50,9 +50,9 @@ LIVE_HOSTS = frozenset({"api.alpaca.markets"})
 #: architectural change, not an environment variable.
 PAPER_HOSTS = frozenset({"paper-api.alpaca.markets"})
 
-#: Where the ownership log lives. A VOLUME on the NAS, never inside the image:
-#: losing it means a restart re-enters legacy cleanup against a Sentinel-owned
-#: book. It is the most safety-critical byte Sentinel writes.
+#: Where the retained JSONL ownership audit lives. Canonical ownership authority
+#: is the PostgreSQL account binding; losing this audit file cannot re-arm
+#: migration because ordinary startup contains no legacy liquidation path.
 DEFAULT_STATE_DIR = "/var/lib/sentinel"
 
 
@@ -219,3 +219,23 @@ def build_broker(config: SentinelConfig):
             base_url=config.base_url,
         )
     )
+
+
+def build_execution_broker(config: SentinelConfig, *, resolve_security_id,
+                           to_broker_symbol=None):
+    """Construct the certified typed Alpaca PAPER execution adapter.
+
+    Kept separate from :func:`build_broker`: the latter is the narrow,
+    administrative migration seam with broker-native close operations. The
+    autonomous executor must never acquire those operations by convenience.
+    """
+    from sentinel.execution.alpaca import AlpacaExecutionBroker
+    from sentinel.execution.certification import require_certified
+
+    config.assert_paper()
+    config.assert_credentials()
+    require_certified("alpaca")
+    return AlpacaExecutionBroker(
+        api_key=config.alpaca_key, secret_key=config.alpaca_secret,
+        base_url=config.base_url, resolve_security_id=resolve_security_id,
+        to_broker_symbol=to_broker_symbol)

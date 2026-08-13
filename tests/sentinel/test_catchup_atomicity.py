@@ -54,6 +54,7 @@ sys.path.insert(0, str(ROOT / "shared"))
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
 from sentinel.core import catchup as CU  # noqa: E402
+from sentinel.execution import journal  # noqa: E402
 from sentinel.execution.plan import ExecutionPlan  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
 
@@ -208,6 +209,31 @@ class TestNeitherCanExistWithoutTheOther:
         assert age == 4, f"aged {age} times across four sessions"
         assert last == dt.date(2026, 8, 13)
         assert CU.last_processed_session(conn) == dt.date(2026, 8, 13)
+
+    def test_final_state_plan_and_supersession_roll_back_together(
+            self, conn, monkeypatch):
+        """A crash in final plan adoption cannot expose final state alone."""
+        run(conn, "2026-08-11", ["2026-08-10", "2026-08-11"],
+            durable_advance())
+        prior = CU.last_processed_session(conn)
+        prior_state = CU.resume_state(conn)
+        prior_plan = journal.latest_plan(conn)
+
+        real_supersede = CU.journal.supersede_all_but
+
+        def die_after_plan_insert(c, plan_id, *, commit=True):
+            real_supersede(c, plan_id, commit=False)
+            raise RuntimeError("died before final state/plan commit")
+
+        monkeypatch.setattr(CU.journal, "supersede_all_but", die_after_plan_insert)
+        with pytest.raises(RuntimeError, match="final state/plan commit"):
+            run(conn, "2026-08-12", ["2026-08-12"], durable_advance())
+
+        assert CU.last_processed_session(conn) == prior
+        assert CU.resume_state(conn) == prior_state
+        latest = journal.latest_plan(conn)
+        assert latest.plan_id == prior_plan.plan_id
+        assert journal.load_plan(conn, "plan-2026-08-12") is None
 
 
 class TestTheSeamCannotBeSatisfiedInMemory:

@@ -53,10 +53,10 @@ from enum import Enum
 from typing import Optional, Sequence
 
 from sentinel.execution.contract import (
-    BrokerAccountIdentity, BrokerCapabilities, BrokerFill, BrokerInstrument,
-    BrokerObservation, BrokerOrder, BrokerPosition, CommandOutcome,
+    BrokerAccountIdentity, BrokerAccountSnapshot, BrokerCapabilities, BrokerFill,
+    BrokerInstrument, BrokerObservation, BrokerOrder, BrokerPosition, CommandOutcome,
     Completeness, ExecutionBroker, Side)
-from sentinel.execution.states import CommandState as S
+from sentinel.execution.states import CommandState as S, blocks_overlapping
 
 EPOCH = datetime(2026, 8, 11, 14, 30, tzinfo=timezone.utc)
 
@@ -98,6 +98,7 @@ class _Resting:
     quantity: Decimal
     filled: Decimal = Decimal(0)
     state: S = S.ACKNOWLEDGED
+    submitted_at: datetime = EPOCH
 
     @property
     def remaining(self) -> Decimal:
@@ -110,6 +111,14 @@ class SimulatedBroker(ExecutionBroker):
 
     account: BrokerAccountIdentity = field(
         default_factory=lambda: BrokerAccountIdentity("sim", "SIM-ACCOUNT"))
+    equity: Decimal = Decimal("100000")
+    cash: Decimal = Decimal("100000")
+    buying_power: Optional[Decimal] = None
+    multiplier: Decimal = Decimal(1)
+    status: str = "ACTIVE"
+    trading_blocked: bool = False
+    account_blocked: bool = False
+    trade_suspended_by_user: bool = False
     capabilities: BrokerCapabilities = field(
         default_factory=lambda: BrokerCapabilities(
             stable_client_key=True, single_order_cancel=True,
@@ -178,7 +187,7 @@ class SimulatedBroker(ExecutionBroker):
         as foreign rather than adopt it."""
         self._orders[order_id] = _Resting(
             broker_order_id=order_id, client_key=None, instrument=instrument,
-            side=side, quantity=Decimal(qty))
+            side=side, quantity=Decimal(qty), submitted_at=self.now)
 
     def apply_corporate_action(self, security_id: str, ratio: str) -> None:
         """A share count that changes with nobody trading.
@@ -203,6 +212,11 @@ class SimulatedBroker(ExecutionBroker):
             resting.instrument.security_id, (resting.instrument, Decimal(0)))
         self._positions[resting.instrument.security_id] = (
             instrument, held + signed)
+        notional = amount * Decimal("100")
+        self.cash += notional if resting.side is Side.SELL else -notional
+        if self.buying_power is not None:
+            self.buying_power += (
+                notional if resting.side is Side.SELL else -notional)
         self._fills.append(BrokerFill(
             client_key=resting.client_key,
             broker_order_id=resting.broker_order_id, quantity=amount,
@@ -215,10 +229,45 @@ class SimulatedBroker(ExecutionBroker):
                 return o
         return None
 
+    def _available_for_buy(self) -> Decimal:
+        """Cash buying power after every still-live BUY reservation.
+
+        An acknowledged order has not moved cash yet, but the same dollars
+        cannot authorize another order while it may still fill.  Deriving the
+        reservation from resting orders makes cancellation and terminal states
+        release it automatically, without a second mutable accounting ledger.
+        """
+        available = self.cash if self.buying_power is None else self.buying_power
+        reserved = sum(
+            (order.remaining * Decimal("100") for order in self._orders.values()
+             if order.side is Side.BUY and blocks_overlapping(order.state)),
+            Decimal(0))
+        return available - reserved
+
     # -- the port -----------------------------------------------------------
     async def identify_account(self) -> BrokerAccountIdentity:
         self.calls.append("identify_account")
         return self.account
+
+    async def account_snapshot(self) -> BrokerAccountSnapshot:
+        self.calls.append("account_snapshot")
+        return BrokerAccountSnapshot(identity=self.account, equity=self.equity,
+                                     cash=self.cash,
+                                     buying_power=(self.cash if self.buying_power
+                                                   is None else self.buying_power),
+                                     multiplier=self.multiplier,
+                                     status=self.status,
+                                     trading_blocked=self.trading_blocked,
+                                     account_blocked=self.account_blocked,
+                                     trade_suspended_by_user=(
+                                         self.trade_suspended_by_user))
+
+    async def resolve_instrument(self, *, security_id: str,
+                                 symbol: str) -> BrokerInstrument:
+        self.calls.append(f"resolve_instrument:{security_id}:{symbol}")
+        return BrokerInstrument(
+            security_id=security_id, symbol=symbol,
+            broker_id=f"sim-asset-{security_id}")
 
     async def observe(self) -> BrokerObservation:
         if self.observe_hooks:
@@ -284,7 +333,9 @@ class SimulatedBroker(ExecutionBroker):
             yield BrokerOrder(
                 broker_order_id=o.broker_order_id, client_key=o.client_key,
                 instrument=o.instrument, side=o.side, state=o.state,
-                quantity=o.quantity, filled_quantity=o.filled)
+                quantity=o.quantity, filled_quantity=o.filled,
+                filled_average_price=(Decimal("100") if o.filled else None),
+                submitted_at=o.submitted_at)
 
     async def find_by_client_key(self, client_key: str) -> Optional[BrokerOrder]:
         self.calls.append(f"find:{client_key}")
@@ -295,7 +346,9 @@ class SimulatedBroker(ExecutionBroker):
             broker_order_id=resting.broker_order_id, client_key=client_key,
             instrument=resting.instrument, side=resting.side,
             state=resting.state, quantity=resting.quantity,
-            filled_quantity=resting.filled)
+            filled_quantity=resting.filled,
+            filled_average_price=(Decimal("100") if resting.filled else None),
+            submitted_at=resting.submitted_at)
 
     async def submit(self, *, client_key: str, instrument: BrokerInstrument,
                      side: Side, quantity: Decimal) -> CommandOutcome:
@@ -322,11 +375,17 @@ class SimulatedBroker(ExecutionBroker):
             # indistinguishable at the call site from ACCEPT_THEN_TIMEOUT.
             return CommandOutcome(state=S.UNKNOWN, detail="no response")
 
+        available = self._available_for_buy()
+        if side is Side.BUY and quantity * Decimal("100") > available:
+            return CommandOutcome(
+                state=S.REJECTED,
+                detail="cash-only buying power is insufficient")
+
         self._seq += 1
         oid = f"sim-{self._seq}"
         self._orders[oid] = _Resting(
             broker_order_id=oid, client_key=client_key, instrument=instrument,
-            side=side, quantity=quantity)
+            side=side, quantity=quantity, submitted_at=self.now)
 
         if fault is FaultKind.ACCEPT_THEN_TIMEOUT:
             # The order EXISTS. The caller is told nothing. Only asking the

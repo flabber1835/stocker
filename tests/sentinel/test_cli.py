@@ -1,10 +1,10 @@
-"""The entrypoint's refusals, and that `plan` is genuinely read-only.
+"""The entrypoint's refusals and retired-command safety.
 
 Two failures matter here and neither is about argument parsing:
 
   * Sentinel starting against the REAL trading API;
-  * `plan` — the command whose entire promise is "submits nothing" — submitting
-    something, or advancing the ownership log.
+  * the retired JSONL-backed `plan` command contacting a broker or advancing
+    the audit log rather than refusing and naming its safe replacements.
 
 The credential refusal is subtler than it looks and is tested for the reason in
 its message: with no credentials every broker read returns empty, an empty
@@ -13,6 +13,7 @@ it never saw.
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
 import sys
 from pathlib import Path
@@ -31,10 +32,8 @@ from sentinel.config import (  # noqa: E402
     MissingCredentials,
     SentinelConfig,
 )
-from sentinel.ownership import OwnershipState  # noqa: E402
-from sentinel.store import FileOwnershipStore, ownership_established, record  # noqa: E402
-
-S = OwnershipState
+from sentinel.store import FileOwnershipStore, ownership_established  # noqa: E402
+from sentinel.feed import calendar, readiness, store as feed_store  # noqa: E402
 
 
 def env(**over):
@@ -132,38 +131,68 @@ class TestCredentialRefusal:
         assert out["wealth_core_bootstrap_allowed"] is False
 
 
-class TestPlanIsReadOnly:
-    """`plan`'s whole promise is that it changes nothing."""
+class TestPreviewCloseGate:
+    def test_full_instant_is_used_and_current_unclosed_frontier_refuses(
+            self, monkeypatch):
+        moment = dt.datetime(
+            2026, 8, 12, 15, 59,
+            tzinfo=dt.timezone(dt.timedelta(hours=-4)))
+        report = readiness.Readiness()
+        report.add("base", readiness.PASS, "ready")
+        captured = {}
+        monkeypatch.setattr(
+            readiness, "check_readiness",
+            lambda _conn, *, today: (
+                captured.setdefault("today", today), report)[1])
+        monkeypatch.setattr(
+            feed_store, "latest_visible_session", lambda _conn: "2026-08-12")
+        monkeypatch.setattr(
+            calendar, "latest_closed_session",
+            lambda actual: "2026-08-11")
 
-    def _wire(self, monkeypatch, tmp_path, broker):
-        for k, v in env(SENTINEL_STATE_DIR=str(tmp_path)).items():
-            monkeypatch.setenv(k, v)
-        monkeypatch.setattr(cli, "build_broker", lambda cfg: broker)
+        actual, frontier = cli._closed_preview_frontier(  # noqa: SLF001
+            object(), now_et=moment)
 
-    def test_plan_submits_NOTHING_and_writes_NOTHING(self, monkeypatch, tmp_path, capsys):
-        broker = FakeBroker({"AAPL": 10, "MSFT": 5})
-        self._wire(monkeypatch, tmp_path, broker)
+        assert captured["today"] == moment.isoformat()
+        assert frontier is None
+        assert actual.failures[-1].name == "preview close"
 
-        assert cli.main(["plan"]) == cli.EXIT_OK
-        out = json.loads(capsys.readouterr().out)
+    def test_latest_closed_frontier_is_returned(self, monkeypatch):
+        moment = dt.datetime(
+            2026, 8, 12, 16, 5,
+            tzinfo=dt.timezone(dt.timedelta(hours=-4)))
+        report = readiness.Readiness()
+        report.add("base", readiness.PASS, "ready")
+        monkeypatch.setattr(
+            readiness, "check_readiness", lambda _conn, **_kwargs: report)
+        monkeypatch.setattr(
+            feed_store, "latest_visible_session", lambda _conn: "2026-08-12")
+        monkeypatch.setattr(
+            calendar, "latest_closed_session",
+            lambda actual: "2026-08-12")
 
-        assert broker.closes == [], "plan submitted a close"
-        assert broker.cancelled == [], "plan cancelled an order"
-        assert FileOwnershipStore(tmp_path / "ownership.jsonl").events() == [], \
-            "plan advanced the ownership log"
-        assert sorted(out["plan"]["would_liquidate"]) == ["AAPL", "MSFT"]
-        assert out["dry_run"] is True
+        actual, frontier = cli._closed_preview_frontier(  # noqa: SLF001
+            object(), now_et=moment)
 
-    def test_plan_on_an_OWNED_book_reports_no_liquidation(self, monkeypatch, tmp_path, capsys):
-        broker = FakeBroker({"AAPL": 100})
-        self._wire(monkeypatch, tmp_path, broker)
-        record(FileOwnershipStore(tmp_path / "ownership.jsonl"),
-               S.SENTINEL_OWNERSHIP_ESTABLISHED)
+        assert actual.ready is True
+        assert frontier == "2026-08-12"
 
-        assert cli.main(["plan"]) == cli.EXIT_OK
-        out = json.loads(capsys.readouterr().out)
-        assert out["plan"]["would_liquidate"] == []
-        assert out["ownership_established"] is True
+
+class TestLegacyPlanIsRetired:
+    def test_plan_refuses_without_broker_or_audit_log_access(
+            self, monkeypatch, tmp_path, capsys):
+        for key, value in env(SENTINEL_STATE_DIR=str(tmp_path)).items():
+            monkeypatch.setenv(key, value)
+        monkeypatch.setattr(
+            cli, "build_broker",
+            lambda _cfg: (_ for _ in ()).throw(
+                AssertionError("retired plan contacted a broker")))
+
+        assert cli.main(["plan"]) == cli.EXIT_CONFIG
+        error = capsys.readouterr().err
+        assert "inspect-paper-account" in error
+        assert "migration-plan" in error
+        assert FileOwnershipStore(tmp_path / "ownership.jsonl").events() == []
 
 
 class TestEstablishOwnershipIsRetired:
@@ -209,7 +238,9 @@ class TestEstablishOwnershipIsRetired:
         for k, v in env(SENTINEL_STATE_DIR=str(tmp_path)).items():
             monkeypatch.setenv(k, v)
         monkeypatch.delenv("SENTINEL_DATABASE_URL", raising=False)
-        assert cli.main(["migrate-account", "--deployment-id", "nas-1"]) \
+        assert cli.main([
+            "migrate-account", "--deployment-id", "nas-1",
+            "--expect-account", "ACC-123"]) \
             == cli.EXIT_CONFIG
 
     def test_adoption_requires_the_human_assertion(self, monkeypatch, tmp_path,

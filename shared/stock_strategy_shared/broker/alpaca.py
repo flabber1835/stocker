@@ -26,6 +26,18 @@ from .base import (
 )
 
 
+# Alpaca caps one order-list response at 500.  A finite local cap keeps an
+# unexpected broker loop bounded, but exhausting it is incomplete evidence and
+# therefore raises rather than returning a prefix that migration could call
+# flat.
+ORDER_PAGE_MAX = 500
+ORDER_PAGE_CAP = 100
+
+
+class IncompleteOrderList(RuntimeError):
+    """The broker did not prove that its order list was exhausted."""
+
+
 def _f(v) -> Optional[float]:
     """Convert any numeric-ish value (Decimal, str, float) to float or None.
     Matches the `_f`/`_parse_float` helper both services used verbatim."""
@@ -157,19 +169,83 @@ class AlpacaBrokerAdapter(BrokerAdapter):
             )
         return out
 
-    async def list_orders(self, *, status: str = "all", limit: int = 500) -> list[BrokerOrder]:
+    async def list_orders(self, *, status: str = "all", limit: int = 500
+                          ) -> list[BrokerOrder]:
+        """Return the complete filtered order list or raise.
+
+        ``limit`` is the per-page size. Alpaca's ``before_order_id`` cursor is
+        exclusive and stable even when many orders share a submission
+        timestamp, unlike timestamp arithmetic. Returning a capped prefix would
+        let migration declare an inherited account flat while an older working
+        order can still fill, so every non-exhaustive shape fails closed.
+        """
+        if not isinstance(limit, int) or isinstance(limit, bool):
+            raise ValueError("order page limit must be an integer")
+        if not 1 <= limit <= ORDER_PAGE_MAX:
+            raise ValueError(
+                f"order page limit must be between 1 and {ORDER_PAGE_MAX}")
+
+        rows: list[dict] = []
+        seen_ids: set[str] = set()
+        before_order_id: Optional[str] = None
         async with self._httpx.AsyncClient(timeout=self.timeout) as client:
-            r = await client.get(
-                f"{self.base_url}/v2/orders",
-                headers=self.headers(),
-                params={"status": status, "limit": limit, "direction": "desc"},
-            )
-            r.raise_for_status()
-            orders = r.json()
+            for _page_number in range(ORDER_PAGE_CAP):
+                params = {
+                    "status": status,
+                    "limit": limit,
+                    "direction": "desc",
+                }
+                if before_order_id is not None:
+                    params["before_order_id"] = before_order_id
+                r = await client.get(
+                    f"{self.base_url}/v2/orders",
+                    headers=self.headers(), params=params)
+                r.raise_for_status()
+                page = r.json()
+                if not isinstance(page, list):
+                    raise IncompleteOrderList(
+                        "Alpaca order-list response was not an array; refusing "
+                        "to treat malformed evidence as a complete read")
+                if len(page) > limit:
+                    raise IncompleteOrderList(
+                        f"Alpaca returned {len(page)} orders for page limit "
+                        f"{limit}; response boundaries are not trustworthy")
+
+                page_ids: list[str] = []
+                for item in page:
+                    if not isinstance(item, dict):
+                        raise IncompleteOrderList(
+                            "Alpaca order-list page contained a non-object; "
+                            "refusing a partial administrative read")
+                    order_id = str(item.get("id") or "").strip()
+                    if not order_id:
+                        raise IncompleteOrderList(
+                            "Alpaca order-list page omitted an order id; the "
+                            "next stable cursor and targeted cancellation are "
+                            "not provable")
+                    if order_id in seen_ids:
+                        raise IncompleteOrderList(
+                            f"Alpaca repeated order {order_id} across exclusive "
+                            "cursor pages; pagination did not make progress")
+                    seen_ids.add(order_id)
+                    page_ids.append(order_id)
+                    rows.append(item)
+
+                if len(page) < limit:
+                    break
+                # direction=desc makes the last row the oldest row on this
+                # page. before_order_id is exclusive, so the next response
+                # begins strictly behind this durable broker identity.
+                before_order_id = page_ids[-1]
+            else:
+                raise IncompleteOrderList(
+                    f"Alpaca open-order read reached the fail-closed cap of "
+                    f"{ORDER_PAGE_CAP} full pages ({ORDER_PAGE_CAP * limit} "
+                    "orders); migration cannot conclude that the account is "
+                    "free of older working orders")
+
         out: list[BrokerOrder] = []
-        for o in orders or []:
-            if not isinstance(o, dict):
-                continue
+        for o in rows:
             raw_status = o.get("status", "")
             out.append(
                 BrokerOrder(

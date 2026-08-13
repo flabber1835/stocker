@@ -114,14 +114,28 @@ class TestAPlanIdDeterminesThePlan:
         ("shadow_snapshot_hash", "deadbeef"),
         ("sentinel_transition_hash", "cafef00d"),
         ("strategy_fingerprint", "other-strategy"),
+        ("deployment_id", "replacement-appliance"),
+        ("broker", "other-broker"),
+        ("broker_account_id", "OTHER-ACCOUNT"),
+        ("takeover_epoch", 2),
+        ("publication_fingerprint", "other-publication"),
+        ("account_nav", D("100001.25")),
+        ("account_cash", D("87654.32")),
+        ("cash_residual", D("123.45")),
+        ("unpriced_securities", ("SEC-BLIND",)),
+        ("defensive_security", "SENTINEL:BIL"),
     ])
     def test_every_economic_FIELD_is_covered(self, conn, field, value):
         """Not just the basket. A plan that keeps its holdings and changes its
         exposure from 1.00 to 0.55 is a different intention wearing one name —
         and that direction is a liquidation."""
-        journal.save_plan(conn, a_plan())
+        original = a_plan()
+        changed = a_plan(**{field: value})
+        assert changed.fingerprint() != original.fingerprint(), (
+            f"changing {field} did not move the immutable plan fingerprint")
+        journal.save_plan(conn, original)
         with pytest.raises(journal.PlanEconomicsChanged) as e:
-            journal.save_plan(conn, a_plan(**{field: value}))
+            journal.save_plan(conn, changed)
         assert field in str(e.value)
 
     def test_a_QUANTITY_change_alone_refuses(self, conn):

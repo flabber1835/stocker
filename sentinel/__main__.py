@@ -1,16 +1,17 @@
 """Sentinel's command-line entrypoint.
 
-```bash
-python -m sentinel status          # read the ownership log; touches nothing
-python -m sentinel plan            # observe + print the plan; SUBMITS NOTHING
-python -m sentinel migrate-account # the ONE-TIME administrative handover
-```
+The CLI keeps four authorities visibly separate: read-only inspection,
+paper-plan preparation with durable database writes but no broker mutation, the
+one-time administrative legacy handover, and separately confirmed paper-plan
+execution. The exact activation sequence and command arguments live only in
+`docs/sentinel-paper-activation.md`.
 
-`plan` exists because the first thing Sentinel ever does to a real account is
-liquidate it, and that is a poor moment to discover the account has a position
-nobody expected. It performs exactly the reads the real command performs, runs
-the same pure planner, prints what WOULD happen, and writes nothing — not to the
-broker and not to the ownership log.
+The old JSONL-backed `plan` command is RETIRED and only names its replacements.
+`inspect-paper-account` is the exact inherited-book view, while
+`migration-plan` prints the read-only target delta. It performs no broker read.
+`prepare-paper-plan` is a different
+dry-run boundary: it never mutates the broker, but it intentionally advances
+canonical database state and adopts the latest durable plan.
 
 `establish-ownership` is RETIRED and survives only to refuse and name its
 replacement: it classified an account as a legacy Stocker book whenever a JSONL
@@ -21,10 +22,10 @@ and the binding lives in PostgreSQL beside the state it protects.
 Exit codes are meant for a supervisor:
 
 ```text
-0  the account is Sentinel's and Wealth Core may bootstrap
+0  the requested inspection, preparation, migration, or execution step completed
 1  configuration refused (live endpoint, missing credentials)
-2  the handover did not complete — a human is needed, and Wealth Core has
-   deliberately NOT been started
+2  ownership, readiness, reconciliation, or current-plan authority is not
+   established — a human is needed, and the requested transition did not proceed
 ```
 """
 from __future__ import annotations
@@ -32,23 +33,22 @@ from __future__ import annotations
 import argparse
 import asyncio
 from dataclasses import replace
+from datetime import datetime
 import json
 import logging
 import sys
-from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from sentinel.config import (
     LiveEndpointRefused,
     MissingCredentials,
     SentinelConfig,
     build_broker,
+    build_execution_broker,
 )
-from sentinel.ownership import OwnershipState, plan_startup
-from sentinel.startup import OwnershipNotEstablished, establish_ownership
+from sentinel.startup import OwnershipNotEstablished
 from sentinel.store import (
     FileOwnershipStore,
-    current_state,
-    ownership_established,
 )
 
 EXIT_OK = 0
@@ -62,6 +62,29 @@ def _setup_logging(verbose: bool) -> None:
         format="%(asctime)s %(levelname)-7s %(message)s",
         stream=sys.stdout,
     )
+
+
+def _closed_preview_frontier(conn, *, now_et=None):
+    """Return a visible frontier only when it is the latest closed session."""
+    from sentinel.feed import calendar, readiness
+    from sentinel.feed import store as feed_store
+
+    observation_time = (now_et if now_et is not None else
+                        datetime.now(ZoneInfo(calendar.EXCHANGE_TZ)))
+    result = readiness.check_readiness(
+        conn, today=observation_time.isoformat())
+    if not result.ready:
+        return result, None
+    frontier = feed_store.latest_visible_session(conn)
+    latest_closed = calendar.latest_closed_session(observation_time)
+    if frontier != latest_closed:
+        result.add(
+            "preview close", readiness.FAIL,
+            f"visible frontier {frontier} is not the latest closed XNYS "
+            f"session {latest_closed}; wait for the calendar-defined close "
+            "and publish that session before previewing a migration")
+        return result, None
+    return result, frontier
 
 
 def cmd_status(config: SentinelConfig) -> int:
@@ -106,7 +129,6 @@ async def _migration_plan(config: SentinelConfig, args) -> int:
 
     from sentinel.core.bootstrap import bootstrap
     from sentinel.core.migration import plan_migration
-    from sentinel.feed import readiness
     from sentinel.feed import store as feed_store
     from sentinel.feed.publication import visible_predicate
 
@@ -125,7 +147,7 @@ async def _migration_plan(config: SentinelConfig, args) -> int:
         # the stronger claim to it. `target-book` prints a book; this prints the
         # TAKEOVER, the plan that decides what an existing account sells. It
         # gating less than the read-only command was an inversion.
-        state = readiness.check_readiness(conn)
+        state, frontier = _closed_preview_frontier(conn)
         if not state.ready:
             print("REFUSED: the data contract is not satisfied — run "
                   "`check-data`. A migration planned on it would sell real "
@@ -137,7 +159,6 @@ async def _migration_plan(config: SentinelConfig, args) -> int:
         # THE VISIBLE frontier. `latest_session` is the ingest RESUME point and
         # is deliberately unfiltered; planning against it would mark the book on
         # a session `load_window` refuses to read.
-        frontier = feed_store.latest_visible_session(conn)
         with conn.cursor() as cur:
             cur.execute("SELECT MIN(session) FROM (SELECT DISTINCT session"
                         " FROM sentinel_bars b"
@@ -177,7 +198,6 @@ def cmd_target_book(config: SentinelConfig, args) -> int:
     import json as _json
 
     from sentinel.core.bootstrap import bootstrap
-    from sentinel.feed import readiness
     from sentinel.feed import store as feed_store
 
     if not config.database_url:
@@ -186,7 +206,7 @@ def cmd_target_book(config: SentinelConfig, args) -> int:
     conn = feed_store.connect(config.database_url)
     try:
         feed_store.ensure_schema(conn)
-        state = readiness.check_readiness(conn)
+        state, frontier = _closed_preview_frontier(conn)
         if not state.ready:
             print("REFUSED: the data contract is not satisfied — run "
                   "`check-data`. Planning on it would produce a confident wrong "
@@ -197,7 +217,6 @@ def cmd_target_book(config: SentinelConfig, args) -> int:
 
         from sentinel.feed.publication import visible_predicate
 
-        frontier = feed_store.latest_visible_session(conn)
         with conn.cursor() as cur:
             cur.execute("SELECT MIN(session) FROM (SELECT DISTINCT session"
                         " FROM sentinel_bars b"
@@ -513,48 +532,14 @@ def cmd_feed_status(config: SentinelConfig, limit: int) -> int:
 
 
 async def _plan(config: SentinelConfig) -> int:
-    config.assert_credentials()
-    broker = build_broker(config)
-    store = FileOwnershipStore(config.ownership_log)
-
-    account = await broker.account()
-    observation = await broker.observe()
-    established = ownership_established(store)
-    plan = plan_startup(
-        state=current_state(store),
-        observation=observation,
-        ownership_established=established,
-    )
-
-    print(json.dumps({
-        "dry_run": True,
-        "endpoint": config.endpoint_host,
-        "equity": getattr(account, "equity", None),
-        "cash": getattr(account, "cash", None),
-        "state": current_state(store).value,
-        "ownership_established": established,
-        "observed": {
-            "positions": {t: q for t, q in sorted(observation.positions.items())},
-            "open_orders": [
-                {"id": o.order_id, "ticker": o.ticker, "side": o.side}
-                for o in observation.open_orders
-            ],
-            "is_flat": observation.is_flat(),
-        },
-        "plan": {
-            "next_state": plan.next_state.value,
-            "reason": plan.reason,
-            "would_cancel": list(plan.cancel_order_ids),
-            "would_liquidate": list(plan.liquidate_tickers),
-        },
-    }, indent=2))
-
-    if established and plan.liquidate_tickers:
-        # Unreachable by construction; asserted anyway because this is the one
-        # output a human might act on without reading the rest.
-        print("\nFATAL: an owned book was planned for liquidation", file=sys.stderr)
-        return EXIT_NOT_ESTABLISHED
-    return EXIT_OK
+    """Retained only to turn an old runbook into an explicit refusal."""
+    print(
+        "REFUSED: `sentinel plan` is retired because it derived ownership "
+        "from the obsolete JSONL audit log. Use `inspect-paper-account "
+        "--expect-account <ACCOUNT_ID>` for the inherited book and "
+        "`migration-plan` for its read-only target delta.",
+        file=sys.stderr)
+    return EXIT_CONFIG
 
 
 async def _migrate_account(config: SentinelConfig, args) -> int:
@@ -625,18 +610,28 @@ async def _adopt_restored(config: SentinelConfig, args) -> int:
               "human. See docs/sentinel-execution-contract.md §11.1.",
               file=sys.stderr)
         return EXIT_CONFIG
+    if not args.confirm_paper_account:
+        print("REFUSED: pass --confirm-paper-account with the exact bound "
+              "paper account id. Restored credentials are verified before "
+              "the takeover epoch changes.", file=sys.stderr)
+        return EXIT_CONFIG
+    config.assert_credentials()
 
     conn = feed_store.connect(config.database_url)
     try:
         schema.ensure_schema(conn)
         before = binding_mod.require(conn)
-        after = binding_mod.adopt_restored(conn, notes=args.notes or "")
-        if config.alpaca_key:
-            # Verify AFTER the bump rather than before: the point of adoption is
-            # that this host now speaks for the account, so the check that
-            # matters is whether the account it can actually reach is the bound
-            # one.
-            binding_mod.verify(conn, await build_broker(config).account())
+        account = await build_broker(config).account()
+        raw = getattr(account, "raw", None) or {}
+        account_id = str(
+            raw.get("account_number") or raw.get("id") or "")
+        from sentinel.execution.contract import BrokerAccountIdentity
+        observed = BrokerAccountIdentity(
+            broker="alpaca", account_id=account_id, raw=raw)
+        after = binding_mod.adopt_restored(
+            conn, observed=observed,
+            expected_account=args.confirm_paper_account,
+            notes=args.notes or "")
     except binding_mod.AccountNotBound as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return EXIT_NOT_ESTABLISHED
@@ -651,6 +646,166 @@ async def _adopt_restored(config: SentinelConfig, args) -> int:
                                          after.takeover_epoch],
                       "binding": after.to_dict()}, indent=2))
     return EXIT_OK
+
+
+def _paper_refusal_types() -> tuple[type[BaseException], ...]:
+    """Safety refusals reported as an operator checkpoint, not a traceback."""
+    from sentinel import binding as binding_mod, handover, paper
+    from sentinel.controller import frozen_rule
+    from sentinel.core import catchup
+    from sentinel.execution import alpaca, certification, contract, executor, journal
+    from sentinel.execution import projection
+    from sentinel.feed import calendar, publication
+
+    return (
+        paper.PaperActivationRefused,
+        binding_mod.AccountNotBound,
+        binding_mod.AccountMismatch,
+        handover.MigrationRefused,
+        executor.StalePlanRefused,
+        executor.RiskEnvelopeViolation,
+        journal.WriterLockUnavailable,
+        journal.PlanEconomicsChanged,
+        journal.CommandEconomicsChanged,
+        journal.RecoveredOrderConflict,
+        journal.StoredKeyMismatch,
+        certification.AdapterNotCertified,
+        contract.CapabilityNotCertified,
+        contract.IncompleteObservation,
+        alpaca.MalformedBrokerPayload,
+        alpaca.UnmappedBrokerStatus,
+        projection.ProjectionRefused,
+        catchup.SessionsIncomplete,
+        catchup.StateNotDurable,
+        catchup.NavUnobserved,
+        calendar.CalendarUnavailable,
+        frozen_rule.FrozenRuleMissing,
+        frozen_rule.FrozenRuleTampered,
+        publication.CorpusBusy,
+        publication.CorpusIncoherent,
+        publication.NoPublishedVersion,
+        ValueError,
+    )
+
+
+def _paper_refused(exc: BaseException) -> int:
+    print(f"REFUSED: {exc}", file=sys.stderr)
+    return EXIT_NOT_ESTABLISHED
+
+
+async def _inspect_paper_account(config: SentinelConfig, args) -> int:
+    """Print the exact inherited paper book; expose no mutation operation."""
+    from sentinel import paper
+    from sentinel.feed import calendar, store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+
+    conn = feed_store.connect(config.database_url)
+    try:
+        # Inspection is read-only in PostgreSQL as well as at the broker. The
+        # feed/migration prerequisites create the schema; this command only
+        # reads the permanent-identity map and canonical binding.
+        as_of = datetime.now(ZoneInfo(calendar.EXCHANGE_TZ)).date().isoformat()
+        resolve_security_id = paper.build_security_resolver(conn, as_of)
+        broker = build_execution_broker(
+            config, resolve_security_id=resolve_security_id)
+        result = await paper.inspect_paper_account(
+            conn=conn, broker=broker, base_url=config.base_url,
+            expected_account=args.expect_account)
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        conn.close()
+
+    print(json.dumps(result.to_dict(), indent=2, default=str))
+    return EXIT_OK
+
+
+async def _prepare_paper_plan(config: SentinelConfig, args) -> int:
+    """Prepare and adopt the current durable plan; never mutate the broker."""
+    from sentinel import paper, schema
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+
+    conn = feed_store.connect(config.database_url)
+    try:
+        feed_store.ensure_schema(conn)
+        schema.ensure_schema(conn)
+        resolve_security_id = paper.build_security_resolver(conn, args.through)
+        broker = build_execution_broker(
+            config, resolve_security_id=resolve_security_id)
+        result = await paper.prepare_paper_plan(
+            conn=conn, broker=broker, base_url=config.base_url,
+            through=args.through, expected_account=args.expect_account,
+            warmup_sessions=args.warmup_sessions)
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        conn.close()
+
+    print(json.dumps(result.to_dict(), indent=2, default=str))
+    return EXIT_OK
+
+
+async def _current_paper_plan(config: SentinelConfig) -> int:
+    """Print the durable current plan without constructing a broker client."""
+    from sentinel import paper, schema
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+
+    conn = feed_store.connect(config.database_url)
+    try:
+        feed_store.ensure_schema(conn)
+        schema.ensure_schema(conn)
+        result = paper.current_paper_plan(conn)
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        conn.close()
+
+    print(json.dumps(result, indent=2, default=str))
+    return (EXIT_OK if result.get("database_authorities_match", True)
+            else EXIT_NOT_ESTABLISHED)
+
+
+async def _execute_paper_plan(config: SentinelConfig, args) -> int:
+    """Execute only the durable current plan after explicit paper confirmation."""
+    from sentinel import paper, schema
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+
+    conn = feed_store.connect(config.database_url)
+    try:
+        feed_store.ensure_schema(conn)
+        schema.ensure_schema(conn)
+        resolve_security_id = paper.build_security_resolver(
+            conn, args.confirm_effective_session)
+        broker = build_execution_broker(
+            config, resolve_security_id=resolve_security_id)
+        result = await paper.execute_paper_plan(
+            conn=conn, broker=broker, base_url=config.base_url,
+            confirm_account=args.confirm_paper_account,
+            confirm_plan_id=args.confirm_plan_id,
+            confirm_effective_session=args.confirm_effective_session,
+            confirm_submit=args.confirm_submit_paper_orders)
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        conn.close()
+
+    print(json.dumps(result.to_dict(), indent=2, default=str))
+    return EXIT_NOT_ESTABLISHED if result.needs_attention else EXIT_OK
 
 
 async def _establish(config: SentinelConfig) -> int:
@@ -676,7 +831,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="sentinel", description=__doc__)
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("status", help="print the ownership log; touches nothing")
+    sub.add_parser(
+        "status", help="print canonical binding and audit status; no broker")
     fs = sub.add_parser("feed-status", help="ingest progress, readable MID-RUN")
     fs.add_argument("--limit", type=int, default=5)
     sd = sub.add_parser("feed-seed", help="load the full Sharadar history (hours)")
@@ -733,7 +889,28 @@ def main(argv: list[str] | None = None) -> int:
     idp.add_argument("--require-certified", action="store_true",
                      help="exit non-zero unless the interpreter and every "
                           "dependency pin are the certified ones")
-    sub.add_parser("plan", help="observe and print the plan; submits nothing")
+    sub.add_parser("plan", help="retired; refuses and names safe replacements")
+    inspect = sub.add_parser(
+        "inspect-paper-account",
+        help="read the exact named paper account and inherited open book")
+    inspect.add_argument("--expect-account", required=True)
+    prep = sub.add_parser(
+        "prepare-paper-plan",
+        help="advance state and adopt one durable current paper plan; dry run")
+    prep.add_argument("--through", required=True)
+    prep.add_argument("--warmup-sessions", type=int, default=252)
+    prep.add_argument("--expect-account", required=True)
+    sub.add_parser(
+        "current-paper-plan",
+        help="inspect the durable current paper plan; contacts no broker")
+    execute = sub.add_parser(
+        "execute-paper-plan",
+        help="submit only the confirmed durable current plan to Alpaca paper")
+    execute.add_argument("--confirm-paper-account", required=True)
+    execute.add_argument("--confirm-plan-id", required=True)
+    execute.add_argument("--confirm-effective-session", required=True)
+    execute.add_argument(
+        "--confirm-submit-paper-orders", action="store_true", required=True)
     mig = sub.add_parser("migrate-account",
                          help="ONE-TIME administrative handover: remove the "
                               "legacy book and BIND this account")
@@ -741,7 +918,7 @@ def main(argv: list[str] | None = None) -> int:
                      help="stable identity for this appliance; it is hashed "
                           "into every command key, so changing it later "
                           "orphans in-flight commands")
-    mig.add_argument("--expect-account", default=None,
+    mig.add_argument("--expect-account", required=True,
                      help="refuse unless the broker reports this account id")
     mig.add_argument("--notes", default=None)
     mig.add_argument("--max-cycles", type=int, default=None)
@@ -750,6 +927,7 @@ def main(argv: list[str] | None = None) -> int:
                          help="increment the takeover epoch on a REPLACEMENT "
                               "host (revoke the old credentials FIRST)")
     ado.add_argument("--confirm-old-credentials-revoked", action="store_true")
+    ado.add_argument("--confirm-paper-account", default=None)
     ado.add_argument("--notes", default=None)
     est = sub.add_parser("establish-ownership",
                          help="RETIRED — use migrate-account")
@@ -793,12 +971,20 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(_migration_plan(config, args))
         if args.command == "plan":
             return asyncio.run(_plan(config))
+        if args.command == "inspect-paper-account":
+            return asyncio.run(_inspect_paper_account(config, args))
+        if args.command == "prepare-paper-plan":
+            return asyncio.run(_prepare_paper_plan(config, args))
+        if args.command == "current-paper-plan":
+            return asyncio.run(_current_paper_plan(config))
+        if args.command == "execute-paper-plan":
+            return asyncio.run(_execute_paper_plan(config, args))
         if args.command == "migrate-account":
             return asyncio.run(_migrate_account(config, args))
         if args.command == "adopt-restored-account":
             return asyncio.run(_adopt_restored(config, args))
         return asyncio.run(_establish(config))
-    except MissingCredentials as exc:
+    except (LiveEndpointRefused, MissingCredentials) as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return EXIT_CONFIG
 

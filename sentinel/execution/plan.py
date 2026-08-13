@@ -37,11 +37,27 @@ class ExecutionPlan:
     shadow_snapshot_hash: str = ""
     sentinel_transition_hash: str = ""
     strategy_fingerprint: str = ""
+    deployment_id: str = ""
+    broker: str = ""
+    broker_account_id: str = ""
+    takeover_epoch: int = 0
+    publication_fingerprint: str = ""
+    account_nav: Decimal = Decimal(0)
+    account_cash: Decimal = Decimal(0)
+    cash_residual: Decimal = Decimal(0)
+    unpriced_securities: tuple[str, ...] = ()
+    defensive_security: Optional[str] = None
     superseded_by: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.target_exposure, Decimal):
             raise TypeError("target_exposure must be Decimal")
+        if not isinstance(self.account_nav, Decimal):
+            raise TypeError("account_nav must be Decimal")
+        if not isinstance(self.account_cash, Decimal):
+            raise TypeError("account_cash must be Decimal")
+        if not isinstance(self.cash_residual, Decimal):
+            raise TypeError("cash_residual must be Decimal")
         for security_id, qty in self.target_basket.items():
             if not isinstance(qty, Decimal):
                 raise TypeError(
@@ -71,6 +87,16 @@ class ExecutionPlan:
             "shadow_snapshot_hash": self.shadow_snapshot_hash,
             "sentinel_transition_hash": self.sentinel_transition_hash,
             "strategy_fingerprint": self.strategy_fingerprint,
+            "deployment_id": self.deployment_id,
+            "broker": self.broker,
+            "broker_account_id": self.broker_account_id,
+            "takeover_epoch": self.takeover_epoch,
+            "publication_fingerprint": self.publication_fingerprint,
+            "account_nav": str(self.account_nav),
+            "account_cash": str(self.account_cash),
+            "cash_residual": str(self.cash_residual),
+            "unpriced_securities": sorted(self.unpriced_securities),
+            "defensive_security": self.defensive_security,
         }
         blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
@@ -84,6 +110,21 @@ class ExecutionPlan:
             "target_basket": {k: str(v)
                               for k, v in sorted(self.target_basket.items())},
             "data_version": self.data_version,
+            "shadow_snapshot_hash": self.shadow_snapshot_hash,
+            "sentinel_transition_hash": self.sentinel_transition_hash,
+            "strategy_fingerprint": self.strategy_fingerprint,
+            "deployment": {
+                "deployment_id": self.deployment_id,
+                "broker": self.broker,
+                "broker_account_id": self.broker_account_id,
+                "takeover_epoch": self.takeover_epoch,
+            },
+            "publication_fingerprint": self.publication_fingerprint,
+            "account_nav": str(self.account_nav),
+            "account_cash": str(self.account_cash),
+            "cash_residual": str(self.cash_residual),
+            "unpriced_securities": sorted(self.unpriced_securities),
+            "defensive_security": self.defensive_security,
             "fingerprint": self.fingerprint(),
             "superseded_by": self.superseded_by,
         }

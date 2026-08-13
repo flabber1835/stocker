@@ -33,7 +33,7 @@ nothing above this module may branch on it.
 from __future__ import annotations
 
 import abc
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -50,11 +50,10 @@ class Side(str, Enum):
 class Completeness(str, Enum):
     """How much of the truth this observation is claiming to be.
 
-    The distinction is not pedantry. `AlpacaBrokerAdapter.list_orders` issues one
-    GET with `limit=500, direction=desc` and no pagination, so a busy account
-    silently drops the OLDEST orders — precisely the stale resting ones that
-    matter most — and the caller could not tell. A read that may be short must
-    say so, or every conclusion drawn from it inherits an unstated assumption.
+    The distinction is not pedantry. The Alpaca adapter pages the complete open
+    set with a stable exclusive cursor and reports the cap rather than silently
+    dropping an order. Terminal evidence for a durable nonterminal command is
+    fetched by exact key; lifetime history is not part of open completeness.
     """
 
     COMPLETE = "COMPLETE"
@@ -118,6 +117,36 @@ class BrokerAccountIdentity:
 
 
 @dataclass(frozen=True)
+class BrokerAccountSnapshot:
+    """Typed sizing facts from the account endpoint.
+
+    The vendor payload remains available on ``identity.raw`` for audit, but no
+    production projection branches on it. Equity and cash cross the broker
+    membrane as Decimal so the final share arithmetic never round-trips through
+    binary floating point.
+    """
+
+    identity: BrokerAccountIdentity
+    equity: Decimal
+    cash: Decimal
+    buying_power: Optional[Decimal] = None
+    multiplier: Optional[Decimal] = None
+    status: str = ""
+    trading_blocked: bool = False
+    account_blocked: bool = False
+    trade_suspended_by_user: bool = False
+
+    def __post_init__(self) -> None:
+        _require_decimal("BrokerAccountSnapshot.equity", self.equity)
+        _require_decimal("BrokerAccountSnapshot.cash", self.cash)
+        if self.buying_power is not None:
+            _require_decimal(
+                "BrokerAccountSnapshot.buying_power", self.buying_power)
+        if self.multiplier is not None:
+            _require_decimal("BrokerAccountSnapshot.multiplier", self.multiplier)
+
+
+@dataclass(frozen=True)
 class BrokerInstrument:
     """A security as the broker knows it.
 
@@ -171,11 +200,37 @@ class BrokerOrder:
     state: CommandState
     quantity: Decimal
     filled_quantity: Decimal = Decimal(0)
+    filled_average_price: Optional[Decimal] = None
+    submitted_at: Optional[datetime] = None
     raw: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         _require_decimal("BrokerOrder.quantity", self.quantity)
         _require_decimal("BrokerOrder.filled_quantity", self.filled_quantity)
+        if not self.quantity.is_finite() or self.quantity <= 0:
+            raise ValueError("BrokerOrder.quantity must be finite and positive")
+        if (not self.filled_quantity.is_finite()
+                or self.filled_quantity < 0
+                or self.filled_quantity > self.quantity):
+            raise ValueError(
+                "BrokerOrder.filled_quantity must be finite and between zero "
+                "and quantity")
+        if self.filled_average_price is not None:
+            _require_decimal(
+                "BrokerOrder.filled_average_price", self.filled_average_price)
+            if (not self.filled_average_price.is_finite()
+                    or self.filled_average_price <= 0):
+                raise ValueError(
+                    "BrokerOrder.filled_average_price must be finite and positive")
+        if self.filled_quantity > 0 and self.filled_average_price is None:
+            raise ValueError(
+                "BrokerOrder with a positive fill requires filled_average_price")
+        if (self.state is CommandState.FILLED
+                and self.filled_quantity != self.quantity):
+            raise ValueError(
+                "BrokerOrder in FILLED state must report its full quantity")
+        if self.submitted_at is not None and self.submitted_at.tzinfo is None:
+            raise ValueError("BrokerOrder.submitted_at must be timezone-aware")
 
     @property
     def remaining(self) -> Decimal:
@@ -212,6 +267,33 @@ class BrokerObservation:
     orders: tuple = ()
     positions: tuple = ()
     completeness: Completeness = Completeness.COMPLETE
+    #: Upper submission-time boundary of a complete closed-order recovery read.
+    #: This is NOT ``observed_at`` and is never inferred from an audit row. The
+    #: reconciler may durably advance its processed watermark to this value only
+    #: after every discovered Sentinel order has been adopted/synchronized.
+    terminal_recovery_through: Optional[datetime] = None
+
+    def __post_init__(self) -> None:
+        if (self.terminal_recovery_through is not None
+                and self.terminal_recovery_through.tzinfo is None):
+            raise ValueError(
+                "BrokerObservation.terminal_recovery_through must be timezone-aware")
+        order_ids: set[str] = set()
+        client_keys: dict[str, str] = {}
+        for order in self.orders:
+            if order.broker_order_id in order_ids:
+                raise ValueError(
+                    f"BrokerObservation repeats broker order id "
+                    f"{order.broker_order_id}")
+            order_ids.add(order.broker_order_id)
+            if not order.client_key:
+                continue
+            prior = client_keys.get(order.client_key)
+            if prior is not None and prior != order.broker_order_id:
+                raise ValueError(
+                    f"BrokerObservation maps client key {order.client_key} to "
+                    f"multiple broker ids ({prior}, {order.broker_order_id})")
+            client_keys[order.client_key] = order.broker_order_id
 
     @property
     def is_complete(self) -> bool:
@@ -298,9 +380,48 @@ class ExecutionBroker(abc.ABC):
     async def identify_account(self) -> BrokerAccountIdentity:
         """Who are we actually connected to? Checked against the binding."""
 
+    async def account_snapshot(self) -> BrokerAccountSnapshot:
+        """Typed account NAV/cash for production projection.
+
+        Optional for legacy test adapters that never size a production plan;
+        preparation requires it and fails closed when an adapter does not
+        implement it.
+        """
+        raise NotImplementedError("this execution adapter has no typed account snapshot")
+
+    async def resolve_instrument(self, *, security_id: str,
+                                 symbol: str) -> BrokerInstrument:
+        """Resolve one permanent identity to a broker-native asset.
+
+        Production execution requires this for a desired security not already
+        present in an observation. A symbol alone is not proof of instrument
+        identity, so adapters claiming ``instrument_identity`` must return the
+        broker's stable asset id and verify that the symbol maps back to the
+        requested permanent security.
+        """
+        raise NotImplementedError(
+            "this execution adapter cannot resolve broker instruments")
+
     @abc.abstractmethod
     async def observe(self) -> BrokerObservation:
         """Orders then positions, with completeness declared."""
+
+    async def observe_with_terminal_recovery(
+            self, *, submitted_after: datetime,
+            processed_through: datetime) -> BrokerObservation:
+        """Observe plus broker-only terminal history after a durable floor.
+
+        The default preserves simulator/custom-test compatibility: adapters
+        whose ordinary observation already contains terminal orders can stamp
+        that complete read through its observation time. Production Alpaca
+        overrides this method with bounded closed-order pagination.
+        """
+        del submitted_after
+        observation = await self.observe()
+        return replace(
+            observation,
+            terminal_recovery_through=max(
+                observation.observed_at, processed_through))
 
     @abc.abstractmethod
     async def find_by_client_key(self, client_key: str) -> Optional[BrokerOrder]:

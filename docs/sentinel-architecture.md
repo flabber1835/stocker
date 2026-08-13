@@ -1,7 +1,11 @@
 # Sentinel — architecture and build plan
 
-**Status: DESIGN ONLY for the STRATEGY layer. Nothing in §§1-12 about the
-controller, the shadow or `run_until` is implemented.**
+**Status: IMPLEMENTED, NOT ACTIVATED.** The canonical Wealth Core shadow,
+frozen exposure controller, version-3 production `SessionState`, daily
+transition, and paper-plan decision adapter now exist. The separately
+authorized paper execution path is implemented and simulator-tested; no
+migration, broker submission, deployment, scheduler, or activation is implied
+by this document.
 
 > **THE EXECUTION LAYER BELOW "execution projection" IS NOW BUILT**, and its
 > rules live in `docs/sentinel-execution-contract.md` — command identity, the
@@ -726,6 +730,14 @@ Sentinel does not pretend it could have exited at the decision close.
 Transaction costs are charged only on changed notional. The defensive sleeve is
 BIL / short-duration Treasury total return, and the research replay must use the
 frozen proxy consistently.
+
+For the production share projection, the BIL sleeve is exactly the controller
+allocation `(1 - target_core_exposure) * NAV`. Wealth Core cash inside the Core
+allocation and whole-share rounding residual remain cash; they are not silently
+swept into BIL. Current BIL identity/price comes from the pinned production
+corpus, and an unavailable mark preserves any held/committed BIL quantity while
+leaving the unsized sleeve in cash. The full preparation/execution boundary is
+recorded in `docs/sentinel-paper-activation.md`.
 
 ### Sentinel event-memory state (mandatory in the snapshot, fail closed)
 

@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -127,10 +127,13 @@ def alpaca(routes, **kw):
 
 
 def order_payload(oid="o-1", status="new", qty="10", filled="0",
-                  key="sntl-abc", symbol="AAA"):
+                  key=None, symbol="AAA",
+                  submitted_at="2026-08-11T14:00:00Z"):
+    key = f"sntl-{oid}" if key is None else key
     return {"id": oid, "client_order_id": key, "symbol": symbol, "side": "buy",
             "status": status, "qty": qty, "filled_qty": filled,
-            "submitted_at": "2026-08-11T14:00:00Z", "asset_id": "asset-1"}
+            "filled_avg_price": "100" if D(filled) else None,
+            "submitted_at": submitted_at, "asset_id": "asset-1"}
 
 
 class TestAlpacaStatusMapping:
@@ -170,6 +173,49 @@ class TestAlpacaObservation:
                             "/v2/positions": []})
         assert run(broker.observe()).completeness is Completeness.COMPLETE
 
+    @pytest.mark.parametrize("payload", [
+        {"orders": []},
+        [order_payload(), "not-an-order"],
+        [{**order_payload(), "id": ""}],
+    ], ids=["non-array", "non-object-row", "missing-id"])
+    def test_malformed_open_order_pages_never_look_complete(self, payload):
+        broker, _ = alpaca({"/v2/orders": payload, "/v2/positions": []})
+
+        with pytest.raises(A.MalformedBrokerPayload):
+            run(broker.observe())
+
+    @pytest.mark.parametrize("payload", [
+        {"positions": []},
+        ["not-a-position"],
+    ], ids=["non-array", "non-object-row"])
+    def test_malformed_position_collections_never_look_flat(self, payload):
+        broker, _ = alpaca({"/v2/orders": [], "/v2/positions": payload})
+
+        with pytest.raises(A.MalformedBrokerPayload):
+            run(broker.observe())
+
+    def test_duplicate_order_id_across_cursor_pages_fails_closed(
+            self, monkeypatch):
+        monkeypatch.setattr(A, "PAGE_SIZE", 2)
+
+        def pages(params):
+            if params.get("before_order_id") == "o-2":
+                return [order_payload(oid="o-2"), order_payload(oid="o-1")]
+            return [order_payload(oid="o-3"), order_payload(oid="o-2")]
+
+        broker, _ = alpaca({"/v2/orders": pages, "/v2/positions": []})
+
+        with pytest.raises(A.MalformedBrokerPayload, match="repeated broker id"):
+            run(broker.observe())
+
+    def test_duplicate_permanent_position_identity_fails_closed(self):
+        duplicate = {"symbol": "AAA", "asset_id": "asset-aaa", "qty": "1"}
+        broker, _ = alpaca({
+            "/v2/orders": [], "/v2/positions": [duplicate, duplicate]})
+
+        with pytest.raises(A.MalformedBrokerPayload, match="repeats permanent"):
+            run(broker.observe())
+
     def test_a_fill_between_the_reads_is_INCONSISTENT(self):
         state = {"n": 0}
 
@@ -182,14 +228,275 @@ class TestAlpacaObservation:
         broker, _ = alpaca({"/v2/orders": orders, "/v2/positions": []})
         assert run(broker.observe()).completeness is Completeness.INCONSISTENT
 
-    def test_hitting_the_page_cap_reports_TRUNCATED_not_COMPLETE(self):
+    def test_hitting_the_page_cap_reports_TRUNCATED_not_COMPLETE(
+            self, monkeypatch):
         """The Stocker adapter issued ONE unpaginated GET with limit=500 and
         direction=desc, so a busy account silently lost its OLDEST orders —
         exactly the stale resting ones that matter."""
-        from sentinel.execution import alpaca as mod
-        full_page = [order_payload(oid=f"o-{i}") for i in range(mod.PAGE_SIZE)]
-        broker, _ = alpaca({"/v2/orders": full_page, "/v2/positions": []})
+        monkeypatch.setattr(A, "PAGE_SIZE", 2)
+        monkeypatch.setattr(A, "MAX_PAGES", 2)
+        state = {"page": 0}
+
+        def unique_full_pages(_params):
+            page = state["page"]
+            state["page"] += 1
+            return [order_payload(oid=f"page-{page}-order-{offset}")
+                    for offset in range(A.PAGE_SIZE)]
+
+        broker, _ = alpaca({
+            "/v2/orders": unique_full_pages, "/v2/positions": []})
         assert run(broker.observe()).completeness is Completeness.TRUNCATED
+
+    def test_timestamp_ties_page_by_stable_order_id_without_skipping(self):
+        """An exclusive timestamp cursor loses same-timestamp boundary rows."""
+        first = [order_payload(oid=f"o-{i}") for i in range(A.PAGE_SIZE)]
+        extra = order_payload(oid="o-tied-older")
+        seen = []
+
+        def pages(params):
+            seen.append(dict(params))
+            if params.get("before_order_id") == first[-1]["id"]:
+                return [extra]
+            return first
+
+        broker, _ = alpaca({"/v2/orders": pages, "/v2/positions": []})
+
+        observation = run(broker.observe())
+
+        assert observation.completeness is Completeness.COMPLETE
+        assert any(p.get("before_order_id") == first[-1]["id"] for p in seen)
+        assert all("until" not in p for p in seen)
+
+    def test_closed_recovery_uses_only_id_cursor_and_keeps_floor_ties(
+            self, monkeypatch):
+        monkeypatch.setattr(A, "PAGE_SIZE", 2)
+        floor = datetime(2026, 8, 11, 14, tzinfo=timezone.utc)
+        seen = []
+
+        first = [
+            order_payload(oid="closed-new", status="filled", filled="10",
+                          submitted_at="2026-08-11T15:00:00Z"),
+            order_payload(oid="closed-floor-a", status="filled", filled="10",
+                          submitted_at="2026-08-11T14:00:00Z"),
+        ]
+        second = [
+            order_payload(oid="closed-floor-b", status="filled", filled="10",
+                          submitted_at="2026-08-11T14:00:00Z"),
+            order_payload(oid="closed-old", status="filled", filled="10",
+                          submitted_at="2026-08-11T13:59:59Z"),
+        ]
+
+        def orders(params):
+            seen.append(dict(params))
+            if params["status"] == "open":
+                return []
+            if params.get("before_order_id") == "closed-floor-a":
+                return second
+            return first
+
+        broker, _ = alpaca({"/v2/orders": orders, "/v2/positions": []})
+        observation = run(broker.observe_with_terminal_recovery(
+            submitted_after=floor,
+            processed_through=floor))
+
+        assert observation.completeness is Completeness.COMPLETE
+        assert {o.broker_order_id for o in observation.orders} == {
+            "closed-new", "closed-floor-a", "closed-floor-b"}
+        closed_params = [p for p in seen if p["status"] == "closed"]
+        assert any(p.get("before_order_id") == "closed-floor-a"
+                   for p in closed_params)
+        assert all("after" not in p and "until" not in p
+                   and "after_order_id" not in p for p in closed_params)
+
+    def test_large_pre_floor_terminal_archive_is_not_a_completeness_dependency(
+            self):
+        floor = datetime(2026, 8, 11, 14, tzinfo=timezone.utc)
+        seen = []
+
+        def orders(params):
+            seen.append(dict(params))
+            if params["status"] == "open":
+                return []
+            # Stands for the newest page of an archive with >10,000 older rows.
+            # Descending timestamps prove every unreturned row is older still.
+            return [order_payload(
+                oid=f"old-{i}", status="filled", filled="10",
+                submitted_at="2026-08-10T12:00:00Z")
+                    for i in range(A.PAGE_SIZE)]
+
+        broker, _ = alpaca({"/v2/orders": orders, "/v2/positions": []})
+        observation = run(broker.observe_with_terminal_recovery(
+            submitted_after=floor,
+            processed_through=floor))
+
+        assert observation.completeness is Completeness.COMPLETE
+        assert observation.orders == ()
+        assert len([p for p in seen if p["status"] == "closed"]) == 2
+
+    def test_closed_recovery_cap_before_floor_is_TRUNCATED(
+            self, monkeypatch):
+        monkeypatch.setattr(A, "PAGE_SIZE", 2)
+        monkeypatch.setattr(A, "MAX_PAGES", 2)
+        floor = datetime(2026, 8, 11, 14, tzinfo=timezone.utc)
+
+        def orders(params):
+            if params["status"] == "open":
+                return []
+            cursor = params.get("before_order_id") or "start"
+            return [order_payload(
+                oid=f"{cursor}-{i}", status="filled", filled="10",
+                submitted_at="2026-08-11T15:00:00Z") for i in range(2)]
+
+        broker, _ = alpaca({"/v2/orders": orders, "/v2/positions": []})
+        observation = run(broker.observe_with_terminal_recovery(
+            submitted_after=floor,
+            processed_through=floor))
+
+        assert observation.completeness is Completeness.TRUNCATED
+
+    @pytest.mark.parametrize("submitted", [None, "not-a-time",
+                                             "2026-08-11T14:00:00"])
+    def test_closed_recovery_requires_aware_submission_times(self, submitted):
+        floor = datetime(2026, 8, 11, 14, tzinfo=timezone.utc)
+
+        def orders(params):
+            if params["status"] == "open":
+                return []
+            return [order_payload(
+                oid="malformed-time", status="filled", filled="10",
+                submitted_at=submitted)]
+
+        broker, _ = alpaca({"/v2/orders": orders, "/v2/positions": []})
+        with pytest.raises(A.MalformedBrokerPayload, match="timezone-aware"):
+            run(broker.observe_with_terminal_recovery(
+                submitted_after=floor,
+                processed_through=floor))
+
+    def test_closed_recovery_refuses_non_descending_submission_time(self,
+                                                                    monkeypatch):
+        monkeypatch.setattr(A, "PAGE_SIZE", 2)
+        floor = datetime(2026, 8, 11, 14, tzinfo=timezone.utc)
+
+        def orders(params):
+            if params["status"] == "open":
+                return []
+            return [
+                order_payload(oid="older-first", status="filled", filled="10",
+                              submitted_at="2026-08-11T14:01:00Z"),
+                order_payload(oid="newer-second", status="filled", filled="10",
+                              submitted_at="2026-08-11T14:02:00Z"),
+            ]
+
+        broker, _ = alpaca({"/v2/orders": orders, "/v2/positions": []})
+        with pytest.raises(A.MalformedBrokerPayload, match="not descending"):
+            run(broker.observe_with_terminal_recovery(
+                submitted_after=floor,
+                processed_through=floor))
+
+    def test_rows_newer_than_captured_upper_replay_next_run(self, monkeypatch):
+        class FrozenDateTime(datetime):
+            current = datetime(2026, 8, 11, 15, tzinfo=timezone.utc)
+
+            @classmethod
+            def now(cls, tz=None):
+                return cls.current.astimezone(tz) if tz else cls.current
+
+        monkeypatch.setattr(A, "datetime", FrozenDateTime)
+        checkpoint = datetime(2026, 8, 11, 14, tzinfo=timezone.utc)
+
+        def orders(params):
+            if params["status"] == "open":
+                return []
+            return [
+                order_payload(oid="future", status="filled", filled="10",
+                              submitted_at="2026-08-11T15:01:00Z"),
+                order_payload(oid="inside", status="filled", filled="10",
+                              submitted_at="2026-08-11T14:30:00Z"),
+                order_payload(oid="old", status="filled", filled="10",
+                              submitted_at="2026-08-11T13:00:00Z"),
+            ]
+
+        broker, _ = alpaca({"/v2/orders": orders, "/v2/positions": []})
+        first = run(broker.observe_with_terminal_recovery(
+            submitted_after=checkpoint - timedelta(minutes=5),
+            processed_through=checkpoint))
+        assert {o.broker_order_id for o in first.orders} == {"inside"}
+        assert first.terminal_recovery_through == FrozenDateTime.current
+
+        FrozenDateTime.current = datetime(
+            2026, 8, 11, 15, 2, tzinfo=timezone.utc)
+        second = run(broker.observe_with_terminal_recovery(
+            submitted_after=checkpoint - timedelta(minutes=5),
+            processed_through=checkpoint))
+        assert {o.broker_order_id for o in second.orders} == {
+            "future", "inside"}
+
+    def test_future_processed_watermark_refuses_before_broker_read(
+            self, monkeypatch):
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                value = datetime(2026, 8, 11, 15, tzinfo=timezone.utc)
+                return value.astimezone(tz) if tz else value
+
+        monkeypatch.setattr(A, "datetime", FrozenDateTime)
+        checkpoint = datetime(2026, 8, 11, 16, tzinfo=timezone.utc)
+        broker, http = alpaca({"/v2/orders": [], "/v2/positions": []})
+
+        with pytest.raises(A.MalformedBrokerPayload, match="behind"):
+            run(broker.observe_with_terminal_recovery(
+                submitted_after=checkpoint - timedelta(minutes=5),
+                processed_through=checkpoint))
+        assert http.calls == []
+
+    def test_more_than_10000_terminal_orders_do_not_truncate_open_truth(self):
+        """Account age is not an open-order completeness dependency."""
+        seen = []
+
+        def orders(params):
+            seen.append(dict(params))
+            # A status=all implementation would face an inherited archive well
+            # beyond MAX_PAGES. The certified query asks only the bounded-open
+            # question and therefore receives the complete empty answer.
+            if params.get("status") == "all":
+                return [order_payload(oid=f"historical-{i}", status="filled",
+                                      filled="10")
+                        for i in range(A.PAGE_SIZE)]
+            return []
+
+        broker, _ = alpaca({"/v2/orders": orders, "/v2/positions": []})
+
+        observation = run(broker.observe())
+
+        assert observation.completeness is Completeness.COMPLETE
+        assert observation.orders == ()
+        assert len(seen) == 2
+        assert all(params["status"] == "open" for params in seen)
+
+    def test_historical_orders_resolve_identity_at_submission_date(self):
+        seen = []
+
+        def resolve(symbol, as_of=None):
+            seen.append((symbol, as_of))
+            return "SEC-HISTORICAL-AAA"
+
+        http = FakeHttpx({
+            "/v2/orders": [order_payload()],
+            "/v2/positions": [],
+        })
+        broker = AlpacaExecutionBroker(
+            api_key="k", secret_key="s",
+            base_url="https://paper-api.alpaca.markets",
+            resolve_security_id=resolve,
+            http_provider=lambda: http)
+
+        observation = run(broker.observe())
+
+        assert observation.completeness is Completeness.COMPLETE
+        assert seen
+        assert set(seen) == {("AAA", "2026-08-11")}
+        assert observation.orders[0].instrument.security_id \
+            == "SEC-HISTORICAL-AAA"
 
     def test_positions_carry_DECIMAL_quantities_from_the_wire_string(self):
         broker, _ = alpaca({
@@ -200,6 +507,113 @@ class TestAlpacaObservation:
         assert observation.positions[0].quantity == Decimal("0.1"), (
             "via Decimal(str), not Decimal(float) — the difference is what "
             "makes an exact-quantity exit fail for over-sell by 1e-17")
+
+
+class TestAlpacaAccountSnapshot:
+    def test_account_payload_must_be_an_object(self):
+        broker, _ = alpaca({"/v2/account": []})
+
+        with pytest.raises(A.MalformedBrokerPayload, match="must be an object"):
+            run(broker.account_snapshot())
+
+    def test_cash_only_authorities_cross_as_decimal(self):
+        broker, _ = alpaca({
+            "/v2/account": {
+                "account_number": "PA-PAPER",
+                "equity": "1001.25",
+                "cash": "900.10",
+                "buying_power": "900.10",
+                "multiplier": "1",
+                "status": "ACTIVE",
+                "trading_blocked": False,
+                "account_blocked": False,
+                "trade_suspended_by_user": False,
+            }})
+
+        snapshot = run(broker.account_snapshot())
+
+        assert snapshot.equity == D("1001.25")
+        assert snapshot.cash == snapshot.buying_power == D("900.10")
+        assert snapshot.multiplier == D(1)
+        assert snapshot.status == "ACTIVE"
+        assert not snapshot.trading_blocked
+        assert not snapshot.account_blocked
+        assert not snapshot.trade_suspended_by_user
+
+    @pytest.mark.parametrize(
+        ("flag", "value"),
+        [
+            pytest.param("trading_blocked", None, id="missing-trading"),
+            pytest.param("account_blocked", "false", id="string-account"),
+            pytest.param("trade_suspended_by_user", 0, id="numeric-suspended"),
+        ])
+    def test_availability_flags_must_be_explicit_booleans(self, flag, value):
+        payload = {
+            "account_number": "PA-PAPER",
+            "equity": "1001.25",
+            "cash": "900.10",
+            "buying_power": "900.10",
+            "multiplier": "1",
+            "status": "ACTIVE",
+            "trading_blocked": False,
+            "account_blocked": False,
+            "trade_suspended_by_user": False,
+        }
+        if value is None:
+            payload.pop(flag)
+        else:
+            payload[flag] = value
+        broker, _ = alpaca({"/v2/account": payload})
+
+        with pytest.raises(A.MalformedBrokerPayload, match=flag):
+            run(broker.account_snapshot())
+
+
+class TestAlpacaInstrumentResolution:
+    def test_asset_payload_must_be_an_object(self):
+        broker, _ = alpaca({"/v2/assets/AAA": []})
+
+        with pytest.raises(A.MalformedBrokerPayload, match="must return an object"):
+            run(broker.resolve_instrument(
+                security_id="SEC-AAA", symbol="AAA"))
+
+    def test_a_desired_symbol_is_resolved_to_a_stable_asset_id(self):
+        broker, http = alpaca({
+            "/v2/assets/AAA": {
+                "id": "asset-aaa", "symbol": "AAA", "status": "active",
+                "tradable": True,
+            }})
+
+        instrument = run(broker.resolve_instrument(
+            security_id="SEC-AAA", symbol="AAA"))
+
+        assert instrument == BrokerInstrument(
+            security_id="SEC-AAA", symbol="AAA", broker_id="asset-aaa")
+        assert http.calls == [("GET", "/v2/assets/AAA")]
+
+    def test_a_symbol_mapping_to_another_security_is_refused(self):
+        broker, _ = alpaca({
+            "/v2/assets/AAA": {
+                "id": "asset-aaa", "symbol": "OTHER", "status": "active",
+                "tradable": True,
+            }})
+
+        with pytest.raises(A.MalformedBrokerPayload, match="not requested"):
+            run(broker.resolve_instrument(
+                security_id="SEC-AAA", symbol="AAA"))
+
+    @pytest.mark.parametrize("payload", [
+        {"id": "asset-aaa", "symbol": "AAA", "status": "inactive",
+         "tradable": True},
+        {"id": "asset-aaa", "symbol": "AAA", "status": "active",
+         "tradable": False},
+        {"symbol": "AAA", "status": "active", "tradable": True},
+    ])
+    def test_an_unusable_or_unidentified_asset_is_refused(self, payload):
+        broker, _ = alpaca({"/v2/assets/AAA": payload})
+        with pytest.raises(A.MalformedBrokerPayload):
+            run(broker.resolve_instrument(
+                security_id="SEC-AAA", symbol="AAA"))
 
 
 class TestAlpacaSubmit:
@@ -338,7 +752,8 @@ def pg():
 STATE_TABLES = ("sentinel_account_binding", "sentinel_ownership_events",
                 "sentinel_commands", "sentinel_command_events",
                 "sentinel_execution_plans", "sentinel_fills",
-                "sentinel_observations")
+                "sentinel_observations",
+                "sentinel_terminal_recovery_watermark")
 
 
 @pytest.fixture()
@@ -387,12 +802,35 @@ def plan(plan_id="plan-1"):
                          data_version=1)
 
 
+class WindowedRecoverySimulator(SimulatedBroker):
+    """The ordinary read is open-only; the recovery read adds bounded closed."""
+
+    async def observe(self):
+        full = await SimulatedBroker.observe(self)
+        return replace(
+            full, orders=tuple(o for o in full.orders if o.is_working))
+
+    async def observe_with_terminal_recovery(
+            self, *, submitted_after, processed_through):
+        full = await SimulatedBroker.observe(self)
+        through = max(self.now, processed_through)
+        orders = tuple(
+            order for order in full.orders
+            if (order.is_working
+                or (order.submitted_at is not None
+                    and submitted_after <= order.submitted_at <= through)))
+        return replace(
+            full, orders=orders, terminal_recovery_through=through)
+
+
 class TestStaleBackupRestore:
     """A restored database is EXPECTED to be behind the broker. Not exceptional."""
 
     def _setup(self, conn):
-        broker = SimulatedBroker(
-            account=BrokerAccountIdentity("sim", "SIM-ACCOUNT"))
+        broker = WindowedRecoverySimulator(
+            account=BrokerAccountIdentity("sim", "SIM-ACCOUNT"),
+            now=(journal.terminal_recovery_checkpoint(conn)
+                 + timedelta(minutes=1)))
         snapshot = backup(conn)              # taken BEFORE anything happened
         p = replace(plan(), target_basket={"SEC-AAA": D(10)})
         executor.adopt_plan(conn, p)
@@ -443,6 +881,10 @@ class TestStaleBackupRestore:
         broker.fill(command.client_key)      # filled while the appliance was gone
         restore(conn, snapshot)
 
+        assert run(broker.observe()).orders == (), (
+            "the ordinary open-only observation cannot discover this terminal "
+            "broker-only fill; the recovery window is load-bearing")
+
         rec = run(R.reconcile(broker=broker, conn=conn, binding=None,
                               deployment=DEPLOY))
         assert rec.observed == {"SEC-AAA": D(10)}
@@ -468,7 +910,9 @@ class TestStaleBackupRestore:
         """Adoption fences the keyspace. Stored commands from the previous
         generation must be RECOVERED, not silently resumed as this one's."""
         self._setup(conn)
-        B.adopt_restored(conn, notes="replacement host")
+        B.adopt_restored(
+            conn, observed=BrokerAccountIdentity("sim", "SIM-ACCOUNT"),
+            expected_account="SIM-ACCOUNT", notes="replacement host")
         adopted = B.require(conn).identity
         with pytest.raises(journal.StoredKeyMismatch):
             journal.load_commands(conn, adopted)

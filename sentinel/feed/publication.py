@@ -337,7 +337,7 @@ def publish(conn, *, run_id: Optional[str] = None,
 
 
 @contextmanager
-def pinned(conn) -> Iterator[Publication]:
+def pinned(conn, *, commit: bool = True) -> Iterator[Publication]:
     """Hold the corpus still for the duration of a session, and say which one.
 
     The yielded version is what the session's decisions and snapshots record. It
@@ -367,7 +367,12 @@ def pinned(conn) -> Iterator[Publication]:
         with conn.cursor() as cur:
             cur.execute("SELECT pg_advisory_unlock_shared(%s)",
                         (CORPUS_LOCK_KEY,))
-        conn.commit()
+        # A session-level advisory unlock does not need a commit. Production
+        # catch-up defers this commit for its final session so the state and the
+        # one adopted plan remain atomic. Existing standalone readers retain
+        # their historical autocommit-like behaviour by default.
+        if commit:
+            conn.commit()
 
 
 def chain_gaps(conn) -> list:

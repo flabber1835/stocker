@@ -36,6 +36,7 @@ import hashlib
 import json
 from contextlib import contextmanager
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Iterable, Optional, Sequence
 
@@ -45,6 +46,12 @@ from sentinel.execution.contract import (
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
 from sentinel.execution.plan import ExecutionPlan
 from sentinel.execution.states import CommandState, IN_FLIGHT
+
+
+# Re-read a small boundary on every closed-order recovery. Alpaca filters order
+# history by its submission clock while PostgreSQL stamps the durable watermark
+# with the host clock; replay is idempotent and a gap is not.
+TERMINAL_RECOVERY_OVERLAP = timedelta(minutes=5)
 
 #: Arbitrary but FIXED. Two appliances sharing a database would deadlock on
 #: purpose, which is the intent — they must not both be writing.
@@ -73,6 +80,13 @@ def writer_lock(conn):
             "writer; a second would race every command it creates.")
     try:
         yield
+    except BaseException:
+        # Never let the housekeeping commit in ``finally`` make a caller's
+        # failed transaction durable. Migration in particular defers its final
+        # ownership event and binding to one commit; an exception between them
+        # must lose both before the session lock is released.
+        conn.rollback()
+        raise
     finally:
         with conn.cursor() as cur:
             cur.execute("SELECT pg_advisory_unlock(%s)", (WRITER_LOCK_KEY,))
@@ -118,6 +132,10 @@ class PlanEconomicsChanged(RuntimeError):
 _PLAN_ECONOMICS = ("decision_session", "effective_session", "target_exposure",
                    "data_version", "shadow_snapshot_hash",
                    "sentinel_transition_hash", "strategy_fingerprint",
+                   "deployment_id", "broker", "broker_account_id",
+                   "takeover_epoch", "publication_fingerprint", "account_nav",
+                   "account_cash", "cash_residual", "unpriced_securities",
+                   "defensive_security",
                    "target_basket")
 
 
@@ -130,18 +148,31 @@ def _plan_economics(plan: ExecutionPlan) -> dict:
         "shadow_snapshot_hash": plan.shadow_snapshot_hash,
         "sentinel_transition_hash": plan.sentinel_transition_hash,
         "strategy_fingerprint": plan.strategy_fingerprint,
+        "deployment_id": plan.deployment_id,
+        "broker": plan.broker,
+        "broker_account_id": plan.broker_account_id,
+        "takeover_epoch": plan.takeover_epoch,
+        "publication_fingerprint": plan.publication_fingerprint,
+        "account_nav": str(plan.account_nav),
+        "account_cash": str(plan.account_cash),
+        "cash_residual": str(plan.cash_residual),
+        "unpriced_securities": sorted(plan.unpriced_securities),
+        "defensive_security": plan.defensive_security,
         "target_basket": {k: str(v) for k, v in sorted(plan.target_basket.items())},
     }
 
 
-def save_plan(conn, plan: ExecutionPlan) -> None:
+def save_plan(conn, plan: ExecutionPlan, *, commit: bool = True) -> None:
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_execution_plans (plan_id, decision_session,"
             " effective_session, target_exposure, data_version,"
             " shadow_snapshot_hash, sentinel_transition_hash,"
-            " strategy_fingerprint, target_basket)"
-            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+            " strategy_fingerprint, deployment_id, broker, broker_account_id,"
+            " takeover_epoch, publication_fingerprint, account_nav,"
+            " account_cash, cash_residual, unpriced_securities, defensive_security,"
+            " target_basket)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
             # IDEMPOTENT ON IDENTICAL CONTENT ONLY. A re-derived plan for the
             # same session is normal after a restart; a plan with the SAME id
             # and DIFFERENT content is a bug, and DO NOTHING would hide it. The
@@ -152,10 +183,17 @@ def save_plan(conn, plan: ExecutionPlan) -> None:
             (plan.plan_id, plan.decision_session, plan.effective_session,
              str(plan.target_exposure), plan.data_version,
              plan.shadow_snapshot_hash, plan.sentinel_transition_hash,
-             plan.strategy_fingerprint,
+             plan.strategy_fingerprint, plan.deployment_id, plan.broker,
+             plan.broker_account_id, plan.takeover_epoch,
+             plan.publication_fingerprint, str(plan.account_nav),
+             str(plan.account_cash),
+             str(plan.cash_residual),
+             json.dumps(sorted(plan.unpriced_securities)),
+             plan.defensive_security,
              json.dumps({k: str(v) for k, v in plan.target_basket.items()},
                         sort_keys=True)))
-    conn.commit()
+    if commit:
+        conn.commit()
 
     # DIVERGENCE IS CHECKED HERE, not left to a caller. The original comment
     # said the check lived in `load_plan`'s caller; `core.catchup.catch_up`
@@ -188,13 +226,17 @@ def load_plan(conn, plan_id: str) -> Optional[ExecutionPlan]:
         cur.execute(
             "SELECT plan_id, decision_session, effective_session,"
             " target_exposure, data_version, shadow_snapshot_hash,"
-            " sentinel_transition_hash, strategy_fingerprint, target_basket,"
+            " sentinel_transition_hash, strategy_fingerprint, deployment_id,"
+            " broker, broker_account_id, takeover_epoch,"
+            " publication_fingerprint, account_nav, account_cash, cash_residual,"
+            " unpriced_securities, defensive_security, target_basket,"
             " superseded_by FROM sentinel_execution_plans WHERE plan_id = %s",
             (plan_id,))
         row = cur.fetchone()
     if row is None:
         return None
-    basket = row[8] if isinstance(row[8], dict) else json.loads(row[8] or "{}")
+    unpriced = row[16] if isinstance(row[16], list) else json.loads(row[16] or "[]")
+    basket = row[18] if isinstance(row[18], dict) else json.loads(row[18] or "{}")
     return ExecutionPlan(
         plan_id=str(row[0]), decision_session=row[1], effective_session=row[2],
         target_exposure=Decimal(str(row[3])),
@@ -202,8 +244,17 @@ def load_plan(conn, plan_id: str) -> Optional[ExecutionPlan]:
         shadow_snapshot_hash=str(row[5] or ""),
         sentinel_transition_hash=str(row[6] or ""),
         strategy_fingerprint=str(row[7] or ""),
+        deployment_id=str(row[8] or ""), broker=str(row[9] or ""),
+        broker_account_id=str(row[10] or ""),
+        takeover_epoch=int(row[11] or 0),
+        publication_fingerprint=str(row[12] or ""),
+        account_nav=Decimal(str(row[13] or 0)),
+        account_cash=Decimal(str(row[14] or 0)),
+        cash_residual=Decimal(str(row[15] or 0)),
+        unpriced_securities=tuple(str(item) for item in unpriced),
+        defensive_security=str(row[17]) if row[17] else None,
         target_basket={k: Decimal(v) for k, v in basket.items()},
-        superseded_by=str(row[9]) if row[9] else None)
+        superseded_by=str(row[19]) if row[19] else None)
 
 
 def latest_plan(conn) -> Optional[ExecutionPlan]:
@@ -221,7 +272,7 @@ def latest_plan(conn) -> Optional[ExecutionPlan]:
     return load_plan(conn, str(row[0])) if row else None
 
 
-def supersede_all_but(conn, plan_id: str) -> int:
+def supersede_all_but(conn, plan_id: str, *, commit: bool = True) -> int:
     """Mark every other unsuperseded plan as replaced by this one.
 
     Catch-up produces one plan per missed session, and only the last of them
@@ -234,8 +285,33 @@ def supersede_all_but(conn, plan_id: str) -> int:
                     " WHERE superseded_by IS NULL AND plan_id <> %s",
                     (plan_id, plan_id))
         n = cur.rowcount
-    conn.commit()
+    if commit:
+        conn.commit()
     return n
+
+
+def adopt_current_plan(conn, plan: ExecutionPlan, *, commit: bool = True
+                       ) -> ExecutionPlan:
+    """Persist and supersede as one transaction.
+
+    The previous two-call form committed after the insert and again after
+    supersession. A crash between those commits left two unsuperseded plans,
+    which makes "the durable current plan" ambiguous at the exact boundary
+    preparation exists to establish.
+    """
+    try:
+        save_plan(conn, plan, commit=False)
+        supersede_all_but(conn, plan.plan_id, commit=False)
+        if commit:
+            conn.commit()
+    except BaseException:
+        if commit:
+            conn.rollback()
+        raise
+    stored = load_plan(conn, plan.plan_id)
+    if stored is None:                                      # pragma: no cover
+        raise RuntimeError(f"plan {plan.plan_id} vanished after adoption")
+    return stored
 
 
 def supersede_plan(conn, plan_id: str, by_plan_id: str) -> None:
@@ -310,19 +386,24 @@ def save_command(conn, command: Command, *, previous: Optional[CommandState] = N
         cur.execute(
             "INSERT INTO sentinel_commands (client_key, plan_id, security_id,"
             " revision, symbol, broker_instrument_id, side, quantity, state,"
-            " broker_order_id, filled_quantity, detail)"
-            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+            " broker_order_id, filled_quantity, filled_average_price, detail)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
             " ON CONFLICT (client_key) DO UPDATE SET"
             " state = EXCLUDED.state,"
             " broker_order_id = COALESCE(EXCLUDED.broker_order_id,"
             "                            sentinel_commands.broker_order_id),"
             " filled_quantity = EXCLUDED.filled_quantity,"
+            " filled_average_price = COALESCE("
+            "     EXCLUDED.filled_average_price,"
+            "     sentinel_commands.filled_average_price),"
             " detail = EXCLUDED.detail, updated_at = NOW()",
             (command.client_key, command.identity.plan_id, command.security_id,
              command.identity.revision, command.instrument.symbol,
              command.instrument.broker_id, command.side.value,
              str(command.quantity), command.state.value,
              command.broker_order_id, str(command.filled_quantity),
+             (str(command.filled_average_price)
+              if command.filled_average_price is not None else None),
              command.detail))
         cur.execute(
             "INSERT INTO sentinel_command_events (client_key, from_state,"
@@ -369,15 +450,20 @@ def adopt_recovered_order(conn, order, *, deployment: DeploymentIdentity) -> Non
             cur.execute(
                 "INSERT INTO sentinel_commands (client_key, plan_id, security_id,"
                 " revision, symbol, broker_instrument_id, side, quantity, state,"
-                " broker_order_id, filled_quantity, detail, recovered)"
-                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)"
+                " broker_order_id, filled_quantity, filled_average_price, detail,"
+                " recovered, created_at)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,"
+                " COALESCE(%s,NOW()))"
                 " ON CONFLICT (client_key) DO NOTHING",
                 (order.client_key, RECOVERED_PLAN_ID,
                  order.instrument.security_id, 0, order.instrument.symbol,
                  order.instrument.broker_id, order.side.value,
                  str(order.quantity), order.state.value, order.broker_order_id,
                  str(order.filled_quantity),
-                 "adopted from the broker after a restore"))
+                 (str(order.filled_average_price)
+                  if order.filled_average_price is not None else None),
+                 "adopted from the broker after a restore",
+                 order.submitted_at))
             cur.execute(
                 "INSERT INTO sentinel_command_events (client_key, from_state,"
                 " to_state, filled_quantity, detail) VALUES (%s,NULL,%s,%s,%s)",
@@ -408,7 +494,8 @@ RECOVERED_PLAN_ID = "RECOVERED"
 
 def _row_to_command(row, deployment: DeploymentIdentity) -> Command:
     (client_key, plan_id, security_id, revision, symbol, broker_instrument_id,
-     side, quantity, state, broker_order_id, filled, detail, recovered) = row
+     side, quantity, state, broker_order_id, filled, filled_average_price,
+     detail, recovered, created_at) = row
     identity = CommandIdentity(deployment=deployment, plan_id=str(plan_id),
                                security_id=str(security_id),
                                revision=int(revision))
@@ -419,7 +506,11 @@ def _row_to_command(row, deployment: DeploymentIdentity) -> Command:
                                     broker_id=broker_instrument_id),
         side=Side(side), quantity=Decimal(str(quantity)),
         state=CommandState(state), broker_order_id=broker_order_id,
-        filled_quantity=Decimal(str(filled)), detail=str(detail or ""))
+        filled_quantity=Decimal(str(filled)),
+        filled_average_price=(Decimal(str(filled_average_price))
+                              if filled_average_price is not None else None),
+        detail=str(detail or ""),
+        created_at=created_at)
     if recovered:
         # ADOPTED, so the key is not regenerable by construction and the check
         # below would reject every recovered row. The stored key is carried
@@ -445,7 +536,8 @@ class StoredKeyMismatch(RuntimeError):
 
 _COMMAND_COLUMNS = ("client_key, plan_id, security_id, revision, symbol,"
                     " broker_instrument_id, side, quantity, state,"
-                    " broker_order_id, filled_quantity, detail, recovered")
+                    " broker_order_id, filled_quantity, filled_average_price,"
+                    " detail, recovered, created_at")
 
 
 def load_commands(conn, deployment: DeploymentIdentity, *,
@@ -541,17 +633,101 @@ def record_fills(conn, fills: Sequence[BrokerFill]) -> int:
     return written
 
 
+def terminal_recovery_checkpoint(conn) -> datetime:
+    """Last terminal submission boundary fully processed by reconciliation.
+
+    A raw observation timestamp is deliberately never used here. Observation is
+    recorded before recovered commands are adopted; deriving this value from
+    that audit row would let a crash in the middle skip the very order recovery
+    exists to find. Before the first processed watermark, binding establishment
+    is the earliest time an ordinary Sentinel command may legitimately exist.
+    """
+    broker, account_id, established_at = _terminal_recovery_binding(conn)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT broker, broker_account_id, processed_through"
+            " FROM sentinel_terminal_recovery_watermark WHERE id = 1")
+        row = cur.fetchone()
+    if row is None:
+        return established_at
+    if str(row[0]) != broker or str(row[1]) != account_id:
+        raise RuntimeError(
+            "terminal recovery watermark belongs to "
+            f"{row[0]}/{row[1]}, not bound account {broker}/{account_id}")
+    if row[2] is None:
+        raise RuntimeError(
+            "terminal recovery watermark has no processed boundary")
+    return _aware_utc(row[2], "terminal recovery checkpoint")
+
+
+def terminal_recovery_floor(conn) -> datetime:
+    """Inclusive replay floor, including the fixed clock-skew overlap."""
+    return terminal_recovery_checkpoint(conn) - TERMINAL_RECOVERY_OVERLAP
+
+
+def advance_terminal_recovery_watermark(conn, through: datetime) -> datetime:
+    """Commit the monotonic processed boundary after command recovery.
+
+    Callers must invoke this only after every discovered Sentinel-keyed order is
+    durable. Replays before this commit are harmless because adoption and
+    command synchronization are idempotent; advancing before them creates an
+    unrecoverable gap.
+    """
+    candidate = _aware_utc(through, "terminal recovery upper boundary")
+    current = terminal_recovery_checkpoint(conn)
+    broker, account_id, _established_at = _terminal_recovery_binding(conn)
+    processed = max(current, candidate)
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_terminal_recovery_watermark"
+            " (id, broker, broker_account_id, processed_through)"
+            " VALUES (1,%s,%s,%s)"
+            " ON CONFLICT (id) DO UPDATE SET"
+            " processed_through = GREATEST("
+            "   sentinel_terminal_recovery_watermark.processed_through,"
+            "   EXCLUDED.processed_through),"
+            " updated_at = NOW()",
+            (broker, account_id, processed))
+    conn.commit()
+    return processed
+
+
+def _aware_utc(value, where: str) -> datetime:
+    if not isinstance(value, datetime) or value.tzinfo is None:
+        raise ValueError(f"{where} must be a timezone-aware datetime")
+    return value.astimezone(timezone.utc)
+
+
+def _terminal_recovery_binding(conn) -> tuple[str, str, datetime]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT broker, broker_account_id, established_at"
+            " FROM sentinel_account_binding WHERE id = 1")
+        row = cur.fetchone()
+    if row is None or row[2] is None:
+        raise RuntimeError(
+            "terminal recovery has no account-binding establishment boundary")
+    broker = str(row[0] or "").strip()
+    account_id = str(row[1] or "").strip()
+    if not broker or not account_id:
+        raise RuntimeError("terminal recovery account binding is incomplete")
+    return broker, account_id, _aware_utc(
+        row[2], "account-binding establishment boundary")
+
+
 def record_observation(conn, observation: BrokerObservation,
                        runtime_state: str = "") -> None:
     """Retained because a reconciliation dispute is unanswerable without knowing
     what the broker actually said at the time."""
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO sentinel_observations (observed_at, completeness,"
-            " positions, orders, runtime_state) VALUES (%s,%s,%s,%s,%s)",
-            (observation.observed_at, observation.completeness.value,
+            "INSERT INTO sentinel_observations (observed_at,"
+            " terminal_recovery_through, completeness, positions, orders,"
+            " runtime_state) VALUES (%s,%s,%s,%s,%s,%s)",
+            (observation.observed_at, observation.terminal_recovery_through,
+             observation.completeness.value,
              json.dumps({k: str(v) for k, v in
-                         sorted(observation.positions_by_security().items())}),
+                          sorted(observation.positions_by_security().items())}),
              json.dumps([{"id": o.broker_order_id, "key": o.client_key,
                           "security_id": o.instrument.security_id,
                           "side": o.side.value, "state": o.state.value,

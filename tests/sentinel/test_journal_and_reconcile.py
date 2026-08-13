@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from datetime import date
+from dataclasses import replace
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -31,7 +32,8 @@ from sentinel import binding as B, schema  # noqa: E402
 from sentinel.execution import journal, recovery, reconcile as R  # noqa: E402
 from sentinel.execution.commands import Command  # noqa: E402
 from sentinel.execution.contract import (  # noqa: E402
-    BrokerAccountIdentity, BrokerInstrument, Side)
+    BrokerAccountIdentity, BrokerInstrument, BrokerObservation, BrokerOrder,
+    BrokerPosition, Completeness, Side)
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity  # noqa: E402
 from sentinel.execution.plan import ExecutionPlan  # noqa: E402
 from sentinel.execution.simulator import FaultKind as F, SimulatedBroker  # noqa: E402
@@ -77,7 +79,9 @@ def conn(pg):
         for t in ("sentinel_account_binding", "sentinel_ownership_events",
                   "sentinel_commands", "sentinel_command_events",
                   "sentinel_execution_plans", "sentinel_fills",
-                  "sentinel_observations", "sentinel_bars", "sentinel_actions"):
+                  "sentinel_observations",
+                  "sentinel_terminal_recovery_watermark",
+                  "sentinel_bars", "sentinel_actions"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     c.commit()
     schema.ensure_schema(c)
@@ -95,6 +99,18 @@ class TestCommandJournal:
         assert len(loaded) == 1
         assert loaded[0].client_key == cmd().client_key
         assert loaded[0].quantity == Decimal(10)
+
+    def test_average_fill_price_round_trips_as_decimal(self, conn):
+        filled = replace(
+            cmd(state=S.FILLED, filled="10"),
+            broker_order_id="broker-filled-1",
+            filled_average_price=Decimal("101.234567"))
+
+        journal.save_command(conn, filled)
+        loaded = journal.load_commands(conn, DEPLOY)[0]
+
+        assert loaded.filled_average_price == Decimal("101.234567")
+        assert isinstance(loaded.filled_average_price, Decimal)
 
     def test_the_stored_key_must_RECOMPUTE_under_the_current_binding(self, conn):
         """A row that no longer recomputes belongs to a previous generation —
@@ -149,6 +165,43 @@ class TestCommandJournal:
         assert journal.record_fills(conn, fills) == 0
 
 
+class TestTerminalRecoveryWatermark:
+    def test_first_checkpoint_falls_back_to_binding_establishment(self, conn):
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT established_at FROM sentinel_account_binding WHERE id=1")
+            established = cur.fetchone()[0]
+
+        assert journal.terminal_recovery_checkpoint(conn) == established
+        assert journal.terminal_recovery_floor(conn) == (
+            established - journal.TERMINAL_RECOVERY_OVERLAP)
+
+    def test_raw_observation_never_advances_processed_history(self, conn):
+        before = journal.terminal_recovery_checkpoint(conn)
+        claimed = before + timedelta(hours=1)
+        journal.record_observation(conn, BrokerObservation(
+            observed_at=claimed,
+            terminal_recovery_through=claimed,
+            completeness=Completeness.COMPLETE))
+
+        assert journal.terminal_recovery_checkpoint(conn) == before
+
+    def test_processed_boundary_is_monotonic_and_account_scoped(self, conn):
+        before = journal.terminal_recovery_checkpoint(conn)
+        advanced = before + timedelta(hours=1)
+
+        assert journal.advance_terminal_recovery_watermark(
+            conn, advanced) == advanced
+        assert journal.advance_terminal_recovery_watermark(
+            conn, before) == advanced
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT broker, broker_account_id, processed_through"
+                " FROM sentinel_terminal_recovery_watermark WHERE id=1")
+            row = cur.fetchone()
+        assert row == ("sim", "SIM-ACCOUNT", advanced)
+
+
 class TestWriterLock:
     def test_a_second_writer_is_refused_rather_than_blocked(self, conn, pg):
         other = feed_store.connect(pg.sync_dsn)
@@ -170,6 +223,19 @@ class TestWriterLock:
         finally:
             other.close()
 
+    def test_an_exception_rolls_back_before_lock_cleanup_commits(self, conn):
+        with pytest.raises(RuntimeError, match="abort"):
+            with journal.writer_lock(conn):
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO sentinel_execution_plans"
+                        " (plan_id,decision_session,effective_session,"
+                        " target_exposure) VALUES"
+                        " ('uncommitted','2026-08-10','2026-08-11',1)")
+                raise RuntimeError("abort")
+
+        assert journal.load_plan(conn, "uncommitted") is None
+
 
 class TestPlans:
     def test_a_plan_round_trips_and_fingerprints_its_ECONOMIC_content(self, conn):
@@ -182,6 +248,38 @@ class TestPlans:
         loaded = journal.load_plan(conn, "plan-1")
         assert loaded.target_basket == {"SEC-AAA": Decimal(10)}
         assert loaded.data_version == 47
+        assert loaded.fingerprint() == plan.fingerprint()
+
+    def test_every_production_plan_authority_round_trips(self, conn):
+        """Column order/defaults cannot erase a production execution authority."""
+        plan = ExecutionPlan(
+            plan_id="plan-production-authorities",
+            decision_session=date(2026, 8, 10),
+            effective_session=date(2026, 8, 11),
+            target_exposure=Decimal("0.55"),
+            target_basket={
+                "SEC-AAA": Decimal("17"),
+                "SENTINEL:BIL": Decimal("43"),
+            },
+            data_version=47,
+            shadow_snapshot_hash="shadow-state-sha256",
+            sentinel_transition_hash="controller-transition-sha256",
+            strategy_fingerprint="strategy-sha256",
+            deployment_id="sentinel-paper-nas",
+            broker="alpaca",
+            broker_account_id="PA3ER-ACCOUNT",
+            takeover_epoch=7,
+            publication_fingerprint="publication-sha256",
+            account_nav=Decimal("123456.78"),
+            account_cash=Decimal("98765.43"),
+            cash_residual=Decimal("4321.09"),
+            unpriced_securities=("SEC-ZZZ", "SENTINEL:BIL"),
+            defensive_security="SENTINEL:BIL")
+
+        journal.save_plan(conn, plan)
+        loaded = journal.load_plan(conn, plan.plan_id)
+
+        assert loaded == plan
         assert loaded.fingerprint() == plan.fingerprint()
 
     def test_the_fingerprint_ignores_the_handle_and_what_happened_after(self):
@@ -265,10 +363,25 @@ class TestReconciliation:
         b = self._broker()
         b.seed_position(AAA, "10")
         b.schedule_observe(F.TRUNCATED_ORDERS)
+        checkpoint = journal.terminal_recovery_checkpoint(conn)
         result = run(R.reconcile(broker=b, conn=conn, binding=None,
                                  deployment=DEPLOY))
         assert result.runtime_state is RuntimeState.RECONCILING
         assert not result.foreign_positions
+        assert journal.terminal_recovery_checkpoint(conn) == checkpoint
+
+    def test_complete_processed_window_advances_even_with_foreign_activity(
+            self, conn):
+        checkpoint = journal.terminal_recovery_checkpoint(conn)
+        b = self._broker()
+        b.now = checkpoint + timedelta(hours=1)
+        b.seed_position(BBB, "5")
+
+        result = run(R.reconcile(broker=b, conn=conn, binding=None,
+                                 deployment=DEPLOY))
+
+        assert result.runtime_state is RuntimeState.FOREIGN_ACTIVITY
+        assert journal.terminal_recovery_checkpoint(conn) == b.now
 
     def test_A_SPLIT_DURING_AN_OUTAGE_IS_NOT_FOREIGN_ACTIVITY(self, conn):
         """The step everyone omits, and the reason this module has an order.
@@ -335,6 +448,113 @@ class TestReconciliation:
         assert not result.unresolved
         assert journal.load_commands(conn, DEPLOY)[0].state is S.ACKNOWLEDGED
 
+    def test_positive_closed_evidence_beats_exact_absence_for_UNKNOWN(
+            self, conn):
+        class ExactAbsentSimulator(SimulatedBroker):
+            async def find_by_client_key(self, client_key):
+                self.calls.append(f"find:{client_key}:forced-absent")
+                return None
+
+        b = ExactAbsentSimulator(
+            account=BrokerAccountIdentity("sim", "SIM-ACCOUNT"))
+        b.now = journal.terminal_recovery_checkpoint(conn) + timedelta(hours=1)
+        b.schedule_submit(F.ACCEPT_THEN_TIMEOUT)
+        unknown = run(recovery.dispatch(b, recovery.prepare_send(cmd())))
+        journal.save_command(conn, unknown)
+        b.fill(unknown.client_key)
+
+        result = run(R.reconcile(broker=b, conn=conn, binding=None,
+                                 deployment=DEPLOY))
+        persisted = journal.load_commands(conn, DEPLOY)[0]
+
+        assert result.runtime_state is RuntimeState.RUNNING
+        assert persisted.state is S.FILLED
+        assert f"find:{unknown.client_key}:forced-absent" not in b.calls
+
+    def test_exact_lookup_failure_does_not_advance_terminal_watermark(
+            self, conn):
+        class ExactFailureSimulator(SimulatedBroker):
+            async def find_by_client_key(self, client_key):
+                raise RuntimeError("exact lookup outage")
+
+        journal.save_command(conn, replace(
+            cmd(state=S.ACKNOWLEDGED),
+            broker_order_id="broker-receipt"))
+        checkpoint = journal.terminal_recovery_checkpoint(conn)
+        b = ExactFailureSimulator(
+            account=BrokerAccountIdentity("sim", "SIM-ACCOUNT"),
+            now=checkpoint + timedelta(hours=1))
+
+        result = run(R.reconcile(broker=b, conn=conn, binding=None,
+                                 deployment=DEPLOY))
+
+        assert result.runtime_state is RuntimeState.BROKER_DEGRADED
+        assert journal.terminal_recovery_checkpoint(conn) == checkpoint
+
+    def test_acknowledged_fill_missing_from_open_set_uses_exact_evidence(
+            self, conn):
+        """Open-order silence is not terminal evidence; exact lookup is."""
+
+        class OpenOnlySimulator(SimulatedBroker):
+            async def observe(self):
+                full = await super().observe()
+                return replace(
+                    full, orders=tuple(o for o in full.orders if o.is_working))
+
+        broker = OpenOnlySimulator(
+            account=BrokerAccountIdentity("sim", "SIM-ACCOUNT"))
+        acknowledged = run(recovery.dispatch(
+            broker, recovery.prepare_send(cmd())))
+        journal.save_command(conn, acknowledged)
+        broker.fill(acknowledged.client_key)
+
+        result = run(R.reconcile(
+            broker=broker, conn=conn, binding=None, deployment=DEPLOY))
+        persisted = journal.load_commands(conn, DEPLOY)[0]
+
+        assert result.clean
+        assert result.runtime_state is RuntimeState.RUNNING
+        assert persisted.state is S.FILLED
+        assert persisted.filled_quantity == Decimal(10)
+        assert persisted.filled_average_price == Decimal(100)
+        assert f"find:{acknowledged.client_key}" in broker.calls
+
+    def test_missing_acknowledged_order_stays_unknown_not_terminal(self, conn):
+        established = replace(
+            cmd(state=S.ACKNOWLEDGED), broker_order_id="broker-receipt-1")
+        journal.save_command(conn, established)
+        broker = self._broker()
+
+        result = run(R.reconcile(
+            broker=broker, conn=conn, binding=None, deployment=DEPLOY))
+        persisted = journal.load_commands(conn, DEPLOY)[0]
+
+        assert result.runtime_state is RuntimeState.RECONCILING
+        assert persisted.state is S.UNKNOWN
+        assert persisted.broker_order_id == "broker-receipt-1"
+        assert result.unresolved == (persisted,)
+
+    def test_exact_working_order_omitted_by_complete_open_read_is_inconsistent(
+            self, conn):
+        class OmittingSimulator(SimulatedBroker):
+            async def observe(self):
+                full = await super().observe()
+                return replace(full, orders=())
+
+        broker = OmittingSimulator(
+            account=BrokerAccountIdentity("sim", "SIM-ACCOUNT"))
+        broker.schedule_submit(F.ACCEPT_THEN_TIMEOUT)
+        unknown = run(recovery.dispatch(
+            broker, recovery.prepare_send(cmd())))
+        journal.save_command(conn, unknown)
+
+        result = run(R.reconcile(
+            broker=broker, conn=conn, binding=None, deployment=DEPLOY))
+
+        assert result.runtime_state is RuntimeState.RECONCILING
+        assert result.observation.completeness.value == "INCONSISTENT"
+        assert journal.load_commands(conn, DEPLOY)[0].state is S.UNKNOWN
+
     def test_an_UNRESOLVABLE_command_keeps_the_appliance_RECONCILING(self, conn):
         journal.save_command(conn, cmd(state=S.UNKNOWN))
         b = self._broker()
@@ -350,6 +570,205 @@ class TestReconciliation:
                                        qty="4", state=S.FILLED, filled="4"))
         book = R.expected_book_from_commands(journal.load_commands(conn, DEPLOY))
         assert book == {"SEC-AAA": Decimal(10), "SEC-BBB": Decimal(-4)}
+
+    def test_actions_age_each_fill_from_its_own_durable_boundary(self):
+        """A later BUY must not inherit a split that aged an earlier BUY."""
+        before = Command(
+            **{**cmd(state=S.FILLED, filled="10").__dict__,
+               "created_at": datetime(2026, 8, 1, tzinfo=timezone.utc)})
+        after = Command(
+            **{**cmd(qty="5", revision=1, state=S.FILLED,
+                     filled="5").__dict__,
+               "created_at": datetime(2026, 8, 6, tzinfo=timezone.utc)})
+
+        def actions(_security_id, since=None):
+            return Decimal(2) if since < date(2026, 8, 5) else Decimal(1)
+
+        assert R.expected_book_from_commands(
+            (before, after), actions=actions) == {"SEC-AAA": Decimal(25)}
+
+    def test_recovered_fill_keeps_broker_submission_time_for_action_aging(
+            self, conn):
+        submitted = datetime(2026, 8, 1, 14, tzinfo=timezone.utc)
+        order = BrokerOrder(
+            broker_order_id="broker-recovered-1",
+            client_key="sntl-recovered-before-split",
+            instrument=AAA,
+            side=Side.BUY,
+            state=S.FILLED,
+            quantity=Decimal(10),
+            filled_quantity=Decimal(10),
+            filled_average_price=Decimal(100),
+            submitted_at=submitted)
+
+        journal.adopt_recovered_order(conn, order, deployment=DEPLOY)
+        recovered = journal.load_commands(conn, DEPLOY)
+
+        assert len(recovered) == 1
+        assert recovered[0].created_at == submitted
+        assert recovered[0].filled_average_price == Decimal(100)
+
+        def actions(_security_id, since=None):
+            return Decimal(2) if since <= date(2026, 8, 1) else Decimal(1)
+
+        assert R.expected_book_from_commands(
+            recovered, actions=actions) == {"SEC-AAA": Decimal(20)}
+
+    def test_overlap_economics_change_blocks_and_leaves_watermark(self, conn):
+        b = self._broker()
+        b.now = journal.terminal_recovery_checkpoint(conn) + timedelta(hours=1)
+        sent = run(recovery.dispatch(b, recovery.prepare_send(cmd())))
+        b.fill(sent.client_key)
+        first = run(R.reconcile(
+            broker=b, conn=conn, binding=None, deployment=DEPLOY))
+        assert first.runtime_state is RuntimeState.RUNNING
+        checkpoint = journal.terminal_recovery_checkpoint(conn)
+
+        broker_order = b._by_key(sent.client_key)
+        broker_order.side = Side.SELL
+        second = run(R.reconcile(
+            broker=b, conn=conn, binding=None, deployment=DEPLOY))
+
+        assert second.runtime_state is RuntimeState.RECONCILING
+        assert "changed durable side" in second.detail
+        assert journal.terminal_recovery_checkpoint(conn) == checkpoint
+
+
+class TestTerminalRecoveryCrashBoundaries:
+    @staticmethod
+    def _filled_broker(conn, instruments=(AAA,)):
+        checkpoint = journal.terminal_recovery_checkpoint(conn)
+        broker = SimulatedBroker(
+            account=BrokerAccountIdentity("sim", "SIM-ACCOUNT"),
+            now=checkpoint + timedelta(hours=1))
+        commands = []
+        for instrument in instruments:
+            sent = run(recovery.dispatch(
+                broker, recovery.prepare_send(cmd(instrument=instrument))))
+            broker.fill(sent.client_key)
+            commands.append(sent)
+        return broker, tuple(commands), checkpoint
+
+    def test_crash_after_observation_before_adoption_replays(self, conn,
+                                                             monkeypatch):
+        broker, commands, checkpoint = self._filled_broker(conn)
+        original = journal.adopt_recovered_order
+
+        def crash(*_args, **_kwargs):
+            raise RuntimeError("crash before adoption")
+
+        monkeypatch.setattr(journal, "adopt_recovered_order", crash)
+        with pytest.raises(RuntimeError, match="before adoption"):
+            run(R.reconcile(broker=broker, conn=conn, binding=None,
+                            deployment=DEPLOY))
+        assert journal.load_commands(conn, DEPLOY) == ()
+        assert journal.terminal_recovery_checkpoint(conn) == checkpoint
+
+        monkeypatch.setattr(journal, "adopt_recovered_order", original)
+        retry = run(R.reconcile(broker=broker, conn=conn, binding=None,
+                                deployment=DEPLOY))
+        assert retry.runtime_state is RuntimeState.RUNNING
+        assert {c.client_key for c in journal.load_commands(conn, DEPLOY)} == {
+            commands[0].client_key}
+
+    def test_crash_midway_through_multiple_adoptions_replays_only_missing(
+            self, conn, monkeypatch):
+        broker, commands, checkpoint = self._filled_broker(conn, (AAA, BBB))
+        original = journal.adopt_recovered_order
+        calls = {"n": 0}
+
+        def crash_second(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("crash midway")
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(journal, "adopt_recovered_order", crash_second)
+        with pytest.raises(RuntimeError, match="midway"):
+            run(R.reconcile(broker=broker, conn=conn, binding=None,
+                            deployment=DEPLOY))
+        assert len(journal.load_commands(conn, DEPLOY)) == 1
+        assert journal.terminal_recovery_checkpoint(conn) == checkpoint
+
+        monkeypatch.setattr(journal, "adopt_recovered_order", original)
+        retry = run(R.reconcile(broker=broker, conn=conn, binding=None,
+                                deployment=DEPLOY))
+        assert retry.runtime_state is RuntimeState.RUNNING
+        assert {c.client_key for c in journal.load_commands(conn, DEPLOY)} == {
+            c.client_key for c in commands}
+
+    def test_crash_after_adoption_before_watermark_is_idempotent(
+            self, conn, monkeypatch):
+        broker, commands, checkpoint = self._filled_broker(conn)
+        original = journal.advance_terminal_recovery_watermark
+
+        def crash(*_args, **_kwargs):
+            raise RuntimeError("crash before watermark")
+
+        monkeypatch.setattr(
+            journal, "advance_terminal_recovery_watermark", crash)
+        with pytest.raises(RuntimeError, match="before watermark"):
+            run(R.reconcile(broker=broker, conn=conn, binding=None,
+                            deployment=DEPLOY))
+        assert [c.client_key for c in journal.load_commands(conn, DEPLOY)] == [
+            commands[0].client_key]
+        assert journal.terminal_recovery_checkpoint(conn) == checkpoint
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM sentinel_command_events"
+                " WHERE detail LIKE 'recovered:%'")
+            events_before = cur.fetchone()[0]
+
+        monkeypatch.setattr(
+            journal, "advance_terminal_recovery_watermark", original)
+        retry = run(R.reconcile(broker=broker, conn=conn, binding=None,
+                                deployment=DEPLOY))
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM sentinel_command_events"
+                " WHERE detail LIKE 'recovered:%'")
+            events_after = cur.fetchone()[0]
+        assert retry.runtime_state is RuntimeState.RUNNING
+        assert events_after == events_before == 1
+        assert journal.terminal_recovery_checkpoint(conn) == broker.now
+
+    def test_restart_after_watermark_commit_is_a_noop_replay(self, conn):
+        broker, commands, _checkpoint = self._filled_broker(conn)
+        first = run(R.reconcile(broker=broker, conn=conn, binding=None,
+                                deployment=DEPLOY))
+        watermark = journal.terminal_recovery_checkpoint(conn)
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM sentinel_command_events")
+            events = cur.fetchone()[0]
+
+        second = run(R.reconcile(broker=broker, conn=conn, binding=None,
+                                 deployment=DEPLOY))
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM sentinel_command_events")
+            replay_events = cur.fetchone()[0]
+        assert first.runtime_state is second.runtime_state is RuntimeState.RUNNING
+        assert journal.terminal_recovery_checkpoint(conn) == watermark
+        assert replay_events == events
+        assert [c.client_key for c in journal.load_commands(conn, DEPLOY)] == [
+            commands[0].client_key]
+
+    def test_adoption_conflict_does_not_advance(self, conn):
+        checkpoint = journal.terminal_recovery_checkpoint(conn)
+        journal.save_command(conn, replace(
+            cmd(state=S.ACKNOWLEDGED), broker_order_id="durable-aaa"))
+        broker = SimulatedBroker(
+            account=BrokerAccountIdentity("sim", "SIM-ACCOUNT"),
+            now=checkpoint + timedelta(hours=1))
+        other = run(recovery.dispatch(
+            broker, recovery.prepare_send(cmd(plan="other-plan"))))
+
+        result = run(R.reconcile(broker=broker, conn=conn, binding=None,
+                                 deployment=DEPLOY))
+
+        assert result.runtime_state is RuntimeState.RECONCILING
+        assert other.client_key in {o.client_key
+                                    for o in result.recovered_orders}
+        assert journal.terminal_recovery_checkpoint(conn) == checkpoint
 
 
 def put_bar(conn, security_id, session, ticker):
@@ -375,6 +794,8 @@ class TestCorpusActionLookup:
         lookup = R.corpus_action_lookup(conn, start=date(2026, 8, 1),
                                         end=date(2026, 8, 10))
         assert lookup("SEC-AAA") == pytest.approx(Decimal(6))
+        assert lookup("SEC-AAA", date(2026, 8, 6)) \
+            == pytest.approx(Decimal(3))
 
     def test_a_RECYCLED_ticker_does_not_inherit_the_other_company_split(self, conn):
         """R6. Tickers are reused, and resolving one to EVERY security that ever
