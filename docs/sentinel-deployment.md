@@ -1150,6 +1150,12 @@ declares it `:?` so it will not start without one), and warns when a carried
 password contains a character compose splices into a DSN or a literal `$` it
 would interpolate.
 
+The Sharadar client also treats an authenticated request as a redaction
+boundary. `httpx`/`httpcore` URL diagnostics are suppressed while the request,
+status handling, and exception conversion run, and propagated errors contain a
+request target with `api_key` omitted. Raising log verbosity therefore cannot
+put the query credential back into terminal output or collected log records.
+
 ## 10f. The resource envelope is MEASURED, and the measurement is an artefact
 
 `docker-compose.sentinel.yml` sets four service limits under comments that say
@@ -1263,7 +1269,9 @@ is §11's own defect — a setting believed to be in force, that is not.
 
 ```text
 scripts/sentinel_host_capabilities.py   asks the DAEMON what it enforces, not
-                                        the kernel version, which is a proxy
+                                        the kernel version, then actively
+                                        creates (never runs) a pinned local
+                                        image with NanoCPUs
 scripts/sentinel_strip_cpu_limits.py    deletes `cpus:` and nothing else
 scripts/sentinel-compose.sh             the ONE resolver. Probes, and prints
                                         the `-f` args every entry point uses
@@ -1278,6 +1286,11 @@ drift, it diffs cleanly, and no operator edits YAML.
 
 `SENTINEL_FORCE_CPU_LIMITS=1` keeps the canonical file unprobed, for proving on
 a capable host that that path still works.
+
+`SENTINEL_FORCE_NO_CPU_LIMITS=1` is the recorded recovery path when an older
+daemon's metadata is false or the active probe cannot be made. The two force
+modes are mutually exclusive. The no-CPU mode sets the capability artifact to
+`OBSERVED_NOT_BOUNDED`; memory and shared-memory controls remain unchanged.
 
 **UNKNOWN keeps the limits.** Only a positive UNSUPPORTED strips them, so an
 unprobed host — no daemon, CI — retains its declared ceilings and fails loudly
@@ -1329,6 +1342,12 @@ device number (or Docker's root is not inspectable), the operator must first
 verify independent durability and set
 `SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED=1`. The scripts also run a write probe
 as the PostgreSQL container uid; host-root writability is not sufficient.
+
+The inside-Docker-root comparison is lexical and runs before traversal, so an
+attestation can never authorize a child of the daemon root. When that root is a
+protected Synology path, validation does not attempt to traverse it after an
+explicit attestation; without attestation, absent or unreadable metadata still
+fails closed.
 
 ```bash
 export SENTINEL_BACKUP_DIR=/mnt/second-target/sentinel

@@ -101,7 +101,7 @@ def main(argv=None) -> int:
         sys.stderr.write("usage: sentinel_strip_cpu_limits.py <src> [<dst>]\n")
         return 2
     src_path = Path(argv[0])
-    text = src_path.read_text()
+    text = src_path.read_text(encoding="utf-8")
     out, removed = strip(text)
     out = BANNER + out
 
@@ -114,7 +114,7 @@ def main(argv=None) -> int:
     if len(argv) == 2:
         dst = Path(argv[1])
         dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.write_text(out)
+        dst.write_text(out, encoding="utf-8")
         sys.stderr.write("  stripped %d `cpus:` line(s) -> %s\n"
                          % (len(removed), dst))
         for r in removed:

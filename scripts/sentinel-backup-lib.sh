@@ -2,7 +2,7 @@
 # Shared validation for backup scripts. Sourced, not invoked.
 
 sentinel_backup_root() {
-  local root raw_root repo parent docker_root root_dev docker_dev uid
+  local root raw_root repo parent docker_root docker_canonical root_dev docker_dev uid
   raw_root="${SENTINEL_BACKUP_DIR:-}"
   root="$raw_root"
   [ -n "$root" ] || {
@@ -41,20 +41,36 @@ sentinel_backup_root() {
   # or require an explicit operator attestation for a remote/durable filesystem
   # whose Linux device number is intentionally shared by the mount layer.
   docker_root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
-  if [ -n "$docker_root" ] && [ -d "$docker_root" ]; then
-    docker_root="$(cd "$docker_root" && pwd -P)"
+  if [ -n "$docker_root" ]; then
+    case "$docker_root" in /*) ;; *)
+      echo "REFUSED: Docker data root is not absolute" >&2; return 2 ;;
+    esac
+    docker_root="${docker_root%/}"
+    # This lexical boundary runs BEFORE traversal. Even an explicit attestation
+    # can never license a target the daemon itself names inside its data root.
     case "$root" in
       "$docker_root"|"$docker_root"/*)
         echo "REFUSED: backup root is inside Docker's data root: $docker_root" >&2
         return 2 ;;
     esac
-    root_dev="$(stat -c %d "$root")"
-    docker_dev="$(stat -c %d "$docker_root")"
-    if [ "$root_dev" = "$docker_dev" ] && \
-       [ "${SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED:-0}" != "1" ]; then
-      echo "REFUSED: backup root and Docker data use the same device; set" >&2
-      echo "SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED=1 only after verifying" >&2
-      echo "that this path is an independently durable mounted target" >&2
+    if docker_canonical="$(cd "$docker_root" 2>/dev/null && pwd -P)"; then
+      case "$root" in
+        "$docker_canonical"|"$docker_canonical"/*)
+          echo "REFUSED: backup root is inside Docker's data root: $docker_canonical" >&2
+          return 2 ;;
+      esac
+      root_dev="$(stat -c %d "$root")"
+      docker_dev="$(stat -c %d "$docker_canonical")"
+      if [ "$root_dev" = "$docker_dev" ] && \
+         [ "${SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED:-0}" != "1" ]; then
+        echo "REFUSED: backup root and Docker data use the same device; set" >&2
+        echo "SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED=1 only after verifying" >&2
+        echo "that this path is an independently durable mounted target" >&2
+        return 2
+      fi
+    elif [ "${SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED:-0}" != "1" ]; then
+      echo "REFUSED: Docker data root could not be traversed; explicitly attest" >&2
+      echo "the independently durable backup target" >&2
       return 2
     fi
   elif [ "${SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED:-0}" != "1" ]; then
