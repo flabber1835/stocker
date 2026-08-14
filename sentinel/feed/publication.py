@@ -109,8 +109,10 @@ class CorpusIncoherent(RuntimeError):
     decision honest. It is what stops the system from quietly running on a
     truncated corpus for a week because a publication failed on a Tuesday.
 
-    The remedy is to publish, not to re-ingest: the rows are committed and the
-    upserts are idempotent.
+    The remedy depends on the candidate state: a complete validated run may be
+    published, while a failed or incomplete run must be durably failed and
+    retried. An unresolved candidate must never be published just to silence
+    this alarm.
     """
 
 
@@ -224,7 +226,7 @@ def coherence(conn, *, exhaustive: bool = False) -> CoherenceReport:
     spy = _rows_per_run(conn, "sentinel_spy_total_return", runs)
     universe = _rows_per_run(conn, "sentinel_universe", runs)
     repairs = _rows_per_run(conn, "sentinel_bar_split_repairs", runs)
-    anomalies = _rows_per_run(conn, "sentinel_corpus_anomalies", runs)
+    anomalies = _pending_anomaly_rows_per_run(conn, runs)
     # A run that wrote NOTHING and never published is not an incoherence: an
     # ingest can legitimately open a row, find no new sessions and finish, and
     # `_publish_version` is skipped on a failed run by design. Counting those
@@ -252,9 +254,10 @@ def assert_coherent(conn, *, exhaustive: bool = False) -> CoherenceReport:
             f"{report.unpublished_rows} committed row(s) belong to "
             f"{len(report.unpublished_runs)} unpublished ingest run(s) "
             f"{list(report.unpublished_runs)}; the corpus holds data no reader "
-            f"can see. The published version is {report.version}. Publish those "
-            f"runs — the rows are committed and the upserts are idempotent, so "
-            f"a re-ingest is not required.")
+            f"can see. The published version is {report.version}. Complete and "
+            f"validate a run before publishing it; durably fail and retry an "
+            f"incomplete run. Never publish unresolved evidence to clear this "
+            f"alarm.")
     return report
 
 
@@ -272,7 +275,7 @@ def _unpublished_runs_exhaustive(conn) -> tuple:
     found: set = set()
     for table in ("sentinel_bars", "sentinel_actions",
                   "sentinel_spy_total_return", "sentinel_universe",
-                  "sentinel_bar_split_repairs", "sentinel_corpus_anomalies"):
+                  "sentinel_bar_split_repairs"):
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT DISTINCT t.last_written_run_id FROM {table} t"
@@ -280,6 +283,19 @@ def _unpublished_runs_exhaustive(conn) -> tuple:
                 f"   AND NOT EXISTS (SELECT 1 FROM sentinel_corpus_publications p"
                 f"                   WHERE p.run_id = t.last_written_run_id)")
             found |= {str(row[0]) for row in cur.fetchall()}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT a.last_written_run_id"
+            " FROM sentinel_corpus_anomalies a"
+            " LEFT JOIN sentinel_corpus_publications p"
+            "   ON p.run_id=a.last_written_run_id"
+            " LEFT JOIN LATERAL (SELECT e.state"
+            "   FROM sentinel_anomaly_observation_events e"
+            "   WHERE e.observation_id=a.observation_id"
+            "   ORDER BY e.event_id DESC LIMIT 1) latest ON TRUE"
+            " WHERE a.last_written_run_id IS NOT NULL AND p.run_id IS NULL"
+            "   AND COALESCE(latest.state,'PENDING')='PENDING'")
+        found |= {str(row[0]) for row in cur.fetchall()}
     return tuple(sorted(found))
 
 
@@ -297,6 +313,25 @@ def _rows_per_run(conn, table: str, runs) -> dict:
                     f" WHERE last_written_run_id = ANY(%s::uuid[])"
                     f" GROUP BY last_written_run_id", (list(runs),))
         return {str(r): int(n) for r, n in cur.fetchall() if n}
+
+
+def _pending_anomaly_rows_per_run(conn, runs) -> dict:
+    """Only genuinely unresolved candidate observations poison coherence."""
+    if not runs:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT a.last_written_run_id,COUNT(*)"
+            " FROM sentinel_corpus_anomalies a"
+            " LEFT JOIN LATERAL (SELECT e.state"
+            "   FROM sentinel_anomaly_observation_events e"
+            "   WHERE e.observation_id=a.observation_id"
+            "   ORDER BY e.event_id DESC LIMIT 1) latest ON TRUE"
+            " WHERE a.last_written_run_id=ANY(%s::uuid[])"
+            "   AND COALESCE(latest.state,'PENDING')='PENDING'"
+            " GROUP BY a.last_written_run_id", (list(runs),))
+        return {str(run_id): int(count) for run_id, count in cur.fetchall()
+                if count}
 
 
 @dataclass(frozen=True)
@@ -364,6 +399,9 @@ def publish(conn, *, run_id: Optional[str] = None,
                 "publish. Moving the corpus midway through a decision would "
                 "make that decision's recorded data_version a lie.")
     try:
+        if run_id is not None:
+            from sentinel.feed import anomalies as anomaly_store
+            anomaly_store.publish_run(conn, run_id=str(run_id))
         previous = current(conn)
         with conn.cursor() as cur:
             cur.execute(

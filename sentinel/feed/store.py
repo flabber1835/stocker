@@ -261,11 +261,27 @@ def reclaim_orphans(conn) -> int:
     `feed-status` reports an ingest that has no process behind it — the exact
     confusion the Wealth Core rehearsal produced for half an hour.
     """
-    with conn.cursor() as cur:
-        cur.execute(RECLAIM_ORPHANS, {"marker": RESTART_ABORT_MARKER})
-        n = cur.rowcount
-    conn.commit()
-    return n
+    from sentinel.feed import anomalies as anomaly_store
+
+    # Taking the writer lock proves that no live ingest still owns a candidate.
+    # The run failure and anomaly ABORTED events then commit together.
+    with corpus_write_lock(conn):
+        with conn.cursor() as cur:
+            cur.execute("SELECT run_id FROM feed_ingest_runs"
+                        " WHERE status='running' FOR UPDATE")
+            run_ids = [str(row[0]) for row in cur.fetchall()]
+            if run_ids:
+                cur.execute(RECLAIM_ORPHANS,
+                            {"marker": RESTART_ABORT_MARKER})
+                if cur.rowcount != len(run_ids):
+                    raise RuntimeError(
+                        "orphan run set changed while holding the writer lock")
+        for run_id in run_ids:
+            anomaly_store.abort_run(
+                conn, run_id=run_id, actor_run_id=run_id,
+                reason=f"{RESTART_ABORT_MARKER}: writer process did not survive")
+        conn.commit()
+        return len(run_ids)
 
 
 @dataclass
@@ -318,11 +334,21 @@ class IngestRun:
         self.conn.commit()
 
     def finish(self, status: str = "success", error: str | None = None) -> None:
+        from sentinel.feed import anomalies as anomaly_store
+
+        if status == "failed" and anomaly_store.has_pending(
+                self.conn, run_id=self.progress.run_id):
+            _assert_corpus_locked(self.conn)
         with self.conn.cursor() as cur:
             cur.execute(
                 "UPDATE feed_ingest_runs SET status=%s, completed_at=NOW(),"
                 " updated_at=NOW(), error_message=%s WHERE run_id=%s",
                 (status, (error or "")[:2000] or None, self.progress.run_id))
+        if status == "failed":
+            anomaly_store.abort_run(
+                self.conn, run_id=self.progress.run_id,
+                actor_run_id=self.progress.run_id,
+                reason=(error or "ingest failed")[:2000])
         self.conn.commit()
 
     @contextmanager
@@ -537,21 +563,36 @@ def write_anomalies(conn, anomalies, *, run_id=None, require_lock: bool = False,
             for a in anomalies]
     if not rows:
         return 0
+    from sentinel.feed import anomalies as anomaly_store
+
     with conn.cursor() as cur:
-        if writer is None:
-            cur.executemany(
-                "INSERT INTO sentinel_corpus_anomalies (kind, ticker, session,"
-                " detail, last_written_run_id) VALUES (%s,%s,%s,%s,%s)"
-                " ON CONFLICT (kind, ticker, session)"
-                " WHERE last_written_run_id IS NULL DO UPDATE SET"
-                " detail = EXCLUDED.detail", rows)
-        else:
-            cur.executemany(
-                "INSERT INTO sentinel_corpus_anomalies (kind, ticker, session,"
-                " detail, last_written_run_id) VALUES (%s,%s,%s,%s,%s)"
-                " ON CONFLICT (kind, ticker, session, last_written_run_id)"
-                " WHERE last_written_run_id IS NOT NULL DO UPDATE SET"
-                " detail = EXCLUDED.detail", rows)
+        for row in rows:
+            if writer is None:
+                cur.execute(
+                    "INSERT INTO sentinel_corpus_anomalies"
+                    " (kind,ticker,session,detail,last_written_run_id)"
+                    " VALUES (%s,%s,%s,%s,%s)"
+                    " ON CONFLICT (kind,ticker,session)"
+                    " WHERE last_written_run_id IS NULL DO UPDATE SET"
+                    " detail=EXCLUDED.detail RETURNING observation_id", row)
+            else:
+                cur.execute(
+                    "WITH inserted AS ("
+                    " INSERT INTO sentinel_corpus_anomalies"
+                    " (kind,ticker,session,detail,last_written_run_id)"
+                    " VALUES (%s,%s,%s,%s,%s)"
+                    " ON CONFLICT (kind,ticker,session,last_written_run_id)"
+                    " WHERE last_written_run_id IS NOT NULL DO NOTHING"
+                    " RETURNING observation_id)"
+                    " SELECT observation_id FROM inserted UNION ALL"
+                    " SELECT observation_id FROM sentinel_corpus_anomalies"
+                    " WHERE kind=%s AND ticker=%s AND session=%s"
+                    "   AND last_written_run_id=%s LIMIT 1",
+                    row + (row[0], row[1], row[2], row[4]))
+            observation_id = int(cur.fetchone()[0])
+            if writer is not None:
+                anomaly_store.record_pending(
+                    conn, observation_id, run_id=writer)
     if commit:
         conn.commit()
     return len(rows)

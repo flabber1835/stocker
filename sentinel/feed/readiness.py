@@ -276,8 +276,9 @@ def _add_version_checks(conn, r: "Readiness") -> None:
               f"published: {list(report.unpublished_runs)}. Those rows are "
               f"INVISIBLE to every reader, so the corpus is frozen at the last "
               f"published version while the fetch appears to be working. "
-              f"Publish them — the rows are committed and the upserts are "
-              f"idempotent, so no re-ingest is needed.",
+              f"Complete and validate a run before publishing it; durably "
+              f"fail and retry an incomplete run. Never publish unresolved "
+              f"evidence merely to clear this readiness failure.",
               report.to_dict())
 
     published = publication.current(conn)

@@ -188,12 +188,13 @@ DDL = [
     # One split disposition per economic event per candidate generation. A
     # legacy baseline can contain ties; those predate this invariant and the
     # active reader deliberately keeps every tie so unsafe evidence still wins.
-    """CREATE UNIQUE INDEX IF NOT EXISTS uq_sentinel_anomaly_split_event_run
+    """DROP INDEX IF EXISTS uq_sentinel_anomaly_split_event_run""",
+    """CREATE UNIQUE INDEX uq_sentinel_anomaly_split_event_run
         ON sentinel_corpus_anomalies (ticker, session, last_written_run_id)
         WHERE last_written_run_id IS NOT NULL AND kind IN (
           'SPLIT_AUTHORITATIVE_APPLIED', 'SPLIT_CORROBORATED_DERIVED',
           'SPLIT_ONLY_DERIVED', 'SEAM_SPLIT_UNCORROBORATED',
-          'SPLIT_DISAGREEMENT')""",
+          'SPLIT_DISAGREEMENT', 'SPLIT_RESOLVED_NO_EVENT')""",
 
     """CREATE TABLE IF NOT EXISTS sentinel_actions (
         ticker       TEXT NOT NULL,
@@ -316,6 +317,54 @@ DDL = [
         error_message TEXT)""",
     """CREATE INDEX IF NOT EXISTS idx_feed_ingest_runs_started
         ON feed_ingest_runs (started_at DESC)""",
+
+    # Immutable state transitions for stamped anomaly observations.  The
+    # observation remains append-only history; this table says whether an
+    # unpublished candidate is still genuinely unresolved or reached a durable
+    # terminal outcome.  One row per state makes every retry idempotent while
+    # preserving the complete transition trail.
+    """CREATE TABLE IF NOT EXISTS sentinel_anomaly_observation_events (
+        event_id        BIGSERIAL PRIMARY KEY,
+        observation_id  BIGINT NOT NULL REFERENCES sentinel_corpus_anomalies
+                        (observation_id) ON DELETE RESTRICT,
+        state           TEXT NOT NULL CHECK (state IN
+                        ('PENDING','PUBLISHED','ABORTED','SUPERSEDED')),
+        actor_run_id    UUID,
+        reason          TEXT NOT NULL,
+        occurred_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (observation_id, state))""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_anomaly_events_latest
+        ON sentinel_anomaly_observation_events (observation_id, event_id DESC)""",
+    """CREATE UNIQUE INDEX IF NOT EXISTS uq_sentinel_anomaly_terminal_event
+        ON sentinel_anomaly_observation_events (observation_id)
+        WHERE state IN ('PUBLISHED','ABORTED','SUPERSEDED')""",
+    # Deterministic fail-closed upgrade.  Published history is published;
+    # terminal failed runs are explicitly aborted; every other stamped legacy
+    # candidate remains pending and therefore coherence-blocking.  Existing
+    # lifecycle history always wins and is never reset by ensure_schema.
+    """INSERT INTO sentinel_anomaly_observation_events
+          (observation_id,state,actor_run_id,reason)
+        SELECT a.observation_id,
+               CASE WHEN p.run_id IS NOT NULL THEN 'PUBLISHED'
+                    WHEN r.status = 'failed' THEN 'ABORTED'
+                    ELSE 'PENDING' END,
+               a.last_written_run_id,
+               CASE WHEN p.run_id IS NOT NULL
+                    THEN 'schema upgrade: observation belongs to a publication'
+                    WHEN r.status = 'failed'
+                    THEN 'schema upgrade: durable failed run classified aborted'
+                    ELSE 'schema upgrade: unresolved candidate remains pending'
+               END
+          FROM sentinel_corpus_anomalies a
+          LEFT JOIN sentinel_corpus_publications p
+            ON p.run_id=a.last_written_run_id
+          LEFT JOIN feed_ingest_runs r
+            ON r.run_id=a.last_written_run_id
+         WHERE a.last_written_run_id IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM sentinel_anomaly_observation_events e
+              WHERE e.observation_id=a.observation_id)
+        ON CONFLICT (observation_id,state) DO NOTHING""",
 
     # ------------------------------------------------------------------
     # READINESS VERDICTS, kept. See sentinel/feed/readiness.py save_snapshot.

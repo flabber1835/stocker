@@ -959,14 +959,31 @@ price, liquidity or book proxy. Authoritative and directly/reciprocally
 corroborated split dispositions remain resolved.
 
 Anomaly observations use the same publication boundary as their corpus. They
-are append-only and carry `last_written_run_id`; the active split disposition is
-the one associated with the newest successful publication for the economic
-event `(ticker, session)`. Publication atomically activates it while retaining
-all prior observations as audit history. An unpublished or failed candidate is
-not active and cannot retire the previously active evidence. Legacy rows with
-no run identity are retained as the oldest baseline, never silently discarded;
-ambiguous baseline ties remain fail-closed. Unpublished anomaly observations
-also make corpus coherence fail, so a crashed writer cannot become invisible.
+are append-only and carry `last_written_run_id`; the active disposition is the
+one associated with the newest successful publication for the economic event.
+Each stamped observation also has append-only lifecycle evidence: `PENDING`,
+then exactly one terminal `PUBLISHED`, `ABORTED`, or `SUPERSEDED`. Only an
+unpublished observation whose latest state is `PENDING` is live candidate work
+and blocks corpus coherence. A terminal failed run and `reclaim_orphans()`
+durably abort their candidates under the corpus writer lock; a successful
+publication marks its observations published and supersedes older pending
+observations for the same explicitly covered event in the same transaction as
+the corpus publication. Historical observation and lifecycle rows are never
+deleted. Repeating recovery is idempotent, and a recovery transition can touch
+only pending evidence, so it cannot retire a newer published disposition. A
+database constraint permits at most one terminal state per observation, and
+publication refuses stamped anomaly evidence whose ingest is not durably
+`success`.
+
+Silence is not a disposition. A current ingest that proves a previously
+anomalous event is clean emits an explicit `DIVIDEND_RESOLVED` or
+`SPLIT_RESOLVED_NO_EVENT` observation. A dividend resolution requires a current
+authoritative ACTIONS row for the same event with a usable positive amount. A
+split no-event resolution requires complete current ACTIONS coverage of the
+window, a current SEP observation at the event, no current authoritative split,
+and no current price-domain split disposition. Missing coverage leaves the old
+published blocker active. Legacy rows with no run identity remain the oldest
+baseline, never silently discarded; ambiguous baseline ties remain fail-closed.
 
 ### 9.2 The fix
 

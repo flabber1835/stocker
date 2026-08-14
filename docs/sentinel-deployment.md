@@ -1094,9 +1094,22 @@ and directly/reciprocally corroborated dispositions clear.
 These rows are publication-scoped evidence. Each ingest observation is retained
 with its writer run; only the newest successfully published disposition for a
 split `(ticker, session)` is active. An unpublished corrective ingest cannot
-retire the prior active blocker. Pre-upgrade rows remain a fail-closed legacy
-baseline until a later published observation supersedes the same event, so a
-schema upgrade cannot manufacture a clean interval by forgetting evidence.
+retire the prior active blocker. Live candidate evidence is explicitly
+`PENDING` and keeps coherence/readiness closed. A failed or reclaimed run is
+durably `ABORTED` under the corpus writer lock, so its immutable history does
+not poison every later coherent publication. A successful retry atomically
+publishes its disposition and supersedes older pending evidence for the same
+covered event. Pre-upgrade rows remain a fail-closed legacy baseline until a
+later published observation supersedes the same event, so a schema upgrade
+cannot manufacture a clean interval by forgetting evidence. Publication also
+refuses stamped anomaly observations from any run not durably marked
+`success`, and a failed publication rolls lifecycle changes back atomically.
+
+Correction by absence is explicit rather than inferred. A current valid
+dividend row emits `DIVIDEND_RESOLVED` for the earlier unusable event. A removed
+split emits `SPLIT_RESOLVED_NO_EVENT` only when the current ACTIONS window is
+complete, SEP observed that event session, and neither current source describes
+a split. Silence or incomplete coverage leaves the old blocker active.
 
 ### 10c. Synthetic parity is not corpus parity
 

@@ -3,17 +3,19 @@
 This record tracks defects discovered during the first deployment of merged
 Sentinel main (`f65e9e34bc204250e4e5a99b61dfdc099e0392ef`) to a Synology NAS.
 It is intentionally separate from the deployment checkout: production keeps
-running reviewed images while fixes and falsifiers accumulate in this draft PR.
+running reviewed images while fixes and falsifiers accumulate in this PR.
 
 ## Review-fix status
 
-The seven deployment remediations below are implemented. Review then found two
-additional certification defects: event-day admission floors were being used as
-a proxy for full-history split irrelevance, and anomaly rows had no publication
-lifecycle. Both review fixes and their PostgreSQL falsifiers are now
-implemented. The PR remains draft until the final Linux safety workflow passes
-on the pushed head. No network ingestion, broker action, credential change, or
-deployment is part of this remediation branch.
+The seven deployment remediations below are implemented. Review then found
+three additional certification defects: event-day admission floors were being
+used as a proxy for full-history split irrelevance; anomaly rows had no active
+publication lifecycle; and terminal failed anomaly candidates could block
+coherence forever while corrected absence had no explicit disposition. The
+three review fixes and their PostgreSQL falsifiers are implemented. Focused and
+complete network-isolated Sentinel verification pass with zero skips. No
+network ingestion, broker action, credential change, or deployment is part of
+this remediation branch.
 
 ## Confirmed findings
 
@@ -153,10 +155,28 @@ NULL publication identity, are classified deterministically as the oldest
 active baseline, and remain certification evidence until a newer published
 observation for the same economic event exists. If legacy data contains more
 than one split disposition at the same baseline, all tied rows remain visible
-and any unsafe one blocks. Candidate observations participate in corpus
-coherence, so a failed publication is visible as unpublished state while the
-previously published disposition remains active. The corpus writer lock covers
-observation writes and publication just as it covers bars, actions and repairs.
+and any unsafe one blocks.
+
+Stamped observations have immutable lifecycle events. Insertion records
+`PENDING`; the only terminal states are `PUBLISHED`, `ABORTED`, and
+`SUPERSEDED`. A pending unpublished observation blocks coherence while work is
+running or publication is unresolved. A failed run and `reclaim_orphans()`
+abort its candidates transactionally under the corpus writer lock. Publication
+marks the retry published and supersedes older pending observations for the
+same explicitly covered event in the publication transaction. Recovery never
+deletes evidence, is idempotent, and cannot change a published observation.
+The database permits at most one terminal event per observation, and
+publication refuses anomaly evidence unless the owning ingest is durably
+`success`; a rejected publication rolls lifecycle activation back with the
+publication row.
+
+Corrected absence is also evidence, not silence. `DIVIDEND_RESOLVED` requires a
+current authoritative ACTIONS row with a usable positive amount for the same
+event. `SPLIT_RESOLVED_NO_EVENT` requires complete current ACTIONS coverage,
+the current SEP observation at the old event, and no current split in either
+source. These resolved dispositions participate in the same event-family
+ranking as their blockers. Incomplete coverage emits no tombstone and leaves
+the old published blocker active.
 
 ### 5. Backup validation cannot use attestation when Docker root is protected
 
@@ -233,26 +253,26 @@ the equity universe; repeated seed/daily loads are idempotent.
 
 ## Validation evidence
 
-- Review-fix focused PostgreSQL selection: `144 passed` with zero skips. This
-  covers active/history supersession, failed and repeated ingest behavior,
-  legacy upgrade, corpus publication/coherence/readiness, split repair and
-  certification.
-- Formal forward-run evidence consumer: `15 passed` with zero skips, including
-  refusal when unpublished anomaly observations appear in the exact coherence
-  schema.
-- Formal authority/forward-run fixture selection after the exact coherence
-  fixture correction: `76 passed` with zero skips under Linux-equivalent
-  canonical inputs.
-- Current-head backtester boundary: `100 passed` with zero skips.
+- Current review-fix lifecycle/publication selection: `46 passed` with zero
+  skips. This covers immutable observation history, active/history
+  supersession, running/failed/reclaimed candidates, failed-publication
+  rollback, successful retry, idempotency, deterministic schema upgrade, and
+  corpus visibility.
+- The broader focused publication/readiness/rejection/split/ACTIONS/
+  certification/forward-artifact matrix covers `361` selected tests with zero
+  skips after using the current repository inspection tree.
+- The complete network-isolated Sentinel suite: `2242 passed` with zero skips
+  in `304.88s` in the full PR test image. The final run used one LF-normalized
+  current tree for runtime and inspection, so byte-exact authority assets and
+  runtime-versus-checkout hashes were exercised rather than bypassed.
+- The backtester boundary was not rerun for this review fix because no shared
+  or backtester production code changed. Its prior current-branch evidence
+  remains `100 passed` with zero skips.
 - Full Python compilation, tracked-shell `bash -n`, the canonical/automation/
   authorized-cli Compose graphs, and `git diff --check`: pass.
-- GitHub `Sentinel safety` workflow at review-fix code head `46775d3`: pass
-  ([run 31818226735](https://github.com/flabber1835/stocker/actions/runs/31818226735)).
-  The network-isolated complete Sentinel suite passed `2232` tests in its one
-  post-fix full run; the changed production backtester boundary passed `100`
-  tests. Both runs had zero skips. Compilation, tracked-shell syntax, the
-  canonical/automation/authorized-cli Compose graphs, and `git diff --check`
-  also passed in that workflow.
+- Final-head GitHub `Sentinel safety` evidence is recorded after the pushed
+  commit completes; the check is a passing safety workflow, not a repository-
+  required check unless branch protection is configured to require it.
 
 ## Change policy
 

@@ -89,6 +89,7 @@ RESET_TABLES = (
     "sentinel_universe",
     "sentinel_ingest_rejections",
     "sentinel_rejection_truncation",
+    "sentinel_anomaly_observation_events",
     "sentinel_corpus_anomalies",
     "sentinel_corpus_publications",
     "sentinel_readiness_snapshots",
