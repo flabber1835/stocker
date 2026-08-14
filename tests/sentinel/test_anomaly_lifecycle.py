@@ -40,6 +40,9 @@ def conn(pg):
     with c.cursor() as cur:
         for table in ("sentinel_anomaly_observation_events",
                       "sentinel_bar_split_repairs", "sentinel_bars",
+                      "sentinel_action_generation_events",
+                      "sentinel_action_observations",
+                      "sentinel_action_generations",
                       "sentinel_actions", "sentinel_universe",
                       "sentinel_corpus_publications", "feed_ingest_runs",
                       "sentinel_corpus_anomalies"):
@@ -312,7 +315,8 @@ class TestExplicitResolvedDispositions:
         source = [{"ticker": "AAA", "date": EVENT,
                    "action": "dividend", "value": 1.25}]
         with S.corpus_write_lock(conn):
-            S.write_actions(conn, source, run_id=retry.progress.run_id)
+            S.write_actions(conn, source, run_id=retry.progress.run_id,
+                            window_start=START, window_end=END)
             tombstones = ingest._resolution_tombstones(
                 conn, retry, lo=START, hi=END,
                 report=domains.NormalisationReport(), emitted=[],
@@ -335,7 +339,7 @@ class TestExplicitResolvedDispositions:
             cur.execute("SELECT COUNT(*) FROM sentinel_corpus_anomalies")
             assert cur.fetchone()[0] == 2
 
-    def test_removed_split_emits_no_event_tombstone_only_with_sep_coverage(
+    def test_bare_current_bar_is_not_a_no_split_proof(
             self, conn):
         publish_observation(conn, "SPLIT_ONLY_DERIVED", "old split")
         retry = S.IngestRun(conn, "split-removed")
@@ -346,18 +350,12 @@ class TestExplicitResolvedDispositions:
                 conn, retry, lo=START, hi=END,
                 report=domains.NormalisationReport(), emitted=[],
                 current_action_rows=[])
-            assert [row["kind"] for row in tombstones] == [
-                "SPLIT_RESOLVED_NO_EVENT"]
-            S.write_anomalies(
-                conn, tombstones, run_id=retry.progress.run_id,
-                require_lock=True)
-            retry.finish("success")
-            P.publish(conn, run_id=retry.progress.run_id,
-                      window_start=START, window_end=END)
+            assert tombstones == []
+            retry.finish("failed", "no predecessor-based no-split evidence")
 
-        assert [row["kind"] for row in active(conn)] == [
-            "SPLIT_RESOLVED_NO_EVENT"]
-        assert RA.audit(conn, start=START, end=END, **EMPTY_BOOK).certifiable
+        assert [row["kind"] for row in active(conn)] == ["SPLIT_ONLY_DERIVED"]
+        assert not RA.audit(conn, start=START, end=END,
+                            **EMPTY_BOOK).certifiable
 
     def test_missing_current_sep_coverage_cannot_resolve_by_silence(self, conn):
         publish_observation(conn, "SPLIT_ONLY_DERIVED", "old split")

@@ -1105,11 +1105,27 @@ cannot manufacture a clean interval by forgetting evidence. Publication also
 refuses stamped anomaly observations from any run not durably marked
 `success`, and a failed publication rolls lifecycle changes back atomically.
 
-Correction by absence is explicit rather than inferred. A current valid
-dividend row emits `DIVIDEND_RESOLVED` for the earlier unusable event. A removed
-split emits `SPLIT_RESOLVED_NO_EVENT` only when the current ACTIONS window is
-complete, SEP observed that event session, and neither current source describes
-a split. Silence or incomplete coverage leaves the old blocker active.
+Correction by absence is explicit rather than inferred. Complete ACTIONS fetches
+are append-only generations: current rows are `PRESENT`, formerly active rows
+missing from the fetched raw-date window are `REMOVED`, and publication selects
+the active generation without deleting history. Failed and unpublished fetches
+cannot hide a previously active action. A current valid dividend row emits
+`DIVIDEND_RESOLVED` for the earlier unusable event. A removed split emits
+`SPLIT_RESOLVED_NO_EVENT` only when the current ACTIONS generation is complete,
+SEP compared the event with a real predecessor and derived no split, and the
+candidate effective split ratio is exactly `1.0`. A preserved non-1 base ratio
+is corrected by an append-only `1.0` repair overlay published atomically with
+the action removal and resolved disposition. Silence, incomplete coverage, or a
+missing repair leaves the old blocker active.
+
+Every ACTIONS generation also carries an append-only lifecycle. Failed or
+reclaimed candidates are `ABORTED`; a successfully published covering retry
+marks an older publication-failed candidate `SUPERSEDED`; and only a live
+`PENDING` candidate blocks coherence. A narrower retry cannot retire a wider
+unresolved snapshot. Split-repair overlay history follows the same effective
+rule: only published repairs apply, and a later published repair for the same
+bar makes the older unpublished retry terminal for coherence without deleting
+it.
 
 ### 10c. Synthetic parity is not corpus parity
 

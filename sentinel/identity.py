@@ -348,8 +348,7 @@ def _corpus_pinned(conn, *, start: str, end: str, publication_record) -> dict:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT session, ticker, action, value, contraticker"
-            " FROM sentinel_actions a WHERE session BETWEEN %s AND %s"
-            f" AND {visible_predicate('a')}"
+            " FROM sentinel_active_actions WHERE session BETWEEN %s AND %s"
             " ORDER BY session, ticker, action", (raw_start, raw_end))
         action_rows = []
         for raw_session, ticker, action, value, contraticker in cur:

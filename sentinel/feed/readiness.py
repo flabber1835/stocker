@@ -90,7 +90,6 @@ PASS, WARN, FAIL = "PASS", "WARN", "FAIL"
 #: interpolated into every query below: two hand-written copies of a visibility
 #: rule is how a report starts describing a corpus the engine cannot load.
 _VISIBLE_BARS = _publication.visible_predicate("b")
-_VISIBLE_ACTIONS = _publication.visible_predicate("a")
 _VISIBLE_UNIVERSE = _publication.visible_predicate("u")
 
 
@@ -292,6 +291,7 @@ def _add_version_checks(conn, r: "Readiness") -> None:
         conn, f"SELECT COUNT(*) FROM {table}"
               " WHERE last_written_run_id IS NOT NULL") or 0)
         for table in ("sentinel_bars", "sentinel_actions",
+                      "sentinel_action_observations",
                       "sentinel_spy_total_return", "sentinel_universe",
                       "sentinel_bar_split_repairs",
                       "sentinel_corpus_anomalies"))
@@ -590,9 +590,8 @@ def check_readiness(conn, *, today: Optional[str] = None,
               f"{with_related:,} securities carry related tickers", with_related)
 
     # ── corporate actions ────────────────────────────────────────────────────
-    recent_actions = _q1(conn, "SELECT COUNT(*) FROM sentinel_actions a"
-                               " WHERE session >= %s"
-                               f"   AND {_VISIBLE_ACTIONS}",
+    recent_actions = _q1(conn, "SELECT COUNT(*) FROM sentinel_active_actions"
+                               " WHERE session >= %s",
                          (window_start,)) or 0
     if recent_actions == 0:
         r.add("actions", FAIL,

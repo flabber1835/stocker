@@ -8,14 +8,16 @@ running reviewed images while fixes and falsifiers accumulate in this PR.
 ## Review-fix status
 
 The seven deployment remediations below are implemented. Review then found
-three additional certification defects: event-day admission floors were being
-used as a proxy for full-history split irrelevance; anomaly rows had no active
-publication lifecycle; and terminal failed anomaly candidates could block
-coherence forever while corrected absence had no explicit disposition. The
-three review fixes and their PostgreSQL falsifiers are implemented. Focused and
-complete network-isolated Sentinel verification pass with zero skips. No
-network ingestion, broker action, credential change, or deployment is part of
-this remediation branch.
+certification defects in split irrelevance and anomaly publication lifecycle;
+a later review found that a complete ACTIONS response could not retire a
+deleted row and that `SPLIT_RESOLVED_NO_EVENT` could activate while the effective
+bar still preserved the old non-1 ratio. The review fixes and PostgreSQL
+falsifiers are implemented. ACTIONS now has append-only complete-window
+generations, explicit PRESENT/REMOVED observations, and publication lifecycle;
+no-event correction uses a predecessor-based price witness and an atomic `1.0`
+repair overlay. Focused and complete network-isolated Sentinel verification
+pass with zero skips. No network ingestion, broker action, credential change,
+database migration, restore, or deployment is part of this remediation branch.
 
 ## Confirmed findings
 
@@ -173,10 +175,32 @@ publication row.
 Corrected absence is also evidence, not silence. `DIVIDEND_RESOLVED` requires a
 current authoritative ACTIONS row with a usable positive amount for the same
 event. `SPLIT_RESOLVED_NO_EVENT` requires complete current ACTIONS coverage,
-the current SEP observation at the old event, and no current split in either
-source. These resolved dispositions participate in the same event-family
-ranking as their blockers. Incomplete coverage emits no tombstone and leaves
-the old published blocker active.
+an SEP comparison against a real predecessor that derives no split, no current
+authoritative split, and an effective candidate ratio of exactly `1.0`. Complete
+ACTIONS responses are stored as append-only publication generations with
+explicit `PRESENT` and `REMOVED` observations; old rows remain immutable history
+while only the newest published disposition is active. When the base bar still
+preserves an older non-1 ratio, the corrective ingest writes a `1.0` split-repair
+overlay. The removal, repair, and resolved disposition activate atomically with
+corpus publication. Failed or unpublished corrections change none of them.
+Incomplete coverage or a missing ratio repair emits no tombstone and leaves the
+old published blocker active.
+
+The ACTIONS generation itself has append-only lifecycle events. Failed and
+reclaimed runs become `ABORTED`; a published covering retry marks an earlier
+publication-failed candidate `SUPERSEDED`; only pending candidate rows enter the
+coherence count. Unpublished split-repair overlays remain ineffective, and a
+later published repair for the same bar retires the older candidate from the
+coherence gate without deleting its history.
+
+Equivalent complete-source upserts were reviewed. TICKERS already stores dated
+snapshots and intentionally aggregates first/last listing history across them;
+a listing absent from the latest response is not proof that its historical
+identity should be removed. SEP and SFP are point observations rather than
+complete membership snapshots, so a missing row represents no print/coverage,
+not a deletion instruction. Their destructive same-key publication limitation
+remains the documented detection-tier boundary; none has ACTIONS' semantic
+contract that omission from a successful complete response retires an event.
 
 ### 5. Backup validation cannot use attestation when Docker root is protected
 
@@ -253,30 +277,27 @@ the equity universe; repeated seed/daily loads are idempotent.
 
 ## Validation evidence
 
-- Current review-fix lifecycle/publication selection: `46 passed` with zero
-  skips. This covers immutable observation history, active/history
-  supersession, running/failed/reclaimed candidates, failed-publication
-  rollback, successful retry, idempotency, deterministic schema upgrade, and
-  corpus visibility.
-- The broader focused publication/readiness/rejection/split/ACTIONS/
-  certification/forward-artifact matrix covers `361` selected tests with zero
-  skips after using the current repository inspection tree.
-- The complete network-isolated Sentinel suite: `2242 passed` with zero skips
-  in `304.88s` in the full PR test image. The final run used one LF-normalized
-  current tree for runtime and inspection, so byte-exact authority assets and
-  runtime-versus-checkout hashes were exercised rather than bypassed.
-- The backtester boundary was not rerun for this review fix because no shared
-  or backtester production code changed. Its prior current-branch evidence
-  remains `100 passed` with zero skips.
+- Current ACTIONS/anomaly lifecycle and split-correction falsifiers: `26 passed`
+  with zero skips. This covers the real supported daily correction from a
+  published split-bearing bar, PRESENT/REMOVED history, exact effective ratio,
+  publication failure, successful retry, failed candidates, ordinary and
+  corrected actions, weekend mapping, dividends, terminal actions, idempotency,
+  and deterministic legacy classification.
+- The broader focused publication/readiness/rejection/split/ACTIONS/terminal/
+  reconciliation/loader matrix: `325 passed` with zero skips. The production
+  corpus-reset PostgreSQL falsifier also passed separately.
+- The complete network-isolated Sentinel suite: `2250 passed` with zero skips
+  in `299.19s` in the Git-normalized full PR test image. Canonical trust-root
+  and authorized-runtime marker bytes were exercised from the committed tree;
+  `.gitattributes` now enforces LF for those byte-sensitive inputs on Windows.
+- The affected backtester Wealth Core API/warmup boundary: `100 passed` with
+  zero skips in `21.88s`.
 - Full Python compilation, tracked-shell `bash -n`, the canonical/automation/
   authorized-cli Compose graphs, and `git diff --check`: pass.
-- GitHub `Sentinel safety` passed on review-fix code head `c2e9b8c` in `5m48s`
-  ([run 31832933002](https://github.com/flabber1835/stocker/actions/runs/31832933002)).
-  GitHub reports no repository-required checks on this branch, so this is
-  passing safety evidence rather than a required check unless branch protection
-  is later configured to require it. The PR description records the workflow
-  for the final documentation head without creating an evidence-only commit
-  loop.
+- The PR description records the `Sentinel safety` workflow for the final
+  pushed head without creating an evidence-only commit loop. GitHub reports no
+  repository-required checks on this branch, so the workflow is passing safety
+  evidence rather than a required check unless branch protection later changes.
 
 ## Change policy
 

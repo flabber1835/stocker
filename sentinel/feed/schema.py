@@ -318,6 +318,101 @@ DDL = [
     """CREATE INDEX IF NOT EXISTS idx_feed_ingest_runs_started
         ON feed_ingest_runs (started_at DESC)""",
 
+    # ACTIONS is delivered as a COMPLETE snapshot for an explicitly requested
+    # raw-date window.  An upsert cannot represent a row that disappeared from
+    # that response, so post-upgrade ingests append a generation plus PRESENT /
+    # REMOVED observations.  The original table remains the immutable legacy
+    # baseline: discarding or rewriting it during upgrade would silently erase
+    # durable corporate-action evidence already present on an appliance.
+    """CREATE TABLE IF NOT EXISTS sentinel_action_generations (
+        last_written_run_id UUID PRIMARY KEY,
+        window_start        DATE NOT NULL,
+        window_end          DATE NOT NULL,
+        source_rows         BIGINT NOT NULL CHECK (source_rows >= 0),
+        observed_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CHECK (window_start <= window_end))""",
+    """CREATE TABLE IF NOT EXISTS sentinel_action_observations (
+        ticker              TEXT NOT NULL,
+        session             DATE NOT NULL,
+        action              TEXT NOT NULL,
+        value               DOUBLE PRECISION,
+        contraticker        TEXT,
+        disposition         TEXT NOT NULL
+                            CHECK (disposition IN ('PRESENT','REMOVED')),
+        last_written_run_id UUID NOT NULL,
+        observed_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (ticker, session, action, last_written_run_id))""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_action_obs_written_by
+        ON sentinel_action_observations (last_written_run_id)""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_action_obs_window
+        ON sentinel_action_observations (session, ticker, action)""",
+    """CREATE TABLE IF NOT EXISTS sentinel_action_generation_events (
+        event_id          BIGSERIAL PRIMARY KEY,
+        generation_run_id UUID NOT NULL REFERENCES sentinel_action_generations
+                          (last_written_run_id) ON DELETE RESTRICT,
+        state             TEXT NOT NULL CHECK (state IN
+                          ('PENDING','PUBLISHED','ABORTED','SUPERSEDED')),
+        actor_run_id      UUID,
+        reason            TEXT NOT NULL,
+        occurred_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (generation_run_id,state))""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_action_generation_events_latest
+        ON sentinel_action_generation_events (generation_run_id,event_id DESC)""",
+    """CREATE UNIQUE INDEX IF NOT EXISTS uq_sentinel_action_generation_terminal
+        ON sentinel_action_generation_events (generation_run_id)
+        WHERE state IN ('PUBLISHED','ABORTED','SUPERSEDED')""",
+    """INSERT INTO sentinel_action_generation_events
+          (generation_run_id,state,actor_run_id,reason)
+        SELECT g.last_written_run_id,
+               CASE WHEN p.run_id IS NOT NULL THEN 'PUBLISHED'
+                    WHEN r.status='failed' THEN 'ABORTED'
+                    ELSE 'PENDING' END,
+               g.last_written_run_id,
+               CASE WHEN p.run_id IS NOT NULL
+                    THEN 'schema upgrade: generation belongs to a publication'
+                    WHEN r.status='failed'
+                    THEN 'schema upgrade: durable failed run classified aborted'
+                    ELSE 'schema upgrade: unresolved candidate remains pending'
+               END
+          FROM sentinel_action_generations g
+          LEFT JOIN sentinel_corpus_publications p
+            ON p.run_id=g.last_written_run_id
+          LEFT JOIN feed_ingest_runs r ON r.run_id=g.last_written_run_id
+         WHERE NOT EXISTS (
+           SELECT 1 FROM sentinel_action_generation_events e
+            WHERE e.generation_run_id=g.last_written_run_id)
+        ON CONFLICT (generation_run_id,state) DO NOTHING""",
+    # One publication-ranked action set for every reader.  Legacy stamped rows
+    # are visible only when their old writer published; NULL provenance remains
+    # the oldest baseline.  A REMOVED winner is retained in history but omitted
+    # from the active projection.
+    """CREATE OR REPLACE VIEW sentinel_active_actions AS
+        WITH candidates AS (
+          SELECT a.ticker,a.session,a.action,a.value,a.contraticker,
+                 'PRESENT'::TEXT AS disposition,
+                 a.last_written_run_id,
+                 COALESCE(p.version,0::BIGINT) AS publication_version,
+                 0 AS source_rank
+            FROM sentinel_actions a
+            LEFT JOIN sentinel_corpus_publications p
+              ON p.run_id=a.last_written_run_id
+           WHERE a.last_written_run_id IS NULL OR p.run_id IS NOT NULL
+          UNION ALL
+          SELECT o.ticker,o.session,o.action,o.value,o.contraticker,
+                 o.disposition,o.last_written_run_id,p.version,1
+            FROM sentinel_action_observations o
+            JOIN sentinel_corpus_publications p
+              ON p.run_id=o.last_written_run_id
+        ), ranked AS (
+          SELECT c.*,RANK() OVER (
+                   PARTITION BY ticker,session,action
+                   ORDER BY publication_version DESC,source_rank DESC) AS rank
+            FROM candidates c
+        )
+        SELECT ticker,session,action,value,contraticker,last_written_run_id,
+               publication_version
+          FROM ranked WHERE rank=1 AND disposition='PRESENT'""",
+
     # Immutable state transitions for stamped anomaly observations.  The
     # observation remains append-only history; this table says whether an
     # unpublished candidate is still genuinely unresolved or reached a durable

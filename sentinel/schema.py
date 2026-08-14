@@ -197,7 +197,10 @@ _FEED_TABLES = frozenset({
     "sentinel_bars", "sentinel_spy_total_return",
     "sentinel_ingest_rejections", "sentinel_rejection_truncation",
     "sentinel_corpus_anomalies", "sentinel_anomaly_observation_events",
-    "sentinel_actions", "sentinel_universe",
+    "sentinel_actions", "sentinel_action_generations",
+    "sentinel_action_observations", "sentinel_action_generation_events",
+    "sentinel_active_actions",
+    "sentinel_universe",
     "sentinel_corpus_publications", "sentinel_bar_split_repairs",
     "sentinel_readiness_snapshots", "sentinel_sep_staging",
 })

@@ -82,7 +82,7 @@ def _report_split_disagreements(report, authoritative) -> list:
     return bad
 
 
-def _action_maps(conn, start: str, end: str):
+def _action_maps(conn, start: str, end: str, *, include_run_id=None):
     """(authoritative_splits, dividends) for [start, end], from the ACTIONS rows
     ALREADY STORED for this window.
 
@@ -101,14 +101,11 @@ def _action_maps(conn, start: str, end: str):
     own witness for a day it does not yet hold — the same argument
     `feed/calendar.py` exists under.
     """
-    from sentinel.feed import actions_map, calendar
+    from sentinel.feed import actions, actions_map, calendar
 
     lo, _ = calendar.action_date_window(start, end)
-    with conn.cursor() as cur:
-        cur.execute("SELECT ticker, session, action, value FROM sentinel_actions"
-                    " WHERE session BETWEEN %s AND %s", (lo, end))
-        rows = [{"ticker": t, "date": str(d), "action": a, "value": v}
-                for t, d, a, v in cur.fetchall()]
+    rows = actions.active_rows(
+        conn, start=lo, end=end, include_run_id=include_run_id)
     sessions = calendar.sessions_in_range(start, end)
     return (actions_map.split_ratios_from_actions(rows, sessions),
             actions_map.dividends_from_actions(rows, sessions),
@@ -151,7 +148,8 @@ def _resolution_tombstones(conn, run, *, lo: str, hi: str, report,
                            emitted: list[dict], current_action_rows) -> list[dict]:
     """Explicitly resolve covered historical events; silence resolves nothing."""
     from sentinel.core.terminal import DIVIDEND_ACTIONS
-    from sentinel.feed import actions_map, anomalies as anomaly_store, calendar
+    from sentinel.feed import (actions_map, anomalies as anomaly_store, calendar,
+                               publication)
 
     kinds = (anomaly_store.SPLIT_DISPOSITION_KINDS
              + anomaly_store.DIVIDEND_DISPOSITION_KINDS)
@@ -166,8 +164,16 @@ def _resolution_tombstones(conn, run, *, lo: str, hi: str, report,
         emitted_keys.add((family, str(item["ticker"]).upper(),
                           str(item["session"])))
 
+    raw_lo, _ = calendar.action_date_window(lo, hi)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT EXISTS (SELECT 1 FROM sentinel_action_generations"
+            " WHERE last_written_run_id=%s AND window_start<=%s"
+            "   AND window_end>=%s)",
+            (run.progress.run_id, raw_lo, hi))
+        complete_actions = bool(cur.fetchone()[0])
     current_rows = [row for row in current_action_rows
-                    if lo <= str(row.get("date") or "") <= hi]
+                    if raw_lo <= str(row.get("date") or "") <= hi]
     sessions = calendar.sessions_in_range(lo, hi)
     current_splits = {
         (str(ticker).upper(), str(session))
@@ -212,26 +218,52 @@ def _resolution_tombstones(conn, run, *, lo: str, hi: str, report,
                           "is retained as history"})
             continue
 
-        if kind == "SPLIT_RESOLVED_NO_EVENT" or (ticker, session) in current_splits:
+        if (kind == "SPLIT_RESOLVED_NO_EVENT"
+                or (ticker, session) in current_splits
+                or not complete_actions):
             continue
-        # A complete ACTIONS response with no event is not enough: the price
-        # source must also have observed this exact economic event without
-        # deriving another split.  A dropped/missing SEP row emits no tombstone.
+        # A 1.0 normaliser result is not itself evidence: it is also the fallback
+        # for a missing predecessor.  Require the report's explicit unsnapped
+        # comparison against a real predecessor.
+        if (ticker, session) not in {
+                (str(t).upper(), str(s))
+                for t, s in report.split_no_event_evidence}:
+            continue
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT EXISTS (SELECT 1 FROM sentinel_bars"
-                " WHERE last_written_run_id=%s AND UPPER(ticker)=%s"
-                "   AND session=%s)",
+                "SELECT b.security_id,"
+                f" {publication.effective_split_ratio('b')}"
+                " FROM sentinel_bars b WHERE b.last_written_run_id=%s"
+                "   AND UPPER(b.ticker)=%s AND b.session=%s",
                 (run.progress.run_id, ticker, session))
-            current_sep_observed = bool(cur.fetchone()[0])
-        if not current_sep_observed:
+            bar_rows = cur.fetchall()
+        if len(bar_rows) != 1:
             continue
+        security_id, effective = str(bar_rows[0][0]), float(bar_rows[0][1])
+        if abs(effective - 1.0) > 1e-12:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO sentinel_bar_split_repairs"
+                    " (security_id,session,split_ratio,prior_split_ratio,"
+                    "  last_written_run_id) VALUES (%s,%s,1.0,%s,%s)"
+                    " ON CONFLICT (security_id,session,last_written_run_id)"
+                    " DO NOTHING",
+                    (security_id, session, effective, run.progress.run_id))
+                cur.execute(
+                    "SELECT split_ratio FROM sentinel_bar_split_repairs"
+                    " WHERE security_id=%s AND session=%s"
+                    "   AND last_written_run_id=%s",
+                    (security_id, session, run.progress.run_id))
+                correction = cur.fetchone()
+            if correction is None or abs(float(correction[0]) - 1.0) > 1e-12:
+                continue
         out.append({
             "kind": "SPLIT_RESOLVED_NO_EVENT", "ticker": ticker,
             "session": session,
             "detail": "current complete ACTIONS window has no split and the "
-                      "current SEP observation derives no split; prior event "
-                      "evidence is retained as history"})
+                      "current SEP predecessor comparison derives no split; "
+                      "the effective candidate ratio is exactly 1.0 and prior "
+                      "event evidence is retained as history"})
     return out
 
 
@@ -377,10 +409,13 @@ def _seed_locked(conn, *, date_from: str, date_to: Optional[str],
     # ratio derived from the two price domains has something to be cross-checked
     # against from the first year rather than the last.
     with run.chunk("actions"):
+        from sentinel.feed import calendar
+        action_start, _ = calendar.action_date_window(date_from, date_to)
         action_source_rows = list(fetch(
-            sharadar.ACTIONS, sharadar.date_params(date_from, date_to)))
+            sharadar.ACTIONS, sharadar.date_params(action_start, date_to)))
         run.progress.rows_written += feed_store.write_actions(
-            conn, action_source_rows, run_id=run.progress.run_id)
+            conn, action_source_rows, run_id=run.progress.run_id,
+            window_start=action_start, window_end=date_to)
 
     # SPY is a FUND, not an SEP equity. Fetch only this ticker from SFP and keep
     # it in the controller's dedicated total-return table.
@@ -404,7 +439,8 @@ def _seed_locked(conn, *, date_from: str, date_to: Optional[str],
             # ratio came from price-domain inference. A genuine 3:2 is 1.5,
             # equidistant from the 1 and 2 the derived ratio snaps to, and S5
             # made that error matter by preserving fractional entitlement.
-            splits, divs, action_rows = _action_maps(conn, lo, hi)
+            splits, divs, action_rows = _action_maps(
+                conn, lo, hi, include_run_id=run.progress.run_id)
             # THE PREVIOUS OBSERVATION OF EACH SECURITY, from the corpus. Read
             # BEFORE this chunk writes anything, so it is strictly the state as
             # of the moment before the window opens. Without it the first bar of
@@ -424,7 +460,7 @@ def _seed_locked(conn, *, date_from: str, date_to: Optional[str],
             # process, and the certification that needs it runs in a different
             # one, hours later.
             _persist_chunk_evidence(conn, run, lo[:4], lo, hi, report, splits,
-                                    action_rows, action_source_rows)
+                                    action_rows, action_rows)
             run.progress.rows_written += written
             run.progress.rows_dropped += (report.dropped_no_raw_close
                                           + report.dropped_no_identity)
@@ -519,10 +555,13 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
             conn, rows, to, run_id=run.progress.run_id)
 
     with run.chunk("actions"):
+        from sentinel.feed import calendar
+        action_start, _ = calendar.action_date_window(start, to)
         action_source_rows = list(
-            fetch(sharadar.ACTIONS, sharadar.date_params(start, to)))
+            fetch(sharadar.ACTIONS, sharadar.date_params(action_start, to)))
         run.progress.rows_written += feed_store.write_actions(
-            conn, action_source_rows, run_id=run.progress.run_id)
+            conn, action_source_rows, run_id=run.progress.run_id,
+            window_start=action_start, window_end=to)
 
     # A legacy corpus may be complete while this table is empty. Repair the
     # exact readiness-required 41-session tail, not the 14-calendar-day equity
@@ -538,7 +577,8 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
 
     with run.chunk("prices"):
         report = domains.NormalisationReport()
-        splits, divs, action_rows = _action_maps(conn, start, to)
+        splits, divs, action_rows = _action_maps(
+            conn, start, to, include_run_id=run.progress.run_id)
         bars = domains.normalise_sep_rows(
             _ordered_sep(conn,
                          fetch(sharadar.SEP, sharadar.date_params(start, to)),
@@ -555,7 +595,7 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
         run.progress.rows_written += feed_store.write_bars(
             conn, bars, run_id=run.progress.run_id, require_lock=True)
         _persist_chunk_evidence(conn, run, "prices", start, to, report, splits,
-                                action_rows, action_source_rows)
+                                action_rows, action_rows)
         run.progress.rows_dropped += (report.dropped_no_raw_close
                                       + report.dropped_no_identity)
         # Checked on the DAILY path, where a vendor outage looks like a quiet

@@ -214,7 +214,7 @@ def _rows(conn, start: str, end: str) -> list[tuple]:
 
 def _actioned_tickers(conn, start: str, end: str) -> set[str]:
     with conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT ticker FROM sentinel_actions"
+        cur.execute("SELECT DISTINCT ticker FROM sentinel_active_actions"
                     " WHERE session BETWEEN %s AND %s", (start, end))
         return {str(r[0]).upper() for r in cur.fetchall() if r[0]}
 

@@ -223,9 +223,11 @@ def coherence(conn, *, exhaustive: bool = False) -> CoherenceReport:
 
     bars = _rows_per_run(conn, "sentinel_bars", runs)
     actions = _rows_per_run(conn, "sentinel_actions", runs)
+    for run_id, count in _live_action_rows_per_run(conn, runs).items():
+        actions[run_id] = actions.get(run_id, 0) + count
     spy = _rows_per_run(conn, "sentinel_spy_total_return", runs)
     universe = _rows_per_run(conn, "sentinel_universe", runs)
-    repairs = _rows_per_run(conn, "sentinel_bar_split_repairs", runs)
+    repairs = _live_repair_rows_per_run(conn, runs)
     anomalies = _pending_anomaly_rows_per_run(conn, runs)
     # A run that wrote NOTHING and never published is not an incoherence: an
     # ingest can legitimately open a row, find no new sessions and finish, and
@@ -274,8 +276,7 @@ def _unpublished_runs_exhaustive(conn) -> tuple:
     """Straight from the data tables — the only form that sees an orphan id."""
     found: set = set()
     for table in ("sentinel_bars", "sentinel_actions",
-                  "sentinel_spy_total_return", "sentinel_universe",
-                  "sentinel_bar_split_repairs"):
+                  "sentinel_spy_total_return", "sentinel_universe"):
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT DISTINCT t.last_written_run_id FROM {table} t"
@@ -283,6 +284,37 @@ def _unpublished_runs_exhaustive(conn) -> tuple:
                 f"   AND NOT EXISTS (SELECT 1 FROM sentinel_corpus_publications p"
                 f"                   WHERE p.run_id = t.last_written_run_id)")
             found |= {str(row[0]) for row in cur.fetchall()}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT rr.last_written_run_id"
+            " FROM sentinel_bar_split_repairs rr"
+            " LEFT JOIN sentinel_corpus_publications own"
+            "   ON own.run_id=rr.last_written_run_id"
+            " LEFT JOIN feed_ingest_runs r"
+            "   ON r.run_id=rr.last_written_run_id"
+            " WHERE own.run_id IS NULL"
+            "   AND (r.run_id IS NULL OR r.status<>'failed')"
+            "   AND NOT EXISTS ("
+            "     SELECT 1 FROM sentinel_bar_split_repairs newer"
+            "     JOIN sentinel_corpus_publications p"
+            "       ON p.run_id=newer.last_written_run_id"
+            "     WHERE newer.security_id=rr.security_id"
+            "       AND newer.session=rr.session"
+            "       AND p.published_at>rr.repaired_at)")
+        found |= {str(row[0]) for row in cur.fetchall()}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT o.last_written_run_id"
+            " FROM sentinel_action_observations o"
+            " LEFT JOIN sentinel_corpus_publications p"
+            "   ON p.run_id=o.last_written_run_id"
+            " LEFT JOIN LATERAL (SELECT e.state"
+            "   FROM sentinel_action_generation_events e"
+            "   WHERE e.generation_run_id=o.last_written_run_id"
+            "   ORDER BY e.event_id DESC LIMIT 1) latest ON TRUE"
+            " WHERE p.run_id IS NULL"
+            "   AND COALESCE(latest.state,'PENDING')='PENDING'")
+        found |= {str(row[0]) for row in cur.fetchall()}
     with conn.cursor() as cur:
         cur.execute(
             "SELECT DISTINCT a.last_written_run_id"
@@ -330,6 +362,53 @@ def _pending_anomaly_rows_per_run(conn, runs) -> dict:
             " WHERE a.last_written_run_id=ANY(%s::uuid[])"
             "   AND COALESCE(latest.state,'PENDING')='PENDING'"
             " GROUP BY a.last_written_run_id", (list(runs),))
+        return {str(run_id): int(count) for run_id, count in cur.fetchall()
+                if count}
+
+
+def _live_action_rows_per_run(conn, runs) -> dict:
+    """Unpublished ACTIONS evidence still capable of becoming active.
+
+    Failed generations remain immutable history but cannot be published by the
+    supported ingest path and must not poison every later readiness check.
+    Running and successful-unpublished generations remain coherence blockers.
+    """
+    if not runs:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT o.last_written_run_id,COUNT(*)"
+            " FROM sentinel_action_observations o"
+            " LEFT JOIN LATERAL (SELECT e.state"
+            "   FROM sentinel_action_generation_events e"
+            "   WHERE e.generation_run_id=o.last_written_run_id"
+            "   ORDER BY e.event_id DESC LIMIT 1) latest ON TRUE"
+            " WHERE o.last_written_run_id=ANY(%s::uuid[])"
+            "   AND COALESCE(latest.state,'PENDING')='PENDING'"
+            " GROUP BY o.last_written_run_id", (list(runs),))
+        return {str(run_id): int(count) for run_id, count in cur.fetchall()
+                if count}
+
+
+def _live_repair_rows_per_run(conn, runs) -> dict:
+    """Unpublished repair candidates not retired by a later publication."""
+    if not runs:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT rr.last_written_run_id,COUNT(*)"
+            " FROM sentinel_bar_split_repairs rr"
+            " LEFT JOIN feed_ingest_runs r ON r.run_id=rr.last_written_run_id"
+            " WHERE rr.last_written_run_id=ANY(%s::uuid[])"
+            "   AND (r.run_id IS NULL OR r.status<>'failed')"
+            "   AND NOT EXISTS ("
+            "     SELECT 1 FROM sentinel_bar_split_repairs newer"
+            "     JOIN sentinel_corpus_publications p"
+            "       ON p.run_id=newer.last_written_run_id"
+            "     WHERE newer.security_id=rr.security_id"
+            "       AND newer.session=rr.session"
+            "       AND p.published_at>rr.repaired_at)"
+            " GROUP BY rr.last_written_run_id", (list(runs),))
         return {str(run_id): int(count) for run_id, count in cur.fetchall()
                 if count}
 
@@ -400,6 +479,8 @@ def publish(conn, *, run_id: Optional[str] = None,
                 "make that decision's recorded data_version a lie.")
     try:
         if run_id is not None:
+            from sentinel.feed import actions as action_store
+            action_store.publish_run(conn, run_id=str(run_id))
             from sentinel.feed import anomalies as anomaly_store
             anomaly_store.publish_run(conn, run_id=str(run_id))
         previous = current(conn)

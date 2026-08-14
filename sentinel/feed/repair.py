@@ -125,9 +125,9 @@ def _authoritative_splits(conn, start: str, end: str) -> dict:
     """
     raw_start, raw_end = calendar.action_date_window(start, end)
     with conn.cursor() as cur:
-        cur.execute("SELECT ticker, session, action, value FROM sentinel_actions"
-                    " a WHERE session BETWEEN %s AND %s"
-                    f" AND {publication.visible_predicate('a')}",
+        cur.execute("SELECT ticker,session,action,value"
+                    " FROM sentinel_active_actions"
+                    " WHERE session BETWEEN %s AND %s",
                     (raw_start, raw_end))
         rows = [{"ticker": t, "date": str(d), "action": a, "value": v}
                 for t, d, a, v in cur.fetchall()]

@@ -244,6 +244,11 @@ class NormalisationReport:
     # reciprocal price witness, derived without ACTIONS, suppressed at a fetch
     # seam, or refused as unresolved.
     split_dispositions: dict = field(default_factory=dict)
+    # Exact current observations that proved the ordinary 1.0 case.  Merely
+    # producing ratio=1.0 is not evidence: missing predecessor domains also
+    # produce that fallback.  Membership here requires an unsnapped comparison
+    # against a real predecessor within the no-split tolerance.
+    split_no_event_evidence: set = field(default_factory=set)
 
     #: Cap on RETAINED rejection rows. The count is unbounded and exact; only
     #: the per-row detail is capped.
@@ -369,6 +374,9 @@ def normalise_sep_rows(
         # comparison cannot survive: 1.48 becomes 1.0, which is the "no split"
         # value, so a stated 1.5 finds nothing to disagree with.
         unsnapped = unsnapped_split_ratio(p_close, p_raw, close, raw)
+        if (unsnapped is not None
+                and abs(unsnapped - 1.0) <= SPLIT_TOLERANCE):
+            rep.split_no_event_evidence.add((ticker, session))
         if unsnapped is not None and abs(unsnapped - 1.0) > SPLIT_TOLERANCE:
             rep.derived_splits_unsnapped[(ticker, session)] = unsnapped
         stated = (authoritative_splits or {}).get((ticker, session))

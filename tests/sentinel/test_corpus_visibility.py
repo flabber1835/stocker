@@ -63,6 +63,8 @@ def conn(pg):
     c = S.connect(pg.sync_dsn)
     with c.cursor() as cur:
         for t in ("sentinel_anomaly_observation_events",
+                  "sentinel_action_generation_events",
+                  "sentinel_action_observations", "sentinel_action_generations",
                   "sentinel_bars", "sentinel_actions", "sentinel_universe",
                   "sentinel_corpus_publications", "feed_ingest_runs",
                   "sentinel_corpus_anomalies", "sentinel_ingest_rejections"):

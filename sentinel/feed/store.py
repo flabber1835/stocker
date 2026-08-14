@@ -261,6 +261,7 @@ def reclaim_orphans(conn) -> int:
     `feed-status` reports an ingest that has no process behind it — the exact
     confusion the Wealth Core rehearsal produced for half an hour.
     """
+    from sentinel.feed import actions as action_store
     from sentinel.feed import anomalies as anomaly_store
 
     # Taking the writer lock proves that no live ingest still owns a candidate.
@@ -277,6 +278,9 @@ def reclaim_orphans(conn) -> int:
                     raise RuntimeError(
                         "orphan run set changed while holding the writer lock")
         for run_id in run_ids:
+            action_store.abort_run(
+                conn, run_id=run_id, actor_run_id=run_id,
+                reason=f"{RESTART_ABORT_MARKER}: writer process did not survive")
             anomaly_store.abort_run(
                 conn, run_id=run_id, actor_run_id=run_id,
                 reason=f"{RESTART_ABORT_MARKER}: writer process did not survive")
@@ -334,10 +338,14 @@ class IngestRun:
         self.conn.commit()
 
     def finish(self, status: str = "success", error: str | None = None) -> None:
+        from sentinel.feed import actions as action_store
         from sentinel.feed import anomalies as anomaly_store
 
-        if status == "failed" and anomaly_store.has_pending(
-                self.conn, run_id=self.progress.run_id):
+        if status == "failed" and (
+                action_store.has_pending(
+                    self.conn, run_id=self.progress.run_id)
+                or anomaly_store.has_pending(
+                    self.conn, run_id=self.progress.run_id)):
             _assert_corpus_locked(self.conn)
         with self.conn.cursor() as cur:
             cur.execute(
@@ -345,6 +353,10 @@ class IngestRun:
                 " updated_at=NOW(), error_message=%s WHERE run_id=%s",
                 (status, (error or "")[:2000] or None, self.progress.run_id))
         if status == "failed":
+            action_store.abort_run(
+                self.conn, run_id=self.progress.run_id,
+                actor_run_id=self.progress.run_id,
+                reason=(error or "ingest failed")[:2000])
             anomaly_store.abort_run(
                 self.conn, run_id=self.progress.run_id,
                 actor_run_id=self.progress.run_id,
@@ -476,27 +488,102 @@ def write_spy_total_return(conn, rows: Iterable[Any], *, run_id=None,
     return written
 
 
-def write_actions(conn, rows: Sequence[Any], *, run_id=None) -> int:
-    """Upsert corporate actions, stamped with the ingest that wrote them.
+def write_actions(conn, rows: Sequence[Any], *, run_id=None,
+                  window_start: str | None = None,
+                  window_end: str | None = None) -> int:
+    """Persist one COMPLETE corporate-action source snapshot.
 
-    Stamped for the same reason bars are: visibility is derived from
-    publication, and a corpus where the prices of an unpublished run are hidden
-    while its TERMINATIONS are visible is worse than one where neither is. A
-    terminal event applied against a book priced from a different generation is
-    the failure the versioning contract exists to prevent, arriving through the
-    half nobody filtered.
+    A run-stamped call is append-only.  It records every current row as PRESENT
+    and every previously active key missing from the explicitly fetched window
+    as REMOVED.  Publication, not insertion, activates those observations.  An
+    empty complete response is therefore meaningful and must not return early.
+
+    Calls without ``run_id`` retain the legacy/test upsert surface.  Those rows
+    form the immutable pre-upgrade baseline read by ``sentinel_active_actions``;
+    production ingest always supplies a run and complete window.
     """
-    payload = [
-        (r["ticker"], r["date"], r["action"], r.get("value"),
-         r.get("contraticker"), str(run_id) if run_id else None)
-        for r in rows
-    ]
-    if not payload:
-        return 0
+    if run_id is None:
+        payload = [
+            (r["ticker"], r["date"], r["action"], r.get("value"),
+             r.get("contraticker"), None) for r in rows
+        ]
+        if not payload:
+            return 0
+        with conn.cursor() as cur:
+            cur.executemany(_ACTION_UPSERT, payload)
+        conn.commit()
+        return len(payload)
+
+    _assert_corpus_locked(conn)
+    if window_start is None or window_end is None:
+        raise ValueError(
+            "a run-stamped ACTIONS write must name the complete fetched window")
+    lo, hi = str(window_start), str(window_end)
+    if lo > hi:
+        raise ValueError(f"reversed ACTIONS window: {lo} > {hi}")
+    writer = str(run_id)
+
+    current: dict[tuple[str, str, str], tuple] = {}
+    for row in rows:
+        ticker, session, action = (str(row["ticker"]), str(row["date"]),
+                                   str(row["action"]))
+        if not lo <= session <= hi:
+            raise ValueError(
+                f"ACTIONS row {ticker}/{session}/{action} lies outside the "
+                f"declared complete window [{lo}, {hi}]")
+        item = (ticker, session, action, row.get("value"),
+                row.get("contraticker"), "PRESENT", writer)
+        key = (ticker, session, action)
+        if key in current and current[key] != item:
+            raise ValueError(
+                f"conflicting duplicate ACTIONS rows for {ticker}/{session}/"
+                f"{action} in one complete response")
+        current[key] = item
+
+    # Reconcile against the PUBLISHED active generation, never against another
+    # unpublished attempt.  A failed retry therefore cannot become the baseline
+    # from which a later retry silently reasons.
     with conn.cursor() as cur:
-        cur.executemany(_ACTION_UPSERT, payload)
+        cur.execute(
+            "SELECT ticker,session,action,value,contraticker"
+            " FROM sentinel_active_actions"
+            " WHERE session BETWEEN %s AND %s", (lo, hi))
+        prior = list(cur.fetchall())
+
+    observations = list(current.values())
+    for ticker, session, action, value, contraticker in prior:
+        key = (str(ticker), str(session), str(action))
+        if key not in current:
+            observations.append((key[0], key[1], key[2], value, contraticker,
+                                 "REMOVED", writer))
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_action_generations"
+            " (last_written_run_id,window_start,window_end,source_rows)"
+            " VALUES (%s,%s,%s,%s) ON CONFLICT (last_written_run_id) DO NOTHING",
+            (writer, lo, hi, len(current)))
+        cur.execute(
+            "SELECT window_start,window_end,source_rows"
+            " FROM sentinel_action_generations WHERE last_written_run_id=%s",
+            (writer,))
+        recorded = cur.fetchone()
+        if (str(recorded[0]), str(recorded[1]), int(recorded[2])) != (
+                lo, hi, len(current)):
+            raise ValueError(
+                f"ACTIONS generation {writer} was already recorded with a "
+                "different complete-window contract")
+        if observations:
+            cur.executemany(
+                "INSERT INTO sentinel_action_observations"
+                " (ticker,session,action,value,contraticker,disposition,"
+                "  last_written_run_id) VALUES (%s,%s,%s,%s,%s,%s,%s)"
+                " ON CONFLICT (ticker,session,action,last_written_run_id)"
+                " DO NOTHING", observations)
+        from sentinel.feed import actions as action_store
+        action_store.record_pending(conn, run_id=writer)
     conn.commit()
-    return len(payload)
+    return len(current)
 
 
 def write_rejections(conn, rejections) -> int:

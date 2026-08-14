@@ -65,6 +65,8 @@ def conn(pg):
         for t in ("sentinel_anomaly_observation_events",
                   "sentinel_corpus_anomalies",
                   "sentinel_corpus_publications", "sentinel_bars",
+                  "sentinel_action_generation_events",
+                  "sentinel_action_observations", "sentinel_action_generations",
                   "sentinel_actions", "sentinel_universe",
                   "feed_ingest_runs", "sentinel_ingest_rejections"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
