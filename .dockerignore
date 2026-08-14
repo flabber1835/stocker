@@ -5,6 +5,8 @@
 # Development scratch. NOT `tests/` — see below.
 screenshots/
 _archive/
+.codex-piptools/
+.codex-testvenv/
 dynamic_test_cold_boot.py
 dynamic_test_month.py
 verify_run_button.py
@@ -43,6 +45,7 @@ docs/
 !docs/main-review-remediation.md
 !docs/sentinel-deployment.md
 !docs/sentinel-paper-activation.md
+!docs/sentinel-stage-4-automation.md
 
 # Runtime artifacts (written at runtime, not part of any build)
 artifacts/

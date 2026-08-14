@@ -225,7 +225,7 @@ def test_public_installation_refuses_even_a_structurally_complete_self_authored_
         conn):
     payload = manifest()
     with pytest.raises(authority.AuthorityRefused,
-                       match="trusted issuer/signature"):
+                       match="offline-signed certificate lifecycle"):
         authority.install_system_certificate(
             conn, manifest_bytes=payload,
             confirm_sha256=hashlib.sha256(payload).hexdigest(),
@@ -287,14 +287,14 @@ def test_revocation_removes_a_legacy_unsigned_row_from_active_evidence(conn):
 
 def test_controller_transition_remains_unavailable_with_unsigned_row(conn):
     with pytest.raises(authority.AuthorityRefused,
-                       match="trusted issuer/signature"):
+                       match="only by staging and activating"):
         authority.set_rollout_mode(
             conn, mode=authority.RolloutMode.CONTROLLER,
             reason="reviewed rollout", runtime_identity=RUNTIME,
             strategy_identity=STRATEGY)
     install(conn)
     with pytest.raises(authority.AuthorityRefused,
-                       match="trusted issuer/signature"):
+                       match="only by staging and activating"):
         authority.set_rollout_mode(
             conn, mode=authority.RolloutMode.CONTROLLER,
             reason="reviewed rollout", runtime_identity=RUNTIME,
@@ -313,7 +313,7 @@ def test_controller_command_refuses_before_revocation_can_matter(conn):
         reason="kill switch")
 
     with pytest.raises(authority.AuthorityRefused,
-                       match="trusted issuer/signature"):
+                       match="only by staging and activating"):
         authority.set_rollout_mode(
             conn, mode=authority.RolloutMode.CONTROLLER,
             reason="retry", runtime_identity=RUNTIME,

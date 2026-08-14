@@ -54,6 +54,11 @@ wheel==0.45.1
 # ── the HTTP client, reachable from the corpus fetch AND the broker adapter ──
 httpx==0.28.1
 
+# Ed25519 verification for offline-issued paper-execution certificates.  The
+# runtime contains public keys only; issuer private keys are operator-mounted
+# into the separate one-shot issuer command and are never installed.
+cryptography==46.0.3
+
 # ── the read-only panel ──────────────────────────────────────────────────────
 fastapi==0.141.1
 uvicorn==0.52.1

@@ -38,6 +38,7 @@ sys.path.insert(0, str(ROOT / "shared"))
 from sentinel import identity as ident  # noqa: E402
 
 DOCKERFILE = REPO / "Dockerfile.sentinel"
+AUTHORIZED_DOCKERFILE = REPO / "Dockerfile.sentinel-authorized"
 REQUIREMENTS = REPO / "sentinel" / "requirements.txt"
 TEST_DOCKERFILE = REPO / "Dockerfile.sentinel-test"
 TEST_REQUIREMENTS_LOCK = ROOT / "tests" / "requirements.lock"

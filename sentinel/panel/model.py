@@ -464,31 +464,224 @@ def broker_row(*, available: Optional[bool], positions: Optional[int] = None,
                freshness=timedelta(days=4))
 
 
-def automation_row() -> Row:
-    """An explicit absence, not a guessed inactive state.
+def automation_row(*, installed: Optional[bool] = False,
+                   enabled: Optional[bool] = None,
+                   killed: Optional[bool] = None,
+                   generation: Optional[int] = None,
+                   updated_at: Optional[datetime] = None,
+                   error: Optional[str] = None) -> Row:
+    """Durable automation policy, distinct from supervisor health."""
+    if error or installed is None:
+        return Row("automation", "Automation", "UNKNOWN", UNKNOWN,
+                   error or "automation installation could not be read",
+                   updated_at)
+    if not installed:
+        return Row("automation", "Automation", "NOT INSTALLED", PENDING,
+                   "no durable automation control schema exists")
+    if enabled is None or killed is None or generation is None:
+        return Row("automation", "Automation", "CORRUPT", FAIL,
+                   "durable automation control singleton is incomplete",
+                   updated_at)
+    suffix = f"generation {generation}"
+    if not enabled:
+        kill = "kill engaged" if killed else "kill released"
+        return Row("automation", "Automation", "DISABLED", PENDING,
+                   f"supervisor-healthy and operationally inert · {kill} · "
+                   f"{suffix}", updated_at)
+    if killed:
+        return Row("automation", "Automation", "ENABLED · KILLED", WARN,
+                   f"supervisor-healthy but broker access is blocked · "
+                   f"{suffix}", updated_at)
+    return Row("automation", "Automation", "ENABLED · KILL RELEASED", OK,
+               f"operational policy permits leader election · {suffix}",
+               updated_at)
 
-    There is no scheduler/cycle-state/leader-lease schema in this deployment.
-    Saying INACTIVE would imply those controls exist and happen to be off.
+
+def automation_leader_row(*, installed: Optional[bool],
+                          enabled: Optional[bool] = None,
+                          killed: Optional[bool] = None,
+                          holder: Optional[str] = None,
+                          fence: Optional[int] = None,
+                          heartbeat_at: Optional[datetime] = None,
+                          expires_at: Optional[datetime] = None,
+                          active: Optional[bool] = None,
+                          error: Optional[str] = None) -> Row:
+    """Current database-fenced leader lease, evaluated by database time."""
+    if error or installed is None:
+        return Row("automation_leader", "Automation leader", "UNKNOWN",
+                   UNKNOWN, error or "leader lease could not be read")
+    if not installed:
+        return Row("automation_leader", "Automation leader", "NOT INSTALLED",
+                   PENDING, "no durable leader lease exists")
+    lease = (f"holder {holder or 'none'} · fence "
+             f"{fence if fence is not None else 'unknown'} · heartbeat "
+             f"{heartbeat_at.isoformat() if heartbeat_at else 'none'} · "
+             f"expiry {expires_at.isoformat() if expires_at else 'none'}")
+    if enabled is None or killed is None or active is None:
+        return Row("automation_leader", "Automation leader", "UNKNOWN",
+                   UNKNOWN, lease, heartbeat_at)
+    if not enabled or killed:
+        return Row("automation_leader", "Automation leader",
+                   "INACTIVE BY POLICY", PENDING, lease, heartbeat_at)
+    if not active:
+        return Row("automation_leader", "Automation leader", "NO LIVE LEADER",
+                   WARN, lease, heartbeat_at)
+    return Row("automation_leader", "Automation leader",
+               f"{holder} · fence {fence}", OK, lease, heartbeat_at)
+
+
+def automation_cycle_row(*, installed: Optional[bool],
+                         enabled: Optional[bool] = None,
+                         cycle_id: Optional[str] = None,
+                         state: Optional[str] = None,
+                         decision_session: Optional[str] = None,
+                         effective_session: Optional[str] = None,
+                         next_wake_at: Optional[datetime] = None,
+                         clean_reconciliation_id: Optional[str] = None,
+                         failure_code: Optional[str] = None,
+                         failure_detail: Optional[str] = None,
+                         updated_at: Optional[datetime] = None,
+                         error: Optional[str] = None) -> Row:
+    """Latest durable cycle, including its next wake and last clean proof."""
+    if error or installed is None:
+        return Row("automation_cycle", "Automation cycle", "UNKNOWN", UNKNOWN,
+                   error or "automation cycle could not be read", updated_at)
+    if not installed:
+        return Row("automation_cycle", "Automation cycle", "NOT INSTALLED",
+                   PENDING, "no durable automation cycle schema exists")
+    if not cycle_id:
+        detail = ("no daily cycle has been recorded · next wake "
+                  f"{next_wake_at.isoformat() if next_wake_at else 'none'}")
+        if failure_code or failure_detail:
+            detail += (f" · failure {failure_code or 'UNCLASSIFIED'}: "
+                       f"{failure_detail or 'no detail'}")
+        return Row("automation_cycle", "Automation cycle", "NO CYCLES",
+                   FAIL if failure_code or failure_detail else (
+                       WARN if enabled else PENDING), detail)
+    normalized = str(state or "").upper()
+    detail = (
+        f"cycle {cycle_id} · decision {decision_session or 'unknown'} · "
+        f"effective {effective_session or 'unknown'} · next wake "
+        f"{next_wake_at.isoformat() if next_wake_at else 'none'} · last "
+        f"clean reconciliation {clean_reconciliation_id or 'none'}")
+    if failure_code or failure_detail:
+        detail += (f" · failure {failure_code or 'UNCLASSIFIED'}: "
+                   f"{failure_detail or 'no detail'}")
+    if not normalized:
+        status = UNKNOWN
+    elif normalized == "BLOCKED":
+        status = FAIL
+    elif normalized == "RETRY_WAIT":
+        status = WARN
+    elif normalized in {"SUCCEEDED", "MISSED_STATE_ONLY", "SUPERSEDED"}:
+        status = OK
+    else:
+        status = OK if enabled else PENDING
+    return Row("automation_cycle", "Automation cycle",
+               normalized or "UNKNOWN", status, detail, updated_at)
+
+
+def automation_alerts_row(*, installed: Optional[bool],
+                          pending: Optional[int] = None,
+                          dead_letter: Optional[int] = None,
+                          unacknowledged: Optional[int] = None,
+                          as_of: Optional[datetime] = None,
+                          error: Optional[str] = None) -> Row:
+    """Durable outbox pressure; missing data never renders as zero."""
+    if error or installed is None:
+        return Row("automation_alerts", "Automation alerts", "UNKNOWN",
+                   UNKNOWN, error or "alert outbox could not be read", as_of)
+    if not installed:
+        return Row("automation_alerts", "Automation alerts", "NOT INSTALLED",
+                   PENDING, "no durable alert outbox exists")
+    if pending is None or dead_letter is None or unacknowledged is None:
+        return Row("automation_alerts", "Automation alerts", "UNKNOWN",
+                   UNKNOWN, "alert counts are incomplete", as_of)
+    value = (f"{pending} pending · {dead_letter} DLQ · "
+             f"{unacknowledged} unacked")
+    status = FAIL if dead_letter else (
+        WARN if pending or unacknowledged else OK)
+    return Row("automation_alerts", "Automation alerts", value, status,
+               "SELECT-only projection of the durable alert outbox", as_of)
+
+
+def execution_authority_row(
+        *, installed: Optional[bool] = False,
+        runtime_verdict: Optional[str] = None,
+        runtime_detail: Optional[str] = None,
+        checked_at: Optional[datetime] = None,
+        lifecycle_status: Optional[str] = None,
+        certificate_sha256: Optional[str] = None,
+        expires_at: Optional[datetime] = None,
+        authority_generation: Optional[int] = None,
+        lifecycle_current: Optional[bool] = None,
+        verdict_binding_matches: Optional[bool] = None,
+        error: Optional[str] = None) -> Row:
+    """Durable runtime verdict plus clearly non-authoritative lifecycle facts.
+
+    Certificate presence, lifecycle state and expiry are useful facts, but are
+    not a signature/environment/account verification.  Only a verdict already
+    persisted by the automation authority checker may render as valid here.
     """
-    return Row("automation", "Automation", "NOT INSTALLED", PENDING,
-               "daily preparation and paper execution remain separately "
-               "operator-invoked")
+    if error or installed is None:
+        return Row("authority", "Paper execution authority", "UNKNOWN",
+                   UNKNOWN, error or "execution authority could not be read",
+                   checked_at)
+    lifecycle = (
+        f"lifecycle-only: {lifecycle_status or 'no active certificate'}"
+        f" · certificate "
+        f"{certificate_sha256[:12] if certificate_sha256 else 'none'}"
+        f" · expires {expires_at.isoformat() if expires_at else 'unknown'}"
+        f" · authority generation "
+        f"{authority_generation if authority_generation is not None else 'none'}")
+    if not installed:
+        return Row("authority", "Paper execution authority", "NOT INSTALLED",
+                   FAIL, "no durable certificate authority schema exists")
+    lifecycle_failure = None
+    if lifecycle_status != "ACTIVE":
+        lifecycle_failure = (
+            "durable certificate lifecycle is "
+            f"{lifecycle_status or 'missing'}")
+    elif not certificate_sha256:
+        lifecycle_failure = "durable active certificate identity is missing"
+    elif lifecycle_current is not True:
+        lifecycle_failure = (
+            "durable active certificate is not proven current and unrevoked")
 
-
-def execution_authority_row() -> Row:
-    """Name the deliberate fail-closed certificate boundary.
-
-    A stored certificate-shaped row is not execution authority.  The public
-    authority gate refuses every certificate until a separately reviewed
-    trusted issuer/signature verifier exists, so this static row is more
-    truthful than projecting the presence of a database row.
-    """
-    return Row("authority", "Paper execution authority", "UNAVAILABLE", FAIL,
-               "trusted issuer/signature verification is disabled; stored "
-               "certificate rows are non-authoritative")
+    if lifecycle_failure is not None:
+        verdict = str(runtime_verdict or "NO CURRENT AUTHORITY").upper()
+        return Row("authority", "Paper execution authority",
+                   f"{verdict} · LIFECYCLE INVALID", FAIL,
+                   f"{lifecycle_failure}; persisted runtime verdict cannot "
+                   f"override it; {lifecycle}", checked_at)
+    if not runtime_verdict:
+        return Row("authority", "Paper execution authority", "UNKNOWN",
+                   UNKNOWN,
+                   "no durable runtime authority verdict; " + lifecycle)
+    verdict = str(runtime_verdict).upper()
+    if verdict in {"VALID", "AUTHORIZED", "PASS"}:
+        if verdict_binding_matches is not True:
+            return Row(
+                "authority", "Paper execution authority",
+                f"{verdict} · VERDICT BINDING INVALID", FAIL,
+                "persisted runtime verdict is not bound to the currently "
+                f"active certificate; {lifecycle}", checked_at)
+        status = OK
+    elif verdict in {"UNKNOWN", "NOT_CHECKED", "UNCHECKED"}:
+        status = UNKNOWN
+    else:
+        status = FAIL
+    detail = (f"persisted runtime verdict: {runtime_detail or 'no detail'}; "
+              f"{lifecycle}")
+    digest = f" · {certificate_sha256[:12]}" if certificate_sha256 else ""
+    return Row("authority", "Paper execution authority",
+               f"{verdict}{digest}", status, detail, checked_at,
+               freshness=timedelta(minutes=5))
 
 
 __all__ = ["FAIL", "NO_PERFORMANCE_HERE", "OK", "PENDING", "Panel", "Row",
-           "UNKNOWN", "WARN", "automation_row", "book_row", "broker_row",
+           "UNKNOWN", "WARN", "automation_alerts_row",
+           "automation_cycle_row", "automation_leader_row", "automation_row",
+           "book_row", "broker_row",
            "execution_authority_row", "exposure_row", "feed_row", "ingest_row",
            "ownership_row", "terminals_row"]

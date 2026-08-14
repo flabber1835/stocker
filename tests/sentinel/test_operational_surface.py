@@ -96,12 +96,18 @@ def test_shell_entrypoints_are_forced_to_lf_in_every_checkout():
 def test_pull_requests_run_the_complete_sentinel_safety_suite():
     workflow = _read(".github/workflows/sentinel-safety.yml")
     assert "pull_request:" in workflow
-    assert "branches: [main]" in workflow
+    branches = re.search(r"branches:\s*\[([^]]+)\]", workflow)
+    assert branches and "main" in {
+        branch.strip() for branch in branches.group(1).split(",")}
     assert "permissions:\n  contents: read" in workflow
     assert "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683" \
         in workflow
-    assert "docker build -f Dockerfile.sentinel -t sentinel:latest" in workflow
-    assert "docker build -f Dockerfile.sentinel-test" in workflow
+    assert "-f Dockerfile.sentinel -t sentinel:latest ." in workflow
+    assert "Dockerfile.sentinel-authorized" in workflow
+    assert "sentinel-authorized:ci" in workflow
+    assert "-f Dockerfile.sentinel-test -t sentinel-test:ci" in workflow
+    assert "SENTINEL_IMAGE=sentinel-authorized:ci" in workflow
+    assert workflow.count('--build-arg SOURCE_GIT_SHA="${GITHUB_SHA}"') == 6
     assert "tests/sentinel -q -ra" in workflow
     assert "tee /tmp/sentinel-complete.txt" in workflow
     assert "the complete Sentinel run skipped tests" in workflow
@@ -113,6 +119,7 @@ def test_pull_requests_run_the_complete_sentinel_safety_suite():
 
 def test_pull_request_ci_proves_it_is_testing_the_synthetic_merge():
     workflow = _read(".github/workflows/sentinel-safety.yml")
+    assert "branches: [main, codex/main-review-remediation]" in workflow
     assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in workflow
     assert 'if [ "$GITHUB_EVENT_NAME" = "pull_request" ]' in workflow
     assert "git rev-list --parents -n 1 HEAD" in workflow
@@ -158,8 +165,10 @@ def test_pull_requests_execute_the_bt_engine_boundary_in_its_built_image():
 
     # A fresh checkout has no mutable local base tag.  Build it first, then the
     # production image, and only then layer the test runner on that image.
-    base = "docker build -f Dockerfile.base -t stocker-base:latest"
-    engine = ("docker build -f services/bt-engine/Dockerfile "
+    # Source identity is an explicit build argument, so match the stable
+    # Dockerfile/tag boundary rather than pretending each build fits one line.
+    base = "-f Dockerfile.base -t stocker-base:latest"
+    engine = ("-f services/bt-engine/Dockerfile "
               "-t stocker-bt-engine:ci")
     test_image = "-f services/bt-engine/Dockerfile.test"
     assert base in workflow

@@ -1,11 +1,13 @@
 # The certified image, plus the tooling needed to TEST it. Nothing else.
 #
 # WHY A SECOND IMAGE INSTEAD OF ADDING pytest TO THE FIRST. A test run must
-# exercise the environment a rehearsal actually runs in — the same interpreter,
+# exercise the environment production actually runs in — the same interpreter,
 # the same exchange_calendars, the same pandas — and installing test tooling
 # into the runtime image would change that environment while claiming to verify
-# it. Layering on top keeps every runtime layer byte-identical: `sentinel:latest`
-# is the artefact, and this is a lens on it.
+# it. Layering on top keeps every runtime layer byte-identical:
+# `sentinel-authorized:latest` is the deployable artefact, and this is a lens on
+# it. The lens receives no broker credentials and does not set the separately
+# required authorized-intent flag, so the baked marker cannot enable transport.
 #
 # WHY NOT RUN THE SUITE ON THE HOST. The whole point of the pins is that the
 # host's Python is not the certified one. A green suite on a developer's 3.11
@@ -18,7 +20,7 @@
 # It copied `sentinel/` and `shared/` into /work and put /work first on
 # PYTHONPATH. Pytest then imported the fresh CHECKOUT, not the runtime code:
 #
-#     sentinel:latest holds stale or wrong /app/sentinel
+#     deployable runtime holds stale or wrong /app/sentinel
 #       + the test layer copies correct source into /work
 #       -> every test green, artefact never executed
 #
@@ -32,7 +34,7 @@
 # and the compose file are inputs to assertions about the image, not code to
 # import). That copy lives at /work/repo, which is never on sys.path, and
 # `SENTINEL_REPO_ROOT` points the inspecting tests at it.
-ARG SENTINEL_IMAGE=sentinel:latest
+ARG SENTINEL_IMAGE=sentinel-authorized:latest
 FROM ${SENTINEL_IMAGE}
 ARG SOURCE_GIT_SHA=unknown
 LABEL org.opencontainers.image.revision=${SOURCE_GIT_SHA}
@@ -79,7 +81,15 @@ COPY tests/ /work/tests/
 # `services` package in the runtime image.
 COPY services/backtester/ /work/services/backtester/
 COPY tools/ /work/tools/
+# The formal evidence suites import these two actual-invocation producers.
+# Keep the rest of scripts/ inspection-only under /work/repo: copying the whole
+# directory onto PYTHONPATH would make unrelated operator scripts executable in
+# the certification lens and blur the runtime/inspection boundary.
+COPY scripts/sentinel_forward_run.py /work/scripts/sentinel_forward_run.py
+COPY scripts/sentinel_test_run.py /work/scripts/sentinel_test_run.py
+COPY scripts/sentinel-measure.sh /work/scripts/sentinel-measure.sh
 COPY scripts/ /work/repo/scripts/
+COPY tools/ /work/repo/tools/
 
 # INSPECTION ONLY. Never on sys.path — these are the inputs to assertions about
 # the image, and importing them is precisely what this file exists to prevent.
@@ -105,7 +115,10 @@ COPY sentinel/ /work/repo/sentinel/
 COPY shared/ /work/repo/shared/
 COPY Dockerfile.base /work/repo/Dockerfile.base
 COPY Dockerfile.sentinel /work/repo/Dockerfile.sentinel
+COPY Dockerfile.sentinel-authorized /work/repo/Dockerfile.sentinel-authorized
+COPY deploy/sentinel-authorized-runtime-v1 /work/repo/deploy/sentinel-authorized-runtime-v1
 COPY docker-compose.sentinel.yml /work/repo/docker-compose.sentinel.yml
+COPY docker-compose.sentinel-automation.yml /work/repo/docker-compose.sentinel-automation.yml
 COPY Dockerfile.sentinel-test /work/repo/Dockerfile.sentinel-test
 # The certification harness resolves the bt-engine image out of THIS file and
 # refuses a build context that hides a COPY source, so both are inputs to
@@ -123,6 +136,7 @@ COPY README.md /work/repo/README.md
 COPY docs/main-review-remediation.md /work/repo/docs/main-review-remediation.md
 COPY docs/sentinel-deployment.md /work/repo/docs/sentinel-deployment.md
 COPY docs/sentinel-paper-activation.md /work/repo/docs/sentinel-paper-activation.md
+COPY docs/sentinel-stage-4-automation.md /work/repo/docs/sentinel-stage-4-automation.md
 # bt-engine RUNS the rehearsal and bt-data INGESTS the corpus, so several tests
 # read their source to check what the engine records and how the feed maps a
 # vendor row. INSPECTION ONLY — under /work/repo, never /work, so nothing here
@@ -147,11 +161,16 @@ ENV PYTHONPATH=/work:/work/services/backtester:/app \
 # BEFORE any test runs. If the imports resolve to the wrong place the suite is
 # measuring the wrong thing, and a failure here is far cheaper than a green run
 # that certified a checkout.
-RUN python -c "import sentinel, stock_strategy_shared.wealth_core as wc; \
+RUN python -c "from pathlib import Path; \
+    import sentinel, stock_strategy_shared.wealth_core as wc; \
     from app import wealth_core_replay as bt; \
+    from scripts import sentinel_forward_run as forward_run; \
     import tools.corpus_parity; \
     assert sentinel.__file__.startswith('/app/'), sentinel.__file__; \
     assert '/work' not in wc.__file__, wc.__file__; \
+    assert str(forward_run.DEFAULT_PRODUCTION).startswith('/app/'), forward_run.DEFAULT_PRODUCTION; \
+    assert str(forward_run.DEFAULT_RUNNER).startswith('/work/tools/'), forward_run.DEFAULT_RUNNER; \
+    assert Path('/work/scripts/sentinel-measure.sh').is_file(); \
     print('runtime imports OK:', sentinel.__file__, wc.__file__, bt.__file__)"
 
 # Overrides the runtime ENTRYPOINT, whose purpose is to refuse to be started

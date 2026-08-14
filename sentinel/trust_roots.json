@@ -1,0 +1,1 @@
+{"roots":[{"algorithm":"Ed25519","key_id":"ed25519-sha256:21fe31dfa154a261626bf854046fd2271b7bed4b6abe45aa58877ef47f9721b9","not_after":"2099-01-01T00:00:00Z","not_before":"2000-01-01T00:00:00Z","public_key":"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo","status":"DISABLED"}],"schema":"sentinel.ed25519_trust_roots/1"}

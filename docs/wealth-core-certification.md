@@ -1186,10 +1186,11 @@ two stacks share no docker network by design).
    re-run, while a ticker with no coverage means the vendor has none and
    re-running changes nothing. 97% looks identical in aggregate either way.
 
-5. **[RUNNABLE — evidence not yet run]** **`baseline_replay` over the authoritative period.** Require all SEVEN hashes
-   to match. The expected hashes come FROM the backtester — the endpoint refuses
-   to recompute them (that would prove only that the tunnel agrees with itself)
-   and refuses a partial set.
+5. **[RUNNABLE — evidence not yet run]** **Produce retained baseline
+   expectations over the authoritative period.** All SEVEN hashes come from the
+   backtester. This step does not call bt-engine and cannot assert a replay
+   passed; the formal replay follows the finalized chain rehearsal at step 7a,
+   because its authority record must bind the final manifest bytes.
 
    ```bash
    START=2021-01-04
@@ -1215,7 +1216,7 @@ two stacks share no docker network by design).
    order = ("normalized_input", "candidate_audit", "decision", "order",
             "daily_state", "daily_equity", "final_result")
    assert a["status"] == "ready"
-   assert tuple(a["hashes"]) == order
+   assert set(a["hashes"]) == set(order)
    assert all(re.fullmatch(r"[0-9a-f]{64}", a["hashes"][k]) for k in order)
    assert a["corpus"]["status"] == "READY"
    assert a["corpus"]["source_mode"] == "sharadar"
@@ -1230,46 +1231,15 @@ two stacks share no docker network by design).
        a["provenance"]["runtime_environment"]["image_lock_sha256"])
    PY
 
-   BASELINE_REQ="artifacts/sentinel/wealth-core-baseline-${STAMP}.json"
-   python3 - "${HASH_ART}" "${BASELINE_REQ}" <<'PY'
-   import json, sys
-   source, target = sys.argv[1:]
-   artifact = json.load(open(source))
-   request = {
-       "mode": "baseline_replay",
-       "start_date": artifact["window"]["requested_start"],
-       "end_date": artifact["window"]["requested_end"],
-       "expected_hashes": artifact["hashes"],
-       "expected_data_version": artifact["corpus"]["version"],
-   }
-   open(target, "x").write(json.dumps(request, indent=2, sort_keys=True) + "\n")
-   PY
-   curl -sS -X POST localhost:8031/wealth-core/jobs/run \
-     -H 'content-type: application/json' --data-binary "@${BASELINE_REQ}"
-   curl -s localhost:8031/wealth-core/runs/latest
    ```
 
-   Check the POST response names a run id. Poll the latest row until it is
-   terminal, then require `status == "success"`, all seven persisted hashes to
-   equal `${HASH_ART}`, the exact requested window, and
-   `provenance.split_source == "actions"` and
-   `provenance.bt_data_version == artifact.corpus.version` before reading any
-   other number.
+   Preserve the exact artifact bytes. They bind the full canonical Wealth Core
+   configuration, full eligibility configuration, starting cash, corpus
+   generation and causal input. Changing any of those requires a newly named
+   expected-hash artifact.
 
-   **WHAT THIS STEP PROVES, STATED EXACTLY — it is narrower than it looks.**
-   bt-engine's `_load_corpus` imports `app.live.wealth_core_replay`, which is the
-   BACKTESTER's own loader COPYed in at image build ("ONE CORPUS LOADER, NOT
-   TWO"). Shared loader code compiled into separately built images proves
-   **environment and image parity over real data** — that the same source, built
-   twice and deployed twice, agrees. It does **NOT** prove independent
-   implementation parity: there is one implementation, so a defect in it is
-   reproduced identically on both sides and cancels out of the comparison. Two
-   engines agreeing is only evidence when they are two engines. This distinction
-   stays in the record permanently; it is not a caveat to be dropped once the
-   step goes green.
-
-6. **[PENDING step 5 evidence]** **Repeat it** from a newly named artifact and
-   require byte-identical hashes and provenance-bound persisted artifacts.
+6. **[PENDING step 5 evidence]** **Repeat expected-hash production** from a
+   newly named artifact and require byte-identical hashes and provenance.
 
 7. **[NEXT — runnable now, NOT blocked on 5]** **`chain_rehearsal` over the same period.** Require: the run reaches
    `status: success` (a divergence RAISES, so a success row means the live path
@@ -1285,10 +1255,78 @@ two stacks share no docker network by design).
    that idles in cash into June is the unwarmed defect, not a strategy result —
    discard it rather than interpret it.
 
+7a. **[PENDING finalized step 7 evidence]** **Invoke the formal baseline and
+   retain its authority record.** First run the existing finalizer for step 7
+   and require the interval manifest to be `FINALIZED/PASS`. Then run the
+   producer from the exact digest-qualified test image named by that manifest:
+
+   ```bash
+   HASH_ART="artifacts/sentinel/wealth-core-expected-hashes-${STAMP}.json"
+   BASELINE_ART="artifacts/sentinel/wealth-core-baseline-run-${STAMP}.json"
+   MANIFEST="artifacts/sentinel/manifest-${STAMP}.json"
+   [ ! -e "${BASELINE_ART}" ] || {
+     echo "refusing to overwrite ${BASELINE_ART}" >&2; exit 1;
+   }
+   TEST_REF=$(python3 - "${MANIFEST}" <<'PY'
+   import json, sys
+   manifest = json.load(open(sys.argv[1]))
+   assert manifest["lifecycle"] == "FINALIZED"
+   assert manifest["verdict"] == "PASS"
+   refs = manifest["sentinel_test_image"]["repo_digests"]
+   digests = {ref.rsplit("@", 1)[1] for ref in refs}
+   assert len(refs) > 0 and len(digests) == 1
+   print(sorted(refs)[0])
+   PY
+   )
+   docker run --rm --network host --user "$(id -u):$(id -g)" \
+     --entrypoint python \
+     -v "$(pwd)/artifacts/sentinel:/artifacts" \
+     "${TEST_REF}" -m tools.wealth_core_baseline_run \
+     --expected-hashes "/artifacts/$(basename "${HASH_ART}")" \
+     --manifest "/artifacts/$(basename "${MANIFEST}")" \
+     --bt-engine-url http://127.0.0.1:8031 \
+     --output "/artifacts/$(basename "${BASELINE_ART}")"
+   ```
+
+   This is the only baseline output admissible as certification authority.
+   The command has no `--run-id`, `--from-json`, or portable-row input. In one
+   invocation it validates the exact expected-hash and `FINALIZED/PASS`
+   manifest bytes, constructs the canonical request, starts
+   `POST /wealth-core/jobs/run`, captures the returned UUID, polls only
+   `GET /wealth-core/runs/<that UUID>`, validates the authoritative terminal
+   row, and atomically creates one no-clobber
+   `sentinel.wealth-core-baseline-run/1` record. A
+   `sentinel.rehearsal_envelope/1` export remains useful diagnosis but is
+   portable audit JSON, not baseline authority, even when it says `success`.
+
+   The record binds raw expected-hash and manifest bytes and SHA-256s; exact
+   process argv, request, log and outcome; expected configuration, starting
+   cash, corpus generation and corpus provenance; the exact durable run row and
+   timestamps; and the bt-engine image, source revision, Wealth Core and loader
+   source hashes, interpreter, dependency lock and complete installed
+   distribution closure. Engine identity must equal the manifest. Publication
+   uses a same-directory fsynced staging file, atomic no-clobber link and
+   directory fsyncs; failed publication removes or quarantines the authority
+   name.
+
+   Require `status == "success"`, all seven persisted hashes to equal
+   `${HASH_ART}`, the exact requested window,
+   `outcome.divergence_identical == true`, `outcome.split_source == "actions"`,
+   and `outcome.bt_data_version == artifact.corpus.version`. Failure, timeout,
+   engine/image mismatch, non-authoritative corpus or an incomplete terminal
+   row emits no baseline-authority artifact.
+
+   **WHAT THIS STEP PROVES, STATED EXACTLY — it is narrower than it looks.**
+   bt-engine imports the backtester's own loader copied in at image build.
+   Shared loader code compiled into separately built images proves environment
+   and image parity over real data. It does **not** prove independent
+   implementation parity: one loader defect is reproduced on both sides and
+   cancels out. This distinction stays in the authority record permanently.
+
 8. **Restart cuts** through admissions, exits, dividends, terminal actions,
    cooldowns and defensive state, over the authoritative data.
 
-9. **[PENDING step 5 evidence]** **Cross-engine parity over the authoritative data**, not only the golden
+9. **[PENDING step 7a evidence]** **Cross-engine parity over the authoritative data**, not only the golden
    stream.
 
 10. Keep `execution_model=target_portfolio` until every one of the above passes.

@@ -22,8 +22,10 @@ unasserted: the cost of getting it wrong is a destroyed corpus.
 """
 from __future__ import annotations
 
-import json
+import base64
+import hashlib
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -40,11 +42,21 @@ REPO = Path(os.environ.get("SENTINEL_REPO_ROOT") or ROOT)
 SCRIPT = REPO / "scripts" / "sentinel-certify.sh"
 LOCKER = REPO / "scripts" / "sentinel-lock.sh"
 MANIFEST = REPO / "scripts" / "sentinel_manifest.py"
+TEST_RUN_PRODUCER = REPO / "scripts" / "sentinel_test_run.py"
 
 
 def manifest_module():
     spec = importlib.util.spec_from_file_location(
         "sentinel_manifest_under_test", MANIFEST)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def certification_test_run_module():
+    spec = importlib.util.spec_from_file_location(
+        "sentinel_test_run_under_test", TEST_RUN_PRODUCER)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -304,7 +316,7 @@ class TestTheManifestNamesTheBuiltIMAGE:
 
     def test_it_records_the_runtime_image_ID(self):
         body = MANIFEST.read_text()
-        assert "sentinel:latest" in body and "{{.Id}}" in body
+        assert "sentinel-authorized:latest" in body and "{{.Id}}" in body
 
     def test_it_records_REPO_DIGESTS_too(self):
         """Empty until pushed, and recorded as a field rather than omitted:
@@ -574,6 +586,230 @@ class TestEvidenceIsRETAINED:
         assert "--assert-no-holdings" in body, (
             "the pre-seed run must state the empty book explicitly; supplying "
             "nothing means UNKNOWN")
+
+
+class TestCanonicalCertificationTestRun:
+    """A free-form pytest summary is not execution-authority evidence."""
+
+    @staticmethod
+    def manifest(tmp_path: Path, **overrides) -> Path:
+        record = {
+            "schema": "sentinel.certification_manifest/2",
+            "lifecycle": "FROZEN",
+            "identity_hash": "a" * 64,
+            "git_commit": "b" * 40,
+            "image_source_hashes": {"certification_inputs": "c" * 64},
+            "sentinel_runtime_image": {
+                "repo_digests": [f"registry/sentinel@sha256:{'d' * 64}"]},
+            "sentinel_test_image": {
+                "repo_digests": [f"registry/sentinel-test@sha256:{'e' * 64}"]},
+        }
+        record.update(overrides)
+        path = tmp_path / "manifest-W.json"
+        path.write_text(json.dumps(record, indent=2, sort_keys=True))
+        return path
+
+    @staticmethod
+    def inputs(tmp_path: Path) -> tuple[Path, Path]:
+        inventory = tmp_path / "inventory.txt"
+        inventory.write_text(
+            "tests/sentinel/test_z.py::test_second\n"
+            "tests/sentinel/test_a.py::test_first\n"
+            "tests/sentinel/test_x.py::test_debt[one]\n"
+            "tests/sentinel/test_x.py::test_debt[two]\n"
+            "tests/sentinel/test_x.py::test_debt[three]\n"
+            "5 tests collected in 0.03s\n"
+        )
+        log = tmp_path / "suite.txt"
+        log.write_text("..xxx [100%]\n2 passed, 3 xfailed in 0.21s\n")
+        return inventory, log
+
+    def test_the_harness_emits_the_record_from_the_actual_command(self):
+        body = text()
+        assert 'test-run-${RUNSTAMP}.json' in body
+        assert 'manifest-frozen-${RUNSTAMP}.json' in body
+        assert "sentinel_test_run.py retain-manifest" in body
+        assert 'SUITE_CMD=(docker run --rm --network none "${TEST_IMAGE_REF}"' \
+            in body
+        assert '"${SUITE_CMD[@]}" 2>&1' in body
+        assert "sentinel_test_run.py publish" in body
+        assert 'INVENTORY_CMD=(docker run --rm --network none' in body
+        assert line_of("sentinel_test_run.py validate-manifest") \
+            < line_of("TRUNCATE TABLE")
+        assert line_of("sentinel_test_run.py retain-manifest") \
+            < line_of("TRUNCATE TABLE")
+        assert line_of("sentinel_test_run.py publish") \
+            > line_of('SUITE=$("${SUITE_CMD[@]}"')
+
+    def test_it_binds_exact_bytes_images_command_inventory_and_xfail_debt(
+            self, tmp_path):
+        module = certification_test_run_module()
+        manifest = self.manifest(tmp_path)
+        inventory, log = self.inputs(tmp_path)
+        command = ["docker", "run", "--rm", "--network", "none",
+                   f"registry/sentinel-test@sha256:{'e' * 64}",
+                   "tests/sentinel", "-q", "-rs"]
+        record = module.build_record(
+            manifest_path=manifest, inventory_path=inventory, log_path=log,
+            exit_code=0, command=command)
+        assert record["schema"] == "sentinel.certification-test-run/1"
+        assert record["status"] == "PASS"
+        assert record["producer_sha256"] == hashlib.sha256(
+            TEST_RUN_PRODUCER.read_bytes()).hexdigest()
+        assert record["base_manifest"]["sha256"] == hashlib.sha256(
+            manifest.read_bytes()).hexdigest()
+        assert record["base_manifest"]["runtime_image_digest"] == \
+            f"sha256:{'d' * 64}"
+        assert record["base_manifest"]["test_image_digest"] == \
+            f"sha256:{'e' * 64}"
+        assert record["command"]["argv"] == command
+        assert record["inventory"]["nodeids"] == sorted(
+            record["inventory"]["nodeids"])
+        assert record["inventory"]["count"] == 5
+        assert base64.b64decode(
+            record["inventory_log_base64"], validate=True
+        ) == inventory.read_bytes()
+        assert base64.b64decode(
+            record["pytest_log_base64"], validate=True
+        ) == log.read_bytes()
+        assert record["pytest_log_sha256"] == hashlib.sha256(
+            log.read_bytes()).hexdigest()
+        assert record["passed"] == 2 and record["xfailed"] == 3
+        assert record["failed"] == record["skipped"] == 0
+        assert record["xpassed"] == record["errors"] == 0
+        assert set(record) == {
+            "schema", "status", "producer_sha256", "base_manifest",
+            "command", "inventory", "inventory_log_base64",
+            "pytest_log_base64", "pytest_log_sha256", "exit_code", "passed",
+            "failed", "skipped", "xfailed", "xpassed", "errors",
+        }
+
+    def test_publish_is_canonical_atomic_and_no_clobber(self, tmp_path):
+        module = certification_test_run_module()
+        manifest = self.manifest(tmp_path)
+        inventory, log = self.inputs(tmp_path)
+        output = tmp_path / "test-run-W.json"
+        args = [
+            "publish", "--manifest", str(manifest),
+            "--inventory-log", str(inventory), "--pytest-log", str(log),
+            "--exit-code", "0", "--output", str(output), "--",
+            "docker", "run", "--rm", "--network", "none",
+            f"registry/sentinel-test@sha256:{'e' * 64}",
+            "tests/sentinel", "-q", "-rs",
+        ]
+        assert module.main(args) == 0
+        raw = output.read_bytes()
+        parsed = json.loads(raw)
+        assert raw == module._canonical(parsed)
+        assert module.main(args) == 1
+        assert output.read_bytes() == raw
+
+    def test_retained_frozen_bytes_do_not_follow_mutable_manifest(self, tmp_path):
+        module = certification_test_run_module()
+        manifest = self.manifest(tmp_path)
+        original = manifest.read_bytes()
+        retained = tmp_path / "manifest-frozen-W.json"
+        assert module.main([
+            "retain-manifest", "--manifest", str(manifest),
+            "--output", str(retained)]) == 0
+        manifest.write_text('{"lifecycle":"READY_FOR_REHEARSAL"}')
+        assert retained.read_bytes() == original
+        assert module.main([
+            "retain-manifest", "--manifest", str(retained),
+            "--output", str(retained)]) == 1
+        assert retained.read_bytes() == original
+
+    def test_post_link_failure_removes_the_authoritative_name(
+            self, tmp_path, monkeypatch):
+        module = certification_test_run_module()
+        output = tmp_path / "record.json"
+
+        def refuse_directory_fsync(_path):
+            raise OSError("injected directory fsync failure")
+
+        monkeypatch.setattr(module, "_fsync_directory", refuse_directory_fsync)
+        with pytest.raises(OSError, match="injected"):
+            module._write_no_clobber(output, b"evidence")
+        assert not output.exists()
+
+    @pytest.mark.parametrize(
+        ("summary", "exit_code"), [
+            ("1 passed, 1 skipped in 0.1s", 0),
+            ("1 passed, 1 xpassed in 0.1s", 0),
+            ("1 passed, 1 failed in 0.1s", 1),
+            ("1 passed, 1 error in 0.1s", 1),
+            ("1 passed in 0.1s", 4),
+            ("1 xfailed in 0.1s", 0),
+        ])
+    def test_no_failed_partial_or_vacuous_result_can_publish(
+            self, tmp_path, summary, exit_code):
+        module = certification_test_run_module()
+        manifest = self.manifest(tmp_path)
+        inventory, log = self.inputs(tmp_path)
+        log.write_text(summary + "\n")
+        output = tmp_path / "refused.json"
+        rc = module.main([
+            "publish", "--manifest", str(manifest),
+            "--inventory-log", str(inventory), "--pytest-log", str(log),
+            "--exit-code", str(exit_code), "--output", str(output), "--",
+            "docker", "run", "--rm", "--network", "none",
+            f"registry/sentinel-test@sha256:{'e' * 64}",
+            "tests/sentinel", "-q", "-rs",
+        ])
+        assert rc == 1
+        assert not output.exists()
+
+    @pytest.mark.parametrize("mutation", [
+        "missing_runtime_digest", "ambiguous_runtime_digest",
+        "same_image_digest", "wrong_lifecycle", "missing_input_hash",
+    ])
+    def test_manifest_provenance_falsifiers(self, tmp_path, mutation):
+        module = certification_test_run_module()
+        manifest = self.manifest(tmp_path)
+        value = json.loads(manifest.read_text())
+        if mutation == "missing_runtime_digest":
+            value["sentinel_runtime_image"]["repo_digests"] = []
+        elif mutation == "ambiguous_runtime_digest":
+            value["sentinel_runtime_image"]["repo_digests"].append(
+                f"other/sentinel@sha256:{'f' * 64}")
+        elif mutation == "same_image_digest":
+            value["sentinel_test_image"]["repo_digests"] = [
+                f"other/test@sha256:{'d' * 64}"]
+        elif mutation == "wrong_lifecycle":
+            value["lifecycle"] = "READY_FOR_REHEARSAL"
+        else:
+            value["image_source_hashes"].pop("certification_inputs")
+        manifest.write_text(json.dumps(value))
+        with pytest.raises(module.TestRunRefused):
+            module.manifest_binding(manifest)
+
+    @pytest.mark.parametrize("collection", [
+        "tests/sentinel/test_a.py::test_first\n2 tests collected in 0.1s\n",
+        ("tests/sentinel/test_a.py::test_first\n"
+         "tests/sentinel/test_a.py::test_first\n"
+         "2 tests collected in 0.1s\n"),
+        "2 tests collected in 0.1s\n",
+    ])
+    def test_inventory_must_match_sorted_unique_nodeids(self, collection):
+        module = certification_test_run_module()
+        with pytest.raises(module.TestRunRefused):
+            module.inventory_from_log(collection.encode())
+
+    def test_inventory_preserves_parameter_ids_with_spaces(self):
+        module = certification_test_run_module()
+        inventory = module.inventory_from_log(
+            b"tests/sentinel/test_a.py::test_first[buy sell]\n"
+            b"1 test collected in 0.1s\n")
+        assert inventory["nodeids"] == [
+            "tests/sentinel/test_a.py::test_first[buy sell]"]
+
+    def test_the_producer_is_valid_python_and_the_harness_is_valid_bash(self):
+        compile(TEST_RUN_PRODUCER.read_text(), str(TEST_RUN_PRODUCER), "exec")
+        bash = (r"C:\Program Files\Git\bin\bash.exe"
+                if os.name == "nt" else "bash")
+        result = subprocess.run(
+            [bash, "-n", str(SCRIPT)], capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
 
 
 # ── 5. the lock bootstrap has no sequencing hole ─────────────────────────────
@@ -913,6 +1149,7 @@ class TestTheBaseIsRebuiltBeforeTheEngine:
         assert 'SOURCE_GIT_SHA="$(git rev-parse HEAD)"' in certify
         assert certify.count("--build-arg SOURCE_GIT_SHA") >= 3
         for path in ("Dockerfile.sentinel", "Dockerfile.base",
+                     "Dockerfile.sentinel-authorized",
                      "Dockerfile.sentinel-test",
                      "services/bt-engine/Dockerfile",
                      "services/bt-data/Dockerfile"):
@@ -1237,7 +1474,7 @@ class TestTheResourceMeasurementHarness:
         figure can see that."""
         body = self.body()
         assert "host_memory_verdict" in body
-        assert "host_min_mem_available_pct" in body
+        assert "host_min_mem_available_basis_points" in body
 
     def test_IO_and_RUNTIME_are_reported_too(self):
         """This host reports no blkio throttle support at all, so disk pressure

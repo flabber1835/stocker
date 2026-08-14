@@ -45,6 +45,7 @@ from sentinel.execution import commands as C
 from sentinel.execution import journal, reconcile as R, recovery
 from sentinel.execution.contract import Completeness, ExecutionBroker, Side
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
+from sentinel.execution.guarded import BrokerAuthorityRefused
 from sentinel.execution.plan import ExecutionPlan
 from sentinel.execution.states import CommandState, RuntimeState, TERMINAL
 
@@ -386,6 +387,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                             observed_account=await broker.identify_account(),
                             observation=obs, open_commands=commands,
                             capabilities=broker.capabilities)
+            except BrokerAuthorityRefused:
+                raise
             except Exception as exc:                          # noqa: BLE001
                 refused[delta.security_id] = f"{type(exc).__name__}: {exc}"
                 continue
@@ -529,6 +532,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     if increases and increase_authority is not None:
         try:
             await increase_authority(observation)
+        except BrokerAuthorityRefused:
+            raise
         except Exception as exc:                              # noqa: BLE001
             deferred.extend(d.security_id for d in increases)
             increases = []
@@ -748,6 +753,8 @@ async def resolve_outstanding(*, broker: ExecutionBroker, conn,
             try:
                 updated = await recovery.resolve_indeterminate(
                     broker, command, observation)
+            except BrokerAuthorityRefused:
+                raise
             except Exception as exc:                          # noqa: BLE001
                 log.warning("sentinel: %s stays UNKNOWN: %s",
                             command.client_key, exc)

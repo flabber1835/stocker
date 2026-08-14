@@ -30,6 +30,7 @@ from typing import Tuple
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
     BrokerObservation, CommandOutcome, ExecutionBroker)
+from sentinel.execution.guarded import PreTransportAuthorityRefused
 from sentinel.execution.states import CommandState, CommandState as S
 
 
@@ -55,6 +56,13 @@ async def dispatch(broker: ExecutionBroker, command: Command) -> Command:
         outcome: CommandOutcome = await broker.submit(
             client_key=command.client_key, instrument=command.instrument,
             side=command.side, quantity=command.quantity)
+    except PreTransportAuthorityRefused:
+        # The guard refused immediately before transport, so the broker was
+        # never called.  UNKNOWN means a request may have landed; assigning it
+        # here would turn a known non-submit into false uncertainty.  The
+        # caller already persisted SEND_PENDING, which restart reconciliation
+        # knows how to resolve without inventing a replacement identity.
+        raise
     except Exception as exc:                                  # noqa: BLE001
         return command.transition(
             S.UNKNOWN,

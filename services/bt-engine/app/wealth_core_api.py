@@ -120,6 +120,9 @@ def _engine_identity() -> dict:
     import platform
 
     from stock_strategy_shared import identity_hashes  # noqa: PLC0415
+    from stock_strategy_shared.runtime_identity import (  # noqa: PLC0415
+        dependency_identity,
+    )
 
     return {
         "python": platform.python_version(),
@@ -129,6 +132,8 @@ def _engine_identity() -> dict:
         # Injected by the deploy when it knows; null otherwise, never guessed.
         "image_id": os.getenv("BT_ENGINE_IMAGE_ID") or None,
         "image_ref": os.getenv("BT_ENGINE_IMAGE") or None,
+        "source_revision": os.getenv("BT_ENGINE_SOURCE_REVISION") or None,
+        **dependency_identity("/app/requirements.lock"),
     }
 
 
@@ -867,6 +872,12 @@ async def start_wealth_core_job(req: WealthCoreJobRequest,
         # economics.
         spec_json = json.loads(req.model_dump_json())
         spec_json["engine_identity"] = _engine_identity()
+        if req.mode == "baseline_replay":
+            from stock_strategy_shared.runtime_identity import (  # noqa: PLC0415
+                wealth_core_baseline_identity,
+            )
+            spec_json["baseline_identity"] = wealth_core_baseline_identity(
+                starting_cash=req.starting_cash)
         await conn.execute(text(
             "INSERT INTO bt_wealth_core_runs (run_id, mode, spec) VALUES "
             "(CAST(:r AS UUID), :m, CAST(:s AS JSONB))"),

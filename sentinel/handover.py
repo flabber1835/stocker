@@ -91,7 +91,8 @@ async def stable_flat_observation(broker: SentinelBroker, *, sleep,
 async def migrate_account(*, broker: SentinelBroker, conn,
                           deployment_id: str, expected_account: Optional[str],
                           max_cycles: int = 40, poll_seconds: float = 5.0,
-                          sleep=None, notes: str = "") -> MigrationResult:
+                          sleep=None, notes: str = "",
+                          authority_check=None) -> MigrationResult:
     """Remove the legacy book and bind the account. Refuses if already bound."""
     import asyncio
     from sentinel.execution import journal
@@ -105,14 +106,16 @@ async def migrate_account(*, broker: SentinelBroker, conn,
         return await _migrate_account_locked(
             broker=broker, conn=conn, deployment_id=deployment_id,
             expected_account=expected_account, max_cycles=max_cycles,
-            poll_seconds=poll_seconds, sleep=sleep, notes=notes)
+            poll_seconds=poll_seconds, sleep=sleep, notes=notes,
+            authority_check=authority_check)
 
 
 async def _migrate_account_locked(*, broker: SentinelBroker, conn,
                                   deployment_id: str,
                                   expected_account: Optional[str],
                                   max_cycles: int, poll_seconds: float,
-                                  sleep, notes: str) -> MigrationResult:
+                                  sleep, notes: str,
+                                  authority_check=None) -> MigrationResult:
     """Migration body; caller owns the single-writer lock."""
 
     # 1. ALREADY OURS? This is the de-arming, and it is checked FIRST so no
@@ -189,6 +192,11 @@ async def _migrate_account_locked(*, broker: SentinelBroker, conn,
     #    Both writers now defer their commit; the ONE commit below is what makes
     #    the handover atomic.
     deferred = PostgresOwnershipStore(conn, autocommit=False)
+    if authority_check is not None:
+        # The account can take many read/settlement cycles to become flat.
+        # Recheck signed authority under the same writer lock immediately
+        # before the irreversible local ownership boundary is recorded.
+        authority_check()
     record(deferred, OwnershipState.SENTINEL_OWNERSHIP_ESTABLISHED,
            reason="legacy book removed; flat confirmed by two observations",
            deployment_id=deployment_id, broker_account_id=observed_id)

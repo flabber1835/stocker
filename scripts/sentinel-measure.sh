@@ -80,6 +80,64 @@ shift
 shift
 [ "$#" -gt 0 ] || die "no command given after \`--\`"
 
+# A certification envelope is about one reviewed artifact and one reviewed
+# policy, not whichever mutable tags and thresholds happen to exist today.
+: "${SENTINEL_RESOURCE_POLICY_FILE:?set reviewed resource-policy JSON path}"
+: "${SENTINEL_AUTOMATION_CONFIG_FILE:?set reviewed automation-config JSON path}"
+: "${SENTINEL_GIT_COMMIT:?set exact built Git commit}"
+: "${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable runtime image digest}"
+: "${SENTINEL_TEST_IMAGE_DIGEST:?set immutable test image digest}"
+[[ "${SENTINEL_GIT_COMMIT}" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] \
+  || die "SENTINEL_GIT_COMMIT is not an exact Git object id"
+[[ "${SENTINEL_RUNTIME_IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]] \
+  || die "SENTINEL_RUNTIME_IMAGE_DIGEST is not immutable"
+[[ "${SENTINEL_TEST_IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]] \
+  || die "SENTINEL_TEST_IMAGE_DIGEST is not immutable"
+[ -f "${SENTINEL_RESOURCE_POLICY_FILE}" ] || die "reviewed resource policy is absent"
+[ -f "${SENTINEL_AUTOMATION_CONFIG_FILE}" ] || die "automation config is absent"
+
+RUNTIME_REPOSITORY="${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel-authorized}"
+TEST_REPOSITORY="${SENTINEL_TEST_IMAGE_REPOSITORY:-sentinel-test}"
+RUNTIME_REF="${RUNTIME_REPOSITORY}@${SENTINEL_RUNTIME_IMAGE_DIGEST}"
+TEST_REF="${TEST_REPOSITORY}@${SENTINEL_TEST_IMAGE_DIGEST}"
+export SENTINEL_RUNTIME_IMAGE_REF="${RUNTIME_REF}"
+RUNTIME_IMAGE_JSON="$(docker image inspect "${RUNTIME_REF}" 2>/dev/null)" \
+  || die "reviewed runtime image is not installed by digest"
+TEST_IMAGE_JSON="$(docker image inspect "${TEST_REF}" 2>/dev/null)" \
+  || die "reviewed test image is not installed by digest"
+read -r RUNTIME_IMAGE_ID RUNTIME_REVISION <<<"$(printf '%s' "${RUNTIME_IMAGE_JSON}" | \
+  python3 -c 'import json,sys; i=json.load(sys.stdin)[0]; print(i["Id"], (i.get("Config",{}).get("Labels") or {}).get("org.opencontainers.image.revision", ""))')"
+read -r TEST_IMAGE_ID TEST_REVISION <<<"$(printf '%s' "${TEST_IMAGE_JSON}" | \
+  python3 -c 'import json,sys; i=json.load(sys.stdin)[0]; print(i["Id"], (i.get("Config",{}).get("Labels") or {}).get("org.opencontainers.image.revision", ""))')"
+[ "${RUNTIME_REVISION}" = "${SENTINEL_GIT_COMMIT}" ] \
+  || die "runtime image source revision differs from SENTINEL_GIT_COMMIT"
+[ "${TEST_REVISION}" = "${SENTINEL_GIT_COMMIT}" ] \
+  || die "test image source revision differs from SENTINEL_GIT_COMMIT"
+
+COMMAND_JSON="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:],sort_keys=True,separators=(",",":")))' "$@")"
+COMMAND_SHA="$(printf '%s' "${COMMAND_JSON}" | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
+POLICY_SHA="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "${SENTINEL_RESOURCE_POLICY_FILE}")"
+AUTOMATION_SHA="$(python3 -c 'import hashlib,json,sys; v=json.load(open(sys.argv[1])); b=json.dumps(v,sort_keys=True,separators=(",",":"),ensure_ascii=True,allow_nan=False).encode("ascii"); print(hashlib.sha256(b).hexdigest())' "${SENTINEL_AUTOMATION_CONFIG_FILE}")"
+MEASUREMENT_PRODUCER="scripts/sentinel-measure.sh"
+PRODUCER_SHA="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "${MEASUREMENT_PRODUCER}")"
+if ! python3 - "${SENTINEL_RESOURCE_POLICY_FILE}" "${PHASE}" "${COMMAND_JSON}" \
+  "${SENTINEL_GIT_COMMIT}" "${SENTINEL_RUNTIME_IMAGE_DIGEST}" \
+  "${SENTINEL_TEST_IMAGE_DIGEST}" "${AUTOMATION_SHA}" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1]))
+phase, command = sys.argv[2], json.loads(sys.argv[3])
+target = p.get("artifact_target") or {}
+assert p.get("schema") == "sentinel.resource-envelope-policy/1"
+assert p.get("phase_commands", {}).get(phase) == command
+assert target == {
+    "git_commit": sys.argv[4], "runtime_image_digest": sys.argv[5],
+    "test_image_digest": sys.argv[6], "automation_config_sha256": sys.argv[7],
+}
+PY
+then
+  die "reviewed policy does not authorize this artifact/phase command"
+fi
+
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "${ART}"
 SAMPLES="${ART}/${PHASE}-${STAMP}.csv"
@@ -117,7 +175,8 @@ def to_bytes(v):
 out = {}
 for name, svc in (c.get("services") or {}).items():
     out[name] = {"mem_limit": to_bytes(svc.get("mem_limit")),
-                 "cpus": svc.get("cpus"),
+                 "cpu_millicores": (None if svc.get("cpus") is None else
+                                    int(float(svc.get("cpus")) * 1000)),
                  "shm_size": to_bytes(svc.get("shm_size"))}
 print(json.dumps(out))
 PY
@@ -230,7 +289,7 @@ DISK_AFTER="$(${COMPOSE} exec -T "${DB_SERVICE}" du -sb /var/lib/postgresql/data
 # THE PHASE CONTAINER ITSELF, inspected BEFORE it is removed. This is the only
 # reading that can attribute an OOM to the measured workload: the sweep below
 # sees surviving `sentinel*` containers, which are the database and the panel.
-PHASE_STATE="$(docker inspect -f '{"name":"{{.Name}}","oom_killed":{{.State.OOMKilled}},"restarts":{{.RestartCount}},"exit_code":{{.State.ExitCode}}}' "${PHASE_CONTAINER}" 2>/dev/null || echo '{}')"
+PHASE_STATE="$(docker inspect -f '{"name":"{{.Name}}","oom_killed":{{.State.OOMKilled}},"restarts":{{.RestartCount}},"exit_code":{{.State.ExitCode}},"image_id":"{{.Image}}","configured_image":"{{.Config.Image}}"}' "${PHASE_CONTAINER}" 2>/dev/null || echo '{}')"
 docker rm -f "${PHASE_CONTAINER}" >/dev/null 2>&1 || true
 
 # OOM and restarts are read from the DAEMON, not inferred from the log. A
@@ -248,9 +307,19 @@ TEMP_BEFORE="${TEMP_BEFORE}" TEMP_AFTER="${TEMP_AFTER}" \
 DISK_BEFORE="${DISK_BEFORE}" DISK_AFTER="${DISK_AFTER}" \
 LIMITS_JSON="${LIMITS_JSON}" OOM_JSON="${OOM_JSON}" \
 CAPS_JSON="${CAPS_JSON}" PHASE_STATE="${PHASE_STATE}" \
-CMD="$*" SAMPLES="${SAMPLES}" REPORT="${REPORT}" \
+CMD="$*" COMMAND_JSON="${COMMAND_JSON}" COMMAND_SHA="${COMMAND_SHA}" \
+POLICY_SHA="${POLICY_SHA}" AUTOMATION_SHA="${AUTOMATION_SHA}" \
+MEASUREMENT_PRODUCER="${MEASUREMENT_PRODUCER}" PRODUCER_SHA="${PRODUCER_SHA}" \
+GIT_COMMIT="${SENTINEL_GIT_COMMIT}" \
+RUNTIME_REPOSITORY="${RUNTIME_REPOSITORY}" RUNTIME_REF="${RUNTIME_REF}" \
+RUNTIME_DIGEST="${SENTINEL_RUNTIME_IMAGE_DIGEST}" \
+RUNTIME_IMAGE_ID="${RUNTIME_IMAGE_ID}" RUNTIME_REVISION="${RUNTIME_REVISION}" \
+TEST_REPOSITORY="${TEST_REPOSITORY}" TEST_REF="${TEST_REF}" \
+TEST_DIGEST="${SENTINEL_TEST_IMAGE_DIGEST}" \
+TEST_IMAGE_ID="${TEST_IMAGE_ID}" TEST_REVISION="${TEST_REVISION}" \
+SAMPLES="${SAMPLES}" REPORT="${REPORT}" \
 python3 <<'PY'
-import csv, json, os, sys
+import csv, hashlib, json, os, pathlib, sys
 from collections import defaultdict
 
 env = os.environ
@@ -288,10 +357,24 @@ def declared_for(container):
             best = svc
     return declared.get(best, {}), best
 
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=True, allow_nan=False).encode("ascii")
+
+host_evidence = json.loads(env.get("CAPS_JSON") or "{}")
+command_argv = json.loads(env["COMMAND_JSON"])
+samples_name = pathlib.Path(env["SAMPLES"]).name
+samples_sha = hashlib.sha256(pathlib.Path(env["SAMPLES"]).read_bytes()).hexdigest()
 report = {
+    "schema": "sentinel.resource-measurement/1",
+    "producer": {
+        "path": env["MEASUREMENT_PRODUCER"],
+        "sha256": env["PRODUCER_SHA"],
+    },
     "phase": env["PHASE"], "stamp": env["STAMP"], "command": env["CMD"],
+    "command_argv": command_argv,
     "exit_code": int(env["RC"]), "elapsed_seconds": int(env["ELAPSED"]),
-    "samples": len(rows), "samples_file": env["SAMPLES"],
+    "samples": len(rows), "samples_file": samples_name,
     "host_min_mem_available_bytes": min_avail,
     "postgres_temp_bytes_delta": int(env["TEMP_AFTER"]) - int(env["TEMP_BEFORE"]),
     "data_volume_growth_bytes": int(env["DISK_AFTER"]) - int(env["DISK_BEFORE"]),
@@ -302,6 +385,31 @@ report = {
     # is a different finding from the seed being killed.
     "phase_container": json.loads(env.get("PHASE_STATE") or "{}"),
     "host_capabilities": caps,
+    "host_evidence": host_evidence,
+    "runtime_image_repository": env["RUNTIME_REPOSITORY"],
+    "test_image_repository": env["TEST_REPOSITORY"],
+    "reviewed_runtime_image": {
+        "ref": env["RUNTIME_REF"], "id": env["RUNTIME_IMAGE_ID"],
+        "source_revision": env["RUNTIME_REVISION"],
+    },
+    "reviewed_test_image": {
+        "ref": env["TEST_REF"], "id": env["TEST_IMAGE_ID"],
+        "source_revision": env["TEST_REVISION"],
+    },
+    "identity": {
+        "git_commit": env["GIT_COMMIT"],
+        "runtime_image_digest": env["RUNTIME_DIGEST"],
+        "runtime_image_id": env["RUNTIME_IMAGE_ID"],
+        "runtime_image_source_revision": env["RUNTIME_REVISION"],
+        "test_image_digest": env["TEST_DIGEST"],
+        "test_image_id": env["TEST_IMAGE_ID"],
+        "test_image_source_revision": env["TEST_REVISION"],
+        "automation_config_sha256": env["AUTOMATION_SHA"],
+        "resource_policy_sha256": env["POLICY_SHA"],
+        "phase_command_sha256": hashlib.sha256(canonical(command_argv)).hexdigest(),
+        "host_capabilities_sha256": hashlib.sha256(canonical(host_evidence)).hexdigest(),
+        "samples_sha256": samples_sha,
+    },
     # The two verdicts are SEPARATE because the two limits are separate facts.
     # A Synology enforces memory and cannot enforce CPU, and one summary word
     # for both would either overclaim or discard a real measurement.
@@ -336,24 +444,26 @@ report = {
 for c, m in sorted(peak_mem.items()):
     d, svc = declared_for(c)
     hard = lim.get(c) or d.get("mem_limit")
-    entry = {"peak_mem_bytes": m, "peak_mem_mib": round(m / 1024**2, 1),
-             "peak_cpu_pct": round(peak_cpu.get(c, 0.0), 1),
+    entry = {"peak_mem_bytes": m,
+             "peak_cpu_pct_tenths": int(round(
+                 peak_cpu.get(c, 0.0) * 10.0)),
              "declared_service": svc,
              "declared_mem_limit_bytes": d.get("mem_limit"),
-             "declared_cpus": d.get("cpus"),
+             "declared_cpu_millicores": d.get("cpu_millicores"),
              "enforced_mem_limit_bytes": hard}
     entry["cpu_bounded"] = cpu_enforced
     if hard and mem_enforced:
-        entry["headroom_pct"] = round(100.0 * (hard - m) / hard, 1)
+        entry["headroom_basis_points"] = int(
+            10000 * (hard - m) // hard)
         # 20% is a floor for a MEASUREMENT, not a tuning target: this samples on
         # a timer, so a spike between two frames is invisible and a peak that
         # already sits near the wall is a peak that has probably touched it.
-        if entry["headroom_pct"] < 20.0:
+        if entry["headroom_basis_points"] < 2000:
             report["memory_verdict"] = "TIGHT"
             report["headroom_verdict"] = "TIGHT"
     elif hard:
         # A declared limit the host does not enforce. Recorded, never scored.
-        entry["headroom_pct"] = None
+        entry["headroom_basis_points"] = None
         entry["note"] = ("memory limit declared but the host reports "
                          f"memory_limit={caps.get('memory_limit')}")
         report["memory_verdict"] = "UNENFORCED"
@@ -367,11 +477,13 @@ for c, m in sorted(peak_mem.items()):
 _total = json.loads(env.get("CAPS_JSON") or "{}").get("host", {}).get("mem_total")
 if min_avail is not None and _total:
     report["host_mem_total_bytes"] = _total
-    report["host_min_mem_available_pct"] = round(100.0 * min_avail / _total, 1)
+    report["host_min_mem_available_basis_points"] = int(
+        10000 * min_avail // _total)
     if min_avail < 0.10 * _total:
         report["host_memory_verdict"] = (
             f"PRESSURE — MemAvailable fell to "
-            f"{report['host_min_mem_available_pct']}% of total while every "
+            f"{report['host_min_mem_available_basis_points']} basis points "
+            f"of total while every "
             f"container stayed inside its own ceiling")
 
 if not rows:
@@ -384,8 +496,74 @@ if report["phase_container"].get("oom_killed"):
 elif any(o.get("oom_killed") for o in report["oom_and_restarts"]):
     report["memory_verdict"] = report["headroom_verdict"] = \
         "OOM KILLED (another container)"
+if report["phase_container"].get("image_id") != env["RUNTIME_IMAGE_ID"]:
+    report["memory_verdict"] = report["headroom_verdict"] = \
+        "REVIEWED IMAGE MISMATCH"
 
-open(env["REPORT"], "w").write(json.dumps(report, indent=2, sort_keys=True))
+def unlink_retry(path, attempts=4):
+    failure = None
+    for _ in range(attempts):
+        try:
+            path.unlink()
+            return
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            failure = exc
+    raise failure
+
+def fsync_parent(path):
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    failure = None
+    try:
+        os.fsync(fd)
+    except BaseException as exc:
+        failure = exc
+    try:
+        os.close(fd)
+    except BaseException as exc:
+        if failure is None:
+            failure = exc
+    if failure is not None:
+        raise failure
+
+target = pathlib.Path(env["REPORT"]).resolve()
+staging = target.with_name(f".{target.name}.tmp.{os.getpid()}")
+linked = False
+try:
+    with staging.open("xb") as stream:
+        stream.write(canonical(report))
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.link(staging, target)
+    linked = True
+    unlink_retry(staging)
+    fsync_parent(target.parent)
+except BaseException as original:
+    if linked:
+        try:
+            unlink_retry(target)
+        except OSError:
+            quarantine = target.with_name(
+                f".{target.name}.rollback.{os.getpid()}")
+            try:
+                os.replace(target, quarantine)
+                try:
+                    unlink_retry(quarantine)
+                except OSError:
+                    pass
+            except OSError:
+                pass
+        try:
+            fsync_parent(target.parent)
+        except BaseException:
+            pass
+    raise
+finally:
+    try:
+        unlink_retry(staging)
+    except OSError:
+        pass
 print(json.dumps(report, indent=2, sort_keys=True))
 print(f"\n  -> {env['REPORT']}")
 PY
@@ -407,8 +585,8 @@ r = json.load(open(sys.argv[1]))
 print("\n  ── what this run actually proves ──")
 print(f"    container memory : {r['memory_verdict']}")
 print(f"    host memory      : {r['host_memory_verdict']}"
-      + (f"  (min {r['host_min_mem_available_pct']}% available)"
-         if "host_min_mem_available_pct" in r else ""))
+      + (f"  (min {r['host_min_mem_available_basis_points']} basis points "
+         f"available)" if "host_min_mem_available_basis_points" in r else ""))
 print(f"    CPU              : {r['cpu_limit_enforcement']} "
       f"(peak recorded, not bounded)"
       if r["cpu_limit_enforcement"] != "ENFORCED"

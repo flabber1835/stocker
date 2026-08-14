@@ -27,6 +27,16 @@ from sentinel.execution.contract import (
 )
 from sentinel.execution.states import CommandState, RuntimeState
 from sentinel.feed import store as feed_store
+from sentinel import guarded_administration
+
+
+@pytest.fixture(autouse=True)
+def _authorized_runtime_surface(monkeypatch, tmp_path):
+    marker = tmp_path / "authorized-runtime-v1"
+    marker.write_bytes(cli.AUTHORIZED_RUNTIME_MARKER_BYTES)
+    monkeypatch.setattr(cli, "AUTHORIZED_RUNTIME_MARKER", marker)
+    monkeypatch.setenv(
+        cli.AUTHORIZED_RUNTIME_ENV, cli.AUTHORIZED_RUNTIME_VALUE)
 
 
 class _Connection:
@@ -72,6 +82,20 @@ def _execution_result(session):
         session=session)
 
 
+def _wire_administrative_inspection(monkeypatch):
+    grant = object()
+    guard = object()
+    monkeypatch.setattr(cli, "_administrative_epoch", lambda *a, **k: 1)
+    monkeypatch.setattr(
+        cli, "_authorized_administrative_access",
+        lambda *a, **k: (grant, guard))
+    monkeypatch.setattr(
+        guarded_administration, "GuardedAdministrativeExecutionBroker",
+        lambda *, inner, grant, guard: (
+            "guarded-admin", inner, grant, guard))
+    return grant, guard
+
+
 def _inspection_result():
     account = BrokerAccountSnapshot(
         identity=BrokerAccountIdentity("alpaca", "paper-123"),
@@ -115,9 +139,11 @@ def test_inspect_builds_typed_adapter_and_prints_complete_read_only_book(
         return _inspection_result()
 
     monkeypatch.setattr(paper, "inspect_paper_account", inspect)
+    grant, guard = _wire_administrative_inspection(monkeypatch)
 
     assert asyncio.run(cli._inspect_paper_account(
-        _config(), SimpleNamespace(expect_account="paper-123"))) == cli.EXIT_OK
+        _config(), SimpleNamespace(
+            deployment_id="nas-01", expect_account="paper-123"))) == cli.EXIT_OK
 
     output = json.loads(capsys.readouterr().out)
     assert output["endpoint"] == DEFAULT_BASE_URL
@@ -133,7 +159,9 @@ def test_inspect_builds_typed_adapter_and_prints_complete_read_only_book(
     assert output["positions"][0]["quantity"] == "5.25"
     assert output["working_open_orders"][0]["remaining_quantity"] == "2"
     assert calls[-1][1] == {
-        "conn": conn, "broker": broker, "base_url": DEFAULT_BASE_URL,
+        "conn": conn,
+        "broker": ("guarded-admin", broker, grant, guard),
+        "base_url": DEFAULT_BASE_URL,
         "expected_account": "paper-123"}
     assert conn.closed
 
@@ -158,9 +186,11 @@ def test_inspect_does_not_ensure_or_write_database_schemas(monkeypatch):
         paper, "inspect_paper_account",
         lambda **_kwargs: (_ for _ in ()).throw(
             paper.PaperActivationRefused("stop after read-only wiring")))
+    _wire_administrative_inspection(monkeypatch)
 
     assert asyncio.run(cli._inspect_paper_account(
-        _config(), SimpleNamespace(expect_account="paper-123"))) \
+        _config(), SimpleNamespace(
+            deployment_id="nas-01", expect_account="paper-123"))) \
         == cli.EXIT_NOT_ESTABLISHED
     assert conn.closed
 
@@ -216,7 +246,8 @@ def test_current_plan_never_constructs_a_broker(monkeypatch, capsys):
             AssertionError("current-paper-plan contacted a broker")))
     monkeypatch.setattr(
         paper, "current_paper_plan",
-        lambda actual: {"plan": "current", "broker_contacted": False})
+        lambda actual, **_kwargs: {
+            "plan": "current", "broker_contacted": False})
 
     assert asyncio.run(cli._current_paper_plan(_config())) == cli.EXIT_OK
     assert json.loads(capsys.readouterr().out) == {
@@ -401,7 +432,7 @@ def test_operational_refusals_are_caught_as_attention_exit(
     assert conn.closed
 
 
-def test_certificate_install_is_reserved_and_refuses_before_file_or_database(
+def test_certificate_install_requires_confirmation_before_file_or_database(
         monkeypatch, capsys):
     def forbidden(*_args, **_kwargs):
         raise AssertionError("reserved certificate command touched external state")
@@ -410,12 +441,12 @@ def test_certificate_install_is_reserved_and_refuses_before_file_or_database(
     monkeypatch.setattr(feed_store, "connect", forbidden)
     result = cli._install_system_certificate(
         _config(), SimpleNamespace(
-            manifest="operator-authored.json",
-            confirm_manifest_sha256="a" * 64,
-            confirm_paper_execution_authority=True))
+            certificate="operator-authored.json",
+            confirm_certificate_sha256="a" * 64,
+            reason="reviewed", confirm_install_alpaca_paper_execution_certificate=False))
 
-    assert result == cli.EXIT_NOT_ESTABLISHED
-    assert "trusted issuer/signature" in capsys.readouterr().err
+    assert result == cli.EXIT_CONFIG
+    assert "explicit paper-certificate" in capsys.readouterr().err
 
 
 def _rollout_args(mode: str, *, confirm_controller: bool = False,
@@ -471,6 +502,128 @@ def test_pinned_rollout_does_not_load_broken_controller_and_warns_of_risk(
     assert conn.closed
 
 
+@pytest.mark.parametrize("kill", [True, False])
+def test_emergency_automation_fencing_bypasses_execution_writer_lock(
+        monkeypatch, kill):
+    from sentinel.automation import store
+
+    conn = _Connection()
+    calls = []
+    monkeypatch.setattr(feed_store, "connect", lambda _url: conn)
+    monkeypatch.setattr(schema, "ensure_schema", lambda actual: None)
+
+    @contextmanager
+    def unavailable(_actual):
+        raise AssertionError(
+            "emergency fencing waited for the execution writer lock")
+        yield
+
+    monkeypatch.setattr(journal, "writer_lock", unavailable)
+    control = SimpleNamespace(
+        enabled=not kill, kill_switch_engaged=True, generation=9)
+    monkeypatch.setattr(
+        store, "engage_kill",
+        lambda actual, **kwargs: calls.append(
+            ("kill", actual, kwargs)) or control)
+    monkeypatch.setattr(
+        store, "deactivate",
+        lambda actual, **kwargs: calls.append(
+            ("deactivate", actual, kwargs)) or control)
+
+    result = cli._remove_automation_authority(
+        _config(), SimpleNamespace(actor="operator", reason="emergency"),
+        kill=kill)
+
+    assert result == cli.EXIT_OK
+    assert calls == [(
+        "kill" if kill else "deactivate", conn,
+        {"actor": "operator", "reason": "emergency"})]
+    assert conn.closed
+
+
+@pytest.mark.parametrize(
+    ("command", "function_name", "args", "expected_kwargs"),
+    [
+        (
+            "certificate", "revoke_system_certificate",
+            SimpleNamespace(
+                confirm_revoke_system_certificate=True,
+                certificate_sha256="a" * 64, reason="emergency"),
+            {"certificate_sha256": "a" * 64,
+             "reason": "emergency", "commit": True},
+        ),
+        (
+            "key", "revoke_signed_key",
+            SimpleNamespace(
+                confirm_revoke_system_key=True,
+                key_id="ed25519-sha256:" + "b" * 64,
+                reason="emergency"),
+            {"key_id": "ed25519-sha256:" + "b" * 64,
+             "reason": "emergency", "commit": True},
+        ),
+    ],
+)
+def test_execution_authority_revocation_bypasses_writer_lock(
+        monkeypatch, command, function_name, args, expected_kwargs):
+    conn = _Connection()
+    calls = []
+    monkeypatch.setattr(feed_store, "connect", lambda _url: conn)
+    monkeypatch.setattr(schema, "ensure_schema", lambda actual: None)
+
+    @contextmanager
+    def unavailable(_actual):
+        raise AssertionError(
+            "emergency authority revocation waited for the writer lock")
+        yield
+
+    monkeypatch.setattr(journal, "writer_lock", unavailable)
+    monkeypatch.setattr(
+        authority, function_name,
+        lambda actual, **kwargs: calls.append((actual, kwargs)))
+
+    result = (
+        cli._revoke_system_certificate(_config(), args)
+        if command == "certificate"
+        else cli._revoke_system_key(_config(), args)
+    )
+
+    assert result == cli.EXIT_OK
+    assert calls == [(conn, expected_kwargs)]
+    assert conn.closed
+
+
+def test_administrative_authority_revocation_bypasses_writer_lock(monkeypatch):
+    from sentinel import administrative_authority
+
+    conn = _Connection()
+    calls = []
+    monkeypatch.setattr(feed_store, "connect", lambda _url: conn)
+    monkeypatch.setattr(schema, "ensure_schema", lambda actual: None)
+
+    @contextmanager
+    def unavailable(_actual):
+        raise AssertionError(
+            "administrative revocation waited for migration broker I/O")
+        yield
+
+    monkeypatch.setattr(journal, "writer_lock", unavailable)
+    monkeypatch.setattr(
+        administrative_authority, "revoke_administrative_certificate",
+        lambda actual, **kwargs: calls.append((actual, kwargs)))
+    args = SimpleNamespace(
+        confirm_revoke_administrative_certificate=True,
+        certificate_sha256="c" * 64, reason="migration aborted")
+
+    assert cli._revoke_administrative_certificate(
+        _config(), args) == cli.EXIT_OK
+    assert calls == [(conn, {
+        "certificate_sha256": "c" * 64,
+        "reason": "migration aborted",
+        "commit": True,
+    })]
+    assert conn.closed
+
+
 def test_pinned_rollout_requires_literal_exposure_increase_acknowledgement(
         monkeypatch, capsys):
     monkeypatch.setattr(
@@ -485,7 +638,7 @@ def test_pinned_rollout_requires_literal_exposure_increase_acknowledgement(
     assert "forces 100% Wealth Core exposure" in refusal
 
 
-def test_controller_identity_failure_is_an_operator_refusal_not_traceback(
+def test_generic_controller_rollout_refuses_before_identity_or_database(
         monkeypatch, capsys):
     monkeypatch.setattr(
         cli, "_current_system_identities",
@@ -498,8 +651,8 @@ def test_controller_identity_failure_is_an_operator_refusal_not_traceback(
 
     assert cli._set_paper_rollout_mode(
         _config(), _rollout_args(
-            "CONTROLLER", confirm_controller=True)) == cli.EXIT_NOT_ESTABLISHED
-    assert "REFUSED: controller digest mismatch" in capsys.readouterr().err
+            "CONTROLLER", confirm_controller=True)) == cli.EXIT_CONFIG
+    assert "only by staging and activating" in capsys.readouterr().err
 
 
 def test_rollout_help_names_pinned_exposure_increase_risk(capsys):
@@ -509,6 +662,38 @@ def test_rollout_help_names_pinned_exposure_increase_risk(capsys):
     help_text = capsys.readouterr().out
     assert "forces 100% Wealth Core exposure" in help_text
     assert "--confirm-pinned-rollout-may-increase-exposure" in help_text
+
+
+def test_broker_command_refuses_before_configuration_without_authorized_image(
+        monkeypatch, tmp_path, capsys):
+    monkeypatch.delenv(cli.AUTHORIZED_RUNTIME_ENV, raising=False)
+    monkeypatch.setattr(
+        cli, "AUTHORIZED_RUNTIME_MARKER", tmp_path / "missing-marker")
+    monkeypatch.setattr(
+        cli.SentinelConfig, "from_env",
+        classmethod(lambda cls: (_ for _ in ()).throw(
+            AssertionError("configuration was read before the image gate"))))
+
+    assert cli.main([
+        "prepare-paper-plan", "--through", "2026-08-12",
+        "--expect-account", "paper-123",
+    ]) == cli.EXIT_CONFIG
+    error = capsys.readouterr().err
+    assert "marker-bearing, digest-qualified" in error
+    assert "sentinel-authorized-cli.sh" in error
+
+
+def test_emergency_fencing_does_not_depend_on_authorized_image(monkeypatch):
+    monkeypatch.delenv(cli.AUTHORIZED_RUNTIME_ENV, raising=False)
+    monkeypatch.setattr(
+        cli, "AUTHORIZED_RUNTIME_MARKER", Path("/definitely/missing"))
+
+    assert cli._require_authorized_runtime(
+        "engage-paper-automation-kill-switch") is None
+    assert cli._require_authorized_runtime(
+        "deactivate-paper-automation") is None
+    assert cli._require_authorized_runtime(
+        "revoke-system-certificate") is None
 
 
 @pytest.mark.parametrize(
@@ -531,9 +716,11 @@ def test_inspection_refusals_are_caught_without_a_traceback(
         raise refusal_type("inspection evidence is incomplete or malformed")
 
     monkeypatch.setattr(paper, "inspect_paper_account", refuse)
+    _wire_administrative_inspection(monkeypatch)
 
     assert asyncio.run(cli._inspect_paper_account(
-        _config(), SimpleNamespace(expect_account="paper-123"))) \
+        _config(), SimpleNamespace(
+            deployment_id="nas-01", expect_account="paper-123"))) \
         == cli.EXIT_NOT_ESTABLISHED
     assert "REFUSED: inspection evidence is incomplete or malformed" \
         in capsys.readouterr().err
@@ -567,6 +754,10 @@ def test_command_parser_preserves_required_confirmations_and_warmup_default(
         seen["revoke_certificate"] = (actual_config, vars(args))
         return cli.EXIT_OK
 
+    def activate_certificate(actual_config, args):
+        seen["activate_certificate"] = (actual_config, vars(args))
+        return cli.EXIT_OK
+
     def set_rollout(actual_config, args):
         seen["rollout"] = (actual_config, vars(args))
         return cli.EXIT_OK
@@ -578,10 +769,13 @@ def test_command_parser_preserves_required_confirmations_and_warmup_default(
         cli, "_install_system_certificate", install_certificate)
     monkeypatch.setattr(
         cli, "_revoke_system_certificate", revoke_certificate)
+    monkeypatch.setattr(
+        cli, "_activate_system_certificate", activate_certificate)
     monkeypatch.setattr(cli, "_set_paper_rollout_mode", set_rollout)
 
     assert cli.main([
-        "inspect-paper-account", "--expect-account", "paper-123",
+        "inspect-paper-account", "--deployment-id", "nas-01",
+        "--expect-account", "paper-123",
     ]) == cli.EXIT_OK
     assert seen["inspect"][1]["expect_account"] == "paper-123"
     assert cli.main([
@@ -596,11 +790,31 @@ def test_command_parser_preserves_required_confirmations_and_warmup_default(
         "--confirm-submit-paper-orders"]) == cli.EXIT_OK
     assert seen["execute"][1]["confirm_submit_paper_orders"] is True
     assert cli.main([
-        "install-system-certificate", "--manifest", "manifest.json",
-        "--confirm-manifest-sha256", "a" * 64,
-        "--confirm-paper-execution-authority"]) == cli.EXIT_OK
+        "install-system-certificate", "--certificate", "certificate.json",
+        "--confirm-certificate-sha256", "a" * 64, "--reason", "reviewed",
+        "--confirm-install-alpaca-paper-execution-certificate"]) == cli.EXIT_OK
     assert seen["install_certificate"][1][
-        "confirm_paper_execution_authority"] is True
+        "confirm_install_alpaca_paper_execution_certificate"] is True
+    assert cli.main([
+        "activate-system-certificate", "--certificate-sha256", "a" * 64,
+        "--confirm-paper-account", "paper-123",
+        "--confirm-deployment-id", "nas-01", "--reason", "reviewed",
+        "--confirm-controller-rollout",
+        "--confirm-activate-alpaca-paper-execution-certificate"]) == cli.EXIT_OK
+    assert seen["activate_certificate"][1][
+        "confirm_activate_alpaca_paper_execution_certificate"] is True
+    assert seen["activate_certificate"][1]["confirm_controller_rollout"] is True
+    assert cli.main([
+        "rotate-system-certificate", "--certificate-sha256", "b" * 64,
+        "--confirm-supersedes-certificate-sha256", "a" * 64,
+        "--confirm-paper-account", "paper-123",
+        "--confirm-deployment-id", "nas-01", "--reason", "rotate",
+        "--confirm-pinned-rollout-may-increase-exposure",
+        "--confirm-rotate-alpaca-paper-execution-certificate"]) == cli.EXIT_OK
+    assert seen["activate_certificate"][1][
+        "confirm_rotate_alpaca_paper_execution_certificate"] is True
+    assert seen["activate_certificate"][1][
+        "confirm_pinned_rollout_may_increase_exposure"] is True
     assert cli.main([
         "revoke-system-certificate", "--certificate-sha256", "a" * 64,
         "--reason", "operator kill switch",

@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import platform
 import re
 import sys
@@ -459,7 +460,20 @@ def rehearsal_identity(conn=None, *, start: Optional[str] = None,
     """The whole record. `conn` omitted describes the environment alone."""
     env = environment()
     rec = {"environment": env,
-           "identity_hash": _sha(json.dumps(env, sort_keys=True).encode())}
+           "identity_hash": _sha(json.dumps(env, sort_keys=True).encode()),
+           # These are deployment facts, not computational-environment inputs.
+           # Keeping them outside ``identity_hash`` lets the certification image
+           # record its environment before a registry digest exists, while the
+           # installed runtime must still independently present the exact
+           # commit and image digests signed later by the offline decision.
+           "deployment_artifacts": {
+               "schema": "sentinel.runtime-artifacts/1",
+               "git_commit": os.environ.get("SENTINEL_GIT_COMMIT", "").strip(),
+               "runtime_image_digest": os.environ.get(
+                   "SENTINEL_RUNTIME_IMAGE_DIGEST", "").strip(),
+               "test_image_digest": os.environ.get(
+                   "SENTINEL_TEST_IMAGE_DIGEST", "").strip(),
+           }}
     if conn is not None and start and end:
         rec["corpus"] = corpus(conn, start=start, end=end)
     return rec

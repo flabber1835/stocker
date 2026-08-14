@@ -8,7 +8,9 @@ execution. The exact activation sequence and command arguments live only in
 
 The old JSONL-backed `plan` command is RETIRED and only names its replacements.
 `inspect-paper-account` is the exact inherited-book view, while
-`migration-plan` prints the read-only target delta. It performs no broker read.
+`migration-plan` prints the read-only target delta. Both require signed
+administrative authority and read the named paper account, but neither exposes
+a broker mutation.
 `prepare-paper-plan` is a different
 dry-run boundary: it never mutates the broker, but it intentionally advances
 canonical database state and adopts the latest durable plan.
@@ -36,6 +38,7 @@ from dataclasses import replace
 from datetime import datetime
 import json
 import logging
+import os
 from pathlib import Path
 import sys
 from zoneinfo import ZoneInfo
@@ -56,6 +59,34 @@ EXIT_OK = 0
 EXIT_CONFIG = 1
 EXIT_NOT_ESTABLISHED = 2
 
+AUTHORIZED_RUNTIME_ENV = "SENTINEL_AUTHORIZED_RUNTIME"
+AUTHORIZED_RUNTIME_VALUE = "SIGNED_DIGEST_SERVICE_V1"
+AUTHORIZED_RUNTIME_MARKER = Path("/opt/sentinel/authorized-runtime-v1")
+AUTHORIZED_RUNTIME_MARKER_BYTES = b"sentinel-authorized-runtime/1\n"
+
+# These commands either construct a broker, establish authority that permits
+# broker access, or enable unattended operation.  Emergency revocation,
+# kill/deactivation, status, health and alert acknowledgement deliberately stay
+# reachable from the ordinary image so loss of the authorized image cannot
+# prevent fencing.
+AUTHORIZED_RUNTIME_COMMANDS = frozenset({
+    "migration-plan",
+    "inspect-paper-account",
+    "prepare-paper-plan",
+    "execute-paper-plan",
+    "install-administrative-certificate",
+    "activate-administrative-certificate",
+    "install-system-certificate",
+    "activate-system-certificate",
+    "rotate-system-certificate",
+    "set-paper-rollout-mode",
+    "activate-paper-automation",
+    "release-paper-automation-kill-switch",
+    "automation-run",
+    "migrate-account",
+    "adopt-restored-account",
+})
+
 PINNED_ROLLOUT_RISK_WARNING = (
     "PINNED_1_00 forces 100% Wealth Core exposure and may increase exposure "
     "and risk from the current controller allocation")
@@ -67,6 +98,31 @@ def _setup_logging(verbose: bool) -> None:
         format="%(asctime)s %(levelname)-7s %(message)s",
         stream=sys.stdout,
     )
+
+
+def _require_authorized_runtime(command: str) -> int | None:
+    """Refuse broker/authority commands outside the reviewed image surface.
+
+    This check intentionally precedes configuration and database construction.
+    The ordinary runtime does not contain the marker at all; the distinct
+    authorized image bakes it in and the signed Compose overlay supplies the
+    exact intent flag.  Both are required.
+    """
+    if command not in AUTHORIZED_RUNTIME_COMMANDS:
+        return None
+    try:
+        marker = AUTHORIZED_RUNTIME_MARKER.read_bytes()
+    except OSError:
+        marker = None
+    if (os.environ.get(AUTHORIZED_RUNTIME_ENV) == AUTHORIZED_RUNTIME_VALUE
+            and marker == AUTHORIZED_RUNTIME_MARKER_BYTES):
+        return None
+    print(
+        "REFUSED: this command requires the marker-bearing, digest-qualified "
+        "authorized Sentinel runtime; use scripts/sentinel-authorized-cli.sh",
+        file=sys.stderr,
+    )
+    return EXIT_CONFIG
 
 
 def _closed_preview_frontier(conn, *, now_et=None):
@@ -140,14 +196,22 @@ async def _migration_plan(config: SentinelConfig, args) -> int:
     if not config.database_url:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
         return EXIT_CONFIG
-    config.assert_credentials()
-    broker = build_broker(config)
-    account = await broker.account()
-    observation = await broker.observe()
-
     conn = feed_store.connect(config.database_url)
     try:
-        feed_store.ensure_schema(conn)
+        config.assert_credentials()
+        takeover_epoch = _administrative_epoch(
+            conn, deployment_id=args.deployment_id,
+            broker_account_id=args.expect_account)
+        grant, guard = _authorized_administrative_access(
+            conn, config=config, operation="ADMIN_INSPECT",
+            deployment_id=args.deployment_id,
+            broker_account_id=args.expect_account,
+            takeover_epoch=takeover_epoch)
+        from sentinel.guarded_administration import GuardedAdministrativeBroker
+        broker = GuardedAdministrativeBroker(
+            inner=build_broker(config), grant=grant, guard=guard)
+        account = await broker.account()
+        observation = await broker.observe()
         # GATED ON THE DATA CONTRACT, like `target-book` — and this command has
         # the stronger claim to it. `target-book` prints a book; this prints the
         # TAKEOVER, the plan that decides what an existing account sells. It
@@ -177,6 +241,8 @@ async def _migration_plan(config: SentinelConfig, args) -> int:
             marks = {str(t): float(p) for t, p in cur.fetchall() if p}
         book = bootstrap(conn, start=start, end=frontier,
                          starting_cash=float(getattr(account, "equity", 0.0) or 0.0))
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
     finally:
         conn.close()
 
@@ -571,12 +637,27 @@ async def _migrate_account(config: SentinelConfig, args) -> int:
     conn = feed_store.connect(config.database_url)
     try:
         schema.ensure_schema(conn)
+        from sentinel import binding as binding_mod
+        if binding_mod.load(conn) is not None:
+            raise handover.MigrationRefused(
+                "this database is already account-bound; migration refuses "
+                "before broker construction")
+        grant, guard = _authorized_administrative_access(
+            conn, config=config, operation="ADMIN_MIGRATE",
+            deployment_id=args.deployment_id,
+            broker_account_id=args.expect_account, takeover_epoch=1)
+        from sentinel.guarded_administration import (
+            AdministrativeBrokerOperation, GuardedAdministrativeBroker)
+        broker = GuardedAdministrativeBroker(
+            inner=build_broker(config), grant=grant, guard=guard)
         result = await handover.migrate_account(
-            broker=build_broker(config), conn=conn,
+            broker=broker, conn=conn,
             deployment_id=args.deployment_id,
             expected_account=args.expect_account,
             max_cycles=config.max_cycles, poll_seconds=config.poll_seconds,
-            notes=args.notes or "")
+            notes=args.notes or "",
+            authority_check=lambda: guard.check(
+                grant, AdministrativeBrokerOperation.FINALIZE_BINDING, None))
     except _migration_refusal_types() as exc:
         return _paper_refused(exc)
     finally:
@@ -594,13 +675,14 @@ def _migration_refusal_types() -> tuple[type[BaseException], ...]:
     authority was insufficient. They remain refusals with exit 2, but are not
     programming faults that benefit an operator from a traceback.
     """
-    from sentinel import broker as broker_mod
+    from sentinel import authority, broker as broker_mod
     from sentinel import binding as binding_mod, handover, schema
     from sentinel.execution import journal
     from stock_strategy_shared.broker import alpaca as shared_alpaca
 
     return (
         schema.SchemaMigrationRefused,
+        authority.AuthorityRefused,
         handover.MigrationRefused,
         binding_mod.AlreadyBound,
         OwnershipNotEstablished,
@@ -649,7 +731,16 @@ async def _adopt_restored(config: SentinelConfig, args) -> int:
     try:
         schema.ensure_schema(conn)
         before = binding_mod.require(conn)
-        account = await build_broker(config).account()
+        grant, guard = _authorized_administrative_access(
+            conn, config=config, operation="ADMIN_ADOPT",
+            deployment_id=before.deployment_id,
+            broker_account_id=args.confirm_paper_account,
+            takeover_epoch=before.takeover_epoch)
+        from sentinel.guarded_administration import (
+            AdministrativeBrokerOperation, GuardedAdministrativeBroker)
+        broker = GuardedAdministrativeBroker(
+            inner=build_broker(config), grant=grant, guard=guard)
+        account = await broker.account()
         raw = getattr(account, "raw", None) or {}
         account_id = str(
             raw.get("account_number") or raw.get("id") or "")
@@ -659,13 +750,15 @@ async def _adopt_restored(config: SentinelConfig, args) -> int:
         after = binding_mod.adopt_restored(
             conn, observed=observed,
             expected_account=args.confirm_paper_account,
-            notes=args.notes or "")
+            notes=args.notes or "",
+            authority_check=lambda: guard.check(
+                grant, AdministrativeBrokerOperation.FINALIZE_BINDING, None))
     except schema.SchemaMigrationRefused as exc:
         return _paper_refused(exc)
     except binding_mod.AccountNotBound as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return EXIT_NOT_ESTABLISHED
-    except binding_mod.AccountMismatch as exc:
+    except _paper_refusal_types() as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return EXIT_NOT_ESTABLISHED
     finally:
@@ -681,6 +774,7 @@ async def _adopt_restored(config: SentinelConfig, args) -> int:
 def _paper_refusal_types() -> tuple[type[BaseException], ...]:
     """Safety refusals reported as an operator checkpoint, not a traceback."""
     from sentinel import authority, binding as binding_mod, handover, paper, schema
+    from sentinel.automation import model as automation_model
     from sentinel.controller import frozen_rule
     from sentinel.core import catchup
     from sentinel.execution import alpaca, certification, contract, executor, journal
@@ -690,6 +784,7 @@ def _paper_refusal_types() -> tuple[type[BaseException], ...]:
     return (
         schema.SchemaMigrationRefused,
         paper.PaperActivationRefused,
+        automation_model.AutomationRefused,
         authority.AuthorityRefused,
         binding_mod.AccountNotBound,
         binding_mod.AccountMismatch,
@@ -741,9 +836,21 @@ async def _inspect_paper_account(config: SentinelConfig, args) -> int:
         # feed/migration prerequisites create the schema; this command only
         # reads the permanent-identity map and canonical binding.
         as_of = datetime.now(ZoneInfo(calendar.EXCHANGE_TZ)).date().isoformat()
+        takeover_epoch = _administrative_epoch(
+            conn, deployment_id=args.deployment_id,
+            broker_account_id=args.expect_account)
+        grant, guard = _authorized_administrative_access(
+            conn, config=config, operation="ADMIN_INSPECT",
+            deployment_id=args.deployment_id,
+            broker_account_id=args.expect_account,
+            takeover_epoch=takeover_epoch)
         resolve_security_id = paper.build_security_resolver(conn, as_of)
-        broker = build_execution_broker(
+        inner = build_execution_broker(
             config, resolve_security_id=resolve_security_id)
+        from sentinel.guarded_administration import (
+            GuardedAdministrativeExecutionBroker)
+        broker = GuardedAdministrativeExecutionBroker(
+            inner=inner, grant=grant, guard=guard)
         result = await paper.inspect_paper_account(
             conn=conn, broker=broker, base_url=config.base_url,
             expected_account=args.expect_account)
@@ -798,7 +905,7 @@ async def _current_paper_plan(config: SentinelConfig) -> int:
     try:
         feed_store.ensure_schema(conn)
         schema.ensure_schema(conn)
-        result = paper.current_paper_plan(conn)
+        result = paper.current_paper_plan(conn, base_url=config.base_url)
     except _paper_refusal_types() as exc:
         return _paper_refused(exc)
     finally:
@@ -852,39 +959,422 @@ def _current_system_identities() -> tuple[dict, dict]:
             runtime_strategy_identity(controller))
 
 
-def _install_system_certificate(config: SentinelConfig, args) -> int:
-    """Refuse until formal certificate bytes have a trusted issuer."""
-    from sentinel import authority
+def _require_administrative_access(
+        conn, *, config: SentinelConfig, operation: str,
+        deployment_id: str, broker_account_id: str,
+        takeover_epoch: int):
+    """Fresh signed pre-binding/admin authority; never constructs a broker."""
+    from sentinel import administrative_authority
+    from sentinel.automation_runtime import config_from_env
 
-    # Refuse before reading an operator file or opening PostgreSQL.  A supplied
-    # digest authenticates bytes, not the party that asserted PASS/GO inside
-    # them, so accepting it would turn self-attestation into broker authority.
-    try:
-        authority.install_system_certificate(
-            None, manifest_bytes=b"",
-            confirm_sha256=args.confirm_manifest_sha256,
-            runtime_identity={}, strategy_identity={}, commit=False)
-    except authority.AuthorityRefused as exc:
-        return _paper_refused(exc)
-    raise AssertionError("certificate installation unexpectedly enabled")
+    runtime, strategy = _current_system_identities()
+    return administrative_authority.require_administrative_authority(
+        conn, operation=operation, deployment_id=deployment_id,
+        broker_account_id=broker_account_id,
+        takeover_epoch=takeover_epoch, paper_base_url=config.base_url,
+        runtime_identity=runtime, strategy_identity=strategy,
+        automation_config_sha256=config_from_env().fingerprint)
 
 
-def _revoke_system_certificate(config: SentinelConfig, args) -> int:
-    """Revoke the exact active certificate under the execution writer lock."""
-    from sentinel import authority, schema
+def _administrative_epoch(conn, *, deployment_id: str,
+                          broker_account_id: str) -> int:
+    """Epoch 1 before binding; exact durable epoch after binding."""
+    from sentinel import authority, binding as binding_mod
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('sentinel_account_binding')")
+        relation = cur.fetchone()[0]
+    bound = binding_mod.load(conn) if relation is not None else None
+    if bound is None:
+        return 1
+    if (bound.deployment_id != deployment_id
+            or bound.broker != "alpaca"
+            or bound.broker_account_id != broker_account_id):
+        raise authority.AuthorityRefused(
+            "administrative command confirmations do not match the durable "
+            "paper-account binding")
+    return bound.takeover_epoch
+
+
+def _authorized_administrative_access(
+        conn, *, config: SentinelConfig, operation: str,
+        deployment_id: str, broker_account_id: str,
+        takeover_epoch: int):
+    """Authorize before broker construction and return the repeating guard."""
+    from sentinel.automation_runtime import config_from_env
+    from sentinel.guarded_administration import (
+        AdministrativeAccessGrant, build_fresh_administrative_guard,
+        fresh_connection_factory)
+
+    _require_administrative_access(
+        conn, config=config, operation=operation,
+        deployment_id=deployment_id, broker_account_id=broker_account_id,
+        takeover_epoch=takeover_epoch)
+    grant = AdministrativeAccessGrant(
+        operation=operation, deployment_id=deployment_id,
+        broker_account_id=broker_account_id, takeover_epoch=takeover_epoch)
+
+    def runtime_identity():
+        return _current_system_identities()[0]
+
+    def strategy_identity():
+        return _current_system_identities()[1]
+
+    guard = build_fresh_administrative_guard(
+        connection_factory=fresh_connection_factory(conn),
+        paper_base_url=config.base_url,
+        runtime_identity=runtime_identity,
+        strategy_identity=strategy_identity,
+        automation_config_sha256=config_from_env().fingerprint)
+    return grant, guard
+
+
+def _install_administrative_certificate(
+        config: SentinelConfig, args) -> int:
+    """Verify and stage a pre-binding/admin certificate; no broker."""
+    from sentinel import administrative_authority, authority, schema
+    from sentinel.automation_runtime import config_from_env
     from sentinel.execution import journal
     from sentinel.feed import store as feed_store
 
     if not config.database_url:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
         return EXIT_CONFIG
+    if not args.confirm_install_administrative_certificate:
+        print("REFUSED: explicit administrative-certificate installation "
+              "confirmation is required", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = None
+    try:
+        payload = Path(args.certificate).read_bytes()
+        conn = feed_store.connect(config.database_url)
+        schema.ensure_schema(conn)
+        with journal.writer_lock(conn):
+            prospective = authority.verify_signed_certificate(
+                payload, for_install=True)
+            subject = prospective.subject
+            if (subject["deployment_id"] != args.deployment_id
+                    or subject["broker_account_id"] != args.expect_account
+                    or int(subject["takeover_epoch"]) != args.takeover_epoch):
+                raise authority.AuthorityRefused(
+                    "administrative certificate subject does not match the "
+                    "exact CLI deployment/account/epoch confirmations")
+            runtime, strategy = _current_system_identities()
+            context = administrative_authority.build_current_context(
+                conn, certificate=prospective,
+                deployment_id=args.deployment_id,
+                broker_account_id=args.expect_account,
+                takeover_epoch=args.takeover_epoch,
+                paper_base_url=config.base_url,
+                runtime_identity=runtime, strategy_identity=strategy,
+                automation_config_sha256=config_from_env().fingerprint)
+            installed = (
+                administrative_authority.install_administrative_certificate(
+                    conn, certificate_bytes=payload,
+                    confirm_sha256=args.confirm_certificate_sha256,
+                    context=context, reason=args.reason, commit=False))
+    except (OSError,) + _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        if conn is not None:
+            conn.close()
+    print(json.dumps({
+        "installed": True, "activated": False,
+        "broker_contacted": False,
+        "certificate_sha256": installed.certificate_sha256,
+        "status": installed.status,
+        "permitted_operations": installed.claims["permitted_operations"],
+    }, indent=2))
+    return EXIT_OK
+
+
+def _activate_administrative_certificate(
+        config: SentinelConfig, args) -> int:
+    """Activate/rotate exact administrative authority; no broker."""
+    from sentinel import administrative_authority, authority, schema
+    from sentinel.automation_runtime import config_from_env
+    from sentinel.execution import journal
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    if not args.confirm_activate_administrative_certificate:
+        print("REFUSED: explicit administrative-certificate activation "
+              "confirmation is required", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = None
+    try:
+        conn = feed_store.connect(config.database_url)
+        schema.ensure_schema(conn)
+        with journal.writer_lock(conn):
+            staged = administrative_authority.load_administrative_certificate(
+                conn, args.certificate_sha256)
+            subject = staged.subject
+            if (subject["deployment_id"] != args.deployment_id
+                    or subject["broker_account_id"] != args.expect_account
+                    or int(subject["takeover_epoch"]) != args.takeover_epoch):
+                raise authority.AuthorityRefused(
+                    "administrative certificate subject does not match exact "
+                    "activation confirmations")
+            if staged.claims["supersedes_certificate_sha256"] != (
+                    args.confirm_supersedes_certificate_sha256):
+                raise authority.AuthorityRefused(
+                    "administrative predecessor confirmation mismatch")
+            runtime, strategy = _current_system_identities()
+            context = administrative_authority.build_current_context(
+                conn, certificate=staged,
+                deployment_id=args.deployment_id,
+                broker_account_id=args.expect_account,
+                takeover_epoch=args.takeover_epoch,
+                paper_base_url=config.base_url,
+                runtime_identity=runtime, strategy_identity=strategy,
+                automation_config_sha256=config_from_env().fingerprint)
+            activated = (
+                administrative_authority.activate_administrative_certificate(
+                    conn, certificate_sha256=args.certificate_sha256,
+                    context=context, reason=args.reason, commit=False))
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        if conn is not None:
+            conn.close()
+    print(json.dumps({
+        "activated": True, "broker_contacted": False,
+        "certificate_sha256": activated.certificate_sha256,
+        "authority_generation": activated.authority_generation,
+        "permitted_operations": activated.claims["permitted_operations"],
+    }, indent=2))
+    return EXIT_OK
+
+
+def _revoke_administrative_certificate(
+        config: SentinelConfig, args) -> int:
+    """Revoke exact administrative authority without broker access."""
+    from sentinel import administrative_authority, schema
+    from sentinel.feed import store as feed_store
+
+    if not args.confirm_revoke_administrative_certificate:
+        print("REFUSED: --confirm-revoke-administrative-certificate is "
+              "required", file=sys.stderr)
+        return EXIT_CONFIG
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
     conn = feed_store.connect(config.database_url)
     try:
         schema.ensure_schema(conn)
+        # Revocation is an emergency fencing surface. It serializes on the
+        # authority rows themselves and must not wait behind a writer lock held
+        # across slow administrative broker I/O.
+        administrative_authority.revoke_administrative_certificate(
+            conn, certificate_sha256=args.certificate_sha256,
+            reason=args.reason, commit=True)
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        conn.close()
+    print(json.dumps({
+        "revoked": True, "broker_contacted": False,
+        "certificate_sha256": args.certificate_sha256,
+    }, indent=2))
+    return EXIT_OK
+
+
+def _install_system_certificate(config: SentinelConfig, args) -> int:
+    """Verify and stage an exact offline-issued certificate; no broker."""
+    from sentinel import authority, binding as binding_mod, schema
+    from sentinel.automation_runtime import config_from_env
+    from sentinel.execution import journal
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    if not args.confirm_install_alpaca_paper_execution_certificate:
+        print("REFUSED: explicit paper-certificate installation confirmation "
+              "is required", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = None
+    try:
+        payload = Path(args.certificate).read_bytes()
+        conn = feed_store.connect(config.database_url)
+        schema.ensure_schema(conn)
         with journal.writer_lock(conn):
-            authority.revoke_system_certificate(
+            binding = binding_mod.require(conn)
+            rollout = authority.load_rollout_state(conn)
+            prospective = authority.verify_signed_certificate(
+                payload, for_install=True)
+            runtime, strategy = _current_system_identities()
+            automation_config = config_from_env()
+            bindings = authority.bind_current_immutable_identities(
+                prospective.claims["bindings"], runtime_identity=runtime,
+                strategy_identity=strategy, paper_base_url=config.base_url,
+                automation_config_sha256=automation_config.fingerprint)
+            context = authority.SignedAuthorityContext(
+                deployment_id=binding.deployment_id, broker=binding.broker,
+                broker_account_id=binding.broker_account_id,
+                takeover_epoch=binding.takeover_epoch,
+                environment=authority.PAPER_SCOPE,
+                paper_base_url=config.base_url,
+                rollout_mode=rollout.mode, rollout_version=rollout.version,
+                rollout_certificate_sha256=rollout.certificate_sha256,
+                bindings=bindings)
+            installed = authority.install_signed_certificate(
+                conn, certificate_bytes=payload,
+                confirm_sha256=args.confirm_certificate_sha256,
+                context=context, reason=args.reason, commit=False)
+    except (OSError,) + _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        if conn is not None:
+            conn.close()
+    print(json.dumps({
+        "installed": True,
+        "activated": False,
+        "broker_contacted": False,
+        "certificate_sha256": installed.certificate_sha256,
+        "status": installed.status,
+    }, indent=2))
+    return EXIT_OK
+
+
+def _activate_system_certificate(config: SentinelConfig, args) -> int:
+    """Activate/rotate one staged certificate and rollout atomically."""
+    from sentinel import authority, binding as binding_mod, schema
+    from sentinel.automation_runtime import config_from_env
+    from sentinel.execution import journal
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    rotating = hasattr(args, "confirm_rotate_alpaca_paper_execution_certificate")
+    confirmed = (args.confirm_rotate_alpaca_paper_execution_certificate
+                 if rotating else
+                 args.confirm_activate_alpaca_paper_execution_certificate)
+    if not confirmed:
+        print("REFUSED: explicit paper-certificate activation/rotation "
+              "confirmation is required", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = None
+    try:
+        conn = feed_store.connect(config.database_url)
+        schema.ensure_schema(conn)
+        with journal.writer_lock(conn):
+            binding = binding_mod.require(conn)
+            if (args.confirm_paper_account != binding.broker_account_id
+                    or args.confirm_deployment_id != binding.deployment_id):
+                raise authority.AuthorityRefused(
+                    "paper account or deployment confirmation mismatch")
+            rollout = authority.load_rollout_state(conn)
+            staged = authority.load_installed_signed_certificate(
+                conn, args.certificate_sha256)
+            target_mode = authority.RolloutMode(
+                staged.claims["rollout"]["to_mode"])
+            if (target_mode is authority.RolloutMode.CONTROLLER
+                    and not args.confirm_controller_rollout):
+                raise authority.AuthorityRefused(
+                    "--confirm-controller-rollout is required because signed "
+                    "certificate activation is the only route into CONTROLLER")
+            if (target_mode is authority.RolloutMode.PINNED_1_00
+                    and not args.confirm_pinned_rollout_may_increase_exposure):
+                raise authority.AuthorityRefused(
+                    "--confirm-pinned-rollout-may-increase-exposure is required "
+                    f"because {PINNED_ROLLOUT_RISK_WARNING}")
+            supersedes = staged.claims["supersedes_certificate_sha256"]
+            if rotating:
+                if supersedes != args.confirm_supersedes_certificate_sha256:
+                    raise authority.AuthorityRefused(
+                        "rotation predecessor confirmation mismatch")
+            elif supersedes is not None:
+                raise authority.AuthorityRefused(
+                    "replacement certificates require rotate-system-certificate")
+            runtime, strategy = _current_system_identities()
+            automation_config = config_from_env()
+            bindings = authority.bind_current_immutable_identities(
+                staged.claims["bindings"], runtime_identity=runtime,
+                strategy_identity=strategy, paper_base_url=config.base_url,
+                automation_config_sha256=automation_config.fingerprint)
+            context = authority.SignedAuthorityContext(
+                deployment_id=binding.deployment_id, broker=binding.broker,
+                broker_account_id=binding.broker_account_id,
+                takeover_epoch=binding.takeover_epoch,
+                environment=authority.PAPER_SCOPE,
+                paper_base_url=config.base_url,
+                rollout_mode=rollout.mode, rollout_version=rollout.version,
+                rollout_certificate_sha256=rollout.certificate_sha256,
+                bindings=bindings)
+            activated = authority.activate_signed_certificate(
                 conn, certificate_sha256=args.certificate_sha256,
-                reason=args.reason, commit=False)
+                context=context, reason=args.reason,
+                confirm_controller_rollout=args.confirm_controller_rollout,
+                confirm_pinned_rollout_may_increase_exposure=(
+                    args.confirm_pinned_rollout_may_increase_exposure),
+                commit=False)
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        if conn is not None:
+            conn.close()
+    print(json.dumps({
+        "activated": True,
+        "broker_contacted": False,
+        "certificate_sha256": activated.certificate_sha256,
+        "authority_generation": activated.authority_generation,
+        "prepare_new_plan_required": True,
+    }, indent=2))
+    return EXIT_OK
+
+
+def _revoke_system_key(config: SentinelConfig, args) -> int:
+    """Durably revoke an installed signing key; never contacts the broker."""
+    from sentinel import authority, schema
+    from sentinel.feed import store as feed_store
+
+    if not args.confirm_revoke_system_key:
+        print("REFUSED: --confirm-revoke-system-key is required", file=sys.stderr)
+        return EXIT_CONFIG
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = feed_store.connect(config.database_url)
+    try:
+        schema.ensure_schema(conn)
+        # Key revocation must remain available while execution owns the shared
+        # writer lock. The authority transaction's row locks and monotonic
+        # generation are the relevant serialization boundary.
+        authority.revoke_signed_key(
+            conn, key_id=args.key_id, reason=args.reason, commit=True)
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        conn.close()
+    print(json.dumps({
+        "key_revoked": True, "key_id": args.key_id,
+        "broker_contacted": False,
+    }, indent=2))
+    return EXIT_OK
+
+
+def _revoke_system_certificate(config: SentinelConfig, args) -> int:
+    """Revoke the exact active certificate without waiting on broker I/O."""
+    from sentinel import authority, schema
+    from sentinel.feed import store as feed_store
+
+    if not args.confirm_revoke_system_certificate:
+        print("REFUSED: --confirm-revoke-system-certificate is required",
+              file=sys.stderr)
+        return EXIT_CONFIG
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = feed_store.connect(config.database_url)
+    try:
+        schema.ensure_schema(conn)
+        authority.revoke_system_certificate(
+            conn, certificate_sha256=args.certificate_sha256,
+            reason=args.reason, commit=True)
     except _paper_refusal_types() as exc:
         return _paper_refused(exc)
     finally:
@@ -907,9 +1397,9 @@ def _set_paper_rollout_mode(config: SentinelConfig, args) -> int:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
         return EXIT_CONFIG
     mode = authority.RolloutMode(args.mode)
-    if (mode is authority.RolloutMode.CONTROLLER
-            and not args.confirm_controller_rollout):
-        print("REFUSED: --confirm-controller-rollout is required",
+    if mode is authority.RolloutMode.CONTROLLER:
+        print("REFUSED: CONTROLLER rollout can be entered only by staging and "
+              "activating an offline-signed certificate",
               file=sys.stderr)
         return EXIT_CONFIG
     if (mode is authority.RolloutMode.PINNED_1_00
@@ -958,6 +1448,242 @@ def _set_paper_rollout_mode(config: SentinelConfig, args) -> int:
     return EXIT_OK
 
 
+def _automation_authority(conn, config: SentinelConfig, automation_config):
+    """Verify exact unattended authority without constructing a broker."""
+    from sentinel import authority, binding as binding_mod
+    from sentinel.execution.authority_gate import require_current_authority
+    from sentinel.feed import publication
+
+    binding = binding_mod.require(conn)
+    rollout = authority.load_rollout_state(conn)
+    runtime, strategy = _current_system_identities()
+    current = publication.require_current(conn)
+    certificate = require_current_authority(
+        conn, runtime_identity=runtime, strategy_identity=strategy,
+        required_mode=rollout.mode, required_operation="AUTOMATION",
+        paper_base_url=config.base_url,
+        current_publication_version=current.version,
+        automation_config_sha256=automation_config.fingerprint)
+    return binding, rollout, certificate
+
+
+def _automation_control_binding(binding, rollout, certificate,
+                                automation_config):
+    from sentinel.automation.model import ControlBinding
+
+    return ControlBinding(
+        deployment_id=binding.deployment_id, broker=binding.broker,
+        broker_account_id=binding.broker_account_id,
+        takeover_epoch=binding.takeover_epoch,
+        certificate_sha256=certificate.certificate_sha256,
+        rollout_mode=rollout.mode.value, rollout_version=rollout.version,
+        config_sha256=automation_config.fingerprint)
+
+
+def _automation_status(config: SentinelConfig, *, health_only: bool = False) -> int:
+    from sentinel.automation.health import read_health
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = feed_store.connect(config.database_url)
+    try:
+        result = read_health(conn)
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        conn.close()
+    print(json.dumps(result.model_dump(mode="json"), indent=2, default=str))
+    return EXIT_OK if result.healthy else EXIT_NOT_ESTABLISHED
+
+
+def _activate_paper_automation(config: SentinelConfig, args) -> int:
+    from sentinel import schema
+    from sentinel.automation import store
+    from sentinel.automation_runtime import config_from_env
+    from sentinel.execution import journal
+    from sentinel.feed import store as feed_store
+    from sentinel.handover import assert_no_legacy_path
+
+    if (not args.confirm_enable_unattended_alpaca_paper_automation
+            or not args.confirm_old_writer_fenced):
+        print(
+            "REFUSED: --confirm-old-writer-fenced and "
+            "--confirm-enable-unattended-alpaca-paper-automation are required",
+            file=sys.stderr)
+        return EXIT_CONFIG
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = feed_store.connect(config.database_url)
+    try:
+        schema.ensure_schema(conn)
+        automation_config = config_from_env()
+        with journal.writer_lock(conn):
+            assert_no_legacy_path(conn)
+            binding, rollout, certificate = _automation_authority(
+                conn, config, automation_config)
+            if (binding.broker_account_id != args.confirm_paper_account
+                    or binding.deployment_id != args.confirm_deployment_id
+                    or certificate.certificate_sha256
+                    != args.confirm_certificate_sha256):
+                from sentinel.automation.model import AutomationRefused
+                raise AutomationRefused(
+                    "automation activation confirmations do not match durable "
+                    "signed authority")
+            control = store.activate(
+                conn, binding=_automation_control_binding(
+                    binding, rollout, certificate, automation_config),
+                actor=args.actor, reason=args.reason)
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        conn.close()
+    print(json.dumps({
+        "automation_enabled": control.enabled,
+        "kill_switch_engaged": control.kill_switch_engaged,
+        "generation": control.generation,
+        "broker_contacted": False,
+        "operational_ready": False,
+    }, indent=2))
+    return EXIT_OK
+
+
+def _release_paper_automation_kill(config: SentinelConfig, args) -> int:
+    from sentinel import schema
+    from sentinel.automation import store
+    from sentinel.automation_runtime import config_from_env
+    from sentinel.execution import journal
+    from sentinel.feed import store as feed_store
+
+    if not args.confirm_release_unattended_paper_kill_switch:
+        print("REFUSED: explicit unattended paper kill-switch release "
+              "confirmation is required", file=sys.stderr)
+        return EXIT_CONFIG
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = feed_store.connect(config.database_url)
+    try:
+        schema.ensure_schema(conn)
+        automation_config = config_from_env()
+        with journal.writer_lock(conn):
+            binding, rollout, certificate = _automation_authority(
+                conn, config, automation_config)
+            if (binding.broker_account_id != args.confirm_paper_account
+                    or binding.deployment_id != args.confirm_deployment_id
+                    or certificate.certificate_sha256
+                    != args.confirm_certificate_sha256):
+                from sentinel.automation.model import AutomationRefused
+                raise AutomationRefused(
+                    "kill release confirmations do not match durable authority")
+            control = store.release_kill(
+                conn, expected_binding=_automation_control_binding(
+                    binding, rollout, certificate, automation_config),
+                actor=args.actor, reason=args.reason)
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        conn.close()
+    print(json.dumps({
+        "automation_enabled": control.enabled,
+        "kill_switch_engaged": control.kill_switch_engaged,
+        "generation": control.generation,
+        "broker_contacted": False,
+    }, indent=2))
+    return EXIT_OK
+
+
+def _remove_automation_authority(config: SentinelConfig, args, *, kill: bool) -> int:
+    from sentinel import schema
+    from sentinel.automation import store
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = feed_store.connect(config.database_url)
+    try:
+        schema.ensure_schema(conn)
+        # Emergency fencing must remain available while an executor owns the
+        # shared writer advisory lock across slow broker I/O. These control
+        # mutations serialize on their singleton row, bump the generation and
+        # invalidate the lease; every guarded broker operation checks that
+        # fresh state before transport.
+        control = (store.engage_kill(
+            conn, actor=args.actor, reason=args.reason)
+            if kill else store.deactivate(
+                conn, actor=args.actor, reason=args.reason))
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        conn.close()
+    print(json.dumps({
+        "automation_enabled": control.enabled,
+        "kill_switch_engaged": control.kill_switch_engaged,
+        "generation": control.generation,
+        "broker_contacted": False,
+    }, indent=2))
+    return EXIT_OK
+
+
+def _acknowledge_paper_alert(config: SentinelConfig, args) -> int:
+    from sentinel import schema
+    from sentinel.automation import outbox
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = feed_store.connect(config.database_url)
+    try:
+        schema.ensure_schema(conn)
+        alert = outbox.acknowledge(
+            conn, alert_id=args.alert_id, actor=args.actor,
+            acknowledgement=args.acknowledgement)
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        conn.close()
+    print(json.dumps(alert.model_dump(mode="json"), indent=2, default=str))
+    return EXIT_OK
+
+
+async def _automation_run(config: SentinelConfig) -> int:
+    """Run the persistent service; disabled/killed startup is broker-inert."""
+    import signal
+
+    from sentinel import schema
+    from sentinel.automation_runtime import ProductionAutomation, config_from_env
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = feed_store.connect(config.database_url)
+    try:
+        schema.ensure_schema(conn)
+    finally:
+        conn.close()
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for signame in ("SIGINT", "SIGTERM"):
+        signum = getattr(signal, signame, None)
+        if signum is not None:
+            try:
+                loop.add_signal_handler(signum, stop.set)
+            except (NotImplementedError, RuntimeError):       # Windows/tests
+                pass
+    runtime = ProductionAutomation(
+        sentinel_config=config, automation_config=config_from_env())
+    try:
+        await runtime.run(stop=stop)
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    return EXIT_OK
+
+
 async def _establish(config: SentinelConfig) -> int:
     """RETIRED. Kept so the old invocation fails loudly rather than mysteriously.
 
@@ -992,6 +1718,8 @@ def main(argv: list[str] | None = None) -> int:
     mp = sub.add_parser("migration-plan",
                         help="legacy broker book vs the Wealth Core target")
     mp.add_argument("--sessions", type=int, default=252)
+    mp.add_argument("--deployment-id", required=True)
+    mp.add_argument("--expect-account", required=True)
     bs = sub.add_parser("target-book",
                         help="warm up Wealth Core and print today's target")
     bs.add_argument("--cash", type=float, default=100_000.0)
@@ -1043,6 +1771,7 @@ def main(argv: list[str] | None = None) -> int:
     inspect = sub.add_parser(
         "inspect-paper-account",
         help="read the exact named paper account and inherited open book")
+    inspect.add_argument("--deployment-id", required=True)
     inspect.add_argument("--expect-account", required=True)
     prep = sub.add_parser(
         "prepare-paper-plan",
@@ -1061,14 +1790,80 @@ def main(argv: list[str] | None = None) -> int:
     execute.add_argument("--confirm-effective-session", required=True)
     execute.add_argument(
         "--confirm-submit-paper-orders", action="store_true", required=True)
+    install_admin = sub.add_parser(
+        "install-administrative-certificate",
+        help="stage offline-signed inherited-account authority; no broker")
+    install_admin.add_argument("--certificate", required=True)
+    install_admin.add_argument("--confirm-certificate-sha256", required=True)
+    install_admin.add_argument("--deployment-id", required=True)
+    install_admin.add_argument("--expect-account", required=True)
+    install_admin.add_argument("--takeover-epoch", type=int, required=True)
+    install_admin.add_argument("--reason", required=True)
+    install_admin.add_argument(
+        "--confirm-install-administrative-certificate",
+        action="store_true", required=True)
+    activate_admin = sub.add_parser(
+        "activate-administrative-certificate",
+        help="activate exact staged inherited-account authority; no broker")
+    activate_admin.add_argument("--certificate-sha256", required=True)
+    activate_admin.add_argument("--deployment-id", required=True)
+    activate_admin.add_argument("--expect-account", required=True)
+    activate_admin.add_argument("--takeover-epoch", type=int, required=True)
+    activate_admin.add_argument(
+        "--confirm-supersedes-certificate-sha256", default=None)
+    activate_admin.add_argument("--reason", required=True)
+    activate_admin.add_argument(
+        "--confirm-activate-administrative-certificate",
+        action="store_true", required=True)
+    revoke_admin = sub.add_parser(
+        "revoke-administrative-certificate",
+        help="revoke active inherited-account authority; no broker")
+    revoke_admin.add_argument("--certificate-sha256", required=True)
+    revoke_admin.add_argument("--reason", required=True)
+    revoke_admin.add_argument(
+        "--confirm-revoke-administrative-certificate",
+        action="store_true", required=True)
     install_cert = sub.add_parser(
         "install-system-certificate",
-        help="reserved: refuses until trusted certificate issuance exists")
-    install_cert.add_argument("--manifest", required=True)
-    install_cert.add_argument("--confirm-manifest-sha256", required=True)
+        help="verify and stage one offline-signed paper certificate; no broker")
+    install_cert.add_argument("--certificate", required=True)
+    install_cert.add_argument("--confirm-certificate-sha256", required=True)
+    install_cert.add_argument("--reason", required=True)
     install_cert.add_argument(
-        "--confirm-paper-execution-authority",
+        "--confirm-install-alpaca-paper-execution-certificate",
         action="store_true", required=True)
+    activate_cert = sub.add_parser(
+        "activate-system-certificate",
+        help="activate or rotate to one staged paper certificate; no broker")
+    activate_cert.add_argument("--certificate-sha256", required=True)
+    activate_cert.add_argument("--confirm-paper-account", required=True)
+    activate_cert.add_argument("--confirm-deployment-id", required=True)
+    activate_cert.add_argument("--reason", required=True)
+    activate_cert.add_argument(
+        "--confirm-activate-alpaca-paper-execution-certificate",
+        action="store_true", required=True)
+    activate_cert.add_argument(
+        "--confirm-controller-rollout", action="store_true")
+    activate_cert.add_argument(
+        "--confirm-pinned-rollout-may-increase-exposure",
+        action="store_true")
+    rotate_cert = sub.add_parser(
+        "rotate-system-certificate",
+        help="rotate from the exact active certificate to one staged replacement")
+    rotate_cert.add_argument("--certificate-sha256", required=True)
+    rotate_cert.add_argument(
+        "--confirm-supersedes-certificate-sha256", required=True)
+    rotate_cert.add_argument("--confirm-paper-account", required=True)
+    rotate_cert.add_argument("--confirm-deployment-id", required=True)
+    rotate_cert.add_argument("--reason", required=True)
+    rotate_cert.add_argument(
+        "--confirm-rotate-alpaca-paper-execution-certificate",
+        action="store_true", required=True)
+    rotate_cert.add_argument(
+        "--confirm-controller-rollout", action="store_true")
+    rotate_cert.add_argument(
+        "--confirm-pinned-rollout-may-increase-exposure",
+        action="store_true")
     revoke_cert = sub.add_parser(
         "revoke-system-certificate",
         help="revoke the exact active execution certificate; no broker")
@@ -1077,6 +1872,13 @@ def main(argv: list[str] | None = None) -> int:
     revoke_cert.add_argument(
         "--confirm-revoke-system-certificate",
         action="store_true", required=True)
+    revoke_key = sub.add_parser(
+        "revoke-system-key",
+        help="durably revoke one installed Ed25519 key; no broker")
+    revoke_key.add_argument("--key-id", required=True)
+    revoke_key.add_argument("--reason", required=True)
+    revoke_key.add_argument(
+        "--confirm-revoke-system-key", action="store_true", required=True)
     rollout = sub.add_parser(
         "set-paper-rollout-mode",
         help="change exposure mode explicitly; PINNED_1_00 may increase risk",
@@ -1097,6 +1899,57 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "acknowledge that forcing 100%% Wealth Core exposure may "
             "increase risk"))
+    sub.add_parser(
+        "automation-status",
+        help="show durable automation/cycle/lease/alert state; no broker")
+    sub.add_parser(
+        "automation-health",
+        help="SELECT-only supervisor health; disabled/killed is healthy")
+    activate_automation = sub.add_parser(
+        "activate-paper-automation",
+        help="bind unattended paper authority; leaves kill switch engaged")
+    activate_automation.add_argument("--confirm-paper-account", required=True)
+    activate_automation.add_argument("--confirm-deployment-id", required=True)
+    activate_automation.add_argument(
+        "--confirm-certificate-sha256", required=True)
+    activate_automation.add_argument(
+        "--confirm-old-writer-fenced", action="store_true", required=True)
+    activate_automation.add_argument("--actor", required=True)
+    activate_automation.add_argument("--reason", required=True)
+    activate_automation.add_argument(
+        "--confirm-enable-unattended-alpaca-paper-automation",
+        action="store_true", required=True)
+    release_automation = sub.add_parser(
+        "release-paper-automation-kill-switch",
+        help="separately release the enabled paper automation kill switch")
+    release_automation.add_argument("--confirm-paper-account", required=True)
+    release_automation.add_argument("--confirm-deployment-id", required=True)
+    release_automation.add_argument(
+        "--confirm-certificate-sha256", required=True)
+    release_automation.add_argument("--actor", required=True)
+    release_automation.add_argument("--reason", required=True)
+    release_automation.add_argument(
+        "--confirm-release-unattended-paper-kill-switch",
+        action="store_true", required=True)
+    kill_automation = sub.add_parser(
+        "engage-paper-automation-kill-switch",
+        help="fence automation immediately; never cancels or liquidates")
+    kill_automation.add_argument("--actor", required=True)
+    kill_automation.add_argument("--reason", required=True)
+    deactivate_automation = sub.add_parser(
+        "deactivate-paper-automation",
+        help="disable/fence automation without broker contact")
+    deactivate_automation.add_argument("--actor", required=True)
+    deactivate_automation.add_argument("--reason", required=True)
+    ack_alert = sub.add_parser(
+        "acknowledge-paper-alert",
+        help="durably acknowledge one automation alert")
+    ack_alert.add_argument("--alert-id", required=True)
+    ack_alert.add_argument("--actor", required=True)
+    ack_alert.add_argument("--acknowledgement", required=True)
+    sub.add_parser(
+        "automation-run",
+        help="persistent Stage 4 scheduler; inert until enabled and unkilled")
     mig = sub.add_parser("migrate-account",
                          help="ONE-TIME administrative handover: remove the "
                               "legacy book and BIND this account")
@@ -1123,9 +1976,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     _setup_logging(args.verbose)
 
+    surface_refusal = _require_authorized_runtime(args.command)
+    if surface_refusal is not None:
+        return surface_refusal
+
     try:
         config = SentinelConfig.from_env()
-    except LiveEndpointRefused as exc:
+    except (LiveEndpointRefused, ValueError) as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return EXIT_CONFIG
 
@@ -1165,12 +2022,39 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(_current_paper_plan(config))
         if args.command == "execute-paper-plan":
             return asyncio.run(_execute_paper_plan(config, args))
+        if args.command == "install-administrative-certificate":
+            return _install_administrative_certificate(config, args)
+        if args.command == "activate-administrative-certificate":
+            return _activate_administrative_certificate(config, args)
+        if args.command == "revoke-administrative-certificate":
+            return _revoke_administrative_certificate(config, args)
         if args.command == "install-system-certificate":
             return _install_system_certificate(config, args)
+        if args.command == "activate-system-certificate":
+            return _activate_system_certificate(config, args)
+        if args.command == "rotate-system-certificate":
+            return _activate_system_certificate(config, args)
         if args.command == "revoke-system-certificate":
             return _revoke_system_certificate(config, args)
+        if args.command == "revoke-system-key":
+            return _revoke_system_key(config, args)
         if args.command == "set-paper-rollout-mode":
             return _set_paper_rollout_mode(config, args)
+        if args.command in ("automation-status", "automation-health"):
+            return _automation_status(
+                config, health_only=args.command == "automation-health")
+        if args.command == "activate-paper-automation":
+            return _activate_paper_automation(config, args)
+        if args.command == "release-paper-automation-kill-switch":
+            return _release_paper_automation_kill(config, args)
+        if args.command == "engage-paper-automation-kill-switch":
+            return _remove_automation_authority(config, args, kill=True)
+        if args.command == "deactivate-paper-automation":
+            return _remove_automation_authority(config, args, kill=False)
+        if args.command == "acknowledge-paper-alert":
+            return _acknowledge_paper_alert(config, args)
+        if args.command == "automation-run":
+            return asyncio.run(_automation_run(config))
         if args.command == "migrate-account":
             return asyncio.run(_migrate_account(config, args))
         if args.command == "adopt-restored-account":

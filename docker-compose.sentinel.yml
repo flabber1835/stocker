@@ -9,12 +9,11 @@
 # evict the other's containers — the same reasoning that gave the backtest stack
 # `name: stocker-bt`, and the same accident it exists to prevent.
 #
-# THERE IS NO LONG-RUNNING OR SCHEDULED ENGINE SERVICE HERE, and that is
-# intentional. Multi-session catch-up, durable plan preparation, inspection,
-# and separately confirmed paper execution exist as operator-invoked CLI paths.
-# The `cli` profile prevents ordinary Compose startup from invoking any of them.
-# Autonomous timing and a restart policy would be a separate reviewed deployment
-# decision, not a consequence of the production path existing.
+# The run-only manual surface remains behind the `cli` profile. The separately
+# reviewed automation service is behind its own `automation` profile, so plain
+# `docker compose up` still cannot start unattended orchestration. Its durable
+# control row is initially disabled with the kill switch engaged; container
+# presence and supervisor health are never execution authority.
 #
 # The handover is `migrate-account` and it REFUSES against a bound account, so a
 # restart cannot re-attempt a liquidation. That is a property of the code and of
@@ -89,19 +88,24 @@ services:
       context: .
       dockerfile: Dockerfile.sentinel
       network: host
-    # `latest` is a CONVENIENCE ALIAS and deliberately literal.
+    # `latest` is the local-development default only.
     #
-    # An interpolated `sentinel:${SENTINEL_IMAGE_TAG:-latest}` looks like better
-    # pinning and is worse: scripts/compose_image.py REFUSES an image containing
-    # `${...}` on purpose, because it cannot know the environment Compose was
-    # invoked with, and a resolver that guesses is how the manifest ends up
-    # naming an artefact that never ran.
+    # The formal resource measurement exports an exact reviewed repo digest in
+    # SENTINEL_RUNTIME_IMAGE_REF and lets Compose itself resolve it.  The
+    # inspection-only compose_image.py fallback deliberately REFUSES this
+    # interpolation: Compose can also source `.env` and configured env files,
+    # so reproducing it from the Python process environment could attribute the
+    # run to a different image.  No certification caller asks that fallback to
+    # resolve this profile-gated service.
     #
     # Commit pinning happens where it can be VERIFIED instead: `make
     # sentinel-image` builds `sentinel:<git-sha>` alongside this alias, and the
     # identity record captures the resolved image DIGEST — which is stronger
     # than a tag, since a tag can be moved and a digest cannot.
-    image: sentinel:latest
+    # Default remains the local development tag. Certification measurement may
+    # set SENTINEL_RUNTIME_IMAGE_REF to an exact reviewed repo digest and then
+    # proves the resulting container image id before accepting its report.
+    image: ${SENTINEL_RUNTIME_IMAGE_REF:-sentinel:latest}
     # run-only: `docker compose up` must not prepare, migrate, or execute.
     profiles: ["cli"]
     # The engine's own ceiling. Deliberately LARGER than the panel's and
@@ -111,12 +115,10 @@ services:
     mem_limit: 2g
     cpus: 2.0
     environment:
-      # PAPER ONLY. Sentinel REFUSES to start against api.alpaca.markets and has
-      # no override — see sentinel/config.py. This default is belt-and-braces on
-      # a guard that is already unconditional.
+      # PAPER URL ONLY. The ordinary service deliberately has no broker
+      # credentials or artifact identity. Broker/admin commands are restricted
+      # to the marker-bearing, digest-qualified authorized overlay.
       ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
-      ALPACA_API_KEY: ${ALPACA_API_KEY:-}
-      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
       SENTINEL_STATE_DIR: /var/lib/sentinel
       SENTINEL_MAX_CYCLES: ${SENTINEL_MAX_CYCLES:-40}
       SENTINEL_POLL_SECONDS: ${SENTINEL_POLL_SECONDS:-5}
@@ -142,9 +144,8 @@ services:
   # reuses its port (8004), so the bookmark and the phone home-screen shortcut
   # keep working across the retirement.
   #
-  # NO PROFILE: unlike `sentinel`, this one is meant to be UP. It is the only
-  # long-running process in this file that is safe to leave running, precisely
-  # because it has no write routes and never constructs a broker — a phone
+  # NO PROFILE: unlike either command/orchestration surface, this one is meant
+  # to be UP. It has no write routes and never constructs a broker — a phone
   # refreshing it every 30s must not become an unattended API client.
   sentinel-panel:
     build:

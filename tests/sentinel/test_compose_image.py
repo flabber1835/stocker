@@ -225,6 +225,26 @@ class TestResolutionOrder:
         assert ref is None
         assert "interpolation" in why
 
+    def test_a_whole_default_image_refuses_without_compose(self,
+                                                            tmp_path: Path):
+        p = tmp_path / "c.yml"
+        p.write_text("name: proj\nservices:\n  svc:\n"
+                     "    image: ${RUNTIME_REF:-sentinel:latest}\n")
+        assert compose_image._from_parsed_yaml(str(p), "svc")[0] is None
+
+    @pytest.mark.parametrize("value", [
+        "registry/${RUNTIME_REF:-sentinel}:latest",
+        "${RUNTIME_REF:?required}",
+        "${RUNTIME_REF-default}",
+        "${RUNTIME_REF:-${FALLBACK}}",
+    ])
+    def test_every_other_interpolation_form_still_refuses(
+            self, tmp_path: Path, value: str):
+        p = tmp_path / "c.yml"
+        p.write_text("name: proj\nservices:\n  svc:\n"
+                     f"    image: '{value}'\n")
+        assert compose_image._from_parsed_yaml(str(p), "svc")[0] is None
+
     def test_extends_REFUSES_rather_than_deriving(self, tmp_path: Path):
         """`extends` can carry image or build in from a file not being read."""
         p = tmp_path / "c.yml"
@@ -323,23 +343,37 @@ class TestTheTwoBRANCHESAgree:
     BRANCHES inside it disagreeing, which is the same defect one level further
     down — and it is where the reviewer's finding actually lived.
 
-    Asserted over every service in every real compose file, so a service added
-    later is covered without anyone remembering to add a case."""
+    Asserted over every non-interpolated service in every real Compose file, so
+    a service added later is covered without anyone remembering to add a case.
+    Interpolated services are Compose-only; their fallback refusal has a
+    separate falsifier because `.env` is intentionally not reimplemented."""
 
     @pytest.mark.parametrize("compose", REAL_COMPOSE)
     def test_every_service_resolves_identically(self, compose, monkeypatch):
         path = REPO / compose
+        # Interpolated images are intentionally Compose-only: a `.env` file can
+        # make its answer differ from os.environ, so the file fallback refuses.
+        import yaml
+        services = yaml.safe_load(path.read_text())["services"]
+        unambiguous = [
+            name for name, service in services.items()
+            if "${" not in str((service or {}).get("image", ""))]
         expected = {s: compose_image.resolve(str(path), s)
-                    for s in services_in(path)}
+                    for s in unambiguous}
         monkeypatch.setattr(compose_image, "_compose_json", lambda f: None)
         degraded = {s: compose_image.resolve(str(path), s)
-                    for s in services_in(path)}
+                    for s in unambiguous}
         assert degraded == expected
 
     @pytest.mark.parametrize("compose", REAL_COMPOSE)
     def test_no_real_service_is_unresolvable(self, compose, branch):
         path = REPO / compose
-        unresolved = [s for s in services_in(path)
+        import yaml
+        services = yaml.safe_load(path.read_text())["services"]
+        unambiguous = [
+            name for name, service in services.items()
+            if "${" not in str((service or {}).get("image", ""))]
+        unresolved = [s for s in unambiguous
                       if not compose_image.resolve(str(path), s)]
         assert not unresolved, unresolved
 
@@ -348,9 +382,10 @@ class TestAProfileGatedServiceIsStillNamed:
     """`docker compose config` OMITS a service whose profile is not active, and
     reading that absence as "declares no image" derives a name for a service
     that has one. The certification runtime image is exactly this case:
-    `sentinel` sits behind `profiles: ["cli"]` and declares
-    `image: sentinel:latest`, and the authoritative branch answered
-    `sentinel-sentinel`.
+    `sentinel` sits behind `profiles: ["cli"]` and declares an interpolated
+    image with a local-development `sentinel:latest` default. The authoritative
+    branch once answered `sentinel-sentinel`; the file fallback now refuses the
+    interpolation rather than guessing how Compose sourced its environment.
 
     Worse than the fallback version of the same bug, because it happened on the
     PREFERRED branch — where Compose was available and trusted."""
@@ -361,7 +396,8 @@ class TestAProfileGatedServiceIsStillNamed:
         import yaml
         svc = yaml.safe_load(self.COMPOSE.read_text())["services"]["sentinel"]
         assert "cli" in (svc.get("profiles") or [])
-        assert svc.get("image") == "sentinel:latest"
+        assert svc.get("image") == \
+            "${SENTINEL_RUNTIME_IMAGE_REF:-sentinel:latest}"
 
     def test_compose_really_does_hide_it(self):
         """If Compose ever stops gating it, this class stops testing anything
@@ -380,9 +416,13 @@ class TestAProfileGatedServiceIsStillNamed:
             return
         assert "sentinel" not in (cfg.get("services") or {})
 
-    def test_it_resolves_to_its_DECLARED_image(self, branch):
-        assert compose_image.resolve(str(self.COMPOSE), "sentinel") == \
-            "sentinel:latest"
+    def test_file_fallback_refuses_instead_of_guessing_from_process_env(
+            self, monkeypatch):
+        monkeypatch.setattr(compose_image, "_compose_json", lambda f: None)
+        monkeypatch.setenv(
+            "SENTINEL_RUNTIME_IMAGE_REF",
+            "registry/sentinel@sha256:" + "a" * 64)
+        assert compose_image.resolve(str(self.COMPOSE), "sentinel") is None
 
     def test_and_NOT_to_a_derived_name(self, branch):
         assert compose_image.resolve(str(self.COMPOSE), "sentinel") != \

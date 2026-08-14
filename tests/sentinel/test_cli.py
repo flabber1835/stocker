@@ -28,7 +28,8 @@ sys.path.insert(0, str(ROOT / "shared"))
 
 from fakes import FakeBroker  # noqa: E402
 from sentinel import __main__ as cli  # noqa: E402
-from sentinel import broker as broker_mod, handover, schema  # noqa: E402
+from sentinel import (  # noqa: E402
+    binding, broker as broker_mod, guarded_administration, handover, schema)
 from sentinel.config import (  # noqa: E402
     DEFAULT_BASE_URL,
     LiveEndpointRefused,
@@ -40,6 +41,15 @@ from sentinel.execution import journal  # noqa: E402
 from sentinel.feed import calendar, readiness, store as feed_store  # noqa: E402
 from stock_strategy_shared.broker.alpaca import (  # noqa: E402
     IncompleteOrderList, MalformedBrokerPayload)
+
+
+@pytest.fixture(autouse=True)
+def _authorized_runtime_surface(monkeypatch, tmp_path):
+    marker = tmp_path / "authorized-runtime-v1"
+    marker.write_bytes(cli.AUTHORIZED_RUNTIME_MARKER_BYTES)
+    monkeypatch.setattr(cli, "AUTHORIZED_RUNTIME_MARKER", marker)
+    monkeypatch.setenv(
+        cli.AUTHORIZED_RUNTIME_ENV, cli.AUTHORIZED_RUNTIME_VALUE)
 
 
 def env(**over):
@@ -57,6 +67,14 @@ class TestPaperOnly:
     def test_the_LIVE_endpoint_is_refused(self):
         with pytest.raises(LiveEndpointRefused, match="api.alpaca.markets"):
             SentinelConfig.from_env(env(ALPACA_BASE_URL="https://api.alpaca.markets"))
+
+    def test_malformed_numeric_runtime_config_is_a_controlled_refusal(
+            self, monkeypatch, capsys):
+        for key, value in env(SENTINEL_MAX_CYCLES="not-an-integer").items():
+            monkeypatch.setenv(key, value)
+
+        assert cli.main(["status"]) == cli.EXIT_CONFIG
+        assert "REFUSED:" in capsys.readouterr().err
 
     @pytest.mark.parametrize("extra", [
         {"LIVE_TRADING_ENABLED": "true"},
@@ -315,6 +333,13 @@ class TestEstablishOwnershipIsRetired:
             SENTINEL_DATABASE_URL="postgresql://test/db"))
         monkeypatch.setattr(feed_store, "connect", lambda _url: connection)
         monkeypatch.setattr(schema, "ensure_schema", lambda _conn: None)
+        monkeypatch.setattr(binding, "load", lambda _conn: None)
+        monkeypatch.setattr(
+            cli, "_authorized_administrative_access",
+            lambda *_args, **_kwargs: (object(), object()))
+        monkeypatch.setattr(
+            guarded_administration, "GuardedAdministrativeBroker",
+            lambda *, inner, grant, guard: inner)
         monkeypatch.setattr(cli, "build_broker", lambda _config: object())
 
         async def refuse(**_kwargs):
