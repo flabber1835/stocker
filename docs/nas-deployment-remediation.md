@@ -5,6 +5,13 @@ Sentinel main (`f65e9e34bc204250e4e5a99b61dfdc099e0392ef`) to a Synology NAS.
 It is intentionally separate from the deployment checkout: production keeps
 running reviewed images while fixes and falsifiers accumulate in this draft PR.
 
+## Draft status
+
+All seven release-blocking behaviors below are implemented in this draft. The
+branch remains a draft until Linux/PostgreSQL CI and a reviewed NAS redeployment
+confirm the code paths on the target host. No network ingestion, broker action,
+credential change, or deployment is part of this remediation branch.
+
 ## Confirmed findings
 
 ### 1. Sharadar API key appears in HTTP request logs
@@ -18,6 +25,11 @@ transcripts can disclose the data-vendor credential.
 **Acceptance:** ordinary and verbose execution, retry paths, and terminal HTTP
 errors never render secret query values. A falsifier uses a sentinel secret and
 asserts that it is absent from stdout, stderr, log records, and exception text.
+
+**Resolution:** authenticated HTTP diagnostics are suppressed for the complete
+request/status/exception boundary, and every propagated failure is rebuilt from
+a key-free request target without exception chaining. Success, retry, 4xx, 5xx,
+transport, and verbose-log falsifiers inspect all four rendering surfaces.
 
 ### 2. CPU capability detection can contradict the Docker daemon
 
@@ -33,6 +45,13 @@ probe selects the generated graph. Only `cpus:` is removed; `mem_limit` and
 `shm_size` remain. Tests reproduce a daemon-info false positive followed by a
 NanoCPUs refusal.
 
+**Resolution:** daemon metadata is followed by a no-pull `docker create --cpus`
+probe against the already-local pinned PostgreSQL image. An explicit
+`SENTINEL_FORCE_NO_CPU_LIMITS=1` selects the generated graph even when metadata
+or the active probe is inconclusive. The generated graph removes only `cpus:`;
+the measurement artifact records `OBSERVED_NOT_BOUNDED` and cannot certify a
+CPU envelope for that graph.
+
 ### 3. A verified base backup can block first schema initialization
 
 **Observed:** `sentinel-base-backup.sh` created
@@ -46,6 +65,12 @@ Sentinel" cannot complete without manually dropping Sentinel's own table.
 **Acceptance:** the exact sequence passes on a legacy corpus, without weakening
 refusal for genuinely unknown relations. Restore-marker verification remains
 effective and the migration bootstrap decision remains durable.
+
+**Resolution:** the recovery-marker table is classified as backup
+infrastructure only after its relation, columns, defaults, primary-key
+constraint, index, and trigger fingerprints match the table created by the
+backup script exactly. Malformed marker tables and unrelated `sentinel_*`
+relations retain the markerless-schema refusal.
 
 ### 4. Derived-only splits need explicit certification disposition
 
@@ -81,6 +106,27 @@ domain. Ambiguous action types refuse economically relevant use. Tests cover
 ordinary, seam, reciprocal, eligible, and held-security cases, including a
 1-for-30 reverse event that must produce exactly 1/30 rather than 30.
 
+**Resolution:** ACTIONS values remain raw until independent price-domain
+evidence selects direct or reciprocal orientation. Noisy near-integral reverse
+denominators are snapped only after that witness, so 30.003 becomes exactly
+`1/30`; neither/either ambiguity applies `1.0`, writes a durable disagreement,
+and blocks certification. Uncorroborated leading-window seams are recorded but
+not applied and are excluded from the derived-only-applied list.
+
+Certification renders every split in one of these explicit categories:
+
+| Category | Application and certification policy |
+|---|---|
+| authoritative applied split | canonical ACTIONS multiplier at or below one; accepted |
+| corroborated derived split | price evidence selects direct or reciprocal orientation; accepted |
+| derived-only non-seam split | applied, but certification holds if held, pending, potentially eligible, or unclassifiable |
+| seam artifact suppressed | not applied; certification uses the same relevance hold policy |
+| unresolved material disagreement | not applied and always blocks certification |
+
+For the two conditional categories, only an explicitly supplied empty book and
+a price or liquidity upper-bound proof below the production admission floor can
+classify the event as economically irrelevant and clear it.
+
 ### 5. Backup validation cannot use attestation when Docker root is protected
 
 **Observed:** an ordinary Synology administrator could use Docker but could not
@@ -95,6 +141,12 @@ device.
 the explicit attestation path works without attempting to traverse the
 protected directory. Tests distinguish absent, unreadable, same-device, and
 independent-device targets.
+
+**Resolution:** the lexical inside-Docker-root refusal runs before any
+traversal and cannot be overridden. If Docker-root metadata is absent or
+unreadable, validation fails closed unless the operator sets the documented
+durable-target attestation; with attestation it does not traverse the protected
+directory and still performs the PostgreSQL-UID write probe.
 
 ### 6. Production ingest reads SPY from the wrong Sharadar table
 
@@ -119,6 +171,12 @@ PostgreSQL-backed falsifier keeps SPY absent from SEP, serves it only from the
 fund table, runs both supported ingest modes, and ends with a passing exact
 41-session frontier benchmark.
 
+**Resolution:** both seed and daily ingest request only `ticker=SPY` from
+`SHARADAR/SFP`, write only `closeadj` into the dedicated total-return table,
+stamp the same ingest run, and publish atomically with the corpus. Daily repair
+requests the exact 41-session readiness window. SFP rows never enter SEP bars or
+the equity universe; repeated seed/daily loads are idempotent.
+
 ## Deployment observations that are not yet code defects
 
 - Existing PostgreSQL volumes do not adopt a changed Compose password. The
@@ -127,6 +185,38 @@ fund table, runs both supported ingest modes, and ends with a passing exact
   execution plan.
 - A verified physical base backup and post-base WAL recovery marker were
   successfully written to an independent ext4 USB target.
+
+## Remaining operational verification
+
+- Rotate the Sharadar key if the pre-fix HTTP log was retained or shared; code
+  redaction cannot retract an already disclosed credential.
+- On first NAS start, keep the pinned probe image local or explicitly set
+  `SENTINEL_FORCE_NO_CPU_LIMITS=1`; an `UNKNOWN` probe intentionally retains the
+  canonical limits and may fail loudly rather than silently remove a ceiling.
+- Durable-target attestation is an operator claim. Verify the mount's independent
+  failure domain, then rerun base-backup status and the isolated restore drill.
+- Run a real bounded SFP seed/daily repair with the deployment credential and
+  confirm the exact 41-session SPY frontier before preparing any paper plan.
+- Existing-volume PostgreSQL credentials still require the documented role/env
+  synchronization; this remediation does not mutate database credentials.
+
+## Validation evidence for this draft
+
+- Consolidated changed-area selection on the Windows development host:
+  `125 passed, 140 skipped`. Every skip is expected and named: the repository's
+  ephemeral PostgreSQL fixture requires POSIX `geteuid`, and eight parity cases
+  require the unavailable backtester dependency set. The pushed Linux safety
+  workflow is the required PostgreSQL/parity authority.
+- Credential, split-mapping, capability, and backup-contract pure selection:
+  `75 passed, 24 skipped`, with the skips limited to the same platform-gated
+  PostgreSQL/POSIX cases.
+- `compileall` over changed production and test packages: pass.
+- `bash -n` for all changed shell files: pass.
+- Canonical and generated no-CPU Compose graphs: `docker compose config -q`
+  pass; the fallback removes three `cpus:` entries, retains every `mem_limit`
+  and `shm_size`, and changes no other service configuration.
+- `git diff --check`: pass.
+- GitHub full safety workflow: pending the single post-push run for this draft.
 
 ## Change policy
 
