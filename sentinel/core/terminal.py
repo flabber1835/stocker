@@ -370,9 +370,10 @@ def load_terminal_events(conn, *, start: str, end: str,
         # worse than one that hides neither: a terminal event would be applied
         # to a book marked from a different generation of the data.
         cur.execute(
-            "SELECT ticker, session, action, value, contraticker"
+            "SELECT source_row_id,ticker,session,action,value,contraticker,"
+            " contraname"
             " FROM sentinel_active_actions WHERE session BETWEEN %s AND %s"
-            " ORDER BY session, ticker, action", (raw_start, raw_end))
+            " ORDER BY session,ticker,action,source_row_id", (raw_start, raw_end))
         rows = cur.fetchall()
 
     priced = _corpus_tickers(conn, start, end)
@@ -380,7 +381,7 @@ def load_terminal_events(conn, *, start: str, end: str,
     seen: set = set()
     audit: list = []
 
-    for ticker, session, action, value, contraticker in rows:
+    for source_row_id, ticker, session, action, value, contraticker, contraname in rows:
         s, tk = str(session), str(ticker)
         act = (action or "").lower()
         effective = calendar.session_on_or_after(s)
@@ -435,7 +436,8 @@ def load_terminal_events(conn, *, start: str, end: str,
 
         terms = terminal_from_action(
             {"ticker": ticker, "action": action, "value": value,
-             "contraticker": contraticker, "vendor_session": s}, effective,
+             "contraticker": contraticker, "contraname": contraname,
+             "source_row_id": str(source_row_id), "vendor_session": s}, effective,
             security_id=sid)
         if terms is None:
             # The identity resolved and the mapping still produced nothing. That

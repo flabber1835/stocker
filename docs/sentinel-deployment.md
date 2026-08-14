@@ -1486,6 +1486,72 @@ broker traffic.
 
 ## 11. `execution_model` activation is a versioned operational event
 
+### ACTIONS source-row identity and failed-daily recovery (2026-08-14)
+
+Sharadar ACTIONS does not promise that ``(ticker,date,action)`` is a source-row
+key.  Sentinel receives seven source fields: ``date``, ``action``, ``ticker``,
+``name``, ``value``, ``contraticker`` and ``contraname``.  Production returned
+multiple distinct ``relation`` rows for XRN on 2026-08-14.  Relationship,
+terminal and distribution vocabularies can all carry siblings at that coarse
+key, so uniqueness must not be inferred from the action verb.
+
+The durable grain is now a SHA-256 of canonical complete source content.  NULL
+is encoded separately from an empty string and numerically equal values have
+one canonical spelling.  Exact repeats are idempotent; distinct rows survive.
+A restatement is the disappearance of the old content identity plus presence of
+the new one.  Complete-window PRESENT/REMOVED observations and publication rank
+that identity.  The old ``sentinel_actions`` table remains an immutable legacy
+baseline; migration adds identity to append-only observations and does not
+rewrite or discard the baseline.
+
+Economic consumers remain deliberately narrower than source storage.  Positive
+cash distributions on one ticker/effective session sum once per distinct source
+row.  More than one distinct split row on one ticker/effective session has no
+vendor-defined composition order: Sentinel applies no ACTIONS multiplier and
+publishes ``AMBIGUOUS_SPLIT_MULTIPLICITY`` certification evidence.  It may not
+pick the first/last row.  Terminal consumers retain every source row for audit
+but deduplicate the already-defined effective terminal event before applying it.
+Relationship rows have no ranking, price, split, dividend, terminal, or issuer-
+family effect.
+
+The failed production daily run
+``7a0e20f4-9a51-4737-8fd6-ecbfadf39075`` stopped in ACTIONS after committing
+13,216 run-stamped rows.  They are unpublished and invisible; v2 remains the
+published corpus with frontier 2026-08-13, freshness fails for 2026-08-14, the
+required SFP SPY tail is missing, and coherence/frontier/freshness are the three
+failed checks.  A normal corrected ``feed-daily`` retry is the recovery path:
+startup durably fails any orphan candidate, the full TICKERS refresh and overlap
+rewrite/supersede the failed candidate rows, ACTIONS lifecycle state is retired,
+the required SPY tail is fetched, and publication moves atomically only after
+no row owned by an older unpublished run remains.  Publication refuses if the
+retry did not cover every blocker.  Manual SQL deletion and database restore are
+not the normal recovery.
+
+#### Wealth Core and CAGR impact
+
+``relation`` is storage/audit-only in the current strategy.  The price
+normaliser selects only ``SPLIT_ACTIONS`` and ``DIVIDEND_ACTIONS``; the terminal
+loader selects only the explicit target/acquirer vocabulary and accounts for a
+relation row as unsupported/non-terminal; ranking reads normalized bars and
+security metadata; issuer-family construction reads TICKERS ``relatedtickers``.
+Consequently the two XRN relation rows cannot alter signal prices, ranking,
+selection, split shares, dividend cash, terminal settlement, or issuer grouping.
+They also cannot have changed an already published CAGR: the production ingest
+refused before publishing August 14, and relation is absent from every economic
+consumer even when present.
+
+That conclusion is intentionally narrower than claiming every historical form
+of multiplicity is harmless.  The legacy ``bt_actions`` and pre-fix Sentinel
+tables collapsed ``(ticker,date,action)`` and therefore cannot prove that no
+distinct same-key economic rows ever existed.  Distinct dividend rows would add
+cash; distinct split rows are now blocking rather than first/last/product;
+terminal siblings are retained but one effective terminal event is applied.
+``python -m tools.sentinel_actions_profile <sanitized.jsonl>`` reports source,
+distinct, repeat and multiplicity-key counts by action type without echoing rows
+or request URLs.  A certification that wants a corpus-wide historical CAGR
+claim must run that diagnostic on an authorized sanitized export; collapsed
+legacy storage is not evidence of absence.
+
 If enabling the Wealth Core / Sentinel path requires changing a protected
 `execution_model`, do it deliberately and record:
 

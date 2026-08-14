@@ -263,6 +263,34 @@ def assert_coherent(conn, *, exhaustive: bool = False) -> CoherenceReport:
     return report
 
 
+def assert_retry_superseded_prior_candidates(conn, *, run_id: str) -> None:
+    """Refuse publication while an older unpublished run still owns live rows.
+
+    In-place upserts make retry the supported recovery: the corrected run must
+    rewrite every key touched by the failed daily candidate.  Publishing while
+    even one old owner remains would advance the version while coherence still
+    fails and would falsely advertise a clean retry.
+    """
+    writer = str(run_id)
+    runs = tuple(r for r in _unpublished_runs_from_run_table(conn)
+                 if str(r) != writer)
+    if not runs:
+        return
+    counts = {
+        "bars": sum(_rows_per_run(conn, "sentinel_bars", runs).values()),
+        "legacy_actions": sum(_rows_per_run(conn, "sentinel_actions", runs).values()),
+        "spy": sum(_rows_per_run(conn, "sentinel_spy_total_return", runs).values()),
+        "universe": sum(_rows_per_run(conn, "sentinel_universe", runs).values()),
+    }
+    remaining = sum(counts.values())
+    if remaining:
+        raise CorpusIncoherent(
+            f"retry run {writer} cannot publish: {remaining} row(s) remain "
+            f"owned by older unpublished run(s) {list(runs)}; counts={counts}. "
+            "The retry must rewrite or supersede the complete failed candidate "
+            "before publication.")
+
+
 def _unpublished_runs_from_run_table(conn) -> tuple:
     with conn.cursor() as cur:
         cur.execute(
@@ -479,6 +507,7 @@ def publish(conn, *, run_id: Optional[str] = None,
                 "make that decision's recorded data_version a lie.")
     try:
         if run_id is not None:
+            assert_retry_superseded_prior_candidates(conn, run_id=str(run_id))
             from sentinel.feed import actions as action_store
             action_store.publish_run(conn, run_id=str(run_id))
             from sentinel.feed import anomalies as anomaly_store

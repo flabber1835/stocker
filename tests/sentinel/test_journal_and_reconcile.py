@@ -41,7 +41,7 @@ from sentinel.execution.identity import CommandIdentity, DeploymentIdentity  # n
 from sentinel.execution.plan import ExecutionPlan  # noqa: E402
 from sentinel.execution.simulator import FaultKind as F, SimulatedBroker  # noqa: E402
 from sentinel.execution.states import CommandState as S, RuntimeState  # noqa: E402
-from sentinel.feed import store as feed_store  # noqa: E402
+from sentinel.feed import publication, store as feed_store  # noqa: E402
 
 DEPLOY = DeploymentIdentity("nas-1", "sim", "SIM-ACCOUNT", 1)
 AAA = BrokerInstrument(security_id="SEC-AAA", symbol="AAA", broker_id="b-AAA")
@@ -811,6 +811,23 @@ class TestCorpusActionLookup:
         assert lookup("SEC-AAA") == pytest.approx(Decimal(6))
         assert lookup("SEC-AAA", date(2026, 8, 6)) \
             == pytest.approx(Decimal(3))
+
+    def test_distinct_split_siblings_refuse_instead_of_multiplying(self, conn):
+        put_bar(conn, "SEC-AAA", "2026-08-05", "AAA")
+        run = feed_store.IngestRun(conn, "ambiguous-splits")
+        with feed_store.corpus_write_lock(conn):
+            feed_store.write_actions(conn, [
+                {"ticker": "AAA", "date": "2026-08-05", "action": "split",
+                 "value": 2.0, "contraticker": None},
+                {"ticker": "AAA", "date": "2026-08-05", "action": "split",
+                 "value": None, "contraticker": "SIBLING"},
+            ], run_id=run.progress.run_id,
+                window_start="2026-08-05", window_end="2026-08-05")
+            run.finish("success")
+            publication.publish(conn, run_id=run.progress.run_id)
+        with pytest.raises(ValueError, match="ambiguous split ACTIONS multiplicity"):
+            R.corpus_action_lookup(conn, start=date(2026, 8, 1),
+                                   end=date(2026, 8, 10))
 
     def test_a_RECYCLED_ticker_does_not_inherit_the_other_company_split(self, conn):
         """R6. Tickers are reused, and resolving one to EVERY security that ever

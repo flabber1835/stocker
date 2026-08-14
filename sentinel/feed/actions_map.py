@@ -127,18 +127,50 @@ def split_ratios_from_actions(rows: Iterable[Mapping],
     independent price-domain ratio. Treating this map as canonical is the
     historical defect that multiplied a 1-for-30 holding by 30.
     """
-    out: dict[tuple[str, str], float] = {}
+    out, _ambiguous = split_rows_from_actions(rows, sessions_sorted)
+    return out
+
+
+def split_rows_from_actions(rows: Iterable[Mapping],
+                            sessions_sorted: Sequence[str]
+                            ) -> tuple[dict[tuple[str, str], float], list[dict]]:
+    """Return unambiguous split values plus explicit multiplicity evidence.
+
+    Sharadar defines no composition order for sibling split rows.  Picking the
+    first/last row or multiplying them would invent economics.  The caller can
+    therefore suppress application and persist the returned evidence.
+    """
+    from sentinel.feed.action_source import source_row_id
+
+    grouped: dict[tuple[str, str], dict[str, float | None]] = {}
     for r in rows:
         if (r.get("action") or "").lower() not in SPLIT_ACTIONS:
             continue
         v = r.get("value")
-        if v is None or float(v) <= 0:
-            continue
         session = snap_to_session(str(r["date"]), sessions_sorted)
         if session is None:
             continue
-        out[(str(r["ticker"]), session)] = float(v)
-    return out
+        identity = str(r.get("source_row_id") or source_row_id(r))
+        try:
+            usable = None if v is None or float(v) <= 0 else float(v)
+        except (TypeError, ValueError):
+            usable = None
+        grouped.setdefault((str(r["ticker"]), session), {})[identity] = usable
+    out: dict[tuple[str, str], float] = {}
+    ambiguous = []
+    for key, identities in sorted(grouped.items()):
+        values = list(identities.values())
+        if len(identities) == 1:
+            if values[0] is not None:
+                out[key] = values[0]
+        else:
+            ambiguous.append({
+                "ticker": key[0], "session": key[1],
+                "distinct_rows": len(identities),
+                "distinct_values": sorted({v for v in values if v is not None}),
+                "invalid_value_rows": sum(v is None for v in values),
+            })
+    return out, ambiguous
 
 
 def dividends_from_actions(rows: Iterable[Mapping],
@@ -253,5 +285,6 @@ __all__ = ["SPLIT_AGREEMENT_TOLERANCE", "SPLIT_AUTHORITATIVE_APPLIED",
            "SPLIT_UNRESOLVED", "dividends_from_actions",
            "resolve_split_orientation",
            "snap_to_session", "split_disagreements", "split_ratios_from_actions",
+           "split_rows_from_actions",
            "splits_only_derived", "unusable_dividend_rows",
            "unusable_dividend_rows_detail"]

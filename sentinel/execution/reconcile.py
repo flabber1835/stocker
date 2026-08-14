@@ -636,9 +636,9 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
             # exists for. An exact-session join would silently drop every such
             # action, and a dropped split is a book that reconciles against the
             # wrong share count.
-            "SELECT sub.security_id, sub.session, sub.value"
+            "SELECT sub.security_id,sub.session,sub.value,sub.source_row_id"
             " FROM ("
-            "   SELECT b.security_id, a.session, a.value"
+            "   SELECT b.security_id,a.session,a.value,a.source_row_id"
             "     FROM sentinel_active_actions a"
             "     CROSS JOIN LATERAL ("
             "        SELECT security_id FROM sentinel_bars b"
@@ -648,13 +648,27 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
             "     ) b"
             "    WHERE a.session > %s AND a.session <= %s"
             f"      AND REGEXP_REPLACE(LOWER(a.action), '[^a-z]', '', 'g') ~ '({verbs})'"
-            "      AND a.value IS NOT NULL AND a.value > 0"
             " ) sub"
             " ORDER BY sub.security_id, sub.session", (start, end))
+        source_rows: dict[tuple[str, date], list[tuple[str, object]]] = {}
+        for sid, session, value, source_row_id in cur.fetchall():
+            source_rows.setdefault((str(sid), session), []).append(
+                (str(source_row_id), value))
+        ambiguous = {key: rows for key, rows in source_rows.items()
+                     if len(rows) > 1}
+        if ambiguous:
+            examples = ", ".join(
+                f"{sid}/{session}:{len(rows)}"
+                for (sid, session), rows in sorted(ambiguous.items())[:5])
+            raise ValueError(
+                "ambiguous split ACTIONS multiplicity; refusing reconciliation "
+                f"instead of multiplying sibling rows ({examples})")
         events: dict[str, list[tuple[date, Decimal]]] = {}
-        for sid, session, value in cur.fetchall():
-            events.setdefault(str(sid), []).append(
-                (session, Decimal(str(value))))
+        for (sid, session), rows in source_rows.items():
+            value = rows[0][1]
+            if value is not None and Decimal(str(value)) > 0:
+                events.setdefault(sid, []).append(
+                    (session, Decimal(str(value))))
 
     def lookup(security_id: str, since: Optional[date] = None) -> Decimal:
         lower = max(start, since) if since is not None else start

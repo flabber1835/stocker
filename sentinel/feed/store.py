@@ -17,6 +17,7 @@ cost the ability to run it from a plain script.
 """
 from __future__ import annotations
 
+import json
 import math
 import os
 import uuid
@@ -277,6 +278,13 @@ def reclaim_orphans(conn) -> int:
                 if cur.rowcount != len(run_ids):
                     raise RuntimeError(
                         "orphan run set changed while holding the writer lock")
+        # A schema-upgraded or interrupted older build may have durably marked
+        # the ingest failed while leaving a PR86 candidate lifecycle PENDING.
+        # Ordinary feed startup retires that state too; recovery never requires
+        # hand-written SQL.
+        with conn.cursor() as cur:
+            cur.execute("SELECT run_id FROM feed_ingest_runs WHERE status='failed'")
+            failed_run_ids = [str(row[0]) for row in cur.fetchall()]
         for run_id in run_ids:
             action_store.abort_run(
                 conn, run_id=run_id, actor_run_id=run_id,
@@ -284,6 +292,13 @@ def reclaim_orphans(conn) -> int:
             anomaly_store.abort_run(
                 conn, run_id=run_id, actor_run_id=run_id,
                 reason=f"{RESTART_ABORT_MARKER}: writer process did not survive")
+        for run_id in failed_run_ids:
+            action_store.abort_run(
+                conn, run_id=run_id, actor_run_id=run_id,
+                reason="feed startup: durably failed ingest candidate retired")
+            anomaly_store.abort_run(
+                conn, run_id=run_id, actor_run_id=run_id,
+                reason="feed startup: durably failed ingest candidate retired")
         conn.commit()
         return len(run_ids)
 
@@ -523,38 +538,43 @@ def write_actions(conn, rows: Sequence[Any], *, run_id=None,
         raise ValueError(f"reversed ACTIONS window: {lo} > {hi}")
     writer = str(run_id)
 
-    current: dict[tuple[str, str, str], tuple] = {}
-    for row in rows:
+    from sentinel.feed import action_source
+
+    current: dict[str, tuple] = {}
+    for identity, payload, row in action_source.distinct_rows(rows):
         ticker, session, action = (str(row["ticker"]), str(row["date"]),
                                    str(row["action"]))
         if not lo <= session <= hi:
             raise ValueError(
                 f"ACTIONS row {ticker}/{session}/{action} lies outside the "
                 f"declared complete window [{lo}, {hi}]")
-        item = (ticker, session, action, row.get("value"),
-                row.get("contraticker"), "PRESENT", writer)
-        key = (ticker, session, action)
-        if key in current and current[key] != item:
-            raise ValueError(
-                f"conflicting duplicate ACTIONS rows for {ticker}/{session}/"
-                f"{action} in one complete response")
-        current[key] = item
+        item = (identity, json.dumps(
+                    payload, sort_keys=True, separators=(",", ":")),
+                ticker, session, action, row.get("name"), row.get("value"),
+                row.get("contraticker"), row.get("contraname"),
+                "PRESENT", writer)
+        current[identity] = item
 
     # Reconcile against the PUBLISHED active generation, never against another
     # unpublished attempt.  A failed retry therefore cannot become the baseline
     # from which a later retry silently reasons.
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT ticker,session,action,value,contraticker"
+            "SELECT source_row_id,source_payload,ticker,session,action,name,"
+            " value,contraticker,contraname"
             " FROM sentinel_active_actions"
             " WHERE session BETWEEN %s AND %s", (lo, hi))
         prior = list(cur.fetchall())
 
     observations = list(current.values())
-    for ticker, session, action, value, contraticker in prior:
-        key = (str(ticker), str(session), str(action))
-        if key not in current:
-            observations.append((key[0], key[1], key[2], value, contraticker,
+    for (identity, payload, ticker, session, action, name, value, contraticker,
+         contraname) in prior:
+        identity = str(identity)
+        if identity not in current:
+            observations.append((identity, json.dumps(
+                                     payload, sort_keys=True, default=str),
+                                 str(ticker), str(session), str(action), name,
+                                 value, contraticker, contraname,
                                  "REMOVED", writer))
 
     with conn.cursor() as cur:
@@ -576,9 +596,10 @@ def write_actions(conn, rows: Sequence[Any], *, run_id=None,
         if observations:
             cur.executemany(
                 "INSERT INTO sentinel_action_observations"
-                " (ticker,session,action,value,contraticker,disposition,"
-                "  last_written_run_id) VALUES (%s,%s,%s,%s,%s,%s,%s)"
-                " ON CONFLICT (ticker,session,action,last_written_run_id)"
+                " (source_row_id,source_payload,ticker,session,action,name,value,"
+                "  contraticker,contraname,disposition,last_written_run_id)"
+                " VALUES (%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+                " ON CONFLICT (last_written_run_id,source_row_id)"
                 " DO NOTHING", observations)
         from sentinel.feed import actions as action_store
         action_store.record_pending(conn, run_id=writer)
