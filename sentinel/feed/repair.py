@@ -45,7 +45,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from sentinel.feed import actions_map, calendar, publication
+from sentinel.feed import actions_map, anomalies, calendar, publication
 
 
 @dataclass(frozen=True)
@@ -84,6 +84,7 @@ class AuditResult:
     actions_splits: int = 0
     confirmed: list = field(default_factory=list)
     seam_anomalies: list = field(default_factory=list)
+    unresolved_orientation: list = field(default_factory=list)
 
     @property
     def clean(self) -> bool:
@@ -92,7 +93,7 @@ class AuditResult:
         A clean audit means the corpus does not contradict ACTIONS. It does not
         mean the corpus is correct: an unrecorded split contradicts nothing.
         """
-        return not self.confirmed
+        return not self.confirmed and not self.unresolved_orientation
 
     def to_dict(self) -> dict:
         return {
@@ -104,6 +105,7 @@ class AuditResult:
             "ratio_disagreements": sum(1 for d in self.confirmed
                                        if not d.is_missing_split),
             "seam_anomalies_recorded": len(self.seam_anomalies),
+            "unresolved_orientation": self.unresolved_orientation,
             "clean": self.clean,
             "bound": "LOWER — a split ACTIONS never recorded is invisible here; "
                      "only a contiguous reseed can rule that out",
@@ -123,9 +125,9 @@ def _authoritative_splits(conn, start: str, end: str) -> dict:
     """
     raw_start, raw_end = calendar.action_date_window(start, end)
     with conn.cursor() as cur:
-        cur.execute("SELECT ticker, session, action, value FROM sentinel_actions"
-                    " a WHERE session BETWEEN %s AND %s"
-                    f" AND {publication.visible_predicate('a')}",
+        cur.execute("SELECT ticker,session,action,value"
+                    " FROM sentinel_active_actions"
+                    " WHERE session BETWEEN %s AND %s",
                     (raw_start, raw_end))
         rows = [{"ticker": t, "date": str(d), "action": a, "value": v}
                 for t, d, a, v in cur.fetchall()]
@@ -152,9 +154,11 @@ def audit(conn, *, start: str, end: str) -> AuditResult:
         # and filtering in Python would read a universe-scale frame to examine a
         # handful of rows — the audit must be cheap enough to run routinely, or
         # it will not be run.
+        from sentinel.feed import domains
+
         for (tkr, sess), stated in sorted(splits.items()):
             cur.execute(
-                "SELECT security_id,"
+                "SELECT security_id, close_signal, close_unadjusted,"
                 f" {publication.effective_split_ratio('b')}"
                 " FROM sentinel_bars b WHERE ticker = %s AND session = %s"
                 f" AND {publication.visible_predicate('b')}", (tkr, sess))
@@ -164,24 +168,38 @@ def audit(conn, *, start: str, end: str) -> AuditResult:
                 # belongs to the rejection audit which already reports it. Silent
                 # here rather than double-counted there.
                 continue
-            sid, stored = str(row[0]), float(row[1])
-            if abs(stored - float(stated)) > 1e-9:
+            sid, close, raw, stored = (str(row[0]), row[1], row[2], float(row[3]))
+            cur.execute(
+                "SELECT close_signal,close_unadjusted FROM sentinel_bars b"
+                " WHERE security_id=%s AND session<%s"
+                f" AND {publication.visible_predicate('b')}"
+                " ORDER BY session DESC LIMIT 1", (sid, sess))
+            prior = cur.fetchone()
+            derived = (domains.unsnapped_split_ratio(
+                prior[0], prior[1], close, raw) if prior else None)
+            canonical, disposition = actions_map.resolve_split_orientation(
+                float(stated), derived)
+            if disposition == actions_map.SPLIT_UNRESOLVED:
+                result.unresolved_orientation.append({
+                    "ticker": tkr, "session": sess, "stated": float(stated),
+                    "derived": derived, "stored": stored})
+                continue
+            if abs(stored - canonical) > 1e-9:
                 result.confirmed.append(Discrepancy(
                     security_id=sid, ticker=tkr, session=sess,
-                    stored=stored, authoritative=float(stated)))
+                    stored=stored, authoritative=canonical))
 
         # Seam anomalies the ingest recorded but did NOT apply. They are not
         # discrepancies — nothing contradicts anything — but they are the
         # population an operator has to adjudicate, so an audit that omitted
         # them would report a corpus as clean while a recorded question about it
         # sat unanswered in another table.
-        cur.execute("SELECT ticker, session, detail FROM sentinel_corpus_anomalies"
-                    " WHERE kind = 'SEAM_SPLIT_UNCORROBORATED'"
-                    " AND session BETWEEN %s AND %s ORDER BY session, ticker",
-                    (start, end))
         result.seam_anomalies = [
-            {"ticker": t, "session": str(s), "detail": d}
-            for t, s, d in cur.fetchall()]
+            {"ticker": row["ticker"], "session": row["session"],
+             "detail": row["detail"]}
+            for row in anomalies.active_rows(
+                conn, start=start, end=end,
+                kinds=("SEAM_SPLIT_UNCORROBORATED",))]
 
     return result
 
@@ -215,6 +233,7 @@ def repair(conn, *, start: str, end: str, dry_run: bool = True) -> dict:
                 run = store.IngestRun(
                     conn, "repair", date_from=start, date_to=end, chunks_total=1)
                 try:
+                    anomaly_rows = []
                     with conn.cursor() as cur:
                         for d in result.confirmed:
                             cur.execute(
@@ -225,15 +244,21 @@ def repair(conn, *, start: str, end: str, dry_run: bool = True) -> dict:
                                 (d.security_id, d.session, d.authoritative,
                                  d.stored, run.progress.run_id))
                             applied += cur.rowcount
-                            cur.execute(
-                                "INSERT INTO sentinel_corpus_anomalies"
-                                " (kind,ticker,session,detail) VALUES (%s,%s,%s,%s)"
-                                " ON CONFLICT (kind,ticker,session) DO UPDATE SET"
-                                " detail = EXCLUDED.detail",
-                                ("SPLIT_RATIO_REPAIRED", d.ticker, d.session,
-                                 f"run={run.progress.run_id} "
-                                 f"stored={d.stored:.6g} -> "
-                                 f"ACTIONS={d.authoritative:.6g}"))
+                            detail = (f"run={run.progress.run_id} "
+                                      f"stored={d.stored:.6g} -> "
+                                      f"ACTIONS={d.authoritative:.6g}")
+                            anomaly_rows.extend((
+                                {"kind": "SPLIT_RATIO_REPAIRED",
+                                 "ticker": d.ticker, "session": d.session,
+                                 "detail": detail},
+                                {"kind": "SPLIT_AUTHORITATIVE_APPLIED",
+                                 "ticker": d.ticker, "session": d.session,
+                                 "detail": detail},
+                            ))
+                    store.write_anomalies(
+                        conn, anomaly_rows, run_id=run.progress.run_id,
+                        require_lock=True, commit=False)
+                    with conn.cursor() as cur:
                         cur.execute(
                             "UPDATE feed_ingest_runs SET status='success',"
                             " chunks_done=1, rows_written=%s, completed_at=NOW(),"

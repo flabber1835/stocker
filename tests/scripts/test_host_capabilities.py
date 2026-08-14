@@ -51,6 +51,9 @@ STRIP = REPO / "scripts" / "sentinel_strip_cpu_limits.py"
 RESOLVER = REPO / "scripts" / "sentinel-compose.sh"
 CANONICAL = REPO / "docker-compose.sentinel.yml"
 MEASURE = REPO / "scripts" / "sentinel-measure.sh"
+BASH = (r"C:\Program Files\Git\bin\bash.exe"
+        if os.name == "nt" and Path(r"C:\Program Files\Git\bin\bash.exe").exists()
+        else "bash")
 
 
 def _load(path: Path):
@@ -162,6 +165,18 @@ class TestTheCapabilityVerdict:
         assert rec["probed"] is False
         assert rec["capabilities"]["cpu_quota"] == "UNKNOWN"
 
+    def test_active_nanocpus_refusal_overrides_false_positive_metadata(
+            self, probe, monkeypatch):
+        monkeypatch.setattr(probe, "docker_info", lambda: MODERN)
+        monkeypatch.setattr(
+            probe, "active_cpu_quota",
+            lambda: {"status": "UNSUPPORTED",
+                     "detail": "NanoCPUs can not be set"})
+        rec = probe.probe()
+        assert rec["capabilities"]["cpu_quota"] == "UNSUPPORTED"
+        assert rec["cpu_limits_usable"] is False
+        assert rec["cpu_limit_mode"] == "OBSERVED_NOT_BOUNDED"
+
     def test_it_runs_and_emits_JSON(self):
         """End to end, whatever this machine happens to be."""
         r = subprocess.run([sys.executable, str(PROBE), "--json"],
@@ -272,24 +287,45 @@ class TestTheResolver:
         stub.chmod(0o755)
         env = dict(os.environ, PATH=f"{tmp_path}:{os.environ.get('PATH', '')}",
                    SENTINEL_BACKUP_DIR="/backup")
-        r = subprocess.run(["bash", str(RESOLVER)], capture_output=True,
+        r = subprocess.run([BASH, str(RESOLVER)], capture_output=True,
                            text=True, env=env, cwd=str(REPO))
         assert r.returncode == 0, r.stderr
         assert "-f docker-compose.sentinel.yml" in r.stdout, r.stdout
         assert "-f docker-compose.sentinel-backup.yml" in r.stdout, r.stdout
 
     def test_the_force_switch_skips_the_probe(self):
-        r = subprocess.run(["bash", str(RESOLVER)], capture_output=True,
+        r = subprocess.run([BASH, str(RESOLVER)], capture_output=True,
                            text=True, cwd=str(REPO),
                            env=dict(os.environ, SENTINEL_FORCE_CPU_LIMITS="1",
                                     SENTINEL_BACKUP_DIR="/backup"))
         assert "-f docker-compose.sentinel.yml" in r.stdout
         assert "-f docker-compose.sentinel-backup.yml" in r.stdout
 
+    def test_force_no_cpu_is_supported_and_records_observed_not_bounded(self):
+        r = subprocess.run(
+            [BASH, str(RESOLVER), "--explain"], capture_output=True,
+            text=True, cwd=str(REPO),
+            env=dict(os.environ, SENTINEL_FORCE_NO_CPU_LIMITS="1",
+                     SENTINEL_PYTHON=sys.executable,
+                     SENTINEL_BACKUP_DIR="/backup"))
+        assert r.returncode == 0, r.stderr
+        assert "docker-compose.sentinel.nocpu.yml" in r.stdout
+        assert "CPU observed, not bounded" in r.stderr
+
+    def test_conflicting_force_modes_refuse(self):
+        r = subprocess.run(
+            [BASH, str(RESOLVER)], capture_output=True, text=True,
+            cwd=str(REPO), env=dict(
+                os.environ, SENTINEL_FORCE_CPU_LIMITS="1",
+                SENTINEL_FORCE_NO_CPU_LIMITS="1",
+                SENTINEL_BACKUP_DIR="/backup"))
+        assert r.returncode != 0
+        assert "mutually exclusive" in r.stderr
+
     def test_it_prints_ONLY_compose_args(self):
         """It is substituted into a command line. A stray diagnostic on stdout
         becomes an argument to `docker compose`."""
-        r = subprocess.run(["bash", str(RESOLVER), "--explain"],
+        r = subprocess.run([BASH, str(RESOLVER), "--explain"],
                            capture_output=True, text=True, cwd=str(REPO),
                            env=dict(os.environ, SENTINEL_FORCE_CPU_LIMITS="1",
                                     SENTINEL_BACKUP_DIR="/backup"))
@@ -413,7 +449,7 @@ class TestTheGeneratedFileKeepsTheREPOAsProjectDirectory:
         env = dict(os.environ, SENTINEL_BACKUP_DIR="/backup")
         if force:
             env["SENTINEL_FORCE_CPU_LIMITS"] = force
-        r = subprocess.run(["bash", str(RESOLVER)], capture_output=True,
+        r = subprocess.run([BASH, str(RESOLVER)], capture_output=True,
                            text=True, cwd=str(REPO), env=env)
         assert r.returncode == 0, r.stderr
         return r.stdout.strip().split()

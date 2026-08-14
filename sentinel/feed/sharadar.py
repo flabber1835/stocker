@@ -37,6 +37,8 @@ from __future__ import annotations
 
 import os
 import time
+import logging
+from contextlib import contextmanager
 from datetime import date
 from typing import Callable, Iterator, Mapping, Optional
 
@@ -55,6 +57,7 @@ RETRYABLE_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
 #: fundamentals, so fetching them would cost hours of seed time for data nothing
 #: reads.
 SEP = "SEP"
+SFP = "SFP"
 ACTIONS = "ACTIONS"
 TICKERS = "TICKERS"
 
@@ -65,6 +68,38 @@ class MissingApiKey(RuntimeError):
 
 class PaginationError(RuntimeError):
     """The vendor cursor stream cannot prove complete forward progress."""
+
+
+class SharadarRequestError(RuntimeError):
+    """A vendor failure whose rendering is guaranteed not to contain a key."""
+
+
+@contextmanager
+def _quiet_http_client_diagnostics():
+    """Suppress URL-bearing httpx/httpcore records around an authenticated GET."""
+    manager = logging.Logger.manager.loggerDict
+    names = {"httpx", "httpcore"}
+    names.update(str(name) for name in manager
+                 if str(name).startswith(("httpx.", "httpcore.")))
+    saved = {}
+    for name in names:
+        logger = logging.getLogger(name)
+        saved[name] = (logger.level, logger.disabled)
+        logger.setLevel(logging.CRITICAL + 1)
+        logger.disabled = True
+    try:
+        yield
+    finally:
+        for name, (level, disabled) in saved.items():
+            logger = logging.getLogger(name)
+            logger.setLevel(level)
+            logger.disabled = disabled
+
+
+def _safe_request_target(url: str, params: Mapping[str, object]) -> str:
+    visible = [f"{key}={value}" for key, value in sorted(params.items())
+               if str(key).lower() != "api_key"]
+    return str(url) + (("?" + "&".join(visible)) if visible else "")
 
 
 def retry_delay(attempt: int, status: Optional[int],
@@ -100,10 +135,12 @@ def fetch_table(table: str, params: Mapping[str, str] | None = None, *,
     `http` is injectable so the ingest can be driven end-to-end without a
     network; production passes nothing and gets `httpx`.
     """
+    # Refuse missing credentials before importing the optional HTTP client. A
+    # deployment with two faults must still report the safety boundary first.
+    key = _api_key()
     if http is None:
         import httpx                      # noqa: PLC0415 — optional at import
         http = httpx
-    key = _api_key()
     url = f"{NDL_BASE}/{table}.json"
     cursor: Optional[str] = None
     seen_cursors: set[str] = set()
@@ -146,12 +183,13 @@ def _get_with_retry(client, url: str, params: dict, *, http, sleep):
         status: Optional[int] = None
         retry_after: Optional[str] = None
         try:
-            resp = client.get(url, params=params)
-            if resp.status_code in RETRYABLE_STATUS:
-                status = resp.status_code
-                retry_after = resp.headers.get("Retry-After")
-                raise _Transient(f"retryable HTTP {status}")
-            resp.raise_for_status()
+            with _quiet_http_client_diagnostics():
+                resp = client.get(url, params=params)
+                if resp.status_code in RETRYABLE_STATUS:
+                    status = resp.status_code
+                    retry_after = resp.headers.get("Retry-After")
+                    raise _Transient(f"retryable HTTP {status}")
+                resp.raise_for_status()
             return resp
         except _Transient as exc:
             last_exc = exc
@@ -159,7 +197,12 @@ def _get_with_retry(client, url: str, params: dict, *, http, sleep):
             if _is_transport_error(exc, http):
                 last_exc = exc            # reset / read timeout / DNS blip
             else:
-                raise                     # 401/403/404 — fail fast, loudly
+                response = getattr(exc, "response", None)
+                code = getattr(response, "status_code", None)
+                label = f"HTTP {code}" if code is not None else type(exc).__name__
+                raise SharadarRequestError(
+                    f"Sharadar request failed ({label}) for "
+                    f"{_safe_request_target(url, params)}") from None
         if attempt < FETCH_MAX_RETRIES - 1:
             delay = retry_delay(attempt, status, retry_after)
             print(f"[sentinel-feed] transient fetch failure "
@@ -168,7 +211,10 @@ def _get_with_retry(client, url: str, params: dict, *, http, sleep):
                   flush=True)
             sleep(delay)
     assert last_exc is not None
-    raise last_exc
+    raise SharadarRequestError(
+        f"Sharadar request failed after {FETCH_MAX_RETRIES} attempt(s) "
+        f"({type(last_exc).__name__}) for {_safe_request_target(url, params)}") \
+        from None
 
 
 class _Transient(Exception):

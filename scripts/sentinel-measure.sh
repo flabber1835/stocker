@@ -340,13 +340,15 @@ for r in rows:
         min_avail = v if min_avail is None else min(min_avail, v)
 
 declared = json.loads(env["LIMITS_JSON"])
-caps = json.loads(env.get("CAPS_JSON") or "{}").get("capabilities", {})
+cap_record = json.loads(env.get("CAPS_JSON") or "{}")
+caps = cap_record.get("capabilities", {})
 # CPU is OBSERVED here, not necessarily BOUNDED. On a host with no CFS quota
 # the compose `cpus:` never reaches the kernel — the resolver strips it so the
 # container can start at all — so reporting headroom against it would be
 # reporting headroom against a number nothing enforces. Peak CPU is still
 # recorded; what changes is the CLAIM attached to it.
-cpu_enforced = caps.get("cpu_quota") == "ENFORCED"
+cpu_enforced = (caps.get("cpu_quota") == "ENFORCED"
+                and cap_record.get("cpu_limit_mode") == "BOUNDED")
 mem_enforced = caps.get("memory_limit") == "ENFORCED"
 def declared_for(container):
     # compose names containers `<project>-<service>-<n>`; match the longest

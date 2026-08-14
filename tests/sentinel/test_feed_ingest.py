@@ -48,7 +48,10 @@ def pg():
 def conn(pg):
     c = S.connect(pg.sync_dsn)
     with c.cursor() as cur:
-        for t in ("sentinel_bars", "sentinel_actions", "sentinel_universe",
+        for t in ("sentinel_action_generation_events",
+                  "sentinel_action_observations", "sentinel_action_generations",
+                  "sentinel_bars", "sentinel_spy_total_return",
+                  "sentinel_actions", "sentinel_universe",
                   "feed_ingest_runs"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     c.commit()
@@ -62,7 +65,7 @@ def sep_row(ticker, date, close=50.0, raw=100.0, open_=49.0):
             "closeunadj": raw, "open": open_, "volume": 1_000_000}
 
 
-def fetcher(sep_rows, action_rows=(), ticker_rows=None):
+def fetcher(sep_rows, action_rows=(), ticker_rows=None, sfp_rows=()):
     """An injected fetch that records which windows were requested.
 
     TICKERS defaults to one open-ended listing per symbol seen in `sep_rows`, so
@@ -82,6 +85,8 @@ def fetcher(sep_rows, action_rows=(), ticker_rows=None):
         hi = (params or {}).get("date.lte", "9999-99-99")
         if table == sharadar.ACTIONS:
             return [r for r in action_rows if lo <= r["date"] <= hi]
+        if table == sharadar.SFP:
+            return [r for r in sfp_rows if lo <= r["date"] <= hi]
         return [r for r in sep_rows if lo <= r["date"] <= hi]
 
     fetch.calls = calls
@@ -109,14 +114,14 @@ class TestSeed:
                 sep_row("BBB", "2022-06-01")]
         p = ingest.seed(conn, date_from="2020-01-01", date_to="2022-12-31",
                         fetch=fetcher(rows))
-        assert p.chunks_total == 5          # tickers + actions + three years
-        assert p.chunks_done == 5
+        assert p.chunks_total == 6     # tickers + actions + SPY + three years
+        assert p.chunks_done == 6
 
         watcher = S.connect(pg.sync_dsn)
         try:
             r = S.run_status(watcher)[0]
             assert r["status"] == "success"
-            assert r["chunks_done"] == 5
+            assert r["chunks_done"] == 6
             assert r["rows_written"] == 3 + 2   # bars + two TICKERS listings
         finally:
             watcher.close()
@@ -128,8 +133,8 @@ class TestSeed:
         first year rather than the last."""
         f = fetcher([sep_row("AAA", "2020-06-01")])
         ingest.seed(conn, date_from="2020-01-01", date_to="2020-12-31", fetch=f)
-        assert [c[0] for c in f.calls[:3]] == [
-            sharadar.TICKERS, sharadar.ACTIONS, sharadar.SEP]
+        assert [c[0] for c in f.calls[:4]] == [
+            sharadar.TICKERS, sharadar.ACTIONS, sharadar.SFP, sharadar.SEP]
 
     def test_an_interrupted_seed_RESUMES_without_duplicating(self, conn):
         rows = [sep_row("AAA", "2020-06-01"), sep_row("AAA", "2021-06-01")]
@@ -142,6 +147,8 @@ class TestSeed:
                 boom["n"] += 1
                 if boom["n"] == 2:
                     raise RuntimeError("connection reset")
+            if table == sharadar.SFP:
+                return []
             lo = (params or {}).get("date.gte", "")
             hi = (params or {}).get("date.lte", "z")
             return [] if table == sharadar.ACTIONS else \
@@ -207,6 +214,63 @@ class TestDaily:
         with pytest.raises(Exception, match="closeunadj"):
             ingest.daily(conn, fetch=fetcher(blank), today="2024-02-01",
                          resolve_identity=lambda t, s: t)
+
+    def test_legacy_equities_with_empty_spy_are_repaired_from_bounded_sfp(
+            self, conn):
+        from sentinel.feed import calendar, publication, readiness
+
+        frontier = "2024-12-31"
+        equity_sessions = calendar.previous_sessions(frontier, 50)
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO sentinel_bars"
+                " (security_id,session,ticker,close_signal,close_unadjusted,"
+                "  open_unadjusted,volume,split_ratio,dividend_per_share)"
+                " VALUES ('P-AAA',%s,'AAA',100,100,99,1000000,1,0)",
+                [(session,) for session in equity_sessions])
+        conn.commit()
+
+        spy_sessions = calendar.previous_sessions(
+            frontier, readiness.REQUIRED_SPY_SESSIONS)
+        sfp = [{"ticker": "SPY", "date": session,
+                "closeadj": 400.0 + i}
+               for i, session in enumerate(spy_sessions)]
+        fetch = fetcher([], sfp_rows=sfp, ticker_rows=[
+            {"ticker": "AAA", "permaticker": "P-AAA",
+             "firstpricedate": "2000-01-03", "lastpricedate": None,
+             "relatedtickers": "AAA",
+             "category": "Domestic Common Stock"}])
+
+        ingest.seed(conn, date_from=spy_sessions[0], date_to=frontier,
+                    fetch=fetch)
+        for _ in range(2):
+            ingest.daily(conn, fetch=fetch, today=frontier)
+
+        sfp_calls = [params for table, params in fetch.calls
+                     if table == sharadar.SFP]
+        assert sfp_calls and all(call["ticker"] == "SPY" for call in sfp_calls)
+        assert all(call["date.gte"] == spy_sessions[0] for call in sfp_calls)
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*), COUNT(DISTINCT session),"
+                        " COUNT(DISTINCT last_written_run_id)"
+                        " FROM sentinel_spy_total_return")
+            assert cur.fetchone() == (41, 41, 1)
+            cur.execute("SELECT COUNT(*) FROM sentinel_bars WHERE ticker='SPY'")
+            assert cur.fetchone()[0] == 0
+            cur.execute("SELECT COUNT(*) FROM sentinel_universe WHERE ticker='SPY'")
+            assert cur.fetchone()[0] == 0
+            cur.execute("SELECT COUNT(*) FROM sentinel_spy_total_return"
+                        " WHERE last_written_run_id=%s",
+                        (publication.current(conn).run_id,))
+            assert cur.fetchone()[0] == 41
+            cur.execute("SELECT kind, COUNT(*) FROM feed_ingest_runs"
+                        " WHERE status='success' GROUP BY kind ORDER BY kind")
+            assert cur.fetchall() == [("daily", 2), ("seed", 1)]
+
+        result = readiness.check_readiness(conn, today=frontier)
+        benchmark = next(c for c in result.checks
+                         if c.name == "frontier benchmark")
+        assert benchmark.status == readiness.PASS, benchmark.detail
 
 
 class TestRetryConstantsHaveNotDrifted:

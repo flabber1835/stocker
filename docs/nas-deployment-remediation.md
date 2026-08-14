@@ -1,0 +1,307 @@
+# NAS deployment remediation
+
+This record tracks defects discovered during the first deployment of merged
+Sentinel main (`f65e9e34bc204250e4e5a99b61dfdc099e0392ef`) to a Synology NAS.
+It is intentionally separate from the deployment checkout: production keeps
+running reviewed images while fixes and falsifiers accumulate in this PR.
+
+## Review-fix status
+
+The seven deployment remediations below are implemented. Review then found
+certification defects in split irrelevance and anomaly publication lifecycle;
+a later review found that a complete ACTIONS response could not retire a
+deleted row and that `SPLIT_RESOLVED_NO_EVENT` could activate while the effective
+bar still preserved the old non-1 ratio. The review fixes and PostgreSQL
+falsifiers are implemented. ACTIONS now has append-only complete-window
+generations, explicit PRESENT/REMOVED observations, and publication lifecycle;
+no-event correction uses a predecessor-based price witness and an atomic `1.0`
+repair overlay. Focused and complete network-isolated Sentinel verification
+pass with zero skips. No network ingestion, broker action, credential change,
+database migration, restore, or deployment is part of this remediation branch.
+
+## Confirmed findings
+
+### 1. Sharadar API key appears in HTTP request logs
+
+**Observed:** `feed-daily` emitted `httpx` INFO request URLs containing the
+literal `api_key` query parameter.
+
+**Impact:** terminal capture, supervisor logs, copied diagnostics, and support
+transcripts can disclose the data-vendor credential.
+
+**Acceptance:** ordinary and verbose execution, retry paths, and terminal HTTP
+errors never render secret query values. A falsifier uses a sentinel secret and
+asserts that it is absent from stdout, stderr, log records, and exception text.
+
+**Resolution:** authenticated HTTP diagnostics are suppressed for the complete
+request/status/exception boundary, and every propagated failure is rebuilt from
+a key-free request target without exception chaining. Success, retry, 4xx, 5xx,
+transport, and verbose-log falsifiers inspect all four rendering surfaces.
+
+### 2. CPU capability detection can contradict the Docker daemon
+
+**Observed:** the capability detector selected the canonical `cpus:` graph on
+Synology, then Docker refused container creation with `NanoCPUs can not be set`
+because CFS quota was unavailable.
+
+**Impact:** the supported resolver cannot start Sentinel on the host it was
+designed to support; operators must manually select the generated no-CPU graph.
+
+**Acceptance:** an explicit, recorded force-no-CPU mode and/or an active daemon
+probe selects the generated graph. Only `cpus:` is removed; `mem_limit` and
+`shm_size` remain. Tests reproduce a daemon-info false positive followed by a
+NanoCPUs refusal.
+
+**Resolution:** daemon metadata is followed by a no-pull `docker create --cpus`
+probe against the already-local pinned PostgreSQL image. An explicit
+`SENTINEL_FORCE_NO_CPU_LIMITS=1` selects the generated graph even when metadata
+or the active probe is inconclusive. The generated graph removes only `cpus:`;
+the measurement artifact records `OBSERVED_NOT_BOUNDED` and cannot certify a
+CPU envelope for that graph.
+
+### 3. A verified base backup can block first schema initialization
+
+**Observed:** `sentinel-base-backup.sh` created
+`sentinel_backup_recovery_markers` before behavioral-schema initialization.
+The markerless-schema classifier then refused its own recovery-marker table as
+an unknown behavioral relation.
+
+**Impact:** the safety-first sequence "backup existing corpus, then initialize
+Sentinel" cannot complete without manually dropping Sentinel's own table.
+
+**Acceptance:** the exact sequence passes on a legacy corpus, without weakening
+refusal for genuinely unknown relations. Restore-marker verification remains
+effective and the migration bootstrap decision remains durable.
+
+**Resolution:** the recovery-marker table is classified as backup
+infrastructure only after its relation, columns, defaults, primary-key
+constraint, index, and trigger fingerprints match the table created by the
+backup script exactly. Malformed marker tables and unrelated `sentinel_*`
+relations retain the markerless-schema refusal.
+
+### 4. Derived-only splits need explicit certification disposition
+
+**Observed:** a daily ingest reported 14 price-domain split ratios for which
+SHARADAR/ACTIONS had no row, including unusually large ratios.
+The subsequent bounded backfill reported the same 14 tickers on the backfill's
+different leading date. This demonstrates that they are adjustment-vintage seam
+artifacts, not 14 corporate actions that happened on both reported dates. The
+normalizer's seam guard records and suppresses such ratios, but the shared
+warning incorrectly says it is "using the derived ratio".
+
+The same backfill also found three ACTIONS/price-domain disagreements where the
+two values were near exact reciprocals (approximately 30 versus 1/30, 9 versus
+1/9, and 7 versus 1/7). Primary corporate-action filings confirm these were
+1-for-30, 1-for-9, and 1-for-7 reverse events. Sharadar's positive ACTIONS value
+therefore names the reverse-split denominator, while canonical `split_ratio`
+is a post/pre **share multiplier** and must be the reciprocal. The current code
+documents "no inversion" and unconditionally applies 30, 9, and 7. A position
+held across a 1-for-30 event would be multiplied by 30 instead of divided by
+30, a 900-fold orientation error relative to the correct resulting quantity.
+This is release-blocking for paper automation, not a vendor-data caveat.
+
+**Impact:** fallback is safer than ignoring a genuine split, but a certified
+run must not hide whether an uncorroborated ratio affected an eligible or held
+security.
+
+**Acceptance:** certification retains the complete derived-only event list and
+states a deterministic warning/refusal policy based on economic relevance.
+Seam-suppressed artifacts are not reported as applied derived-only splits.
+The ACTIONS mapping normalizes forward and reverse conventions into canonical
+post/pre share multipliers and agrees with the independently derived price
+domain. Ambiguous action types refuse economically relevant use. Tests cover
+ordinary, seam, reciprocal, eligible, and held-security cases, including a
+1-for-30 reverse event that must produce exactly 1/30 rather than 30.
+
+**Resolution:** ACTIONS values remain raw until independent price-domain
+evidence selects direct or reciprocal orientation. Noisy near-integral reverse
+denominators are snapped only after that witness, so 30.003 becomes exactly
+`1/30`; neither/either ambiguity applies `1.0`, writes a durable disagreement,
+and blocks certification. Uncorroborated leading-window seams are recorded but
+not applied and are excluded from the derived-only-applied list.
+
+Certification renders every split in one of these explicit categories:
+
+| Category | Application and certification policy |
+|---|---|
+| authoritative applied split | canonical ACTIONS multiplier at or below one; accepted |
+| corroborated derived split | price evidence selects direct or reciprocal orientation; accepted |
+| derived-only non-seam split | applied, but certification blocks without full-interval counterfactual equivalence evidence |
+| seam artifact suppressed | not applied; certification blocks without full-interval counterfactual equivalence evidence |
+| unresolved material disagreement | not applied and always blocks certification |
+
+An event-day price, event-day liquidity, or absence from the observed book is
+not such evidence. A split changes the cumulative signal series for every later
+session; the security can later cross an admission floor, change rankings and
+enter the book, while a wrong split can itself explain why it is absent from the
+observed holdings. The current system has no full-interval counterfactual engine,
+so both uncertain categories block. They may clear only if future evidence
+demonstrates equivalence of eligibility, rankings, selections, holdings,
+accounting and hashes under every alternate split treatment over the complete
+certified interval. No event-local proxy may stand in for that proof.
+
+### 4a. Anomaly evidence follows corpus publication
+
+`sentinel_corpus_anomalies` is an append-only observation history, not a mutable
+set of warnings. New observations carry the ingest or repair `run_id`. Rows from
+an unpublished or failed run are historical candidate evidence and cannot
+replace the active disposition. The publication row is the atomic activation
+point: for a split economic event `(ticker, session)`, readers select only the
+disposition attached to the newest published run, with pre-upgrade rows as a
+legacy baseline. A corrected published corroboration or authoritative result
+therefore supersedes an older disagreement/derived/seam disposition without
+deleting it.
+
+Legacy rows are never reset or inferred clean during upgrade. They retain a
+NULL publication identity, are classified deterministically as the oldest
+active baseline, and remain certification evidence until a newer published
+observation for the same economic event exists. If legacy data contains more
+than one split disposition at the same baseline, all tied rows remain visible
+and any unsafe one blocks.
+
+Stamped observations have immutable lifecycle events. Insertion records
+`PENDING`; the only terminal states are `PUBLISHED`, `ABORTED`, and
+`SUPERSEDED`. A pending unpublished observation blocks coherence while work is
+running or publication is unresolved. A failed run and `reclaim_orphans()`
+abort its candidates transactionally under the corpus writer lock. Publication
+marks the retry published and supersedes older pending observations for the
+same explicitly covered event in the publication transaction. Recovery never
+deletes evidence, is idempotent, and cannot change a published observation.
+The database permits at most one terminal event per observation, and
+publication refuses anomaly evidence unless the owning ingest is durably
+`success`; a rejected publication rolls lifecycle activation back with the
+publication row.
+
+Corrected absence is also evidence, not silence. `DIVIDEND_RESOLVED` requires a
+current authoritative ACTIONS row with a usable positive amount for the same
+event. `SPLIT_RESOLVED_NO_EVENT` requires complete current ACTIONS coverage,
+an SEP comparison against a real predecessor that derives no split, no current
+authoritative split, and an effective candidate ratio of exactly `1.0`. Complete
+ACTIONS responses are stored as append-only publication generations with
+explicit `PRESENT` and `REMOVED` observations; old rows remain immutable history
+while only the newest published disposition is active. When the base bar still
+preserves an older non-1 ratio, the corrective ingest writes a `1.0` split-repair
+overlay. The removal, repair, and resolved disposition activate atomically with
+corpus publication. Failed or unpublished corrections change none of them.
+Incomplete coverage or a missing ratio repair emits no tombstone and leaves the
+old published blocker active.
+
+The ACTIONS generation itself has append-only lifecycle events. Failed and
+reclaimed runs become `ABORTED`; a published covering retry marks an earlier
+publication-failed candidate `SUPERSEDED`; only pending candidate rows enter the
+coherence count. Unpublished split-repair overlays remain ineffective, and a
+later published repair for the same bar retires the older candidate from the
+coherence gate without deleting its history.
+
+Equivalent complete-source upserts were reviewed. TICKERS already stores dated
+snapshots and intentionally aggregates first/last listing history across them;
+a listing absent from the latest response is not proof that its historical
+identity should be removed. SEP and SFP are point observations rather than
+complete membership snapshots, so a missing row represents no print/coverage,
+not a deletion instruction. Their destructive same-key publication limitation
+remains the documented detection-tier boundary; none has ACTIONS' semantic
+contract that omission from a successful complete response retires an event.
+
+### 5. Backup validation cannot use attestation when Docker root is protected
+
+**Observed:** an ordinary Synology administrator could use Docker but could not
+`cd /volume1/@docker`. `sentinel_backup_root` failed while resolving that path
+before its documented durable-target attestation could apply.
+
+**Impact:** every supported Compose invocation requires host-root privileges
+even after the operator independently proves that the USB target is a different
+device.
+
+**Acceptance:** unreadable Docker-root metadata fails closed by default, while
+the explicit attestation path works without attempting to traverse the
+protected directory. Tests distinguish absent, unreadable, same-device, and
+independent-device targets.
+
+**Resolution:** the lexical inside-Docker-root refusal runs before any
+traversal and cannot be overridden. If Docker-root metadata is absent or
+unreadable, validation fails closed unless the operator sets the documented
+durable-target attestation; with attestation it does not traverse the protected
+directory and still performs the PostgreSQL-UID write probe.
+
+### 6. Production ingest reads SPY from the wrong Sharadar table
+
+**Observed:** publishing a previously unversioned corpus with `feed-daily`, then
+running an explicit two-month `feed-seed`, advanced and republished all ordinary
+prices but left `sentinel_spy_total_return` at exactly zero rows. Production
+ingest only fetches `SHARADAR/SEP` and extracts `ticker == "SPY"` from those
+rows. SPY is an exchange-traded fund; Sharadar fund prices are in
+`SHARADAR/SFP`, not the equity-prices SEP table. Synthetic tests put SPY into
+SEP and therefore false-green the production source boundary.
+
+**Impact:** a real Sharadar corpus is coherent, versioned, continuous, and
+fresh but can never pass readiness. Repeating daily ingestion or reseeding any
+SEP interval cannot create the mandatory 41-session SPY tail. This blocks every
+fresh deployment, not only legacy upgrades.
+
+**Acceptance:** seed and daily ingestion fetch the bounded SPY total-return
+series from the production fund-price source, stamp it into the same ingest run,
+and publish it atomically with the corpus version. It must not broaden the
+Wealth Core equity universe to funds or rewrite unrelated bars. A
+PostgreSQL-backed falsifier keeps SPY absent from SEP, serves it only from the
+fund table, runs both supported ingest modes, and ends with a passing exact
+41-session frontier benchmark.
+
+**Resolution:** both seed and daily ingest request only `ticker=SPY` from
+`SHARADAR/SFP`, write only `closeadj` into the dedicated total-return table,
+stamp the same ingest run, and publish atomically with the corpus. Daily repair
+requests the exact 41-session readiness window. SFP rows never enter SEP bars or
+the equity universe; repeated seed/daily loads are idempotent.
+
+## Deployment observations that are not yet code defects
+
+- Existing PostgreSQL volumes do not adopt a changed Compose password. The
+  operator synchronized the database role with the deployment environment.
+- The deployment correctly refused an unbound account and an absent current
+  execution plan.
+- A verified physical base backup and post-base WAL recovery marker were
+  successfully written to an independent ext4 USB target.
+
+## Remaining operational verification
+
+- Rotate the Sharadar key if the pre-fix HTTP log was retained or shared; code
+  redaction cannot retract an already disclosed credential.
+- On first NAS start, keep the pinned probe image local or explicitly set
+  `SENTINEL_FORCE_NO_CPU_LIMITS=1`; an `UNKNOWN` probe intentionally retains the
+  canonical limits and may fail loudly rather than silently remove a ceiling.
+- Durable-target attestation is an operator claim. Verify the mount's independent
+  failure domain, then rerun base-backup status and the isolated restore drill.
+- Run a real bounded SFP seed/daily repair with the deployment credential and
+  confirm the exact 41-session SPY frontier before preparing any paper plan.
+- Existing-volume PostgreSQL credentials still require the documented role/env
+  synchronization; this remediation does not mutate database credentials.
+
+## Validation evidence
+
+- Current ACTIONS/anomaly lifecycle and split-correction falsifiers: `26 passed`
+  with zero skips. This covers the real supported daily correction from a
+  published split-bearing bar, PRESENT/REMOVED history, exact effective ratio,
+  publication failure, successful retry, failed candidates, ordinary and
+  corrected actions, weekend mapping, dividends, terminal actions, idempotency,
+  and deterministic legacy classification.
+- The broader focused publication/readiness/rejection/split/ACTIONS/terminal/
+  reconciliation/loader matrix: `325 passed` with zero skips. The production
+  corpus-reset PostgreSQL falsifier also passed separately.
+- The complete network-isolated Sentinel suite: `2250 passed` with zero skips
+  in `299.19s` in the Git-normalized full PR test image. Canonical trust-root
+  and authorized-runtime marker bytes were exercised from the committed tree;
+  `.gitattributes` now enforces LF for those byte-sensitive inputs on Windows.
+- The affected backtester Wealth Core API/warmup boundary: `100 passed` with
+  zero skips in `21.88s`.
+- Full Python compilation, tracked-shell `bash -n`, the canonical/automation/
+  authorized-cli Compose graphs, and `git diff --check`: pass.
+- The PR description records the `Sentinel safety` workflow for the final
+  pushed head without creating an evidence-only commit loop. GitHub reports no
+  repository-required checks on this branch, so the workflow is passing safety
+  evidence rather than a required check unless branch protection later changes.
+
+## Change policy
+
+Every remediation must include a regression falsifier for the observed NAS
+sequence. The remediation is ready for review because each resolved item has
+targeted falsifiers and the remaining operational work is explicitly scoped in
+the PR summary. Readiness for review does not authorize merge or deployment.

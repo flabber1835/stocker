@@ -646,7 +646,7 @@ volatility dispersion.
 | issuer conflict winner | adopted convention, not transcribed |
 | dividends in the backtester | **applied** from ACTIONS on the ex-date as a receivable, settling after `dividend_settlement_lag_sessions` |
 | dividend PAYMENT dates | **unobservable** — ACTIONS carries no pay date, so the lag is an adopted convention in the config hash |
-| splits in the backtester | **authoritative** from SHARADAR/ACTIONS, reconciled against the derived ratio; **derived** only when `bt_actions` is empty |
+| splits in the backtester | ACTIONS presence is required for certified provenance; independent price-domain evidence selects a direct multiplier or reciprocal reverse denominator, and unresolved orientation is not applied; **derived** only when `bt_actions` is empty |
 | terminal actions in the backtester | **modelled** from ACTIONS — cash merger, conversion and write-off, with terms-less events BLOCKING |
 | mixed consideration in the backtester | **unsupported** — one `value` column per ACTIONS row, so a cash-plus-stock deal is modelled as the leg the vendor stated |
 | a conversion's fractional stub in the backtester | **blocks** — ACTIONS carries no cash-in-lieu price |

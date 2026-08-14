@@ -43,6 +43,8 @@ to characterise.
 from __future__ import annotations
 
 import json
+import os
+import re
 import subprocess
 import sys
 
@@ -55,6 +57,10 @@ if sys.version_info < MIN_PYTHON:                       # pragma: no cover
 ENFORCED = "ENFORCED"
 UNSUPPORTED = "UNSUPPORTED"
 UNKNOWN = "UNKNOWN"
+
+CPU_PROBE_IMAGE = os.getenv(
+    "SENTINEL_CPU_PROBE_IMAGE",
+    "postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b")
 
 #: `docker info` field -> the capability it decides. Names are the daemon's,
 #: not ours, so they stay comparable to what an operator sees.
@@ -106,9 +112,65 @@ def classify(info: dict) -> dict:
     return caps
 
 
+def active_cpu_quota(image: str = CPU_PROBE_IMAGE) -> dict:
+    """Ask the daemon to create (not run) one container with NanoCPUs.
+
+    ``docker info`` was a false positive on the deployed Synology host. The
+    create operation exercises the exact daemon path Compose uses. No image is
+    pulled: if the pinned deployment image is absent the result is UNKNOWN.
+    A successfully created probe is removed by its exact generated name before
+    returning; the daemon's returned container id is validated after cleanup.
+    """
+    try:
+        present = subprocess.run(
+            ["docker", "image", "inspect", image], capture_output=True,
+            text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"status": UNKNOWN, "detail": type(exc).__name__}
+    if present.returncode != 0:
+        return {"status": UNKNOWN, "detail": "probe image is not local"}
+
+    probe_name = f"sentinel-cpu-probe-{os.getpid()}"
+    try:
+        created = subprocess.run(
+            ["docker", "create", "--name", probe_name, "--cpus", "0.01",
+             "--network", "none", "--entrypoint", "true", image],
+            capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"status": UNKNOWN, "detail": type(exc).__name__}
+    diagnostic = (created.stderr or created.stdout or "").strip()
+    if created.returncode != 0:
+        lowered = diagnostic.lower()
+        refused = ("nanocpus can not be set" in lowered
+                   or "cpu cfs" in lowered
+                   or "cpu quota" in lowered)
+        return {"status": UNSUPPORTED if refused else UNKNOWN,
+                "detail": diagnostic[:500] or "docker create refused"}
+
+    container_id = (created.stdout or "").strip()
+    removed = subprocess.run(
+        ["docker", "rm", "-f", probe_name], capture_output=True, text=True,
+        timeout=30)
+    if removed.returncode != 0:
+        return {"status": UNKNOWN,
+                "detail": "probe container could not be removed"}
+    if not re.fullmatch(r"[0-9a-f]{12,64}", container_id):
+        return {"status": UNKNOWN,
+                "detail": "daemon returned an invalid probe container id"}
+    return {"status": ENFORCED, "detail": "NanoCPUs create accepted"}
+
+
 def probe() -> dict:
     info = docker_info()
     caps = classify(info)
+    active = {"status": UNKNOWN, "detail": "metadata did not claim support"}
+    if caps["cpu_quota"] == ENFORCED:
+        active = active_cpu_quota()
+        if active["status"] == UNSUPPORTED:
+            caps["cpu_quota"] = UNSUPPORTED
+            caps["cpu_period"] = UNSUPPORTED
+    forced_observation = os.getenv("SENTINEL_FORCE_NO_CPU_LIMITS", "0") == "1"
+    usable = caps["cpu_quota"] != UNSUPPORTED and not forced_observation
     return {
         "probed": bool(info),
         "capabilities": caps,
@@ -120,7 +182,11 @@ def probe() -> dict:
         # defect this file exists to prevent, arrived at from the other side.
         # Erring the other way costs a loud daemon refusal, which is
         # recoverable and self-describing.
-        "cpu_limits_usable": caps["cpu_quota"] != UNSUPPORTED,
+        "cpu_limits_usable": usable,
+        "cpu_active_probe": active,
+        "cpu_limit_mode": ("OBSERVED_NOT_BOUNDED" if not usable else
+                           "BOUNDED" if caps["cpu_quota"] == ENFORCED else
+                           "UNKNOWN"),
         "host": {
             "kernel": info.get("KernelVersion"),
             "operating_system": info.get("OperatingSystem"),

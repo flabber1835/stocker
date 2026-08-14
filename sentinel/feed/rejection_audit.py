@@ -95,6 +95,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
+from sentinel.feed import anomalies as anomaly_store
 from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
 
 CLEAR = "CLEAR"
@@ -146,6 +147,9 @@ class RejectionAudit:
     truncated_evidence: list[dict] = field(default_factory=list)
     #: Corpus anomalies the ingest resolved but did not resolve AWAY.
     gating_anomalies: list[dict] = field(default_factory=list)
+    #: Every split disposition in the interval, rendered as mutually explicit
+    #: certification categories rather than inferred from warning prose.
+    split_dispositions: list[dict] = field(default_factory=list)
     #: Whether the caller could tell us what the run held. False means the two
     #: strongest materiality checks were unavailable, not that they passed.
     holdings_known: bool = False
@@ -159,10 +163,16 @@ class RejectionAudit:
         return [t for t in self.per_ticker if t.verdict == UNDETERMINED]
 
     @property
+    def unsafe_split_dispositions(self) -> list[dict]:
+        return [item for item in self.split_dispositions
+                if item.get("blocks_certification")]
+
+    @property
     def verdict(self) -> str:
         if self.material:
             return MATERIAL
-        if self.undetermined or self.truncated_evidence or self.gating_anomalies:
+        if (self.undetermined or self.truncated_evidence
+                or self.gating_anomalies or self.unsafe_split_dispositions):
             return UNDETERMINED
         return CLEAR
 
@@ -183,6 +193,8 @@ class RejectionAudit:
                 "undetermined": [t.to_dict() for t in self.undetermined],
                 "truncated_evidence": self.truncated_evidence,
                 "gating_anomalies": self.gating_anomalies,
+                "split_dispositions": self.split_dispositions,
+                "unsafe_split_dispositions": self.unsafe_split_dispositions,
                 "verdict": self.verdict,
                 "certifiable": self.certifiable}
 
@@ -202,7 +214,7 @@ def _rows(conn, start: str, end: str) -> list[tuple]:
 
 def _actioned_tickers(conn, start: str, end: str) -> set[str]:
     with conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT ticker FROM sentinel_actions"
+        cur.execute("SELECT DISTINCT ticker FROM sentinel_active_actions"
                     " WHERE session BETWEEN %s AND %s", (start, end))
         return {str(r[0]).upper() for r in cur.fetchall() if r[0]}
 
@@ -230,21 +242,70 @@ def _truncations(conn, start: str, end: str) -> list[dict]:
 #: distribution whose amount the vendor never stated is stored as 0.0 and is
 #: indistinguishable, in the corpus, from no distribution at all. Neither is
 #: repaired by the ingest, so neither can be certified past in silence.
-#: `SPLIT_ONLY_DERIVED` is deliberately absent — the fallback is designed
-#: behaviour and gating on it would refuse every year ACTIONS covers thinly.
+#: Derived-only and seam dispositions are handled by `_split_dispositions` and
+#: always block absent genuine full-interval counterfactual equivalence proof.
 GATING_ANOMALY_KINDS = ("SPLIT_DISAGREEMENT", "UNUSABLE_DIVIDEND")
+
+_SPLIT_DISPOSITION = {
+    "SPLIT_AUTHORITATIVE_APPLIED": "authoritative applied split",
+    "SPLIT_CORROBORATED_DERIVED": "corroborated derived split",
+    "SPLIT_ONLY_DERIVED": "derived-only non-seam split",
+    "SEAM_SPLIT_UNCORROBORATED": "seam artifact suppressed",
+    "SPLIT_DISAGREEMENT": "unresolved material disagreement",
+    "SPLIT_RESOLVED_NO_EVENT": "current sources prove no split event",
+}
 
 
 def _anomalies(conn, start: str, end: str) -> list[dict]:
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT kind, ticker, session, detail FROM sentinel_corpus_anomalies"
-            " WHERE session BETWEEN %s AND %s AND kind = ANY(%s)"
-            " ORDER BY session, ticker, kind",
-            (start, end, list(GATING_ANOMALY_KINDS)))
-        return [{"kind": str(r[0]), "ticker": str(r[1]), "session": str(r[2]),
-                 "detail": None if r[3] is None else str(r[3])}
-                for r in cur.fetchall()]
+    return [{key: row[key] for key in
+             ("kind", "ticker", "session", "detail",
+              "last_written_run_id", "publication_version")}
+            for row in anomaly_store.active_rows(
+                conn, start=start, end=end, kinds=GATING_ANOMALY_KINDS)]
+
+
+def _split_dispositions(conn, start: str, end: str, *, held: set[str],
+                        pending: set[str], holdings_known: bool,
+                        eligibility: EligibilityConfig) -> list[dict]:
+    dispositions = []
+    rows = anomaly_store.active_rows(
+        conn, start=start, end=end, kinds=_SPLIT_DISPOSITION)
+    for row in rows:
+        kind, ticker = row["kind"], row["ticker"].upper()
+        intersects = []
+        if ticker in held:
+            intersects.append("held_position")
+        if ticker in pending:
+            intersects.append("pending_terminal_episode")
+
+        if kind in {"SPLIT_AUTHORITATIVE_APPLIED",
+                    "SPLIT_CORROBORATED_DERIVED",
+                    "SPLIT_RESOLVED_NO_EVENT"}:
+            relevance, policy, blocks = (
+                "resolved", "accepted canonical split evidence", False)
+        elif kind == "SPLIT_DISAGREEMENT":
+            relevance, policy, blocks = (
+                "unresolved", "refuse: neither source may rewrite shares", True)
+        elif intersects:
+            relevance, policy, blocks = (
+                "material",
+                "hold: uncertain split intersects path-dependent state", True)
+        else:
+            relevance, policy, blocks = (
+                "counterfactual_unproven",
+                "hold: event-day floors and observed-book absence cannot prove "
+                "full-interval split-treatment equivalence", True)
+
+        dispositions.append({
+            "category": _SPLIT_DISPOSITION[kind], "kind": kind,
+            "ticker": ticker, "session": row["session"],
+            "detail": row["detail"],
+            "last_written_run_id": row["last_written_run_id"],
+            "publication_version": row["publication_version"],
+            "economic_relevance": relevance, "intersects": intersects,
+            "policy": policy, "blocks_certification": blocks,
+        })
+    return dispositions
 
 
 def audit(conn, *, start: str, end: str,
@@ -310,6 +371,9 @@ def audit(conn, *, start: str, end: str,
                           distinct_tickers=len(per), per_ticker=per,
                           truncated_evidence=_truncations(conn, start, end),
                           gating_anomalies=_anomalies(conn, start, end),
+                          split_dispositions=_split_dispositions(
+                              conn, start, end, held=held, pending=pending,
+                              holdings_known=holdings_known, eligibility=cfg),
                           holdings_known=holdings_known)
 
 

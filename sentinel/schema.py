@@ -196,10 +196,20 @@ _TARGET_CATALOG_SHA256 = {
 _FEED_TABLES = frozenset({
     "sentinel_bars", "sentinel_spy_total_return",
     "sentinel_ingest_rejections", "sentinel_rejection_truncation",
-    "sentinel_corpus_anomalies", "sentinel_actions", "sentinel_universe",
+    "sentinel_corpus_anomalies", "sentinel_anomaly_observation_events",
+    "sentinel_actions", "sentinel_action_generations",
+    "sentinel_action_observations", "sentinel_action_generation_events",
+    "sentinel_active_actions",
+    "sentinel_universe",
     "sentinel_corpus_publications", "sentinel_bar_split_repairs",
     "sentinel_readiness_snapshots", "sentinel_sep_staging",
 })
+
+# Created by the safety-first physical backup path before behavioral schema.
+# It is not a behavioral relation, but its exact shape is validated before it
+# is excluded; a similarly named or malformed table must not become an escape
+# from markerless-schema refusal.
+_BACKUP_INFRASTRUCTURE_TABLE = "sentinel_backup_recovery_markers"
 
 # Stage 4 is an additive, separately versioned operational surface layered on
 # the PR #84 behavioral-schema ledger.  Its tables are installed/upgraded only
@@ -1108,8 +1118,50 @@ def _behavioral_relations(relations) -> set[str]:
         name for name in relations
         if (name.startswith("sentinel_")
             and name not in _FEED_TABLES
+            and name != _BACKUP_INFRASTRUCTURE_TABLE
             and name not in _STAGE4_TABLES)
     }
+
+
+def _validate_backup_infrastructure(
+        relations, columns, constraints, indexes, triggers) -> None:
+    table = _BACKUP_INFRASTRUCTURE_TABLE
+    if table not in relations:
+        return
+    if relations.get(table) != ("r", "p", False, False, False):
+        raise _operator_refusal(
+            "backup recovery-marker relation is not the exact known table")
+    observed = columns.get(table, {})
+    if frozenset(observed) != frozenset({"marker", "created_at"}):
+        raise _operator_refusal(
+            "backup recovery-marker relation has an unknown column fingerprint")
+    marker = observed["marker"]
+    created = observed["created_at"]
+    if marker[:2] != ("text", True) or _normal_sql(marker[2]):
+        raise _operator_refusal(
+            "backup recovery-marker relation has invalid marker semantics")
+    if (created[:2] != ("timestamp with time zone", True)
+            or _normal_sql(created[2]) != "now()"):
+        raise _operator_refusal(
+            "backup recovery-marker relation has invalid timestamp semantics")
+    if _constraint_manifest(constraints, table) != frozenset({
+            ("p", "primary key (marker)", True)}):
+        raise _operator_refusal(
+            "backup recovery-marker relation has an unknown constraint fingerprint")
+    expected_index_name = "sentinel_backup_recovery_markers_pkey"
+    table_indexes = indexes.get(table, {})
+    index = table_indexes.get(expected_index_name)
+    expected_index = (
+        "create unique index sentinel_backup_recovery_markers_pkey on "
+        "public.sentinel_backup_recovery_markers using btree (marker)")
+    if (frozenset(table_indexes) != frozenset({expected_index_name})
+            or index is None or _normal_sql(index[0]) != expected_index
+            or index[1:] != (True, True, True, True)):
+        raise _operator_refusal(
+            "backup recovery-marker relation has an unknown index fingerprint")
+    if triggers.get(table):
+        raise _operator_refusal(
+            "backup recovery-marker relation has an unexpected trigger")
 
 
 def _semantic_catalog_sha256(
@@ -1624,6 +1676,8 @@ def ensure_schema(conn) -> None:
                 "SELECT pg_advisory_xact_lock(%s,%s)", _SCHEMA_LOCK)
             catalog = _read_catalog(cur)
             relations, columns, constraints, indexes, triggers = catalog
+            _validate_backup_infrastructure(
+                relations, columns, constraints, indexes, triggers)
             automation_control_exists = (
                 "sentinel_automation_control" in relations)
             automation_lease_exists = "sentinel_automation_lease" in relations
@@ -1647,7 +1701,9 @@ def ensure_schema(conn) -> None:
                 cur.execute(_INITIAL_AUTOMATION_CONTROL)
             if not automation_lease_exists:
                 cur.execute(_INITIAL_AUTOMATION_LEASE)
-            _validate_ledgered(cur, _read_catalog(cur))
+            final_catalog = _read_catalog(cur)
+            _validate_backup_infrastructure(*final_catalog)
+            _validate_ledgered(cur, final_catalog)
         conn.commit()
     except BaseException:
         # PostgreSQL DDL is transactional. Explicit rollback also releases the

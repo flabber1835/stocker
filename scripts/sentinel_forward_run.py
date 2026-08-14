@@ -105,7 +105,8 @@ _CORPUS_FIELDS = {
 _COHERENCE_FIELDS = {
     "coherent", "version", "unpublished_rows", "unpublished_bars",
     "unpublished_actions", "unpublished_spy", "unpublished_universe",
-    "unpublished_repairs", "unpublished_runs", "enumeration",
+    "unpublished_repairs", "unpublished_anomalies", "unpublished_runs",
+    "enumeration",
 }
 _COMPARISON_FIELDS = {
     "differential_verdict", "chain_sessions_warmed",
@@ -317,7 +318,7 @@ def _report_binding(raw: Mapping[str, Any], *, raw_sha256: str,
             or any(coherence.get(field) != 0 for field in (
                 "unpublished_rows", "unpublished_bars", "unpublished_actions",
                 "unpublished_spy", "unpublished_universe",
-                "unpublished_repairs"))
+                "unpublished_repairs", "unpublished_anomalies"))
             or coherence.get("unpublished_runs") != []
             or coherence.get("enumeration") != "exhaustive"):
         raise ForwardRunRefused("publication coherence is incomplete")

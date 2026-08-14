@@ -17,6 +17,7 @@ cost the ability to run it from a plain script.
 """
 from __future__ import annotations
 
+import math
 import os
 import uuid
 from contextlib import contextmanager
@@ -260,11 +261,31 @@ def reclaim_orphans(conn) -> int:
     `feed-status` reports an ingest that has no process behind it — the exact
     confusion the Wealth Core rehearsal produced for half an hour.
     """
-    with conn.cursor() as cur:
-        cur.execute(RECLAIM_ORPHANS, {"marker": RESTART_ABORT_MARKER})
-        n = cur.rowcount
-    conn.commit()
-    return n
+    from sentinel.feed import actions as action_store
+    from sentinel.feed import anomalies as anomaly_store
+
+    # Taking the writer lock proves that no live ingest still owns a candidate.
+    # The run failure and anomaly ABORTED events then commit together.
+    with corpus_write_lock(conn):
+        with conn.cursor() as cur:
+            cur.execute("SELECT run_id FROM feed_ingest_runs"
+                        " WHERE status='running' FOR UPDATE")
+            run_ids = [str(row[0]) for row in cur.fetchall()]
+            if run_ids:
+                cur.execute(RECLAIM_ORPHANS,
+                            {"marker": RESTART_ABORT_MARKER})
+                if cur.rowcount != len(run_ids):
+                    raise RuntimeError(
+                        "orphan run set changed while holding the writer lock")
+        for run_id in run_ids:
+            action_store.abort_run(
+                conn, run_id=run_id, actor_run_id=run_id,
+                reason=f"{RESTART_ABORT_MARKER}: writer process did not survive")
+            anomaly_store.abort_run(
+                conn, run_id=run_id, actor_run_id=run_id,
+                reason=f"{RESTART_ABORT_MARKER}: writer process did not survive")
+        conn.commit()
+        return len(run_ids)
 
 
 @dataclass
@@ -317,11 +338,29 @@ class IngestRun:
         self.conn.commit()
 
     def finish(self, status: str = "success", error: str | None = None) -> None:
+        from sentinel.feed import actions as action_store
+        from sentinel.feed import anomalies as anomaly_store
+
+        if status == "failed" and (
+                action_store.has_pending(
+                    self.conn, run_id=self.progress.run_id)
+                or anomaly_store.has_pending(
+                    self.conn, run_id=self.progress.run_id)):
+            _assert_corpus_locked(self.conn)
         with self.conn.cursor() as cur:
             cur.execute(
                 "UPDATE feed_ingest_runs SET status=%s, completed_at=NOW(),"
                 " updated_at=NOW(), error_message=%s WHERE run_id=%s",
                 (status, (error or "")[:2000] or None, self.progress.run_id))
+        if status == "failed":
+            action_store.abort_run(
+                self.conn, run_id=self.progress.run_id,
+                actor_run_id=self.progress.run_id,
+                reason=(error or "ingest failed")[:2000])
+            anomaly_store.abort_run(
+                self.conn, run_id=self.progress.run_id,
+                actor_run_id=self.progress.run_id,
+                reason=(error or "ingest failed")[:2000])
         self.conn.commit()
 
     @contextmanager
@@ -386,10 +425,6 @@ def write_bars(conn, bars: Iterable[Any], *, run_id=None,
             return
         with conn.cursor() as cur:
             cur.executemany(_BAR_UPSERT, [r[:10] for r in rows])
-            spy = [(r[1], r[10], r[9]) for r in rows
-                   if r[2] == "SPY" and r[10] is not None]
-            if spy:
-                cur.executemany(_SPY_TOTAL_RETURN_UPSERT, spy)
         # COMMIT PER BATCH, matching the rest of this module: an interrupted
         # ingest keeps the rows it got, and the upserts are idempotent so the
         # re-run resumes rather than duplicates.
@@ -410,27 +445,145 @@ def write_bars(conn, bars: Iterable[Any], *, run_id=None,
     return written
 
 
-def write_actions(conn, rows: Sequence[Any], *, run_id=None) -> int:
-    """Upsert corporate actions, stamped with the ingest that wrote them.
+def write_spy_total_return(conn, rows: Iterable[Any], *, run_id=None,
+                           batch_size: int = 0,
+                           require_lock: bool = False) -> int:
+    """Persist only bounded SFP SPY total-return rows.
 
-    Stamped for the same reason bars are: visibility is derived from
-    publication, and a corpus where the prices of an unpublished run are hidden
-    while its TERMINATIONS are visible is worse than one where neither is. A
-    terminal event applied against a book priced from a different generation is
-    the failure the versioning contract exists to prevent, arriving through the
-    half nobody filtered.
+    SPY is a fund and never enters ``sentinel_bars`` or the Wealth Core equity
+    universe. Invalid/non-SPY rows are refused rather than broadening this
+    membrane into a general fund ingest.
     """
-    payload = [
-        (r["ticker"], r["date"], r["action"], r.get("value"),
-         r.get("contraticker"), str(run_id) if run_id else None)
-        for r in rows
-    ]
-    if not payload:
-        return 0
+    if require_lock:
+        _assert_corpus_locked(conn)
+    size = batch_size or WRITE_BATCH
+    payload: list[tuple] = []
+    written = 0
+
+    def flush() -> None:
+        nonlocal written
+        if not payload:
+            return
+        with conn.cursor() as cur:
+            cur.executemany(_SPY_TOTAL_RETURN_UPSERT, payload)
+        conn.commit()
+        written += len(payload)
+        payload.clear()
+
+    for row in rows:
+        if str(row.get("ticker", "")).upper() != "SPY":
+            raise ValueError("the SFP readiness ingest accepts only ticker=SPY")
+        session = str(row.get("date") or "")
+        value = row.get("closeadj")
+        try:
+            closeadj = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"SPY SFP row {session} has invalid closeadj") from exc
+        if not session or closeadj <= 0 or not math.isfinite(closeadj):
+            raise ValueError(f"SPY SFP row {session!r} has invalid closeadj")
+        payload.append((session, closeadj, str(run_id) if run_id else None))
+        if len(payload) >= size:
+            flush()
+    flush()
+    return written
+
+
+def write_actions(conn, rows: Sequence[Any], *, run_id=None,
+                  window_start: str | None = None,
+                  window_end: str | None = None) -> int:
+    """Persist one COMPLETE corporate-action source snapshot.
+
+    A run-stamped call is append-only.  It records every current row as PRESENT
+    and every previously active key missing from the explicitly fetched window
+    as REMOVED.  Publication, not insertion, activates those observations.  An
+    empty complete response is therefore meaningful and must not return early.
+
+    Calls without ``run_id`` retain the legacy/test upsert surface.  Those rows
+    form the immutable pre-upgrade baseline read by ``sentinel_active_actions``;
+    production ingest always supplies a run and complete window.
+    """
+    if run_id is None:
+        payload = [
+            (r["ticker"], r["date"], r["action"], r.get("value"),
+             r.get("contraticker"), None) for r in rows
+        ]
+        if not payload:
+            return 0
+        with conn.cursor() as cur:
+            cur.executemany(_ACTION_UPSERT, payload)
+        conn.commit()
+        return len(payload)
+
+    _assert_corpus_locked(conn)
+    if window_start is None or window_end is None:
+        raise ValueError(
+            "a run-stamped ACTIONS write must name the complete fetched window")
+    lo, hi = str(window_start), str(window_end)
+    if lo > hi:
+        raise ValueError(f"reversed ACTIONS window: {lo} > {hi}")
+    writer = str(run_id)
+
+    current: dict[tuple[str, str, str], tuple] = {}
+    for row in rows:
+        ticker, session, action = (str(row["ticker"]), str(row["date"]),
+                                   str(row["action"]))
+        if not lo <= session <= hi:
+            raise ValueError(
+                f"ACTIONS row {ticker}/{session}/{action} lies outside the "
+                f"declared complete window [{lo}, {hi}]")
+        item = (ticker, session, action, row.get("value"),
+                row.get("contraticker"), "PRESENT", writer)
+        key = (ticker, session, action)
+        if key in current and current[key] != item:
+            raise ValueError(
+                f"conflicting duplicate ACTIONS rows for {ticker}/{session}/"
+                f"{action} in one complete response")
+        current[key] = item
+
+    # Reconcile against the PUBLISHED active generation, never against another
+    # unpublished attempt.  A failed retry therefore cannot become the baseline
+    # from which a later retry silently reasons.
     with conn.cursor() as cur:
-        cur.executemany(_ACTION_UPSERT, payload)
+        cur.execute(
+            "SELECT ticker,session,action,value,contraticker"
+            " FROM sentinel_active_actions"
+            " WHERE session BETWEEN %s AND %s", (lo, hi))
+        prior = list(cur.fetchall())
+
+    observations = list(current.values())
+    for ticker, session, action, value, contraticker in prior:
+        key = (str(ticker), str(session), str(action))
+        if key not in current:
+            observations.append((key[0], key[1], key[2], value, contraticker,
+                                 "REMOVED", writer))
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_action_generations"
+            " (last_written_run_id,window_start,window_end,source_rows)"
+            " VALUES (%s,%s,%s,%s) ON CONFLICT (last_written_run_id) DO NOTHING",
+            (writer, lo, hi, len(current)))
+        cur.execute(
+            "SELECT window_start,window_end,source_rows"
+            " FROM sentinel_action_generations WHERE last_written_run_id=%s",
+            (writer,))
+        recorded = cur.fetchone()
+        if (str(recorded[0]), str(recorded[1]), int(recorded[2])) != (
+                lo, hi, len(current)):
+            raise ValueError(
+                f"ACTIONS generation {writer} was already recorded with a "
+                "different complete-window contract")
+        if observations:
+            cur.executemany(
+                "INSERT INTO sentinel_action_observations"
+                " (ticker,session,action,value,contraticker,disposition,"
+                "  last_written_run_id) VALUES (%s,%s,%s,%s,%s,%s,%s)"
+                " ON CONFLICT (ticker,session,action,last_written_run_id)"
+                " DO NOTHING", observations)
+        from sentinel.feed import actions as action_store
+        action_store.record_pending(conn, run_id=writer)
     conn.commit()
-    return len(payload)
+    return len(current)
 
 
 def write_rejections(conn, rejections) -> int:
@@ -481,25 +634,54 @@ def write_rejection_truncation(conn, *, run_id, chunk: str, window_start: str,
     conn.commit()
 
 
-def write_anomalies(conn, anomalies) -> int:
-    """Persist corpus anomalies the ingest resolved but did not resolve AWAY.
+def write_anomalies(conn, anomalies, *, run_id=None, require_lock: bool = False,
+                    commit: bool = True) -> int:
+    """Append corpus-anomaly observations for one candidate generation.
 
     A warning logged during a six-hour seed is not something a certification
-    can consult afterwards, and these are precisely the facts a certification
-    has to weigh: a split the two sources disagree about, and a distribution
-    whose amount the vendor never stated.
+    can consult afterwards. Publication, not insertion, makes a stamped row the
+    active disposition. An unpublished correction therefore cannot erase the
+    previous blocker. Calls without a run id are the legacy/test baseline.
     """
-    rows = [(a["kind"], a["ticker"], a["session"], a.get("detail"))
+    if require_lock:
+        _assert_corpus_locked(conn)
+    writer = None if run_id is None else str(run_id)
+    rows = [(a["kind"], a["ticker"], a["session"], a.get("detail"), writer)
             for a in anomalies]
     if not rows:
         return 0
+    from sentinel.feed import anomalies as anomaly_store
+
     with conn.cursor() as cur:
-        cur.executemany(
-            "INSERT INTO sentinel_corpus_anomalies (kind, ticker, session,"
-            " detail) VALUES (%s,%s,%s,%s)"
-            " ON CONFLICT (kind, ticker, session) DO UPDATE SET"
-            " detail = EXCLUDED.detail", rows)
-    conn.commit()
+        for row in rows:
+            if writer is None:
+                cur.execute(
+                    "INSERT INTO sentinel_corpus_anomalies"
+                    " (kind,ticker,session,detail,last_written_run_id)"
+                    " VALUES (%s,%s,%s,%s,%s)"
+                    " ON CONFLICT (kind,ticker,session)"
+                    " WHERE last_written_run_id IS NULL DO UPDATE SET"
+                    " detail=EXCLUDED.detail RETURNING observation_id", row)
+            else:
+                cur.execute(
+                    "WITH inserted AS ("
+                    " INSERT INTO sentinel_corpus_anomalies"
+                    " (kind,ticker,session,detail,last_written_run_id)"
+                    " VALUES (%s,%s,%s,%s,%s)"
+                    " ON CONFLICT (kind,ticker,session,last_written_run_id)"
+                    " WHERE last_written_run_id IS NOT NULL DO NOTHING"
+                    " RETURNING observation_id)"
+                    " SELECT observation_id FROM inserted UNION ALL"
+                    " SELECT observation_id FROM sentinel_corpus_anomalies"
+                    " WHERE kind=%s AND ticker=%s AND session=%s"
+                    "   AND last_written_run_id=%s LIMIT 1",
+                    row + (row[0], row[1], row[2], row[4]))
+            observation_id = int(cur.fetchone()[0])
+            if writer is not None:
+                anomaly_store.record_pending(
+                    conn, observation_id, run_id=writer)
+    if commit:
+        conn.commit()
     return len(rows)
 
 

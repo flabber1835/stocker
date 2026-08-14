@@ -1081,9 +1081,51 @@ unusable dividend    a distribution the vendor stated no amount for. The corpus
                      record separates them
 ```
 
-`SPLIT_ONLY_DERIVED` — a split the prices show and ACTIONS never recorded — is
-recorded and does NOT gate. That is the fallback working as designed, and gating
-on it would refuse every year ACTIONS covers thinly.
+`SPLIT_ONLY_DERIVED` and `SEAM_SPLIT_UNCORROBORATED` gate certification unless
+full-interval counterfactual evidence proves that every plausible split
+treatment produces identical eligibility, rankings, selections, holdings,
+accounting and hashes. Event-day price or liquidity cannot prove that: a split
+changes the cumulative signal series on every later session, when the security
+may cross either floor. Absence from the observed book is also not proof,
+because the uncertain split can be the cause of that absence. No such
+counterfactual engine exists today, so both dispositions block; authoritative
+and directly/reciprocally corroborated dispositions clear.
+
+These rows are publication-scoped evidence. Each ingest observation is retained
+with its writer run; only the newest successfully published disposition for a
+split `(ticker, session)` is active. An unpublished corrective ingest cannot
+retire the prior active blocker. Live candidate evidence is explicitly
+`PENDING` and keeps coherence/readiness closed. A failed or reclaimed run is
+durably `ABORTED` under the corpus writer lock, so its immutable history does
+not poison every later coherent publication. A successful retry atomically
+publishes its disposition and supersedes older pending evidence for the same
+covered event. Pre-upgrade rows remain a fail-closed legacy baseline until a
+later published observation supersedes the same event, so a schema upgrade
+cannot manufacture a clean interval by forgetting evidence. Publication also
+refuses stamped anomaly observations from any run not durably marked
+`success`, and a failed publication rolls lifecycle changes back atomically.
+
+Correction by absence is explicit rather than inferred. Complete ACTIONS fetches
+are append-only generations: current rows are `PRESENT`, formerly active rows
+missing from the fetched raw-date window are `REMOVED`, and publication selects
+the active generation without deleting history. Failed and unpublished fetches
+cannot hide a previously active action. A current valid dividend row emits
+`DIVIDEND_RESOLVED` for the earlier unusable event. A removed split emits
+`SPLIT_RESOLVED_NO_EVENT` only when the current ACTIONS generation is complete,
+SEP compared the event with a real predecessor and derived no split, and the
+candidate effective split ratio is exactly `1.0`. A preserved non-1 base ratio
+is corrected by an append-only `1.0` repair overlay published atomically with
+the action removal and resolved disposition. Silence, incomplete coverage, or a
+missing repair leaves the old blocker active.
+
+Every ACTIONS generation also carries an append-only lifecycle. Failed or
+reclaimed candidates are `ABORTED`; a successfully published covering retry
+marks an older publication-failed candidate `SUPERSEDED`; and only a live
+`PENDING` candidate blocks coherence. A narrower retry cannot retire a wider
+unresolved snapshot. Split-repair overlay history follows the same effective
+rule: only published repairs apply, and a later published repair for the same
+bar makes the older unpublished retry terminal for coherence without deleting
+it.
 
 ### 10c. Synthetic parity is not corpus parity
 
@@ -1149,6 +1191,12 @@ It refuses if `SHARADAR_API_KEY` is absent or still a placeholder, generates
 declares it `:?` so it will not start without one), and warns when a carried
 password contains a character compose splices into a DSN or a literal `$` it
 would interpolate.
+
+The Sharadar client also treats an authenticated request as a redaction
+boundary. `httpx`/`httpcore` URL diagnostics are suppressed while the request,
+status handling, and exception conversion run, and propagated errors contain a
+request target with `api_key` omitted. Raising log verbosity therefore cannot
+put the query credential back into terminal output or collected log records.
 
 ## 10f. The resource envelope is MEASURED, and the measurement is an artefact
 
@@ -1263,7 +1311,9 @@ is §11's own defect — a setting believed to be in force, that is not.
 
 ```text
 scripts/sentinel_host_capabilities.py   asks the DAEMON what it enforces, not
-                                        the kernel version, which is a proxy
+                                        the kernel version, then actively
+                                        creates (never runs) a pinned local
+                                        image with NanoCPUs
 scripts/sentinel_strip_cpu_limits.py    deletes `cpus:` and nothing else
 scripts/sentinel-compose.sh             the ONE resolver. Probes, and prints
                                         the `-f` args every entry point uses
@@ -1278,6 +1328,11 @@ drift, it diffs cleanly, and no operator edits YAML.
 
 `SENTINEL_FORCE_CPU_LIMITS=1` keeps the canonical file unprobed, for proving on
 a capable host that that path still works.
+
+`SENTINEL_FORCE_NO_CPU_LIMITS=1` is the recorded recovery path when an older
+daemon's metadata is false or the active probe cannot be made. The two force
+modes are mutually exclusive. The no-CPU mode sets the capability artifact to
+`OBSERVED_NOT_BOUNDED`; memory and shared-memory controls remain unchanged.
 
 **UNKNOWN keeps the limits.** Only a positive UNSUPPORTED strips them, so an
 unprobed host — no daemon, CI — retains its declared ceilings and fails loudly
@@ -1329,6 +1384,12 @@ device number (or Docker's root is not inspectable), the operator must first
 verify independent durability and set
 `SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED=1`. The scripts also run a write probe
 as the PostgreSQL container uid; host-root writability is not sufficient.
+
+The inside-Docker-root comparison is lexical and runs before traversal, so an
+attestation can never authorize a child of the daemon root. When that root is a
+protected Synology path, validation does not attempt to traverse it after an
+explicit attestation; without attestation, absent or unreadable metadata still
+fails closed.
 
 ```bash
 export SENTINEL_BACKUP_DIR=/mnt/second-target/sentinel

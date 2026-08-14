@@ -46,7 +46,10 @@ def pg():
 def conn(pg):
     c = S.connect(pg.sync_dsn)
     with c.cursor() as cur:
-        for t in ("sentinel_bars", "sentinel_actions", "sentinel_universe",
+        for t in ("sentinel_anomaly_observation_events",
+                  "sentinel_action_generation_events",
+                  "sentinel_action_observations", "sentinel_action_generations",
+                  "sentinel_bars", "sentinel_actions", "sentinel_universe",
                   "sentinel_corpus_publications", "feed_ingest_runs",
                   "sentinel_corpus_anomalies", "sentinel_ingest_rejections"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
@@ -72,6 +75,8 @@ def fetcher(sep_rows, action_rows=()):
         hi = (params or {}).get("date.lte", "9999-99-99")
         if table == sharadar.ACTIONS:
             return [r for r in action_rows if lo <= r["date"] <= hi]
+        if table == sharadar.SFP:
+            return []
         return [r for r in sep_rows if lo <= r["date"] <= hi]
     return fetch
 

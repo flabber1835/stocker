@@ -202,6 +202,56 @@ def test_brand_new_behavioral_database_seeds_once(database, feed_only):
     ]
 
 
+def test_verified_backup_marker_may_precede_behavioral_schema(database):
+    """The supported safety-first order: legacy DB, backup marker, schema."""
+    with database.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE sentinel_backup_recovery_markers ("
+            " marker TEXT PRIMARY KEY,"
+            " created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())")
+        cur.execute(
+            "INSERT INTO sentinel_backup_recovery_markers(marker)"
+            " VALUES ('post-base-wal-marker')")
+    database.commit()
+
+    schema.ensure_schema(database)
+
+    with database.cursor() as cur:
+        cur.execute("SELECT marker FROM sentinel_backup_recovery_markers")
+        assert cur.fetchall() == [("post-base-wal-marker",)]
+    assert _ledger_rows(database)[0][2] == "NEW"
+
+
+def test_only_the_exact_backup_relation_is_recognized(database):
+    with database.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE sentinel_backup_recovery_markers ("
+            " marker TEXT PRIMARY KEY, created_at TIMESTAMPTZ NOT NULL"
+            " DEFAULT NOW(), unexpected TEXT)")
+    database.commit()
+    _assert_operator_refusal(database, reason="backup recovery-marker")
+
+
+def test_backup_relation_with_an_extra_index_is_not_exact(database):
+    with database.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE sentinel_backup_recovery_markers ("
+            " marker TEXT PRIMARY KEY, created_at TIMESTAMPTZ NOT NULL"
+            " DEFAULT NOW())")
+        cur.execute(
+            "CREATE INDEX unexpected_backup_marker_index"
+            " ON sentinel_backup_recovery_markers(created_at)")
+    database.commit()
+    _assert_operator_refusal(database, reason="backup recovery-marker")
+
+
+def test_unrelated_unknown_relation_still_refuses_markerless_bootstrap(database):
+    with database.cursor() as cur:
+        cur.execute("CREATE TABLE sentinel_unrelated_unknown (id INTEGER)")
+    database.commit()
+    _assert_operator_refusal(database, reason="unknown behavioral relations")
+
+
 def test_public_builtin_shadows_cannot_change_migration_semantics(database):
     with database.cursor() as cur:
         cur.execute(

@@ -30,14 +30,15 @@ made fractional entitlement exact and canonical, so an approximate ratio is now
 the largest remaining source of share-count error, and the vendor states the
 exact figure in a column the ingest was already reading.
 
-## The two rules that are easy to get backwards
+## The orientation rule that is easy to get backwards
 
 ```text
-A FORWARD 2:1 IS `value = 2.0`, AND THAT IS ALREADY THE SHARE MULTIPLIER
-    shares_after = shares_before x ratio. No inversion. Worth stating because
-    the DERIVED ratio needs one: the adjustment factor FALLS through a forward
-    split, so `before/after` is the share ratio there and `after/before` would
-    HALVE a position on a 2:1.
+ACTIONS `value` IS NOT BY ITSELF AN ORIENTATION WITNESS
+    Sharadar has emitted both canonical share multipliers and reverse-split
+    denominators. A value greater than one can therefore mean either a forward
+    multiplier or the denominator of a reverse event. The independently
+    derived price-domain ratio decides between `value` and `1/value`. If it
+    agrees with neither, the event is unresolved and is not applied.
 
 THE ACTIONS DATE IS THE EX-DATE, AND IT IS A CALENDAR DATE
     It can land on a weekend or a holiday. An event dated on a non-session
@@ -62,6 +63,54 @@ from sentinel.core.terminal import DIVIDEND_ACTIONS, SPLIT_ACTIONS
 #: anything outside it means the two sources describe different events.
 SPLIT_AGREEMENT_TOLERANCE = 0.01
 
+SPLIT_AUTHORITATIVE_APPLIED = "authoritative_applied"
+SPLIT_CORROBORATED_DIRECT = "corroborated_direct"
+SPLIT_CORROBORATED_RECIPROCAL = "corroborated_reciprocal"
+SPLIT_UNRESOLVED = "unresolved"
+
+
+def _ratios_close(left: float, right: float, tolerance: float) -> bool:
+    return abs(float(left) - float(right)) <= (
+        tolerance * max(abs(float(left)), abs(float(right)), 1e-12))
+
+
+def resolve_split_orientation(
+        stated: float, derived: float | None, *,
+        tolerance: float = SPLIT_AGREEMENT_TOLERANCE) -> tuple[float, str]:
+    """Return the canonical post/pre multiplier and its evidence disposition.
+
+    The price-domain ratio is independent orientation evidence. Agreement with
+    ``stated`` preserves a forward multiplier; agreement with ``1/stated``
+    proves that ACTIONS supplied a reverse-split denominator. A material value
+    greater than one with no usable price witness is ambiguous and fails closed
+    as ``1.0``. Values at or below one are already in canonical reverse-split
+    form and may be applied from ACTIONS alone.
+    """
+    value = float(stated)
+    if value <= 0:
+        return 1.0, SPLIT_UNRESOLVED
+    evidence = None if derived is None else float(derived)
+    if evidence is not None and evidence > 0:
+        if _ratios_close(evidence, value, tolerance):
+            return value, SPLIT_CORROBORATED_DIRECT
+        reciprocal = 1.0 / value
+        if _ratios_close(evidence, reciprocal, tolerance):
+            # Vendor reverse denominators are sometimes slightly noisy
+            # (30.003, 9.00009, 6.99986).  Once independent price evidence
+            # proves reciprocal orientation, snap a near-integral denominator
+            # so a 1-for-30 event is represented as exactly 1/30.
+            denominator = round(value)
+            if (denominator > 0
+                    and _ratios_close(value, denominator, tolerance)
+                    and _ratios_close(evidence, 1.0 / denominator, tolerance)):
+                reciprocal = 1.0 / denominator
+            return reciprocal, SPLIT_CORROBORATED_RECIPROCAL
+        if not _ratios_close(evidence, 1.0, tolerance):
+            return 1.0, SPLIT_UNRESOLVED
+    if value <= 1.0:
+        return value, SPLIT_AUTHORITATIVE_APPLIED
+    return 1.0, SPLIT_UNRESOLVED
+
 
 def snap_to_session(day: str, sessions_sorted: Sequence[str]):
     """The first trading session on or after `day`, or None past the window."""
@@ -72,7 +121,12 @@ def snap_to_session(day: str, sessions_sorted: Sequence[str]):
 def split_ratios_from_actions(rows: Iterable[Mapping],
                               sessions_sorted: Sequence[str]
                               ) -> dict[tuple[str, str], float]:
-    """(ticker, session) -> authoritative SHARE ratio, no inversion."""
+    """(ticker, session) -> raw positive ACTIONS value.
+
+    Orientation is deliberately deferred until the normaliser has the
+    independent price-domain ratio. Treating this map as canonical is the
+    historical defect that multiplied a 1-for-30 holding by 30.
+    """
     out: dict[tuple[str, str], float] = {}
     for r in rows:
         if (r.get("action") or "").lower() not in SPLIT_ACTIONS:
@@ -167,7 +221,9 @@ def split_disagreements(report, authoritative: Mapping[tuple[str, str], float],
             derived, source = snapped.get((ticker, session)), "snapped"
         if derived is None:
             continue
-        if abs(float(derived) - float(stated)) > tolerance:
+        _canonical, disposition = resolve_split_orientation(
+            float(stated), float(derived), tolerance=tolerance)
+        if disposition == SPLIT_UNRESOLVED:
             out.append({"ticker": ticker, "session": session,
                         "stated": float(stated), "derived": float(derived),
                         "derived_source": source})
@@ -186,12 +242,16 @@ def splits_only_derived(report, authoritative: Mapping[tuple[str, str], float]
     coverage rather than one source being wrong about a figure — and folding
     them together would let a thin actions feed read as agreement.
     """
+    seam = getattr(report, "seam_splits_uncorroborated", None) or {}
     return [{"ticker": t, "session": s, "derived": float(v)}
             for (t, s), v in sorted((report.derived_splits or {}).items())
-            if (t, s) not in authoritative]
+            if (t, s) not in authoritative and (t, s) not in seam]
 
 
-__all__ = ["SPLIT_AGREEMENT_TOLERANCE", "dividends_from_actions",
+__all__ = ["SPLIT_AGREEMENT_TOLERANCE", "SPLIT_AUTHORITATIVE_APPLIED",
+           "SPLIT_CORROBORATED_DIRECT", "SPLIT_CORROBORATED_RECIPROCAL",
+           "SPLIT_UNRESOLVED", "dividends_from_actions",
+           "resolve_split_orientation",
            "snap_to_session", "split_disagreements", "split_ratios_from_actions",
            "splits_only_derived", "unusable_dividend_rows",
            "unusable_dividend_rows_detail"]

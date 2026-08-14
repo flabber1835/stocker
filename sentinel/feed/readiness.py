@@ -90,7 +90,6 @@ PASS, WARN, FAIL = "PASS", "WARN", "FAIL"
 #: interpolated into every query below: two hand-written copies of a visibility
 #: rule is how a report starts describing a corpus the engine cannot load.
 _VISIBLE_BARS = _publication.visible_predicate("b")
-_VISIBLE_ACTIONS = _publication.visible_predicate("a")
 _VISIBLE_UNIVERSE = _publication.visible_predicate("u")
 
 
@@ -276,8 +275,9 @@ def _add_version_checks(conn, r: "Readiness") -> None:
               f"published: {list(report.unpublished_runs)}. Those rows are "
               f"INVISIBLE to every reader, so the corpus is frozen at the last "
               f"published version while the fetch appears to be working. "
-              f"Publish them — the rows are committed and the upserts are "
-              f"idempotent, so no re-ingest is needed.",
+              f"Complete and validate a run before publishing it; durably "
+              f"fail and retry an incomplete run. Never publish unresolved "
+              f"evidence merely to clear this readiness failure.",
               report.to_dict())
 
     published = publication.current(conn)
@@ -291,8 +291,10 @@ def _add_version_checks(conn, r: "Readiness") -> None:
         conn, f"SELECT COUNT(*) FROM {table}"
               " WHERE last_written_run_id IS NOT NULL") or 0)
         for table in ("sentinel_bars", "sentinel_actions",
+                      "sentinel_action_observations",
                       "sentinel_spy_total_return", "sentinel_universe",
-                      "sentinel_bar_split_repairs"))
+                      "sentinel_bar_split_repairs",
+                      "sentinel_corpus_anomalies"))
     if stamped:
         # Covered by the coherence FAIL above; named separately so the operator
         # sees the consequence as well as the cause.
@@ -588,9 +590,8 @@ def check_readiness(conn, *, today: Optional[str] = None,
               f"{with_related:,} securities carry related tickers", with_related)
 
     # ── corporate actions ────────────────────────────────────────────────────
-    recent_actions = _q1(conn, "SELECT COUNT(*) FROM sentinel_actions a"
-                               " WHERE session >= %s"
-                               f"   AND {_VISIBLE_ACTIONS}",
+    recent_actions = _q1(conn, "SELECT COUNT(*) FROM sentinel_active_actions"
+                               " WHERE session >= %s",
                          (window_start,)) or 0
     if recent_actions == 0:
         r.add("actions", FAIL,

@@ -159,7 +159,10 @@ def conn(pg):
         # Child first: dropping sentinel_bars CASCADE while leaving the repair
         # table would remove only its FK. CREATE TABLE IF NOT EXISTS would then
         # keep that constraint-free child for the next parameterized test.
-        for t in ("sentinel_bar_split_repairs", "sentinel_bars",
+        for t in ("sentinel_anomaly_observation_events",
+                  "sentinel_action_generation_events",
+                  "sentinel_action_observations", "sentinel_action_generations",
+                  "sentinel_bar_split_repairs", "sentinel_bars",
                   "sentinel_actions", "sentinel_universe",
                   "sentinel_corpus_publications", "feed_ingest_runs",
                   "sentinel_sep_staging", "sentinel_corpus_anomalies",

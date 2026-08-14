@@ -219,6 +219,25 @@ def split_ratio_from_domains(prev_close: float | None, prev_raw: float | None,
     return float(snapped) if snapped > 0 else 1.0
 
 
+def unsnapped_split_ratio(prev_close: float | None, prev_raw: float | None,
+                          close: float | None,
+                          raw: float | None) -> float | None:
+    """Independent orientation evidence before fallback share-count snapping.
+
+    A genuine 3:2 event is 1.5 in the price domains, but the derived-only
+    fallback deliberately snaps ratios to a reconcilable integer/reciprocal.
+    Reusing that snapped value as the ACTIONS cross-check destroys the witness
+    and turns corroboration into a false disagreement. Sentinel preserves these
+    two values separately; the canonical backtester must do the same.
+    """
+    vals = (prev_close, prev_raw, close, raw)
+    if any(v is None or v <= 0 for v in vals):
+        return None
+    before = prev_raw / prev_close
+    after = raw / close
+    return before / after if after > 0 else None
+
+
 # ── SHARADAR/ACTIONS: the authoritative corporate-action stream ─────────────
 # Pure functions first, DB access after. The mapping rules are where this can
 # silently mis-state a book, so they are testable without a Sharadar corpus.
@@ -658,7 +677,7 @@ def _terms_richness(t: TerminalTerms) -> tuple:
 
 def reconcile_split(derived: float, authoritative: float | None,
                     tolerance: float = 0.02) -> tuple[float, str]:
-    """(ratio_to_apply, outcome). ACTIONS wins; the disagreement is RECORDED.
+    """(canonical post/pre ratio, outcome), oriented by price evidence.
 
     The derived ratio is kept because it is an INDEPENDENT measurement of the
     same event — the vendor's own cumulative adjustment factor, read off the two
@@ -666,9 +685,10 @@ def reconcile_split(derived: float, authoritative: float | None,
     authoritative source alone, so it becomes a cross-check rather than being
     deleted.
 
-    Not fatal on disagreement: one inconsistently-adjusted ticker would
-    otherwise block every backtest. Not silent either, or the cross-check would
-    be pointless. The counts travel on the run summary.
+    ACTIONS has supplied both forward multipliers and reverse denominators.
+    Therefore a value greater than one is not self-orienting: direct agreement
+    preserves it, reciprocal agreement applies ``1/value``, and disagreement
+    applies no share transformation while recording ``unresolved``.
     """
     if authoritative is None:
         # No ACTIONS row. Reported inside `disagreed` when the price domains DO
@@ -676,11 +696,23 @@ def reconcile_split(derived: float, authoritative: float | None,
         # not carry is exactly the behaviour this work removes — so the derived
         # value is still applied (it is all we have) but it is never silent.
         return derived, ("agreed" if derived == 1.0 else "disagreed")
+    def close(left, right):
+        return abs(left - right) <= tolerance * max(
+            abs(left), abs(right), 1e-12)
+
     if derived == 1.0:
-        return authoritative, "actions_only"
-    if abs(derived - authoritative) <= tolerance * max(1.0, authoritative):
+        return ((authoritative, "actions_only") if authoritative <= 1.0
+                else (1.0, "unresolved"))
+    if close(derived, authoritative):
         return authoritative, "agreed"
-    return authoritative, "disagreed"
+    reciprocal = 1.0 / authoritative
+    if close(derived, reciprocal):
+        denominator = round(authoritative)
+        if (denominator > 0 and close(authoritative, denominator)
+                and close(derived, 1.0 / denominator)):
+            reciprocal = 1.0 / denominator
+        return reciprocal, "reciprocal"
+    return 1.0, "unresolved"
 
 
 def load_actions(conn, start: str, end: str) -> list[dict]:
@@ -881,10 +913,10 @@ def load_bars(conn, start: str, end: str,
     carries. Passing `open` straight through would fill orders in one domain and
     mark the resulting position in another.
 
-    When `authoritative_splits` is supplied, ACTIONS decides the ratio and the
-    derived one becomes a cross-check whose outcome is tallied into
-    `reconciliation`. Omitting it keeps the pre-ACTIONS behaviour exactly, which
-    is what makes the fallback path testable rather than merely claimed.
+    When `authoritative_splits` is supplied, ACTIONS identifies the event and
+    the unsnapped price-domain ratio selects direct versus reciprocal
+    orientation. Its outcome is tallied into `reconciliation`. Omitting ACTIONS
+    keeps the snapped derived fallback, which remains explicitly uncertified.
     """
     prev: dict[str, tuple[float | None, float | None]] = {}
     out: dict[str, list[VendorBar]] = {}
@@ -906,8 +938,11 @@ def load_bars(conn, start: str, end: str,
         p_close, p_raw = prev.get(sid, (None, None))
         ratio = split_ratio_from_domains(p_close, p_raw, close, raw)
         if authoritative_splits is not None:
+            unsnapped = unsnapped_split_ratio(p_close, p_raw, close, raw)
+            evidence = (unsnapped if unsnapped is not None
+                        and abs(unsnapped - 1.0) > 0.02 else 1.0)
             ratio, outcome = reconcile_split(
-                ratio, authoritative_splits.get((tkr, session)))
+                evidence, authoritative_splits.get((tkr, session)))
             if reconciliation is not None and not (
                     outcome == "agreed" and ratio == 1.0):
                 # Only EVENTS are counted. Tallying every quiet bar as "agreed"
@@ -982,11 +1017,11 @@ ACTIONS_CAVEATS: tuple[str, ...] = (
     "PAYMENT date, so that lag is an adopted convention in the config hash, not "
     "an observed fact — the default of 1 is the smallest lag that stops a "
     "dividend funding an admission on its own ex-date.",
-    "splits are AUTHORITATIVE from SHARADAR/ACTIONS and cross-checked against "
-    "the ratio derived from SEP.close vs SEP.closeunadj; ACTIONS wins on "
-    "disagreement and the counts are in `split_reconciliation`. A non-zero "
-    "`disagreed` count means the two sources describe the corpus differently "
-    "and is worth reading before the performance numbers.",
+    "splits are read from SHARADAR/ACTIONS and oriented against the independent "
+    "ratio derived from SEP.close vs SEP.closeunadj. Equal evidence applies the "
+    "stated multiplier; reciprocal evidence applies its reciprocal; unresolved "
+    "disagreement applies no share transformation and is counted in "
+    "`split_reconciliation`.",
     "mixed consideration cannot be expressed by a single ACTIONS row: there is "
     "one `value` column, so a cash-plus-stock deal is modelled as whichever leg "
     "the vendor stated (contraticker present => the value is an exchange ratio; "
@@ -1133,7 +1168,7 @@ __all__ = ["ACTIONS_CAVEATS", "CAVEATS", "DERIVED_SPLIT_CAVEATS",
            "unusable_dividend_rows", "load_actions", "actions_after_session",
            "actions_effective_in_sessions",
            "load_sessions",
-           "reconcile_split",
+           "reconcile_split", "unsnapped_split_ratio",
            "sessions_index", "snap_to_session", "split_ratios_from_actions",
            "terminal_events_from_actions", "terminal_from_action",
            "RawPriceDomainUnavailable", "WealthCoreReplayRequest",

@@ -239,6 +239,16 @@ class NormalisationReport:
     # an older vendor adjustment vintage. Neither is safe to act on
     # unattended; both are worth a human's attention.
     seam_splits_uncorroborated: dict = field(default_factory=dict)
+    # (ticker, session) -> a durable economic disposition. The value records
+    # whether ACTIONS was applied alone, corroborated directly, oriented by a
+    # reciprocal price witness, derived without ACTIONS, suppressed at a fetch
+    # seam, or refused as unresolved.
+    split_dispositions: dict = field(default_factory=dict)
+    # Exact current observations that proved the ordinary 1.0 case.  Merely
+    # producing ratio=1.0 is not evidence: missing predecessor domains also
+    # produce that fallback.  Membership here requires an unsnapped comparison
+    # against a real predecessor within the no-split tolerance.
+    split_no_event_evidence: set = field(default_factory=set)
 
     #: Cap on RETAINED rejection rows. The count is unbounded and exact; only
     #: the per-row detail is capped.
@@ -364,14 +374,28 @@ def normalise_sep_rows(
         # comparison cannot survive: 1.48 becomes 1.0, which is the "no split"
         # value, so a stated 1.5 finds nothing to disagree with.
         unsnapped = unsnapped_split_ratio(p_close, p_raw, close, raw)
+        if (unsnapped is not None
+                and abs(unsnapped - 1.0) <= SPLIT_TOLERANCE):
+            rep.split_no_event_evidence.add((ticker, session))
         if unsnapped is not None and abs(unsnapped - 1.0) > SPLIT_TOLERANCE:
             rep.derived_splits_unsnapped[(ticker, session)] = unsnapped
         stated = (authoritative_splits or {}).get((ticker, session))
         if authoritative_splits is not None:
-            # ACTIONS decides when present; the derived ratio stays as the
-            # cross-check. Two independent sources agreeing is worth more than
-            # one asserting.
-            ratio = float(stated if stated is not None else ratio)
+            if stated is not None:
+                # ACTIONS values are not consistently oriented. Production
+                # reverse splits supplied denominators (30, 9, 7), while a
+                # forward 2-for-1 also supplies 2. Independent price evidence
+                # selects stated versus reciprocal; neither/either ambiguity
+                # is suppressed and made durable.
+                from sentinel.feed import actions_map
+                evidence = (unsnapped if unsnapped is not None
+                            and abs(unsnapped - 1.0) > SPLIT_TOLERANCE else None)
+                ratio, disposition = actions_map.resolve_split_orientation(
+                    float(stated), evidence)
+                rep.split_dispositions[(ticker, session)] = {
+                    "disposition": disposition, "stated": float(stated),
+                    "derived": evidence, "applied_ratio": float(ratio),
+                }
         if from_seed and ratio != 1.0 and stated is None:
             # AN UNCORROBORATED SPLIT AT THE SEAM IS NOT APPLIED.
             #
@@ -394,7 +418,16 @@ def normalise_sep_rows(
             # and the non-downgrade rule in `_BAR_UPSERT` means it cannot erase
             # a ratio an earlier, better-positioned run already established.
             rep.seam_splits_uncorroborated[(ticker, session)] = ratio
+            rep.split_dispositions[(ticker, session)] = {
+                "disposition": "seam_suppressed", "stated": None,
+                "derived": unsnapped, "applied_ratio": 1.0,
+            }
             ratio = 1.0
+        elif stated is None and ratio != 1.0:
+            rep.split_dispositions[(ticker, session)] = {
+                "disposition": "derived_only_applied", "stated": None,
+                "derived": unsnapped, "applied_ratio": float(ratio),
+            }
         if ratio != 1.0:
             rep.splits_detected += 1
         prev[sid] = (close, raw)

@@ -1,4 +1,9 @@
 docs/sentinel-handoff/00_README/FROZEN_SENTINEL_1P1_RULE.json text eol=lf
+# These are parsed/compared as canonical BYTES by the authority boundary.  A
+# Windows checkout must not turn their LF terminator into CRLF before Docker
+# copies them into the runtime image.
+sentinel/trust_roots.json text eol=lf
+deploy/sentinel-authorized-runtime-v1 text eol=lf
 *.sh text eol=lf
 # This CSV is a byte-pinned certification falsifier.  Treating it as text lets
 # core.autocrlf change its SHA-256 in a Windows checkout before the runner can

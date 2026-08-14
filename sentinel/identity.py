@@ -348,8 +348,7 @@ def _corpus_pinned(conn, *, start: str, end: str, publication_record) -> dict:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT session, ticker, action, value, contraticker"
-            " FROM sentinel_actions a WHERE session BETWEEN %s AND %s"
-            f" AND {visible_predicate('a')}"
+            " FROM sentinel_active_actions WHERE session BETWEEN %s AND %s"
             " ORDER BY session, ticker, action", (raw_start, raw_end))
         action_rows = []
         for raw_session, ticker, action, value, contraticker in cur:
@@ -389,11 +388,16 @@ def _corpus_pinned(conn, *, start: str, end: str, publication_record) -> dict:
         "SELECT session, ticker, reason, close_unadjusted, volume"
         " FROM sentinel_ingest_rejections WHERE session BETWEEN %s AND %s"
         " ORDER BY session, ticker, reason", (start, end))
-    anomalies = _digest_query(
-        conn,
-        "SELECT session, ticker, kind, detail FROM sentinel_corpus_anomalies"
-        " WHERE session BETWEEN %s AND %s"
-        " ORDER BY session, ticker, kind", (start, end))
+    # Hash the evidence disposition NAMED BY THIS PUBLICATION, not every
+    # historical or unpublished observation. Otherwise a failed corrective
+    # ingest changes the hash of a corpus whose active evidence did not move,
+    # and stale + current split dispositions are combined in one identity.
+    from sentinel.feed.anomalies import active_rows as active_anomalies
+
+    anomaly_rows = active_anomalies(conn, start=start, end=end)
+    anomalies = _digest_rows(
+        (row["session"], row["ticker"], row["kind"], row["detail"])
+        for row in anomaly_rows)
     # TRUNCATION IS PART OF THE EVIDENCE STATE. A corpus whose refusal evidence
     # was capped is not the same corpus as one whose was complete, even when
     # every stored row is identical — the second can be certified and the first

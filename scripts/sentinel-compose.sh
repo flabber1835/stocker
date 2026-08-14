@@ -10,6 +10,7 @@ cd "$(dirname "$0")/.."
 CANONICAL="docker-compose.sentinel.yml"
 BACKUP="docker-compose.sentinel-backup.yml"
 GENERATED="artifacts/compose/docker-compose.sentinel.nocpu.yml"
+PYTHON="${SENTINEL_PYTHON:-python3}"
 EXPLAIN=0
 RUN=0
 
@@ -29,12 +30,22 @@ note() { [ "$EXPLAIN" -eq 1 ] && printf '%s\n' "$*" >&2 || true; }
   exit 2
 }
 
-if [ "${SENTINEL_FORCE_CPU_LIMITS:-0}" = "1" ]; then
+if [ "${SENTINEL_FORCE_CPU_LIMITS:-0}" = "1" ] && \
+   [ "${SENTINEL_FORCE_NO_CPU_LIMITS:-0}" = "1" ]; then
+  echo "REFUSED: CPU-limit force modes are mutually exclusive" >&2
+  exit 2
+elif [ "${SENTINEL_FORCE_NO_CPU_LIMITS:-0}" = "1" ]; then
+  note "SENTINEL_FORCE_NO_CPU_LIMITS=1 - CPU observed, not bounded"
+  mkdir -p "$(dirname "$GENERATED")"
+  "$PYTHON" scripts/sentinel_strip_cpu_limits.py "$CANONICAL" "$GENERATED" \
+    >&2 || { echo "could not generate the CPU-free compose file" >&2; exit 1; }
+  COMPOSE_ARGS=(--project-directory "$(pwd -P)" -f "$GENERATED" -f "$BACKUP")
+elif [ "${SENTINEL_FORCE_CPU_LIMITS:-0}" = "1" ]; then
   note "SENTINEL_FORCE_CPU_LIMITS=1 - canonical CPU limits"
   COMPOSE_ARGS=(-f "$CANONICAL" -f "$BACKUP")
 else
-  CAPS="$(python3 scripts/sentinel_host_capabilities.py --json 2>/dev/null || echo '{}')"
-  USABLE="$(printf '%s' "$CAPS" | python3 -c \
+  CAPS="$("$PYTHON" scripts/sentinel_host_capabilities.py --json 2>/dev/null || echo '{}')"
+  USABLE="$(printf '%s' "$CAPS" | "$PYTHON" -c \
     'import json,sys
 try: d=json.load(sys.stdin)
 except ValueError: d={}
@@ -46,7 +57,7 @@ print("1" if d.get("cpu_limits_usable", True) else "0")' \
   else
     note "CPU quota UNSUPPORTED - generating CPU-free deployment"
     mkdir -p "$(dirname "$GENERATED")"
-    python3 scripts/sentinel_strip_cpu_limits.py "$CANONICAL" "$GENERATED" \
+    "$PYTHON" scripts/sentinel_strip_cpu_limits.py "$CANONICAL" "$GENERATED" \
       >&2 || { echo "could not generate the CPU-free compose file" >&2; exit 1; }
     COMPOSE_ARGS=(--project-directory "$(pwd -P)" -f "$GENERATED" -f "$BACKUP")
   fi

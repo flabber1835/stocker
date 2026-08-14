@@ -622,6 +622,8 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
     Splits only — see `SUPPORTED_ACTIONS`. Spinoffs and mergers are not
     expressible as a multiplier and are left to foreign-activity handling.
     """
+    from sentinel.feed.publication import visible_predicate
+
     verbs = "|".join(SUPPORTED_ACTIONS)
     with conn.cursor() as cur:
         cur.execute(
@@ -637,10 +639,11 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
             "SELECT sub.security_id, sub.session, sub.value"
             " FROM ("
             "   SELECT b.security_id, a.session, a.value"
-            "     FROM sentinel_actions a"
+            "     FROM sentinel_active_actions a"
             "     CROSS JOIN LATERAL ("
-            "        SELECT security_id FROM sentinel_bars"
+            "        SELECT security_id FROM sentinel_bars b"
             "         WHERE ticker = a.ticker AND session <= a.session"
+            f"           AND {visible_predicate('b')}"
             "         ORDER BY session DESC LIMIT 1"
             "     ) b"
             "    WHERE a.session > %s AND a.session <= %s"

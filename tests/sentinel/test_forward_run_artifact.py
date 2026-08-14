@@ -104,7 +104,8 @@ def _inputs(tmp_path):
             "coherent": True, "version": 81, "unpublished_rows": 0,
             "unpublished_bars": 0, "unpublished_actions": 0,
             "unpublished_spy": 0, "unpublished_universe": 0,
-            "unpublished_repairs": 0, "unpublished_runs": [],
+            "unpublished_repairs": 0, "unpublished_anomalies": 0,
+            "unpublished_runs": [],
             "enumeration": "exhaustive",
         },
         "corpus_identity": {
@@ -197,7 +198,7 @@ def test_run_formal_owns_one_broker_free_invocation(tmp_path, monkeypatch):
 @pytest.mark.parametrize("mutation", [
     "minimal_pass", "partial_count", "write_transaction", "wrong_corpus",
     "wrong_runner", "runtime_identity", "nonzero_exit", "stderr",
-    "broker_option",
+    "broker_option", "unpublished_anomaly",
 ])
 def test_fabricated_partial_or_mutating_run_cannot_publish(tmp_path, mutation):
     manifest, report, _, command = _inputs(tmp_path)
@@ -220,6 +221,11 @@ def test_fabricated_partial_or_mutating_run_cannot_publish(tmp_path, mutation):
         exit_code = 1
     elif mutation == "stderr":
         stderr = b"warning\n"
+    elif mutation == "unpublished_anomaly":
+        report["publication_coherence"]["coherent"] = False
+        report["publication_coherence"]["unpublished_rows"] = 1
+        report["publication_coherence"]["unpublished_anomalies"] = 1
+        report["publication_coherence"]["unpublished_runs"] = ["candidate"]
     else:
         command[7:9] = ["-e", "ALPACA_API_KEY"]
     stdout = json.dumps(report, sort_keys=True).encode()

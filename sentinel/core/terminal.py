@@ -358,8 +358,6 @@ def load_terminal_events(conn, *, start: str, end: str,
     termination would be invisible rather than refused.
     """
     from sentinel.feed import calendar
-    from sentinel.feed.publication import visible_predicate
-
     # Query raw dates that can snap into the requested effective-session window.
     # A Saturday acquisition requested for Monday must be discovered on Monday,
     # not stranded forever because no run processes Saturdays.
@@ -373,8 +371,7 @@ def load_terminal_events(conn, *, start: str, end: str,
         # to a book marked from a different generation of the data.
         cur.execute(
             "SELECT ticker, session, action, value, contraticker"
-            " FROM sentinel_actions a WHERE session BETWEEN %s AND %s"
-            f"   AND {visible_predicate('a')}"
+            " FROM sentinel_active_actions WHERE session BETWEEN %s AND %s"
             " ORDER BY session, ticker, action", (raw_start, raw_end))
         rows = cur.fetchall()
 

@@ -230,6 +230,103 @@ def test_backup_root_accepts_an_explicit_dedicated_target(tmp_path):
     assert result.stdout.strip() == str(target.resolve())
 
 
+def _backup_root_case(tmp_path, *, docker_root, root_device="10",
+                      docker_device="20", attested=False):
+    target = tmp_path / "target"
+    (target / "wal").mkdir(parents=True)
+    (target / "base").mkdir()
+    fake_bin = tmp_path / "bin-case"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = info ]; then printf '%s\\n' \"$FAKE_DOCKER_ROOT\"; exit 0; fi\n"
+        "case \" $* \" in *' --entrypoint id '*) echo 999;; esac\n"
+        "exit 0\n")
+    docker.chmod(0o755)
+    stat = fake_bin / "stat"
+    stat.write_text(
+        "#!/bin/sh\n"
+        "case \"$3\" in \"$SENTINEL_BACKUP_DIR\") echo \"$FAKE_ROOT_DEVICE\";;"
+        " *) echo \"$FAKE_DOCKER_DEVICE\";; esac\n")
+    stat.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "SENTINEL_BACKUP_DIR": str(target),
+        "FAKE_DOCKER_ROOT": str(docker_root),
+        "FAKE_ROOT_DEVICE": root_device,
+        "FAKE_DOCKER_DEVICE": docker_device,
+    }
+    if attested:
+        env["SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED"] = "1"
+    return subprocess.run(
+        ["bash", "-c", ". scripts/sentinel-backup-lib.sh; sentinel_backup_root"],
+        cwd=ROOT, env=env, capture_output=True, text=True)
+
+
+def test_backup_root_absent_or_unreadable_fails_closed_without_attestation(
+        tmp_path):
+    if os.name == "nt":
+        return
+    absent = _backup_root_case(tmp_path / "absent",
+                               docker_root=tmp_path / "missing")
+    assert absent.returncode != 0 and "could not be traversed" in absent.stderr
+
+    unreadable = tmp_path / "unreadable" / "docker-root"
+    unreadable.parent.mkdir(parents=True)
+    unreadable.write_text("not a traversable directory")
+    refused = _backup_root_case(tmp_path / "protected", docker_root=unreadable)
+    assert refused.returncode != 0 and "could not be traversed" in refused.stderr
+    attested = _backup_root_case(
+        tmp_path / "protected-attested", docker_root=unreadable, attested=True)
+    assert attested.returncode == 0, attested.stderr
+
+
+def test_backup_root_readable_device_and_attestation_matrix(tmp_path):
+    if os.name == "nt":
+        return
+    docker_root = tmp_path / "docker-root"
+    docker_root.mkdir()
+    same = _backup_root_case(tmp_path / "same", docker_root=docker_root,
+                             root_device="7", docker_device="7")
+    assert same.returncode != 0 and "same device" in same.stderr
+
+    independent = _backup_root_case(
+        tmp_path / "independent", docker_root=docker_root,
+        root_device="7", docker_device="8")
+    assert independent.returncode == 0, independent.stderr
+
+    attested = _backup_root_case(
+        tmp_path / "attested", docker_root=docker_root,
+        root_device="7", docker_device="7", attested=True)
+    assert attested.returncode == 0, attested.stderr
+
+
+def test_attestation_never_allows_a_path_inside_docker_root(tmp_path):
+    if os.name == "nt":
+        return
+    docker_root = tmp_path / "docker-root"
+    target = docker_root / "backups"
+    (target / "wal").mkdir(parents=True)
+    (target / "base").mkdir()
+    fake_bin = tmp_path / "inside-bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(
+        "#!/bin/sh\nif [ \"$1\" = info ]; then echo \"$FAKE_DOCKER_ROOT\"; fi\n")
+    docker.chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-c", ". scripts/sentinel-backup-lib.sh; sentinel_backup_root"],
+        cwd=ROOT, capture_output=True, text=True,
+        env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+             "FAKE_DOCKER_ROOT": str(docker_root),
+             "SENTINEL_BACKUP_DIR": str(target),
+             "SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED": "1"})
+    assert result.returncode != 0
+    assert "inside Docker's data root" in result.stderr
+
+
 def test_base_backup_requires_post_base_marker_wal_before_metadata():
     text = _read("scripts/sentinel-base-backup.sh")
     assert "sentinel_backup_recovery_markers" in text

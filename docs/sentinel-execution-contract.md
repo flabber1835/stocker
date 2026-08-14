@@ -869,14 +869,32 @@ The last two matter more than they look. Without them a decision stamped `v52` i
 only approximately true, and approximately-true provenance is worse than none —
 it will be believed.
 
-Bars, actions and universe rows additionally carry `last_written_run_id`, which
-is nearly free (`write_bars` already runs inside an `IngestRun`) and answers
-"which ingest produced this value" without any revision history. **Published is
-what readable means**: `publication.visible_predicate` hides any row whose
-`last_written_run_id` belongs to a run no publication represents, so a reader
-either sees a coherent generation or refuses. Rows with a NULL run id stay
-visible — they predate the tracking, and hiding them would empty an existing
-corpus on upgrade.
+Bars and universe rows additionally carry `last_written_run_id`, which is nearly
+free (`write_bars` already runs inside an `IngestRun`) and answers "which ingest
+produced this value" without bar revision history. **Published is what readable
+means**: `publication.visible_predicate` hides any row whose writer run has no
+publication. Rows with a NULL run id stay visible because they predate tracking.
+
+ACTIONS uses the stronger snapshot form needed by a complete-source response.
+`sentinel_actions` is the immutable pre-upgrade baseline;
+`sentinel_action_generations` records each explicitly and completely fetched raw
+date window, and `sentinel_action_observations` appends `PRESENT` or `REMOVED`
+evidence for every affected economic key. `sentinel_active_actions` ranks the
+legacy baseline and published observations by corpus publication and exposes
+only the newest `PRESENT` disposition. A corrected value is another `PRESENT`
+observation; a row absent from a later complete response is `REMOVED`, not
+deleted. An unpublished or failed generation is durable history but cannot
+change the active action set. The ingest may overlay its own candidate
+generation while normalising that same run; all other consumers read the
+published active view. This is deliberately narrower than bar reconstruction,
+but it gives complete ACTIONS snapshots the lifecycle an upsert cannot express.
+Each generation has append-only `PENDING` and terminal `PUBLISHED`, `ABORTED`,
+or `SUPERSEDED` events. A successfully published covering retry supersedes an
+older publication-failed candidate; a narrower fetch cannot. Recovery and
+failed-ingest handling abort only pending generations under the corpus writer
+lock. The same publication transaction activates the action generation,
+anomaly disposition, and split-repair overlay, and rolls all activation back if
+the publication row fails.
 
 ### 8.3 Published is not enough on its own — the pin must freeze the ROWS
 
@@ -944,6 +962,51 @@ incomplete.
 
 Sparse securities are affected anywhere in the window, not just at its edge: a
 name whose only print in the window is mid-window has no predecessor either.
+
+### 9.1a Uncertain split evidence is cumulative and publication-scoped
+
+An uncertain split is not made irrelevant by the security failing an admission
+floor on the event date. The ratio changes its cumulative signal series for
+every later session, so it can change later eligibility, rankings, selections,
+holdings, accounting and hashes. The observed holdings are not a counterfactual
+witness: incorrect split treatment can be why the security never appears there.
+Consequently `SPLIT_ONLY_DERIVED` and `SEAM_SPLIT_UNCORROBORATED` block
+certification unless a complete interval replay proves equivalence under every
+plausible treatment. The present system has no such proof and uses no local
+price, liquidity or book proxy. Authoritative and directly/reciprocally
+corroborated split dispositions remain resolved.
+
+Anomaly observations use the same publication boundary as their corpus. They
+are append-only and carry `last_written_run_id`; the active disposition is the
+one associated with the newest successful publication for the economic event.
+Each stamped observation also has append-only lifecycle evidence: `PENDING`,
+then exactly one terminal `PUBLISHED`, `ABORTED`, or `SUPERSEDED`. Only an
+unpublished observation whose latest state is `PENDING` is live candidate work
+and blocks corpus coherence. A terminal failed run and `reclaim_orphans()`
+durably abort their candidates under the corpus writer lock; a successful
+publication marks its observations published and supersedes older pending
+observations for the same explicitly covered event in the same transaction as
+the corpus publication. Historical observation and lifecycle rows are never
+deleted. Repeating recovery is idempotent, and a recovery transition can touch
+only pending evidence, so it cannot retire a newer published disposition. A
+database constraint permits at most one terminal state per observation, and
+publication refuses stamped anomaly evidence whose ingest is not durably
+`success`.
+
+Silence is not a disposition. A current ingest that proves a previously
+anomalous event is clean emits an explicit `DIVIDEND_RESOLVED` or
+`SPLIT_RESOLVED_NO_EVENT` observation. A dividend resolution requires a current
+authoritative ACTIONS row for the same event with a usable positive amount. A
+split no-event resolution requires a complete current ACTIONS generation, an
+SEP comparison against a real predecessor whose unsnapped price-domain ratio is
+within the no-split tolerance, no current authoritative split, and an effective
+candidate split ratio of exactly `1.0`. If the base bar preserves an older
+non-1 ratio, the corrective run appends a `1.0` split-repair overlay. The repair,
+action removal, and resolved disposition become active through the same corpus
+publication; publication failure leaves the older action, effective ratio, and
+blocker active. Missing coverage or missing ratio correction emits no tombstone.
+Legacy rows with no run identity remain the oldest baseline, never silently
+discarded; ambiguous baseline ties remain fail-closed.
 
 ### 9.2 The fix
 
