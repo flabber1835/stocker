@@ -75,6 +75,26 @@ the explicit attestation path works without attempting to traverse the
 protected directory. Tests distinguish absent, unreadable, same-device, and
 independent-device targets.
 
+### 6. Legacy corpus publication cannot backfill the required SPY tail
+
+**Observed:** publishing a previously unversioned corpus with `feed-daily`
+advanced prices through the current session, but the legacy database had no
+rows in `sentinel_spy_total_return`. Daily ingestion overlaps 14 calendar days,
+while readiness requires an exact 41-session SPY total-return tail, leaving all
+41 required rows absent after a successful current publication.
+
+**Impact:** the corpus is coherent, versioned, continuous, and fresh but can
+never pass readiness through repeated daily operation. The runbook forbids
+`feed-seed` over a non-empty corpus and there is no supported benchmark-only
+backfill command, so an upgraded deployment reaches an operational dead end.
+
+**Acceptance:** legacy publication detects an incomplete required benchmark
+tail and performs a bounded, versioned SPY backfill (or exposes an explicit
+idempotent repair command). It must not rewrite unrelated bars, weaken corpus
+locking/publication, or require a full reseed. A PostgreSQL-backed falsifier
+starts with a complete legacy bar corpus and empty SPY table, runs the supported
+upgrade sequence, and ends with a passing 41-session frontier benchmark.
+
 ## Deployment observations that are not yet code defects
 
 - Existing PostgreSQL volumes do not adopt a changed Compose password. The
