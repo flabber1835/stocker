@@ -219,6 +219,25 @@ def split_ratio_from_domains(prev_close: float | None, prev_raw: float | None,
     return float(snapped) if snapped > 0 else 1.0
 
 
+def unsnapped_split_ratio(prev_close: float | None, prev_raw: float | None,
+                          close: float | None,
+                          raw: float | None) -> float | None:
+    """Independent orientation evidence before fallback share-count snapping.
+
+    A genuine 3:2 event is 1.5 in the price domains, but the derived-only
+    fallback deliberately snaps ratios to a reconcilable integer/reciprocal.
+    Reusing that snapped value as the ACTIONS cross-check destroys the witness
+    and turns corroboration into a false disagreement. Sentinel preserves these
+    two values separately; the canonical backtester must do the same.
+    """
+    vals = (prev_close, prev_raw, close, raw)
+    if any(v is None or v <= 0 for v in vals):
+        return None
+    before = prev_raw / prev_close
+    after = raw / close
+    return before / after if after > 0 else None
+
+
 # ── SHARADAR/ACTIONS: the authoritative corporate-action stream ─────────────
 # Pure functions first, DB access after. The mapping rules are where this can
 # silently mis-state a book, so they are testable without a Sharadar corpus.
@@ -894,10 +913,10 @@ def load_bars(conn, start: str, end: str,
     carries. Passing `open` straight through would fill orders in one domain and
     mark the resulting position in another.
 
-    When `authoritative_splits` is supplied, ACTIONS decides the ratio and the
-    derived one becomes a cross-check whose outcome is tallied into
-    `reconciliation`. Omitting it keeps the pre-ACTIONS behaviour exactly, which
-    is what makes the fallback path testable rather than merely claimed.
+    When `authoritative_splits` is supplied, ACTIONS identifies the event and
+    the unsnapped price-domain ratio selects direct versus reciprocal
+    orientation. Its outcome is tallied into `reconciliation`. Omitting ACTIONS
+    keeps the snapped derived fallback, which remains explicitly uncertified.
     """
     prev: dict[str, tuple[float | None, float | None]] = {}
     out: dict[str, list[VendorBar]] = {}
@@ -919,8 +938,11 @@ def load_bars(conn, start: str, end: str,
         p_close, p_raw = prev.get(sid, (None, None))
         ratio = split_ratio_from_domains(p_close, p_raw, close, raw)
         if authoritative_splits is not None:
+            unsnapped = unsnapped_split_ratio(p_close, p_raw, close, raw)
+            evidence = (unsnapped if unsnapped is not None
+                        and abs(unsnapped - 1.0) > 0.02 else 1.0)
             ratio, outcome = reconcile_split(
-                ratio, authoritative_splits.get((tkr, session)))
+                evidence, authoritative_splits.get((tkr, session)))
             if reconciliation is not None and not (
                     outcome == "agreed" and ratio == 1.0):
                 # Only EVENTS are counted. Tallying every quiet bar as "agreed"
@@ -1146,7 +1168,7 @@ __all__ = ["ACTIONS_CAVEATS", "CAVEATS", "DERIVED_SPLIT_CAVEATS",
            "unusable_dividend_rows", "load_actions", "actions_after_session",
            "actions_effective_in_sessions",
            "load_sessions",
-           "reconcile_split",
+           "reconcile_split", "unsnapped_split_ratio",
            "sessions_index", "snap_to_session", "split_ratios_from_actions",
            "terminal_events_from_actions", "terminal_from_action",
            "RawPriceDomainUnavailable", "WealthCoreReplayRequest",

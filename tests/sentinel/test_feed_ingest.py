@@ -261,8 +261,8 @@ class TestDaily:
                         " WHERE last_written_run_id=%s",
                         (publication.current(conn).run_id,))
             assert cur.fetchone()[0] == 41
-            cur.execute("SELECT mode, COUNT(*) FROM feed_ingest_runs"
-                        " WHERE status='success' GROUP BY mode ORDER BY mode")
+            cur.execute("SELECT kind, COUNT(*) FROM feed_ingest_runs"
+                        " WHERE status='success' GROUP BY kind ORDER BY kind")
             assert cur.fetchall() == [("daily", 2), ("seed", 1)]
 
         result = readiness.check_readiness(conn, today=frontier)
