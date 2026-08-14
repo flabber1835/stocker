@@ -302,9 +302,23 @@ it does not become execution exposure until the rollout mode changes.
 transition from `CONTROLLER` back to `PINNED_1_00` can move exposure from 0,
 0.55, or 0.65 to 1.00 and therefore **increase** risk. It is never labelled a
 de-risking action and its CLI confirmation names that exposure-increase risk.
-The rollout singleton is seeded only when its table is genuinely created; a
-missing row in an existing table is corruption and routine startup refuses
-rather than silently recreating operational intent.
+The rollout singleton is seeded only by the first versioned behavioral-schema
+migration on a behaviorally empty database or a recognized pre-rollout schema.
+Table absence alone is never upgrade evidence. The one-time compatibility
+bridge for the complete intact schema shipped at `6113bffd` records the
+migration version without changing its existing rollout row, history,
+certificates, plans, or account state. A missing row, missing rollout table,
+mixed old/new fingerprint, or missing/corrupt migration ledger is corruption;
+routine startup refuses rather than recreating or resetting operational
+intent. Inspection, DDL, the initial seed, and the migration record are
+serialized by one transaction-scoped advisory lock and commit atomically.
+Complete loss of every behavioral relation is indistinguishable inside an empty
+catalog from a genuinely new deployment. Before the one-time 6113 bridge has
+installed its ledger/witness, simultaneous loss of every rollout/certificate
+table and plan-stamp column can likewise resemble the exact pre-rollout schema.
+Do not use table-selective restores; preserve database/volume identity and
+restore the whole verified backup so that all migration witnesses cannot vanish
+together.
 
 The transition is deliberately separate from daily preparation, but it is not
 currently available. An operator-confirmed SHA-256 authenticates manifest
@@ -1268,8 +1282,9 @@ limits stay provisional until the artefacts above exist.
 
 ### 10g. PostgreSQL requires a second-target backup, not only a volume
 
-`sentinel_pgdata` is the canonical strategy state, account binding, current
-plan, execution journal and corpus. A named volume protects it from container
+`sentinel_pgdata` is the canonical strategy state, behavioral-migration ledger,
+rollout intent and history, account binding, current plan, execution journal and
+corpus. A named volume protects it from container
 replacement; it does not protect it from disk loss, corruption or operator
 error. Production operation therefore includes continuous WAL archiving to an
 operator-owned second durable target, periodic physical base backups, an age
@@ -1309,7 +1324,8 @@ Status refuses disabled archiving, a stale last success, or a failure newer
 than the last success. The restore drill copies the newest base backup to a
 uniquely named disposable Docker volume, starts PostgreSQL with no network and
 no published port, applies archived WAL through that exact post-base marker and
-LSN, checks the canonical tables, then
+LSN, checks the canonical tables including the behavioral-migration ledger and
+rollout state, then
 removes only that named container and volume. It never writes the primary.
 
 `archive_command` publishes each WAL filename as an immutable object. Merely

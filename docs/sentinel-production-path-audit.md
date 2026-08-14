@@ -173,7 +173,7 @@ convergence, not a paper-deployment outcome.
 | Breadth inputs are not produced | Closed by the production holdings adapter and session transition |
 | SPY sensing is not wired | Closed through the published `closeadj` loader |
 | Controller state is not restored or persisted | Closed in version-3 canonical state |
-| Exposure remains pinned to 1.00 | Implemented as the default durable rollout; controller exposure remains blocked behind an explicit certified transition |
+| Exposure remains pinned to 1.00 | Implemented as the one-time ledger-authorized initial durable rollout for an empty or recognized pre-rollout behavioral schema; controller exposure remains blocked behind an explicit certified transition |
 | Execution is unreachable | Gateway implemented, but intentionally unreachable until trusted certificate issuance/signature verification is separately reviewed |
 | No clean-path/restart evidence | Closed for the specified simulator and durable-boundary scenarios |
 | Runtime rule lives in the handoff artifact tree | Still true; digest verification makes it explicit and reproducible |

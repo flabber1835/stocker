@@ -21,7 +21,10 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
-from tests.support.postgres import _EphemeralPostgres  # noqa: E402
+from tests.support.postgres import (  # noqa: E402
+    _EphemeralPostgres,
+    drop_public_tables,
+)
 
 from sentinel import authority, binding, handover, paper, schema  # noqa: E402
 from sentinel.broker import CloseResult  # noqa: E402
@@ -114,11 +117,7 @@ def pg():
 @pytest.fixture()
 def conn(pg):
     connection = feed_store.connect(pg.sync_dsn)
-    with connection.cursor() as cur:
-        cur.execute("SELECT tablename FROM pg_tables WHERE schemaname='public'")
-        for (table,) in cur.fetchall():
-            cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
-    connection.commit()
+    drop_public_tables(connection)
     feed_store.ensure_schema(connection)
     schema.ensure_schema(connection)
     yield connection
@@ -1095,10 +1094,25 @@ class TestStrictExecutionGate:
             self, conn, monkeypatch):
         _install_current_authorities(conn)
         _ready(monkeypatch)
+        certificate_sha = "d" * 64
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE sentinel_rollout_state SET version=version+1"
-                " WHERE id=1")
+                "INSERT INTO sentinel_system_certificates"
+                " (certificate_sha256,manifest_bytes,manifest,"
+                "  allowed_rollout_modes)"
+                " VALUES (%s,'{}'::bytea,'{}'::jsonb,"
+                "         '[\"CONTROLLER\"]'::jsonb)",
+                (certificate_sha,))
+            cur.execute(
+                "UPDATE sentinel_rollout_state"
+                " SET mode='CONTROLLER',version=2,certificate_sha256=%s"
+                " WHERE id=1", (certificate_sha,))
+            cur.execute(
+                "INSERT INTO sentinel_rollout_events"
+                " (version,from_mode,to_mode,certificate_sha256,reason)"
+                " VALUES (2,'PINNED_1_00','CONTROLLER',%s,"
+                "         'test coherent authority transition')",
+                (certificate_sha,))
         conn.commit()
         broker = _broker()
 

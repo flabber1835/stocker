@@ -27,11 +27,253 @@ book. Making it unrepresentable is cheaper than detecting it.
 """
 from __future__ import annotations
 
+import hashlib
+import json
+
 _SCHEMA_LOCK = (1_397_050_964, 1_380_928_588)  # ASCII SENT / ROLL.
 
+_MIGRATION_VERSION = 1
+_MIGRATION_NAME = "rollout-authority-v1"
+_MIGRATION_CONTRACT = (
+    "sentinel.behavioral-schema/1;rollout-ledger-authority;"
+    "empty-or-recognized-fb97372-or-69cdfe8-legacy-seeds-pinned-v1;"
+    "6113bffd896824ee24891b0c1aeada60c2b73ef5-bridge-preserves-state;"
+    "execution-plan-rollout-columns-have-no-defaults;"
+    "plan-authority-check-all-null-or-coherent;"
+    "complete-behavioral-catalog-fingerprint")
+_MIGRATION_SHA256 = hashlib.sha256(
+    _MIGRATION_CONTRACT.encode("ascii")).hexdigest()
+_REVIEWED_HEAD = "6113bffd896824ee24891b0c1aeada60c2b73ef5"
+
 _INITIAL_ROLLOUT_STATE = """INSERT INTO sentinel_rollout_state
-    (id,mode,version) VALUES (1,'PINNED_1_00',1)
-    ON CONFLICT (id) DO NOTHING"""
+    (id,mode,version) VALUES (1,'PINNED_1_00',1)"""
+
+_MIGRATION_LEDGER_DDL = """CREATE TABLE sentinel_behavioral_schema_migrations (
+    version          INT PRIMARY KEY CHECK (version > 0),
+    name             TEXT        NOT NULL UNIQUE,
+    migration_sha256 TEXT        NOT NULL
+                     CHECK (migration_sha256 ~ '^[0-9a-f]{64}$'),
+    bootstrap_kind   TEXT        NOT NULL
+                     CHECK (bootstrap_kind IN
+                            ('NEW','LEGACY','PR84_HEAD_BRIDGE')),
+    source_git_oid   TEXT,
+    applied_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK ((bootstrap_kind = 'PR84_HEAD_BRIDGE'
+            AND source_git_oid IS NOT NULL)
+        OR (bootstrap_kind <> 'PR84_HEAD_BRIDGE'
+            AND source_git_oid IS NULL)))"""
+
+# These defaults existed at the reviewed PR head.  Dropping them is both the
+# correct plan-authority contract and an independent post-ledger witness: if the
+# ledger is later lost, that database cannot masquerade as the one-time 6113
+# compatibility bridge, whose exact fingerprint still has both defaults.
+_MIGRATION_FINALIZE_DDL = (
+    """ALTER TABLE sentinel_execution_plans
+        ALTER COLUMN rollout_mode DROP DEFAULT""",
+    """ALTER TABLE sentinel_execution_plans
+        ALTER COLUMN rollout_version DROP DEFAULT""",
+    """ALTER TABLE sentinel_execution_plans
+        ADD CONSTRAINT sentinel_execution_plan_rollout_authority_ck CHECK (
+            (rollout_mode IS NULL
+             AND rollout_version IS NULL
+             AND rollout_certificate_sha256 IS NULL)
+            OR
+            (rollout_mode IS NOT NULL
+             AND rollout_version IS NOT NULL
+             AND rollout_mode IN ('PINNED_1_00','CONTROLLER')
+             AND rollout_version >= 1
+             AND ((rollout_mode = 'PINNED_1_00'
+                   AND rollout_certificate_sha256 IS NULL)
+                  OR (rollout_mode = 'CONTROLLER'
+                      AND rollout_certificate_sha256 IS NOT NULL))))""",
+)
+
+
+class SchemaMigrationRefused(RuntimeError):
+    """Behavioral migration authority is absent, corrupt, or inconsistent.
+
+    Routine startup must never repair this condition.  In particular, table
+    absence is not permission to recreate a rollout singleton whose previous
+    value may have been CONTROLLER.
+    """
+
+
+_PRE_ROLLOUT_COLUMNS = {
+    "sentinel_account_binding": frozenset({
+        "id", "deployment_id", "broker", "broker_account_id",
+        "takeover_epoch", "ownership_state", "established_at", "updated_at",
+        "notes"}),
+    "sentinel_ownership_events": frozenset({
+        "seq", "state", "at", "detail"}),
+    "sentinel_execution_plans": frozenset({
+        "plan_id", "decision_session", "effective_session", "target_exposure",
+        "data_version", "shadow_snapshot_hash", "sentinel_transition_hash",
+        "strategy_fingerprint", "deployment_id", "broker",
+        "broker_account_id", "takeover_epoch", "publication_fingerprint",
+        "account_nav", "account_cash", "cash_residual",
+        "unpriced_securities", "defensive_security", "target_basket",
+        "superseded_by", "created_at"}),
+    "sentinel_commands": frozenset({
+        "client_key", "plan_id", "security_id", "revision", "symbol",
+        "broker_instrument_id", "side", "quantity", "state",
+        "broker_order_id", "filled_quantity", "filled_average_price", "detail",
+        "recovered", "created_at", "updated_at"}),
+    "sentinel_command_events": frozenset({
+        "seq", "client_key", "from_state", "to_state", "filled_quantity",
+        "detail", "at"}),
+    "sentinel_fills": frozenset({
+        "broker_order_id", "fill_key", "client_key", "quantity", "price",
+        "filled_at"}),
+    "sentinel_observations": frozenset({
+        "seq", "observed_at", "terminal_recovery_through", "completeness",
+        "positions", "orders", "runtime_state"}),
+    "sentinel_terminal_recovery_watermark": frozenset({
+        "id", "broker", "broker_account_id", "processed_through",
+        "updated_at"}),
+    "sentinel_processed_sessions": frozenset({
+        "cursor_name", "session", "state", "updated_at"}),
+    "sentinel_cash_flows": frozenset({
+        "flow_id", "session", "amount", "detail", "recorded_at"}),
+    "sentinel_nav_reconciliations": frozenset({
+        "session", "previous_nav", "observed_nav", "marked_pl", "external",
+        "unexplained", "attribution", "reconciled_at"}),
+}
+
+_COMMAND_AUTHORITY_COLUMNS = frozenset({
+    "deployment_id", "broker", "broker_account_id", "takeover_epoch"})
+_ROLLOUT_PLAN_COLUMNS = frozenset({
+    "rollout_mode", "rollout_version", "rollout_certificate_sha256"})
+
+_ROLLOUT_COLUMNS = {
+    "sentinel_system_certificates": frozenset({
+        "certificate_sha256", "manifest_bytes", "manifest",
+        "allowed_rollout_modes", "installed_at", "revoked_at",
+        "revocation_reason"}),
+    "sentinel_system_certificate_events": frozenset({
+        "seq", "certificate_sha256", "action", "detail", "at"}),
+    "sentinel_rollout_state": frozenset({
+        "id", "mode", "version", "certificate_sha256", "updated_at"}),
+    "sentinel_rollout_events": frozenset({
+        "seq", "version", "from_mode", "to_mode", "certificate_sha256",
+        "reason", "at"}),
+}
+
+_LEDGER_COLUMNS = frozenset({
+    "version", "name", "migration_sha256", "bootstrap_kind",
+    "source_git_oid", "applied_at"})
+
+_PRE_ROLLOUT_TABLES = frozenset(_PRE_ROLLOUT_COLUMNS)
+_ROLLOUT_TABLES = frozenset(_ROLLOUT_COLUMNS)
+_LEDGER_TABLE = "sentinel_behavioral_schema_migrations"
+_CURRENT_NO_LEDGER_TABLES = _PRE_ROLLOUT_TABLES | _ROLLOUT_TABLES
+_CURRENT_TABLES = _CURRENT_NO_LEDGER_TABLES | {_LEDGER_TABLE}
+
+# Semantic pg_catalog hashes, derived from the frozen source fixtures. They are
+# stable across the repository-pinned PostgreSQL 16 and test-image PostgreSQL
+# 17 because OIDs, owners, attnum order, and physical storage are excluded.
+# Constraint/index behavior is included: losing the one-in-flight-command
+# unique index, a primary key, or a check is corruption, not a startup repair.
+_PRE_ROLLOUT_CATALOG_SHA256 = frozenset({
+    # fb97372a166299b23ce7e9fa6951a6304e1c5333
+    "a9f792a3e45c38e066d0c9f19b1b6e235463b693ec02f4472d06af1dd4d51263",
+    # 69cdfe8085a73bc68cc66da0d8dd3f9cd0bafd88
+    "3d62faae998cc6d90a238e73025208c1e5a36dfc13f4a2aceb62dca4438d1020",
+})
+_REVIEWED_HEAD_CATALOG_SHA256 = (
+    "27f9fdc4ef0554cea60f0daa0973a138cc040047bbe98dab943ec5cd3cc753e1")
+_TARGET_CATALOG_SHA256 = {
+    "NEW": "c28490dc09038f1f6ed228e2a12b44222f2c76d72285395c51ed353646b80065",
+    "PR84_HEAD_BRIDGE": (
+        "c28490dc09038f1f6ed228e2a12b44222f2c76d72285395c51ed353646b80065"),
+    "LEGACY": (
+        "99bba3659cac35f9b6e797f861e2dbffd191824bfc6c02f5db66d693cf9cfd66"),
+}
+
+# Corpus tables may legitimately be installed before behavioral schema (the
+# prepare CLI does exactly that).  They do not disqualify a database from being
+# behaviorally empty.  An unknown ``sentinel_*`` table does: it may be evidence
+# from a newer or damaged schema this build has no authority to reinterpret.
+_FEED_TABLES = frozenset({
+    "sentinel_bars", "sentinel_spy_total_return",
+    "sentinel_ingest_rejections", "sentinel_rejection_truncation",
+    "sentinel_corpus_anomalies", "sentinel_actions", "sentinel_universe",
+    "sentinel_corpus_publications", "sentinel_bar_split_repairs",
+    "sentinel_readiness_snapshots", "sentinel_sep_staging",
+})
+
+_PLAN_AUTHORITY_CHECK = "sentinel_execution_plan_rollout_authority_ck"
+
+_ROLLOUT_CONSTRAINT_MANIFESTS = {
+    "sentinel_rollout_state": frozenset({
+        ("p", "primary key (id)", True),
+        ("c", "check (id = 1)", True),
+        ("c", "check (mode = any (array['PINNED_1_00'::text, "
+              "'CONTROLLER'::text]))", True),
+        ("c", "check (version >= 1)", True),
+        ("c", "check (mode = 'PINNED_1_00'::text and "
+              "certificate_sha256 is null or mode = 'CONTROLLER'::text and "
+              "certificate_sha256 is not null)", True),
+    }),
+    "sentinel_rollout_events": frozenset({
+        ("p", "primary key (seq)", True),
+        ("u", "unique (version)", True),
+    }),
+    "sentinel_system_certificates": frozenset({
+        ("p", "primary key (certificate_sha256)", True),
+        ("c", "check (revoked_at is null and revocation_reason is null or "
+              "revoked_at is not null and revocation_reason is not null)",
+         True),
+    }),
+    "sentinel_system_certificate_events": frozenset({
+        ("p", "primary key (seq)", True),
+        ("c", "check (action = any (array['INSTALLED'::text, "
+              "'REVOKED'::text]))", True),
+    }),
+}
+
+_ROLLOUT_DEFAULT_MANIFESTS = {
+    "sentinel_rollout_state": {
+        "id": "1", "mode": "", "version": "",
+        "certificate_sha256": "", "updated_at": "now()",
+    },
+    "sentinel_rollout_events": {
+        "seq": "nextval('sentinel_rollout_events_seq_seq'::regclass)",
+        "version": "", "from_mode": "", "to_mode": "",
+        "certificate_sha256": "", "reason": "", "at": "now()",
+    },
+    "sentinel_system_certificates": {
+        "certificate_sha256": "", "manifest_bytes": "", "manifest": "",
+        "allowed_rollout_modes": "", "installed_at": "now()",
+        "revoked_at": "", "revocation_reason": "",
+    },
+    "sentinel_system_certificate_events": {
+        "seq": (
+            "nextval('sentinel_system_certificate_events_seq_seq'::regclass)"),
+        "certificate_sha256": "", "action": "", "detail": "",
+        "at": "now()",
+    },
+}
+
+_PLAN_AUTHORITY_DEFINITION = (
+    "check (rollout_mode is null and rollout_version is null and "
+    "rollout_certificate_sha256 is null or rollout_mode is not null and "
+    "rollout_version is not null and (rollout_mode = any "
+    "(array['PINNED_1_00'::text, 'CONTROLLER'::text])) and "
+    "rollout_version >= 1 and (rollout_mode = 'PINNED_1_00'::text and "
+    "rollout_certificate_sha256 is null or rollout_mode = "
+    "'CONTROLLER'::text and rollout_certificate_sha256 is not null))")
+
+_LEDGER_CONSTRAINT_MANIFEST = frozenset({
+    ("p", "primary key (version)", True),
+    ("u", "unique (name)", True),
+    ("c", "check (version > 0)", True),
+    ("c", "check (migration_sha256 ~ '^[0-9a-f]{64}$'::text)", True),
+    ("c", "check (bootstrap_kind = any (array['NEW'::text, "
+          "'LEGACY'::text, 'PR84_HEAD_BRIDGE'::text]))", True),
+    ("c", "check (bootstrap_kind = 'PR84_HEAD_BRIDGE'::text and "
+          "source_git_oid is not null or bootstrap_kind <> "
+          "'PR84_HEAD_BRIDGE'::text and source_git_oid is null)", True),
+})
 
 DDL = (
     # ------------------------------------------------------------------
@@ -100,10 +342,9 @@ DDL = (
         at                  TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
 
     # ------------------------------------------------------------------
-    # EXPOSURE ROLLOUT. New databases are deliberately pinned at 1.00. The
-    # singleton is seeded by ensure_schema ONLY when this table did not exist;
-    # keeping the insert out of this replayed DDL is what makes deletion of the
-    # operational row a refusal rather than an implicit reset on restart. A
+    # EXPOSURE ROLLOUT. New and recognized pre-rollout databases are
+    # deliberately pinned at 1.00 by the versioned migration, never by this
+    # replayable DDL and never merely because this table is absent. A
     # controller transition names the certificate that authorized it and every
     # transition increments the durable version, even when the resulting
     # numeric exposure may happen to remain 1.00.
@@ -150,8 +391,11 @@ DDL = (
         cash_residual           NUMERIC     NOT NULL DEFAULT 0,
         unpriced_securities     JSONB       NOT NULL DEFAULT '[]'::jsonb,
         defensive_security      TEXT,
-        rollout_mode            TEXT        NOT NULL DEFAULT 'PINNED_1_00',
-        rollout_version         BIGINT      NOT NULL DEFAULT 1,
+        -- Every new plan stamps explicit rollout authority. There is no
+        -- database default that can turn an unstamped legacy row into durable
+        -- PINNED/version-1 intent.
+        rollout_mode            TEXT        NOT NULL,
+        rollout_version         BIGINT      NOT NULL,
         rollout_certificate_sha256 TEXT,
         target_basket           JSONB       NOT NULL DEFAULT '{}'::jsonb,
         superseded_by           TEXT,
@@ -177,11 +421,12 @@ DDL = (
         DEFAULT '[]'::jsonb""",
     """ALTER TABLE sentinel_execution_plans
         ADD COLUMN IF NOT EXISTS defensive_security TEXT""",
+    # A genuine legacy table may already contain plans. They stay unstamped and
+    # therefore unexecutable; schema migration must not manufacture authority.
     """ALTER TABLE sentinel_execution_plans
-        ADD COLUMN IF NOT EXISTS rollout_mode TEXT NOT NULL
-        DEFAULT 'PINNED_1_00'""",
+        ADD COLUMN IF NOT EXISTS rollout_mode TEXT""",
     """ALTER TABLE sentinel_execution_plans
-        ADD COLUMN IF NOT EXISTS rollout_version BIGINT NOT NULL DEFAULT 1""",
+        ADD COLUMN IF NOT EXISTS rollout_version BIGINT""",
     """ALTER TABLE sentinel_execution_plans
         ADD COLUMN IF NOT EXISTS rollout_certificate_sha256 TEXT""",
 
@@ -395,23 +640,645 @@ DDL = (
 )
 
 
-def ensure_schema(conn) -> None:
-    """Create/upgrade behavioural schema without repairing operational intent.
+def _operator_refusal(detail: str) -> SchemaMigrationRefused:
+    return SchemaMigrationRefused(
+        f"behavioral-schema operator action required: {detail}. Routine "
+        "startup did not repair schema or reset durable rollout intent")
 
-    The transaction-scoped lock makes the table-existence decision and DDL one
-    serialized migration.  This matters on first boot: PostgreSQL's
-    ``CREATE TABLE IF NOT EXISTS`` is not itself a concurrency-safe migration
-    coordinator.  The initial rollout row belongs to the migration that creates
-    its table.  Once that table exists, a missing row is corruption and this
-    routine deliberately leaves it missing so operational readers fail closed.
+
+def _normal_sql(value: object) -> str:
+    """Normalize keywords/spacing without changing quoted SQL semantics."""
+    source = str(value or "").strip()
+    output: list[str] = []
+    quote: str | None = None
+    pending_space = False
+    index = 0
+    while index < len(source):
+        char = source[index]
+        if quote is not None:
+            output.append(char)
+            if char == quote:
+                if index + 1 < len(source) and source[index + 1] == quote:
+                    output.append(source[index + 1])
+                    index += 1
+                else:
+                    quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            if pending_space and output:
+                output.append(" ")
+            pending_space = False
+            quote = char
+            output.append(char)
+        elif char.isspace():
+            pending_space = True
+        else:
+            if pending_space and output:
+                output.append(" ")
+            pending_space = False
+            output.append(char.lower())
+        index += 1
+    return "".join(output).strip()
+
+
+def _read_catalog(cur):
+    """Return a semantic public-schema view with no OID/attnum assumptions."""
+    cur.execute(
+        "SELECT c.relname,c.relkind,c.relpersistence,c.relispartition,"
+        " c.relrowsecurity,c.relforcerowsecurity"
+        " FROM pg_catalog.pg_class c"
+        " JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace"
+        " WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f')")
+    relations = {
+        str(name): (str(kind), str(persistence), bool(is_partition),
+                    bool(row_security), bool(force_row_security))
+        for (name, kind, persistence, is_partition, row_security,
+             force_row_security) in cur.fetchall()
+    }
+
+    cur.execute(
+        "SELECT c.relname,a.attname,"
+        " pg_catalog.format_type(a.atttypid,a.atttypmod),a.attnotnull,"
+        " pg_catalog.pg_get_expr(d.adbin,d.adrelid)"
+        " FROM pg_catalog.pg_class c"
+        " JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace"
+        " JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid"
+        " LEFT JOIN pg_catalog.pg_attrdef d"
+        "   ON d.adrelid=c.oid AND d.adnum=a.attnum"
+        " WHERE n.nspname='public'"
+        "   AND c.relkind IN ('r','p','v','m','f')"
+        "   AND a.attnum>0 AND NOT a.attisdropped")
+    columns: dict[str, dict[str, tuple[str, bool, object]]] = {}
+    for table, name, type_name, not_null, default in cur.fetchall():
+        columns.setdefault(str(table), {})[str(name)] = (
+            str(type_name), bool(not_null), default)
+
+    cur.execute(
+        "SELECT c.relname,k.conname,k.contype,"
+        " pg_catalog.pg_get_constraintdef(k.oid,true),k.convalidated"
+        " FROM pg_catalog.pg_constraint k"
+        " JOIN pg_catalog.pg_class c ON c.oid=k.conrelid"
+        " JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace"
+        " WHERE n.nspname='public'")
+    constraints: dict[str, list[tuple[str, str, str, bool]]] = {}
+    for table, name, kind, definition, validated in cur.fetchall():
+        constraints.setdefault(str(table), []).append(
+            (str(name), str(kind), str(definition), bool(validated)))
+
+    cur.execute(
+        "SELECT t.relname,i.relname,pg_catalog.pg_get_indexdef(i.oid),"
+        " x.indisunique,x.indisvalid,x.indisready,x.indislive"
+        " FROM pg_catalog.pg_index x"
+        " JOIN pg_catalog.pg_class i ON i.oid=x.indexrelid"
+        " JOIN pg_catalog.pg_class t ON t.oid=x.indrelid"
+        " JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace"
+        " WHERE n.nspname='public'")
+    indexes: dict[str, dict[str, tuple[str, bool, bool, bool, bool]]] = {}
+    for (table, name, definition, unique, valid, ready,
+         live) in cur.fetchall():
+        indexes.setdefault(str(table), {})[str(name)] = (
+            str(definition), bool(unique), bool(valid), bool(ready), bool(live))
+
+    cur.execute(
+        "SELECT c.relname,t.tgname,pg_catalog.pg_get_triggerdef(t.oid,true),"
+        " t.tgenabled"
+        " FROM pg_catalog.pg_trigger t"
+        " JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid"
+        " JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace"
+        " WHERE n.nspname='public' AND NOT t.tgisinternal")
+    triggers: dict[str, dict[str, tuple[str, str]]] = {}
+    for table, name, definition, enabled in cur.fetchall():
+        triggers.setdefault(str(table), {})[str(name)] = (
+            str(definition), str(enabled))
+    return relations, columns, constraints, indexes, triggers
+
+
+def _behavioral_relations(relations) -> set[str]:
+    return {
+        name for name in relations
+        if name.startswith("sentinel_") and name not in _FEED_TABLES
+    }
+
+
+def _semantic_catalog_sha256(
+        relations, columns, constraints, indexes, triggers, tables) -> str:
+    """Hash physical behavior while ignoring OIDs and column order.
+
+    Historical ``CREATE`` and ``ALTER`` paths assign different ``attnum``
+    positions to the same logical columns.  Names, types, nullability,
+    defaults, constraint semantics/validation, and index definitions are the
+    behavior that startup must recognize exactly; owners and catalog OIDs are
+    deployment-local and deliberately excluded.
     """
-    with conn.cursor() as cur:
+    manifest = []
+    for table in sorted(tables):
+        manifest.append(["relation", table, relations.get(table)])
+        for name, (type_name, not_null, default) in sorted(
+                columns.get(table, {}).items()):
+            manifest.append([
+                "column", table, name, type_name, bool(not_null),
+                _normal_sql(default),
+            ])
+        for name, kind, definition, validated in sorted(
+                constraints.get(table, [])):
+            manifest.append([
+                "constraint", table, name, kind,
+                _normal_sql(definition), bool(validated),
+            ])
+        for name, index in sorted(indexes.get(table, {}).items()):
+            definition, unique, valid, ready, live = index
+            manifest.append([
+                "index", table, name, _normal_sql(definition), unique, valid,
+                ready, live,
+            ])
+        for name, (definition, enabled) in sorted(
+                triggers.get(table, {}).items()):
+            manifest.append([
+                "trigger", table, name, _normal_sql(definition), enabled,
+            ])
+    payload = json.dumps(
+        manifest, sort_keys=False, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(payload.encode("ascii")).hexdigest()
+
+
+def _expected_current_columns(*, ledger: bool) -> dict[str, frozenset[str]]:
+    expected = dict(_PRE_ROLLOUT_COLUMNS)
+    expected["sentinel_commands"] = (
+        expected["sentinel_commands"] | _COMMAND_AUTHORITY_COLUMNS)
+    expected["sentinel_execution_plans"] = (
+        expected["sentinel_execution_plans"] | _ROLLOUT_PLAN_COLUMNS)
+    expected.update(_ROLLOUT_COLUMNS)
+    if ledger:
+        expected[_LEDGER_TABLE] = _LEDGER_COLUMNS
+    return expected
+
+
+def _require_exact_columns(
+        relations: dict[str, str],
+        columns: dict[str, dict[str, tuple[str, bool, object]]],
+        expected: dict[str, frozenset[str]], *, label: str) -> None:
+    for table, wanted in expected.items():
+        if relations.get(table) not in {
+                ("r", "p", False, False, False),
+                ("p", "p", False, False, False)}:
+            raise _operator_refusal(
+                f"{label} relation {table!r} is missing or is not a table")
+        observed = frozenset(columns.get(table, {}))
+        if observed != wanted:
+            missing = sorted(wanted - observed)
+            extra = sorted(observed - wanted)
+            raise _operator_refusal(
+                f"{label} column fingerprint differs for {table}: "
+                f"missing={missing}, unexpected={extra}")
+
+
+def _require_column(
+        columns: dict[str, dict[str, tuple[str, bool, object]]],
+        table: str, name: str, type_name: str, *,
+        not_null: bool | None = None) -> tuple[str, bool, object]:
+    try:
+        observed = columns[table][name]
+    except KeyError as exc:                                  # pragma: no cover
+        raise _operator_refusal(
+            f"migration physical schema is missing {table}.{name}") from exc
+    if observed[0] != type_name or (
+            not_null is not None and observed[1] is not not_null):
+        raise _operator_refusal(
+            f"migration physical schema has invalid {table}.{name}: "
+            f"type={observed[0]!r}, not_null={observed[1]!r}")
+    return observed
+
+
+def _validate_common_authority_columns(columns) -> None:
+    for name, type_name in (
+            ("deployment_id", "text"), ("broker", "text"),
+            ("broker_account_id", "text"), ("takeover_epoch", "bigint")):
+        _require_column(
+            columns, "sentinel_commands", name, type_name, not_null=True)
+
+    _require_column(
+        columns, "sentinel_execution_plans", "rollout_mode", "text")
+    _require_column(
+        columns, "sentinel_execution_plans", "rollout_version", "bigint")
+    _require_column(
+        columns, "sentinel_execution_plans",
+        "rollout_certificate_sha256", "text", not_null=False)
+
+    critical = {
+        "sentinel_rollout_state": (
+            ("id", "integer", True), ("mode", "text", True),
+            ("version", "bigint", True),
+            ("certificate_sha256", "text", False),
+            ("updated_at", "timestamp with time zone", True)),
+        "sentinel_rollout_events": (
+            ("seq", "bigint", True), ("version", "bigint", True),
+            ("from_mode", "text", True), ("to_mode", "text", True),
+            ("certificate_sha256", "text", False),
+            ("reason", "text", True),
+            ("at", "timestamp with time zone", True)),
+        "sentinel_system_certificates": (
+            ("certificate_sha256", "text", True),
+            ("manifest_bytes", "bytea", True), ("manifest", "jsonb", True),
+            ("allowed_rollout_modes", "jsonb", True),
+            ("installed_at", "timestamp with time zone", True),
+            ("revoked_at", "timestamp with time zone", False),
+            ("revocation_reason", "text", False)),
+        "sentinel_system_certificate_events": (
+            ("seq", "bigint", True),
+            ("certificate_sha256", "text", True),
+            ("action", "text", True), ("detail", "text", True),
+            ("at", "timestamp with time zone", True)),
+    }
+    for table, fields in critical.items():
+        for name, type_name, not_null in fields:
+            _require_column(
+                columns, table, name, type_name, not_null=not_null)
+
+
+def _constraint_manifest(constraints, table: str):
+    return frozenset(
+        (kind, _normal_sql(definition), valid)
+        for _name, kind, definition, valid in constraints.get(table, []))
+
+
+def _validate_rollout_structure(constraints, indexes) -> None:
+    for table, expected in _ROLLOUT_CONSTRAINT_MANIFESTS.items():
+        if _constraint_manifest(constraints, table) != expected:
+            raise _operator_refusal(
+                f"rollout migration constraint fingerprint differs for {table}")
+    index = indexes.get("sentinel_system_certificates", {}).get(
+        "idx_sentinel_one_active_certificate")
+    expected_index = (
+        "create unique index idx_sentinel_one_active_certificate on "
+        "public.sentinel_system_certificates using btree ((1)) where "
+        "(revoked_at is null)")
+    if (index is None or _normal_sql(index[0]) != expected_index
+            or index[1:] != (True, True, True, True)):
+        raise _operator_refusal(
+            "rollout certificate active-row index is missing or corrupt")
+
+
+def _validate_rollout_defaults(columns) -> None:
+    for table, expected in _ROLLOUT_DEFAULT_MANIFESTS.items():
+        for name, default in expected.items():
+            observed = _normal_sql(columns[table][name][2])
+            if observed != default:
+                raise _operator_refusal(
+                    "rollout migration default fingerprint differs for "
+                    f"{table}.{name}")
+
+
+def _plan_witness(constraints) -> tuple[str, str, str, bool] | None:
+    for item in constraints.get("sentinel_execution_plans", []):
+        if item[0] == _PLAN_AUTHORITY_CHECK:
+            return item
+    return None
+
+
+def _validate_reviewed_head_catalog(columns, constraints, indexes) -> None:
+    _validate_common_authority_columns(columns)
+    _validate_rollout_structure(constraints, indexes)
+    _validate_rollout_defaults(columns)
+    mode = _require_column(
+        columns, "sentinel_execution_plans", "rollout_mode", "text",
+        not_null=True)
+    version = _require_column(
+        columns, "sentinel_execution_plans", "rollout_version", "bigint",
+        not_null=True)
+    certificate = _require_column(
+        columns, "sentinel_execution_plans",
+        "rollout_certificate_sha256", "text", not_null=False)
+    if _normal_sql(mode[2]) != "'PINNED_1_00'::text":
+        raise _operator_refusal(
+            "migration authority is missing and the rollout-mode default does "
+            "not match the exact 6113 compatibility fingerprint")
+    if _normal_sql(version[2]) != "1":
+        raise _operator_refusal(
+            "migration authority is missing and the rollout-version default "
+            "does not match the exact 6113 compatibility fingerprint")
+    if certificate[2] is not None:
+        raise _operator_refusal(
+            "migration authority is missing and the rollout-certificate "
+            "default does not match the exact 6113 compatibility fingerprint")
+    if _plan_witness(constraints) is not None:
+        raise _operator_refusal(
+            "migration authority is missing after the post-ledger structural "
+            "witness was installed")
+
+
+def _validate_ledger_catalog(columns, constraints) -> None:
+    critical = (
+        ("version", "integer", True), ("name", "text", True),
+        ("migration_sha256", "text", True),
+        ("bootstrap_kind", "text", True), ("source_git_oid", "text", False),
+        ("applied_at", "timestamp with time zone", True),
+    )
+    for name, type_name, not_null in critical:
+        _require_column(
+            columns, _LEDGER_TABLE, name, type_name, not_null=not_null)
+    if _constraint_manifest(
+            constraints, _LEDGER_TABLE) != _LEDGER_CONSTRAINT_MANIFEST:
+        raise _operator_refusal(
+            "behavioral migration ledger constraint fingerprint is corrupt")
+    if _normal_sql(columns[_LEDGER_TABLE]["applied_at"][2]) != "now()":
+        raise _operator_refusal(
+            "behavioral migration ledger applied-at default is corrupt")
+
+
+def _validate_target_catalog(
+        columns, constraints, indexes, *, bootstrap_kind: str) -> None:
+    _validate_common_authority_columns(columns)
+    _validate_rollout_structure(constraints, indexes)
+    _validate_rollout_defaults(columns)
+    mode = _require_column(
+        columns, "sentinel_execution_plans", "rollout_mode", "text")
+    version = _require_column(
+        columns, "sentinel_execution_plans", "rollout_version", "bigint")
+    certificate = _require_column(
+        columns, "sentinel_execution_plans",
+        "rollout_certificate_sha256", "text", not_null=False)
+    if (mode[2] is not None or version[2] is not None
+            or certificate[2] is not None):
+        raise _operator_refusal(
+            "migration ledger and execution-plan rollout defaults disagree")
+    expected_not_null = bootstrap_kind != "LEGACY"
+    if mode[1] != version[1] or mode[1] is not expected_not_null:
+        raise _operator_refusal(
+            "execution-plan rollout authority nullability disagrees with the "
+            f"{bootstrap_kind} migration record")
+    witness = _plan_witness(constraints)
+    if witness is None or witness[1] != "c" or not witness[3]:
+        raise _operator_refusal(
+            "post-ledger execution-plan authority witness is missing or corrupt")
+    if _normal_sql(witness[2]) != _PLAN_AUTHORITY_DEFINITION:
+        raise _operator_refusal(
+            "post-ledger execution-plan authority witness has unknown semantics")
+
+
+def _validate_rollout_history(cur) -> None:
+    cur.execute(
+        "SELECT id,mode,version,certificate_sha256"
+        " FROM public.sentinel_rollout_state ORDER BY id")
+    states = cur.fetchall()
+    if len(states) != 1 or int(states[0][0]) != 1:
+        raise _operator_refusal(
+            "the rollout singleton is missing or duplicated; it was not seeded")
+    _id, raw_mode, raw_version, raw_certificate = states[0]
+    mode = str(raw_mode)
+    version = int(raw_version)
+    certificate = str(raw_certificate) if raw_certificate else None
+    if mode not in {"PINNED_1_00", "CONTROLLER"} or version < 1:
+        raise _operator_refusal("the durable rollout singleton is corrupt")
+    if ((mode == "PINNED_1_00" and certificate is not None)
+            or (mode == "CONTROLLER" and certificate is None)):
+        raise _operator_refusal(
+            "the durable rollout singleton has incoherent certificate authority")
+
+    cur.execute(
+        "SELECT version,from_mode,to_mode,certificate_sha256,reason"
+        " FROM public.sentinel_rollout_events ORDER BY version")
+    events = cur.fetchall()
+    if [int(row[0]) for row in events] != list(range(2, version + 1)):
+        raise _operator_refusal(
+            "rollout event versions are not the complete chain from 2 through "
+            f"the singleton version {version}")
+
+    snapshots: dict[int, tuple[str, str | None]] = {1: ("PINNED_1_00", None)}
+    prior_mode, prior_certificate = snapshots[1]
+    referenced_certificates: set[str] = set()
+    for raw_event_version, raw_from, raw_to, raw_cert, raw_reason in events:
+        event_version = int(raw_event_version)
+        from_mode, to_mode = str(raw_from), str(raw_to)
+        event_certificate = str(raw_cert) if raw_cert else None
+        if from_mode != prior_mode or to_mode not in {
+                "PINNED_1_00", "CONTROLLER"} or to_mode == from_mode:
+            raise _operator_refusal(
+                f"rollout event version {event_version} breaks the mode chain")
+        if not str(raw_reason).strip():
+            raise _operator_refusal(
+                f"rollout event version {event_version} has no reason")
+        if ((to_mode == "PINNED_1_00" and event_certificate is not None)
+                or (to_mode == "CONTROLLER" and event_certificate is None)):
+            raise _operator_refusal(
+                f"rollout event version {event_version} has incoherent "
+                "certificate authority")
+        if event_certificate is not None:
+            referenced_certificates.add(event_certificate)
+        prior_mode, prior_certificate = to_mode, event_certificate
+        snapshots[event_version] = (prior_mode, prior_certificate)
+    if (prior_mode, prior_certificate) != (mode, certificate):
+        raise _operator_refusal(
+            "rollout event history does not terminate at the durable singleton")
+
+    if referenced_certificates:
         cur.execute(
-            "SELECT pg_advisory_xact_lock(%s,%s)", _SCHEMA_LOCK)
-        cur.execute("SELECT to_regclass('sentinel_rollout_state')")
-        rollout_table_existed = cur.fetchone()[0] is not None
+            "SELECT certificate_sha256"
+            " FROM public.sentinel_system_certificates")
+        known = {str(row[0]) for row in cur.fetchall()}
+        missing = sorted(referenced_certificates - known)
+        if missing:
+            raise _operator_refusal(
+                f"rollout history references missing certificate(s): {missing}")
+
+    cur.execute(
+        "SELECT plan_id,rollout_mode,rollout_version,"
+        " rollout_certificate_sha256"
+        " FROM public.sentinel_execution_plans ORDER BY plan_id")
+    for plan_id, raw_plan_mode, raw_plan_version, raw_plan_cert in cur.fetchall():
+        triple = (raw_plan_mode, raw_plan_version, raw_plan_cert)
+        if triple == (None, None, None):
+            continue
+        if raw_plan_mode is None or raw_plan_version is None:
+            raise _operator_refusal(
+                f"execution plan {plan_id!r} has a partial rollout stamp")
+        plan_version = int(raw_plan_version)
+        plan_certificate = str(raw_plan_cert) if raw_plan_cert else None
+        expected = snapshots.get(plan_version)
+        if expected != (str(raw_plan_mode), plan_certificate):
+            raise _operator_refusal(
+                f"execution plan {plan_id!r} names rollout authority that "
+                "does not exist in durable history")
+
+
+def _read_and_validate_ledger(cur) -> str:
+    cur.execute(
+        "SELECT version,name,migration_sha256,bootstrap_kind,source_git_oid"
+        " FROM public.sentinel_behavioral_schema_migrations"
+        " ORDER BY version")
+    rows = cur.fetchall()
+    if len(rows) != 1:
+        raise _operator_refusal(
+            "behavioral migration authority is empty, gapped, future, or "
+            f"duplicated (observed versions {[row[0] for row in rows]})")
+    version, name, migration_sha, bootstrap_kind, source_oid = rows[0]
+    if (int(version) != _MIGRATION_VERSION or str(name) != _MIGRATION_NAME
+            or str(migration_sha) != _MIGRATION_SHA256):
+        raise _operator_refusal(
+            "behavioral migration authority has an unknown version, name, or "
+            "checksum")
+    kind = str(bootstrap_kind)
+    source = str(source_oid) if source_oid else None
+    if kind not in {"NEW", "LEGACY", "PR84_HEAD_BRIDGE"}:
+        raise _operator_refusal(
+            "behavioral migration authority has an unknown bootstrap kind")
+    if ((kind == "PR84_HEAD_BRIDGE" and source != _REVIEWED_HEAD)
+            or (kind != "PR84_HEAD_BRIDGE" and source is not None)):
+        raise _operator_refusal(
+            "behavioral migration authority has an invalid source fingerprint")
+    return kind
+
+
+def _classify_markerless(
+        relations, columns, constraints, indexes, triggers) -> str:
+    observed = _behavioral_relations(relations)
+    if not observed:
+        return "NEW"
+
+    if observed == _PRE_ROLLOUT_TABLES:
+        expected = dict(_PRE_ROLLOUT_COLUMNS)
+        command_columns = frozenset(columns.get("sentinel_commands", {}))
+        accepted_commands = {
+            _PRE_ROLLOUT_COLUMNS["sentinel_commands"],
+            (_PRE_ROLLOUT_COLUMNS["sentinel_commands"]
+             | _COMMAND_AUTHORITY_COLUMNS),
+        }
+        if command_columns not in accepted_commands:
+            raise _operator_refusal(
+                "recognized pre-rollout relations have a partial or unknown "
+                "command-authority fingerprint")
+        expected["sentinel_commands"] = command_columns
+        _require_exact_columns(
+            relations, columns, expected, label="pre-rollout migration")
+        if command_columns & _COMMAND_AUTHORITY_COLUMNS:
+            _validate_common_legacy_command_columns(columns)
+        catalog_sha = _semantic_catalog_sha256(
+            relations, columns, constraints, indexes, triggers,
+            _PRE_ROLLOUT_TABLES)
+        if catalog_sha not in _PRE_ROLLOUT_CATALOG_SHA256:
+            raise _operator_refusal(
+                "pre-rollout behavioral catalog does not match a recognized "
+                f"source fingerprint (observed {catalog_sha})")
+        return "LEGACY"
+
+    if observed == _CURRENT_NO_LEDGER_TABLES:
+        expected = _expected_current_columns(ledger=False)
+        _require_exact_columns(
+            relations, columns, expected, label="6113 compatibility bridge")
+        _validate_reviewed_head_catalog(columns, constraints, indexes)
+        catalog_sha = _semantic_catalog_sha256(
+            relations, columns, constraints, indexes, triggers,
+            _CURRENT_NO_LEDGER_TABLES)
+        if catalog_sha != _REVIEWED_HEAD_CATALOG_SHA256:
+            raise _operator_refusal(
+                "markerless current catalog is not the exact 6113 "
+                f"compatibility fingerprint (observed {catalog_sha})")
+        return "PR84_HEAD_BRIDGE"
+
+    rollout_evidence = sorted(observed & _ROLLOUT_TABLES)
+    unknown = sorted(observed - _CURRENT_NO_LEDGER_TABLES - {_LEDGER_TABLE})
+    raise _operator_refusal(
+        "markerless schema is not empty, a recognized pre-rollout schema, or "
+        "the intact 6113 bridge; partial rollout evidence="
+        f"{rollout_evidence}, unknown behavioral relations={unknown}, "
+        f"observed relations={sorted(observed)}")
+
+
+def _validate_common_legacy_command_columns(columns) -> None:
+    for name, type_name in (
+            ("deployment_id", "text"), ("broker", "text"),
+            ("broker_account_id", "text"), ("takeover_epoch", "bigint")):
+        _require_column(
+            columns, "sentinel_commands", name, type_name, not_null=True)
+
+
+def _validate_ledgered(cur, catalog) -> None:
+    relations, columns, constraints, indexes, triggers = catalog
+    observed = _behavioral_relations(relations)
+    if observed != _CURRENT_TABLES:
+        missing = sorted(_CURRENT_TABLES - observed)
+        if "sentinel_rollout_state" in missing:
+            raise _operator_refusal(
+                "the rollout state table is missing after migration")
+        raise _operator_refusal(
+            "migration ledger and physical behavioral schema disagree: "
+            f"missing={missing}, unexpected={sorted(observed - _CURRENT_TABLES)}")
+    expected = _expected_current_columns(ledger=True)
+    _require_exact_columns(
+        relations, columns, expected, label="ledgered behavioral schema")
+    _validate_ledger_catalog(columns, constraints)
+    bootstrap_kind = _read_and_validate_ledger(cur)
+    _validate_target_catalog(
+        columns, constraints, indexes, bootstrap_kind=bootstrap_kind)
+    catalog_sha = _semantic_catalog_sha256(
+        relations, columns, constraints, indexes, triggers, _CURRENT_TABLES)
+    if catalog_sha != _TARGET_CATALOG_SHA256[bootstrap_kind]:
+        raise _operator_refusal(
+            "migration ledger and complete behavioral catalog fingerprint "
+            f"disagree (observed {catalog_sha})")
+    _validate_rollout_history(cur)
+
+
+def _apply_v1(cur, bootstrap_kind: str) -> None:
+    if bootstrap_kind in {"NEW", "LEGACY"}:
         for statement in DDL:
             cur.execute(statement)
-        if not rollout_table_existed:
-            cur.execute(_INITIAL_ROLLOUT_STATE)
-    conn.commit()
+        # A plain INSERT is intentional. Classification under the advisory lock
+        # proved that seeding is authorized; conflict suppression would hide a
+        # contradiction in that proof.
+        cur.execute(_INITIAL_ROLLOUT_STATE)
+    elif bootstrap_kind != "PR84_HEAD_BRIDGE":             # pragma: no cover
+        raise AssertionError(bootstrap_kind)
+
+    # These statements are deliberately after the seed. A late fault proves
+    # PostgreSQL rolls seed, DDL, and witness back as one transaction.
+    for statement in _MIGRATION_FINALIZE_DDL:
+        cur.execute(statement)
+    cur.execute(_MIGRATION_LEDGER_DDL)
+    source_oid = _REVIEWED_HEAD if bootstrap_kind == "PR84_HEAD_BRIDGE" else None
+    cur.execute(
+        "INSERT INTO public.sentinel_behavioral_schema_migrations"
+        " (version,name,migration_sha256,bootstrap_kind,source_git_oid)"
+        " VALUES (%s,%s,%s,%s,%s)",
+        (_MIGRATION_VERSION, _MIGRATION_NAME, _MIGRATION_SHA256,
+         bootstrap_kind, source_oid))
+
+
+def ensure_schema(conn) -> None:
+    """Validate or atomically install behavioral migration authority.
+
+    The transaction-scoped lock is acquired before *any* catalog or ledger
+    read. New, recognized legacy, and exact reviewed-head bootstrap decisions
+    therefore serialize with DDL, the one permitted rollout seed, the
+    structural witness, and the ledger row. A missing current table/row/marker
+    is durable-state corruption, never permission for routine startup to repair
+    or reset it.
+    """
+    try:
+        with conn.cursor() as cur:
+            # Listing public before pg_temp keeps a temporary relation from
+            # diverting historical unqualified DDL. Deliberately OMIT
+            # pg_catalog: PostgreSQL then searches it implicitly *before* the
+            # explicit path, so a public function/operator/type cannot shadow
+            # built-ins while constraints/defaults are parsed or deparsed.
+            cur.execute("SET LOCAL search_path TO public, pg_temp")
+            cur.execute(
+                "SELECT pg_advisory_xact_lock(%s,%s)", _SCHEMA_LOCK)
+            catalog = _read_catalog(cur)
+            relations, columns, constraints, indexes, triggers = catalog
+
+            if _LEDGER_TABLE in relations:
+                _validate_ledgered(cur, catalog)
+            else:
+                bootstrap_kind = _classify_markerless(
+                    relations, columns, constraints, indexes, triggers)
+                if bootstrap_kind == "PR84_HEAD_BRIDGE":
+                    _validate_rollout_history(cur)
+                _apply_v1(cur, bootstrap_kind)
+                _validate_ledgered(cur, _read_catalog(cur))
+        conn.commit()
+    except BaseException:
+        # PostgreSQL DDL is transactional. Explicit rollback also releases the
+        # xact advisory lock and leaves startup callers with a usable connection.
+        conn.rollback()
+        raise

@@ -123,6 +123,16 @@ class PlanEconomicsChanged(RuntimeError):
     """
 
 
+class PlanAuthorityMissing(RuntimeError):
+    """A genuine legacy plan has no durable rollout-authority stamp.
+
+    The behavioral migration deliberately leaves all three fields NULL rather
+    than manufacturing PINNED/version-1 intent. Such a row remains historical
+    evidence, but it cannot be loaded as an executable :class:`ExecutionPlan`;
+    an operator must prepare a new plan under the current durable rollout.
+    """
+
+
 #: The fields that make a plan MEAN something. A difference in any of these
 #: under one plan_id is a different intention wearing the same name.
 #:
@@ -243,6 +253,15 @@ def load_plan(conn, plan_id: str) -> Optional[ExecutionPlan]:
         row = cur.fetchone()
     if row is None:
         return None
+    rollout_triple = (row[19], row[20], row[21])
+    if rollout_triple == (None, None, None):
+        raise PlanAuthorityMissing(
+            f"plan {plan_id!r} is an unstamped legacy plan with no durable "
+            "rollout authority; prepare a new plan under the current rollout "
+            "version before execution")
+    if row[19] is None or row[20] is None:
+        raise PlanAuthorityMissing(
+            f"plan {plan_id!r} has a corrupt partial rollout-authority stamp")
     unpriced = row[16] if isinstance(row[16], list) else json.loads(row[16] or "[]")
     basket = row[18] if isinstance(row[18], dict) else json.loads(row[18] or "{}")
     return ExecutionPlan(
@@ -272,14 +291,36 @@ def latest_plan(conn) -> Optional[ExecutionPlan]:
 
     Ordered by `created_at` then `plan_id` so the answer is total even when two
     plans land in the same transaction timestamp; a non-deterministic "latest"
-    would be worse than none.
+    would be worse than none. Wholly unstamped legacy plans are historical and
+    deliberately unexecutable, so current-plan discovery skips them. That lets
+    preparation create a stamped replacement which supersedes the legacy row;
+    direct :func:`load_plan` remains a refusal for that same row.
     """
     with conn.cursor() as cur:
-        cur.execute("SELECT plan_id FROM sentinel_execution_plans"
+        cur.execute("SELECT plan_id,rollout_mode,rollout_version,"
+                    " rollout_certificate_sha256"
+                    " FROM sentinel_execution_plans"
                     " WHERE superseded_by IS NULL"
-                    " ORDER BY created_at DESC, plan_id DESC LIMIT 1")
-        row = cur.fetchone()
-    return load_plan(conn, str(row[0])) if row else None
+                    " ORDER BY created_at DESC, plan_id DESC")
+        rows = cur.fetchall()
+    stamped_plan_id = None
+    unstamped_plan_ids = []
+    for row in rows:
+        rollout_triple = (row[1], row[2], row[3])
+        if rollout_triple == (None, None, None):
+            unstamped_plan_ids.append(str(row[0]))
+            continue
+        if row[1] is None or row[2] is None:
+            raise PlanAuthorityMissing(
+                f"plan {row[0]!r} has a corrupt partial rollout-authority "
+                "stamp")
+        if stamped_plan_id is None:
+            stamped_plan_id = str(row[0])
+    if stamped_plan_id is not None and unstamped_plan_ids:
+        raise PlanAuthorityMissing(
+            "stamped and unstamped plans are both current; no plan is "
+            "executable until the ambiguous supersession state is resolved")
+    return load_plan(conn, stamped_plan_id) if stamped_plan_id else None
 
 
 def supersede_all_but(conn, plan_id: str, *, commit: bool = True) -> int:

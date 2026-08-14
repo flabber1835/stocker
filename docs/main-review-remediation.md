@@ -172,6 +172,28 @@ CI must report the three strict xfails truthfully rather than masking them.
 4. Retired Stocker deployment scripts either point to the current supported
    command or refuse with a precise retirement message; they do not invoke
    deleted services.
+5. Behavioral-schema migration state is durable authority. `ensure_schema` may
+   bootstrap an unversioned database only when it is behaviorally empty,
+   matches the recognized pre-rollout schema, or matches the complete intact
+   schema shipped at
+   `6113bffd896824ee24891b0c1aeada60c2b73ef5`. Empty and pre-rollout databases
+   apply the rollout-authority migration and seed `PINNED_1_00` version 1 in the
+   same transaction. The 6113 compatibility bridge records that migration as
+   already applied without changing rollout state, events, certificates,
+   plans, account state, or command history. Any mixed or partial fingerprint,
+   missing rollout singleton or table, or missing/corrupt migration authority
+   is an operator refusal, never a repair opportunity.
+6. Migration inspection, DDL, rollout seeding, structural-witness installation,
+   and version recording share one PostgreSQL transaction under the
+   transaction-scoped schema advisory lock. Concurrent initializers serialize
+   and re-inspect committed authority. PostgreSQL transactional DDL makes any
+   failure roll back the complete attempt. The migration removes implicit
+   rollout defaults from execution-plan columns as an independent post-ledger
+   witness; a genuine legacy plan remains unstamped and unexecutable rather
+   than being silently granted pinned-version-1 authority. Accepted historical
+   and ledgered catalogs are complete semantic fingerprints over behavioral
+   columns, defaults, constraints, and indexes, so loss of an execution-safety
+   constraint or index is also a refusal rather than a startup repair.
 
 ## 8. Required falsifiers
 
@@ -185,4 +207,10 @@ clean image build; extra Wealth Core test failure; forged envelope; stale image;
 accepted-then-timeout migration; malformed positions/orders; pending-cancel and
 future open statuses; exact-ID cancellation; prior-epoch terminal and in-flight
 commands; WAL restore; repeated pagination cursor; reversed range; and unsafe
-split destination.
+split destination; brand-new behavioral database; independently constructed
+pre-rollout schema; intact 6113 in-place bridge; deleted rollout singleton and
+deleted rollout table across restart; missing, empty, corrupt, gapped, and
+future behavioral-migration authority; concurrent first initializers;
+transactional rollback on migration/seed failure; repeated idempotent schema
+checks; and preservation of existing rollout history, plans, certificates, and
+account state.

@@ -114,16 +114,58 @@ a PostgreSQL row is never a supported activation path.
 
 ### Rollout exposure is durable intent
 
-The actuator has one versioned, one-row rollout state. A new database starts at
-`PINNED_1_00`; this is a real operational mode, not a UI label and not an
-inference from a numeric exposure. That initial row is seeded only when the
-rollout table is genuinely created (including an upgrade from a schema that did
-not yet have the table). Routine schema checks never recreate a missing row.
-Once the table exists, absence of its singleton row is durable-state corruption
-and every operational reader refuses until an operator investigates; restart is
-not a repair mechanism. Every execution plan records the rollout mode, rollout
-version, and the certificate that authorized a controller transition, and those
-fields participate in the plan's economic fingerprint.
+The actuator has one versioned, one-row rollout state. A behaviorally empty
+database starts at `PINNED_1_00`; this is a real operational mode, not a UI
+label and not an inference from a numeric exposure. A durable behavioral-schema
+migration ledger, not rollout-table absence, decides whether that initial row
+may be seeded. Exactly two cases seed it: an empty behavioral database and a
+recognized pre-rollout schema. The complete intact schema shipped at
+`6113bffd896824ee24891b0c1aeada60c2b73ef5` has a one-time compatibility bridge
+that records the migration as already applied and preserves its rollout row and
+history unchanged.
+
+The markerless bootstrap fingerprints are closed: empty, recognized
+pre-rollout, or complete intact 6113. Any mixed/partial shape refuses. Once the
+ledger is installed, a missing singleton, rollout table, ledger row/table, a
+gap or unknown version, or a mismatch between the ledger and physical schema is
+durable-state corruption. Restart is never a repair mechanism. Migration
+inspection, DDL, seeding, the independent post-ledger structural witness, and
+the ledger record are serialized under the transaction-scoped schema advisory
+lock and commit atomically. Existing rollout state/events, plans, certificates,
+account state, and command-event history are never rewritten. The recognized
+legacy DDL retains the earlier deterministic backfill of missing current-command
+identity from the singleton account binding; it does not alter command events.
+A schema fingerprint covers all behavioral columns, defaults, constraints, and
+indexes, not only rollout relations. Loss of a primary key, coherence check, or
+the one-in-flight-command unique index therefore refuses startup instead of
+silently accepting or recreating a weaker execution schema.
+A genuine legacy plan receives
+nullable, no-default rollout stamp columns and remains unexecutable until a new
+plan is prepared; schema migration does not retroactively grant it
+`PINNED_1_00` version 1 authority. Every newly prepared execution plan records
+the rollout mode, rollout version, and the certificate that authorized a
+controller transition, and those fields participate in the plan's economic
+fingerprint.
+
+The no-default columns and their named coherence constraint are the redundant
+post-ledger witness. The constraint permits either one wholly `NULL` legacy
+triple or one complete, internally valid rollout triple; a partial stamp is
+corruption. The migration ledger and rollout tables are behavioral backup
+state. A table-selective restore that omits either is not repaired at startup.
+If every behavioral relation and every independent witness is lost, that empty
+catalog is in-band indistinguishable from a genuinely new database. Likewise,
+if an unledgered 6113 database loses *every* rollout/certificate relation and
+all three plan-stamp columns, the remaining exact historical catalog is
+indistinguishable from its genuine pre-rollout predecessor. PostgreSQL volume
+identity and whole-database backup/restore are the boundary that must prevent
+either complete witness loss from being presented as a new/legacy deployment.
+Any surviving post-migration evidence makes missing authority a refusal.
+Direct lookup or execution of a wholly unstamped legacy plan refuses. Current-
+plan discovery may skip only that wholly unstamped legacy shape so normal
+preparation can create a stamped replacement and transactionally supersede the
+historical row; it never treats the legacy row as executable authority. A
+committed mix of stamped and unstamped current rows is ambiguous and refuses
+rather than selecting an older stamped plan.
 
 ```text
 PINNED_1_00   plan target exposure is exactly Decimal("1")

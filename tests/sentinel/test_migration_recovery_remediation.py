@@ -13,7 +13,10 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
-from tests.support.postgres import _EphemeralPostgres  # noqa: E402
+from tests.support.postgres import (  # noqa: E402
+    _EphemeralPostgres,
+    drop_public_tables,
+)
 
 from sentinel import binding, handover, schema  # noqa: E402
 from sentinel.broker import (  # noqa: E402
@@ -82,15 +85,7 @@ def pg():
 @pytest.fixture()
 def conn(pg):
     connection = feed_store.connect(pg.sync_dsn)
-    with connection.cursor() as cur:
-        for table in (
-                "sentinel_account_binding", "sentinel_ownership_events",
-                "sentinel_commands", "sentinel_command_events",
-                "sentinel_execution_plans", "sentinel_fills",
-                "sentinel_observations",
-                "sentinel_terminal_recovery_watermark"):
-            cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
-    connection.commit()
+    drop_public_tables(connection)
     schema.ensure_schema(connection)
     yield connection
     connection.close()
