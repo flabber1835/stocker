@@ -96,25 +96,28 @@ the explicit attestation path works without attempting to traverse the
 protected directory. Tests distinguish absent, unreadable, same-device, and
 independent-device targets.
 
-### 6. Legacy corpus publication cannot backfill the required SPY tail
+### 6. Production ingest reads SPY from the wrong Sharadar table
 
-**Observed:** publishing a previously unversioned corpus with `feed-daily`
-advanced prices through the current session, but the legacy database had no
-rows in `sentinel_spy_total_return`. Daily ingestion overlaps 14 calendar days,
-while readiness requires an exact 41-session SPY total-return tail, leaving all
-41 required rows absent after a successful current publication.
+**Observed:** publishing a previously unversioned corpus with `feed-daily`, then
+running an explicit two-month `feed-seed`, advanced and republished all ordinary
+prices but left `sentinel_spy_total_return` at exactly zero rows. Production
+ingest only fetches `SHARADAR/SEP` and extracts `ticker == "SPY"` from those
+rows. SPY is an exchange-traded fund; Sharadar fund prices are in
+`SHARADAR/SFP`, not the equity-prices SEP table. Synthetic tests put SPY into
+SEP and therefore false-green the production source boundary.
 
-**Impact:** the corpus is coherent, versioned, continuous, and fresh but can
-never pass readiness through repeated daily operation. The runbook forbids
-`feed-seed` over a non-empty corpus and there is no supported benchmark-only
-backfill command, so an upgraded deployment reaches an operational dead end.
+**Impact:** a real Sharadar corpus is coherent, versioned, continuous, and
+fresh but can never pass readiness. Repeating daily ingestion or reseeding any
+SEP interval cannot create the mandatory 41-session SPY tail. This blocks every
+fresh deployment, not only legacy upgrades.
 
-**Acceptance:** legacy publication detects an incomplete required benchmark
-tail and performs a bounded, versioned SPY backfill (or exposes an explicit
-idempotent repair command). It must not rewrite unrelated bars, weaken corpus
-locking/publication, or require a full reseed. A PostgreSQL-backed falsifier
-starts with a complete legacy bar corpus and empty SPY table, runs the supported
-upgrade sequence, and ends with a passing 41-session frontier benchmark.
+**Acceptance:** seed and daily ingestion fetch the bounded SPY total-return
+series from the production fund-price source, stamp it into the same ingest run,
+and publish it atomically with the corpus version. It must not broaden the
+Wealth Core equity universe to funds or rewrite unrelated bars. A
+PostgreSQL-backed falsifier keeps SPY absent from SEP, serves it only from the
+fund table, runs both supported ingest modes, and ends with a passing exact
+41-session frontier benchmark.
 
 ## Deployment observations that are not yet code defects
 
