@@ -231,7 +231,7 @@ the equity universe; repeated seed/daily loads are idempotent.
 - Existing-volume PostgreSQL credentials still require the documented role/env
   synchronization; this remediation does not mutate database credentials.
 
-## Validation evidence for this draft
+## Validation evidence
 
 - Review-fix focused PostgreSQL selection: `144 passed` with zero skips. This
   covers active/history supersession, failed and repeated ingest behavior,
@@ -240,36 +240,23 @@ the equity universe; repeated seed/daily loads are idempotent.
 - Formal forward-run evidence consumer: `15 passed` with zero skips, including
   refusal when unpublished anomaly observations appear in the exact coherence
   schema.
+- Formal authority/forward-run fixture selection after the exact coherence
+  fixture correction: `76 passed` with zero skips under Linux-equivalent
+  canonical inputs.
 - Current-head backtester boundary: `100 passed` with zero skips.
 - Full Python compilation, tracked-shell `bash -n`, the canonical/automation/
   authorized-cli Compose graphs, and `git diff --check`: pass.
-- The final Linux complete-suite result and workflow URL are pending the pushed
-  head; draft language remains until that authoritative check passes.
-
-- Consolidated changed-area selection on the Windows development host:
-  `125 passed, 140 skipped`. Every skip is expected and named: the repository's
-  ephemeral PostgreSQL fixture requires POSIX `geteuid`, and eight parity cases
-  require the unavailable backtester dependency set. The pushed Linux safety
-  workflow is the required PostgreSQL/parity authority.
-- Credential, split-mapping, capability, and backup-contract pure selection:
-  `75 passed, 24 skipped`, with the skips limited to the same platform-gated
-  PostgreSQL/POSIX cases.
-- `compileall` over changed production and test packages: pass.
-- `bash -n` for all changed shell files: pass.
-- Canonical and generated no-CPU Compose graphs: `docker compose config -q`
-  pass; the fallback removes three `cpus:` entries, retains every `mem_limit`
-  and `shm_size`, and changes no other service configuration.
-- `git diff --check`: pass.
-- GitHub `Sentinel safety` workflow at code head `f1edc51`: pass
-  ([run 31772109533](https://github.com/flabber1835/stocker/actions/runs/31772109533)).
-  The network-isolated complete Sentinel suite passed `2219` tests; the changed
-  production backtester boundary passed `100` tests with no skips; tracked
-  shell syntax, canonical/automation/authorized-cli Compose graphs, and
-  `git diff --check` all passed.
+- GitHub `Sentinel safety` workflow at review-fix code head `46775d3`: pass
+  ([run 31818226735](https://github.com/flabber1835/stocker/actions/runs/31818226735)).
+  The network-isolated complete Sentinel suite passed `2232` tests in its one
+  post-fix full run; the changed production backtester boundary passed `100`
+  tests. Both runs had zero skips. Compilation, tracked-shell syntax, the
+  canonical/automation/authorized-cli Compose graphs, and `git diff --check`
+  also passed in that workflow.
 
 ## Change policy
 
 Every remediation must include a regression falsifier for the observed NAS
-sequence. This draft remains additive while deployment continues. It must not
-be marked ready for review until each resolved item has targeted tests and the
-remaining items are explicitly scoped in the PR summary.
+sequence. The remediation is ready for review because each resolved item has
+targeted falsifiers and the remaining operational work is explicitly scoped in
+the PR summary. Readiness for review does not authorize merge or deployment.
