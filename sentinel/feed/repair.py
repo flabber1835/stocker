@@ -45,7 +45,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from sentinel.feed import actions_map, calendar, publication
+from sentinel.feed import actions_map, anomalies, calendar, publication
 
 
 @dataclass(frozen=True)
@@ -194,13 +194,12 @@ def audit(conn, *, start: str, end: str) -> AuditResult:
         # population an operator has to adjudicate, so an audit that omitted
         # them would report a corpus as clean while a recorded question about it
         # sat unanswered in another table.
-        cur.execute("SELECT ticker, session, detail FROM sentinel_corpus_anomalies"
-                    " WHERE kind = 'SEAM_SPLIT_UNCORROBORATED'"
-                    " AND session BETWEEN %s AND %s ORDER BY session, ticker",
-                    (start, end))
         result.seam_anomalies = [
-            {"ticker": t, "session": str(s), "detail": d}
-            for t, s, d in cur.fetchall()]
+            {"ticker": row["ticker"], "session": row["session"],
+             "detail": row["detail"]}
+            for row in anomalies.active_rows(
+                conn, start=start, end=end,
+                kinds=("SEAM_SPLIT_UNCORROBORATED",))]
 
     return result
 
@@ -234,6 +233,7 @@ def repair(conn, *, start: str, end: str, dry_run: bool = True) -> dict:
                 run = store.IngestRun(
                     conn, "repair", date_from=start, date_to=end, chunks_total=1)
                 try:
+                    anomaly_rows = []
                     with conn.cursor() as cur:
                         for d in result.confirmed:
                             cur.execute(
@@ -244,15 +244,21 @@ def repair(conn, *, start: str, end: str, dry_run: bool = True) -> dict:
                                 (d.security_id, d.session, d.authoritative,
                                  d.stored, run.progress.run_id))
                             applied += cur.rowcount
-                            cur.execute(
-                                "INSERT INTO sentinel_corpus_anomalies"
-                                " (kind,ticker,session,detail) VALUES (%s,%s,%s,%s)"
-                                " ON CONFLICT (kind,ticker,session) DO UPDATE SET"
-                                " detail = EXCLUDED.detail",
-                                ("SPLIT_RATIO_REPAIRED", d.ticker, d.session,
-                                 f"run={run.progress.run_id} "
-                                 f"stored={d.stored:.6g} -> "
-                                 f"ACTIONS={d.authoritative:.6g}"))
+                            detail = (f"run={run.progress.run_id} "
+                                      f"stored={d.stored:.6g} -> "
+                                      f"ACTIONS={d.authoritative:.6g}")
+                            anomaly_rows.extend((
+                                {"kind": "SPLIT_RATIO_REPAIRED",
+                                 "ticker": d.ticker, "session": d.session,
+                                 "detail": detail},
+                                {"kind": "SPLIT_AUTHORITATIVE_APPLIED",
+                                 "ticker": d.ticker, "session": d.session,
+                                 "detail": detail},
+                            ))
+                    store.write_anomalies(
+                        conn, anomaly_rows, run_id=run.progress.run_id,
+                        require_lock=True, commit=False)
+                    with conn.cursor() as cur:
                         cur.execute(
                             "UPDATE feed_ingest_runs SET status='success',"
                             " chunks_done=1, rows_written=%s, completed_at=NOW(),"

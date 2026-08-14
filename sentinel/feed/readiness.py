@@ -292,7 +292,8 @@ def _add_version_checks(conn, r: "Readiness") -> None:
               " WHERE last_written_run_id IS NOT NULL") or 0)
         for table in ("sentinel_bars", "sentinel_actions",
                       "sentinel_spy_total_return", "sentinel_universe",
-                      "sentinel_bar_split_repairs"))
+                      "sentinel_bar_split_repairs",
+                      "sentinel_corpus_anomalies"))
     if stamped:
         # Covered by the coherence FAIL above; named separately so the operator
         # sees the consequence as well as the cause.

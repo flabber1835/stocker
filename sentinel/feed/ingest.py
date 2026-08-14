@@ -234,7 +234,8 @@ def _persist_chunk_evidence(conn, run, chunk: str, lo: str, hi: str,
                       f"a real split, or the seeded close belongs to an older "
                       f"vendor adjustment vintage."})
     if anomalies:
-        feed_store.write_anomalies(conn, anomalies)
+        feed_store.write_anomalies(
+            conn, anomalies, run_id=run.progress.run_id, require_lock=True)
 
 
 def seed(conn, *, date_from: str = DEFAULT_SEED_START, date_to: Optional[str] = None,

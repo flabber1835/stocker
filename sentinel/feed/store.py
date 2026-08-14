@@ -521,25 +521,39 @@ def write_rejection_truncation(conn, *, run_id, chunk: str, window_start: str,
     conn.commit()
 
 
-def write_anomalies(conn, anomalies) -> int:
-    """Persist corpus anomalies the ingest resolved but did not resolve AWAY.
+def write_anomalies(conn, anomalies, *, run_id=None, require_lock: bool = False,
+                    commit: bool = True) -> int:
+    """Append corpus-anomaly observations for one candidate generation.
 
     A warning logged during a six-hour seed is not something a certification
-    can consult afterwards, and these are precisely the facts a certification
-    has to weigh: a split the two sources disagree about, and a distribution
-    whose amount the vendor never stated.
+    can consult afterwards. Publication, not insertion, makes a stamped row the
+    active disposition. An unpublished correction therefore cannot erase the
+    previous blocker. Calls without a run id are the legacy/test baseline.
     """
-    rows = [(a["kind"], a["ticker"], a["session"], a.get("detail"))
+    if require_lock:
+        _assert_corpus_locked(conn)
+    writer = None if run_id is None else str(run_id)
+    rows = [(a["kind"], a["ticker"], a["session"], a.get("detail"), writer)
             for a in anomalies]
     if not rows:
         return 0
     with conn.cursor() as cur:
-        cur.executemany(
-            "INSERT INTO sentinel_corpus_anomalies (kind, ticker, session,"
-            " detail) VALUES (%s,%s,%s,%s)"
-            " ON CONFLICT (kind, ticker, session) DO UPDATE SET"
-            " detail = EXCLUDED.detail", rows)
-    conn.commit()
+        if writer is None:
+            cur.executemany(
+                "INSERT INTO sentinel_corpus_anomalies (kind, ticker, session,"
+                " detail, last_written_run_id) VALUES (%s,%s,%s,%s,%s)"
+                " ON CONFLICT (kind, ticker, session)"
+                " WHERE last_written_run_id IS NULL DO UPDATE SET"
+                " detail = EXCLUDED.detail", rows)
+        else:
+            cur.executemany(
+                "INSERT INTO sentinel_corpus_anomalies (kind, ticker, session,"
+                " detail, last_written_run_id) VALUES (%s,%s,%s,%s,%s)"
+                " ON CONFLICT (kind, ticker, session, last_written_run_id)"
+                " WHERE last_written_run_id IS NOT NULL DO UPDATE SET"
+                " detail = EXCLUDED.detail", rows)
+    if commit:
+        conn.commit()
     return len(rows)
 
 

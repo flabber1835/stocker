@@ -410,12 +410,27 @@ class TestUnexplainedCorpusAnomaliesBlockTheInterval:
         assert RA.audit(conn, start=START, end=END,
                         **EMPTY_BOOK).certifiable is False
 
-    def test_SPLIT_ONLY_DERIVED_does_NOT_block(self, conn):
-        """The fallback may clear only when irrelevance is actually proved."""
+    def test_split_below_price_floor_then_rises_stays_blocking(self, conn):
+        """The split changes every later cumulative signal, not one bar."""
         self.anomaly(conn, "SPLIT_ONLY_DERIVED", ticker="PENNY")
-        bar(conn, "PENNY", close=0.25)
+        bar(conn, "PENNY", day="2024-06-03", close=0.25)
+        bar(conn, "PENNY", day="2024-06-04", close=25.0)
         assert RA.audit(conn, start=START, end=END,
-                        **EMPTY_BOOK).certifiable is True
+                        **EMPTY_BOOK).certifiable is False
+
+    def test_split_below_liquidity_floor_then_liquid_stays_blocking(self, conn):
+        self.anomaly(conn, "SPLIT_ONLY_DERIVED", ticker="THIN")
+        bar(conn, "THIN", day="2024-06-03", close=25.0, volume=1.0)
+        bar(conn, "THIN", day="2024-06-04", close=25.0, volume=1_000_000)
+        assert RA.audit(conn, start=START, end=END,
+                        **EMPTY_BOOK).certifiable is False
+
+    def test_absent_from_observed_book_is_not_a_counterfactual_proof(self, conn):
+        self.anomaly(conn, "SPLIT_ONLY_DERIVED", ticker="OMITTED")
+        report = RA.audit(conn, start=START, end=END, **EMPTY_BOOK)
+        assert report.certifiable is False
+        assert report.unsafe_split_dispositions[0]["economic_relevance"] == \
+            "counterfactual_unproven"
 
     def test_an_anomaly_OUTSIDE_the_interval_does_not_block(self, conn):
         self.anomaly(conn, "SPLIT_DISAGREEMENT", session="2019-06-03")
@@ -477,17 +492,25 @@ class TestUnexplainedCorpusAnomaliesBlockTheInterval:
         bar(conn, "ELIGIBLE", close=50.0, volume=1_000_000)
         report = RA.audit(conn, start=START, end=END, **EMPTY_BOOK)
         item = report.unsafe_split_dispositions[0]
-        assert item["economic_relevance"] == \
-            "potentially_eligibility_relevant"
+        assert item["economic_relevance"] == "counterfactual_unproven"
         assert report.certifiable is False
 
-    def test_seam_artifact_on_a_proven_irrelevant_security_can_clear(self, conn):
+    def test_seam_artifact_below_event_day_floor_still_blocks(self, conn):
         self.anomaly(conn, "SEAM_SPLIT_UNCORROBORATED", ticker="PENNY")
         bar(conn, "PENNY", close=0.25)
         report = RA.audit(conn, start=START, end=END, **EMPTY_BOOK)
         assert report.split_dispositions[0]["economic_relevance"] == \
-            "proven_irrelevant"
+            "counterfactual_unproven"
+        assert report.certifiable is False
+
+    @pytest.mark.parametrize("kind", [
+        "SPLIT_AUTHORITATIVE_APPLIED", "SPLIT_CORROBORATED_DERIVED",
+    ])
+    def test_resolved_split_dispositions_continue_to_clear(self, conn, kind):
+        self.anomaly(conn, kind, ticker="RESOLVED")
+        report = RA.audit(conn, start=START, end=END, **EMPTY_BOOK)
         assert report.certifiable is True
+        assert report.split_dispositions[0]["economic_relevance"] == "resolved"
 
 
 # ── 3. the evidence row carries what the audit needs ─────────────────────────

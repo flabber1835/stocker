@@ -95,6 +95,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
+from sentinel.feed import anomalies as anomaly_store
 from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
 
 CLEAR = "CLEAR"
@@ -241,9 +242,8 @@ def _truncations(conn, start: str, end: str) -> list[dict]:
 #: distribution whose amount the vendor never stated is stored as 0.0 and is
 #: indistinguishable, in the corpus, from no distribution at all. Neither is
 #: repaired by the ingest, so neither can be certified past in silence.
-#: `SPLIT_ONLY_DERIVED` is deliberately absent from this unconditional list.
-#: Its gate is conditional in `_split_dispositions`: only a provably irrelevant
-#: security clears; held, pending, and potentially eligible events hold.
+#: Derived-only and seam dispositions are handled by `_split_dispositions` and
+#: always block absent genuine full-interval counterfactual equivalence proof.
 GATING_ANOMALY_KINDS = ("SPLIT_DISAGREEMENT", "UNUSABLE_DIVIDEND")
 
 _SPLIT_DISPOSITION = {
@@ -256,37 +256,21 @@ _SPLIT_DISPOSITION = {
 
 
 def _anomalies(conn, start: str, end: str) -> list[dict]:
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT kind, ticker, session, detail FROM sentinel_corpus_anomalies"
-            " WHERE session BETWEEN %s AND %s AND kind = ANY(%s)"
-            " ORDER BY session, ticker, kind",
-            (start, end, list(GATING_ANOMALY_KINDS)))
-        return [{"kind": str(r[0]), "ticker": str(r[1]), "session": str(r[2]),
-                 "detail": None if r[3] is None else str(r[3])}
-                for r in cur.fetchall()]
+    return [{key: row[key] for key in
+             ("kind", "ticker", "session", "detail",
+              "last_written_run_id", "publication_version")}
+            for row in anomaly_store.active_rows(
+                conn, start=start, end=end, kinds=GATING_ANOMALY_KINDS)]
 
 
 def _split_dispositions(conn, start: str, end: str, *, held: set[str],
                         pending: set[str], holdings_known: bool,
                         eligibility: EligibilityConfig) -> list[dict]:
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT a.kind, a.ticker, a.session, a.detail,"
-            " MAX(b.close_unadjusted),"
-            " MAX(b.close_unadjusted * COALESCE(b.volume, 0))"
-            " FROM sentinel_corpus_anomalies a"
-            " LEFT JOIN sentinel_bars b"
-            "   ON b.ticker = a.ticker AND b.session = a.session"
-            " WHERE a.session BETWEEN %s AND %s AND a.kind = ANY(%s)"
-            " GROUP BY a.kind, a.ticker, a.session, a.detail"
-            " ORDER BY a.session, a.ticker, a.kind",
-            (start, end, list(_SPLIT_DISPOSITION)))
-        rows = list(cur.fetchall())
-
     dispositions = []
-    for kind, ticker, session, detail, max_close, max_dv in rows:
-        kind, ticker = str(kind), str(ticker).upper()
+    rows = anomaly_store.active_rows(
+        conn, start=start, end=end, kinds=_SPLIT_DISPOSITION)
+    for row in rows:
+        kind, ticker = row["kind"], row["ticker"].upper()
         intersects = []
         if ticker in held:
             intersects.append("held_position")
@@ -302,28 +286,20 @@ def _split_dispositions(conn, start: str, end: str, *, held: set[str],
                 "unresolved", "refuse: neither source may rewrite shares", True)
         elif intersects:
             relevance, policy, blocks = (
-                "material", "hold: event intersects path-dependent state", True)
-        elif not holdings_known:
-            relevance, policy, blocks = (
-                "undetermined", "hold: holding intersection unavailable", True)
-        elif (max_close is not None
-              and float(max_close) < eligibility.min_unadjusted_price):
-            relevance, policy, blocks = (
-                "proven_irrelevant", "accepted: below admission price floor", False)
-        elif (max_dv is not None
-              and float(max_dv) < eligibility.min_signal_dollar_volume):
-            relevance, policy, blocks = (
-                "proven_irrelevant", "accepted: below admission liquidity floor",
-                False)
+                "material",
+                "hold: uncertain split intersects path-dependent state", True)
         else:
             relevance, policy, blocks = (
-                "potentially_eligibility_relevant",
-                "hold: economic irrelevance cannot be proved", True)
+                "counterfactual_unproven",
+                "hold: event-day floors and observed-book absence cannot prove "
+                "full-interval split-treatment equivalence", True)
 
         dispositions.append({
             "category": _SPLIT_DISPOSITION[kind], "kind": kind,
-            "ticker": ticker, "session": str(session),
-            "detail": None if detail is None else str(detail),
+            "ticker": ticker, "session": row["session"],
+            "detail": row["detail"],
+            "last_written_run_id": row["last_written_run_id"],
+            "publication_version": row["publication_version"],
             "economic_relevance": relevance, "intersects": intersects,
             "policy": policy, "blocks_certification": blocks,
         })

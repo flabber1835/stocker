@@ -1081,9 +1081,22 @@ unusable dividend    a distribution the vendor stated no amount for. The corpus
                      record separates them
 ```
 
-`SPLIT_ONLY_DERIVED` — a split the prices show and ACTIONS never recorded — is
-recorded and does NOT gate. That is the fallback working as designed, and gating
-on it would refuse every year ACTIONS covers thinly.
+`SPLIT_ONLY_DERIVED` and `SEAM_SPLIT_UNCORROBORATED` gate certification unless
+full-interval counterfactual evidence proves that every plausible split
+treatment produces identical eligibility, rankings, selections, holdings,
+accounting and hashes. Event-day price or liquidity cannot prove that: a split
+changes the cumulative signal series on every later session, when the security
+may cross either floor. Absence from the observed book is also not proof,
+because the uncertain split can be the cause of that absence. No such
+counterfactual engine exists today, so both dispositions block; authoritative
+and directly/reciprocally corroborated dispositions clear.
+
+These rows are publication-scoped evidence. Each ingest observation is retained
+with its writer run; only the newest successfully published disposition for a
+split `(ticker, session)` is active. An unpublished corrective ingest cannot
+retire the prior active blocker. Pre-upgrade rows remain a fail-closed legacy
+baseline until a later published observation supersedes the same event, so a
+schema upgrade cannot manufacture a clean interval by forgetting evidence.
 
 ### 10c. Synthetic parity is not corpus parity
 

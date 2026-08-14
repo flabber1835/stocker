@@ -5,12 +5,15 @@ Sentinel main (`f65e9e34bc204250e4e5a99b61dfdc099e0392ef`) to a Synology NAS.
 It is intentionally separate from the deployment checkout: production keeps
 running reviewed images while fixes and falsifiers accumulate in this draft PR.
 
-## Draft status
+## Review-fix status
 
-All seven release-blocking behaviors below are implemented in this draft. The
-branch remains a draft until Linux/PostgreSQL CI and a reviewed NAS redeployment
-confirm the code paths on the target host. No network ingestion, broker action,
-credential change, or deployment is part of this remediation branch.
+The seven deployment remediations below are implemented. Review then found two
+additional certification defects: event-day admission floors were being used as
+a proxy for full-history split irrelevance, and anomaly rows had no publication
+lifecycle. Both review fixes and their PostgreSQL falsifiers are now
+implemented. The PR remains draft until the final Linux safety workflow passes
+on the pushed head. No network ingestion, broker action, credential change, or
+deployment is part of this remediation branch.
 
 ## Confirmed findings
 
@@ -119,13 +122,41 @@ Certification renders every split in one of these explicit categories:
 |---|---|
 | authoritative applied split | canonical ACTIONS multiplier at or below one; accepted |
 | corroborated derived split | price evidence selects direct or reciprocal orientation; accepted |
-| derived-only non-seam split | applied, but certification holds if held, pending, potentially eligible, or unclassifiable |
-| seam artifact suppressed | not applied; certification uses the same relevance hold policy |
+| derived-only non-seam split | applied, but certification blocks without full-interval counterfactual equivalence evidence |
+| seam artifact suppressed | not applied; certification blocks without full-interval counterfactual equivalence evidence |
 | unresolved material disagreement | not applied and always blocks certification |
 
-For the two conditional categories, only an explicitly supplied empty book and
-a price or liquidity upper-bound proof below the production admission floor can
-classify the event as economically irrelevant and clear it.
+An event-day price, event-day liquidity, or absence from the observed book is
+not such evidence. A split changes the cumulative signal series for every later
+session; the security can later cross an admission floor, change rankings and
+enter the book, while a wrong split can itself explain why it is absent from the
+observed holdings. The current system has no full-interval counterfactual engine,
+so both uncertain categories block. They may clear only if future evidence
+demonstrates equivalence of eligibility, rankings, selections, holdings,
+accounting and hashes under every alternate split treatment over the complete
+certified interval. No event-local proxy may stand in for that proof.
+
+### 4a. Anomaly evidence follows corpus publication
+
+`sentinel_corpus_anomalies` is an append-only observation history, not a mutable
+set of warnings. New observations carry the ingest or repair `run_id`. Rows from
+an unpublished or failed run are historical candidate evidence and cannot
+replace the active disposition. The publication row is the atomic activation
+point: for a split economic event `(ticker, session)`, readers select only the
+disposition attached to the newest published run, with pre-upgrade rows as a
+legacy baseline. A corrected published corroboration or authoritative result
+therefore supersedes an older disagreement/derived/seam disposition without
+deleting it.
+
+Legacy rows are never reset or inferred clean during upgrade. They retain a
+NULL publication identity, are classified deterministically as the oldest
+active baseline, and remain certification evidence until a newer published
+observation for the same economic event exists. If legacy data contains more
+than one split disposition at the same baseline, all tied rows remain visible
+and any unsafe one blocks. Candidate observations participate in corpus
+coherence, so a failed publication is visible as unpublished state while the
+previously published disposition remains active. The corpus writer lock covers
+observation writes and publication just as it covers bars, actions and repairs.
 
 ### 5. Backup validation cannot use attestation when Docker root is protected
 
@@ -201,6 +232,19 @@ the equity universe; repeated seed/daily loads are idempotent.
   synchronization; this remediation does not mutate database credentials.
 
 ## Validation evidence for this draft
+
+- Review-fix focused PostgreSQL selection: `144 passed` with zero skips. This
+  covers active/history supersession, failed and repeated ingest behavior,
+  legacy upgrade, corpus publication/coherence/readiness, split repair and
+  certification.
+- Formal forward-run evidence consumer: `15 passed` with zero skips, including
+  refusal when unpublished anomaly observations appear in the exact coherence
+  schema.
+- Current-head backtester boundary: `100 passed` with zero skips.
+- Full Python compilation, tracked-shell `bash -n`, the canonical/automation/
+  authorized-cli Compose graphs, and `git diff --check`: pass.
+- The final Linux complete-suite result and workflow URL are pending the pushed
+  head; draft language remains until that authoritative check passes.
 
 - Consolidated changed-area selection on the Windows development host:
   `125 passed, 140 skipped`. Every skip is expected and named: the repository's

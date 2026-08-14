@@ -945,6 +945,29 @@ incomplete.
 Sparse securities are affected anywhere in the window, not just at its edge: a
 name whose only print in the window is mid-window has no predecessor either.
 
+### 9.1a Uncertain split evidence is cumulative and publication-scoped
+
+An uncertain split is not made irrelevant by the security failing an admission
+floor on the event date. The ratio changes its cumulative signal series for
+every later session, so it can change later eligibility, rankings, selections,
+holdings, accounting and hashes. The observed holdings are not a counterfactual
+witness: incorrect split treatment can be why the security never appears there.
+Consequently `SPLIT_ONLY_DERIVED` and `SEAM_SPLIT_UNCORROBORATED` block
+certification unless a complete interval replay proves equivalence under every
+plausible treatment. The present system has no such proof and uses no local
+price, liquidity or book proxy. Authoritative and directly/reciprocally
+corroborated split dispositions remain resolved.
+
+Anomaly observations use the same publication boundary as their corpus. They
+are append-only and carry `last_written_run_id`; the active split disposition is
+the one associated with the newest successful publication for the economic
+event `(ticker, session)`. Publication atomically activates it while retaining
+all prior observations as audit history. An unpublished or failed candidate is
+not active and cannot retire the previously active evidence. Legacy rows with
+no run identity are retained as the oldest baseline, never silently discarded;
+ambiguous baseline ties remain fail-closed. Unpublished anomaly observations
+also make corpus coherence fail, so a crashed writer cannot become invisible.
+
 ### 9.2 The fix
 
 Seed `prev` from the last stored observation strictly before the window, keyed on

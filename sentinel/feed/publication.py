@@ -163,6 +163,7 @@ class CoherenceReport:
     unpublished_spy: int
     unpublished_universe: int
     unpublished_repairs: int
+    unpublished_anomalies: int
     unpublished_runs: tuple
     #: How the candidate runs were enumerated. `feed_ingest_runs` is exact for
     #: anything this codebase can write — `last_written_run_id` is only ever set
@@ -176,7 +177,7 @@ class CoherenceReport:
     def unpublished_rows(self) -> int:
         return (self.unpublished_bars + self.unpublished_actions
                 + self.unpublished_spy + self.unpublished_universe
-                + self.unpublished_repairs)
+                + self.unpublished_repairs + self.unpublished_anomalies)
 
     @property
     def coherent(self) -> bool:
@@ -191,6 +192,7 @@ class CoherenceReport:
                 "unpublished_spy": self.unpublished_spy,
                 "unpublished_universe": self.unpublished_universe,
                 "unpublished_repairs": self.unpublished_repairs,
+                "unpublished_anomalies": self.unpublished_anomalies,
                 "unpublished_runs": list(self.unpublished_runs),
                 "enumeration": self.enumeration}
 
@@ -213,6 +215,7 @@ def coherence(conn, *, exhaustive: bool = False) -> CoherenceReport:
             version=(v.version if (v := current(conn)) else None),
             unpublished_bars=0, unpublished_actions=0, unpublished_spy=0,
             unpublished_universe=0, unpublished_repairs=0,
+            unpublished_anomalies=0,
             unpublished_runs=(),
             enumeration="exhaustive" if exhaustive else "feed_ingest_runs")
 
@@ -221,6 +224,7 @@ def coherence(conn, *, exhaustive: bool = False) -> CoherenceReport:
     spy = _rows_per_run(conn, "sentinel_spy_total_return", runs)
     universe = _rows_per_run(conn, "sentinel_universe", runs)
     repairs = _rows_per_run(conn, "sentinel_bar_split_repairs", runs)
+    anomalies = _rows_per_run(conn, "sentinel_corpus_anomalies", runs)
     # A run that wrote NOTHING and never published is not an incoherence: an
     # ingest can legitimately open a row, find no new sessions and finish, and
     # `_publish_version` is skipped on a failed run by design. Counting those
@@ -233,8 +237,10 @@ def coherence(conn, *, exhaustive: bool = False) -> CoherenceReport:
         unpublished_spy=sum(spy.values()),
         unpublished_universe=sum(universe.values()),
         unpublished_repairs=sum(repairs.values()),
+        unpublished_anomalies=sum(anomalies.values()),
         unpublished_runs=tuple(sorted(
-            set(bars) | set(actions) | set(spy) | set(universe) | set(repairs))),
+            set(bars) | set(actions) | set(spy) | set(universe) | set(repairs)
+            | set(anomalies))),
         enumeration="exhaustive" if exhaustive else "feed_ingest_runs")
 
 
@@ -266,7 +272,7 @@ def _unpublished_runs_exhaustive(conn) -> tuple:
     found: set = set()
     for table in ("sentinel_bars", "sentinel_actions",
                   "sentinel_spy_total_return", "sentinel_universe",
-                  "sentinel_bar_split_repairs"):
+                  "sentinel_bar_split_repairs", "sentinel_corpus_anomalies"):
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT DISTINCT t.last_written_run_id FROM {table} t"
