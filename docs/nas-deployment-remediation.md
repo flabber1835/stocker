@@ -270,9 +270,13 @@ the equity universe; repeated seed/daily loads are idempotent.
   remains `100 passed` with zero skips.
 - Full Python compilation, tracked-shell `bash -n`, the canonical/automation/
   authorized-cli Compose graphs, and `git diff --check`: pass.
-- Final-head GitHub `Sentinel safety` evidence is recorded after the pushed
-  commit completes; the check is a passing safety workflow, not a repository-
-  required check unless branch protection is configured to require it.
+- GitHub `Sentinel safety` passed on review-fix code head `c2e9b8c` in `5m48s`
+  ([run 31832933002](https://github.com/flabber1835/stocker/actions/runs/31832933002)).
+  GitHub reports no repository-required checks on this branch, so this is
+  passing safety evidence rather than a required check unless branch protection
+  is later configured to require it. The PR description records the workflow
+  for the final documentation head without creating an evidence-only commit
+  loop.
 
 ## Change policy
 
