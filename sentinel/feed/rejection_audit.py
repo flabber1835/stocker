@@ -146,6 +146,9 @@ class RejectionAudit:
     truncated_evidence: list[dict] = field(default_factory=list)
     #: Corpus anomalies the ingest resolved but did not resolve AWAY.
     gating_anomalies: list[dict] = field(default_factory=list)
+    #: Every split disposition in the interval, rendered as mutually explicit
+    #: certification categories rather than inferred from warning prose.
+    split_dispositions: list[dict] = field(default_factory=list)
     #: Whether the caller could tell us what the run held. False means the two
     #: strongest materiality checks were unavailable, not that they passed.
     holdings_known: bool = False
@@ -159,10 +162,16 @@ class RejectionAudit:
         return [t for t in self.per_ticker if t.verdict == UNDETERMINED]
 
     @property
+    def unsafe_split_dispositions(self) -> list[dict]:
+        return [item for item in self.split_dispositions
+                if item.get("blocks_certification")]
+
+    @property
     def verdict(self) -> str:
         if self.material:
             return MATERIAL
-        if self.undetermined or self.truncated_evidence or self.gating_anomalies:
+        if (self.undetermined or self.truncated_evidence
+                or self.gating_anomalies or self.unsafe_split_dispositions):
             return UNDETERMINED
         return CLEAR
 
@@ -183,6 +192,8 @@ class RejectionAudit:
                 "undetermined": [t.to_dict() for t in self.undetermined],
                 "truncated_evidence": self.truncated_evidence,
                 "gating_anomalies": self.gating_anomalies,
+                "split_dispositions": self.split_dispositions,
+                "unsafe_split_dispositions": self.unsafe_split_dispositions,
                 "verdict": self.verdict,
                 "certifiable": self.certifiable}
 
@@ -230,9 +241,18 @@ def _truncations(conn, start: str, end: str) -> list[dict]:
 #: distribution whose amount the vendor never stated is stored as 0.0 and is
 #: indistinguishable, in the corpus, from no distribution at all. Neither is
 #: repaired by the ingest, so neither can be certified past in silence.
-#: `SPLIT_ONLY_DERIVED` is deliberately absent — the fallback is designed
-#: behaviour and gating on it would refuse every year ACTIONS covers thinly.
+#: `SPLIT_ONLY_DERIVED` is deliberately absent from this unconditional list.
+#: Its gate is conditional in `_split_dispositions`: only a provably irrelevant
+#: security clears; held, pending, and potentially eligible events hold.
 GATING_ANOMALY_KINDS = ("SPLIT_DISAGREEMENT", "UNUSABLE_DIVIDEND")
+
+_SPLIT_DISPOSITION = {
+    "SPLIT_AUTHORITATIVE_APPLIED": "authoritative applied split",
+    "SPLIT_CORROBORATED_DERIVED": "corroborated derived split",
+    "SPLIT_ONLY_DERIVED": "derived-only non-seam split",
+    "SEAM_SPLIT_UNCORROBORATED": "seam artifact suppressed",
+    "SPLIT_DISAGREEMENT": "unresolved material disagreement",
+}
 
 
 def _anomalies(conn, start: str, end: str) -> list[dict]:
@@ -245,6 +265,69 @@ def _anomalies(conn, start: str, end: str) -> list[dict]:
         return [{"kind": str(r[0]), "ticker": str(r[1]), "session": str(r[2]),
                  "detail": None if r[3] is None else str(r[3])}
                 for r in cur.fetchall()]
+
+
+def _split_dispositions(conn, start: str, end: str, *, held: set[str],
+                        pending: set[str], holdings_known: bool,
+                        eligibility: EligibilityConfig) -> list[dict]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT a.kind, a.ticker, a.session, a.detail,"
+            " MAX(b.close_unadjusted),"
+            " MAX(b.close_unadjusted * COALESCE(b.volume, 0))"
+            " FROM sentinel_corpus_anomalies a"
+            " LEFT JOIN sentinel_bars b"
+            "   ON b.ticker = a.ticker AND b.session = a.session"
+            " WHERE a.session BETWEEN %s AND %s AND a.kind = ANY(%s)"
+            " GROUP BY a.kind, a.ticker, a.session, a.detail"
+            " ORDER BY a.session, a.ticker, a.kind",
+            (start, end, list(_SPLIT_DISPOSITION)))
+        rows = list(cur.fetchall())
+
+    dispositions = []
+    for kind, ticker, session, detail, max_close, max_dv in rows:
+        kind, ticker = str(kind), str(ticker).upper()
+        intersects = []
+        if ticker in held:
+            intersects.append("held_position")
+        if ticker in pending:
+            intersects.append("pending_terminal_episode")
+
+        if kind in {"SPLIT_AUTHORITATIVE_APPLIED",
+                    "SPLIT_CORROBORATED_DERIVED"}:
+            relevance, policy, blocks = (
+                "resolved", "accepted canonical split evidence", False)
+        elif kind == "SPLIT_DISAGREEMENT":
+            relevance, policy, blocks = (
+                "unresolved", "refuse: neither source may rewrite shares", True)
+        elif intersects:
+            relevance, policy, blocks = (
+                "material", "hold: event intersects path-dependent state", True)
+        elif not holdings_known:
+            relevance, policy, blocks = (
+                "undetermined", "hold: holding intersection unavailable", True)
+        elif (max_close is not None
+              and float(max_close) < eligibility.min_unadjusted_price):
+            relevance, policy, blocks = (
+                "proven_irrelevant", "accepted: below admission price floor", False)
+        elif (max_dv is not None
+              and float(max_dv) < eligibility.min_signal_dollar_volume):
+            relevance, policy, blocks = (
+                "proven_irrelevant", "accepted: below admission liquidity floor",
+                False)
+        else:
+            relevance, policy, blocks = (
+                "potentially_eligibility_relevant",
+                "hold: economic irrelevance cannot be proved", True)
+
+        dispositions.append({
+            "category": _SPLIT_DISPOSITION[kind], "kind": kind,
+            "ticker": ticker, "session": str(session),
+            "detail": None if detail is None else str(detail),
+            "economic_relevance": relevance, "intersects": intersects,
+            "policy": policy, "blocks_certification": blocks,
+        })
+    return dispositions
 
 
 def audit(conn, *, start: str, end: str,
@@ -310,6 +393,9 @@ def audit(conn, *, start: str, end: str,
                           distinct_tickers=len(per), per_ticker=per,
                           truncated_evidence=_truncations(conn, start, end),
                           gating_anomalies=_anomalies(conn, start, end),
+                          split_dispositions=_split_dispositions(
+                              conn, start, end, held=held, pending=pending,
+                              holdings_known=holdings_known, eligibility=cfg),
                           holdings_known=holdings_known)
 
 

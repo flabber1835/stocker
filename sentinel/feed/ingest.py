@@ -50,11 +50,9 @@ def _today() -> str:
 def _report_split_disagreements(report, authoritative) -> list:
     """LOUD when the stated and derived split ratios describe different events.
 
-    The authoritative value wins — it is the vendor stating a corporate action,
-    while the derived one is inferred from two prices — but a material
-    disagreement means one of the two inputs is wrong about this security, and
-    silently preferring either turns a data problem into a share count nobody
-    questions.
+    Equal or reciprocal evidence is oriented deterministically. Anything else
+    is not applied: silently preferring either source would turn a data problem
+    into a share count nobody questions.
     """
     from sentinel.feed import actions_map
 
@@ -62,8 +60,8 @@ def _report_split_disagreements(report, authoritative) -> list:
     for d in bad[:20]:
         log.warning(
             "sentinel: SPLIT DISAGREEMENT %s %s stated=%.6g derived=%.6g — "
-            "using the ACTIONS value; one of the two sources is wrong about "
-            "this security", d["ticker"], d["session"], d["stated"],
+            "NOT APPLIED; ACTIONS is neither equal nor reciprocal to the "
+            "price-domain ratio", d["ticker"], d["session"], d["stated"],
             d["derived"])
     if len(bad) > 20:
         log.warning("sentinel: +%d further split disagreements", len(bad) - 20)
@@ -76,7 +74,8 @@ def _report_split_disagreements(report, authoritative) -> list:
     if only:
         log.warning(
             "sentinel: %d split(s) inferred from prices with NO ACTIONS row "
-            "(using the derived ratio; e.g. %s) — ACTIONS does not cover every "
+            "(applied as derived-only non-seam events; e.g. %s) — ACTIONS "
+            "does not cover every "
             "split in this window", len(only),
             ", ".join(f"{d['ticker']} {d['session']} x{d['derived']:.6g}"
                       for d in only[:5]))
@@ -172,7 +171,8 @@ def _persist_chunk_evidence(conn, run, chunk: str, lo: str, hi: str,
 
     # 3. anomalies that were RESOLVED but not resolved away
     anomalies = []
-    for d in _report_split_disagreements(report, splits):
+    reported_disagreements = _report_split_disagreements(report, splits)
+    for d in reported_disagreements:
         anomalies.append({
             "kind": "SPLIT_DISAGREEMENT", "ticker": d["ticker"],
             "session": d["session"],
@@ -181,6 +181,38 @@ def _persist_chunk_evidence(conn, run, chunk: str, lo: str, hi: str,
         anomalies.append({
             "kind": "SPLIT_ONLY_DERIVED", "ticker": d["ticker"],
             "session": d["session"], "detail": f"derived={d['derived']:.6g}"})
+    for (tkr, sess), item in sorted(report.split_dispositions.items()):
+        disposition = item["disposition"]
+        if disposition in {
+                actions_map.SPLIT_CORROBORATED_DIRECT,
+                actions_map.SPLIT_CORROBORATED_RECIPROCAL}:
+            anomalies.append({
+                "kind": "SPLIT_CORROBORATED_DERIVED", "ticker": tkr,
+                "session": sess,
+                "detail": f"orientation={disposition} "
+                          f"stated={item['stated']:.12g} "
+                          f"derived={item['derived']:.12g} "
+                          f"applied={item['applied_ratio']:.12g}"})
+        elif disposition == actions_map.SPLIT_AUTHORITATIVE_APPLIED:
+            anomalies.append({
+                "kind": "SPLIT_AUTHORITATIVE_APPLIED", "ticker": tkr,
+                "session": sess,
+                "detail": f"stated={item['stated']:.12g} "
+                          f"applied={item['applied_ratio']:.12g}"})
+        elif (disposition == actions_map.SPLIT_UNRESOLVED
+              and item["derived"] is None):
+            # A disagreement with price evidence was already recorded above.
+            # This branch covers the equally unsafe action-only denominator,
+            # without emitting the same anomaly/log record twice.
+            derived = item["derived"]
+            detail = (f"stated={item['stated']:.12g} derived="
+                      f"{derived if derived is not None else 'unavailable'}; "
+                      "NOT applied because orientation is unresolved")
+            anomalies.append({
+                "kind": "SPLIT_DISAGREEMENT", "ticker": tkr,
+                "session": sess, "detail": detail})
+            log.warning("sentinel: SPLIT DISAGREEMENT %s %s — %s",
+                        tkr, sess, detail)
     for row in actions_map.unusable_dividend_rows_detail(action_rows):
         anomalies.append({
             "kind": "UNUSABLE_DIVIDEND", "ticker": row["ticker"],
@@ -191,6 +223,10 @@ def _persist_chunk_evidence(conn, run, chunk: str, lo: str, hi: str,
     # the bar it concerns, which is exactly why it has to be durable: the only
     # trace of the question would otherwise be a value that looks ordinary.
     for (tkr, sess), ratio in report.seam_splits_uncorroborated.items():
+        log.warning(
+            "sentinel: seam artifact suppressed %s %s derived=%.6g — NOT "
+            "applied; the seeded predecessor may use an older adjustment vintage",
+            tkr, sess, ratio)
         anomalies.append({
             "kind": "SEAM_SPLIT_UNCORROBORATED", "ticker": tkr, "session": sess,
             "detail": f"derived={ratio:.6g} against a SEEDED predecessor with no "
@@ -232,7 +268,7 @@ def _seed_locked(conn, *, date_from: str, date_to: Optional[str],
     date_to = date_to or _today()
     chunks = sharadar.year_chunks(date_from, date_to)
     run = feed_store.IngestRun(conn, "seed", date_from=date_from,
-                               date_to=date_to, chunks_total=len(chunks) + 2)
+                               date_to=date_to, chunks_total=len(chunks) + 3)
 
     # TICKERS FIRST. Identity is not decoration on the price load — a bar keyed
     # on the SYMBOL splices two unrelated companies that reused it, and the
@@ -252,6 +288,14 @@ def _seed_locked(conn, *, date_from: str, date_to: Optional[str],
                           sharadar.date_params(date_from, date_to)))
         run.progress.rows_written += feed_store.write_actions(
             conn, rows, run_id=run.progress.run_id)
+
+    # SPY is a FUND, not an SEP equity. Fetch only this ticker from SFP and keep
+    # it in the controller's dedicated total-return table.
+    with run.chunk("spy"):
+        params = {"ticker": "SPY", **sharadar.date_params(date_from, date_to)}
+        rows = fetch(sharadar.SFP, params)
+        run.progress.rows_written += feed_store.write_spy_total_return(
+            conn, rows, run_id=run.progress.run_id, require_lock=True)
 
     # Built ONCE from what was just stored, then reused for every year. Rebuilding
     # per chunk would be correct and would re-read the whole universe 29 times.
@@ -371,7 +415,7 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
     sharadar.validate_date_range(start, to)
 
     run = feed_store.IngestRun(conn, "daily", date_from=start, date_to=to,
-                               chunks_total=3)
+                               chunks_total=4)
     # Refreshed daily, not just at seed. Listings change: an IPO or a rename
     # arrives with no stored identity, and every one of its bars would be dropped
     # as unresolvable — silently, since dropping is the correct response to an
@@ -385,6 +429,18 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
         rows = list(fetch(sharadar.ACTIONS, sharadar.date_params(start, to)))
         run.progress.rows_written += feed_store.write_actions(
             conn, rows, run_id=run.progress.run_id)
+
+    # A legacy corpus may be complete while this table is empty. Repair the
+    # exact readiness-required 41-session tail, not the 14-calendar-day equity
+    # overlap, and request only SPY from the fund table.
+    with run.chunk("spy"):
+        from sentinel.feed import calendar, readiness
+        spy_start = calendar.previous_sessions(
+            to, readiness.REQUIRED_SPY_SESSIONS)[0]
+        params = {"ticker": "SPY", **sharadar.date_params(spy_start, to)}
+        rows = fetch(sharadar.SFP, params)
+        run.progress.rows_written += feed_store.write_spy_total_return(
+            conn, rows, run_id=run.progress.run_id, require_lock=True)
 
     with run.chunk("prices"):
         report = domains.NormalisationReport()

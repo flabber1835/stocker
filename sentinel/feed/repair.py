@@ -84,6 +84,7 @@ class AuditResult:
     actions_splits: int = 0
     confirmed: list = field(default_factory=list)
     seam_anomalies: list = field(default_factory=list)
+    unresolved_orientation: list = field(default_factory=list)
 
     @property
     def clean(self) -> bool:
@@ -92,7 +93,7 @@ class AuditResult:
         A clean audit means the corpus does not contradict ACTIONS. It does not
         mean the corpus is correct: an unrecorded split contradicts nothing.
         """
-        return not self.confirmed
+        return not self.confirmed and not self.unresolved_orientation
 
     def to_dict(self) -> dict:
         return {
@@ -104,6 +105,7 @@ class AuditResult:
             "ratio_disagreements": sum(1 for d in self.confirmed
                                        if not d.is_missing_split),
             "seam_anomalies_recorded": len(self.seam_anomalies),
+            "unresolved_orientation": self.unresolved_orientation,
             "clean": self.clean,
             "bound": "LOWER — a split ACTIONS never recorded is invisible here; "
                      "only a contiguous reseed can rule that out",
@@ -152,9 +154,11 @@ def audit(conn, *, start: str, end: str) -> AuditResult:
         # and filtering in Python would read a universe-scale frame to examine a
         # handful of rows — the audit must be cheap enough to run routinely, or
         # it will not be run.
+        from sentinel.feed import domains
+
         for (tkr, sess), stated in sorted(splits.items()):
             cur.execute(
-                "SELECT security_id,"
+                "SELECT security_id, close_signal, close_unadjusted,"
                 f" {publication.effective_split_ratio('b')}"
                 " FROM sentinel_bars b WHERE ticker = %s AND session = %s"
                 f" AND {publication.visible_predicate('b')}", (tkr, sess))
@@ -164,11 +168,26 @@ def audit(conn, *, start: str, end: str) -> AuditResult:
                 # belongs to the rejection audit which already reports it. Silent
                 # here rather than double-counted there.
                 continue
-            sid, stored = str(row[0]), float(row[1])
-            if abs(stored - float(stated)) > 1e-9:
+            sid, close, raw, stored = (str(row[0]), row[1], row[2], float(row[3]))
+            cur.execute(
+                "SELECT close_signal,close_unadjusted FROM sentinel_bars b"
+                " WHERE security_id=%s AND session<%s"
+                f" AND {publication.visible_predicate('b')}"
+                " ORDER BY session DESC LIMIT 1", (sid, sess))
+            prior = cur.fetchone()
+            derived = (domains.unsnapped_split_ratio(
+                prior[0], prior[1], close, raw) if prior else None)
+            canonical, disposition = actions_map.resolve_split_orientation(
+                float(stated), derived)
+            if disposition == actions_map.SPLIT_UNRESOLVED:
+                result.unresolved_orientation.append({
+                    "ticker": tkr, "session": sess, "stated": float(stated),
+                    "derived": derived, "stored": stored})
+                continue
+            if abs(stored - canonical) > 1e-9:
                 result.confirmed.append(Discrepancy(
                     security_id=sid, ticker=tkr, session=sess,
-                    stored=stored, authoritative=float(stated)))
+                    stored=stored, authoritative=canonical))
 
         # Seam anomalies the ingest recorded but did NOT apply. They are not
         # discrepancies — nothing contradicts anything — but they are the

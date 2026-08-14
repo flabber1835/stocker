@@ -658,7 +658,7 @@ def _terms_richness(t: TerminalTerms) -> tuple:
 
 def reconcile_split(derived: float, authoritative: float | None,
                     tolerance: float = 0.02) -> tuple[float, str]:
-    """(ratio_to_apply, outcome). ACTIONS wins; the disagreement is RECORDED.
+    """(canonical post/pre ratio, outcome), oriented by price evidence.
 
     The derived ratio is kept because it is an INDEPENDENT measurement of the
     same event — the vendor's own cumulative adjustment factor, read off the two
@@ -666,9 +666,10 @@ def reconcile_split(derived: float, authoritative: float | None,
     authoritative source alone, so it becomes a cross-check rather than being
     deleted.
 
-    Not fatal on disagreement: one inconsistently-adjusted ticker would
-    otherwise block every backtest. Not silent either, or the cross-check would
-    be pointless. The counts travel on the run summary.
+    ACTIONS has supplied both forward multipliers and reverse denominators.
+    Therefore a value greater than one is not self-orienting: direct agreement
+    preserves it, reciprocal agreement applies ``1/value``, and disagreement
+    applies no share transformation while recording ``unresolved``.
     """
     if authoritative is None:
         # No ACTIONS row. Reported inside `disagreed` when the price domains DO
@@ -676,11 +677,23 @@ def reconcile_split(derived: float, authoritative: float | None,
         # not carry is exactly the behaviour this work removes — so the derived
         # value is still applied (it is all we have) but it is never silent.
         return derived, ("agreed" if derived == 1.0 else "disagreed")
+    def close(left, right):
+        return abs(left - right) <= tolerance * max(
+            abs(left), abs(right), 1e-12)
+
     if derived == 1.0:
-        return authoritative, "actions_only"
-    if abs(derived - authoritative) <= tolerance * max(1.0, authoritative):
+        return ((authoritative, "actions_only") if authoritative <= 1.0
+                else (1.0, "unresolved"))
+    if close(derived, authoritative):
         return authoritative, "agreed"
-    return authoritative, "disagreed"
+    reciprocal = 1.0 / authoritative
+    if close(derived, reciprocal):
+        denominator = round(authoritative)
+        if (denominator > 0 and close(authoritative, denominator)
+                and close(derived, 1.0 / denominator)):
+            reciprocal = 1.0 / denominator
+        return reciprocal, "reciprocal"
+    return 1.0, "unresolved"
 
 
 def load_actions(conn, start: str, end: str) -> list[dict]:
@@ -982,11 +995,11 @@ ACTIONS_CAVEATS: tuple[str, ...] = (
     "PAYMENT date, so that lag is an adopted convention in the config hash, not "
     "an observed fact — the default of 1 is the smallest lag that stops a "
     "dividend funding an admission on its own ex-date.",
-    "splits are AUTHORITATIVE from SHARADAR/ACTIONS and cross-checked against "
-    "the ratio derived from SEP.close vs SEP.closeunadj; ACTIONS wins on "
-    "disagreement and the counts are in `split_reconciliation`. A non-zero "
-    "`disagreed` count means the two sources describe the corpus differently "
-    "and is worth reading before the performance numbers.",
+    "splits are read from SHARADAR/ACTIONS and oriented against the independent "
+    "ratio derived from SEP.close vs SEP.closeunadj. Equal evidence applies the "
+    "stated multiplier; reciprocal evidence applies its reciprocal; unresolved "
+    "disagreement applies no share transformation and is counted in "
+    "`split_reconciliation`.",
     "mixed consideration cannot be expressed by a single ACTIONS row: there is "
     "one `value` column, so a cash-plus-stock deal is modelled as whichever leg "
     "the vendor stated (contraticker present => the value is an exchange ratio; "

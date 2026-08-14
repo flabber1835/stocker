@@ -72,6 +72,8 @@ def fetcher(sep_rows, action_rows=()):
         hi = (params or {}).get("date.lte", "9999-99-99")
         if table == sharadar.ACTIONS:
             return [r for r in action_rows if lo <= r["date"] <= hi]
+        if table == sharadar.SFP:
+            return []
         return [r for r in sep_rows if lo <= r["date"] <= hi]
     return fetch
 

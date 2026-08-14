@@ -84,6 +84,16 @@ def action(conn, ticker, day="2024-06-03", kind="delisted"):
     conn.commit()
 
 
+def bar(conn, ticker, *, day="2024-06-03", close=50.0, volume=1e6):
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_bars (security_id,session,ticker,"
+            " close_signal,close_unadjusted,open_unadjusted,volume)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            (f"P-{ticker}", day, ticker, close, close, close, volume))
+    conn.commit()
+
+
 #: The empty book, asserted rather than assumed. Supplying nothing means
 #: UNKNOWN and every ticker comes back UNDETERMINED — see
 #: `TestTheHoldingIntersectionMustBeSUPPLIED`.
@@ -401,10 +411,9 @@ class TestUnexplainedCorpusAnomaliesBlockTheInterval:
                         **EMPTY_BOOK).certifiable is False
 
     def test_SPLIT_ONLY_DERIVED_does_NOT_block(self, conn):
-        """The fallback working as designed. Gating on it would refuse every
-        year ACTIONS covers thinly, which is a coverage statement rather than a
-        fault."""
-        self.anomaly(conn, "SPLIT_ONLY_DERIVED")
+        """The fallback may clear only when irrelevance is actually proved."""
+        self.anomaly(conn, "SPLIT_ONLY_DERIVED", ticker="PENNY")
+        bar(conn, "PENNY", close=0.25)
         assert RA.audit(conn, start=START, end=END,
                         **EMPTY_BOOK).certifiable is True
 
@@ -417,6 +426,68 @@ class TestUnexplainedCorpusAnomaliesBlockTheInterval:
         self.anomaly(conn, "SPLIT_DISAGREEMENT", ticker="ZZZ")
         d = RA.audit(conn, start=START, end=END, **EMPTY_BOOK).to_dict()
         assert d["gating_anomalies"][0]["ticker"] == "ZZZ"
+
+    def test_certification_distinguishes_all_split_dispositions(self, conn):
+        kinds = [
+            "SPLIT_AUTHORITATIVE_APPLIED", "SPLIT_CORROBORATED_DERIVED",
+            "SPLIT_ONLY_DERIVED", "SEAM_SPLIT_UNCORROBORATED",
+            "SPLIT_DISAGREEMENT",
+        ]
+        for offset, kind in enumerate(kinds, 3):
+            self.anomaly(conn, kind, ticker=f"T{offset}",
+                         session=f"2024-06-{offset:02d}")
+        report = RA.audit(conn, start=START, end=END,
+                          **EMPTY_BOOK).to_dict()
+        assert {item["category"] for item in report["split_dispositions"]} == {
+            "authoritative applied split", "corroborated derived split",
+            "derived-only non-seam split", "seam artifact suppressed",
+            "unresolved material disagreement",
+        }
+
+    def test_unresolved_split_on_a_held_security_fails_closed(self, conn):
+        self.anomaly(conn, "SPLIT_DISAGREEMENT", ticker="OWNED")
+        report = RA.audit(
+            conn, start=START, end=END, held_tickers=["OWNED"],
+            pending_terminal_tickers=[])
+        assert report.certifiable is False
+        assert report.split_dispositions[0]["category"] == \
+            "unresolved material disagreement"
+
+    def test_unresolved_split_on_an_eligibility_capable_security_fails_closed(
+            self, conn):
+        self.anomaly(conn, "SPLIT_DISAGREEMENT", ticker="ELIGIBLE")
+        reject(conn, "ELIGIBLE", 3, close=20.0, volume=1_000_000)
+        report = RA.audit(conn, start=START, end=END, **EMPTY_BOOK)
+        assert report.certifiable is False
+        eligible = next(v for v in report.per_ticker if v.ticker == "ELIGIBLE")
+        assert eligible.verdict == RA.UNDETERMINED
+
+    def test_derived_only_split_on_a_held_security_is_held(self, conn):
+        self.anomaly(conn, "SPLIT_ONLY_DERIVED", ticker="OWNED")
+        report = RA.audit(conn, start=START, end=END,
+                          held_tickers=["OWNED"],
+                          pending_terminal_tickers=[])
+        item = report.unsafe_split_dispositions[0]
+        assert item["economic_relevance"] == "material"
+        assert item["intersects"] == ["held_position"]
+        assert report.certifiable is False
+
+    def test_derived_only_eligibility_capable_split_is_held(self, conn):
+        self.anomaly(conn, "SPLIT_ONLY_DERIVED", ticker="ELIGIBLE")
+        bar(conn, "ELIGIBLE", close=50.0, volume=1_000_000)
+        report = RA.audit(conn, start=START, end=END, **EMPTY_BOOK)
+        item = report.unsafe_split_dispositions[0]
+        assert item["economic_relevance"] == \
+            "potentially_eligibility_relevant"
+        assert report.certifiable is False
+
+    def test_seam_artifact_on_a_proven_irrelevant_security_can_clear(self, conn):
+        self.anomaly(conn, "SEAM_SPLIT_UNCORROBORATED", ticker="PENNY")
+        bar(conn, "PENNY", close=0.25)
+        report = RA.audit(conn, start=START, end=END, **EMPTY_BOOK)
+        assert report.split_dispositions[0]["economic_relevance"] == \
+            "proven_irrelevant"
+        assert report.certifiable is True
 
 
 # ── 3. the evidence row carries what the audit needs ─────────────────────────

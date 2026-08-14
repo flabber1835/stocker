@@ -154,22 +154,23 @@ class TestAuthoritativeSplits:
         assert split_ratios_from_actions(rows, SESSIONS) == {}
 
 
-# ── reconciliation: ACTIONS wins, disagreement is recorded ──────────────────
+# ── reconciliation: price evidence orients ACTIONS; ambiguity is suppressed ─
 
 class TestReconciliation:
 
     def test_agreement_is_agreement(self):
         assert reconcile_split(2.0, 2.0) == (2.0, "agreed")
 
-    def test_a_split_only_ACTIONS_can_see_is_still_applied(self):
-        """The price domains show nothing (1.0) but ACTIONS carries an event.
-        This is the case the derived method structurally cannot see, and the
-        reason ACTIONS is the source rather than a second opinion."""
-        assert reconcile_split(1.0, 3.0) == (3.0, "actions_only")
+    def test_a_greater_than_one_actions_value_without_orientation_is_refused(self):
+        assert reconcile_split(1.0, 3.0) == (1.0, "unresolved")
 
-    def test_on_DISAGREEMENT_actions_wins_and_it_is_recorded(self):
+    def test_on_DISAGREEMENT_neither_source_wins(self):
         ratio, outcome = reconcile_split(2.0, 3.0)
-        assert ratio == 3.0 and outcome == "disagreed"
+        assert ratio == 1.0 and outcome == "unresolved"
+
+    def test_reverse_denominator_is_oriented_by_reciprocal_evidence(self):
+        ratio, outcome = reconcile_split(1 / 30, 30.0)
+        assert ratio == pytest.approx(1 / 30) and outcome == "reciprocal"
 
     def test_a_derived_split_ACTIONS_does_not_carry_is_flagged(self):
         """Applied — it is all we have — but never silently. Acting on a ratio

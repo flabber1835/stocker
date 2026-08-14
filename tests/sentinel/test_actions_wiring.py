@@ -95,6 +95,8 @@ def vendor(*, actions=(), split_at=None, ratio=1.0):
             return out
         if table == sharadar.ACTIONS:
             return list(actions)
+        if table == sharadar.SFP:
+            return []
         if table == sharadar.TICKERS:
             return [{"permaticker": "P:AAA", "ticker": "AAA",
                      "firstpricedate": "2000-01-03", "lastpricedate": None,
@@ -116,6 +118,15 @@ def bars(conn, session=None):
         cur.execute("SELECT session, split_ratio, dividend_per_share"
                     " FROM sentinel_bars WHERE ticker='AAA' ORDER BY session")
         return cur.fetchall()
+
+
+def test_pure_1_for_30_orientation_cannot_expand_shares():
+    from stock_strategy_shared.wealth_core.shares import split_shares
+
+    ratio, disposition = A.resolve_split_orientation(30.0, 1 / 30)
+    assert disposition == A.SPLIT_CORROBORATED_RECIPROCAL
+    assert ratio == pytest.approx(1 / 30)
+    assert split_shares(300, ratio) == pytest.approx(10)
 
 
 # ── 1. the mandated end-to-end falsifiers ────────────────────────────────────
@@ -174,6 +185,34 @@ class TestTheCorpusCarriesTheAUTHORITATIVEValues:
         ratio, _ = bars(conn, day)
         assert float(ratio) == pytest.approx(2.0)
 
+    @pytest.mark.parametrize(("stated", "derived"), [
+        pytest.param(30.003, 1 / 30.003, id="JZ-1-for-30"),
+        pytest.param(9.00009, 1 / 9.00009, id="LGHL-1-for-9"),
+        pytest.param(6.99986, 1 / 6.99986, id="SLAI-1-for-7"),
+    ])
+    def test_production_reverse_denominators_become_post_pre_multipliers(
+            self, conn, stated, derived):
+        day = sess()[15]
+        base = vendor(split_at=day, ratio=derived, actions=[
+            {"ticker": "AAA", "date": day, "action": "split",
+             "value": stated, "contraticker": None}])
+        load(conn, base)
+        ratio, _ = bars(conn, day)
+        assert float(ratio) == pytest.approx(1 / round(stated))
+
+    def test_a_1_for_30_can_never_multiply_a_holding_by_30(self, conn):
+        from stock_strategy_shared.wealth_core.shares import split_shares
+
+        day = sess()[15]
+        load(conn, vendor(split_at=day, ratio=1 / 30, actions=[
+            {"ticker": "AAA", "date": day, "action": "split", "value": 30,
+             "contraticker": None}]))
+        ratio, _ = bars(conn, day)
+        after = split_shares(300, float(ratio))
+        assert float(ratio) == pytest.approx(1 / 30)
+        assert after == pytest.approx(10)
+        assert after != 9000
+
 
 # ── 2. the ex-date is a calendar date ────────────────────────────────────────
 
@@ -204,6 +243,13 @@ class TestTheExDateIsSnappedForward:
 # ── 3. disagreement is LOUD, never silently resolved ─────────────────────────
 
 class TestDisagreementIsReported:
+
+    def test_reciprocal_evidence_is_orientation_not_disagreement(self):
+        class Rep:
+            derived_splits_unsnapped = {("JZ", "2026-07-06"): 1 / 30}
+            derived_splits = {("JZ", "2026-07-06"): 1 / 30}
+        assert A.split_disagreements(
+            Rep(), {("JZ", "2026-07-06"): 30.003}) == []
 
     def test_a_material_disagreement_is_reported(self):
         class Rep:
@@ -242,15 +288,15 @@ class TestDisagreementIsReported:
         ratio, _ = bars(conn, day)
         assert float(ratio) == pytest.approx(2.0)
 
-    def test_the_AUTHORITATIVE_value_still_wins(self, conn):
-        """Reported, not resolved by the report. The vendor's statement of a
-        corporate action outranks an inference from two prices."""
+    def test_neither_source_wins_an_unresolved_disagreement(self, conn):
+        """ACTIONS 1.5 and price evidence 2 are neither equal nor reciprocal."""
         day = sess()[15]
         load(conn, vendor(split_at=day, ratio=2.0, actions=[
             {"ticker": "AAA", "date": day, "action": "split", "value": 1.5,
              "contraticker": None}]))
         ratio, _ = bars(conn, day)
-        assert float(ratio) == pytest.approx(1.5)
+        assert float(ratio) == pytest.approx(1.0), (
+            "an unresolved orientation must not rewrite a share count")
 
 
 # ── 4. unusable rows are counted, never invented ─────────────────────────────

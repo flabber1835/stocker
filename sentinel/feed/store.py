@@ -17,6 +17,7 @@ cost the ability to run it from a plain script.
 """
 from __future__ import annotations
 
+import math
 import os
 import uuid
 from contextlib import contextmanager
@@ -386,10 +387,6 @@ def write_bars(conn, bars: Iterable[Any], *, run_id=None,
             return
         with conn.cursor() as cur:
             cur.executemany(_BAR_UPSERT, [r[:10] for r in rows])
-            spy = [(r[1], r[10], r[9]) for r in rows
-                   if r[2] == "SPY" and r[10] is not None]
-            if spy:
-                cur.executemany(_SPY_TOTAL_RETURN_UPSERT, spy)
         # COMMIT PER BATCH, matching the rest of this module: an interrupted
         # ingest keeps the rows it got, and the upserts are idempotent so the
         # re-run resumes rather than duplicates.
@@ -405,6 +402,49 @@ def write_bars(conn, bars: Iterable[Any], *, run_id=None,
                      b.dividend_per_share, str(run_id) if run_id else None,
                      getattr(item, "close_total_return", None)))
         if len(rows) >= size:
+            flush()
+    flush()
+    return written
+
+
+def write_spy_total_return(conn, rows: Iterable[Any], *, run_id=None,
+                           batch_size: int = 0,
+                           require_lock: bool = False) -> int:
+    """Persist only bounded SFP SPY total-return rows.
+
+    SPY is a fund and never enters ``sentinel_bars`` or the Wealth Core equity
+    universe. Invalid/non-SPY rows are refused rather than broadening this
+    membrane into a general fund ingest.
+    """
+    if require_lock:
+        _assert_corpus_locked(conn)
+    size = batch_size or WRITE_BATCH
+    payload: list[tuple] = []
+    written = 0
+
+    def flush() -> None:
+        nonlocal written
+        if not payload:
+            return
+        with conn.cursor() as cur:
+            cur.executemany(_SPY_TOTAL_RETURN_UPSERT, payload)
+        conn.commit()
+        written += len(payload)
+        payload.clear()
+
+    for row in rows:
+        if str(row.get("ticker", "")).upper() != "SPY":
+            raise ValueError("the SFP readiness ingest accepts only ticker=SPY")
+        session = str(row.get("date") or "")
+        value = row.get("closeadj")
+        try:
+            closeadj = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"SPY SFP row {session} has invalid closeadj") from exc
+        if not session or closeadj <= 0 or not math.isfinite(closeadj):
+            raise ValueError(f"SPY SFP row {session!r} has invalid closeadj")
+        payload.append((session, closeadj, str(run_id) if run_id else None))
+        if len(payload) >= size:
             flush()
     flush()
     return written

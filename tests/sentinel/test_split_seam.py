@@ -159,6 +159,30 @@ class TestSeamCaution:
         assert rep.seam_splits_uncorroborated[("AAA", "2021-01-11")] == 0.5
         assert bars[("AAA", "2021-01-11")].vendor.split_ratio == 1.0
 
+    def test_two_fetch_starts_cannot_turn_one_vintage_seam_into_two_events(self):
+        """The same adjustment-vintage change follows the fetch boundary.
+
+        Moving a bounded window from Monday to Friday must move only the named
+        suppressed seam artifact; it cannot create two applied corporate
+        actions or two derived-only certification records.
+        """
+        from sentinel.feed import actions_map
+
+        observed = []
+        for start in ("2021-01-11", "2021-01-15"):
+            bars, rep = normalise(
+                [sep("AAA", start, PRE)],
+                prior_observations={"AAA": (POST["close"],
+                                               POST["closeunadj"])})
+            observed.append((start, bars[("AAA", start)].vendor.split_ratio,
+                             dict(rep.seam_splits_uncorroborated),
+                             actions_map.splits_only_derived(rep, {})))
+
+        assert [row[1] for row in observed] == [1.0, 1.0]
+        assert [list(row[2]) for row in observed] == [
+            [("AAA", "2021-01-11")], [("AAA", "2021-01-15")]]
+        assert [row[3] for row in observed] == [[], []]
+
 
 # ---------------------------------------------------------------------------
 # Database-backed: the store rules and the end-to-end regression.
@@ -306,12 +330,15 @@ def _fetch(sep_rows, action_rows=()):
         hi = (params or {}).get("date.lte", "9999-99-99")
         if table == sharadar.ACTIONS:
             return [r for r in action_rows if lo <= r["date"] <= hi]
+        if table == sharadar.SFP:
+            return []
         return [r for r in sep_rows if lo <= r["date"] <= hi]
     return fetch
 
 
 class TestRepair:
     def test_the_audit_finds_a_bar_that_CONTRADICTS_actions(self, conn):
+        put_bar(conn, "P-AAA", "2021-01-08", "AAA", 50.0, 100.0)
         put_bar(conn, "P-AAA", "2021-01-11", "AAA", 50.0, 50.0, ratio=1.0)
         S.write_actions(conn, [{"ticker": "AAA", "date": "2021-01-11",
                                 "action": "split", "value": 2.0}])
@@ -337,6 +364,7 @@ class TestRepair:
         assert "LOWER" in result.to_dict()["bound"]
 
     def test_repair_is_DRY_by_default(self, conn):
+        put_bar(conn, "P-AAA", "2021-01-08", "AAA", 50.0, 100.0)
         put_bar(conn, "P-AAA", "2021-01-11", "AAA", 50.0, 50.0, ratio=1.0)
         S.write_actions(conn, [{"ticker": "AAA", "date": "2021-01-11",
                                 "action": "split", "value": 2.0}])
@@ -346,6 +374,7 @@ class TestRepair:
         assert ratio_of(conn, "P-AAA", "2021-01-11") == 1.0
 
     def test_repair_applies_the_authoritative_value_and_leaves_a_TRACE(self, conn):
+        put_bar(conn, "P-AAA", "2021-01-08", "AAA", 50.0, 100.0)
         put_bar(conn, "P-AAA", "2021-01-11", "AAA", 50.0, 50.0, ratio=1.0)
         S.write_actions(conn, [{"ticker": "AAA", "date": "2021-01-11",
                                 "action": "split", "value": 2.0}])
@@ -404,6 +433,7 @@ class TestRepair:
             self, conn, monkeypatch):
         from sentinel.feed import publication
 
+        put_bar(conn, "P-AAA", "2021-01-08", "AAA", 50.0, 100.0)
         put_bar(conn, "P-AAA", "2021-01-11", "AAA", 50.0, 50.0, ratio=1.0)
         S.write_actions(conn, [{"ticker": "AAA", "date": "2021-01-11",
                                 "action": "split", "value": 2.0}])
