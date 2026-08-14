@@ -58,11 +58,15 @@ normalizer's seam guard records and suppresses such ratios, but the shared
 warning incorrectly says it is "using the derived ratio".
 
 The same backfill also found three ACTIONS/price-domain disagreements where the
-two values were near exact reciprocals (for example approximately 30 versus
-1/30). The current policy unconditionally applies ACTIONS. That is not enough
-evidence to distinguish a vendor share ratio from a price adjustment factor,
-and an orientation error would materially corrupt share counts for a position
-held across the event.
+two values were near exact reciprocals (approximately 30 versus 1/30, 9 versus
+1/9, and 7 versus 1/7). Primary corporate-action filings confirm these were
+1-for-30, 1-for-9, and 1-for-7 reverse events. Sharadar's positive ACTIONS value
+therefore names the reverse-split denominator, while canonical `split_ratio`
+is a post/pre **share multiplier** and must be the reciprocal. The current code
+documents "no inversion" and unconditionally applies 30, 9, and 7. A position
+held across a 1-for-30 event would be multiplied by 30 instead of divided by
+30, a 900-fold orientation error relative to the correct resulting quantity.
+This is release-blocking for paper automation, not a vendor-data caveat.
 
 **Impact:** fallback is safer than ignoring a genuine split, but a certified
 run must not hide whether an uncorroborated ratio affected an eligible or held
@@ -71,9 +75,11 @@ security.
 **Acceptance:** certification retains the complete derived-only event list and
 states a deterministic warning/refusal policy based on economic relevance.
 Seam-suppressed artifacts are not reported as applied derived-only splits.
-Reciprocal disagreements refuse economically relevant use until the ACTIONS
-orientation is proved from retained source evidence. Tests cover ordinary,
-seam, reciprocal, eligible, and held-security cases.
+The ACTIONS mapping normalizes forward and reverse conventions into canonical
+post/pre share multipliers and agrees with the independently derived price
+domain. Ambiguous action types refuse economically relevant use. Tests cover
+ordinary, seam, reciprocal, eligible, and held-security cases, including a
+1-for-30 reverse event that must produce exactly 1/30 rather than 30.
 
 ### 5. Backup validation cannot use attestation when Docker root is protected
 
