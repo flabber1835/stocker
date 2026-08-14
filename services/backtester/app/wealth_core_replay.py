@@ -129,10 +129,11 @@ _COVERAGE_SQL = text("""
 # a single continuous security, and momentum was computed straight across the
 # discontinuity between two different businesses.
 #
-# The LATEST non-null label per security, never "newest snapshot only": a fresh
-# universe snapshot writes NULLs that a later fetch backfills, so keying on the
-# newest snapshot goes blind the first time one lands. Same rule as the live
-# sector readers, for the same reason.
+# The latest non-null label per security AS OF the replay end, never "newest
+# snapshot only": a fresh universe snapshot writes NULLs that a later fetch
+# backfills, so keying on the newest snapshot goes blind the first time one
+# lands. Rows learned after the replay boundary are future information and must
+# not change a historical result.
 _META_SQL = text("""
     SELECT permaticker,
            (ARRAY_REMOVE(ARRAY_AGG(ticker ORDER BY snapshot_date DESC), NULL))[1]
@@ -144,6 +145,7 @@ _META_SQL = text("""
            MIN(first_price_date) AS first_price_date
       FROM bt_universe
      WHERE permaticker IS NOT NULL
+       AND snapshot_date <= :as_of
      GROUP BY permaticker
 """)
 
@@ -155,6 +157,7 @@ _IDENTITY_SQL = text("""
            MAX(last_price_date)  AS last_price_date
       FROM bt_universe
      WHERE permaticker IS NOT NULL AND ticker IS NOT NULL
+       AND snapshot_date <= :as_of
      GROUP BY permaticker, ticker
 """)
 
@@ -685,6 +688,45 @@ def load_actions(conn, start: str, end: str) -> list[dict]:
             conn.execute(_ACTIONS_SQL, {"start": start, "end": end}).mappings()]
 
 
+def actions_after_session(rows: Iterable[dict],
+                          exclusive_prior_session: str) -> list[dict]:
+    """Return actions after the session preceding retained causal history.
+
+    Corpus callers query a generous calendar range to *find* the final 126
+    pre-start trading sessions. Rows on or before the immediately preceding
+    session are not input history. Passing them to ``snap_to_session`` with the
+    trimmed index would shift them onto the first retained day, fabricating a
+    split or dividend there. The cutoff is exclusive because an action dated on
+    a weekend or holiday after the prior session legitimately maps forward to
+    the first retained trading session.
+    """
+    cutoff = str(exclusive_prior_session)
+    return [row for row in rows if str(row["date"]) > cutoff]
+
+
+def actions_effective_in_sessions(
+        rows: Iterable[dict], sessions_sorted: Sequence[str],
+        included_sessions: Iterable[str]) -> list[dict]:
+    """Actions whose mapped effective session belongs to ``included_sessions``.
+
+    ACTIONS dates are calendar dates. Comparing the raw date with a measured
+    window boundary drops a Sunday or exchange holiday immediately before the
+    first measured session even though ``snap_to_session`` makes the event
+    effective on that session. Conversely, mapping against only the measured
+    calendar shifts every warm-up event onto measured day one.
+
+    Callers therefore pass the complete retained causal calendar for mapping
+    and the measured sessions as the inclusion set. Rows keep their original
+    order and date; the downstream action-specific loader performs the same
+    mapping against the same complete calendar.
+    """
+    included = {str(session) for session in included_sessions}
+    return [
+        row for row in rows
+        if snap_to_session(str(row["date"]), sessions_sorted) in included
+    ]
+
+
 # ── permanent security identity ─────────────────────────────────────────────
 # A TICKER IS AN OBSERVATION LABEL. The permanent identity owns the economic
 # state, and using the ticker as `security_id` gets it wrong in both directions:
@@ -796,21 +838,23 @@ class IdentityResolver:
         return None
 
 
-def load_identity(conn) -> IdentityResolver:
-    return IdentityResolver(conn.execute(_IDENTITY_SQL).mappings())
+def load_identity(conn, *, as_of: str) -> IdentityResolver:
+    """Point-in-time identity rows available by the replay boundary."""
+    return IdentityResolver(
+        conn.execute(_IDENTITY_SQL, {"as_of": as_of}).mappings())
 
 
-def load_meta(conn) -> dict[str, SecurityMeta]:
+def load_meta(conn, *, as_of: str) -> dict[str, SecurityMeta]:
     """One SecurityMeta per PERMANENT security, keyed on `P:<permaticker>`.
 
-    `ticker` here is the security's LATEST symbol — a display label and the
-    input to the certified issuer-key construction, which is transcribed and
-    must not change. Keying meta per permanent security is what makes that key
-    stable: one row per company means the issuer key cannot move when the symbol
-    does, which it did when meta was keyed on the ticker.
+    `ticker` here is the security's latest symbol KNOWN BY `as_of` — a display
+    label and the input to the certified issuer-key construction, which is
+    transcribed and must not change. Keying meta per permanent security is what
+    makes that key stable: one row per company means the issuer key cannot move
+    when the symbol does, which it did when meta was keyed on the ticker.
     """
     out: dict[str, SecurityMeta] = {}
-    for r in conn.execute(_META_SQL).mappings():
+    for r in conn.execute(_META_SQL, {"as_of": as_of}).mappings():
         sid = permanent_id(r["permaticker"])
         if sid is None:
             continue
@@ -987,8 +1031,11 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
     if not sessions:
         raise RawPriceDomainUnavailable("no sessions in range")
 
-    meta = load_meta(conn)
-    identity = load_identity(conn)
+    # Universe and identity are decision inputs too. Pin them to the replay
+    # boundary so a later ingest cannot rewrite a historical result with future
+    # labels, categories or listing windows.
+    meta = load_meta(conn, as_of=req.end_date)
+    identity = load_identity(conn, as_of=req.end_date)
 
     # ── the authoritative corporate-action stream ────────────────────────────
     sessions_sorted = sessions_index(sessions)
@@ -1083,7 +1130,9 @@ __all__ = ["ACTIONS_CAVEATS", "CAVEATS", "DERIVED_SPLIT_CAVEATS",
            "TERMINAL_ACTIONS", "DIVIDEND_ACTIONS", "dividends_from_actions",
            "IdentityResolver", "IdentityUnresolvable", "SECURITY_ID_PREFIX",
            "permanent_id", "load_identity",
-           "unusable_dividend_rows", "load_actions", "load_sessions",
+           "unusable_dividend_rows", "load_actions", "actions_after_session",
+           "actions_effective_in_sessions",
+           "load_sessions",
            "reconcile_split",
            "sessions_index", "snap_to_session", "split_ratios_from_actions",
            "terminal_events_from_actions", "terminal_from_action",

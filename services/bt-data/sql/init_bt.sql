@@ -87,7 +87,9 @@ ALTER TABLE bt_fundamentals
     ADD COLUMN IF NOT EXISTS shares_outstanding       NUMERIC(22,2),
     ADD COLUMN IF NOT EXISTS shares_outstanding_prior NUMERIC(22,2),
     ADD COLUMN IF NOT EXISTS gross_profit             NUMERIC(24,2),
-    ADD COLUMN IF NOT EXISTS total_assets             NUMERIC(24,2);
+    ADD COLUMN IF NOT EXISTS total_assets             NUMERIC(24,2),
+    ADD COLUMN IF NOT EXISTS revenue                   NUMERIC(24,2),
+    ADD COLUMN IF NOT EXISTS eps                       NUMERIC(24,6);
 
 -- ── Corpus version ────────────────────────────────────────────────────────────
 -- The factor cache in bt-engine used to key on the SHAPE of the loaded data (row
@@ -96,15 +98,33 @@ ALTER TABLE bt_fundamentals
 -- shares_outstanding onto EXISTING rows: same primary keys, same counts, same
 -- span, byte-identical fingerprint, stale cache silently reused.
 --
--- bt-data bumps a fresh UUID here at the end of EVERY successful write stage.
--- bt-engine keys the cache on it and DISABLES the cache entirely if it cannot be
+-- bt-data installs a fresh UUID only after one whole mutation generation has
+-- completed and returned this singleton from PUBLISHING to READY. bt-engine
+-- keys the cache on it and DISABLES the cache entirely if it cannot be
 -- read — a weak identity is worse than no cache, which is only an optimization.
 CREATE TABLE IF NOT EXISTS bt_data_version (
     id          INTEGER      PRIMARY KEY DEFAULT 1 CHECK (id = 1),
     version     UUID         NOT NULL DEFAULT gen_random_uuid(),
+    status      TEXT         NOT NULL DEFAULT 'READY'
+                    CHECK (status IN ('PUBLISHING','READY','FAILED')),
+    source_mode TEXT
+                    CHECK (source_mode IN ('sharadar','mock','frozen')),
     updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     note        TEXT
 );
+ALTER TABLE bt_data_version
+    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'READY',
+    ADD COLUMN IF NOT EXISTS source_mode TEXT;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_bt_data_version_status')
+    THEN ALTER TABLE bt_data_version ADD CONSTRAINT ck_bt_data_version_status
+        CHECK (status IN ('PUBLISHING','READY','FAILED')); END IF; END $$;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_bt_data_version_source_mode')
+    THEN ALTER TABLE bt_data_version ADD CONSTRAINT ck_bt_data_version_source_mode
+        CHECK (source_mode IN ('sharadar','mock','frozen')); END IF; END $$;
 INSERT INTO bt_data_version (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
 -- Point-in-time quarterly EPS, the raw material for reproducing the
@@ -119,9 +139,16 @@ CREATE TABLE IF NOT EXISTS bt_earnings (
     fiscal_date_ending DATE         NOT NULL,
     reported_date      DATE         NOT NULL,
     reported_eps       NUMERIC(24,6),
-    PRIMARY KEY (ticker, fiscal_date_ending)
+    PRIMARY KEY (ticker, fiscal_date_ending, reported_date)
 );
 CREATE INDEX IF NOT EXISTS idx_bt_earnings_reported ON bt_earnings(reported_date);
+DO $$
+BEGIN
+    IF (SELECT array_length(conkey, 1) FROM pg_constraint
+          WHERE conrelid = 'bt_earnings'::regclass AND contype = 'p') = 2
+    THEN ALTER TABLE bt_earnings DROP CONSTRAINT bt_earnings_pkey; END IF; END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bt_earnings_vintage
+    ON bt_earnings(ticker, fiscal_date_ending, reported_date);
 -- Idempotent widen for pre-existing DBs (same-scale precision increase).
 ALTER TABLE bt_fundamentals
     ALTER COLUMN pe_ratio TYPE NUMERIC(24,6),
@@ -277,8 +304,15 @@ CREATE TABLE IF NOT EXISTS bt_data_runs (
     date_max        DATE,
     started_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     completed_at    TIMESTAMPTZ,
-    error_message   TEXT
+    error_message   TEXT,
+    source_mode     TEXT CHECK (source_mode IN ('sharadar','mock','frozen'))
 );
+ALTER TABLE bt_data_runs ADD COLUMN IF NOT EXISTS source_mode TEXT;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_bt_data_runs_source_mode')
+    THEN ALTER TABLE bt_data_runs ADD CONSTRAINT ck_bt_data_runs_source_mode
+        CHECK (source_mode IN ('sharadar','mock','frozen')); END IF; END $$;
 
 -- ── Backtest results (filled by bt-engine; defined here so the one DB has it all) ─
 

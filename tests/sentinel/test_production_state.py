@@ -7,7 +7,8 @@ from stock_strategy_shared.wealth_core.adapter import PendingOrder
 from stock_strategy_shared.wealth_core.engine import Operation, Reason
 from stock_strategy_shared.wealth_core.ledger import EventType
 
-from stock_strategy_shared.wealth_core.feed import FeedError, SecurityMeta, VendorBar
+from stock_strategy_shared.wealth_core.feed import (
+    FeedError, SecurityMeta, SecuritySeries, VendorBar)
 from stock_strategy_shared.wealth_core.state import HoldingEpisode, PortfolioState
 
 from sentinel.controller.frozen_rule import load
@@ -15,6 +16,15 @@ from sentinel.controller.machine import Controller
 from sentinel.core.production import (
     FeedAnchor, PublishedSession, SessionState, advance_state,
     load_published_session)
+from sentinel.core import production
+
+
+def _spy_fields(session: str, closes):
+    closes = list(closes)
+    tail = [f"0000-SPY-{index:04d}" for index in range(len(closes) - 1)]
+    tail.append(session)
+    return {"spy_closeadj": closes, "spy_sessions": tail,
+            "spy_expected_sessions": tail}
 
 
 def _published(session="2026-08-10", version=7):
@@ -23,7 +33,17 @@ def _published(session="2026-08-10", version=7):
     return PublishedSession(
         session=session, data_version=version, meta=meta, sectors={"1": "TECH"},
         bars=[VendorBar(session, "1", "AAA", 10.0, 10.0, 1_000_000)],
-        spy_closeadj=[100.0 + i for i in range(25)])
+        **_spy_fields(session, [100.0 + i for i in range(25)]))
+
+
+def test_production_breadth_uses_the_certified_float32_lag_return():
+    series = SecuritySeries(
+        security_id="1", ticker="AAA", issuer_id="P:1",
+        sessions=["S0000", "S0021"], session_indices=[0, 21],
+        signal_closes=[100.1, 100.1], raw_closes=[100.1, 100.1],
+        volumes=[1_000_000, 1_000_000])
+    assert 100.1 / 100.1 - 1.0 == 0.0
+    assert production._return(series, 21) > 0.0
 
 
 def _fresh():
@@ -186,6 +206,27 @@ def test_version_one_is_explicitly_refused():
         assert "cannot be migrated safely" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("unsafe version-1 state was accepted")
+
+
+def test_production_envelope_refuses_nonfinite_json_numbers():
+    for value in (float("nan"), float("inf"), float("-inf")):
+        _, state = _fresh()
+        persisted = state.to_dict()
+        persisted["shadow_peak_nav"] = value
+        try:
+            SessionState.from_dict(persisted)
+        except ValueError as exc:
+            assert "Out of range float values" in str(exc)
+        else:  # pragma: no cover
+            raise AssertionError(f"non-finite persisted state {value!r} loaded")
+
+        state.shadow_peak_nav = value
+        try:
+            state.to_dict()
+        except ValueError as exc:
+            assert "Out of range float values" in str(exc)
+        else:  # pragma: no cover
+            raise AssertionError(f"non-finite state {value!r} was serialised")
 
 
 def test_persisted_identity_must_match_running_source():
@@ -541,6 +582,8 @@ def test_published_loader_reconstructs_prior_split_factor_from_pinned_rows(
         "1", "AAA", category="Domestic Common Stock", permaticker="1",
         related_tickers=("AAA",), first_session="S0001")}
 
+    spy_tail = [f"S{number:04d}" for number in range(160, 201)]
+
     class Cursor:
         def __init__(self):
             self.sql = ""
@@ -553,15 +596,18 @@ def test_published_loader_reconstructs_prior_split_factor_from_pinned_rows(
 
         def execute(self, sql, _params=()):
             self.sql = sql
+            executed.append(sql)
 
         def fetchall(self):
             if "SELECT security_id,ticker" in self.sql:
                 return [("1", "AAA", 5.0, 5.0, 1_000_000, 1.0, 0.0)]
-            if "SELECT closeadj" in self.sql:
-                return [(100.0 + i,) for i in range(41)]
+            if "SELECT session,closeadj" in self.sql:
+                return list(reversed([
+                    (session, 100.0 + index)
+                    for index, session in enumerate(spy_tail)]))
             if "ARRAY_REMOVE(ARRAY_AGG(sector" in self.sql:
                 return [("1", "TECH")]
-            if "SELECT security_id,split_ratio" in self.sql:
+            if "session<%s" in self.sql:
                 return [("1", 2.0), ("1", 3.0)]
             raise AssertionError(self.sql)
 
@@ -569,6 +615,7 @@ def test_published_loader_reconstructs_prior_split_factor_from_pinned_rows(
         def cursor(self):
             return Cursor()
 
+    executed = []
     monkeypatch.setattr("sentinel.feed.publication.assert_coherent", lambda _: None)
     monkeypatch.setattr(
         "sentinel.feed.publication.current",
@@ -582,11 +629,21 @@ def test_published_loader_reconstructs_prior_split_factor_from_pinned_rows(
     monkeypatch.setattr(
         "sentinel.feed.universe.load_resolver",
         lambda _: SimpleNamespace(resolve_with_reason=lambda *_: None))
+    monkeypatch.setattr(
+        "sentinel.feed.calendar.previous_sessions",
+        lambda session, count: spy_tail
+        if (session, count) == ("S0200", 41) else [])
 
     published = load_published_session(Connection(), "S0200")
     anchor = published.feed_anchors["1"]
     assert anchor.prior_split_factor == 6.0
     assert anchor.issuer_id == "P:1"
+    bar_queries = [sql for sql in executed if "FROM sentinel_bars b" in sql]
+    assert len(bar_queries) == 2
+    assert all("sentinel_bar_split_repairs" in sql for sql in bar_queries)
+    universe_query = next(
+        sql for sql in executed if "FROM sentinel_universe u" in sql)
+    assert "TRUE" in universe_query
 
 
 def test_restart_window_keeps_t_minus_126_and_discards_t_minus_127():

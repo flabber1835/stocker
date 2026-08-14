@@ -21,21 +21,15 @@ writes the binding and the events TOGETHER       — they cannot disagree
 Moving the record from a file into PostgreSQL is the storage half. This module is
 the behavioural half, and it is the one that removes the blast radius.
 
-## Why the migration keeps broker-native close
+## Administrative, but still durable
 
-Certified autonomous execution never calls a broker-native close: it cannot carry
-Sentinel's deterministic identity, so it is unrecoverable after a crash (contract
-§4). The migration is exempt, and deliberately:
-
-  * it is operator-invoked, once, and watched;
-  * its whole purpose is to remove a book Sentinel did not create and will never
-    reason about again, so there is no ongoing intent for an identity to track;
-  * Alpaca computing the exact held quantity at execution is genuinely the right
-    tool for "be rid of this", and it cannot over-sell a drifted position.
-
-Requiring it to be rebuilt on the command model before it could be used would put
-a rewrite in front of a safety fix, for no gain. It stays on the narrower
-`SentinelBroker` seam.
+Migration remains a separately invoked administrative act and never becomes a
+daily execution path. Each exact-sized close carries a deterministic,
+account-bound key in the existing command journal before send. A timeout is
+therefore UNKNOWN and is resolved by exact client-key lookup; a position read or
+an absent open-order row never licenses a blind retry. The narrower
+`SentinelBroker` seam remains so ordinary execution cannot acquire migration
+authority, while the journal and state machine stay canonical.
 """
 from __future__ import annotations
 
@@ -47,6 +41,7 @@ from sentinel import binding as binding_mod
 from sentinel.broker import SentinelBroker
 from sentinel.ownership import AccountObservation, OwnershipState
 from sentinel.startup import OwnershipNotEstablished, establish_ownership
+from sentinel.execution.identity import DeploymentIdentity
 from sentinel.store import (
     OwnershipStore, PostgresOwnershipStore, ownership_established, record)
 
@@ -104,7 +99,7 @@ async def migrate_account(*, broker: SentinelBroker, conn,
     sleep = sleep or asyncio.sleep
 
     # Migration shares the execution writer authority. The unbound check and
-    # the first broker-native close can therefore never race preparation,
+    # first durable named liquidation can therefore never race preparation,
     # execution, or a restored-host epoch adoption in another process.
     with journal.writer_lock(conn):
         return await _migrate_account_locked(
@@ -156,13 +151,17 @@ async def _migrate_account_locked(*, broker: SentinelBroker, conn,
     # be recovered safely because it can claim ownership without an account
     # binding.  The writer-lock context rolls this transaction back on error.
     store: OwnershipStore = PostgresOwnershipStore(conn, autocommit=False)
+    migration_identity = DeploymentIdentity(
+        deployment_id=deployment_id, broker=_broker_name(broker),
+        broker_account_id=observed_id, takeover_epoch=1)
 
-    # 2. The existing, tested state machine does the cancel/liquidate/reconcile
-    #    work. It is unchanged — what changed is that only THIS command can
-    #    reach it, and only against an unbound account.
+    # 2. The tested state machine does exact-id cancellation, durable named
+    #    liquidation, and reconciliation. Only THIS command can reach it, and
+    #    only against an unbound account.
     result = await establish_ownership(
         broker=broker, store=store, max_cycles=max_cycles,
-        poll_seconds=poll_seconds, sleep=sleep)
+        poll_seconds=poll_seconds, sleep=sleep,
+        conn=conn, deployment=migration_identity)
     if not result.bootstrap_allowed:                          # pragma: no cover
         raise OwnershipNotEstablished(result.detail)
 

@@ -193,6 +193,37 @@ def spy_regime(closes: Sequence[Optional[float]]) -> SpyRegime:
     )
 
 
+def dated_spy_regime(
+        sessions: Sequence[str], closes: Sequence[Optional[float]], *,
+        decision_session: str,
+        expected_sessions: Sequence[str] | None = None) -> SpyRegime:
+    """Evaluate only a complete, dated session tail ending at the decision.
+
+    The numerical primitive deliberately remains :func:`spy_regime`; this
+    wrapper owns chronology.  Invalid chronology returns unavailable evidence
+    rather than splicing observations across a missing market session.
+    ``expected_sessions`` is supplied by the independent XNYS calendar at the
+    production boundary, which is what makes an interior omission detectable.
+    """
+    unavailable = SpyRegime(spy_r20=NaN, spy_vol_ratio=NaN)
+    dated = [str(session) for session in sessions]
+    if (not isinstance(decision_session, str) or not decision_session
+            or len(dated) != len(closes) or len(dated) < MIN_CLOSES):
+        return unavailable
+    if dated[-1] != decision_session:
+        return unavailable
+    if any(not session for session in dated):
+        return unavailable
+    if any(left >= right for left, right in zip(dated, dated[1:])):
+        return unavailable
+    if expected_sessions is None:
+        return unavailable
+    expected = [str(session) for session in expected_sessions]
+    if dated != expected:
+        return unavailable
+    return spy_regime(closes)
+
+
 def regime_observation_fields(closes: Sequence[Optional[float]]) -> dict:
     """The seam into `controller.Observation`, and nothing more.
 

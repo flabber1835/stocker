@@ -83,14 +83,6 @@ def _report_split_disagreements(report, authoritative) -> list:
     return bad
 
 
-#: Calendar days of ACTIONS read from BEFORE a chunk's own window. An ex-date
-#: on the last few days of the previous chunk can be a weekend or a holiday
-#: whose next real session belongs to THIS chunk; without the lookback that
-#: entitlement is dropped by both chunks — the earlier one has no session at or
-#: after it, and the later one never reads the row.
-_ACTION_LOOKBACK_DAYS = 10
-
-
 def _action_maps(conn, start: str, end: str):
     """(authoritative_splits, dividends) for [start, end], from the ACTIONS rows
     ALREADY STORED for this window.
@@ -112,8 +104,7 @@ def _action_maps(conn, start: str, end: str):
     """
     from sentinel.feed import actions_map, calendar
 
-    lo = (_dt.date.fromisoformat(str(start))
-          - _dt.timedelta(days=_ACTION_LOOKBACK_DAYS)).isoformat()
+    lo, _ = calendar.action_date_window(start, end)
     with conn.cursor() as cur:
         cur.execute("SELECT ticker, session, action, value FROM sentinel_actions"
                     " WHERE session BETWEEN %s AND %s", (lo, end))
@@ -249,7 +240,8 @@ def _seed_locked(conn, *, date_from: str, date_to: Optional[str],
     # lives. Loading prices before identity would mean re-loading them after.
     with run.chunk("tickers"):
         rows = list(fetch(sharadar.TICKERS))
-        run.progress.rows_written += universe.write_universe(conn, rows, date_to)
+        run.progress.rows_written += universe.write_universe(
+            conn, rows, date_to, run_id=run.progress.run_id)
 
     # ACTIONS first, and as its own chunk. It is small, it is the AUTHORITATIVE
     # corporate-action stream, and having it before the prices means the split
@@ -263,7 +255,8 @@ def _seed_locked(conn, *, date_from: str, date_to: Optional[str],
 
     # Built ONCE from what was just stored, then reused for every year. Rebuilding
     # per chunk would be correct and would re-read the whole universe 29 times.
-    resolver = resolve_identity or universe.load_resolver(conn).resolve
+    resolver = resolve_identity or universe.load_resolver(
+        conn, include_run_id=run.progress.run_id).resolve
 
     for lo, hi in chunks:
         with run.chunk(lo[:4]):
@@ -373,6 +366,9 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
             "than as the missing seed it actually is.")
     start = (_dt.date.fromisoformat(frontier)
              - _dt.timedelta(days=overlap_days)).isoformat()
+    # Refuse before opening the durable run row.  A future/corrupt frontier must
+    # not become a successful empty ingest whose publication advances anyway.
+    sharadar.validate_date_range(start, to)
 
     run = feed_store.IngestRun(conn, "daily", date_from=start, date_to=to,
                                chunks_total=3)
@@ -382,7 +378,8 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
     # unknown security and looks identical to one.
     with run.chunk("tickers"):
         rows = list(fetch(sharadar.TICKERS))
-        run.progress.rows_written += universe.write_universe(conn, rows, to)
+        run.progress.rows_written += universe.write_universe(
+            conn, rows, to, run_id=run.progress.run_id)
 
     with run.chunk("actions"):
         rows = list(fetch(sharadar.ACTIONS, sharadar.date_params(start, to)))
@@ -396,7 +393,8 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
             _ordered_sep(conn,
                          fetch(sharadar.SEP, sharadar.date_params(start, to)),
                          run_id=run.progress.run_id, chunk="prices"),
-            resolve_identity=resolve_identity or universe.load_resolver(conn).resolve,
+            resolve_identity=resolve_identity or universe.load_resolver(
+                conn, include_run_id=run.progress.run_id).resolve,
             authoritative_splits=splits, dividends=divs,
             # THE DAILY PATH IS WHERE THE DEFECT BIT HARDEST. This window opens
             # 14 days behind the frontier and runs EVERY EVENING, so its leading

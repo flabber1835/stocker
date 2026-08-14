@@ -1,10 +1,14 @@
 """Differentials against the retained standalone controller state machines."""
 import importlib.util
+import json
 from pathlib import Path
 import sys
 
+import pytest
+
 from sentinel.controller.frozen_rule import load
-from sentinel.controller.machine import Controller, Observation
+from sentinel.controller.machine import (
+    Controller, Observation, validate_controller_state)
 
 
 def _reference():
@@ -126,3 +130,42 @@ def test_slow_entry_retains_named_unavailable_predicates():
         "stress_duration", "return_since_anchor", "shadow_r40",
         "damaged_breadth", "green_breadth"]
     assert evidence.shadow_r40.passed is None
+
+
+def test_every_persisted_controller_field_is_required_after_progress():
+    ctl = Controller(load())
+    progressed, _ = ctl.step(observation=_ob(0), state=ctl.initial_state())
+    for field_name in sorted(set(progressed) - {"controller_state_version"}):
+        broken = dict(progressed)
+        del broken[field_name]
+        with pytest.raises(ValueError, match="controller state"):
+            validate_controller_state(broken)
+
+
+def test_versionless_known_legacy_state_has_one_explicit_migration():
+    ctl = Controller(load())
+    progressed, _ = ctl.step(observation=_ob(0), state=ctl.initial_state())
+    legacy = dict(progressed)
+    del legacy["controller_state_version"]
+    restored = validate_controller_state(legacy)
+    assert restored == progressed
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_nonfinite_controller_state_and_observation_never_reach_json(value):
+    ctl = Controller(load())
+    broken = ctl.initial_state()
+    broken["last_target_core"] = value
+    with pytest.raises(ValueError, match="finite"):
+        validate_controller_state(broken)
+
+    observation = Observation(
+        session="S001", shadow_r20=value, shadow_r40=value,
+        damaged_breadth=value, green_breadth=value, spy_r20=value,
+        spy_vol_ratio=value)
+    state, decision = ctl.step(observation=observation,
+                               state=ctl.initial_state())
+    assert state["_r40_history"] == [None]
+    payload = decision.to_dict()
+    json.dumps(payload, sort_keys=True, allow_nan=False)
+    assert payload["evidence"]["fast"]["predicates"][0]["value"] is None

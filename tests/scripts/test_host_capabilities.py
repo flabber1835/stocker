@@ -270,24 +270,29 @@ class TestTheResolver:
         stub = tmp_path / "docker"
         stub.write_text("#!/bin/sh\nexit 1\n")
         stub.chmod(0o755)
-        env = dict(os.environ, PATH=f"{tmp_path}:{os.environ.get('PATH', '')}")
+        env = dict(os.environ, PATH=f"{tmp_path}:{os.environ.get('PATH', '')}",
+                   SENTINEL_BACKUP_DIR="/backup")
         r = subprocess.run(["bash", str(RESOLVER)], capture_output=True,
                            text=True, env=env, cwd=str(REPO))
         assert r.returncode == 0, r.stderr
-        assert r.stdout.strip() == "-f docker-compose.sentinel.yml", r.stdout
+        assert "-f docker-compose.sentinel.yml" in r.stdout, r.stdout
+        assert "-f docker-compose.sentinel-backup.yml" in r.stdout, r.stdout
 
     def test_the_force_switch_skips_the_probe(self):
         r = subprocess.run(["bash", str(RESOLVER)], capture_output=True,
                            text=True, cwd=str(REPO),
-                           env=dict(os.environ, SENTINEL_FORCE_CPU_LIMITS="1"))
-        assert r.stdout.strip() == "-f docker-compose.sentinel.yml"
+                           env=dict(os.environ, SENTINEL_FORCE_CPU_LIMITS="1",
+                                    SENTINEL_BACKUP_DIR="/backup"))
+        assert "-f docker-compose.sentinel.yml" in r.stdout
+        assert "-f docker-compose.sentinel-backup.yml" in r.stdout
 
     def test_it_prints_ONLY_compose_args(self):
         """It is substituted into a command line. A stray diagnostic on stdout
         becomes an argument to `docker compose`."""
         r = subprocess.run(["bash", str(RESOLVER), "--explain"],
                            capture_output=True, text=True, cwd=str(REPO),
-                           env=dict(os.environ, SENTINEL_FORCE_CPU_LIMITS="1"))
+                           env=dict(os.environ, SENTINEL_FORCE_CPU_LIMITS="1",
+                                    SENTINEL_BACKUP_DIR="/backup"))
         assert r.stdout.strip().startswith("-f ")
         assert "\n" not in r.stdout.strip()
 
@@ -405,7 +410,7 @@ class TestTheGeneratedFileKeepsTheREPOAsProjectDirectory:
 
     @staticmethod
     def resolver_args(force=None):
-        env = dict(os.environ)
+        env = dict(os.environ, SENTINEL_BACKUP_DIR="/backup")
         if force:
             env["SENTINEL_FORCE_CPU_LIMITS"] = force
         r = subprocess.run(["bash", str(RESOLVER)], capture_output=True,
@@ -424,18 +429,16 @@ class TestTheGeneratedFileKeepsTheREPOAsProjectDirectory:
                            capture_output=True, text=True, cwd=str(REPO))
         assert r.returncode == 0, r.stderr
         body = RESOLVER.read_text()
-        line = [l for l in body.splitlines()
-                if "printf" in l and "GENERATED" in l][-1]
-        args = []
-        if "--project-directory" in line:
-            args += ["--project-directory", str(REPO)]
-        return args + ["-f", out.relative_to(REPO).as_posix()]
+        assert 'COMPOSE_ARGS=(--project-directory "$(pwd -P)"' in body
+        return ["--project-directory", str(REPO), "-f",
+                out.relative_to(REPO).as_posix(), "-f",
+                "docker-compose.sentinel-backup.yml"]
 
     def test_the_script_emits_project_directory_with_a_NON_ROOT_file(self):
         """Structural, and always runs."""
         code = "\n".join(l for l in RESOLVER.read_text().splitlines()
                          if not l.strip().startswith("#"))
-        tail = code[code.index("GENERATED}"):]
+        tail = code[code.index("COMPOSE_ARGS=(--project-directory"):]
         assert "--project-directory" in tail, (
             "the generated file is emitted without --project-directory, so "
             "compose resolves `build: context: .` and the implicit .env "
@@ -444,7 +447,9 @@ class TestTheGeneratedFileKeepsTheREPOAsProjectDirectory:
     def test_the_canonical_branch_needs_no_flag(self):
         """It sits at the repo root, so the default is already correct. A flag
         there would be noise pretending to be safety."""
-        assert self.resolver_args(force="1") == ["-f", "docker-compose.sentinel.yml"]
+        assert self.resolver_args(force="1") == [
+            "-f", "docker-compose.sentinel.yml", "-f",
+            "docker-compose.sentinel-backup.yml"]
 
     def test_both_variants_resolve_the_SAME_build_context(self):
         """The authoritative check, with a structural fallback so it is never a
@@ -458,7 +463,8 @@ class TestTheGeneratedFileKeepsTheREPOAsProjectDirectory:
             assert Path(generated[1]) == REPO
             return
 
-        env = dict(os.environ, SENTINEL_POSTGRES_PASSWORD="probe")
+        env = dict(os.environ, SENTINEL_POSTGRES_PASSWORD="probe",
+                   SENTINEL_BACKUP_DIR="/backup")
 
         def resolved(args):
             r = subprocess.run(["docker", "compose", *args, "config"],
@@ -468,7 +474,8 @@ class TestTheGeneratedFileKeepsTheREPOAsProjectDirectory:
                 pytest.fail(f"docker compose config failed for {args}: {r.stderr}")
             return yaml.safe_load(r.stdout)
 
-        a = resolved(["-f", "docker-compose.sentinel.yml"])
+        a = resolved(["-f", "docker-compose.sentinel.yml", "-f",
+                      "docker-compose.sentinel-backup.yml"])
         b = resolved(generated)
         for name in a["services"]:
             sa, sb = a["services"][name], b["services"][name]
@@ -493,7 +500,8 @@ class TestTheGeneratedFileKeepsTheREPOAsProjectDirectory:
         if shutil.which("docker") is None:
             assert Path(generated[1]) == REPO
             return
-        env = dict(os.environ, SENTINEL_POSTGRES_PASSWORD="from-the-env")
+        env = dict(os.environ, SENTINEL_POSTGRES_PASSWORD="from-the-env",
+                   SENTINEL_BACKUP_DIR="/backup")
         r = subprocess.run(["docker", "compose", *generated, "config"],
                            capture_output=True, text=True, cwd=str(REPO), env=env)
         assert r.returncode == 0, r.stderr

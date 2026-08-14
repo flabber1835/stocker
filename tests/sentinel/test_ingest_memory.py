@@ -156,7 +156,11 @@ def pg():
 def conn(pg):
     c = S.connect(pg.sync_dsn)
     with c.cursor() as cur:
-        for t in ("sentinel_bars", "sentinel_actions", "sentinel_universe",
+        # Child first: dropping sentinel_bars CASCADE while leaving the repair
+        # table would remove only its FK. CREATE TABLE IF NOT EXISTS would then
+        # keep that constraint-free child for the next parameterized test.
+        for t in ("sentinel_bar_split_repairs", "sentinel_bars",
+                  "sentinel_actions", "sentinel_universe",
                   "sentinel_corpus_publications", "feed_ingest_runs",
                   "sentinel_sep_staging", "sentinel_corpus_anomalies",
                   "sentinel_ingest_rejections"):
@@ -170,7 +174,11 @@ def conn(pg):
 def peak_live_rows(conn, n_sessions: int) -> tuple[int, int]:
     """(peak simultaneously-live vendor rows, total rows in the chunk)."""
     with conn.cursor() as cur:
-        cur.execute("TRUNCATE sentinel_bars")
+        # Keep the production FK load-bearing: PostgreSQL will not TRUNCATE a
+        # referenced parent even when the child is empty or ON DELETE CASCADE.
+        # Name both tables instead of using broad CASCADE, so a new dependent
+        # table cannot be erased by this memory-test reset without review.
+        cur.execute("TRUNCATE sentinel_bar_split_repairs, sentinel_bars")
     conn.commit()
 
     peak = measuring_rows()

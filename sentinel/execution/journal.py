@@ -123,6 +123,16 @@ class PlanEconomicsChanged(RuntimeError):
     """
 
 
+class PlanAuthorityMissing(RuntimeError):
+    """A genuine legacy plan has no durable rollout-authority stamp.
+
+    The behavioral migration deliberately leaves all three fields NULL rather
+    than manufacturing PINNED/version-1 intent. Such a row remains historical
+    evidence, but it cannot be loaded as an executable :class:`ExecutionPlan`;
+    an operator must prepare a new plan under the current durable rollout.
+    """
+
+
 #: The fields that make a plan MEAN something. A difference in any of these
 #: under one plan_id is a different intention wearing the same name.
 #:
@@ -135,7 +145,8 @@ _PLAN_ECONOMICS = ("decision_session", "effective_session", "target_exposure",
                    "deployment_id", "broker", "broker_account_id",
                    "takeover_epoch", "publication_fingerprint", "account_nav",
                    "account_cash", "cash_residual", "unpriced_securities",
-                   "defensive_security",
+                   "defensive_security", "rollout_mode", "rollout_version",
+                   "rollout_certificate_sha256",
                    "target_basket")
 
 
@@ -158,6 +169,9 @@ def _plan_economics(plan: ExecutionPlan) -> dict:
         "cash_residual": str(plan.cash_residual),
         "unpriced_securities": sorted(plan.unpriced_securities),
         "defensive_security": plan.defensive_security,
+        "rollout_mode": plan.rollout_mode,
+        "rollout_version": plan.rollout_version,
+        "rollout_certificate_sha256": plan.rollout_certificate_sha256,
         "target_basket": {k: str(v) for k, v in sorted(plan.target_basket.items())},
     }
 
@@ -171,8 +185,9 @@ def save_plan(conn, plan: ExecutionPlan, *, commit: bool = True) -> None:
             " strategy_fingerprint, deployment_id, broker, broker_account_id,"
             " takeover_epoch, publication_fingerprint, account_nav,"
             " account_cash, cash_residual, unpriced_securities, defensive_security,"
+            " rollout_mode,rollout_version,rollout_certificate_sha256,"
             " target_basket)"
-            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
             # IDEMPOTENT ON IDENTICAL CONTENT ONLY. A re-derived plan for the
             # same session is normal after a restart; a plan with the SAME id
             # and DIFFERENT content is a bug, and DO NOTHING would hide it. The
@@ -190,6 +205,8 @@ def save_plan(conn, plan: ExecutionPlan, *, commit: bool = True) -> None:
              str(plan.cash_residual),
              json.dumps(sorted(plan.unpriced_securities)),
              plan.defensive_security,
+             plan.rollout_mode, plan.rollout_version,
+             plan.rollout_certificate_sha256,
              json.dumps({k: str(v) for k, v in plan.target_basket.items()},
                         sort_keys=True)))
     if commit:
@@ -230,11 +247,21 @@ def load_plan(conn, plan_id: str) -> Optional[ExecutionPlan]:
             " broker, broker_account_id, takeover_epoch,"
             " publication_fingerprint, account_nav, account_cash, cash_residual,"
             " unpriced_securities, defensive_security, target_basket,"
+            " rollout_mode,rollout_version,rollout_certificate_sha256,"
             " superseded_by FROM sentinel_execution_plans WHERE plan_id = %s",
             (plan_id,))
         row = cur.fetchone()
     if row is None:
         return None
+    rollout_triple = (row[19], row[20], row[21])
+    if rollout_triple == (None, None, None):
+        raise PlanAuthorityMissing(
+            f"plan {plan_id!r} is an unstamped legacy plan with no durable "
+            "rollout authority; prepare a new plan under the current rollout "
+            "version before execution")
+    if row[19] is None or row[20] is None:
+        raise PlanAuthorityMissing(
+            f"plan {plan_id!r} has a corrupt partial rollout-authority stamp")
     unpriced = row[16] if isinstance(row[16], list) else json.loads(row[16] or "[]")
     basket = row[18] if isinstance(row[18], dict) else json.loads(row[18] or "{}")
     return ExecutionPlan(
@@ -254,7 +281,9 @@ def load_plan(conn, plan_id: str) -> Optional[ExecutionPlan]:
         unpriced_securities=tuple(str(item) for item in unpriced),
         defensive_security=str(row[17]) if row[17] else None,
         target_basket={k: Decimal(v) for k, v in basket.items()},
-        superseded_by=str(row[19]) if row[19] else None)
+        rollout_mode=str(row[19]), rollout_version=int(row[20]),
+        rollout_certificate_sha256=str(row[21]) if row[21] else None,
+        superseded_by=str(row[22]) if row[22] else None)
 
 
 def latest_plan(conn) -> Optional[ExecutionPlan]:
@@ -262,14 +291,36 @@ def latest_plan(conn) -> Optional[ExecutionPlan]:
 
     Ordered by `created_at` then `plan_id` so the answer is total even when two
     plans land in the same transaction timestamp; a non-deterministic "latest"
-    would be worse than none.
+    would be worse than none. Wholly unstamped legacy plans are historical and
+    deliberately unexecutable, so current-plan discovery skips them. That lets
+    preparation create a stamped replacement which supersedes the legacy row;
+    direct :func:`load_plan` remains a refusal for that same row.
     """
     with conn.cursor() as cur:
-        cur.execute("SELECT plan_id FROM sentinel_execution_plans"
+        cur.execute("SELECT plan_id,rollout_mode,rollout_version,"
+                    " rollout_certificate_sha256"
+                    " FROM sentinel_execution_plans"
                     " WHERE superseded_by IS NULL"
-                    " ORDER BY created_at DESC, plan_id DESC LIMIT 1")
-        row = cur.fetchone()
-    return load_plan(conn, str(row[0])) if row else None
+                    " ORDER BY created_at DESC, plan_id DESC")
+        rows = cur.fetchall()
+    stamped_plan_id = None
+    unstamped_plan_ids = []
+    for row in rows:
+        rollout_triple = (row[1], row[2], row[3])
+        if rollout_triple == (None, None, None):
+            unstamped_plan_ids.append(str(row[0]))
+            continue
+        if row[1] is None or row[2] is None:
+            raise PlanAuthorityMissing(
+                f"plan {row[0]!r} has a corrupt partial rollout-authority "
+                "stamp")
+        if stamped_plan_id is None:
+            stamped_plan_id = str(row[0])
+    if stamped_plan_id is not None and unstamped_plan_ids:
+        raise PlanAuthorityMissing(
+            "stamped and unstamped plans are both current; no plan is "
+            "executable until the ambiguous supersession state is resolved")
+    return load_plan(conn, stamped_plan_id) if stamped_plan_id else None
 
 
 def supersede_all_but(conn, plan_id: str, *, commit: bool = True) -> int:
@@ -343,20 +394,28 @@ class CommandEconomicsChanged(RuntimeError):
 #: Fields a client key is a promise about. They may never change under it; a
 #: genuinely new intent needs `CommandIdentity.superseding()`, which mints a new
 #: key precisely so the old promise stays intact.
-_IMMUTABLE = ("security_id", "side", "quantity", "symbol")
+_IMMUTABLE = ("security_id", "side", "quantity", "symbol",
+              "deployment_id", "broker", "broker_account_id",
+              "takeover_epoch")
 
 
 def _assert_economics_unchanged(cur, command: Command) -> None:
-    cur.execute("SELECT security_id, side, quantity, symbol FROM sentinel_commands"
+    cur.execute("SELECT security_id, side, quantity, symbol, deployment_id,"
+                " broker, broker_account_id, takeover_epoch"
+                " FROM sentinel_commands"
                 " WHERE client_key = %s", (command.client_key,))
     row = cur.fetchone()
     if row is None:
         return
     stored = {"security_id": str(row[0]), "side": str(row[1]),
-              "quantity": Decimal(str(row[2])), "symbol": str(row[3])}
+              "quantity": Decimal(str(row[2])), "symbol": str(row[3]),
+              "deployment_id": str(row[4]), "broker": str(row[5]),
+              "broker_account_id": str(row[6]),
+              "takeover_epoch": int(row[7])}
     incoming = {"security_id": command.security_id, "side": command.side.value,
                 "quantity": command.quantity,
-                "symbol": command.instrument.symbol}
+                "symbol": command.instrument.symbol,
+                **command.identity.deployment.to_dict()}
     differs = {k: (stored[k], incoming[k]) for k in _IMMUTABLE
                if stored[k] != incoming[k]}
     if differs:
@@ -385,9 +444,10 @@ def save_command(conn, command: Command, *, previous: Optional[CommandState] = N
         _assert_economics_unchanged(cur, command)
         cur.execute(
             "INSERT INTO sentinel_commands (client_key, plan_id, security_id,"
-            " revision, symbol, broker_instrument_id, side, quantity, state,"
+            " revision, deployment_id, broker, broker_account_id,"
+            " takeover_epoch, symbol, broker_instrument_id, side, quantity, state,"
             " broker_order_id, filled_quantity, filled_average_price, detail)"
-            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
             " ON CONFLICT (client_key) DO UPDATE SET"
             " state = EXCLUDED.state,"
             " broker_order_id = COALESCE(EXCLUDED.broker_order_id,"
@@ -398,7 +458,12 @@ def save_command(conn, command: Command, *, previous: Optional[CommandState] = N
             "     sentinel_commands.filled_average_price),"
             " detail = EXCLUDED.detail, updated_at = NOW()",
             (command.client_key, command.identity.plan_id, command.security_id,
-             command.identity.revision, command.instrument.symbol,
+             command.identity.revision,
+             command.identity.deployment.deployment_id,
+             command.identity.deployment.broker,
+             command.identity.deployment.broker_account_id,
+             command.identity.deployment.takeover_epoch,
+             command.instrument.symbol,
              command.instrument.broker_id, command.side.value,
              str(command.quantity), command.state.value,
              command.broker_order_id, str(command.filled_quantity),
@@ -449,14 +514,18 @@ def adopt_recovered_order(conn, order, *, deployment: DeploymentIdentity) -> Non
             cur.execute("SAVEPOINT adopt_recovered")
             cur.execute(
                 "INSERT INTO sentinel_commands (client_key, plan_id, security_id,"
-                " revision, symbol, broker_instrument_id, side, quantity, state,"
+                " revision, deployment_id, broker, broker_account_id,"
+                " takeover_epoch, symbol, broker_instrument_id, side, quantity, state,"
                 " broker_order_id, filled_quantity, filled_average_price, detail,"
                 " recovered, created_at)"
-                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,"
                 " COALESCE(%s,NOW()))"
                 " ON CONFLICT (client_key) DO NOTHING",
                 (order.client_key, RECOVERED_PLAN_ID,
-                 order.instrument.security_id, 0, order.instrument.symbol,
+                 order.instrument.security_id, 0,
+                 deployment.deployment_id, deployment.broker,
+                 deployment.broker_account_id, deployment.takeover_epoch,
+                 order.instrument.symbol,
                  order.instrument.broker_id, order.side.value,
                  str(order.quantity), order.state.value, order.broker_order_id,
                  str(order.filled_quantity),
@@ -493,10 +562,27 @@ RECOVERED_PLAN_ID = "RECOVERED"
 
 
 def _row_to_command(row, deployment: DeploymentIdentity) -> Command:
-    (client_key, plan_id, security_id, revision, symbol, broker_instrument_id,
+    (client_key, plan_id, security_id, revision, deployment_id, broker,
+     broker_account_id, takeover_epoch, symbol, broker_instrument_id,
      side, quantity, state, broker_order_id, filled, filled_average_price,
      detail, recovered, created_at) = row
-    identity = CommandIdentity(deployment=deployment, plan_id=str(plan_id),
+    stored_deployment = DeploymentIdentity(
+        deployment_id=str(deployment_id), broker=str(broker),
+        broker_account_id=str(broker_account_id),
+        takeover_epoch=int(takeover_epoch))
+    if (stored_deployment.deployment_id != deployment.deployment_id
+            or stored_deployment.broker != deployment.broker
+            or stored_deployment.broker_account_id
+            != deployment.broker_account_id
+            or stored_deployment.takeover_epoch > deployment.takeover_epoch):
+        raise StoredKeyMismatch(
+            f"stored command {client_key} belongs to "
+            f"{stored_deployment.to_dict()}, not current bound namespace "
+            f"{deployment.to_dict()}. A restored adoption may reconcile prior "
+            "epochs of the same deployment/account, never another account or "
+            "a future generation.")
+    identity = CommandIdentity(deployment=stored_deployment,
+                               plan_id=str(plan_id),
                                security_id=str(security_id),
                                revision=int(revision))
     command = Command(
@@ -523,10 +609,8 @@ def _row_to_command(row, deployment: DeploymentIdentity) -> Command:
         # order to the current generation.
         raise StoredKeyMismatch(
             f"stored client_key {client_key} does not recompute from its own "
-            f"row under the current binding (would be {command.client_key}). "
-            f"The account binding or takeover epoch has changed; these commands "
-            f"belong to a previous generation and must be recovered, not "
-            f"resumed.")
+            f"stored minting identity (would be {command.client_key}). The "
+            f"row's durable identity metadata cannot explain its key.")
     return command
 
 
@@ -534,7 +618,8 @@ class StoredKeyMismatch(RuntimeError):
     """A journal row cannot be reconstructed under the current binding."""
 
 
-_COMMAND_COLUMNS = ("client_key, plan_id, security_id, revision, symbol,"
+_COMMAND_COLUMNS = ("client_key, plan_id, security_id, revision, deployment_id,"
+                    " broker, broker_account_id, takeover_epoch, symbol,"
                     " broker_instrument_id, side, quantity, state,"
                     " broker_order_id, filled_quantity, filled_average_price,"
                     " detail, recovered, created_at")
@@ -716,14 +801,14 @@ def _terminal_recovery_binding(conn) -> tuple[str, str, datetime]:
 
 
 def record_observation(conn, observation: BrokerObservation,
-                       runtime_state: str = "") -> None:
+                       runtime_state: str = "") -> int:
     """Retained because a reconciliation dispute is unanswerable without knowing
     what the broker actually said at the time."""
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_observations (observed_at,"
             " terminal_recovery_through, completeness, positions, orders,"
-            " runtime_state) VALUES (%s,%s,%s,%s,%s,%s)",
+            " runtime_state) VALUES (%s,%s,%s,%s,%s,%s) RETURNING seq",
             (observation.observed_at, observation.terminal_recovery_through,
              observation.completeness.value,
              json.dumps({k: str(v) for k, v in
@@ -735,4 +820,26 @@ def record_observation(conn, observation: BrokerObservation,
                           "filled": str(o.filled_quantity)}
                          for o in observation.orders]),
              runtime_state))
+        seq = int(cur.fetchone()[0])
+    conn.commit()
+    return seq
+
+
+def finalize_observation_runtime(conn, seq: int, runtime_state: str) -> None:
+    """Attach the completed reconciliation verdict to its exact observation.
+
+    The audit row is inserted before recovery because a crash must retain the
+    evidence that was read. Its initial ``RECONCILING`` value is therefore not
+    the final classification. Updating by the returned sequence only after all
+    adoption/synchronisation/classification work completes keeps the durable
+    panel truthful without ever rewriting the observed broker payload.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE sentinel_observations SET runtime_state=%s WHERE seq=%s",
+            (str(runtime_state), int(seq)))
+        if cur.rowcount != 1:
+            raise RuntimeError(
+                f"broker observation {seq} vanished before reconciliation "
+                "could record its final runtime state")
     conn.commit()

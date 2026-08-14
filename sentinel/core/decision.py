@@ -20,6 +20,7 @@ from stock_strategy_shared.wealth_core.engine import Operation
 from stock_strategy_shared.wealth_core.state import PortfolioState
 
 from sentinel import identity
+from sentinel.authority import RolloutMode, RolloutState
 from sentinel.binding import AccountMismatch, AccountNotBound
 from sentinel.core.production import SessionState
 from sentinel.execution.commands import committed_quantity
@@ -273,6 +274,7 @@ def build_execution_plan(
         observation, marks: Mapping, tickers: Mapping,
         decision_session: date, effective_session: date, *,
         defensive_security: str | None = DEFENSIVE_SECURITY_ID,
+        rollout_state: RolloutState | None = None,
         ) -> ProductionDecision:
     """Convert the durable current shadow/controller decision into one plan."""
 
@@ -305,11 +307,16 @@ def build_execution_plan(
         raise ValueError(
             "controller transition session does not match decision_session")
 
-    exposure = _decimal(
+    controller_exposure = _decimal(
         canonical.last_decision.get("target_core_exposure"),
         label="controller target_core_exposure")
-    if not exposure.is_finite():
+    if (not controller_exposure.is_finite()
+            or not Decimal(0) <= controller_exposure <= Decimal(1)):
         raise ValueError("controller target_core_exposure is not finite")
+    rollout = rollout_state or RolloutState(
+        mode=RolloutMode.PINNED_1_00, version=1)
+    exposure = (Decimal(1) if rollout.mode is RolloutMode.PINNED_1_00
+                else controller_exposure)
     defensive_weight = Decimal(1) - exposure
     nav = _decimal(account_snapshot.equity, label="broker account equity")
     current_marks = _current_marks(marks)
@@ -359,6 +366,9 @@ def build_execution_plan(
         cash_residual=sized.cash_residual,
         unpriced_securities=tuple(sorted(sized.unpriced)),
         defensive_security=defensive_security,
+        rollout_mode=rollout.mode.value,
+        rollout_version=rollout.version,
+        rollout_certificate_sha256=rollout.certificate_sha256,
     )
     plan = replace(plan, plan_id=f"sentinel-{plan.fingerprint()}")
     return ProductionDecision(

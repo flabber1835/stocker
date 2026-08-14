@@ -80,11 +80,12 @@ def load_window(conn, *, start: str, end: str) -> CorpusWindow:
     `fetchall()`, so the tuple buffer and the `VendorBar` graph built from it do
     not both hold a full window at once.
     """
-    from sentinel.feed.publication import visible_predicate
+    from sentinel.feed.publication import effective_split_ratio, visible_predicate
     from sentinel.feed.store import streaming_cursor
 
     sql = ("SELECT session, security_id, ticker, close_unadjusted,"
-           " open_unadjusted, volume, split_ratio, dividend_per_share"
+           " open_unadjusted, volume,"
+           f" {effective_split_ratio('b')} AS split_ratio, dividend_per_share"
            " FROM sentinel_bars b WHERE session BETWEEN %s AND %s"
            f"   AND {visible_predicate('b')}"
            " ORDER BY session, security_id")
@@ -126,6 +127,8 @@ def load_meta(conn) -> dict[str, SecurityMeta]:
     TICKERS pull writes NULLs that a later one backfills, so keying on the newest
     snapshot goes blind the first time a sparse one lands.
     """
+    from sentinel.feed.publication import visible_predicate
+
     with conn.cursor() as cur:
         cur.execute(
             "SELECT permaticker,"
@@ -136,7 +139,8 @@ def load_meta(conn) -> dict[str, SecurityMeta]:
             " (ARRAY_REMOVE(ARRAY_AGG(related_tickers ORDER BY snapshot_date"
             "  DESC), NULL))[1] AS related_tickers,"
             " MIN(first_price_date) AS first_session"
-            " FROM sentinel_universe WHERE permaticker IS NOT NULL"
+            " FROM sentinel_universe u WHERE permaticker IS NOT NULL"
+            f" AND {visible_predicate('u')}"
             " GROUP BY permaticker")
         rows = cur.fetchall()
 

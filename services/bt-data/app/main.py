@@ -21,11 +21,11 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Awaitable, Callable, Optional, TypeVar
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from app.sharadar_client import (data_mode, fetch_table, is_mock,
                                  verify_data_mode)
@@ -51,6 +51,7 @@ if not BT_DATABASE_URL:
 LOCK_TIMEOUT_MS = os.getenv("BT_DB_LOCK_TIMEOUT_MS", "60000")          # 60s
 STATEMENT_TIMEOUT_MS = os.getenv("BT_DB_STATEMENT_TIMEOUT_MS", "600000")  # 10 min
 IDLE_TX_TIMEOUT_MS = os.getenv("BT_DB_IDLE_TX_TIMEOUT_MS", "120000")   # 2 min
+CORPUS_LOCK_KEY = 0x4254_434F_5250_5553
 
 engine = create_async_engine(
     BT_DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5,
@@ -65,6 +66,16 @@ engine = create_async_engine(
 _INIT_SQL = Path(__file__).resolve().parent.parent / "sql" / "init_bt.sql"
 
 from app.raw_close_coverage import SAMPLE_SESSIONS as _WC_SAMPLE_SESSIONS
+
+_schema_ready = False
+
+_CORPUS_POPULATED_SQL = (
+    "EXISTS(SELECT 1 FROM bt_prices) OR "
+    "EXISTS(SELECT 1 FROM bt_fundamentals) OR "
+    "EXISTS(SELECT 1 FROM bt_earnings) OR "
+    "EXISTS(SELECT 1 FROM bt_universe) OR "
+    "EXISTS(SELECT 1 FROM bt_actions)"
+)
 
 
 async def _ensure_schema() -> list[str]:
@@ -102,8 +113,29 @@ async def _ensure_schema() -> list[str]:
     return failures
 
 
+async def _assert_required_schema() -> None:
+    """Required publication columns must exist before readiness is reported."""
+    async with engine.connect() as conn:
+        await conn.execute(text(
+            "SELECT version, status, source_mode, updated_at, note "
+            "FROM bt_data_version WHERE id=1"))
+        await conn.execute(text("SELECT source_mode FROM bt_data_runs LIMIT 0"))
+        await conn.execute(text(
+            "SELECT revenue, eps FROM bt_fundamentals LIMIT 0"))
+        await conn.execute(text(
+            "SELECT ticker, fiscal_date_ending, reported_date, reported_eps "
+            "FROM bt_earnings LIMIT 0"))
+        vintage_index = (await conn.execute(text(
+            "SELECT to_regclass('public.uq_bt_earnings_vintage') "
+            "IS NOT NULL"))).scalar_one()
+        if not vintage_index:
+            raise RuntimeError("required bt_earnings vintage index is missing")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _schema_ready
+    _schema_ready = False
     # FAIL LOUDLY before serving: configured for real data without a key used to
     # downgrade silently to a tiny synthetic corpus, and every downstream number
     # stayed shaped like a real backtest — feeding a promotion gate that
@@ -114,13 +146,18 @@ async def lifespan(app: FastAPI):
              if mode == "mock" else ""), flush=True)
     # Retry briefly so a cold bt-postgres can finish starting.
     import asyncio
+    last_db_error: Exception | None = None
     for attempt in range(30):
         try:
             async with engine.begin() as conn:
                 await conn.execute(text("SELECT 1"))
             break
-        except Exception:
+        except Exception as exc:
+            last_db_error = exc
             await asyncio.sleep(2)
+    else:
+        raise RuntimeError(
+            "bt-data database did not become ready after 30 attempts") from last_db_error
     try:
         failures = await _ensure_schema()
         if failures:
@@ -135,7 +172,13 @@ async def lifespan(app: FastAPI):
             print("[bt-data] schema ensured", flush=True)
     except Exception as exc:
         print(f"[bt-data] WARN schema ensure failed: {exc}", flush=True)
-    yield
+    await _assert_required_schema()
+    _schema_ready = True
+    print("[bt-data] required schema ready", flush=True)
+    try:
+        yield
+    finally:
+        _schema_ready = False
 
 
 #: The last universe write report, so `GET /universe/last-write` can answer
@@ -165,8 +208,24 @@ async def universe_last_write():
 
 @app.get("/health")
 async def health():
+    if not _schema_ready:
+        raise HTTPException(status_code=503,
+                            detail="required database/schema readiness has not passed")
+    async with engine.connect() as conn:
+        row = (await conn.execute(text(
+            "SELECT version::text, status, source_mode, "
+            f"({_CORPUS_POPULATED_SQL}) AS populated "
+            "FROM bt_data_version "
+            "WHERE id=1"))).one()
+    if row.status != "READY":
+        raise HTTPException(status_code=503,
+                            detail=f"corpus is {row.status}, not READY")
+    if row.populated and row.source_mode is None:
+        raise HTTPException(status_code=503,
+                            detail="populated corpus has no bound source_mode")
     return {"status": "ok", "service": "bt-data", "mock": is_mock(),
-            "data_mode": data_mode()}
+            "data_mode": data_mode(), "data_version": row.version,
+            "corpus_source_mode": row.source_mode}
 
 
 # ── Fetch-run bookkeeping ──────────────────────────────────────────────────────
@@ -175,9 +234,10 @@ async def _open_run(job_type: str, table_name: str) -> str:
     rid = str(uuid.uuid4())
     async with engine.begin() as conn:
         await conn.execute(text(
-            "INSERT INTO bt_data_runs (run_id, job_type, table_name, status) "
-            "VALUES (:r, :j, :t, 'running')"
-        ), {"r": rid, "j": job_type, "t": table_name})
+            "INSERT INTO bt_data_runs "
+            "(run_id, job_type, table_name, status, source_mode) "
+            "VALUES (:r, :j, :t, 'running', :m)"
+        ), {"r": rid, "j": job_type, "t": table_name, "m": data_mode()})
     return rid
 
 
@@ -200,6 +260,116 @@ async def _close_run(rid: str, status: str, rows: int = 0,
             "now": datetime.now(timezone.utc), "e": (err or "")[:2000] or None, "r": rid})
 
 
+class CorpusPublicationError(RuntimeError):
+    """The durable corpus state does not permit another mutation generation."""
+
+
+async def _release_corpus_writer(conn: AsyncConnection) -> None:
+    try:
+        if conn.in_transaction():
+            await conn.rollback()
+        await conn.execute(text("SELECT pg_advisory_unlock(:key)"),
+                           {"key": CORPUS_LOCK_KEY})
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def _reserve_corpus_writer(note: str) -> AsyncConnection | None:
+    """Try to fence all readers/writers and durably enter PUBLISHING.
+
+    The session connection stays open for the lifetime of the background job,
+    because PostgreSQL session advisory locks are released on connection close.
+    PUBLISHING is committed before this function returns, hence before the first
+    data-table mutation can occur.
+    """
+    mode = data_mode()
+    if mode == "frozen":
+        raise CorpusPublicationError(
+            "BT_DATA_MODE=frozen cannot mutate the frozen corpus")
+    conn = await engine.connect()
+    locked = False
+    try:
+        locked = bool((await conn.execute(text(
+            "SELECT pg_try_advisory_lock(:key)"),
+            {"key": CORPUS_LOCK_KEY})).scalar_one())
+        await conn.commit()
+        if not locked:
+            await conn.close()
+            return None
+        row = (await conn.execute(text(
+            "SELECT status, source_mode FROM bt_data_version WHERE id=1"))).one()
+        if row.status != "READY":
+            raise CorpusPublicationError(
+                f"corpus is {row.status}; explicit recovery or destructive "
+                "reseed is required before another writer can start")
+        if row.source_mode is not None and row.source_mode != mode:
+            raise CorpusPublicationError(
+                f"corpus source mode is {row.source_mode}, configured writer is "
+                f"{mode}; implicit mode mixing is refused")
+        if row.source_mode is None:
+            populated = bool((await conn.execute(text(
+                f"SELECT {_CORPUS_POPULATED_SQL}"))).scalar_one())
+            if populated:
+                raise CorpusPublicationError(
+                    "populated corpus has no source_mode; explicitly reseed it "
+                    "before binding a writer mode")
+        await conn.execute(text(
+            "UPDATE bt_data_version SET status='PUBLISHING', source_mode=:mode, "
+            "updated_at=NOW(), note=:note WHERE id=1"),
+            {"mode": mode, "note": note[:500]})
+        await conn.commit()
+        return conn
+    except Exception:
+        if conn.in_transaction():
+            await conn.rollback()
+        if locked:
+            await _release_corpus_writer(conn)
+        else:
+            await conn.close()
+        raise
+
+
+async def _publish_ready(conn: AsyncConnection, note: str) -> None:
+    result = await conn.execute(text(
+        "UPDATE bt_data_version SET version=gen_random_uuid(), status='READY', "
+        "updated_at=NOW(), note=:note WHERE id=1 AND status='PUBLISHING'"),
+        {"note": note[:500]})
+    if result.rowcount != 1:
+        raise CorpusPublicationError("lost the durable PUBLISHING generation")
+    await conn.commit()
+
+
+async def _record_incomplete_generation(conn: AsyncConnection, exc: Exception) -> None:
+    """Keep the unsafe generation unreadable after any caught failure."""
+    if conn.in_transaction():
+        await conn.rollback()
+    await conn.execute(text(
+        "UPDATE bt_data_version SET updated_at=NOW(), note=:note "
+        "WHERE id=1 AND status='PUBLISHING'"),
+        {"note": f"INCOMPLETE: {exc!r}"[:500]})
+    await conn.commit()
+
+
+T = TypeVar("T")
+
+
+async def _run_reserved_generation(
+    conn: AsyncConnection,
+    operation: Callable[[], Awaitable[T]],
+    note: str,
+) -> T:
+    try:
+        result = await operation()
+        await _publish_ready(conn, note)
+        return result
+    except Exception as exc:
+        await _record_incomplete_generation(conn, exc)
+        raise
+    finally:
+        await _release_corpus_writer(conn)
+
+
 # ── Writers (upserts) ──────────────────────────────────────────────────────────
 
 async def _upsert_prices(rows: list[dict]) -> int:
@@ -214,8 +384,10 @@ async def _upsert_prices(rows: list[dict]) -> int:
             "VALUES (:ticker, :date, :open, :high, :low, :close, :adjusted_close, "
             ":close_unadjusted, :volume) "
             "ON CONFLICT (ticker, date) DO UPDATE SET "
-            "  adjusted_close=EXCLUDED.adjusted_close, close=EXCLUDED.close, "
-            "  close_unadjusted=EXCLUDED.close_unadjusted, volume=EXCLUDED.volume"
+            "  open=EXCLUDED.open, high=EXCLUDED.high, low=EXCLUDED.low, "
+            "  close=EXCLUDED.close, adjusted_close=EXCLUDED.adjusted_close, "
+            "  close_unadjusted=EXCLUDED.close_unadjusted, "
+            "  volume=EXCLUDED.volume"
         ), rows)
     return len(rows)
 
@@ -224,7 +396,12 @@ async def _upsert_fundamentals(rows: list[dict]) -> int:
     if not rows:
         return 0
     # strip the helper underscore fields before insert + coerce the date key
-    clean = [{k: v for k, v in r.items() if not k.startswith("_")} for r in rows]
+    clean = []
+    for source in rows:
+        row = {k: v for k, v in source.items() if not k.startswith("_")}
+        row["revenue"] = source.get("_revenue")
+        row["eps"] = source.get("_eps")
+        clean.append(row)
     for r in clean:
         r["as_of_date"] = _d(r["as_of_date"])
     async with engine.begin() as conn:
@@ -232,18 +409,19 @@ async def _upsert_fundamentals(rows: list[dict]) -> int:
             "INSERT INTO bt_fundamentals (ticker, as_of_date, fiscal_period, pe_ratio, "
             "  pb_ratio, roe, debt_to_equity, revenue_growth, eps_growth, "
             "  market_cap, shares_outstanding, shares_outstanding_prior, "
-            "  gross_profit, total_assets) "
+            "  gross_profit, total_assets, revenue, eps) "
             "VALUES (:ticker, :as_of_date, :fiscal_period, :pe_ratio, :pb_ratio, :roe, "
             "  :debt_to_equity, :revenue_growth, :eps_growth, "
             "  :market_cap, :shares_outstanding, :shares_outstanding_prior, "
-            "  :gross_profit, :total_assets) "
+            "  :gross_profit, :total_assets, :revenue, :eps) "
             "ON CONFLICT (ticker, as_of_date) DO UPDATE SET "
             "  pe_ratio=EXCLUDED.pe_ratio, pb_ratio=EXCLUDED.pb_ratio, roe=EXCLUDED.roe, "
             "  debt_to_equity=EXCLUDED.debt_to_equity, revenue_growth=EXCLUDED.revenue_growth, "
             "  eps_growth=EXCLUDED.eps_growth, market_cap=EXCLUDED.market_cap, "
             "  shares_outstanding=EXCLUDED.shares_outstanding, "
             "  shares_outstanding_prior=EXCLUDED.shares_outstanding_prior, "
-            "  gross_profit=EXCLUDED.gross_profit, total_assets=EXCLUDED.total_assets"
+            "  gross_profit=EXCLUDED.gross_profit, total_assets=EXCLUDED.total_assets, "
+            "  revenue=EXCLUDED.revenue, eps=EXCLUDED.eps"
         ), clean)
     return len(clean)
 
@@ -258,29 +436,19 @@ async def _upsert_bt_earnings(rows: list[dict]) -> int:
     for r in rows:
         r["fiscal_date_ending"] = _d(r["fiscal_date_ending"])
         r["reported_date"] = _d(r["reported_date"])
-    # Dedupe on the PK before the round-trip. A restatement publishes two filings
-    # describing the SAME quarter, and two rows with one PK inside a single
-    # ON CONFLICT statement is a Postgres error ("cannot affect row a second
-    # time") rather than an upsert. Keep the EARLIEST publication — same rule the
-    # LEAST() below applies across separate calls, so the outcome does not depend
-    # on how the rows happened to be batched.
+    # Only exact duplicate vintages collapse. A different reported_date is a
+    # later point-in-time revision and remains a separate row.
     dedup: dict[tuple, dict] = {}
     for r in rows:
-        key = (r["ticker"], r["fiscal_date_ending"])
-        prev = dedup.get(key)
-        if prev is None or r["reported_date"] < prev["reported_date"]:
-            dedup[key] = r
+        key = (r["ticker"], r["fiscal_date_ending"], r["reported_date"])
+        dedup[key] = r
     rows = list(dedup.values())
     async with engine.begin() as conn:
         await conn.execute(text(
             "INSERT INTO bt_earnings (ticker, fiscal_date_ending, reported_date, "
             "  reported_eps) "
             "VALUES (:ticker, :fiscal_date_ending, :reported_date, :reported_eps) "
-            "ON CONFLICT (ticker, fiscal_date_ending) DO UPDATE SET "
-            # Keep the EARLIEST known date for a period: a later restatement must
-            # not move the report backward in time and hand a backtest a figure
-            # before it was public.
-            "  reported_date=LEAST(bt_earnings.reported_date, EXCLUDED.reported_date), "
+            "ON CONFLICT (ticker, fiscal_date_ending, reported_date) DO UPDATE SET "
             "  reported_eps=EXCLUDED.reported_eps"
         ), rows)
     return len(rows)
@@ -489,35 +657,12 @@ async def _load_actions(date_from: str, date_to: str,
         total = await _upsert_actions(rows)
         await _close_run(rid, "success", total, date_from, date_to,
                          err=f"skipped_unusable={skipped}" if skipped else None)
-        await _bump_data_version(f"actions {date_from}..{date_to} ({total} rows)")
         print(f"[bt-data] ACTIONS: {total} rows ({skipped} unusable skipped)",
               flush=True)
         return total
     except Exception as exc:
         await _close_run(rid, "failed", err=repr(exc)[:1500])
         raise
-
-
-async def _bump_data_version(note: str) -> None:
-    """Stamp a fresh corpus version after a successful write.
-
-    bt-engine's factor cache keys on this. It used to key on the SHAPE of the
-    data (row counts, ticker count, price date span), which does not change when
-    data is CORRECTED IN PLACE — so a re-backfill that adds values to existing
-    rows left a stale cache looking valid. Fail-soft: a version that cannot be
-    written is not worth failing a multi-hour backfill over, and bt-engine
-    DISABLES its cache when it cannot read one."""
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(text(
-                "INSERT INTO bt_data_version (id, version, updated_at, note) "
-                "VALUES (1, gen_random_uuid(), NOW(), :note) "
-                "ON CONFLICT (id) DO UPDATE SET "
-                "  version=gen_random_uuid(), updated_at=NOW(), note=EXCLUDED.note"
-            ), {"note": note[:500]})
-        print(f"[bt-data] corpus version bumped ({note})", flush=True)
-    except Exception as exc:  # noqa: BLE001
-        print(f"[bt-data] WARN could not bump corpus version: {exc}", flush=True)
 
 
 # ── Backfill ───────────────────────────────────────────────────────────────────
@@ -528,6 +673,8 @@ def year_chunks(date_from: str, date_to: str) -> list[tuple[str, str]]:
     slice a separately-committed, separately-resumable unit so a failure loses
     ONE chunk, not the whole night."""
     f, t = date.fromisoformat(date_from), date.fromisoformat(date_to)
+    if f > t:
+        raise ValueError("date range must be ordered start <= end")
     out = []
     y = f.year
     while y <= t.year:
@@ -597,12 +744,28 @@ async def _load_price_chunk(cf: str, ct: str, tickers: Optional[str]):
 # map_sep_row applies unchanged). Without this the full equity load still leaves
 # spy.rows=0 and coverage go=false.
 BENCHMARK_TICKERS = os.getenv("BT_BENCHMARK_TICKERS", "SPY,QQQ,IWM,SOXX")
+BENCHMARK_SYMBOLS = tuple(
+    symbol.strip().upper() for symbol in BENCHMARK_TICKERS.split(",")
+    if symbol.strip())
+
+
+def _equity_frontier_sql() -> tuple[str, dict[str, str]]:
+    params = {f"benchmark_{i}": symbol
+              for i, symbol in enumerate(BENCHMARK_SYMBOLS)}
+    if not params:
+        return "SELECT MAX(date) FROM bt_prices", {}
+    placeholders = ",".join(f":{name}" for name in params)
+    return (f"SELECT MAX(date) FROM bt_prices WHERE ticker NOT IN ({placeholders})",
+            params)
 
 
 async def _load_benchmarks(date_from: str, date_to: str) -> int:
-    """Fetch benchmark ETFs from SFP → bt_prices. Fail-soft: a benchmark-fetch
-    problem (e.g. SFP not in the subscription) must NOT discard the equity load;
-    it's recorded as a failed bt_benchmarks run and re-tried by re-POST."""
+    """Fetch benchmark ETFs from SFP into bt_prices.
+
+    Failure propagates to the whole generation. Earlier stages may already be
+    committed, so publishing READY here would cite a partial corpus under a new
+    identity; the durable PUBLISHING marker must remain instead.
+    """
     rid = await _open_run("backfill", "bt_benchmarks")
     try:
         params = {"date.gte": date_from, "date.lte": date_to,
@@ -617,14 +780,40 @@ async def _load_benchmarks(date_from: str, date_to: str) -> int:
                 total += await _upsert_prices(batch); batch = []
         total += await _upsert_prices(batch)
         await _close_run(rid, "success", total, err=f"BENCHMARKS:{BENCHMARK_TICKERS}")
-        await _bump_data_version("benchmarks")
         print(f"[bt-data] benchmarks {BENCHMARK_TICKERS} DONE ({total} rows)", flush=True)
         return total
     except Exception as exc:
         await _close_run(rid, "failed", err=repr(exc)[:1500])
-        print(f"[bt-data] benchmark fetch FAILED (equity data intact): {exc}",
-              flush=True)
-        return 0
+        print(f"[bt-data] benchmark fetch FAILED: {exc}", flush=True)
+        raise
+
+
+async def _load_prior_fundamental_context(
+    tickers: list[str], before: str,
+) -> dict[str, list[dict]]:
+    """Load the four prior filings needed by a narrow incremental SF1 fetch."""
+    if not tickers:
+        return {}
+    async with engine.connect() as conn:
+        rows = (await conn.execute(text(
+            "WITH ranked AS ("
+            " SELECT ticker, as_of_date, revenue, eps, shares_outstanding, "
+            " row_number() OVER (PARTITION BY ticker ORDER BY as_of_date DESC) rn "
+            " FROM bt_fundamentals "
+            " WHERE ticker = ANY(:tickers) AND as_of_date < :before"
+            ") SELECT ticker, as_of_date, revenue, eps, shares_outstanding "
+            "FROM ranked WHERE rn <= 4 ORDER BY ticker, as_of_date"),
+            {"tickers": tickers, "before": _d(before)})).fetchall()
+    out: dict[str, list[dict]] = {}
+    for row in rows:
+        out.setdefault(row.ticker, []).append({
+            "ticker": row.ticker,
+            "as_of_date": row.as_of_date,
+            "_revenue": row.revenue,
+            "_eps": row.eps,
+            "shares_outstanding": row.shares_outstanding,
+        })
+    return out
 
 
 async def _load_fundamentals(date_from: str, date_to: str,
@@ -658,14 +847,18 @@ async def _load_fundamentals(date_from: str, date_to: str,
             if m is None:
                 continue
             per_ticker.setdefault(m["ticker"], []).append(m)
+        prior_context = await _load_prior_fundamental_context(
+            list(per_ticker), date_from)
         total = 0
         earnings_total = 0
         for t in list(per_ticker.keys()):
             rows = per_ticker.pop(t)          # free this ticker's block after use
             rows.sort(key=lambda r: r["as_of_date"])
             erows = []
-            for i, r in enumerate(rows):
-                prior = rows[i - 4] if i >= 4 else None  # ~year-ago quarter
+            history = [*prior_context.pop(t, []), *rows]
+            offset = len(history) - len(rows)
+            for i, r in enumerate(rows, start=offset):
+                prior = history[i - 4] if i >= 4 else None  # ~year-ago quarter
                 r["revenue_growth"] = compute_growth(
                     r.get("_revenue"), prior.get("_revenue") if prior else None)
                 r["eps_growth"] = compute_growth(
@@ -683,7 +876,6 @@ async def _load_fundamentals(date_from: str, date_to: str,
         print(f"[bt-data] SF1: {total} fundamentals rows, {earnings_total} "
               f"earnings rows", flush=True)
         await _close_run(rid, "success", total)
-        await _bump_data_version(f"fundamentals+earnings ({total}/{earnings_total} rows)")
         return total
     except Exception as exc:
         await _close_run(rid, "failed", err=repr(exc)[:1500])
@@ -715,7 +907,6 @@ async def _load_universe(snapshot_date: str, job_type: str) -> dict:
         report = await _upsert_universe(rows, snapshot_date)
         total = report["persisted"]
         await _close_run(rid, "success", total)
-        await _bump_data_version(f"universe ({total} securities)")
         # EVERY category on one line, because the failure this replaces was a
         # single number that looked like an answer. attempted != persisted is
         # now readable rather than something you have to go and measure.
@@ -776,7 +967,6 @@ async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
             dmin = cdmin if dmin is None or (cdmin and cdmin < dmin) else dmin
             dmax = cdmax if dmax is None or (cdmax and cdmax > dmax) else dmax
         await _close_run(rid, "success", total, dmin, dmax)
-        await _bump_data_version(f"prices {dmin}..{dmax}")
     except Exception as exc:
         # repr, not str: several exception types (ReadTimeout, MemoryError)
         # stringify to '' — the "failed with no error message" mystery rows.
@@ -809,6 +999,46 @@ async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
 _job_active = False
 
 
+async def _schedule_mutation(
+    background_tasks: BackgroundTasks,
+    *,
+    note: str,
+    operation: Callable[[], Awaitable[object]],
+) -> bool:
+    """Reserve the DB writer before returning an accepted HTTP response."""
+    global _job_active
+    try:
+        reservation = await _reserve_corpus_writer(note)
+    except CorpusPublicationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if reservation is None:
+        return False
+    _job_active = True
+
+    async def _guarded() -> None:
+        global _job_active
+        try:
+            await _run_reserved_generation(reservation, operation, note)
+        finally:
+            _job_active = False
+
+    background_tasks.add_task(_guarded)
+    return True
+
+
+def _validated_range(date_from: str, date_to: str,
+                     *, labels: str = "date_from/date_to") -> tuple[date, date]:
+    try:
+        start, end = date.fromisoformat(date_from), date.fromisoformat(date_to)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"{labels} must be ISO YYYY-MM-DD") from exc
+    if start > end:
+        raise HTTPException(status_code=400,
+                            detail=f"{labels} must be ordered start <= end")
+    return start, end
+
+
 @app.post("/jobs/backfill")
 async def start_backfill(background_tasks: BackgroundTasks,
                          date_from: str, date_to: str,
@@ -818,24 +1048,17 @@ async def start_backfill(background_tasks: BackgroundTasks,
 
     Refuses (returns already_running) if a backfill/topup is already in flight —
     re-POSTing does NOT spawn a competing task."""
-    global _job_active
-    try:
-        date.fromisoformat(date_from); date.fromisoformat(date_to)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="date_from/date_to must be ISO YYYY-MM-DD")
+    _validated_range(date_from, date_to)
     if _job_active:
         return {"status": "already_running",
                 "detail": "a backfill/topup is already in progress — not spawning another"}
-    _job_active = True
-
-    async def _guarded():
-        global _job_active
-        try:
-            await _run_backfill(date_from, date_to, tickers)
-        finally:
-            _job_active = False
-
-    background_tasks.add_task(_guarded)
+    started = await _schedule_mutation(
+        background_tasks,
+        note=f"backfill {date_from}..{date_to}:{tickers or 'ALL'}",
+        operation=lambda: _run_backfill(date_from, date_to, tickers))
+    if not started:
+        return {"status": "already_running",
+                "detail": "another process owns the corpus writer lock"}
     return {"status": "started", "date_from": date_from, "date_to": date_to,
             "tickers": tickers or "ALL", "mock": is_mock(),
             "data_mode": data_mode()}
@@ -853,22 +1076,19 @@ async def start_fetch_benchmarks(background_tasks: BackgroundTasks,
     """Load ONLY the benchmark ETFs (SPY etc.) from SFP into bt_prices — the
     fast fix for 'equities loaded but spy.rows=0 / go=false', without re-running
     the full backfill. Idempotent (upserts)."""
-    global _job_active
     if _job_active:
         return {"status": "already_running",
                 "detail": "a backfill/topup is already in progress"}
     from zoneinfo import ZoneInfo
     dt = date_to or datetime.now(ZoneInfo("America/New_York")).date().isoformat()
-    _job_active = True
-
-    async def _guarded():
-        global _job_active
-        try:
-            await _load_benchmarks(date_from, dt)
-        finally:
-            _job_active = False
-
-    background_tasks.add_task(_guarded)
+    _validated_range(date_from, dt)
+    started = await _schedule_mutation(
+        background_tasks,
+        note=f"benchmarks {date_from}..{dt}",
+        operation=lambda: _load_benchmarks(date_from, dt))
+    if not started:
+        return {"status": "already_running",
+                "detail": "another process owns the corpus writer lock"}
     return {"status": "started", "job": "fetch-benchmarks",
             "tickers": BENCHMARK_TICKERS, "date_from": date_from, "date_to": dt,
             "mock": is_mock(), "data_mode": data_mode()}
@@ -880,12 +1100,13 @@ async def start_topup(background_tasks: BackgroundTasks):
     restatement overlap) through today. Refused (409) while the DB is empty —
     topup extends a backfill, it cannot substitute for one; run /jobs/backfill
     first. bt-scheduler fires this nightly."""
+    frontier_sql, frontier_params = _equity_frontier_sql()
     async with engine.connect() as conn:
-        max_date = (await conn.execute(text("SELECT MAX(date) FROM bt_prices"))).scalar()
+        max_date = (await conn.execute(
+            text(frontier_sql), frontier_params)).scalar()
     if max_date is None:
         raise HTTPException(status_code=409,
                             detail="bt_prices is empty — run /jobs/backfill first")
-    global _job_active
     if _job_active:
         return {"status": "already_running",
                 "detail": "a backfill/topup is already in progress — not spawning another"}
@@ -895,16 +1116,14 @@ async def start_topup(background_tasks: BackgroundTasks):
     # and Sharadar date params speaking the same calendar.
     from zoneinfo import ZoneInfo
     date_to = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
-    _job_active = True
-
-    async def _guarded():
-        global _job_active
-        try:
-            await _run_backfill(date_from, date_to, None, "topup")
-        finally:
-            _job_active = False
-
-    background_tasks.add_task(_guarded)
+    _validated_range(date_from, date_to)
+    started = await _schedule_mutation(
+        background_tasks,
+        note=f"topup {date_from}..{date_to}",
+        operation=lambda: _run_backfill(date_from, date_to, None, "topup"))
+    if not started:
+        return {"status": "already_running",
+                "detail": "another process owns the corpus writer lock"}
     return {"status": "started", "job_type": "topup", "date_from": date_from,
             "date_to": date_to, "mock": is_mock(),
             "data_mode": data_mode()}
@@ -931,24 +1150,18 @@ async def start_fundamentals_backfill(background_tasks: BackgroundTasks,
     Shares the same single-writer guard as backfill/topup — one long writer at a
     time, or they lock each other row-by-row on the same upserts.
     """
-    global _job_active
-    try:
-        date.fromisoformat(date_from); date.fromisoformat(date_to)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="date_from/date_to must be ISO YYYY-MM-DD")
+    _validated_range(date_from, date_to)
     if _job_active:
         return {"status": "already_running",
                 "detail": "a backfill/topup is already in progress — not spawning another"}
-    _job_active = True
-
-    async def _guarded():
-        global _job_active
-        try:
-            await _load_fundamentals(date_from, date_to, tickers, "backfill_fundamentals")
-        finally:
-            _job_active = False
-
-    background_tasks.add_task(_guarded)
+    started = await _schedule_mutation(
+        background_tasks,
+        note=f"fundamentals {date_from}..{date_to}:{tickers or 'ALL'}",
+        operation=lambda: _load_fundamentals(
+            date_from, date_to, tickers, "backfill_fundamentals"))
+    if not started:
+        return {"status": "already_running",
+                "detail": "another process owns the corpus writer lock"}
     return {"status": "started", "job_type": "backfill_fundamentals",
             "date_from": date_from, "date_to": date_to,
             "tickers": tickers or "ALL", "mock": is_mock(),
@@ -975,25 +1188,18 @@ async def start_actions_backfill(background_tasks: BackgroundTasks,
     commits ONCE at the end, so an interruption leaves the table as it was
     rather than half-written.
     """
-    global _job_active
-    try:
-        date.fromisoformat(date_from); date.fromisoformat(date_to)
-    except ValueError:
-        raise HTTPException(status_code=400,
-                            detail="date_from/date_to must be ISO YYYY-MM-DD")
+    _validated_range(date_from, date_to)
     if _job_active:
         return {"status": "already_running",
                 "detail": "a backfill/topup is already in progress — not spawning another"}
-    _job_active = True
-
-    async def _guarded():
-        global _job_active
-        try:
-            await _load_actions(date_from, date_to, "backfill_actions")
-        finally:
-            _job_active = False
-
-    background_tasks.add_task(_guarded)
+    started = await _schedule_mutation(
+        background_tasks,
+        note=f"actions {date_from}..{date_to}",
+        operation=lambda: _load_actions(
+            date_from, date_to, "backfill_actions"))
+    if not started:
+        return {"status": "already_running",
+                "detail": "another process owns the corpus writer lock"}
     return {"status": "started", "job_type": "backfill_actions",
             "date_from": date_from, "date_to": date_to, "mock": is_mock(),
             "data_mode": data_mode(),
@@ -1025,7 +1231,6 @@ async def start_universe_backfill(background_tasks: BackgroundTasks,
     `snapshot_date` defaults to TODAY. Pass an existing snapshot's date to
     repair that snapshot rather than adding another.
     """
-    global _job_active
     snap = snapshot_date or date.today().isoformat()
     try:
         date.fromisoformat(snap)
@@ -1035,16 +1240,13 @@ async def start_universe_backfill(background_tasks: BackgroundTasks,
     if _job_active:
         return {"status": "already_running",
                 "detail": "a backfill/topup is already in progress — not spawning another"}
-    _job_active = True
-
-    async def _guarded():
-        global _job_active
-        try:
-            await _load_universe(snap, "backfill_universe")
-        finally:
-            _job_active = False
-
-    background_tasks.add_task(_guarded)
+    started = await _schedule_mutation(
+        background_tasks,
+        note=f"universe {snap}",
+        operation=lambda: _load_universe(snap, "backfill_universe"))
+    if not started:
+        return {"status": "already_running",
+                "detail": "another process owns the corpus writer lock"}
     return {"status": "started", "job_type": "backfill_universe",
             "snapshot_date": snap, "mock": is_mock(), "data_mode": data_mode(),
             "note": "TICKERS only — bt_prices is not touched"}
@@ -1108,25 +1310,18 @@ async def start_price_backfill(background_tasks: BackgroundTasks,
 
     Shares the single-writer guard with backfill/topup.
     """
-    global _job_active
-    try:
-        date.fromisoformat(start_date); date.fromisoformat(end_date)
-    except ValueError:
-        raise HTTPException(status_code=400,
-                            detail="start_date/end_date must be ISO YYYY-MM-DD")
+    _validated_range(start_date, end_date, labels="start_date/end_date")
     if _job_active:
         return {"status": "already_running",
                 "detail": "a backfill/topup is already in progress"}
-    _job_active = True
-
-    async def _guarded():
-        global _job_active
-        try:
-            await _run_price_stage(start_date, end_date, tickers, force=force)
-        finally:
-            _job_active = False
-
-    background_tasks.add_task(_guarded)
+    started = await _schedule_mutation(
+        background_tasks,
+        note=f"prices {start_date}..{end_date}:{tickers or 'ALL'}",
+        operation=lambda: _run_price_stage(
+            start_date, end_date, tickers, force=force))
+    if not started:
+        return {"status": "already_running",
+                "detail": "another process owns the corpus writer lock"}
     return {"status": "started", "stage": "bt_prices", "force": force,
             "start_date": start_date, "end_date": end_date,
             "tickers": tickers or "ALL", "mock": is_mock()}
@@ -1160,7 +1355,6 @@ async def _run_price_stage(date_from: str, date_to: str,
             dmin = cdmin if dmin is None or (cdmin and cdmin < dmin) else dmin
             dmax = cdmax if dmax is None or (cdmax and cdmax > dmax) else dmax
         await _close_run(rid, "success", total, dmin, dmax)
-        await _bump_data_version("backfill-prices")
     except Exception as exc:
         await _close_run(rid, "failed", err=repr(exc)[:1500])
         raise

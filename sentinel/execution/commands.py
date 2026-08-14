@@ -47,6 +47,17 @@ from sentinel.execution.states import (
     exposure_action, require)
 
 
+# Administrative liquidation commands are durable execution-membrane records,
+# but they do not describe Sentinel's post-handover expected book. The prefix is
+# explicit and typed by the existing migration reason rather than inferred from
+# side/symbol or from which account happened to be flat.
+LEGACY_MIGRATION_PLAN_PREFIX = "ADMIN-LEGACY-MIGRATION:"
+
+
+def is_legacy_migration(command: "Command") -> bool:
+    return command.identity.plan_id.startswith(LEGACY_MIGRATION_PLAN_PREFIX)
+
+
 class DeltaClass(str, Enum):
     NONE = "NONE"              # already where we want to be
     ACTIONABLE = "ACTIONABLE"  # a command should be created

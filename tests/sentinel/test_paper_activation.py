@@ -21,9 +21,12 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
-from tests.support.postgres import _EphemeralPostgres  # noqa: E402
+from tests.support.postgres import (  # noqa: E402
+    _EphemeralPostgres,
+    drop_public_tables,
+)
 
-from sentinel import binding, handover, paper, schema  # noqa: E402
+from sentinel import authority, binding, handover, paper, schema  # noqa: E402
 from sentinel.broker import CloseResult  # noqa: E402
 from sentinel.config import DEFAULT_BASE_URL, LiveEndpointRefused  # noqa: E402
 from sentinel.controller.frozen_rule import (  # noqa: E402
@@ -114,11 +117,7 @@ def pg():
 @pytest.fixture()
 def conn(pg):
     connection = feed_store.connect(pg.sync_dsn)
-    with connection.cursor() as cur:
-        cur.execute("SELECT tablename FROM pg_tables WHERE schemaname='public'")
-        for (table,) in cur.fetchall():
-            cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
-    connection.commit()
+    drop_public_tables(connection)
     feed_store.ensure_schema(connection)
     schema.ensure_schema(connection)
     yield connection
@@ -132,6 +131,13 @@ def simulator_is_certified(monkeypatch):
     monkeypatch.setattr(paper, "load_controller", lambda: CONFIG)
     monkeypatch.setattr(
         paper, "runtime_strategy_identity", lambda _config: dict(IDENTITY))
+    monkeypatch.setattr(
+        paper, "require_execution_authority",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            certificate_sha256="test-system-certificate"))
+    monkeypatch.setattr(
+        paper.system_identity, "rehearsal_identity",
+        lambda: {"identity_hash": "test-runtime"})
 
 
 def _broker(*, equity="1000", cash="1000", account=ACCOUNT):
@@ -517,6 +523,7 @@ class _MigrationBridge:
         self.execution_broker = execution_broker
         self.closes = []
         self.liquidation_keys = {}
+        self.liquidation_orders = {}
         self.observations = []
 
     async def account(self):
@@ -525,16 +532,30 @@ class _MigrationBridge:
     async def observe(self):
         observed = await self.execution_broker.observe()
         positions = {
-            position.instrument.symbol: float(position.quantity)
+            position.instrument.symbol: position.quantity
+            for position in observed.positions if position.quantity
+        }
+        identities = {
+            position.instrument.symbol: (
+                position.instrument.broker_id
+                or f"asset-{position.instrument.security_id}")
             for position in observed.positions if position.quantity
         }
         orders = tuple(
             OpenOrder(
                 order_id=order.broker_order_id,
                 ticker=order.instrument.symbol,
-                side=order.side.value)
+                side=order.side.value,
+                client_key=order.client_key, state=order.state,
+                quantity=order.quantity,
+                filled_quantity=order.filled_quantity,
+                filled_average_price=order.filled_average_price,
+                broker_instrument_id=(order.instrument.broker_id
+                                      or f"asset-{order.instrument.security_id}"))
             for order in observed.orders if order.is_working)
-        result = AccountObservation(positions=positions, open_orders=orders)
+        result = AccountObservation(
+            positions=positions, position_security_ids=identities,
+            open_orders=orders)
         self.observations.append(result)
         return result
 
@@ -557,6 +578,32 @@ class _MigrationBridge:
         return CloseResult(
             ticker=ticker, broker_order_id=None,
             status=None, error="position disappeared before close")
+
+    async def submit_liquidation(self, command):
+        ticker = command.instrument.symbol
+        self.closes.append(ticker)
+        outcome = await self.execution_broker.submit(
+            client_key=command.client_key,
+            instrument=BrokerInstrument(
+                security_id="LEGACY", symbol=ticker,
+                broker_id=command.instrument.broker_id),
+            side=Side.SELL, quantity=command.quantity)
+        self.liquidation_keys[ticker] = command.client_key
+        self.liquidation_orders[command.client_key] = outcome.broker_order_id
+        return outcome
+
+    async def find_liquidation(self, client_key):
+        order = await self.execution_broker.find_by_client_key(client_key)
+        if order is None:
+            return None
+        return OpenOrder(
+            order_id=order.broker_order_id,
+            ticker=order.instrument.symbol, side=order.side.value,
+            client_key=order.client_key, state=order.state,
+            quantity=order.quantity,
+            filled_quantity=order.filled_quantity,
+            filled_average_price=order.filled_average_price,
+            broker_instrument_id=order.instrument.broker_id)
 
 
 async def _nosleep(_seconds):
@@ -658,6 +705,8 @@ def test_real_fresh_boot_pipeline_is_restart_equivalent_and_adopts_one_plan(
         session=DECISION.isoformat(), data_version=pinned.version,
         bars=(bar(DECISION.isoformat(), len(warm)),), meta=meta,
         sectors={AAA.security_id: "Information Technology"},
+        spy_sessions=tuple(sessions[-41:]),
+        spy_expected_sessions=tuple(sessions[-41:]),
         spy_closeadj=tuple(
             400.0 + index + (0.25 if index % 3 == 0 else 0.0)
             for index in range(41)))
@@ -1007,6 +1056,74 @@ def test_restart_cash_authority_uses_durable_average_fill_price(conn, pg):
 
 
 class TestStrictExecutionGate:
+    def test_missing_system_certificate_refuses_before_broker_read(
+            self, conn, pg, monkeypatch):
+        _install_current_authorities(conn)
+        _ready(monkeypatch)
+
+        def refuse(*_args, **_kwargs):
+            other = feed_store.connect(pg.sync_dsn)
+            try:
+                with other.cursor() as cur:
+                    cur.execute(
+                        "SELECT pg_try_advisory_lock(%s)",
+                        (journal.WRITER_LOCK_KEY,))
+                    acquired = cur.fetchone()[0]
+                    if acquired:
+                        cur.execute(
+                            "SELECT pg_advisory_unlock(%s)",
+                            (journal.WRITER_LOCK_KEY,))
+                other.commit()
+            finally:
+                other.close()
+            assert acquired is False, (
+                "system certificate was checked outside the writer lock")
+            raise authority.AuthorityRefused(
+                "no active system certificate is installed")
+
+        monkeypatch.setattr(paper, "require_execution_authority", refuse)
+        broker = _broker()
+
+        with pytest.raises(authority.AuthorityRefused, match="no active"):
+            _execute(conn, broker)
+
+        assert broker.calls == []
+        assert _mutations(broker) == []
+
+    def test_rollout_version_change_stales_plan_before_broker_read(
+            self, conn, monkeypatch):
+        _install_current_authorities(conn)
+        _ready(monkeypatch)
+        certificate_sha = "d" * 64
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_system_certificates"
+                " (certificate_sha256,manifest_bytes,manifest,"
+                "  allowed_rollout_modes)"
+                " VALUES (%s,'{}'::bytea,'{}'::jsonb,"
+                "         '[\"CONTROLLER\"]'::jsonb)",
+                (certificate_sha,))
+            cur.execute(
+                "UPDATE sentinel_rollout_state"
+                " SET mode='CONTROLLER',version=2,certificate_sha256=%s"
+                " WHERE id=1", (certificate_sha,))
+            cur.execute(
+                "INSERT INTO sentinel_rollout_events"
+                " (version,from_mode,to_mode,certificate_sha256,reason)"
+                " VALUES (2,'PINNED_1_00','CONTROLLER',%s,"
+                "         'test coherent authority transition')",
+                (certificate_sha,))
+        conn.commit()
+        broker = _broker()
+
+        with pytest.raises(
+                paper.PaperActivationRefused,
+                match="rollout mode/version authority is stale"):
+            _execute(conn, broker)
+
+        assert broker.calls == []
+        assert _mutations(broker) == []
+
     def test_half_day_after_close_refuses_before_broker_read(
             self, conn, monkeypatch):
         """A DAY order at 13:01 must not queue into the next session."""

@@ -1,9 +1,13 @@
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36
+ARG SOURCE_GIT_SHA=unknown
+LABEL org.opencontainers.image.revision=${SOURCE_GIT_SHA}
 WORKDIR /app
-ENV PIP_TRUSTED_HOST="pypi.org files.pythonhosted.org pypi.python.org"
 RUN sed -i 's/MinProtocol = TLSv1.2/MinProtocol = TLSv1.2\nMaxProtocol = TLSv1.2/' /etc/ssl/openssl.cnf
+COPY sentinel/requirements.lock /tmp/requirements.lock
+RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
+    -r /tmp/requirements.lock
 COPY shared/ /shared/
-# Editable install so a bind-mount of ./shared (docker-compose.override.yml) takes
-# effect at runtime — shared code changes need only `git pull` + restart, no base
-# rebuild. A clean build with no override still works (uses the COPYed /shared).
-RUN pip install --no-cache-dir -e /shared/
+# Certification build artefact for bt-engine. The editable location preserves
+# source-path identity inside the image; there is no runtime bind mount and every
+# shared-code change requires an unconditional rebuild before the engine.
+RUN pip install --no-cache-dir --no-build-isolation --no-deps -e /shared/

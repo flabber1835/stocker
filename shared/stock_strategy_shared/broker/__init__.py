@@ -9,10 +9,11 @@ alpaca.py   the proven Alpaca transport behind that surface
 
 Sentinel's ordinary execution does NOT go through here. It speaks the typed
 contract in `sentinel/execution/contract.py`, whose Alpaca implementation is
-`sentinel/execution/alpaca.py`. This older surface remains for exactly one
-caller: the one-time account handover (`sentinel/handover.py`), which is an
-ADMINISTRATIVE act and is permitted to use `close_position` — see
-docs/sentinel-execution-contract.md §4.4.
+`sentinel/execution/alpaca.py`. The one-time account handover reuses this older
+transport only for complete reads and exact named requests; liquidation itself
+is now a durable execution-journal command. The legacy `close_position` and
+`cancel_all_orders` methods remain transport compatibility surface, but no
+production Sentinel caller may use them.
 
 REMOVED with the rest of the retired runtime:
 
@@ -42,8 +43,8 @@ from .base import (
     BrokerPosition,
 )
 
-#: Single source of the "position already flat" sentinel that `close_position`
-#: returns. Still used by the migration path, which is the only caller.
+#: Compatibility token returned by the retired broker-native close method.
+#: Production Sentinel migration uses named journal commands instead.
 ALREADY_CLOSED_STATUS = BrokerAdapter.ALREADY_CLOSED_STATUS
 
 __all__ = [

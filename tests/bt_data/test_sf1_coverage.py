@@ -152,9 +152,10 @@ def test_every_mapped_fundamentals_field_reaches_the_INSERT():
     assert insert, "could not locate the bt_fundamentals INSERT"
     cols = {c.strip() for c in re.sub(r'["\s]+', " ", insert.group(1)).split(",")
             if c.strip()}
-    # The mapper's underscore-prefixed keys are scratch values the backfill loop
-    # consumes and strips before insert; everything else is a real column.
+    # The two raw levels are underscore-prefixed mapper scratch values, but are
+    # now persisted as prior-quarter context for narrow incremental fetches.
     mapped = {k for k in map_sf1_row(_row()) if not k.startswith("_")}
+    mapped.update({"revenue", "eps"})
     assert not (mapped - cols), \
         f"mapped but never persisted (silently NULL forever): {mapped - cols}"
     assert not (cols - mapped), \

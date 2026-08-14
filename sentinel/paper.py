@@ -16,7 +16,13 @@ from decimal import Decimal
 from typing import Mapping, Optional
 from zoneinfo import ZoneInfo
 
-from sentinel import binding as binding_mod, schema
+from sentinel import binding as binding_mod, identity as system_identity, schema
+from sentinel.authority import (
+    AuthorityRefused,
+    RolloutMode,
+    load_rollout_state,
+    require_execution_authority,
+)
 from sentinel.config import assert_paper_url
 from sentinel.controller.frozen_rule import ControllerConfig, load as load_controller
 from sentinel.controller.machine import Controller
@@ -572,6 +578,14 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
         # never something daily preparation may adopt.
         from sentinel.handover import assert_no_legacy_path
         binding = assert_no_legacy_path(conn)
+        rollout = load_rollout_state(conn)
+        if rollout.mode is RolloutMode.CONTROLLER:
+            # A revoked controller certificate may not continue producing new
+            # controller-mode intent. PINNED preparation remains available so
+            # certification can be completed without manufacturing authority.
+            require_execution_authority(
+                conn, runtime_identity=system_identity.rehearsal_identity(),
+                strategy_identity=identity, required_mode=rollout.mode)
         with publication.pinned(conn, commit=False) as pinned:
             observation_time = (now_et if now_et is not None else
                                 datetime.now(ZoneInfo(calendar.EXCHANGE_TZ)))
@@ -620,7 +634,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     conn, state=state, plan=existing_plan, binding=binding,
                     pinned=pinned, frontier=through_text, today=date.fromisoformat(
                         calendar.next_session(through_text)),
-                    runtime_identity=identity, require_effective_today=False)
+                    runtime_identity=identity, rollout=rollout,
+                    require_effective_today=False)
                 rec = await reconciliation.reconcile(
                     broker=broker, conn=conn, binding=None,
                     deployment=binding.identity,
@@ -707,7 +722,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     observation=observation, marks=marks, tickers=tickers,
                     decision_session=date.fromisoformat(session),
                     effective_session=date.fromisoformat(
-                        calendar.next_session(session)))
+                        calendar.next_session(session)),
+                    rollout_state=rollout)
                 return result.plan
 
             caught = catchup.catch_up_locked(
@@ -743,7 +759,7 @@ def _state_and_plan_or_refuse(conn) -> tuple[SessionState, ExecutionPlan, object
 
 def _assert_plan_authorities(conn, *, state: SessionState, plan: ExecutionPlan,
                              binding, pinned, frontier: str, today: date,
-                             runtime_identity: Mapping,
+                             runtime_identity: Mapping, rollout,
                              require_effective_today: bool = True) -> None:
     _assert_deterministic_plan_id(plan)
     if plan.decision_session.isoformat() != frontier:
@@ -776,6 +792,18 @@ def _assert_plan_authorities(conn, *, state: SessionState, plan: ExecutionPlan,
               expected.broker_account_id, expected.takeover_epoch)
     if actual != wanted:
         raise PaperActivationRefused("plan account/deployment identity is stale")
+    plan_rollout = (
+        plan.rollout_mode, plan.rollout_version,
+        plan.rollout_certificate_sha256)
+    current_rollout = (
+        rollout.mode.value, rollout.version, rollout.certificate_sha256)
+    if plan_rollout != current_rollout:
+        raise PaperActivationRefused(
+            "plan rollout mode/version authority is stale")
+    if (rollout.mode is RolloutMode.PINNED_1_00
+            and plan.target_exposure != Decimal(1)):
+        raise PaperActivationRefused(
+            "pinned rollout plan target exposure is not exactly 1")
 
 
 def _action_lookup(conn, state: SessionState, through: date):
@@ -928,6 +956,8 @@ async def execute_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
     with journal.writer_lock(conn):
         from sentinel.handover import assert_no_legacy_path
         binding = assert_no_legacy_path(conn)
+        rollout = load_rollout_state(conn)
+        strategy_identity = runtime_strategy_identity(load_controller())
         with publication.pinned(conn, commit=False) as pinned:
             _readiness_or_refuse(conn, now_et=now_et)
             frontier = feed_store.latest_visible_session(conn)
@@ -941,7 +971,17 @@ async def execute_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             _assert_plan_authorities(
                 conn, state=state, plan=plan, binding=binding, pinned=pinned,
                 frontier=str(frontier), today=today,
-                runtime_identity=runtime_strategy_identity(load_controller()))
+                runtime_identity=strategy_identity, rollout=rollout)
+            certificate = require_execution_authority(
+                conn, runtime_identity=system_identity.rehearsal_identity(),
+                strategy_identity=strategy_identity,
+                required_mode=rollout.mode)
+            if (rollout.mode is RolloutMode.CONTROLLER
+                    and rollout.certificate_sha256
+                    != certificate.certificate_sha256):
+                raise PaperActivationRefused(
+                    "controller rollout was authorized by a different system "
+                    "certificate")
             # Strict activation executes only during the named exchange
             # session. This is before the first broker read and consults the
             # actual XNYS schedule, so a 13:00 half-day close is a hard stop.
@@ -988,6 +1028,7 @@ def current_paper_plan(conn) -> dict:
     current = publication.require_current(conn)
     frontier = feed_store.latest_visible_session(conn)
     runtime_identity = runtime_strategy_identity(load_controller())
+    rollout = load_rollout_state(conn)
     checks = {
         "owned_binding": binding.is_owned,
         "state_matches_plan": state.state_hash == plan.shadow_snapshot_hash,
@@ -1013,7 +1054,23 @@ def current_paper_plan(conn) -> dict:
         "effective_is_next_session": (
             plan.effective_session.isoformat()
             == calendar.next_session(plan.decision_session)),
+        "rollout_matches_plan": (
+            plan.rollout_mode == rollout.mode.value
+            and plan.rollout_version == rollout.version
+            and plan.rollout_certificate_sha256
+            == rollout.certificate_sha256
+            and (rollout.mode is not RolloutMode.PINNED_1_00
+                 or plan.target_exposure == Decimal(1))),
     }
+    try:
+        certificate = require_execution_authority(
+            conn, runtime_identity=system_identity.rehearsal_identity(),
+            strategy_identity=runtime_identity, required_mode=rollout.mode)
+        checks["system_certificate_valid"] = (
+            rollout.mode is not RolloutMode.CONTROLLER
+            or rollout.certificate_sha256 == certificate.certificate_sha256)
+    except AuthorityRefused:
+        checks["system_certificate_valid"] = False
     return {
         "broker_contacted": False,
         "broker_mutations_permitted": False,
@@ -1025,6 +1082,7 @@ def current_paper_plan(conn) -> dict:
         "frontier": frontier,
         "binding": binding.to_dict(),
         "publication": current.to_dict(),
+        "rollout": rollout.to_dict(),
         "state_fingerprint": state.state_hash,
         "plan": plan.to_dict(),
         "checks": checks,

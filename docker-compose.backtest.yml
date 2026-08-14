@@ -1,58 +1,21 @@
-# Backtester stack — runs ONLY on the separate backtest machine.
-#
-#   docker compose -f docker-compose.backtest.yml up -d
-#
-# This file is NEVER used by the live trading host. It has its OWN Postgres
-# (bt-postgres), its own services, its own ports. There is no shared database,
-# container, or network with the live stack — running this cannot disrupt the
-# trading pipeline in any way. Same git repo, separate deploy target.
-#
-# Provision before first run:
-#   - SHARADAR_API_KEY  (Nasdaq Data Link "Sharadar Equity Bundle")
-#   - enough disk for bt-postgres (SF1 + SEP backfill is multi-GB)
-# BT_DATA_MODE is EXPLICIT (sharadar|frozen|mock, default sharadar):
-#   sharadar  fetch new data; requires SHARADAR_API_KEY
-#   frozen    NO fetching, corpus already in bt-postgres stays REAL and fully
-#             usable — the correct setting after CANCELLING the subscription.
-#             Backtests and sweeps are unaffected; only new data stops.
-#   mock      synthetic data, explicitly requested; NOT research-grade
-# Configured for
-# sharadar with no key now FAILS AT STARTUP rather than silently serving a tiny
-# synthetic corpus — a missing secret must not quietly replace the historical
-# data that auto-promotion is scored against. Set BT_DATA_MODE=mock to ask for
-# synthetic data deliberately. (Legacy: BT_MOCK_DATA=true still means mock.)
-# Historically, without SHARADAR_API_KEY the service ran in MOCK mode,
-# so the stack is exercisable end-to-end before the subscription is live.
-
-# Own compose PROJECT NAME: co-locating this stack on the live host (e.g. a
-# dormant pre-subscription deploy) must not share the default directory-derived
-# project with the live compose — otherwise `docker compose down --remove-orphans`
-# on either file would evict the other's containers.
+# Wealth Core certification rig only. Stocker runtime services are retired.
+# All host surfaces are loopback-bound; remote operation uses an authenticated
+# SSH tunnel or reverse proxy. This graph has no scheduler or trading service.
 name: stocker-bt
 
 services:
-
   bt-postgres:
-    image: postgres:16
+    image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
     restart: unless-stopped
-    # Docker gives a container 64MB of /dev/shm, and PostgreSQL allocates the
-    # per-worker segments a PARALLEL query needs there. On a 35M-row table any
-    # parallel plan wants more than that, and the failure is not a slow query —
-    # it is `could not resize shared memory segment ... No space left on device`,
-    # which reads like a full disk and is not one. Observed on VACUUM (ANALYZE)
-    # bt_prices.
-    #
-    # This is the corpus table every backtest reads, so the limit was throttling
-    # far more than the one command that finally named it.
     shm_size: 1gb
     environment:
       POSTGRES_USER: btuser
-      POSTGRES_PASSWORD: ${BT_POSTGRES_PASSWORD:-btpass}
+      POSTGRES_PASSWORD: ${BT_POSTGRES_PASSWORD:?set BT_POSTGRES_PASSWORD}
       POSTGRES_DB: backtest
     volumes:
       - bt_pgdata:/var/lib/postgresql/data
     ports:
-      - "5434:5432"   # distinct host port from the live DB (5433)
+      - "127.0.0.1:5434:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U btuser -h 127.0.0.1"]
       interval: 5s
@@ -66,12 +29,12 @@ services:
       dockerfile: services/bt-data/Dockerfile
     restart: unless-stopped
     ports:
-      - "8030:8000"
+      - "127.0.0.1:8030:8000"
     environment:
-      BT_DATABASE_URL: postgresql+asyncpg://btuser:${BT_POSTGRES_PASSWORD:-btpass}@bt-postgres:5432/backtest
+      BT_DATABASE_URL: postgresql+asyncpg://btuser:${BT_POSTGRES_PASSWORD:?set BT_POSTGRES_PASSWORD}@bt-postgres:5432/backtest
       SHARADAR_API_KEY: ${SHARADAR_API_KEY:-}
       BT_MOCK_DATA: ${BT_MOCK_DATA:-}
-      BT_DATA_MODE: ${BT_DATA_MODE:-sharadar}   # set 'frozen' if the subscription lapses
+      BT_DATA_MODE: ${BT_DATA_MODE:-sharadar}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
       interval: 30s
@@ -87,49 +50,17 @@ services:
       context: .
       dockerfile: services/bt-engine/Dockerfile
     restart: unless-stopped
-    # HARD memory cap (same rationale as the live pipeline's mem_limit): a
-    # full-universe 20-year simulation loads a 35M-row frame + working copies —
-    # uncapped, that consumed ALL host RAM and took the whole NAS down (the
-    # 2026-07-24 overnight outage: every container gone by morning). With the
-    # cap, bt-engine is the predictable OOM victim (container dies, restarts,
-    # run marked failed by STALE_BT_RUN_HOURS) and the host + live stack SURVIVE.
-    # Tune to your NAS: must be well under total RAM minus the live stack.
     mem_limit: ${BT_ENGINE_MEM_LIMIT:-4g}
     ports:
-      - "8031:8000"
+      - "127.0.0.1:8031:8000"
     environment:
-      BT_DATABASE_URL: postgresql+asyncpg://btuser:${BT_POSTGRES_PASSWORD:-btpass}@bt-postgres:5432/backtest
-      STRATEGY_CONFIG_PATH: /strategies/momentum_core_v3.yaml
+      BT_DATABASE_URL: postgresql+asyncpg://btuser:${BT_POSTGRES_PASSWORD:?set BT_POSTGRES_PASSWORD}@bt-postgres:5432/backtest
       STALE_BT_RUN_HOURS: ${STALE_BT_RUN_HOURS:-12}
-      # Point the factor cache at a VOLUME, not the container's /tmp. The default
-      # (/tmp/bt_factor_cache) dies with the container, so every bt-engine rebuild
-      # silently discarded the whole cache and the next sweep recomputed factors
-      # for every rebalance date from scratch — measured as a run producing no
-      # progress snapshot for its first ~15 minutes. The cache is already
-      # fingerprinted on bt_data_version, so a stale corpus invalidates it
-      # correctly; persistence changes nothing about that.
       BT_FACTOR_CACHE_DIR: /factor-cache
-      # THE IMAGE THIS CONTAINER IS RUNNING, injected by the deploy because a
-      # container cannot discover it. bt-engine records it in the run row at
-      # START, and the certification finalizer requires the recorded id to
-      # equal the bt-engine image being certified.
-      #
-      # Inspecting `stocker-bt-engine:latest` at finalization instead answers a
-      # different question — what the tag points at NOW. Rebuild it between the
-      # rehearsal and the finalization and the manifest names the wrong image,
-      # with nothing about it looking wrong.
-      #
-      # Set by `scripts/bt-engine-up.sh`, which builds, inspects and recreates
-      # in that order. Empty here so an ordinary `up -d` still works and the
-      # run simply records `null` — which the certification path REFUSES, so a
-      # rehearsal started the casual way cannot be certified by accident.
+      # Injected by scripts/bt-engine-up.sh. Certification refuses an empty id.
       BT_ENGINE_IMAGE_ID: ${BT_ENGINE_IMAGE_ID:-}
       BT_ENGINE_IMAGE: ${BT_ENGINE_IMAGE:-}
     volumes:
-      - ./strategies:/strategies:ro
-      # Named volume rather than a bind under ./artifacts: this grows to GBs
-      # (thousands of dates × ~750KB frames) and ./artifacts is shared with the
-      # live stack and read by the evaluator.
       - bt_factor_cache:/factor-cache
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
@@ -141,58 +72,6 @@ services:
       bt-postgres:
         condition: service_healthy
 
-  bt-scheduler:
-    build:
-      context: .
-      dockerfile: services/bt-scheduler/Dockerfile
-    restart: unless-stopped
-    ports:
-      - "8032:8000"
-    environment:
-      BT_DATA_URL: http://bt-data:8000
-      BT_ENGINE_URL: http://bt-engine:8000
-      ARTIFACTS_PATH: /artifacts
-      STANDING_SWEEP_SPEC: /sweeps/standing_sweep.json
-      BT_SCHED_TICK_SECS: ${BT_SCHED_TICK_SECS:-300}
-      BT_TOPUP_HOUR: ${BT_TOPUP_HOUR:-23}
-      BT_SWEEP_WEEKDAY: ${BT_SWEEP_WEEKDAY:-4}   # Fri=4, 19:00 ET (Sat 02:00 Helsinki) — exports BEFORE the Sat ~00-01 ET (07-08 Helsinki) weekend review
-      BT_SWEEP_HOUR: ${BT_SWEEP_HOUR:-19}
-      # Phase 6c daily full-config experiment lane (+ one-time auto-baseline):
-      # fires at/after this local hour (22 ET = 7pm PT), one at a time, capped
-      # per ISO week. See docs/backtester-v2-plan.md "Phase 6c".
-      BT_EXPERIMENT_HOUR: ${BT_EXPERIMENT_HOUR:-22}
-      BT_EXPERIMENTS_PER_WEEK: ${BT_EXPERIMENTS_PER_WEEK:-5}
-      # Candidates are scored on the BASELINE's exact windows (the promotion
-      # gate refuses to compare across windows). That pins the comparison but
-      # freezes it in time, so the yardstick is re-measured once its validate
-      # window ended more than this many days ago.
-      BT_BASELINE_MAX_AGE_DAYS: ${BT_BASELINE_MAX_AGE_DAYS:-30}
-      # Skip-if-unchanged: on the due day the sweep fires only if the spec hash
-      # changed, evaluator proposals are pending, or this many days passed since
-      # the last fire (the monthly refresh that keeps windows sliding).
-      BT_SWEEP_FORCE_REFRESH_DAYS: ${BT_SWEEP_FORCE_REFRESH_DAYS:-28}
-      SCHEDULE_TZ: America/New_York
-    volumes:
-      # Results bridge: co-located deploys share ./artifacts with the live stack,
-      # so the evaluator's packet reads artifacts/bt/latest_sweep.json directly.
-      # Separate-machine deploys copy that one file across (rsync/scp/manual).
-      - ./artifacts:/artifacts
-      - ./sweeps:/sweeps:ro
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    depends_on:
-      bt-postgres:
-        condition: service_healthy
-
-  # bt-ui is added in Phase 3.
-
 volumes:
   bt_pgdata:
-  # Survives bt-engine rebuilds. Safe to delete to reclaim disk — the cache is
-  # a pure memo of factor frames and is rebuilt on demand; deleting it costs
-  # time on the next sweep, never correctness.
   bt_factor_cache:

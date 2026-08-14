@@ -34,6 +34,8 @@
 # `SENTINEL_REPO_ROOT` points the inspecting tests at it.
 ARG SENTINEL_IMAGE=sentinel:latest
 FROM ${SENTINEL_IMAGE}
+ARG SOURCE_GIT_SHA=unknown
+LABEL org.opencontainers.image.revision=${SOURCE_GIT_SHA}
 
 # Postgres BINARIES, not a server: `tests/integration/conftest` spins up a
 # throwaway cluster with initdb/pg_ctl per module. Without them every
@@ -51,14 +53,22 @@ RUN apt-get update \
       postgresql postgresql-client git \
  && rm -rf /var/lib/apt/lists/*
 
-# PINNED like everything else — a test runner that floats can change a verdict
-# between two runs of the same suite, which is the failure mode this whole batch
-# exists to remove. SQLAlchemy is here rather than in the
-# runtime image on purpose: the canonical Wealth Core data path imports it at
-# module scope, and it is a retired-Stocker-stack dependency. `tools/
-# corpus_parity.py` needs it to read bt-postgres; `sentinel:latest` must not
-# carry the retired platform's ORM into an image that liquidates an account.
-RUN pip install --no-cache-dir "pytest==8.4.2" "SQLAlchemy==2.0.44"
+# HASH LOCKED like everything else — a test runner that floats can change a
+# verdict between two runs of the same suite, and a version-only pin can resolve
+# to different artifact bytes. This is a DELTA closure layered on the already
+# hash-locked runtime image. `--no-deps` makes every added distribution come
+# from this reviewed lock rather than asking pip to resolve anything; `pip
+# check` then proves the combined runtime + test closure is complete.
+#
+# SQLAlchemy is here rather than in the runtime image on purpose: the canonical
+# Wealth Core data path imports it at module scope, and it is a retired-Stocker-
+# stack dependency. `tools/corpus_parity.py` needs it to read bt-postgres;
+# `sentinel:latest` must not carry the retired platform's ORM into an image that
+# liquidates an account.
+COPY tests/requirements.lock /tmp/test-req/requirements.lock
+RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
+        --no-deps -r /tmp/test-req/requirements.lock \
+ && pip check
 
 WORKDIR /work
 COPY tests/ /work/tests/
@@ -93,6 +103,7 @@ COPY docs/sentinel-breadth-reconstruction/ /work/docs/sentinel-breadth-reconstru
 COPY docs/sentinel-reference-implementation/ /work/docs/sentinel-reference-implementation/
 COPY sentinel/ /work/repo/sentinel/
 COPY shared/ /work/repo/shared/
+COPY Dockerfile.base /work/repo/Dockerfile.base
 COPY Dockerfile.sentinel /work/repo/Dockerfile.sentinel
 COPY docker-compose.sentinel.yml /work/repo/docker-compose.sentinel.yml
 COPY Dockerfile.sentinel-test /work/repo/Dockerfile.sentinel-test
@@ -102,7 +113,16 @@ COPY Dockerfile.sentinel-test /work/repo/Dockerfile.sentinel-test
 # a repo root where the file simply is not there — and in this image a skip is
 # a FAILURE, so "absent" cannot quietly become "not checked".
 COPY docker-compose.backtest.yml /work/repo/docker-compose.backtest.yml
+COPY docker-compose.sentinel-backup.yml /work/repo/docker-compose.sentinel-backup.yml
 COPY .dockerignore /work/repo/.dockerignore
+COPY .gitattributes /work/repo/.gitattributes
+COPY .github/workflows/sentinel-safety.yml /work/repo/.github/workflows/sentinel-safety.yml
+COPY .env.example /work/repo/.env.example
+COPY Makefile /work/repo/Makefile
+COPY README.md /work/repo/README.md
+COPY docs/main-review-remediation.md /work/repo/docs/main-review-remediation.md
+COPY docs/sentinel-deployment.md /work/repo/docs/sentinel-deployment.md
+COPY docs/sentinel-paper-activation.md /work/repo/docs/sentinel-paper-activation.md
 # bt-engine RUNS the rehearsal and bt-data INGESTS the corpus, so several tests
 # read their source to check what the engine records and how the feed maps a
 # vendor row. INSPECTION ONLY — under /work/repo, never /work, so nothing here
@@ -110,6 +130,7 @@ COPY .dockerignore /work/repo/.dockerignore
 # /work is what the suite imports, /work/repo is what it reads.
 COPY services/bt-engine/ /work/repo/services/bt-engine/
 COPY services/bt-data/ /work/repo/services/bt-data/
+COPY services/backtester/ /work/repo/services/backtester/
 
 # /work carries `tests` and `services`. `sentinel` resolves from /app and
 # `stock_strategy_shared` from site-packages — the artefact, in both cases.

@@ -19,6 +19,8 @@ Each of the three has a test below, and the refusals have falsifiers: a
 from __future__ import annotations
 
 import ast
+import asyncio
+import inspect
 import os
 import pathlib
 
@@ -28,8 +30,10 @@ os.environ.setdefault(
     "BT_DATABASE_URL", "postgresql+asyncpg://smoke:smoke@localhost/smoke")
 
 from fastapi import HTTPException  # noqa: E402
+from fastapi import BackgroundTasks  # noqa: E402
 
 from app import wealth_core_api as api  # noqa: E402
+from app import jobs_busy  # noqa: E402
 from app.wealth_core_chain import STATEFUL_MODEL  # noqa: E402
 from stock_strategy_shared.wealth_core.golden import golden_scenario  # noqa: E402
 from stock_strategy_shared.wealth_core.hashes import HASH_ORDER  # noqa: E402
@@ -37,7 +41,8 @@ from stock_strategy_shared.wealth_core.risk_profile import (  # noqa: E402
     PROFILE_NAME,
 )
 
-REPO = pathlib.Path(__file__).resolve().parents[2]
+REPO = pathlib.Path(os.environ.get(
+    "BT_ENGINE_REPO_ROOT", pathlib.Path(__file__).resolve().parents[2]))
 SLICE = 160
 
 
@@ -176,13 +181,63 @@ class TestBaselineReplayRefusals:
         assert "missing" in str(e.value.detail)
 
     def test_a_COMPLETE_hash_set_is_accepted(self):
-        api._validate(req(mode="baseline_replay",
-                          expected_hashes={k: "x" for k in HASH_ORDER}))
+        request = req(mode="baseline_replay",
+                      expected_hashes={k: "x" for k in HASH_ORDER},
+                      expected_data_version="generation-7")
+        api._validate(request)
+
+        from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
+        from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
+
+        cfg = api._apply(WealthCoreConfig(), request.config,
+                         "WealthCoreConfig")
+        eligibility = api._apply(
+            EligibilityConfig(), request.eligibility, "EligibilityConfig")
+        assert request.starting_cash == api.CANONICAL_BASELINE_STARTING_CASH
+        assert cfg == WealthCoreConfig()
+        assert eligibility == EligibilityConfig()
+        assert cfg.config_hash() == WealthCoreConfig().config_hash()
+        assert cfg.volatility_profile == eligibility.volatility_profile
+
+    @pytest.mark.parametrize("override, named_input", [
+        ({"starting_cash": 999_999.0}, "starting_cash"),
+        ({"config": {"n_slots": 20}}, "WealthCoreConfig"),
+        ({"config": {"volatility_profile": "simple_returns_v1"}},
+         "volatility profile"),
+        ({"eligibility": {"min_dollar_volume_20d": 1.0}},
+         "EligibilityConfig"),
+        ({"eligibility": {"volatility_profile": "simple_returns_v1"}},
+         "volatility profile"),
+    ])
+    def test_a_baseline_rejects_every_NONCANONICAL_behavioral_input(
+            self, override, named_input):
+        request = dict(
+            mode="baseline_replay",
+            expected_hashes={k: "x" for k in HASH_ORDER},
+            expected_data_version="generation-7")
+        request.update(override)
+        with pytest.raises(HTTPException) as exc:
+            api._validate(req(**request))
+        assert named_input in str(exc.value.detail)
+        assert "experiment" in str(exc.value.detail)
+
+    def test_hashes_without_their_exact_data_generation_are_refused(self):
+        with pytest.raises(HTTPException) as exc:
+            api._validate(req(
+                mode="baseline_replay",
+                expected_hashes={k: "x" for k in HASH_ORDER}))
+        assert "expected_data_version" in str(exc.value.detail)
+
+    def test_other_modes_cannot_claim_an_ignored_generation_pin(self):
+        with pytest.raises(HTTPException) as exc:
+            api._validate(req(expected_data_version="generation-7"))
+        assert "baseline_replay-only" in str(exc.value.detail)
 
     def test_a_baseline_replay_carrying_a_CHANGE_is_refused(self):
         with pytest.raises(HTTPException):
             api._validate(req(mode="baseline_replay",
                               expected_hashes={k: "x" for k in HASH_ORDER},
+                              expected_data_version="generation-7",
                               change={"n_slots": 20}))
 
 
@@ -265,7 +320,8 @@ class TestDispatch:
         pass path works without standing up the backtester."""
         first = api._execute(req(mode="chain_rehearsal"), corpus)
         out = api._execute(
-            req(mode="baseline_replay", expected_hashes=first["parity_hashes"]),
+            req(mode="baseline_replay", expected_hashes=first["parity_hashes"],
+                expected_data_version="generation-7"),
             corpus)
         assert out["summary"]["divergence"]["identical"] is True
 
@@ -273,7 +329,8 @@ class TestDispatch:
         from app.wealth_core_tunnel import ParityViolation
         bogus = {k: "0" * 64 for k in HASH_ORDER}
         with pytest.raises(ParityViolation):
-            api._execute(req(mode="baseline_replay", expected_hashes=bogus),
+            api._execute(req(mode="baseline_replay", expected_hashes=bogus,
+                             expected_data_version="generation-7"),
                          corpus)
 
     def test_an_experiment_records_its_parent_and_its_divergence(self, corpus):
@@ -434,6 +491,242 @@ class TestTheCorpusRangeIsDatesNotStrings:
         assert "corpus_date_range(req)" in body
 
 
+class TestTheCorpusSnapshotIsIdentifiedAndStable:
+    SRC = pathlib.Path(api.__file__).read_text()
+
+    class _Result:
+        def __init__(self, row):
+            self.row = row
+
+        def first(self):
+            return self.row
+
+        def scalar_one(self):
+            return self.row[0]
+
+    class _Conn:
+        def __init__(self, row=None, error=None):
+            self.row, self.error = row, error
+
+        async def execute(self, stmt, params=None):
+            if self.error:
+                raise self.error
+            return TestTheCorpusSnapshotIsIdentifiedAndStable._Result(self.row)
+
+    def test_every_loader_query_runs_in_one_repeatable_read_read_only_snapshot(self):
+        body = self.SRC[self.SRC.index("async def _load_corpus"):
+                        self.SRC.index("def _execute(")]
+        tx = body.index(
+            "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        lock = body.index("acquire_corpus_read_lock(aconn)")
+        identity = body.index("load_ready_data_generation(aconn)")
+        expected_generation = body.index(
+            "require_expected_data_generation(req, generation)")
+        first_loader = body.index("assert_raw_price_domain(conn")
+        assert tx < lock < identity < expected_generation < first_loader
+
+    def test_a_mismatched_expected_generation_refuses_before_loading(self):
+        generation = jobs_busy.DataGeneration(
+            version="generation-8", status="READY", source_mode="sharadar",
+            updated_at="2026-08-13T00:00:00Z")
+        request = req(
+            mode="baseline_replay",
+            expected_hashes={k: "x" for k in HASH_ORDER},
+            expected_data_version="generation-7")
+        with pytest.raises(jobs_busy.CorpusGenerationUnavailable,
+                           match="no corpus loader query"):
+            api.require_expected_data_generation(request, generation)
+
+    def test_identity_and_meta_are_bounded_by_the_requested_end(self):
+        body = self.SRC[self.SRC.index("async def _load_corpus"):
+                        self.SRC.index("def _execute(")]
+        assert "load_meta(conn, as_of=end)" in body
+        assert "load_identity(conn, as_of=end)" in body
+
+    def test_READY_generation_is_preserved_for_run_provenance(self):
+        async def scenario():
+            conn = self._Conn(("version-7", "READY", "sharadar",
+                               "2026-08-12T00:00:00Z", "daily"))
+            generation = await jobs_busy.load_ready_data_generation(conn)
+            assert generation.version == "version-7"
+            assert generation.source_mode == "sharadar"
+
+        asyncio.run(scenario())
+        body = self.SRC[self.SRC.index("async def _load_corpus"):
+                        self.SRC.index("def _execute(")]
+        for field in ("bt_data_version", "bt_data_status",
+                      "bt_data_source_mode", "bt_data_updated_at"):
+            assert field in body
+
+    def test_an_active_writer_is_refused_instead_of_queued(self):
+        async def scenario():
+            conn = self._Conn((False,))
+            with pytest.raises(jobs_busy.CorpusGenerationUnavailable,
+                               match="publication is in progress"):
+                await jobs_busy.acquire_corpus_read_lock(conn)
+
+        asyncio.run(scenario())
+        assert "pg_try_advisory_xact_lock_shared" in inspect.getsource(
+            jobs_busy.acquire_corpus_read_lock)
+
+    @pytest.mark.parametrize("status", ["PUBLISHING", "FAILED"])
+    def test_non_READY_generation_is_refused(self, status):
+        async def scenario():
+            conn = self._Conn(("version-6", status, "sharadar",
+                               "2026-08-12T00:00:00Z", None))
+            with pytest.raises(jobs_busy.CorpusGenerationUnavailable,
+                               match="not READY"):
+                await jobs_busy.load_ready_data_generation(conn)
+
+        asyncio.run(scenario())
+
+    def test_pre_generation_schema_is_refused_not_treated_as_unversioned(self):
+        async def scenario():
+            conn = self._Conn(error=RuntimeError("column status does not exist"))
+            with pytest.raises(jobs_busy.CorpusGenerationUnavailable,
+                               match="schema migration"):
+                await jobs_busy.load_ready_data_generation(conn)
+
+        asyncio.run(scenario())
+
+
+class TestJobAdmissionIsTransactional:
+    """Two requests must not both pass the empty-running-row observation.
+
+    The fake transaction deliberately allows requests to overlap.  Its busy
+    SELECT snapshots the row set before yielding, so removing the advisory
+    admission gate makes both requests observe "empty" and insert a run.  With
+    the gate, the second transaction cannot reach that snapshot until the first
+    committed its durable running row.
+    """
+
+    class _Result:
+        def __init__(self, row=None):
+            self._row = row
+
+        def first(self):
+            return self._row
+
+    class _Conn:
+        def __init__(self, engine):
+            self.engine = engine
+            self.holds_gate = False
+
+        async def execute(self, stmt, params=None):
+            sql = str(stmt)
+            if "pg_advisory_xact_lock" in sql:
+                await self.engine.gate.acquire()
+                self.holds_gate = True
+                return TestJobAdmissionIsTransactional._Result((None,))
+            if "SELECT kind FROM" in sql:
+                # Snapshot BEFORE yielding.  Without the gate both requests
+                # take the empty snapshot and then proceed together.
+                row = ("Wealth Core run",) if self.engine.rows else None
+                await asyncio.sleep(0)
+                return TestJobAdmissionIsTransactional._Result(row)
+            if "INSERT INTO bt_wealth_core_runs" in sql:
+                await asyncio.sleep(0)
+                self.engine.rows.append(dict(params or {}))
+                return TestJobAdmissionIsTransactional._Result()
+            raise AssertionError(f"unexpected SQL: {sql}")
+
+    class _Begin:
+        def __init__(self, engine):
+            self.conn = TestJobAdmissionIsTransactional._Conn(engine)
+
+        async def __aenter__(self):
+            return self.conn
+
+        async def __aexit__(self, typ, value, tb):
+            if self.conn.holds_gate:
+                self.conn.engine.gate.release()
+
+    class _Engine:
+        def __init__(self):
+            self.rows = []
+            self.gate = asyncio.Lock()
+
+        def begin(self):
+            return TestJobAdmissionIsTransactional._Begin(self)
+
+    def test_two_concurrent_starts_create_exactly_one_running_row(self,
+                                                                  monkeypatch):
+        async def scenario():
+            engine = self._Engine()
+            monkeypatch.setitem(api._state, "engine", engine)
+            monkeypatch.setitem(api._state, "lock", asyncio.Lock())
+            monkeypatch.setattr(api, "_engine_identity", lambda: {"test": True})
+
+            calls = [api.start_wealth_core_job(req(), BackgroundTasks())
+                     for _ in range(2)]
+            outcomes = await asyncio.gather(*calls, return_exceptions=True)
+            accepted = [x for x in outcomes if isinstance(x, dict)]
+            refused = [x for x in outcomes if isinstance(x, HTTPException)]
+            assert len(accepted) == 1
+            assert len(refused) == 1 and refused[0].status_code == 409
+            assert len(engine.rows) == 1
+
+        asyncio.run(scenario())
+
+
+class TestProgressBelongsOnlyToTheRunningRun:
+    def teardown_method(self):
+        api._progress = {}
+        api._progress_run_id = None
+
+    def test_a_terminal_durable_row_cannot_return_running_progress(self,
+                                                                  monkeypatch):
+        run_id = "00000000-0000-0000-0000-000000000071"
+        api._begin_progress(run_id)
+        api._publish_progress({"sessions_completed": 17})
+
+        async def terminal(where, params):
+            assert params == {"r": run_id}
+            return {"run_id": run_id, "status": "success"}
+
+        monkeypatch.setattr(api, "_fetch", terminal)
+        result = asyncio.run(api.wealth_core_progress())
+        assert result["running"] is False
+        assert api._progress == {}
+        assert api._progress_run_id is None
+
+    def test_a_matching_running_row_returns_its_provisional_snapshot(self,
+                                                                     monkeypatch):
+        run_id = "00000000-0000-0000-0000-000000000072"
+        api._begin_progress(run_id)
+        api._publish_progress({"sessions_completed": 9})
+
+        async def running(where, params):
+            return {"run_id": run_id, "status": "running"}
+
+        monkeypatch.setattr(api, "_fetch", running)
+        result = asyncio.run(api.wealth_core_progress())
+        assert result == {"running": True, "run_id": run_id,
+                          "sessions_completed": 9}
+
+    def test_both_terminal_paths_clear_before_their_status_update(self):
+        body = inspect.getsource(api._run_bg)
+        success = body.index("UPDATE bt_wealth_core_runs SET status='success'")
+        failed = body.index("UPDATE bt_wealth_core_runs SET status='failed'")
+        clears = [i for i in range(len(body))
+                  if body.startswith("_finish_progress(run_id)", i)]
+        assert any(i < success for i in clears)
+        assert any(success < i < failed for i in clears)
+        assert "finally:" in body and clears[-1] > failed
+
+    def test_delayed_cleanup_cannot_erase_a_new_runs_progress(self):
+        api._begin_progress("new-run")
+        api._publish_progress({"sessions_completed": 1})
+        api._finish_progress("old-run")
+        assert api._progress == {"run_id": "new-run", "sessions_completed": 1}
+
+    def test_a_late_callback_from_an_old_run_cannot_overwrite_the_new_one(self):
+        api._begin_progress("new-run")
+        api._publish_progress_for("new-run", {"sessions_completed": 3})
+        api._publish_progress_for("old-run", {"sessions_completed": 999})
+        assert api._progress == {"run_id": "new-run", "sessions_completed": 3}
+
+
 class TestARestartDoesNotLeaveARunLying:
     """A Wealth Core run lives in a background task. When the engine restarts the
     task is gone and nothing updates its row — so without a startup reclaim it
@@ -447,6 +740,36 @@ class TestARestartDoesNotLeaveARunLying:
     """
 
     LIFESPAN = (REPO / "services" / "bt-engine" / "app" / "main.py").read_text()
+
+    def test_process_lease_is_acquired_before_any_reclaim_write(self):
+        lease = self.LIFESPAN.index(
+            "await acquire_engine_process_lease(lease_conn)")
+        reclaim = self.LIFESPAN.index(
+            "UPDATE bt_wealth_core_runs SET status='failed'")
+        assert lease < reclaim
+
+    def test_process_lease_is_session_scoped_not_transaction_scoped(self):
+        source = inspect.getsource(jobs_busy.acquire_engine_process_lease)
+        assert "pg_try_advisory_lock" in source
+        assert "pg_try_advisory_xact_lock" not in source
+
+    def test_a_second_process_refuses_before_it_can_reclaim(self):
+        class Result:
+            def scalar_one(self):
+                return False
+
+        class Conn:
+            async def execute(self, _statement, params=None):
+                assert params == {"key": jobs_busy.ENGINE_PROCESS_LEASE_KEY}
+                return Result()
+
+        async def scenario():
+            with pytest.raises(
+                    jobs_busy.EngineProcessLeaseUnavailable,
+                    match="before orphan recovery"):
+                await jobs_busy.acquire_engine_process_lease(Conn())
+
+        asyncio.run(scenario())
 
     def test_the_startup_pass_reclaims_wealth_core_runs(self):
         assert "UPDATE bt_wealth_core_runs SET status='failed'" in self.LIFESPAN
@@ -638,7 +961,9 @@ class TestRetentionIsReachableFromTheRequest:
         assert offered == set(api.RETENTION_MODES)
 
     @pytest.mark.parametrize("mode,extra", [
-        ("baseline_replay", {"expected_hashes": {k: "x" for k in HASH_ORDER}}),
+        ("baseline_replay", {
+            "expected_hashes": {k: "x" for k in HASH_ORDER},
+            "expected_data_version": "generation-7"}),
         ("experiment", {"change": {"n_slots": 12}, "config": {"n_slots": 12},
                         "baseline_hashes": {k: "x" for k in HASH_ORDER}}),
     ])

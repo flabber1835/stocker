@@ -53,7 +53,10 @@ for p in (str(ROOT), str(ROOT / "shared")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from tests.support.postgres import _EphemeralPostgres  # noqa: E402
+from tests.support.postgres import (  # noqa: E402
+    _EphemeralPostgres,
+    drop_public_tables,
+)
 
 from sentinel import binding as B, schema  # noqa: E402
 from sentinel.execution import executor as E  # noqa: E402
@@ -90,14 +93,7 @@ def conns(pg):
     advisory lock is re-entrant per session, so a single connection would
     happily supersede while holding its own lock."""
     a = feed_store.connect(pg.sync_dsn)
-    with a.cursor() as cur:
-        for t in ("sentinel_account_binding", "sentinel_ownership_events",
-                  "sentinel_commands", "sentinel_command_events",
-                  "sentinel_execution_plans", "sentinel_fills",
-                  "sentinel_observations",
-                  "sentinel_terminal_recovery_watermark"):
-            cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
-    a.commit()
+    drop_public_tables(a)
     schema.ensure_schema(a)
     B.bind(a, deployment_id="nas-1", broker="sim",
            broker_account_id="SIM-ACCOUNT")

@@ -42,7 +42,9 @@
 #
 #     scripts/sentinel-measure.sh seed  -- sentinel feed-seed --date-from 1998-01-01
 #     scripts/sentinel-measure.sh daily -- sentinel feed-daily
-#     scripts/sentinel-measure.sh plan  -- sentinel plan
+#     scripts/sentinel-measure.sh plan  -- sentinel prepare-paper-plan \
+#       --through <YYYY-MM-DD> --warmup-sessions 252 \
+#       --expect-account <PAPER_ACCOUNT_ID>
 #     scripts/sentinel-measure.sh ready -- sentinel check-data
 #
 # The phase name is free text and only labels the artefacts. Everything after
@@ -50,11 +52,10 @@
 # inside the limits it is being measured against — and NOT with `--rm`, so
 # its final `.State` can be inspected before it is removed.
 #
-# NOT MEASURABLE TODAY: the catch-up orchestrator. `sentinel/core/catchup.py`
-# exists and is tested, but nothing in `sentinel/__main__.py` exposes it — there
-# is no `catch-up` verb, so finding #15's catch-up phase has no entry point to
-# time. That is a wiring gap, not a measurement one; say so rather than
-# substituting a different phase and calling it catch-up.
+# `prepare-paper-plan` is the production catch-up entry point. It advances the
+# canonical state and adopts one durable current plan under the writer and
+# publication locks. It performs the required paper-broker reads but has no
+# broker mutation operation; migration and submission remain separate commands.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -64,7 +65,7 @@ cd "$(dirname "$0")/.."
 # before the container exists, so measuring anything requires the generated,
 # cpus-free deployment. Never hardcode `-f docker-compose.sentinel.yml` here:
 # the whole point is that the file differs by host and the artefact says so.
-COMPOSE="docker compose $(bash "$(dirname "$0")/sentinel-compose.sh")"
+COMPOSE="bash $(dirname "$0")/sentinel-compose.sh --run"
 ART="artifacts/envelope"
 INTERVAL="${SENTINEL_SAMPLE_SECONDS:-5}"
 DB_SERVICE="sentinel-postgres"

@@ -63,6 +63,7 @@ FETCH_TIMEOUT_SECS = float(os.getenv("SHARADAR_FETCH_TIMEOUT", "120"))
 FETCH_MAX_RETRIES = int(os.getenv("SHARADAR_FETCH_RETRIES", "6"))
 FETCH_BACKOFF_BASE = float(os.getenv("SHARADAR_FETCH_BACKOFF", "2.0"))
 RATE_LIMIT_BACKOFF_CAP = float(os.getenv("SHARADAR_429_BACKOFF_CAP", "900"))
+FETCH_PAGE_CAP = int(os.getenv("SHARADAR_FETCH_PAGE_CAP", "100000"))
 _RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
 
 
@@ -191,6 +192,7 @@ async def fetch_table(
         return
 
     cursor: Optional[str] = None
+    seen_cursors: set[str] = set()
     pages = 0
     async with httpx.AsyncClient(timeout=FETCH_TIMEOUT_SECS) as client:
         while True:
@@ -208,6 +210,14 @@ async def fetch_table(
             if pages % 25 == 0:   # heartbeat: fetch progress is visible in logs
                 print(f"[bt-data] {table} fetch: {pages} pages "
                       f"({params or {}})", flush=True)
+            if cursor:
+                if cursor in seen_cursors:
+                    raise RuntimeError(
+                        f"Sharadar {table} pagination repeated cursor {cursor!r}")
+                seen_cursors.add(cursor)
+            if pages >= FETCH_PAGE_CAP and cursor:
+                raise RuntimeError(
+                    f"Sharadar {table} pagination exceeded {FETCH_PAGE_CAP} pages")
             if not cursor or (page_limit is not None and pages >= page_limit):
                 break
 

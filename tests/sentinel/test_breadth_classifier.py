@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import importlib.util
 import math
+import os
 import random
 import sys
 from pathlib import Path
@@ -49,10 +50,11 @@ from sentinel.breadth import (
     to_float32,
 )
 
-REPO = Path(__file__).resolve().parents[2]
-RECOVERED = (REPO / "docs" / "sentinel-breadth-reconstruction"
+SUITE_ROOT = Path(__file__).resolve().parents[2]
+REPO = Path(os.environ.get("SENTINEL_REPO_ROOT") or SUITE_ROOT)
+RECOVERED = (SUITE_ROOT / "docs" / "sentinel-breadth-reconstruction"
              / "recovered_breadth_classifier.py")
-STANDALONE = (REPO / "docs" / "sentinel-reference-implementation"
+STANDALONE = (SUITE_ROOT / "docs" / "sentinel-reference-implementation"
               / "sentinel_1p1_standalone.py")
 
 

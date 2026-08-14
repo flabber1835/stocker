@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 import datetime as dt
 import json
 from decimal import Decimal
@@ -11,8 +12,9 @@ from types import SimpleNamespace
 import pytest
 
 from sentinel import __main__ as cli
-from sentinel import paper, schema
+from sentinel import authority, paper, schema
 from sentinel.config import DEFAULT_BASE_URL, SentinelConfig
+from sentinel.controller import frozen_rule
 from sentinel.execution import alpaca, contract, executor, journal
 from sentinel.execution.contract import (
     BrokerAccountIdentity,
@@ -224,6 +226,48 @@ def test_current_plan_never_constructs_a_broker(monkeypatch, capsys):
     assert conn.closed
 
 
+@pytest.mark.parametrize(
+    "command", ["prepare", "current", "execute"])
+def test_schema_migration_refusal_stops_paper_startup_before_broker(
+        monkeypatch, capsys, command):
+    calls = []
+    conn = _wire_database(monkeypatch, calls)
+
+    def refuse_schema(actual):
+        calls.append(("behavior_schema", actual))
+        raise schema.SchemaMigrationRefused(
+            "behavioral migration authority is missing")
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError(
+            f"{command} continued past behavioral schema refusal")
+
+    monkeypatch.setattr(schema, "ensure_schema", refuse_schema)
+    monkeypatch.setattr(paper, "build_security_resolver", forbidden)
+    monkeypatch.setattr(cli, "build_execution_broker", forbidden)
+    monkeypatch.setattr(paper, "prepare_paper_plan", forbidden)
+    monkeypatch.setattr(paper, "current_paper_plan", forbidden)
+    monkeypatch.setattr(paper, "execute_paper_plan", forbidden)
+
+    if command == "prepare":
+        args = SimpleNamespace(
+            through="2026-08-12", warmup_sessions=252,
+            expect_account="paper-123")
+        result = asyncio.run(cli._prepare_paper_plan(_config(), args))
+    elif command == "current":
+        result = asyncio.run(cli._current_paper_plan(_config()))
+    else:
+        result = asyncio.run(
+            cli._execute_paper_plan(_config(), _execution_args()))
+
+    assert result == cli.EXIT_NOT_ESTABLISHED
+    assert capsys.readouterr().err == (
+        "REFUSED: behavioral migration authority is missing\n")
+    assert [call[0] for call in calls] == [
+        "connect", "feed_schema", "behavior_schema"]
+    assert conn.closed
+
+
 def test_execute_passes_every_explicit_confirmation(monkeypatch, capsys):
     calls = []
     conn = _wire_database(monkeypatch, calls)
@@ -357,6 +401,116 @@ def test_operational_refusals_are_caught_as_attention_exit(
     assert conn.closed
 
 
+def test_certificate_install_is_reserved_and_refuses_before_file_or_database(
+        monkeypatch, capsys):
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("reserved certificate command touched external state")
+
+    monkeypatch.setattr(Path, "read_bytes", forbidden)
+    monkeypatch.setattr(feed_store, "connect", forbidden)
+    result = cli._install_system_certificate(
+        _config(), SimpleNamespace(
+            manifest="operator-authored.json",
+            confirm_manifest_sha256="a" * 64,
+            confirm_paper_execution_authority=True))
+
+    assert result == cli.EXIT_NOT_ESTABLISHED
+    assert "trusted issuer/signature" in capsys.readouterr().err
+
+
+def _rollout_args(mode: str, *, confirm_controller: bool = False,
+                  confirm_pinned_risk: bool = False):
+    return SimpleNamespace(
+        mode=mode, reason="reviewed transition",
+        confirm_controller_rollout=confirm_controller,
+        confirm_pinned_rollout_may_increase_exposure=confirm_pinned_risk)
+
+
+def test_pinned_rollout_does_not_load_broken_controller_and_warns_of_risk(
+        monkeypatch, capsys):
+    calls = []
+    conn = _Connection()
+    monkeypatch.setattr(feed_store, "connect", lambda _url: conn)
+    monkeypatch.setattr(schema, "ensure_schema", lambda actual: None)
+
+    @contextmanager
+    def locked(actual):
+        calls.append(("lock", actual))
+        yield
+
+    monkeypatch.setattr(journal, "writer_lock", locked)
+    before = authority.RolloutState(
+        authority.RolloutMode.CONTROLLER, 4, "a" * 64)
+    after = authority.RolloutState(
+        authority.RolloutMode.PINNED_1_00, 5, None)
+    monkeypatch.setattr(authority, "load_rollout_state", lambda actual: before)
+
+    def set_mode(actual, **kwargs):
+        calls.append(("set", actual, kwargs))
+        return after
+
+    monkeypatch.setattr(authority, "set_rollout_mode", set_mode)
+    monkeypatch.setattr(
+        cli, "_current_system_identities",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("pinned transition loaded broken controller")))
+
+    assert cli._set_paper_rollout_mode(
+        _config(), _rollout_args(
+            "PINNED_1_00", confirm_pinned_risk=True)) == cli.EXIT_OK
+
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+    assert output["changed"] is True
+    assert output["rollout"]["mode"] == "PINNED_1_00"
+    assert output["risk_warning"] == cli.PINNED_ROLLOUT_RISK_WARNING
+    assert "may increase exposure and risk" in captured.err
+    set_call = next(call for call in calls if call[0] == "set")
+    assert set_call[2]["runtime_identity"] == {}
+    assert set_call[2]["strategy_identity"] == {}
+    assert conn.closed
+
+
+def test_pinned_rollout_requires_literal_exposure_increase_acknowledgement(
+        monkeypatch, capsys):
+    monkeypatch.setattr(
+        feed_store, "connect",
+        lambda _url: (_ for _ in ()).throw(
+            AssertionError("missing confirmation opened database")))
+
+    assert cli._set_paper_rollout_mode(
+        _config(), _rollout_args("PINNED_1_00")) == cli.EXIT_CONFIG
+    refusal = capsys.readouterr().err
+    assert "--confirm-pinned-rollout-may-increase-exposure" in refusal
+    assert "forces 100% Wealth Core exposure" in refusal
+
+
+def test_controller_identity_failure_is_an_operator_refusal_not_traceback(
+        monkeypatch, capsys):
+    monkeypatch.setattr(
+        cli, "_current_system_identities",
+        lambda: (_ for _ in ()).throw(
+            frozen_rule.FrozenRuleTampered("controller digest mismatch")))
+    monkeypatch.setattr(
+        feed_store, "connect",
+        lambda _url: (_ for _ in ()).throw(
+            AssertionError("failed identity opened database")))
+
+    assert cli._set_paper_rollout_mode(
+        _config(), _rollout_args(
+            "CONTROLLER", confirm_controller=True)) == cli.EXIT_NOT_ESTABLISHED
+    assert "REFUSED: controller digest mismatch" in capsys.readouterr().err
+
+
+def test_rollout_help_names_pinned_exposure_increase_risk(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["set-paper-rollout-mode", "--help"])
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "forces 100% Wealth Core exposure" in help_text
+    assert "--confirm-pinned-rollout-may-increase-exposure" in help_text
+
+
 @pytest.mark.parametrize(
     "refusal_type", [
         alpaca.MalformedBrokerPayload,
@@ -405,9 +559,26 @@ def test_command_parser_preserves_required_confirmations_and_warmup_default(
         seen["execute"] = (actual_config, vars(args))
         return cli.EXIT_OK
 
+    def install_certificate(actual_config, args):
+        seen["install_certificate"] = (actual_config, vars(args))
+        return cli.EXIT_OK
+
+    def revoke_certificate(actual_config, args):
+        seen["revoke_certificate"] = (actual_config, vars(args))
+        return cli.EXIT_OK
+
+    def set_rollout(actual_config, args):
+        seen["rollout"] = (actual_config, vars(args))
+        return cli.EXIT_OK
+
     monkeypatch.setattr(cli, "_prepare_paper_plan", prepare)
     monkeypatch.setattr(cli, "_inspect_paper_account", inspect)
     monkeypatch.setattr(cli, "_execute_paper_plan", execute)
+    monkeypatch.setattr(
+        cli, "_install_system_certificate", install_certificate)
+    monkeypatch.setattr(
+        cli, "_revoke_system_certificate", revoke_certificate)
+    monkeypatch.setattr(cli, "_set_paper_rollout_mode", set_rollout)
 
     assert cli.main([
         "inspect-paper-account", "--expect-account", "paper-123",
@@ -424,3 +595,21 @@ def test_command_parser_preserves_required_confirmations_and_warmup_default(
         "--confirm-effective-session", "2026-08-13",
         "--confirm-submit-paper-orders"]) == cli.EXIT_OK
     assert seen["execute"][1]["confirm_submit_paper_orders"] is True
+    assert cli.main([
+        "install-system-certificate", "--manifest", "manifest.json",
+        "--confirm-manifest-sha256", "a" * 64,
+        "--confirm-paper-execution-authority"]) == cli.EXIT_OK
+    assert seen["install_certificate"][1][
+        "confirm_paper_execution_authority"] is True
+    assert cli.main([
+        "revoke-system-certificate", "--certificate-sha256", "a" * 64,
+        "--reason", "operator kill switch",
+        "--confirm-revoke-system-certificate"]) == cli.EXIT_OK
+    assert seen["revoke_certificate"][1][
+        "confirm_revoke_system_certificate"] is True
+    assert cli.main([
+        "set-paper-rollout-mode", "--mode", "CONTROLLER",
+        "--reason", "reviewed transition",
+        "--confirm-controller-rollout"]) == cli.EXIT_OK
+    assert seen["rollout"][1]["mode"] == "CONTROLLER"
+    assert seen["rollout"][1]["confirm_controller_rollout"] is True

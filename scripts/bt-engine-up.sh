@@ -99,14 +99,37 @@ else
   [ -z "${USE_MANIFEST}" ] || echo "   comparing against the NEWEST manifest" \
     "(${USE_MANIFEST}) — pass --start/--end to name the interval"
 fi
-if [ -n "${USE_MANIFEST}" ] && [ "${ALLOW_DRIFT:-0}" != "1" ]; then
-  FROZEN=$(python3 -c "
+FROZEN=""
+if [ -n "${USE_MANIFEST}" ]; then
+  if ! FROZEN=$(python3 - "${USE_MANIFEST}" <<'PY'
 import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
 try:
-    print((json.load(open('${USE_MANIFEST}')).get('bt_engine_image') or {}).get('id') or '')
-except Exception:
-    pass" || true)
-  if [ -n "${FROZEN}" ] && [ "${FROZEN}" != "${ID}" ]; then
+    with path.open(encoding="utf-8") as handle:
+        manifest = json.load(handle)
+except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+    raise SystemExit(f"{path}: cannot read a JSON manifest: {exc}")
+if not isinstance(manifest, dict):
+    raise SystemExit(f"{path}: manifest root must be an object")
+image = manifest.get("bt_engine_image")
+if not isinstance(image, dict):
+    raise SystemExit(f"{path}: bt_engine_image must be an object")
+image_id = image.get("id")
+if not isinstance(image_id, str) or not image_id.strip():
+    raise SystemExit(f"{path}: bt_engine_image.id must be a non-empty string")
+print(image_id.strip())
+PY
+  ); then
+    echo "REFUSED: ${USE_MANIFEST} is not a complete certification manifest" >&2
+    echo "         with a non-empty bt_engine_image.id." >&2
+    exit 1
+  fi
+fi
+if [ -n "${USE_MANIFEST}" ] && [ "${ALLOW_DRIFT:-0}" != "1" ]; then
+  if [ "${FROZEN}" != "${ID}" ]; then
     echo >&2
     echo "REFUSED: this bt-engine image is NOT the one the certification" >&2
     echo "         manifest froze." >&2
@@ -124,7 +147,7 @@ except Exception:
     echo "  ALLOW_DRIFT=1 starts it anyway — for non-certification work." >&2
     exit 1
   fi
-  [ -n "${FROZEN}" ] && echo "   matches the frozen manifest"
+  echo "   matches the frozen manifest"
 fi
 
 BT_ENGINE_IMAGE="${REF}" BT_ENGINE_IMAGE_ID="${ID}" \

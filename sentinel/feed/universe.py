@@ -192,19 +192,28 @@ def _d(v) -> Optional[str]:
 _UNIVERSE_UPSERT = """
     INSERT INTO sentinel_universe (permaticker, ticker, category, sector,
         related_tickers, first_price_date, last_price_date, is_delisted,
-        snapshot_date)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        snapshot_date, last_written_run_id)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (permaticker, ticker, snapshot_date) DO UPDATE SET
         category = EXCLUDED.category,
         sector = EXCLUDED.sector,
         related_tickers = EXCLUDED.related_tickers,
         first_price_date = EXCLUDED.first_price_date,
         last_price_date = EXCLUDED.last_price_date,
-        is_delisted = EXCLUDED.is_delisted
+        is_delisted = EXCLUDED.is_delisted,
+        last_written_run_id = EXCLUDED.last_written_run_id
+    -- A same-day retry must not destructively rewrite a row an earlier
+    -- publication already names.  A later snapshot_date is a new generation;
+    -- an unpublished same-key attempt may be safely replaced by its retry.
+    WHERE sentinel_universe.last_written_run_id IS NOT NULL
+      AND NOT EXISTS (
+          SELECT 1 FROM sentinel_corpus_publications p
+           WHERE p.run_id = sentinel_universe.last_written_run_id)
 """
 
 
-def write_universe(conn, rows: Sequence[Mapping], snapshot_date: str) -> int:
+def write_universe(conn, rows: Sequence[Mapping], snapshot_date: str, *,
+                   run_id=None) -> int:
     """Store a TICKERS snapshot.
 
     `related_tickers` is stored SPACE-JOINED from the parsed tuple, matching how
@@ -225,6 +234,7 @@ def write_universe(conn, rows: Sequence[Mapping], snapshot_date: str) -> int:
             _d(r.get("lastpricedate") or r.get("last_price_date")),
             bool(str(r.get("isdelisted") or "").upper() in ("Y", "TRUE", "1")),
             snapshot_date,
+            str(run_id) if run_id else None,
         ))
     if not payload:
         return 0
@@ -234,7 +244,7 @@ def write_universe(conn, rows: Sequence[Mapping], snapshot_date: str) -> int:
     return len(payload)
 
 
-def load_resolver(conn) -> IdentityResolver:
+def load_resolver(conn, *, include_run_id=None) -> IdentityResolver:
     """Build the resolver from stored snapshots.
 
     MIN(first)/MAX(last) across snapshots, never "newest snapshot only": a fresh
@@ -242,12 +252,21 @@ def load_resolver(conn) -> IdentityResolver:
     snapshot goes blind the first time a sparse one lands. The live sector readers
     learned the same lesson.
     """
+    from sentinel.feed.publication import visible_predicate
+
+    visibility = visible_predicate("u")
+    params = ()
+    if include_run_id is not None:
+        visibility = f"({visibility} OR u.last_written_run_id = %s)"
+        params = (str(include_run_id),)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT permaticker, ticker, MIN(first_price_date) AS f,"
-            " MAX(last_price_date) AS l FROM sentinel_universe"
+            " MAX(last_price_date) AS l FROM sentinel_universe u"
             " WHERE permaticker IS NOT NULL AND ticker IS NOT NULL"
-            " GROUP BY permaticker, ticker")
+            f" AND {visibility}"
+            " GROUP BY permaticker, ticker", params)
+
         rows = cur.fetchall()
     return IdentityResolver(
         Listing(permaticker=str(p), ticker=str(t),

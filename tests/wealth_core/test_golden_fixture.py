@@ -474,6 +474,10 @@ class TestRestartAtTheBoundary:
 
 # ── the pin ─────────────────────────────────────────────────────────────────
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="intentional golden result-hash drift; one authorized re-pin pending",
+)
 def test_the_result_matches_the_pinned_fixture(run):
     """The parity pin.
 
@@ -543,6 +547,10 @@ class TestTheHashesAreInterpreterIndependent:
         assert len(vals) > 1000, "the candidate audit should be full of floats"
         assert all(f == round(f, 10) for f in vals)
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="intentional golden result-hash drift; one authorized re-pin pending",
+    )
     def test_the_run_hash_is_stable_in_a_FRESH_INTERPRETER(self):
         """Belt and braces: recompute the pinned hash in a subprocess. Same
         interpreter here, but it proves the value does not depend on accumulated

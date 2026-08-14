@@ -122,7 +122,13 @@ def _order_command_conflict(order, command) -> Optional[str]:
             and order.broker_order_id != command.broker_order_id):
         return (f"{prefix} changed durable broker id "
                 f"{command.broker_order_id}")
-    if order.instrument.security_id != command.security_id:
+    from sentinel.execution.commands import is_legacy_migration
+    migration_identity_matches = (
+        is_legacy_migration(command)
+        and command.instrument.broker_id is not None
+        and order.instrument.broker_id == command.instrument.broker_id)
+    if (order.instrument.security_id != command.security_id
+            and not migration_identity_matches):
         return (f"{prefix} changed durable security {command.security_id} to "
                 f"{order.instrument.security_id}")
     if order.side is not command.side:
@@ -189,6 +195,12 @@ def expected_book_from_commands(commands, actions: Optional[ActionLookup] = None
     """
     book: dict = {}
     for command in commands:
+        from sentinel.execution.commands import is_legacy_migration
+        if is_legacy_migration(command):
+            # These SELLs removed the inherited pre-ownership book. Counting
+            # them as ordinary fills reconstructs a negative Sentinel holding
+            # immediately after a successful flat handover.
+            continue
         if command.filled_quantity == 0:
             continue
         quantity = command.filled_quantity
@@ -245,7 +257,8 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
             runtime_state=RuntimeState.BROKER_DEGRADED,
             detail=f"broker unreachable: {exc}")
 
-    journal.record_observation(conn, observation, RuntimeState.RECONCILING.value)
+    observation_seq = journal.record_observation(
+        conn, observation, RuntimeState.RECONCILING.value)
 
     if not observation.is_complete:
         # A short or self-inconsistent read cannot support the conclusions
@@ -544,6 +557,12 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     if not adoption_conflicts:
         journal.advance_terminal_recovery_watermark(
             conn, recovery_through)
+
+    # The evidence row was committed before recovery on purpose. Now that the
+    # complete reconciliation has a verdict, bind that verdict to the exact row
+    # so read-only operational surfaces do not report the temporary
+    # RECONCILING placeholder forever.
+    journal.finalize_observation_runtime(conn, observation_seq, state.value)
 
     return ReconciliationResult(
         runtime_state=state, observation=observation, expected=expected,

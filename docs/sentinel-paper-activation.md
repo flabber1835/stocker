@@ -21,9 +21,10 @@ execute-paper-plan   broker writes, but only after explicit account/plan/session
 ```
 
 The existing `migrate-account` command remains a separate fifth, administrative
-operation. It is the only path that may classify an unbound account as legacy,
-cancel legacy orders, or use broker-native liquidation. Neither preparation nor
-execution imports or calls that path. Migration itself requires an exact
+operation. It is the only path that may classify an unbound account as legacy
+or cancel legacy orders. Its exact-sized SELLs use durable execution-journal
+keys; it does not use the unidentifiable broker-native close endpoint. Neither
+preparation nor execution imports or calls that path. Migration itself requires an exact
 `--expect-account` value and refuses an absent or unreadable broker account id;
 paper credentials alone are never liquidation authority.
 
@@ -168,8 +169,12 @@ positions:
 4. Value that target in the raw/as-traded close domain and divide by the
    canonical shadow estimated equity without renormalizing away Wealth Core
    cash.
-5. Multiply those weights by the controller's durable
-   `target_core_exposure`, then use the existing whole-share projection.
+5. Read the versioned rollout authority. In `PINNED_1_00`, multiply those
+   weights by exactly `Decimal("1")` while continuing to record the controller
+   transition for audit. In `CONTROLLER`, which is unavailable until a trusted
+   issuer/signature contract is implemented and authorizes it, use the
+   controller's durable `target_core_exposure`. Then use the existing
+   whole-share projection.
 
 Every value crossing the execution membrane is constructed as `Decimal` from
 its canonical string representation. Whole shares round down. Negative,
@@ -177,7 +182,8 @@ non-finite, leveraged, or otherwise malformed input is refused.
 
 ### BIL and cash
 
-The defensive sleeve is exactly `(1 - target_core_exposure) * account NAV`.
+The defensive sleeve is exactly `(1 - authorized_target_exposure) * account
+NAV`; it is zero during the required `PINNED_1_00` rollout.
 It does not absorb Wealth Core's own empty-slot cash or whole-share rounding
 residual. Those remain explicit cash. This distinction preserves the controller
 decision (Core versus T-bills) without changing Wealth Core's internal cash
@@ -207,16 +213,25 @@ unpriced securities and defensive instrument
 corpus data_version and publication fingerprint
 complete deployment/broker/account/takeover identity
 SessionState fingerprint, controller-transition hash, strategy fingerprint
+rollout mode/version and controller-authorizing certificate SHA-256, if any
 ```
 
 The only valid production plan id is exactly
-`sentinel-<ExecutionPlan.fingerprint()>`, deterministically derived from those
+`sentinel-<ExecutionPlan.fingerprint()>`, where the fingerprint is the complete
+64-hex SHA-256 deterministically derived from those
 immutable economics. A restart recreating the same plan gets the same id and
 must reproduce identical content; the journal refuses one id with different
 economics. On every durable load that can bless a current plan, Sentinel also
 recomputes this formula and refuses a row whose economics changed while its id
 and other stamps remained unchanged. Execution performs that check before its
 first broker read.
+
+Rows prepared by a build that used the earlier shortened fingerprint or did
+not stamp rollout authority are intentionally stale after this schema upgrade.
+They are never rewritten in place. This repository has not activated a
+production plan; if an operator has a pre-upgrade test database, inspect it,
+leave the row unexecuted, and prepare a new plan from the next closed decision
+session after upgrading.
 
 `execute-paper-plan` loads `journal.latest_plan()` itself. No command-line
 argument or caller may supply alternate weights, quantities, marks, NAV, or
@@ -228,6 +243,29 @@ Execution requires all of the following while holding the single-writer lock
 and a corpus publication pin:
 
 - the exact Alpaca paper URL and the certified Alpaca execution adapter;
+- a trusted-issuer-authenticated, unrevoked
+  `sentinel.paper_execution_authority/1` certificate whose exact retained
+  bytes and signature revalidate against the current runtime, source, strategy,
+  and rollout mode. Generic `FINALIZED`/`PASS` rehearsal output and an operator-
+  confirmed file hash are not sufficient. Trusted issuance is not implemented,
+  so the runtime deliberately rejects even a pre-existing unsigned database
+  row;
+- the plan's rollout mode/version and certificate stamp exactly match the
+  current durable rollout state. New databases start `PINNED_1_00`; changing
+  to `CONTROLLER` is a separate audited administrative command and invalidates
+  every plan prepared under the prior version. Changing back to
+  `PINNED_1_00` is also separate and versioned, requires the literal
+  `--confirm-pinned-rollout-may-increase-exposure` acknowledgement, and must
+  never be described as de-risking: it forces 100% Wealth Core exposure and
+  can increase risk from a controller target of 0, 0.55, or 0.65. A missing
+  rollout singleton or table is corruption; preparation/execution refuse and
+  startup does not recreate it. The behavioral-schema migration ledger is the
+  authority: only a behaviorally empty database or recognized pre-rollout
+  schema receives the initial pinned row. The complete intact `6113bffd`
+  schema is bridged without changing its existing rollout intent. Missing,
+  corrupt, gapped, future, or schema-inconsistent migration authority is a
+  hard operator refusal. Do not manually recreate the table or seed pinned
+  state; investigate or restore verified durable state;
 - a `SENTINEL_OWNED` binding whose full identity matches both the plan and a
   fresh typed broker account snapshot;
 - explicit confirmation of the paper account id, plan id, effective session,
@@ -334,7 +372,7 @@ is a separate operator action and this implementation did not perform it.
 Set the compose command once in the shell:
 
 ```bash
-COMPOSE="docker compose $(bash scripts/sentinel-compose.sh)"
+COMPOSE="bash scripts/sentinel-compose.sh --run"
 ```
 
 ### Clean-checkout one-time prerequisites
@@ -351,6 +389,8 @@ These checks deliberately print no secret:
 : "${ALPACA_SECRET_KEY:?set the approved paper account secret}"
 : "${SHARADAR_API_KEY:?set the Sharadar key}"
 : "${SENTINEL_POSTGRES_PASSWORD:?set a non-default database password}"
+: "${SENTINEL_BACKUP_DIR:?set the independently durable backup target}"
+test -d "$SENTINEL_BACKUP_DIR/wal" -a -d "$SENTINEL_BACKUP_DIR/base"
 test "${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}" = \
   "https://paper-api.alpaca.markets"
 $COMPOSE build sentinel
@@ -476,6 +516,12 @@ $COMPOSE run --rm sentinel current-paper-plan
 
 Checkpoints:
 
+- the plan reports rollout `PINNED_1_00`, version 1 (or the currently audited
+  pinned version), and no controller-authorizing certificate. Pinned
+  preparation remains available for broker-read-only inspection; final
+  execution remains fail-closed until formal certification emits a signed,
+  zero-xfail, Wealth-Core-`GO` manifest and a separately reviewed trust-root
+  implementation authenticates it;
 - the typed execution adapter made a further COMPLETE, clean observation after
   migration, with no UNKNOWN or foreign activity;
 - no working order remained when the plan established its account-cash
@@ -503,10 +549,28 @@ the displayed effective session's XNYS open/close interval. A normal close is
 its first broker read when invoked before the open or at/after the close; do not
 use a late invocation to queue the plan into a later session.
 
+Execution also requires separately reviewed, trusted system-certification
+authority. The repository cannot produce an authorized manifest while the
+strict xfails and Wealth Core `NO-GO` remain, and it has no trusted
+issuer/signature verifier. Do not edit a generic `PASS` manifest, confirm its
+hash, or insert a database row to manufacture authority.
+
+`install-system-certificate` is a reserved command and currently returns
+`REFUSED` before reading the named file or opening PostgreSQL. The runtime gate
+also refuses unsigned rows left by an older build or restored backup. There is
+therefore no valid installation command or final-submission checkpoint in this
+revision. `current-paper-plan` must report `system_certificate_valid: false`.
+
+When a later PR defines a trust root, signed issuance, verification, and
+rotation/revocation semantics, this section must be replaced with that exact
+reviewed installation ceremony. Enabling controller exposure remains a
+separate audited transition and requires a newly prepared plan.
+
 ### Final separately authorized paper submission
 
-This command is documented for the operator. It is **not** to be run while
-implementing or reviewing this change.
+This is the eventual separately confirmed command surface. It is documented so
+the authority boundary is reviewable, but **must not be run** in this revision:
+the trusted-certificate gate always refuses before the first broker read.
 
 ```bash
 $COMPOSE run --rm sentinel execute-paper-plan \

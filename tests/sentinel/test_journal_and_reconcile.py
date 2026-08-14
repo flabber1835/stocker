@@ -26,7 +26,10 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
-from tests.support.postgres import _EphemeralPostgres  # noqa: E402
+from tests.support.postgres import (  # noqa: E402
+    _EphemeralPostgres,
+    drop_public_tables,
+)
 
 from sentinel import binding as B, schema  # noqa: E402
 from sentinel.execution import journal, recovery, reconcile as R  # noqa: E402
@@ -75,15 +78,7 @@ def pg():
 @pytest.fixture()
 def conn(pg):
     c = feed_store.connect(pg.sync_dsn)
-    with c.cursor() as cur:
-        for t in ("sentinel_account_binding", "sentinel_ownership_events",
-                  "sentinel_commands", "sentinel_command_events",
-                  "sentinel_execution_plans", "sentinel_fills",
-                  "sentinel_observations",
-                  "sentinel_terminal_recovery_watermark",
-                  "sentinel_bars", "sentinel_actions"):
-            cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
-    c.commit()
+    drop_public_tables(c)
     schema.ensure_schema(c)
     feed_store.ensure_schema(c)
     B.bind(c, deployment_id="nas-1", broker="sim",
@@ -112,13 +107,25 @@ class TestCommandJournal:
         assert loaded.filled_average_price == Decimal("101.234567")
         assert isinstance(loaded.filled_average_price, Decimal)
 
-    def test_the_stored_key_must_RECOMPUTE_under_the_current_binding(self, conn):
-        """A row that no longer recomputes belongs to a previous generation —
-        a different account, or a bumped takeover epoch. Loading it silently
-        would attribute a predecessor's order to this one."""
+    def test_a_prior_epoch_recomputes_under_its_STORED_minting_identity(
+            self, conn):
+        """Adoption fences NEW intent; it does not erase predecessor orders.
+
+        The current binding may load an older epoch only because the row carries
+        the exact identity that minted its key. Rebuilding that row under epoch
+        two would produce a different key and strand both terminal history and
+        any still-working broker obligation.
+        """
         journal.save_command(conn, cmd())
         other = DeploymentIdentity("nas-1", "sim", "SIM-ACCOUNT", 2)
-        with pytest.raises(journal.StoredKeyMismatch):
+        loaded = journal.load_commands(conn, other)
+        assert loaded[0].identity.deployment == DEPLOY
+        assert loaded[0].client_key == cmd().client_key
+
+    def test_a_different_account_still_cannot_load_the_row(self, conn):
+        journal.save_command(conn, cmd())
+        other = DeploymentIdentity("nas-1", "sim", "OTHER", 2)
+        with pytest.raises(journal.StoredKeyMismatch, match="not current"):
             journal.load_commands(conn, other)
 
     def test_every_transition_is_appended(self, conn):
@@ -230,8 +237,9 @@ class TestWriterLock:
                     cur.execute(
                         "INSERT INTO sentinel_execution_plans"
                         " (plan_id,decision_session,effective_session,"
-                        " target_exposure) VALUES"
-                        " ('uncommitted','2026-08-10','2026-08-11',1)")
+                        " target_exposure,rollout_mode,rollout_version) VALUES"
+                        " ('uncommitted','2026-08-10','2026-08-11',1,"
+                        "  'PINNED_1_00',1)")
                 raise RuntimeError("abort")
 
         assert journal.load_plan(conn, "uncommitted") is None
@@ -274,7 +282,9 @@ class TestPlans:
             account_cash=Decimal("98765.43"),
             cash_residual=Decimal("4321.09"),
             unpriced_securities=("SEC-ZZZ", "SENTINEL:BIL"),
-            defensive_security="SENTINEL:BIL")
+            defensive_security="SENTINEL:BIL",
+            rollout_mode="CONTROLLER", rollout_version=4,
+            rollout_certificate_sha256="certificate-sha256")
 
         journal.save_plan(conn, plan)
         loaded = journal.load_plan(conn, plan.plan_id)
@@ -344,6 +354,11 @@ class TestReconciliation:
         result = run(R.reconcile(broker=b, conn=conn, binding=None,
                                  deployment=DEPLOY))
         assert result.clean and result.runtime_state is RuntimeState.RUNNING
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT runtime_state FROM sentinel_observations "
+                "ORDER BY seq DESC LIMIT 1")
+            assert cur.fetchone()[0] == RuntimeState.RUNNING.value
 
     def test_a_WRONG_ACCOUNT_is_refused_before_anything_is_compared(self, conn):
         b = SimulatedBroker(account=BrokerAccountIdentity("sim", "SOMEONE-ELSE"))

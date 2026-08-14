@@ -158,4 +158,23 @@ def _alembic_upgrade(sync_dsn: str) -> None:
         raise RuntimeError(f"alembic upgrade failed:\n{r.stdout}\n{r.stderr}")
 
 
+def drop_public_tables(connection) -> None:
+    """Return a real-Postgres test database to a behaviorally empty state.
+
+    Behavioral-schema startup deliberately refuses to repair partial schema
+    loss.  Fixtures that need a new database therefore must not maintain their
+    own incomplete lists of tables to drop.  Keep that destructive reset here,
+    in test-only support code, and derive its targets from PostgreSQL's catalog.
+    """
+    connection.rollback()
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
+        )
+        for (table,) in cur.fetchall():
+            identifier = table.replace('"', '""')
+            cur.execute(f'DROP TABLE IF EXISTS public."{identifier}" CASCADE')
+    connection.commit()
+
+
 # ── session-scoped fixtures ───────────────────────────────────────────────────

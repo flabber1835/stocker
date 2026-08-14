@@ -18,6 +18,7 @@ from app.wealth_core_replay import (  # noqa: E402
     RawPriceDomainUnavailable,
     assert_raw_price_domain,
     load_bars,
+    load_identity,
     load_meta,
     split_ratio_from_domains,
 )
@@ -33,8 +34,10 @@ class FakeConn:
 
     def __init__(self, rows_by_sql):
         self.rows_by_sql = rows_by_sql
+        self.calls = []
 
     def execute(self, stmt, params=None):
+        self.calls.append((str(stmt), params))
         key = next(k for k in self.rows_by_sql if k in str(stmt))
         return _Result(self.rows_by_sql[key])
 
@@ -177,7 +180,7 @@ class TestMeta:
         # Keyed on the PERMANENT id, not the ticker: meta is now one row per
         # security rather than one per symbol, which is what stops a rename
         # moving the issuer key and a reuse merging two companies.
-        meta = load_meta(conn)["P:123"]
+        meta = load_meta(conn, as_of="2020-12-31")["P:123"]
         assert meta.security_id == "P:123"
         assert meta.ticker == "AAA", "the ticker survives as the display label"
         assert meta.category == "Domestic Common Stock"
@@ -194,7 +197,24 @@ class TestMeta:
             {"ticker": "AAA", "category": "Domestic Common Stock",
              "permaticker": None, "related_tickers": None,
              "first_price_date": "2010-01-04"}]})
-        assert load_meta(conn) == {}
+        assert load_meta(conn, as_of="2020-12-31") == {}
+
+    def test_reference_and_identity_metadata_are_pinned_to_replay_as_of(self):
+        rows = [{"ticker": "AAA", "category": "Domestic Common Stock",
+                 "permaticker": 123, "related_tickers": "AAA",
+                 "first_price_date": "2010-01-04",
+                 "last_price_date": "2020-12-31"}]
+        meta_conn = FakeConn({"bt_universe": rows})
+        load_meta(meta_conn, as_of="2020-12-31")
+        meta_sql, meta_params = meta_conn.calls[-1]
+        assert "snapshot_date <= :as_of" in meta_sql
+        assert meta_params == {"as_of": "2020-12-31"}
+
+        identity_conn = FakeConn({"bt_universe": rows})
+        load_identity(identity_conn, as_of="2020-12-31")
+        identity_sql, identity_params = identity_conn.calls[-1]
+        assert "snapshot_date <= :as_of" in identity_sql
+        assert identity_params == {"as_of": "2020-12-31"}
 
 
 def test_the_unmodelled_parts_travel_with_the_result():

@@ -18,8 +18,8 @@
 # DSM, kernel 3.10) makes the daemon REFUSE any container declaring `cpus:`, so
 # the compose file that can actually run there is generated. `:=` so the probe
 # happens once per make invocation rather than per reference.
-COMPOSE  := docker compose $(shell bash scripts/sentinel-compose.sh)
-GIT_SHA  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+COMPOSE  := bash scripts/sentinel-compose.sh --run
+GIT_SHA  := $(shell git rev-parse --short=12 HEAD 2>/dev/null)
 
 help:
 	@echo "Sentinel"
@@ -51,7 +51,7 @@ help:
 # Process-per-suite is not a preference. Every service package is named `app`,
 # so a single cross-suite process is order-dependent; see scripts/run-tests.sh.
 test:
-	pip install --quiet -e shared pytest pandas numpy pydantic pyyaml hypothesis \
+	pip install --quiet -e shared pytest pytest-asyncio pandas numpy pydantic pyyaml hypothesis \
 	    sqlalchemy aiosqlite httpx exchange_calendars psycopg
 	bash scripts/run-tests.sh
 
@@ -71,10 +71,15 @@ lint:
 # through the identity record's image DIGEST instead — stronger than a tag,
 # since a tag can be moved.
 base-image:
-	docker build --network host -t stocker-base:latest -f Dockerfile.base .
+	@test -n "$(GIT_SHA)" || { echo "REFUSED: source has no Git commit identity"; exit 2; }
+	@test -z "$$(git status --porcelain)" || { echo "REFUSED: source tree is dirty"; exit 2; }
+	docker build --network host --build-arg SOURCE_GIT_SHA=$$(git rev-parse HEAD) \
+	    -t stocker-base:latest -f Dockerfile.base .
 
 sentinel-image:
-	docker build --network host \
+	@test -n "$(GIT_SHA)" || { echo "REFUSED: source has no Git commit identity"; exit 2; }
+	@test -z "$$(git status --porcelain)" || { echo "REFUSED: source tree is dirty"; exit 2; }
+	docker build --network host --build-arg SOURCE_GIT_SHA=$$(git rev-parse HEAD) \
 	    -t sentinel:$(GIT_SHA) -t sentinel:latest -f Dockerfile.sentinel .
 	@echo "built sentinel:$(GIT_SHA)"
 
@@ -123,4 +128,6 @@ feed-repair:
 
 # ── certification ───────────────────────────────────────────────────────────
 certify:
-	bash scripts/sentinel-certify.sh
+	@test -n "$(START)" -a -n "$(END)" || \
+	    { echo "usage: make certify START=YYYY-MM-DD END=YYYY-MM-DD"; exit 2; }
+	bash scripts/sentinel-certify.sh --start "$(START)" --end "$(END)"

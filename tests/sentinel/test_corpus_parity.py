@@ -136,6 +136,125 @@ class TestNotHavingRunIsNotAPass:
         read and both were empty."""
         assert CP.compare({}, {}, window=W).agrees
 
+    def test_a_reversed_window_is_refused_before_database_access(self):
+        rep = CP.run(object(), start="2024-12-31", end="2024-01-01",
+                     bt_database_url="postgresql+psycopg://unused")
+        assert rep.unavailable and "reversed" in rep.unavailable
+
+
+class TestBothCorporaArePinnedAndIdentified:
+    SRC = (ROOT / "tools" / "corpus_parity.py").read_text()
+
+    def test_the_sentinel_side_uses_its_publication_pin(self):
+        assert "with publication.pinned(sentinel_conn)" in self.SRC
+        assert "publication.assert_coherent(sentinel_conn)" in self.SRC
+
+    def test_the_canonical_side_is_one_locked_repeatable_read_snapshot(self):
+        start = self.SRC.index("with bt_conn.begin()")
+        end = self.SRC.index("except Exception as exc", start)
+        body = self.SRC[start:end]
+        tx = body.index(
+            "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        lock = body.index("pg_try_advisory_xact_lock_shared")
+        identity = body.index("FROM bt_data_version WHERE id = 1")
+        bars = body.index("bt.load_bars")
+        assert tx < lock < identity < bars
+
+    def test_the_tool_and_engine_use_the_same_advisory_key(self):
+        engine_gate = (REPO / "services" / "bt-engine" / "app" /
+                       "jobs_busy.py").read_text()
+        literal = "0x4254_434F_5250_5553"
+        assert literal in self.SRC and literal in engine_gate
+
+    def test_the_report_names_both_generations(self):
+        rep = CP.ParityReport(
+            window=W, sentinel_data_version=12,
+            canonical_data_version="generation-7",
+            canonical_source_mode="sharadar")
+        out = rep.to_dict()
+        assert out["sentinel_data_version"] == 12
+        assert out["canonical_data_version"] == "generation-7"
+        assert out["canonical_source_mode"] == "sharadar"
+
+    def test_the_real_run_resolves_identity_as_of_the_window_end(self,
+                                                                 monkeypatch):
+        """The canonical resolver is point-in-time and requires ``as_of``.
+
+        Exercise ``run`` rather than inspecting its source: omitting the
+        keyword makes the fake resolver raise ``TypeError`` and the parity
+        report fail closed as unavailable.
+        """
+        from contextlib import contextmanager, nullcontext
+        from types import SimpleNamespace
+
+        import sqlalchemy as sa
+        from sentinel.core import loader
+        from sentinel.feed import publication
+
+        observed = {}
+        identity = object()
+
+        @contextmanager
+        def pinned(_conn):
+            yield SimpleNamespace(version=12)
+
+        class Result:
+            def __init__(self, *, scalar=None, row=None):
+                self._scalar = scalar
+                self._row = row
+
+            def scalar_one(self):
+                return self._scalar
+
+            def first(self):
+                return self._row
+
+        class Connection:
+            def begin(self):
+                return nullcontext()
+
+            def execute(self, statement, _params=None):
+                sql = str(statement)
+                if "pg_try_advisory_xact_lock_shared" in sql:
+                    return Result(scalar=True)
+                if "FROM bt_data_version" in sql:
+                    return Result(row=("generation-7", "READY", "sharadar"))
+                return Result()
+
+        class Engine:
+            def connect(self):
+                return nullcontext(Connection())
+
+        def load_identity(_conn, *, as_of):
+            observed["as_of"] = as_of
+            return identity
+
+        monkeypatch.setattr(publication, "pinned", pinned)
+        monkeypatch.setattr(publication, "assert_coherent", lambda _conn: None)
+        monkeypatch.setattr(
+            loader, "load_window",
+            lambda _conn, *, start, end: SimpleNamespace(bars_by_session={}))
+        monkeypatch.setattr(sa, "create_engine", lambda _url: Engine())
+        monkeypatch.setattr(BT, "load_identity", load_identity)
+        monkeypatch.setattr(BT, "load_actions", lambda _conn, _start, _end: [])
+        monkeypatch.setattr(BT, "load_sessions", lambda _conn, _start, _end: [])
+        monkeypatch.setattr(
+            BT, "split_ratios_from_actions",
+            lambda _actions, _sessions: {})
+        monkeypatch.setattr(
+            BT, "dividends_from_actions",
+            lambda _actions, _sessions: {})
+        monkeypatch.setattr(
+            BT, "load_bars",
+            lambda _conn, _start, _end, **kwargs: (
+                {} if kwargs["identity"] is identity else None))
+
+        rep = CP.run(object(), start=W[0], end=W[1],
+                     bt_database_url="postgresql+psycopg://unused")
+
+        assert rep.agrees, rep.unavailable
+        assert observed == {"as_of": W[1]}
+
 
 class TestItStaysOutOfTheRUNTIMEImage:
 
@@ -179,7 +298,7 @@ class TestTheCanonicalPathIsIMPORTABLE:
         assert "/work/services/backtester" in text
 
 
-class TestTheCanonicalDSNUsesADriverTheImageHAS:
+class TestTheCanonicalDSNIsExplicitAndUsesAnInstalledDriver:
     """`sa.create_engine("postgresql://...")` selects psycopg2.
 
     The certified closure carries psycopg 3 and nothing else, so a bare
@@ -189,10 +308,16 @@ class TestTheCanonicalDSNUsesADriverTheImageHAS:
 
     SCRIPT = REPO / "scripts" / "sentinel-certify.sh"
 
-    def test_the_default_names_psycopg3(self):
+    def test_no_repository_known_dsn_or_password_is_a_fallback(self):
         body = self.SCRIPT.read_text()
-        i = body.index("BT_DATABASE_URL=")
-        assert "postgresql+psycopg://" in body[i:i + 200], body[i:i + 200]
+        assert '[ -n "${BT_DATABASE_URL:-}" ] || fail' in body
+        assert '-e BT_DATABASE_URL="${BT_DATABASE_URL}"' in body
+        assert "postgresql+psycopg://btuser:btpass@" not in body
+        assert "postgresql://sentinel:sentinel@" not in body
+
+    def test_the_operator_is_told_to_name_psycopg3(self):
+        body = self.SCRIPT.read_text()
+        assert "`+psycopg` in an operator-supplied canonical DSN" in body
 
     def test_psycopg2_is_NOT_in_the_closure(self):
         """The premise. If it ever is, the bare scheme starts working and this
@@ -208,12 +333,9 @@ class TestTheCanonicalDSNUsesADriverTheImageHAS:
         assert "psycopg2" not in names and "psycopg2-binary" not in names
         assert "psycopg" in names
 
-    def test_the_published_port_is_used_not_a_container_hostname(self):
-        """`--network host` plus 127.0.0.1:5434. A `bt-postgres` hostname would
-        require joining the retired stack's network."""
+    def test_the_explicit_authority_is_passed_over_the_host_network(self):
         body = self.SCRIPT.read_text()
-        i = body.index("BT_DATABASE_URL=")
-        assert "127.0.0.1:5434" in body[i:i + 200]
+        i = body.index('-e BT_DATABASE_URL="${BT_DATABASE_URL}"')
         assert "--network host" in body[:i]
 
 

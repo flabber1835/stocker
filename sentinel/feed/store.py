@@ -587,6 +587,23 @@ def latest_visible_session(conn) -> Optional[str]:
     return None if not row or row[0] is None else str(row[0])
 
 
+def published_spy_total_return(conn, start: str, end: str) -> list[tuple]:
+    """The published SPY sensor rows in an inclusive dated window.
+
+    This is the narrow persistence membrane already permitted to transport the
+    total-return column. Readiness and identity consume opaque dated values;
+    neither becomes another strategy reader of that otherwise-forbidden domain.
+    """
+    from sentinel.feed.publication import visible_predicate
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT session, closeadj FROM sentinel_spy_total_return r"
+            " WHERE session BETWEEN %s AND %s"
+            f" AND {visible_predicate('r')} ORDER BY session", (start, end))
+        return [(str(session), value) for session, value in cur.fetchall()]
+
+
 def run_status(conn, limit: int = 5) -> list[dict]:
     """What `feed-status` reads. Plain SELECT — no shared state with the writer,
     which is what makes it readable from another process while a seed runs."""

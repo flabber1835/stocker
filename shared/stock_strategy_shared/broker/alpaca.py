@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from typing import Callable, Optional
 
 from typing import Any
@@ -38,6 +39,10 @@ class IncompleteOrderList(RuntimeError):
     """The broker did not prove that its order list was exhausted."""
 
 
+class MalformedBrokerPayload(RuntimeError):
+    """Administrative evidence was not complete enough to act on safely."""
+
+
 def _f(v) -> Optional[float]:
     """Convert any numeric-ish value (Decimal, str, float) to float or None.
     Matches the `_f`/`_parse_float` helper both services used verbatim."""
@@ -47,6 +52,33 @@ def _f(v) -> Optional[float]:
         return float(str(v))
     except (TypeError, ValueError):
         return None
+
+
+def _decimal(v, *, field: str, positive: bool = False,
+             nonnegative: bool = False) -> Decimal:
+    try:
+        value = Decimal(str(v))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise MalformedBrokerPayload(
+            f"Alpaca {field} is not a Decimal: {v!r}") from exc
+    if not value.is_finite():
+        raise MalformedBrokerPayload(
+            f"Alpaca {field} must be finite, got {v!r}")
+    if positive and value <= 0:
+        raise MalformedBrokerPayload(
+            f"Alpaca {field} must be positive, got {value}")
+    if nonnegative and value < 0:
+        raise MalformedBrokerPayload(
+            f"Alpaca {field} must be non-negative, got {value}")
+    return value
+
+
+def _text(row: dict, field: str) -> str:
+    value = str(row.get(field) or "").strip()
+    if not value:
+        raise MalformedBrokerPayload(
+            f"Alpaca row omitted required {field!r}")
+    return value
 
 
 def _parse_dt(raw) -> Optional[datetime]:
@@ -145,23 +177,43 @@ class AlpacaBrokerAdapter(BrokerAdapter):
             r = await client.get(f"{self.base_url}/v2/positions", headers=self.headers())
             r.raise_for_status()
             positions = r.json()
+        if not isinstance(positions, list):
+            raise MalformedBrokerPayload(
+                "Alpaca positions response was not an array")
         out: list[BrokerPosition] = []
-        for pos in positions or []:
+        seen_assets: set[str] = set()
+        seen_symbols: set[str] = set()
+        for pos in positions:
             if not isinstance(pos, dict):
-                continue
+                raise MalformedBrokerPayload(
+                    "Alpaca positions response contained a non-object")
+            symbol = _text(pos, "symbol")
+            asset_id = _text(pos, "asset_id")
+            side = _text(pos, "side").lower()
+            if side != "long":
+                raise MalformedBrokerPayload(
+                    f"Alpaca position {asset_id}/{symbol} has unsupported "
+                    f"side {side!r}; legacy migration is long-only")
+            if asset_id in seen_assets or symbol in seen_symbols:
+                raise MalformedBrokerPayload(
+                    f"Alpaca positions response repeated asset/symbol "
+                    f"{asset_id}/{symbol}")
+            seen_assets.add(asset_id)
+            seen_symbols.add(symbol)
             out.append(
                 BrokerPosition(
                     # broker → SYSTEM symbology (PBR.A → PBR-A) so live_positions
                     # matches rankings/targets and held-detection can't miss.
-                    ticker=self.from_broker_symbol(pos.get("symbol", "")),
-                    qty=_f(pos.get("qty")),
+                    ticker=self.from_broker_symbol(symbol),
+                    qty=_decimal(pos.get("qty"), field="position.qty"),
+                    side=side,
+                    broker_instrument_id=asset_id,
                     avg_entry_price=_f(pos.get("avg_entry_price")),
                     current_price=_f(pos.get("current_price")),
                     market_value=_f(pos.get("market_value")),
                     cost_basis=_f(pos.get("cost_basis")),
                     unrealized_pl=_f(pos.get("unrealized_pl")),
                     unrealized_plpc=_f(pos.get("unrealized_plpc")),
-                    side=pos.get("side", "long"),
                     lastday_price=_f(pos.get("lastday_price")),
                     change_today=_f(pos.get("change_today")),
                     raw=pos,
@@ -246,19 +298,55 @@ class AlpacaBrokerAdapter(BrokerAdapter):
 
         out: list[BrokerOrder] = []
         for o in rows:
-            raw_status = o.get("status", "")
-            out.append(
-                BrokerOrder(
-                    broker_order_id=str(o.get("id", "")),
-                    status=self.normalize_status(raw_status),
-                    raw_status=raw_status,
-                    filled_qty=_f(o.get("filled_qty")),
-                    avg_fill_price=_f(o.get("filled_avg_price")),
-                    filled_at=_parse_dt(o.get("filled_at")),
-                    raw=o,
-                )
-            )
+            out.append(self._parse_order(o, requested_status=status))
         return out
+
+    def _parse_order(self, row: dict, *, requested_status: str) -> BrokerOrder:
+        order_id = _text(row, "id")
+        raw_status = _text(row, "status").lower()
+        symbol = _text(row, "symbol")
+        side = _text(row, "side").lower()
+        if side not in {"buy", "sell"}:
+            raise MalformedBrokerPayload(
+                f"Alpaca order {order_id} has unknown side {side!r}")
+        quantity = _decimal(
+            row.get("qty"), field=f"order {order_id}.qty", positive=True)
+        filled = _decimal(
+            row.get("filled_qty", "0"),
+            field=f"order {order_id}.filled_qty", nonnegative=True)
+        if filled > quantity:
+            raise MalformedBrokerPayload(
+                f"Alpaca order {order_id} filled {filled} > qty {quantity}")
+        average_raw = row.get("filled_avg_price")
+        average = None
+        if average_raw not in (None, ""):
+            average = _decimal(
+                average_raw, field=f"order {order_id}.filled_avg_price",
+                positive=True)
+        if filled > 0 and average is None:
+            raise MalformedBrokerPayload(
+                f"Alpaca order {order_id} has a positive fill without "
+                "filled_avg_price")
+        broker_instrument_id = _text(row, "asset_id")
+        # The status=open endpoint is authority that every returned row can
+        # still affect the account. Unknown future spellings are therefore
+        # conservatively working, while a genuinely terminal row in that
+        # response makes the read self-contradictory and is refused.
+        if requested_status == "open" and raw_status in {
+                "filled", "canceled", "cancelled", "expired", "rejected"}:
+            raise MalformedBrokerPayload(
+                f"Alpaca status=open returned terminal order {order_id} in "
+                f"state {raw_status!r}")
+        return BrokerOrder(
+            broker_order_id=order_id,
+            status=self.normalize_status(raw_status), raw_status=raw_status,
+            symbol=self.from_broker_symbol(symbol), side=side,
+            quantity=quantity, filled_qty=filled,
+            client_order_id=(str(row.get("client_order_id")).strip()
+                             if row.get("client_order_id") else None),
+            broker_instrument_id=broker_instrument_id,
+            avg_fill_price=average,
+            filled_at=_parse_dt(row.get("filled_at")), raw=row)
 
     async def get_order(self, broker_order_id: str) -> Optional[dict]:
         async with self._httpx.AsyncClient(timeout=10.0) as client:
@@ -269,6 +357,24 @@ class AlpacaBrokerAdapter(BrokerAdapter):
         if r.status_code == 200:
             return r.json()
         return None
+
+    async def get_order_by_client_order_id(
+            self, client_order_id: str) -> Optional[BrokerOrder]:
+        if not str(client_order_id).strip():
+            raise ValueError("client_order_id must be non-empty")
+        async with self._httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                f"{self.base_url}/v2/orders:by_client_order_id",
+                headers=self.headers(),
+                params={"client_order_id": client_order_id})
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        row = r.json()
+        if not isinstance(row, dict):
+            raise MalformedBrokerPayload(
+                "Alpaca exact order response was not an object")
+        return self._parse_order(row, requested_status="all")
 
     async def get_clock(self) -> Optional[dict]:
         async with self._httpx.AsyncClient(timeout=10.0) as client:
@@ -342,3 +448,18 @@ class AlpacaBrokerAdapter(BrokerAdapter):
         except Exception:
             text = ""
         return resp.status_code, body, text
+
+    async def cancel_order(self, broker_order_id: str) -> bool:
+        order_id = str(broker_order_id).strip()
+        if not order_id:
+            raise ValueError("broker_order_id must be non-empty")
+        async with self._httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.delete(
+                f"{self.base_url}/v2/orders/{order_id}",
+                headers=self.headers())
+        if 200 <= resp.status_code < 300:
+            return True
+        if resp.status_code == 404:
+            return False
+        resp.raise_for_status()
+        return False  # pragma: no cover

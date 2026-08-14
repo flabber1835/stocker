@@ -663,8 +663,11 @@ volatility dispersion.
 # replay the SEP stage so the as-traded price exists (hours)
 scripts/backfill-sep-raw-close.sh
 
-# deploy and verify, in the order verification depends on
-scripts/deploy-wealth-core.sh
+# build and verify the current Sentinel/certification graph
+scripts/sentinel-certify.sh --start YYYY-MM-DD --end YYYY-MM-DD --keep-corpus
+
+# start the exact frozen rehearsal image, without rebuilding it
+scripts/bt-engine-up.sh --no-build --start YYYY-MM-DD --end YYYY-MM-DD
 
 # the seven hashes, from inside any container that has the shared package
 python -m stock_strategy_shared.wealth_core.parity_cli --engine backtester
@@ -732,11 +735,12 @@ curl -sX POST localhost:8031/wealth-core/jobs/run -H 'content-type: application/
   "starting_cash": 1000000
 }'
 
-# 2. reproduce the backtester exactly (expected_hashes come FROM the backtester)
+# 2. reproduce one exact backtester artifact and its BT data generation
 curl -sX POST localhost:8031/wealth-core/jobs/run -H 'content-type: application/json' -d '{
   "mode": "baseline_replay",
   "start_date": "2015-01-01", "end_date": "2024-12-31",
-  "expected_hashes": {"normalized_input": "...", "...": "..."}
+  "expected_hashes": {"normalized_input": "...", "...": "..."},
+  "expected_data_version": "<artifact corpus.version>"
 }'
 
 # 3. score a variant against a recorded parent
@@ -753,6 +757,36 @@ curl -s localhost:8031/wealth-core/runs/latest
 Runs are serialised against each other AND against a sweep — each loads the
 whole corpus for its range, and two at once is the memory profile that gets the
 container OOM-killed, which would be recorded as a strategy failure.
+For `baseline_replay`, `expected_hashes` and `expected_data_version` must come
+from the same retained producer artifact. After acquiring the shared corpus
+lock in a read-only repeatable-read snapshot, bt-engine compares the current
+READY generation to that exact version before it invokes any corpus loader; a
+mismatch refuses instead of turning a vendor-data change into an apparent
+engine divergence.
+
+The baseline is intentionally not configurable. It accepts only the canonical
+producer inputs: `starting_cash=1000000`, empty `config`, and empty
+`eligibility`. Those empty diffs instantiate the canonical strategy,
+eligibility, and certified volatility-profile defaults in both images. A
+non-default cash base or any strategy/eligibility override is an `experiment`
+and is refused as a baseline before the corpus is read.
+
+The loader reaches back 400 calendar days only to locate the final 126 trading
+sessions needed for feature warm-up plus their immediately preceding trading
+session. That prior session is the exclusive ACTION cutoff: rows dated on or
+before it are discarded before mapping splits or dividends. Rows dated after
+it are preserved, including weekend or holiday ex-dates that correctly map to
+the first retained trading session. If the prior session is unavailable the
+run refuses; using the first retained date as the cutoff would incorrectly drop
+those valid non-session events.
+
+Terminal rows have a second boundary: inclusion in the measured window is based
+on the row's mapped effective trading session, not its raw calendar date. The
+mapping uses the complete retained warm-up plus measured calendar first. This
+keeps a Sunday or exchange-holiday action that becomes effective on the first
+measured session, and excludes actions whose effective sessions remain in
+warm-up or fall outside the measured range. The expected-hash producer and
+bt-engine baseline call the same canonical helper.
 
 **Read the result in this order.** `provenance.split_source` first: `derived`
 means `bt_actions` is empty and the run is NOT certified-reproducible (remedy:

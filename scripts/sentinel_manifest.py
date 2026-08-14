@@ -38,10 +38,292 @@ reader has to notice is missing something.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
 from pathlib import Path
+
+
+_IGNORED_PARTS = {".git", "__pycache__", ".pytest_cache"}
+_IGNORED_SUFFIXES = {".pyc", ".pyo"}
+COMPLETION_FIELDS = (
+    "book_artifact_sha256",
+    "rejection_audit_sha256",
+    "rehearsal_hashes",
+    "rehearsal_run_id",
+    "rehearsal_spec",
+    "rehearsal_equivalence",
+    "settlement_counters",
+    "terminal_reconciliation",
+    "bt_engine_identity",
+    "final_identity_hash",
+    "final_corpus_hash",
+)
+
+
+def _clear_completion(manifest: dict) -> None:
+    for key in COMPLETION_FIELDS:
+        manifest[key] = None
+
+
+def begin_finalization(manifest: dict) -> dict:
+    """Enter FINALIZING without allowing completed-looking partial evidence."""
+    if manifest.get("lifecycle") == "FINALIZED":
+        raise ValueError("manifest is already FINALIZED")
+    if manifest.get("lifecycle") not in {
+            "READY_FOR_REHEARSAL", "BLOCKED", "FINALIZING"}:
+        raise ValueError(
+            f"manifest lifecycle is {manifest.get('lifecycle')!r}, not "
+            "READY_FOR_REHEARSAL")
+    _clear_completion(manifest)
+    manifest["lifecycle"] = "FINALIZING"
+    manifest["verdict"] = None
+    manifest["failures"] = []
+    # Preserve the preceding attempt as diagnostics until this fresh attempt
+    # reaches its own durable result. In particular, a crash after this write
+    # leaves FINALIZING resumable rather than requiring a manual repair.
+    return manifest
+
+
+def block_finalization(
+        manifest: dict, reasons, *, attempt: dict | None = None) -> dict:
+    """Persist a blocked outcome while retaining all attempted evidence."""
+    if manifest.get("lifecycle") == "FINALIZED":
+        return manifest
+    _clear_completion(manifest)
+    failures = list(manifest.get("failures") or [])
+    for reason in reasons:
+        if reason not in failures:
+            failures.append(reason)
+    saved_attempt = dict(attempt if attempt is not None else
+                         (manifest.get("last_finalization_attempt") or {}))
+    attempt_failures = list(saved_attempt.get("failures") or [])
+    for reason in failures:
+        if reason not in attempt_failures:
+            attempt_failures.append(reason)
+    saved_attempt["failures"] = attempt_failures
+    manifest["last_finalization_attempt"] = saved_attempt
+    manifest["lifecycle"] = "BLOCKED"
+    manifest["verdict"] = "BLOCKED"
+    manifest["failures"] = failures
+    return manifest
+
+
+def finish_finalization(manifest: dict, attempt: dict, failures) -> dict:
+    """Publish completion fields iff every finalization gate passed."""
+    saved_attempt = dict(attempt)
+    failures = list(failures)
+    for key in COMPLETION_FIELDS:
+        if not saved_attempt.get(key):
+            failures.append(f"attempted {key} is null")
+    saved_attempt["failures"] = failures
+    manifest["last_finalization_attempt"] = saved_attempt
+    if failures:
+        return block_finalization(
+            manifest, failures, attempt=saved_attempt)
+    for key in COMPLETION_FIELDS:
+        manifest[key] = saved_attempt.get(key)
+    manifest["lifecycle"] = "FINALIZED"
+    manifest["verdict"] = "PASS"
+    manifest["failures"] = []
+    return manifest
+
+
+def finalization_provenance_failures(
+        manifest: dict, final_identity: dict, summary: dict
+) -> tuple[dict, list[str]]:
+    """Return exact generation/source/identity drift failures for a run."""
+    failures: list[str] = []
+    generations = manifest.get("parity_generations") or {}
+    provenance = summary.get("provenance") or {}
+    for key in ("sentinel_data_version", "canonical_data_version",
+                "canonical_source_mode"):
+        if generations.get(key) in (None, ""):
+            failures.append(f"parity_generations.{key} is MISSING")
+    expected_generation = generations.get("canonical_data_version")
+    actual_generation = provenance.get("bt_data_version")
+    if str(actual_generation) != str(expected_generation):
+        failures.append(
+            "run provenance bt_data_version is "
+            f"{actual_generation!r}, not frozen canonical generation "
+            f"{expected_generation!r}")
+    expected_mode = generations.get("canonical_source_mode")
+    actual_mode = provenance.get("bt_data_source_mode")
+    if str(actual_mode) != str(expected_mode):
+        failures.append(
+            "run provenance bt_data_source_mode is "
+            f"{actual_mode!r}, not frozen source mode {expected_mode!r}")
+    if provenance.get("bt_data_status") != "READY":
+        failures.append(
+            "run provenance bt_data_status is "
+            f"{provenance.get('bt_data_status')!r}, not 'READY'")
+
+    final_corpus = final_identity.get("corpus") or {}
+    if final_identity.get("identity_hash") != manifest.get("identity_hash"):
+        failures.append(
+            "the final Sentinel runtime identity differs from the frozen "
+            "identity")
+    if str(final_corpus.get("data_version")) != str(
+            generations.get("sentinel_data_version")):
+        failures.append(
+            "the final Sentinel data_version is "
+            f"{final_corpus.get('data_version')!r}, not parity publication "
+            f"{generations.get('sentinel_data_version')!r}")
+    if final_corpus.get("corpus_hash") != manifest.get("corpus_hash"):
+        failures.append(
+            "the final Sentinel corpus_hash differs from the corpus parity "
+            "certified")
+    return provenance, failures
+
+
+def bundle_source_hash(spec, *, python_only: bool = False) -> str | None:
+    """Hash files under ``(source, logical_prefix)`` mappings.
+
+    Logical paths make an assembled image tree comparable with the source files
+    that Docker copied into it even though their absolute paths differ. Later
+    mappings replace an earlier logical path, matching Docker COPY overlay
+    semantics (notably bt-engine's ``app/live`` adapters).
+    """
+    files: dict[str, Path] = {}
+    for source, logical_prefix in spec:
+        source = Path(source)
+        if not source.exists():
+            return None
+        candidates = [source] if source.is_file() else sorted(source.rglob("*"))
+        for candidate in candidates:
+            if not candidate.is_file():
+                continue
+            relative = (Path(candidate.name) if source.is_file()
+                        else candidate.relative_to(source))
+            if any(part in _IGNORED_PARTS for part in relative.parts):
+                continue
+            if candidate.suffix in _IGNORED_SUFFIXES:
+                continue
+            if python_only and candidate.suffix != ".py":
+                continue
+            logical = (Path(logical_prefix) / relative).as_posix()
+            files[logical] = candidate
+    if not files:
+        return None
+    digest = hashlib.sha256()
+    for logical, path in sorted(files.items()):
+        digest.update(logical.encode())
+        digest.update(b"\0")
+        digest.update(hashlib.sha256(path.read_bytes()).hexdigest().encode())
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
+_IMAGE_BUNDLE_PROGRAM = r"""
+import hashlib, json
+from pathlib import Path
+spec, python_only = json.loads(__import__('sys').argv[1]), __import__('sys').argv[2] == '1'
+files = {}
+for source_text, logical_prefix in spec:
+    source = Path(source_text)
+    if not source.exists():
+        raise SystemExit(3)
+    candidates = [source] if source.is_file() else sorted(source.rglob('*'))
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        relative = Path(candidate.name) if source.is_file() else candidate.relative_to(source)
+        if any(part in {'.git', '__pycache__', '.pytest_cache'} for part in relative.parts):
+            continue
+        if candidate.suffix in {'.pyc', '.pyo'} or (python_only and candidate.suffix != '.py'):
+            continue
+        files[(Path(logical_prefix) / relative).as_posix()] = candidate
+if not files:
+    raise SystemExit(4)
+digest = hashlib.sha256()
+for logical, path in sorted(files.items()):
+    digest.update(logical.encode()); digest.update(b'\0')
+    digest.update(hashlib.sha256(path.read_bytes()).hexdigest().encode()); digest.update(b'\n')
+print(digest.hexdigest())
+"""
+
+
+def image_bundle_source_hash(ref: str, spec, *, python_only: bool = False) -> str | None:
+    out = sh("docker", "run", "--rm", "--entrypoint", "python", ref, "-c",
+             _IMAGE_BUNDLE_PROGRAM, json.dumps(spec), "1" if python_only else "0")
+    return out or None
+
+
+def _assembled_bt_engine_spec(root: Path):
+    return [
+        (root / "services" / "bt-engine" / "app", ""),
+        (root / "services" / "backtester" / "app" / "wealth_core_replay.py",
+         "live"),
+        (root / "services" / "backtester" / "app" / "wealth_core_benchmark.py",
+         "live"),
+    ]
+
+
+def _certification_input_spec(root: Path, *, image: bool = False):
+    """The source/read-only inputs copied into ``sentinel-test``.
+
+    Keep this list aligned with Dockerfile.sentinel-test. Missing inputs fail the
+    digest instead of silently shrinking its scope.
+    """
+    if image:
+        work, repo = Path("/work"), Path("/work/repo")
+    else:
+        work = repo = root
+    return [
+        (work / "tests", "tests"),
+        (work / "services" / "backtester", "services/backtester"),
+        (work / "tools", "tools"),
+        (work / "docs" / "sentinel-handoff" / "00_README",
+         "docs/sentinel-handoff/00_README"),
+        (work / "docs" / "sentinel-handoff" /
+         "02_SENTINEL_1P1_FROZEN_ORACLE",
+         "docs/sentinel-handoff/02_SENTINEL_1P1_FROZEN_ORACLE"),
+        (work / "docs" / "sentinel-handoff" / "04_BREADTH_ORACLES",
+         "docs/sentinel-handoff/04_BREADTH_ORACLES"),
+        (work / "docs" / "sentinel-breadth-reconstruction",
+         "docs/sentinel-breadth-reconstruction"),
+        (work / "docs" / "sentinel-reference-implementation",
+         "docs/sentinel-reference-implementation"),
+        (repo / "scripts", "scripts"),
+        (repo / "sentinel", "sentinel"),
+        (repo / "shared", "shared"),
+        (repo / "services" / "bt-engine", "services/bt-engine"),
+        (repo / "services" / "bt-data", "services/bt-data"),
+        (repo / "Dockerfile.base", ""),
+        (repo / "Dockerfile.sentinel", ""),
+        (repo / "Dockerfile.sentinel-test", ""),
+        (repo / "docker-compose.sentinel.yml", ""),
+        (repo / "docker-compose.backtest.yml", ""),
+        (repo / "docker-compose.sentinel-backup.yml", ""),
+        (repo / ".dockerignore", ""),
+        (repo / ".gitattributes", ""),
+        (repo / ".github" / "workflows" / "sentinel-safety.yml", ""),
+        (repo / ".env.example", ""),
+        (repo / "Makefile", ""),
+        (repo / "README.md", ""),
+        (repo / "docs" / "main-review-remediation.md", "docs"),
+        (repo / "docs" / "sentinel-deployment.md", "docs"),
+        (repo / "docs" / "sentinel-paper-activation.md", "docs"),
+    ]
+
+
+def checkout_source_hashes(root: Path) -> dict[str, str | None]:
+    return {
+        "sentinel": bundle_source_hash(
+            [(root / "sentinel", "")], python_only=True),
+        "wealth_core": bundle_source_hash(
+            [(root / "shared" / "stock_strategy_shared" / "wealth_core",
+              "")], python_only=True),
+        "bt_data": bundle_source_hash([
+            (root / "services" / "bt-data" / "app", "app"),
+            (root / "services" / "bt-data" / "sql", "sql"),
+        ]),
+        "bt_engine_app": bundle_source_hash(
+            _assembled_bt_engine_spec(root), python_only=True),
+        "certification_inputs": bundle_source_hash(
+            _certification_input_spec(root)),
+    }
 
 
 def sh(*cmd) -> str | None:
@@ -67,6 +349,9 @@ def image(ref: str) -> dict:
         digests = []
     return {"ref": ref,
             "id": sh("docker", "image", "inspect", ref, "--format", "{{.Id}}"),
+            "source_revision": sh(
+                "docker", "image", "inspect", ref, "--format",
+                '{{ index .Config.Labels "org.opencontainers.image.revision" }}'),
             "repo_digests": digests}
 
 
@@ -80,13 +365,11 @@ def bt_engine_app_source_hash(ref: str) -> str | None:
     Core hash would still match, because Wealth Core had not moved.
 
     READ FROM THE IMAGE, NOT FROM THE CHECKOUT, and that distinction is not
-    stylistic. `services/bt-engine/Dockerfile` assembles `/app/app` from FOUR
-    source trees:
+    stylistic. `services/bt-engine/Dockerfile` assembles `/app/app` from the
+    certification app plus the surviving backtester corpus adapters:
 
     ```text
     services/bt-engine/app/                     -> /app/app/
-    services/pipeline/app/{factors,rank}.py     -> /app/app/live/
-    services/portfolio-builder/app/select.py    -> /app/app/live/
     services/backtester/app/wealth_core_*.py    -> /app/app/live/
     ```
 
@@ -104,11 +387,29 @@ def bt_engine_app_source_hash(ref: str) -> str | None:
 
 def build(art: Path, stamp: str, lock_sha: str,
           postgres_ref: str = "postgres:16",
-          bt_engine_ref: str = "stocker-bt-engine:latest") -> dict:
+          bt_engine_ref: str = "stocker-bt-engine:latest",
+          bt_data_ref: str = "stocker-bt-bt-data:latest") -> dict:
     rec = json.loads((art / "identity-env.json").read_text())
     env = rec["environment"]
+    checkout_hashes = checkout_source_hashes(Path.cwd())
+    engine_hash = bt_engine_app_source_hash(bt_engine_ref)
+    image_hashes = {
+        "sentinel": env["sentinel_source"]["hash"],
+        "wealth_core": env["wealth_core_source"]["hash"],
+        "bt_data": image_bundle_source_hash(bt_data_ref, [
+            ["/app/app", "app"], ["/app/sql", "sql"],
+        ]),
+        "bt_engine_app": engine_hash,
+        "certification_inputs": image_bundle_source_hash(
+            "sentinel-test:latest",
+            [[str(source), logical] for source, logical in
+             _certification_input_spec(Path("/work/repo"), image=True)]),
+    }
     manifest = {
-        "schema": "sentinel.certification_manifest/1",
+        "schema": "sentinel.certification_manifest/2",
+        "lifecycle": "FROZEN",
+        "verdict": None,
+        "failures": [],
         "git_commit": sh("git", "rev-parse", "HEAD"),
         # A DIRTY tree means the manifest names a commit that is not what was
         # built. Recorded as a field so the verdict is the reader's, and warned
@@ -129,13 +430,19 @@ def build(art: Path, stamp: str, lock_sha: str,
         # could name an entirely unrelated server. On a clean machine the bare
         # tag simply resolved to nothing and certification continued.
         "postgres_image": image(postgres_ref),
+        # The service that normalises vendor rows into the corpus. A corpus
+        # digest names its output, not the code and dependencies that decided
+        # how source fields were interpreted.
+        "bt_data_image": image(bt_data_ref),
         # THE ENGINE THAT WILL RUN THE REHEARSAL, named BEFORE it runs one.
         # Comparing the run only against whatever the bt-engine tag points at
         # during finalization accepts any correctly self-identifying artefact
         # that happens to run afterwards — including one built from loader
         # source that changed after this manifest was frozen.
         "bt_engine_image": image(bt_engine_ref),
-        "bt_engine_app_source_hash": bt_engine_app_source_hash(bt_engine_ref),
+        "bt_engine_app_source_hash": engine_hash,
+        "checkout_source_hashes": checkout_hashes,
+        "image_source_hashes": image_hashes,
         "identity_hash": rec["identity_hash"],
         "distributions_hash": env["distributions_hash"],
         "distributions_count": env["distributions_count"],
@@ -146,9 +453,20 @@ def build(art: Path, stamp: str, lock_sha: str,
         "calendar_version": env["calendar_version"],
         # Filled in by later steps and by the rehearsal itself.
         "corpus_hash": None,
+        "parity_generations": None,
+        "preseed_rejection_audit_sha256": None,
         "book_artifact_sha256": None,
         "rejection_audit_sha256": None,
         "rehearsal_hashes": None,
+        "rehearsal_run_id": None,
+        "rehearsal_spec": None,
+        "rehearsal_equivalence": None,
+        "settlement_counters": None,
+        "terminal_reconciliation": None,
+        "bt_engine_identity": None,
+        "final_identity_hash": None,
+        "final_corpus_hash": None,
+        "last_finalization_attempt": None,
     }
     return manifest
 
@@ -157,7 +475,9 @@ def build(art: Path, stamp: str, lock_sha: str,
 #: verifying the evidence, so an unnamed one is a hole in the record rather
 #: than a missing convenience field.
 REQUIRED_IMAGES = ("sentinel_runtime_image", "sentinel_test_image",
-                   "postgres_image", "bt_engine_image")
+                   "postgres_image", "bt_data_image", "bt_engine_image")
+SOURCE_IMAGES = ("sentinel_runtime_image", "sentinel_test_image",
+                 "bt_data_image", "bt_engine_image")
 
 
 def main(argv=None) -> int:
@@ -169,6 +489,7 @@ def main(argv=None) -> int:
     ap.add_argument("lock_sha")
     ap.add_argument("--postgres-ref", default="postgres:16")
     ap.add_argument("--bt-engine-ref", default="stocker-bt-engine:latest")
+    ap.add_argument("--bt-data-ref", default="stocker-bt-bt-data:latest")
     ap.add_argument("--require-images", action="store_true",
                     help="exit non-zero unless every named image resolved and "
                          "the source tree is clean. Used before the "
@@ -176,7 +497,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(list(argv or sys.argv[1:]))
     art, stamp, lock_sha = Path(args.art), args.stamp, args.lock_sha
     m = build(art, stamp, lock_sha, postgres_ref=args.postgres_ref,
-              bt_engine_ref=args.bt_engine_ref)
+              bt_engine_ref=args.bt_engine_ref, bt_data_ref=args.bt_data_ref)
 
     problems = []
     if not m["git_tree_clean"]:
@@ -191,10 +512,32 @@ def main(argv=None) -> int:
         if not m[key]["id"]:
             problems.append(f"{key} ({m[key]['ref']}) could not be inspected — "
                             f"the record cannot name it")
-    if not m["bt_engine_app_source_hash"]:
-        problems.append("bt_engine_app_source_hash could not be read out of "
-                        f"{args.bt_engine_ref} — the loader that reads the "
-                        "corpus would be unnamed")
+    for key in SOURCE_IMAGES:
+        revision = m[key].get("source_revision")
+        if not revision or revision == "unknown":
+            problems.append(
+                f"{key} has no immutable source revision label")
+        elif revision != m["git_commit"]:
+            problems.append(
+                f"{key} was built from {revision}, not current "
+                f"git_commit {m['git_commit']}")
+    checkout_hashes = m["checkout_source_hashes"]
+    image_hashes = m["image_source_hashes"]
+    for key in sorted(checkout_hashes):
+        checkout_hash, image_hash = checkout_hashes[key], image_hashes.get(key)
+        if not checkout_hash:
+            problems.append(
+                f"checkout source hash {key} could not be computed; the "
+                "certification input set is incomplete")
+        if not image_hash:
+            problems.append(
+                f"image source hash {key} could not be read; the built bytes "
+                "cannot be compared with the checkout")
+        elif checkout_hash and checkout_hash != image_hash:
+            problems.append(
+                f"{key} source differs between the clean checkout "
+                f"({checkout_hash}) and built image ({image_hash}); an image "
+                "label naming the same commit is not proof of a clean build")
     for p in problems:
         print(f"  {'REFUSED' if args.require_images else 'WARNING'}: {p}")
 
@@ -203,6 +546,8 @@ def main(argv=None) -> int:
     print(f"  git      {m['git_commit']} clean={m['git_tree_clean']}")
     print(f"  runtime  {m['sentinel_runtime_image']['id']}")
     print(f"  test     {m['sentinel_test_image']['id']}")
+    for key, digest in sorted(m["image_source_hashes"].items()):
+        print(f"  source   {key:22} {digest}")
     print(f"  closure  {m['distributions_hash'][:16]}  "
           f"lock {m['requirements_lock_sha256'][:16]}")
     print(f"  -> {out}")

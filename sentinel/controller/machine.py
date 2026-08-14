@@ -80,8 +80,10 @@ a resumed controller continues mid-ramp with its healthy streak intact.
 """
 from __future__ import annotations
 
+import json
+import math
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Mapping, Optional
 
 from sentinel.controller.frozen_rule import ControllerConfig
 
@@ -90,6 +92,125 @@ from sentinel.controller.frozen_rule import ControllerConfig
 FAST_EVIDENCE_UNAVAILABLE = "FAST_EVIDENCE_UNAVAILABLE"
 SLOW_EVIDENCE_UNAVAILABLE = "SLOW_EVIDENCE_UNAVAILABLE"
 HEALTH_EVIDENCE_UNAVAILABLE = "HEALTH_EVIDENCE_UNAVAILABLE"
+
+# Persisted controller state is a production input, not a bag of optional
+# implementation details.  Versioning and validating it here keeps every
+# caller -- production, certification and restart tests -- on one restoration
+# rule instead of allowing each transition branch to invent defaults.
+CONTROLLER_STATE_VERSION = 1
+
+_BOOL_STATE_FIELDS = frozenset({
+    "ordinary_stress_active", "fast_severe_active", "fast_rearm_armed",
+    "binary_armed", "base_fast_active", "base_fast_armed",
+    "slow_severe_active", "ramp_active",
+})
+_INT_STATE_FIELDS = frozenset({
+    "ordinary_stress_age", "ordinary_healthy_streak", "fast_severe_age",
+    "fast_healthy_streak", "base_fast_age", "base_fast_healthy_streak",
+    "base_stress_duration", "slow_severe_age", "slow_healthy_streak",
+    "ramp_healthy_streak",
+})
+_OPTIONAL_SESSION_FIELDS = frozenset({
+    "ordinary_stress_start_session", "fast_severe_entry_session",
+    "slow_severe_entry_session", "ramp_entry_session", "last_session",
+})
+_OPTIONAL_FLOAT_FIELDS = frozenset({
+    "ordinary_stress_start_shadow_nav", "base_stress_start_shadow_nav",
+})
+_CONTROLLER_STATE_FIELDS = frozenset({
+    "controller_state_version", "_r40_history", "ramp_step_index",
+    "last_target_core",
+}) | _BOOL_STATE_FIELDS | _INT_STATE_FIELDS | _OPTIONAL_SESSION_FIELDS \
+    | _OPTIONAL_FLOAT_FIELDS
+
+
+def _finite_number(value) -> bool:
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(float(value)))
+
+
+def validate_controller_state(raw: Mapping) -> dict:
+    """Restore one exact, versioned controller state.
+
+    The only legacy migration is deliberately narrow.  A pre-schema cold state
+    never had an r40 observation, so its absent history means the empty list.
+    Once ``last_session`` is set, however, losing ``_r40_history`` destroys the
+    recovery gate's path-dependent evidence and is not reconstructable.
+    """
+    if not isinstance(raw, Mapping):
+        raise ValueError("controller state must be a mapping")
+    state = dict(raw)
+    if "controller_state_version" not in state:
+        if state.get("last_session") is not None and "_r40_history" not in state:
+            raise ValueError(
+                "legacy controller state has progressed but lacks _r40_history")
+        state["controller_state_version"] = CONTROLLER_STATE_VERSION
+        state.setdefault("_r40_history", [])
+    version = state["controller_state_version"]
+    if (isinstance(version, bool) or not isinstance(version, int)
+            or version != CONTROLLER_STATE_VERSION):
+        raise ValueError(f"unsupported controller state version {version!r}")
+
+    missing = _CONTROLLER_STATE_FIELDS - set(state)
+    extra = set(state) - _CONTROLLER_STATE_FIELDS
+    if missing or extra:
+        detail = []
+        if missing:
+            detail.append("missing " + ", ".join(sorted(missing)))
+        if extra:
+            detail.append("unknown " + ", ".join(sorted(extra)))
+        raise ValueError("controller state schema mismatch: " + "; ".join(detail))
+
+    for name in _BOOL_STATE_FIELDS:
+        if not isinstance(state[name], bool):
+            raise ValueError(f"controller state {name} must be boolean")
+    for name in _INT_STATE_FIELDS:
+        value = state[name]
+        if (isinstance(value, bool) or not isinstance(value, int) or value < 0):
+            raise ValueError(
+                f"controller state {name} must be a non-negative integer")
+    for name in _OPTIONAL_SESSION_FIELDS:
+        value = state[name]
+        if value is not None and (not isinstance(value, str) or not value):
+            raise ValueError(
+                f"controller state {name} must be a non-empty string or null")
+    for name in _OPTIONAL_FLOAT_FIELDS:
+        value = state[name]
+        if value is not None and not _finite_number(value):
+            raise ValueError(f"controller state {name} must be finite or null")
+
+    target = state["last_target_core"]
+    if not _finite_number(target) or not 0.0 <= float(target) <= 1.0:
+        raise ValueError("controller state last_target_core must be finite in [0, 1]")
+    state["last_target_core"] = float(target)
+
+    ramp_index = state["ramp_step_index"]
+    if ramp_index is not None and (
+            isinstance(ramp_index, bool) or not isinstance(ramp_index, int)
+            or ramp_index < 0):
+        raise ValueError(
+            "controller state ramp_step_index must be a non-negative integer or null")
+
+    history = state["_r40_history"]
+    if not isinstance(history, list):
+        raise ValueError("controller state _r40_history must be a list")
+    if len(history) > 6:
+        raise ValueError("controller state _r40_history exceeds its bounded window")
+    clean_history = []
+    for value in history:
+        if value is None:
+            clean_history.append(None)
+        elif _finite_number(value):
+            clean_history.append(float(value))
+        else:
+            raise ValueError(
+                "controller state _r40_history contains a non-finite value")
+    state["_r40_history"] = clean_history
+
+    # This also rejects a future accidental NaN hidden in a newly-added nested
+    # value before that value can become durable JSON.
+    json.dumps(state, sort_keys=True, allow_nan=False)
+    return state
 
 
 @dataclass(frozen=True)
@@ -118,6 +239,29 @@ class Observation:
     spy_vol_ratio: Optional[float] = None
     stops20: Optional[int] = None
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.session, str) or not self.session:
+            raise ValueError("controller observation session must be non-empty")
+        numeric = (
+            "shadow_nav", "damaged_breadth", "green_breadth",
+            "shadow_drawdown", "shadow_r5", "shadow_r10", "shadow_r20",
+            "shadow_r40", "damaged_breadth_delta5", "spy_r20",
+            "spy_vol_ratio",
+        )
+        for name in numeric:
+            value = getattr(self, name)
+            if value is None:
+                continue
+            # Non-finite transport values are unavailable evidence.  Convert
+            # them before predicates or durable evidence can observe them.
+            object.__setattr__(
+                self, name, float(value) if _finite_number(value) else None)
+        stops = self.stops20
+        if (stops is not None and (
+                isinstance(stops, bool) or not isinstance(stops, int)
+                or stops < 0)):
+            object.__setattr__(self, "stops20", None)
+
 
 @dataclass(frozen=True)
 class PredicateResult:
@@ -129,8 +273,10 @@ class PredicateResult:
     passed: Optional[bool]
 
     def to_dict(self) -> dict:
-        return {"name": self.name, "value": self.value,
-                "available": self.available, "passed": self.passed}
+        out = {"name": self.name, "value": self.value,
+               "available": self.available, "passed": self.passed}
+        json.dumps(out, sort_keys=True, allow_nan=False)
+        return out
 
 
 @dataclass(frozen=True)
@@ -169,19 +315,21 @@ class Decision:
     def to_dict(self) -> dict:
         """The transition record. Parity is asserted on THIS, not on a call
         site — both engines must emit the same canonical shape."""
-        return {"session": self.session,
-                "target_core_exposure": self.target_core_exposure,
-                "reason": self.reason,
-                "fast_severe_active": self.fast_severe_active,
-                "slow_severe_active": self.slow_severe_active,
-                "severe": self.severe,
-                "ramp_step": self.ramp_step,
-                "evidence": self.evidence}
+        out = {"session": self.session,
+               "target_core_exposure": self.target_core_exposure,
+               "reason": self.reason,
+               "fast_severe_active": self.fast_severe_active,
+               "slow_severe_active": self.slow_severe_active,
+               "severe": self.severe,
+               "ramp_step": self.ramp_step,
+               "evidence": self.evidence}
+        json.dumps(out, sort_keys=True, allow_nan=False)
+        return out
 
 
 def _p(name, value, test) -> PredicateResult:
     """One predicate, with UNAVAILABLE kept distinct from FAILED."""
-    if value is None:
+    if value is None or not _finite_number(value):
         return PredicateResult(name=name, value=None, available=False,
                                passed=None)
     return PredicateResult(name=name, value=float(value), available=True,
@@ -227,6 +375,8 @@ class Controller:
         evidence it never saw.
         """
         return {
+            "controller_state_version": CONTROLLER_STATE_VERSION,
+            "_r40_history": [],
             "ordinary_stress_active": False,
             "ordinary_stress_start_session": None,
             "ordinary_stress_start_shadow_nav": None,
@@ -266,8 +416,9 @@ class Controller:
         streak silently, which is why the streak logic reads it explicitly.
         """
         h = self.cfg.healthy
-        if ob.shadow_r20 is None or ob.damaged_breadth is None \
-                or ob.green_breadth is None:
+        if (not _finite_number(ob.shadow_r20)
+                or not _finite_number(ob.damaged_breadth)
+                or not _finite_number(ob.green_breadth)):
             return None
         return (ob.shadow_r20 > h.shadow_r20_strictly_greater_than
                 and ob.damaged_breadth <= h.max_damaged_breadth
@@ -277,7 +428,7 @@ class Controller:
         """§7a's gate. `<= 0.0`, tightened from `<= +0.01` with the exact
         historical path unchanged — so the threshold sits on a plateau rather
         than a knife edge, which is why this is a comparison and not a band."""
-        if delta_r40_5 is None:
+        if not _finite_number(delta_r40_5):
             return None
         return delta_r40_5 <= self.cfg.ramp.fragile_if_delta_r40_5_lte
 
@@ -318,6 +469,7 @@ class Controller:
     def slow_severe_evidence(self, ob: Observation, state: dict) -> Evidence:
         """The grinding-bear path. Evaluated only while ordinary stress is
         active — the caller enforces that; this reports the predicates."""
+        state = validate_controller_state(state)
         e = self.cfg.slow_entry
         # The slow predicate is anchored to the full base-stress episode,
         # whether BinaryStress or base FastState started it.
@@ -346,7 +498,8 @@ class Controller:
         oracle allocation.  The parent severe state is derived exclusively
         from the supplied observation and prior durable state.
         """
-        st = dict(state)
+        prior_state = validate_controller_state(state)
+        st = dict(prior_state)
         ob = observation
         fast = self.fast_severe_evidence(ob)
 
@@ -402,8 +555,8 @@ class Controller:
 
         base_stress = ordinary or base_fast
         if base_stress:
-            if not (state.get("ordinary_stress_active")
-                    or state.get("base_fast_active")):
+            if not (prior_state.get("ordinary_stress_active")
+                    or prior_state.get("base_fast_active")):
                 st["base_stress_start_shadow_nav"] = ob.shadow_nav
                 st["base_stress_duration"] = 1
             else:
@@ -460,8 +613,8 @@ class Controller:
         st["fast_severe_active"] = fast_active
         st["slow_severe_active"] = slow_active
         parent = 0.0 if fast_active or slow_active else 1.0
-        prior = (0.0 if state.get("fast_severe_active")
-                 or state.get("slow_severe_active") else 1.0)
+        prior = (0.0 if prior_state.get("fast_severe_active")
+                 or prior_state.get("slow_severe_active") else 1.0)
         nxt, decision = self.step_with_parent(
             observation=ob, state=st, parent_alloc=parent,
             prior_parent_alloc=prior)
@@ -476,12 +629,13 @@ class Controller:
             ramp_step=decision.ramp_step,
             evidence={"fast": fast.to_dict(), "slow": slow.to_dict()},
         )
-        return nxt, decision
+        return validate_controller_state(nxt), decision
 
     # ── the ramp ────────────────────────────────────────────────────────────
 
     def ramp_target(self, state: dict) -> float:
         """Exposure implied by the ramp alone, ignoring severe causes."""
+        state = validate_controller_state(state)
         if not state.get("ramp_active"):
             return 1.0
         idx = state.get("ramp_step_index")
@@ -504,7 +658,9 @@ class Controller:
         from the evidence rather than supplied.
         """
         cfg = self.cfg
-        st = dict(state)
+        st = validate_controller_state(state)
+        if not _finite_number(parent_alloc) or not _finite_number(prior_parent_alloc):
+            raise ValueError("parent allocations must be finite")
         severe = parent_alloc <= 0.0
         recovering = prior_parent_alloc <= 0.0 and not severe
 
@@ -609,7 +765,7 @@ class Controller:
         st["fast_severe_active"] = severe
         st["slow_severe_active"] = False
 
-        return st, Decision(
+        return validate_controller_state(st), Decision(
             session=observation.session, target_core_exposure=target,
             reason=reason, fast_severe_active=severe,
             ramp_step=(cfg.ramp.steps[st["ramp_step_index"]]
@@ -625,10 +781,10 @@ def _or_predicate(name, pairs) -> PredicateResult:
     thing is unavailable, because "no and unknown" cannot be distinguished from
     "no and yes" without looking.
     """
-    if any(v is not None and v <= t for v, t in pairs):
+    if any(_finite_number(v) and v <= t for v, t in pairs):
         return PredicateResult(name=name, value=None, available=True,
                                passed=True)
-    if any(v is None for v, _ in pairs):
+    if any(not _finite_number(v) for v, _ in pairs):
         return PredicateResult(name=name, value=None, available=False,
                                passed=None)
     return PredicateResult(name=name, value=None, available=True, passed=False)
@@ -636,7 +792,7 @@ def _or_predicate(name, pairs) -> PredicateResult:
 
 def _push(history, value, keep: int) -> list:
     h = list(history or [])
-    h.append(value)
+    h.append(float(value) if _finite_number(value) else None)
     return h[-keep:]
 
 
@@ -665,10 +821,10 @@ def _delta_r40_at_prior_close(history, horizon: int):
     if len(h) < horizon + 1:
         return None
     now, then = h[-1], h[-1 - horizon]
-    if now is None or then is None:
+    if not _finite_number(now) or not _finite_number(then):
         return None
     return now - then
 
 
-__all__ = ["Controller", "Decision", "Evidence", "Observation",
-           "PredicateResult"]
+__all__ = ["CONTROLLER_STATE_VERSION", "Controller", "Decision", "Evidence",
+           "Observation", "PredicateResult", "validate_controller_state"]

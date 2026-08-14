@@ -34,6 +34,7 @@ from __future__ import annotations
 import abc
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Callable, Optional
 
 
@@ -55,14 +56,21 @@ class AccountSnapshot:
 class BrokerPosition:
     """Normalized open position. Field set mirrors what `live_positions` stores."""
     ticker: str
-    qty: Optional[float]
+    qty: Optional[Decimal]
+    #: Explicit broker direction. Administrative migration refuses anything
+    #: except ``long``; making this required prevents an omitted transport field
+    #: from being silently normalized into liquidation authority.
+    side: str
+    #: Broker-native immutable asset identity. Administrative migration uses
+    #: this rather than the mutable transport symbol when deriving its command
+    #: key.
+    broker_instrument_id: Optional[str] = None
     avg_entry_price: Optional[float] = None
     current_price: Optional[float] = None
     market_value: Optional[float] = None
     cost_basis: Optional[float] = None
     unrealized_pl: Optional[float] = None
     unrealized_plpc: Optional[float] = None
-    side: str = "long"
     lastday_price: Optional[float] = None
     change_today: Optional[float] = None
     raw: dict = field(default_factory=dict)
@@ -79,8 +87,13 @@ class BrokerOrder:
     broker_order_id: str
     status: Optional[str]
     raw_status: str
-    filled_qty: Optional[float] = None
-    avg_fill_price: Optional[float] = None
+    symbol: str = ""
+    side: str = ""
+    quantity: Optional[Decimal] = None
+    filled_qty: Optional[Decimal] = None
+    client_order_id: Optional[str] = None
+    broker_instrument_id: Optional[str] = None
+    avg_fill_price: Optional[Decimal] = None
     filled_at: Optional[datetime] = None
     raw: dict = field(default_factory=dict)
 
@@ -156,6 +169,16 @@ class BrokerAdapter(abc.ABC):
     async def get_order(self, broker_order_id: str) -> Optional[dict]:
         """Raw broker order dict (used for fill reconciliation). None on failure."""
 
+    async def get_order_by_client_order_id(
+            self, client_order_id: str) -> Optional[BrokerOrder]:
+        """Resolve one order by its exact caller-supplied identity.
+
+        Administrative migration requires this after an uncertain submit. An
+        adapter without exact lookup cannot safely retry and therefore fails
+        closed instead of substituting a list/search heuristic.
+        """
+        raise NotImplementedError("this adapter has no exact client-order lookup")
+
     @abc.abstractmethod
     async def get_clock(self) -> Optional[dict]:
         """{is_open, next_open, next_close} or None when unknown (creds/transport)."""
@@ -194,3 +217,11 @@ class BrokerAdapter(abc.ABC):
         parsed_body is the broker's per-order multi-status list (or None if it did
         not parse); text is the raw body (used when http_status is non-2xx).
         Transport errors propagate to the caller (which records a whole-call fail)."""
+
+    async def cancel_order(self, broker_order_id: str) -> bool:
+        """Request cancellation of exactly one stable broker order id.
+
+        No implementation may substitute cancel-all: it would enlarge the
+        operator-approved mutation set between observation and cancellation.
+        """
+        raise NotImplementedError("this adapter has no exact single-order cancel")

@@ -1,0 +1,28 @@
+# Required durability overlay for the canonical Sentinel database.
+#
+# SENTINEL_BACKUP_DIR must be an operator-owned path on a second durable target
+# (NAS backup dataset, mounted backup share, or equivalent), never the repository
+# or Docker's sentinel_pgdata volume. See docs/sentinel-deployment.md.
+services:
+  sentinel-postgres:
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_timeout=300s
+      - -c
+      - 'archive_command=/bin/sh /usr/local/libexec/sentinel-archive-wal.sh "%p" "%f" /sentinel-backup/wal'
+    volumes:
+      - type: bind
+        source: ./scripts/sentinel-archive-wal.sh
+        target: /usr/local/libexec/sentinel-archive-wal.sh
+        read_only: true
+      - type: bind
+        source: ${SENTINEL_BACKUP_DIR:?set SENTINEL_BACKUP_DIR to a second durable target}/wal
+        target: /sentinel-backup/wal
+      - type: bind
+        source: ${SENTINEL_BACKUP_DIR:?set SENTINEL_BACKUP_DIR to a second durable target}/base
+        target: /sentinel-backup/base

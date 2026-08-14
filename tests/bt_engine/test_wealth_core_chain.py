@@ -440,6 +440,19 @@ class TestLiveProgress:
             seen, sessions = self._collect(scenario, progress_every=every)
             assert seen[-1]["pct"] == 100.0, f"progress_every={every} ended short"
 
+    @pytest.mark.parametrize("retention", [
+        {"retention_mode": "none"},
+        {"retention_mode": "bounded", "retention_tail": 10},
+    ])
+    def test_cadence_uses_completed_sessions_not_retained_diagnostics(
+            self, scenario, retention):
+        seen, sessions = self._collect(
+            scenario, progress_every=7, **retention)
+        expected = list(range(7, len(sessions) + 1, 7))
+        if not expected or expected[-1] != len(sessions):
+            expected.append(len(sessions))
+        assert [item["sessions_done"] for item in seen] == expected
+
     def test_each_snapshot_carries_a_running_measurement(self, scenario):
         seen, _ = self._collect(scenario, progress_every=20)
         last = seen[-1]["performance"]

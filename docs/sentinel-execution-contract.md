@@ -38,6 +38,7 @@ sentinel/feed/readiness.py           the data contract + persisted verdicts
 sentinel/core/catchup.py             convergence after absence, re-projection
 sentinel/core/decision.py            canonical shadow/controller -> stamped plan
 sentinel/paper.py                    read-only preparation + strict execution gate
+sentinel/authority.py                fail-closed certificate gate + rollout mode
 sentinel/core/cashflow.py            external cash as a declared event
 ```
 
@@ -67,6 +68,127 @@ happens when that process is interrupted, duplicated, or resumed from a backup
 that is behind the broker.
 
 ---
+
+### The rehearsal manifest is evidence, not execution authority
+
+A manifest whose lifecycle is `FINALIZED` and whose verdict is `PASS` is still
+not, by itself, permission to submit an order. In particular, that shape can
+coexist with strict expected-hash xfails or a Wealth Core `NO-GO`. Turning those
+two generic strings directly into a runtime gate would convert known
+certification debt into broker authority.
+
+Paper execution therefore requires a separately issued and cryptographically
+authenticated activation profile in the manifest. The profile names:
+
+```text
+schema                         sentinel.paper_execution_authority/1
+status                         AUTHORIZED
+scope                          ALPACA_PAPER
+strict_xfails                  exactly 0
+wealth_core_certification      GO
+allowed_rollout_modes          PINNED_1_00 and/or CONTROLLER
+controller_certification       PASS when CONTROLLER is allowed
+runtime_identity_hash          exact certified environment/source identity
+strategy_identity              strategy id + controller rule + Wealth Core hash
+```
+
+An operator-supplied SHA-256 authenticates bytes, not the party that asserted
+`PASS`, `GO`, or `AUTHORIZED` inside them. Shape, completion, and runtime-hash
+validation therefore cannot turn a self-authored JSON file into broker
+authority. This repository does not yet define a trusted issuer/public key or
+detached-signature verification contract. Until that separately reviewed trust
+root exists, `install-system-certificate` refuses before reading the file or
+opening PostgreSQL, and the execution gate rejects every certificate row,
+including an unsigned row restored from or installed by an older build.
+
+The durable schema, exact-byte parser, runtime/source/strategy checks, audit
+events, and revocation path are retained as the non-authoritative substrate for
+a future signed issuer. They are not an activation path today.
+
+The certification harness does not currently issue or sign this activation
+profile. That is fail-closed and intentional while strict xfails and the Wealth
+Core `NO-GO` remain. A future certification decision must define the issuer,
+emit and authenticate the profile deliberately, and enable installation and
+runtime verification together. Editing a generic `PASS` manifest or inserting
+a PostgreSQL row is never a supported activation path.
+
+### Rollout exposure is durable intent
+
+The actuator has one versioned, one-row rollout state. A behaviorally empty
+database starts at `PINNED_1_00`; this is a real operational mode, not a UI
+label and not an inference from a numeric exposure. A durable behavioral-schema
+migration ledger, not rollout-table absence, decides whether that initial row
+may be seeded. Exactly two cases seed it: an empty behavioral database and a
+recognized pre-rollout schema. The complete intact schema shipped at
+`6113bffd896824ee24891b0c1aeada60c2b73ef5` has a one-time compatibility bridge
+that records the migration as already applied and preserves its rollout row and
+history unchanged.
+
+The markerless bootstrap fingerprints are closed: empty, recognized
+pre-rollout, or complete intact 6113. Any mixed/partial shape refuses. Once the
+ledger is installed, a missing singleton, rollout table, ledger row/table, a
+gap or unknown version, or a mismatch between the ledger and physical schema is
+durable-state corruption. Restart is never a repair mechanism. Migration
+inspection, DDL, seeding, the independent post-ledger structural witness, and
+the ledger record are serialized under the transaction-scoped schema advisory
+lock and commit atomically. Existing rollout state/events, plans, certificates,
+account state, and command-event history are never rewritten. The recognized
+legacy DDL retains the earlier deterministic backfill of missing current-command
+identity from the singleton account binding; it does not alter command events.
+A schema fingerprint covers all behavioral columns, defaults, constraints, and
+indexes, not only rollout relations. Loss of a primary key, coherence check, or
+the one-in-flight-command unique index therefore refuses startup instead of
+silently accepting or recreating a weaker execution schema.
+A genuine legacy plan receives
+nullable, no-default rollout stamp columns and remains unexecutable until a new
+plan is prepared; schema migration does not retroactively grant it
+`PINNED_1_00` version 1 authority. Every newly prepared execution plan records
+the rollout mode, rollout version, and the certificate that authorized a
+controller transition, and those fields participate in the plan's economic
+fingerprint.
+
+The no-default columns and their named coherence constraint are the redundant
+post-ledger witness. The constraint permits either one wholly `NULL` legacy
+triple or one complete, internally valid rollout triple; a partial stamp is
+corruption. The migration ledger and rollout tables are behavioral backup
+state. A table-selective restore that omits either is not repaired at startup.
+If every behavioral relation and every independent witness is lost, that empty
+catalog is in-band indistinguishable from a genuinely new database. Likewise,
+if an unledgered 6113 database loses *every* rollout/certificate relation and
+all three plan-stamp columns, the remaining exact historical catalog is
+indistinguishable from its genuine pre-rollout predecessor. PostgreSQL volume
+identity and whole-database backup/restore are the boundary that must prevent
+either complete witness loss from being presented as a new/legacy deployment.
+Any surviving post-migration evidence makes missing authority a refusal.
+Direct lookup or execution of a wholly unstamped legacy plan refuses. Current-
+plan discovery may skip only that wholly unstamped legacy shape so normal
+preparation can create a stamped replacement and transactionally supersede the
+historical row; it never treats the legacy row as executable authority. A
+committed mix of stamped and unstamped current rows is ambiguous and refuses
+rather than selecting an older stamped plan.
+
+```text
+PINNED_1_00   plan target exposure is exactly Decimal("1")
+CONTROLLER    plan target exposure is the durable controller decision
+```
+
+Changing to `CONTROLLER` is a separately named, confirmed and audited command.
+It requires authenticated authority whose profile allows CONTROLLER and says
+controller certification is `PASS`; because trusted issuance is not yet
+implemented, this transition currently refuses. Changing back to
+`PINNED_1_00` is also explicit and versioned and does not require controller
+identity or controller authority. It is **not a de-risking transition**:
+`PINNED_1_00` forces 100% Wealth Core exposure, so moving from a controller
+target below 1.00 increases exposure and risk. Its confirmation flag and
+operator output state that fact without euphemism. A plan prepared under an
+earlier rollout version is stale even when its numeric exposure happens to
+equal the current one.
+
+The deterministic production plan id is `sentinel-` followed by the complete
+64-hex SHA-256 of its immutable economics. It is not a shortened display hash:
+that id is mutation authority at the broker and therefore retains the full
+collision resistance of the source, state, and certification identities it
+binds.
 
 ## 0. Why this layer needs its own contract
 
@@ -289,15 +411,18 @@ it is NEVER retried in a loop
 An autonomous retry against an unfillable remainder is an infinite loop that
 looks like activity.
 
-### 4.4 What is exempt
+### 4.4 Administrative migration uses the same identity law
 
-**The one-time account migration is an administrative act, not autonomous
-execution**, and may use broker-native close. It is operator-invoked, runs once,
-and its whole purpose is to remove a book Sentinel did not create and will never
-reason about again. Requiring it to be rebuilt on the new command model before it
-can be used would put a rewrite in front of a safety fix for no gain.
+The one-time account migration remains an explicitly invoked administrative
+act, but it is no longer exempt from recoverable command identity. Every legacy
+SELL is persisted as `PLANNED` and `SEND_PENDING` with an account/epoch-bound
+client key before transport. A timeout becomes `UNKNOWN` and must be resolved
+through exact client-key lookup before another SELL can be minted. Complete
+positions/open-orders reads still decide when the inherited book is flat; they
+never prove that an uncertain submit did not land.
 
-Operator/emergency tooling is likewise exempt, and must be labelled as such.
+Emergency tooling is outside certified execution and must be labelled as such.
+It is not part of the migration, preparation, or execution commands.
 
 ---
 
@@ -1224,6 +1349,16 @@ broker no longer exposes enough history to reconstruct it, exact reconstruction
 is impossible. No code fixes missing information. This is why WAL archiving to a
 second target and periodic verified restore drills are part of the architecture
 rather than operations paperwork.
+
+The archive boundary is durable publication, not pathname existence. A WAL
+archive command may report success only after a same-directory temporary copy
+has matched the completed source in size and content, the file has been
+fsynced, a no-clobber atomic rename has published it, and the destination
+directory has been fsynced. An already-published name is idempotent only when
+its size and bytes exactly match the source; a partial or different object
+fails closed. This prevents a failed copy from becoming false evidence that a
+segment is recoverable and then allowing PostgreSQL to recycle its only good
+source.
 
 ---
 

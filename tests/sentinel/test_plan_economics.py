@@ -37,7 +37,10 @@ for p in (str(ROOT), str(ROOT / "shared")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from tests.support.postgres import _EphemeralPostgres  # noqa: E402
+from tests.support.postgres import (  # noqa: E402
+    _EphemeralPostgres,
+    drop_public_tables,
+)
 
 from sentinel import schema  # noqa: E402
 from sentinel.execution import journal  # noqa: E402
@@ -64,9 +67,7 @@ def pg():
 @pytest.fixture()
 def conn(pg):
     c = feed_store.connect(pg.sync_dsn)
-    with c.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS sentinel_execution_plans CASCADE")
-    c.commit()
+    drop_public_tables(c)
     schema.ensure_schema(c)
     yield c
     c.close()
@@ -144,6 +145,11 @@ class TestAPlanIdDeterminesThePlan:
         journal.save_plan(conn, a_plan(basket={"A": 100}))
         with pytest.raises(journal.PlanEconomicsChanged):
             journal.save_plan(conn, a_plan(basket={"A": 101}))
+
+    def test_the_plan_fingerprint_keeps_the_complete_sha256(self):
+        fingerprint = a_plan().fingerprint()
+        assert len(fingerprint) == 64
+        assert set(fingerprint) <= set("0123456789abcdef")
 
     def test_SUPERSESSION_is_not_a_divergence(self, conn):
         """A lifecycle fact, not economics. Including `superseded_by` in the

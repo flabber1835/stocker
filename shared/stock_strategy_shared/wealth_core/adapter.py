@@ -42,7 +42,11 @@ from stock_strategy_shared.wealth_core.engine import (
 from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
 from stock_strategy_shared.wealth_core.marks import Mark, MarkStatus, _positive
 from stock_strategy_shared.wealth_core.prices import DailyBar
-from stock_strategy_shared.wealth_core.shares import as_json as _as_json, split_shares
+from stock_strategy_shared.wealth_core.shares import (
+    as_json as _as_json,
+    is_integral,
+    split_shares,
+)
 from stock_strategy_shared.wealth_core.state import PortfolioState
 from stock_strategy_shared.wealth_core.terminal_audit import (
     record_grace_print, record_grace_split)
@@ -60,20 +64,27 @@ class PendingOrder:
     security_id: str
     ticker: str
     slot_id: int
-    shares: int
+    shares: float
     signal_session: str
     reason: str
     sessions_waiting: int = 0
+    # Corporate actions that changed this still-unfilled economic intent.
+    # Persisted with the queue so a restart cannot forget why the quantity or
+    # identity no longer matches the signal-session order.
+    transformations: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """Serialise for a restart. `sessions_waiting` is part of the state, not
         a statistic: an order that has waited eleven sessions and one queued
         yesterday are different facts, and resetting the counter across a
         restart hides a security that has become untradeable."""
-        return {"operation": self.operation.value, "security_id": self.security_id,
+        out = {"operation": self.operation.value, "security_id": self.security_id,
                 "ticker": self.ticker, "slot_id": self.slot_id,
-                "shares": self.shares, "signal_session": self.signal_session,
+                "shares": _as_json(self.shares), "signal_session": self.signal_session,
                 "reason": self.reason, "sessions_waiting": self.sessions_waiting}
+        if self.transformations:
+            out["transformations"] = list(self.transformations)
+        return out
 
     @classmethod
     def from_dict(cls, d: dict) -> "PendingOrder":
@@ -81,7 +92,8 @@ class PendingOrder:
                    security_id=d["security_id"], ticker=d["ticker"],
                    slot_id=d["slot_id"], shares=d["shares"],
                    signal_session=d["signal_session"], reason=d["reason"],
-                   sessions_waiting=d.get("sessions_waiting", 0))
+                   sessions_waiting=d.get("sessions_waiting", 0),
+                   transformations=list(d.get("transformations") or ()))
 
 
 @dataclass
@@ -109,6 +121,10 @@ class SessionResult:
     # posts no ledger event — but an exit silently submitted under a dead symbol
     # is exactly the kind of thing that must not be invisible.
     relabelled: list[dict] = field(default_factory=list)
+    # Exact split/conversion changes to still-unfilled intent. The durable copy
+    # lives on PendingOrder; this per-session view makes the transition directly
+    # inspectable without conflating an economic transform with a ticker rename.
+    transformed: list[dict] = field(default_factory=list)
 
 
 def build_marks(bars: Sequence[DailyBar], held: set[str],
@@ -179,7 +195,8 @@ def build_marks(bars: Sequence[DailyBar], held: set[str],
 
 
 def apply_ticker_changes(state: PortfolioState, bars: Sequence[DailyBar],
-                         pending: Sequence["PendingOrder"] = ()) -> list[dict]:
+                         pending: Sequence["PendingOrder"] = (), *,
+                         session: str | None = None) -> list[dict]:
     """Step 0. Re-label held positions, reservations and queued orders.
 
     A TICKER IS AN OBSERVATION LABEL; the permanent `security_id` owns every
@@ -197,12 +214,13 @@ def apply_ticker_changes(state: PortfolioState, bars: Sequence[DailyBar],
     the only way a NUMBER changes, and a relabelling changes none. It is
     reported on the session result instead, so the audit still shows it.
     """
-    by_sec = {b.security_id: b.ticker for b in bars if b.ticker}
+    by_sec = {b.security_id: (b.ticker, b.session) for b in bars if b.ticker}
     changes: list[dict] = []
 
     for slot_id in sorted(state.episodes):
         ep = state.episodes[slot_id]
-        new = by_sec.get(ep.security_id)
+        observed = by_sec.get(ep.security_id)
+        new = observed[0] if observed else None
         if new and new != ep.ticker:
             changes.append({"security_id": ep.security_id, "from": ep.ticker,
                             "to": new, "where": "episode", "slot_id": slot_id})
@@ -211,7 +229,8 @@ def apply_ticker_changes(state: PortfolioState, bars: Sequence[DailyBar],
     for slot_id in sorted(state.slots):
         s = state.slots[slot_id]
         if s.reserved_for:
-            new = by_sec.get(s.reserved_for)
+            observed = by_sec.get(s.reserved_for)
+            new = observed[0] if observed else None
             if new and new != s.reserved_ticker:
                 changes.append({"security_id": s.reserved_for,
                                 "from": s.reserved_ticker, "to": new,
@@ -219,20 +238,79 @@ def apply_ticker_changes(state: PortfolioState, bars: Sequence[DailyBar],
                 s.reserved_ticker = new
 
     for po in pending:
-        new = by_sec.get(po.security_id)
+        observed = by_sec.get(po.security_id)
+        new = observed[0] if observed else None
         if new and new != po.ticker:
+            old = po.ticker
             changes.append({"security_id": po.security_id, "from": po.ticker,
                             "to": new, "where": "pending_order",
                             "slot_id": po.slot_id})
             po.ticker = new
+            _record_order_transform(
+                po, session=session or observed[1], kind="TICKER_CHANGE",
+                from_security_id=po.security_id,
+                to_security_id=po.security_id,
+                from_ticker=old, to_ticker=new,
+                shares_before=po.shares, shares_after=po.shares)
 
     return changes
 
 
+def _record_order_transform(po: PendingOrder, *, session: str, kind: str,
+                            from_security_id: str, to_security_id: str,
+                            from_ticker: str, to_ticker: str,
+                            shares_before, shares_after,
+                            detail: Mapping | None = None) -> dict:
+    row = {
+        "session": session, "kind": kind,
+        "from_security_id": from_security_id,
+        "to_security_id": to_security_id,
+        "from_ticker": from_ticker, "to_ticker": to_ticker,
+        "shares_before": _as_json(shares_before),
+        "shares_after": _as_json(shares_after),
+        **dict(detail or {}),
+    }
+    po.transformations.append(row)
+    return row
+
+
+def _release_cancelled_entry_reservation(state: PortfolioState,
+                                         po: PendingOrder) -> bool:
+    if po.operation is not Operation.OPEN_SLOT_POSITION:
+        return False
+    slot = state.slots[po.slot_id]
+    if slot.reserved_for is None:
+        # Older synthetic/recovery fixtures can carry an order without the
+        # reservation that current decide() always writes. There is nothing to
+        # release, but an unrelated reservation must never be cleared for it.
+        return False
+    if slot.reserved_for != po.security_id:
+        raise ValueError(
+            f"pending entry {po.security_id!r} in slot {po.slot_id} cannot be "
+            f"cancelled over reservation {slot.reserved_for!r}")
+    slot.release_reservation()
+    return True
+
+
+def _cancelled_order(state: PortfolioState, po: PendingOrder, *, session: str,
+                     reason: str, **detail) -> dict:
+    row = {
+        "session": session, "security_id": po.security_id,
+        "ticker": po.ticker, "slot_id": po.slot_id,
+        "wanted_shares": _as_json(po.shares), "reason": reason,
+        "reservation_released": _release_cancelled_entry_reservation(state, po),
+        **detail,
+    }
+    if po.transformations:
+        row["transformations"] = list(po.transformations)
+    return row
+
+
 def apply_splits(state: PortfolioState, bars: Sequence[DailyBar], ledger: Ledger,
-                 session: str) -> None:
+                 session: str, pending: Sequence[PendingOrder] = ()) -> list[dict]:
     """Step 1. Share counts change FIRST, so every later calculation — marks,
     equity, exit sizing — reads the post-split count."""
+    transformed: list[dict] = []
     for b in bars:
         if b.split_ratio == 1.0:
             continue
@@ -269,6 +347,128 @@ def apply_splits(state: PortfolioState, bars: Sequence[DailyBar], ledger: Ledger
                         detail={"ratio": b.split_ratio,
                                 "before": _as_json(before),
                                 "after": _as_json(ep.current_shares)})
+        # An unfilled order is canonical shadow intent too. Transform it at the
+        # same boundary as the episode so a restart between action and fill sees
+        # one coherent quantity. OPENs that become fractional are cancelled
+        # explicitly at the fill phase: canonical accounting may own fractions,
+        # but a new entry remains a whole-share trade.
+        for po in pending:
+            if po.security_id != b.security_id:
+                continue
+            before = po.shares
+            after = split_shares(before, b.split_ratio)
+            po.shares = after
+            transformed.append(_record_order_transform(
+                po, session=session, kind="SPLIT",
+                from_security_id=po.security_id,
+                to_security_id=po.security_id,
+                from_ticker=po.ticker, to_ticker=po.ticker,
+                shares_before=before, shares_after=after,
+                detail={"ratio": b.split_ratio}))
+    return transformed
+
+
+def _transform_pending_for_terminal(
+        state: PortfolioState, pending: list[PendingOrder], *, terms, result: dict,
+        session: str) -> tuple[list[dict], list[dict]]:
+    """Apply a terminal identity/economic change to every matching intent.
+
+    A successful conversion continues CLOSE intent in the delivered security.
+    A pending OPEN may continue only through a pure stock conversion whose
+    transformed quantity is a positive whole share count; it owns no cash-in-
+    lieu or mixed-consideration entitlement. Everything extinguished or
+    inexpressible is cancelled explicitly and its reservation is released.
+    """
+    from stock_strategy_shared.wealth_core.terminal import TerminalKind
+
+    converted: list[dict] = []
+    cancelled: list[dict] = []
+    keep: list[PendingOrder] = []
+    for po in pending:
+        if po.security_id != terms.security_id:
+            keep.append(po)
+            continue
+
+        # A queued BUY did not own this predecessor at the action boundary and
+        # therefore owns neither leg of mixed consideration. Retargeting it to
+        # the delivered security would silently discard the cash leg and turn
+        # an old trading intent into a different purchase.
+        if (po.operation is Operation.OPEN_SLOT_POSITION
+                and terms.kind is TerminalKind.CASH_PLUS_STOCK):
+            cancelled.append(_cancelled_order(
+                state, po, session=session,
+                reason="TERMINAL_INTENT_INEXPRESSIBLE",
+                terms_reason="MIXED_CONSIDERATION_ENTRY_HAS_NO_ENTITLEMENT"))
+            continue
+
+        exact_conversion = (
+            terms.kind in (TerminalKind.CONVERSION,
+                           TerminalKind.CASH_PLUS_STOCK)
+            and bool(result.get("converted")))
+        not_held_open_conversion = (
+            po.operation is Operation.OPEN_SLOT_POSITION
+            and terms.kind is TerminalKind.CONVERSION
+            and result.get("reason") == "NOT_HELD")
+
+        if exact_conversion or not_held_open_conversion:
+            old_sec, old_ticker, before = po.security_id, po.ticker, po.shares
+            if po.operation is Operation.CLOSE_POSITION:
+                ep = state.episodes.get(po.slot_id)
+                if ep is None or ep.security_id != terms.delivered_security_id:
+                    cancelled.append(_cancelled_order(
+                        state, po, session=session,
+                        reason="TERMINAL_INTENT_EXTINGUISHED"))
+                    continue
+                after = ep.current_shares
+            else:
+                ok, why = terms.completeness(po.shares)
+                after = split_shares(po.shares, terms.exchange_ratio)
+                if not ok or after <= 0 or not is_integral(after):
+                    cancelled.append(_cancelled_order(
+                        state, po, session=session,
+                        reason="TERMINAL_INTENT_INEXPRESSIBLE",
+                        terms_reason=(why or "FRACTIONAL_ENTRY_ENTITLEMENT"),
+                        transformed_shares=_as_json(after)))
+                    continue
+                after = int(after)
+
+            po.security_id = terms.delivered_security_id
+            po.ticker = terms.delivered_ticker
+            po.shares = after
+            if po.operation is Operation.OPEN_SLOT_POSITION:
+                slot = state.slots[po.slot_id]
+                if slot.reserved_for not in (None, old_sec):
+                    raise ValueError(
+                        f"conversion of pending entry {old_sec!r} in slot "
+                        f"{po.slot_id} conflicts with reservation "
+                        f"{slot.reserved_for!r}")
+                if slot.reserved_for == old_sec:
+                    slot.reserved_for = po.security_id
+                    slot.reserved_ticker = po.ticker
+                    slot.reserved_issuer = terms.delivered_issuer_id
+            converted.append(_record_order_transform(
+                po, session=session, kind=terms.kind.value,
+                from_security_id=old_sec, to_security_id=po.security_id,
+                from_ticker=old_ticker, to_ticker=po.ticker,
+                shares_before=before, shares_after=after,
+                detail={"exchange_ratio": terms.exchange_ratio,
+                        "reference": terms.reference}))
+            keep.append(po)
+            continue
+
+        if result.get("applied") or result.get("reason") == "NOT_HELD":
+            cancelled.append(_cancelled_order(
+                state, po, session=session,
+                reason="TERMINAL_INTENT_EXTINGUISHED"))
+            continue
+
+        # Incomplete/carried terms do not change the episode yet. A CLOSE stays
+        # live against the old security; an OPEN is cancelled later by the
+        # ordinary same-session terminal guard because it owns no entitlement.
+        keep.append(po)
+
+    pending[:] = keep
+    return converted, cancelled
 
 
 def apply_dividends(state: PortfolioState, bars: Sequence[DailyBar],
@@ -378,9 +578,16 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
 
     # ── 0. re-label ──────────────────────────────────────────────────────────
     # Before anything reads a ticker. Changes no number and no economic state.
-    relabelled = apply_ticker_changes(state, bars, pending)
+    transform_starts = [(po, len(po.transformations)) for po in pending]
+    relabelled = apply_ticker_changes(state, bars, pending, session=session)
+    order_transformations = [
+        transform
+        for po, start in transform_starts
+        for transform in po.transformations[start:]
+    ]
 
-    apply_splits(state, bars, ledger, session)
+    order_transformations.extend(apply_splits(
+        state, bars, ledger, session, pending=pending))
     apply_dividends(state, bars, ledger, session, cfg)
 
     # ── 3. terminal actions, HERE and not before ─────────────────────────────
@@ -393,13 +600,12 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     # already terminated. Both are ordering artefacts, so the ordering is now in
     # one place — the same place that documents it.
     terminal_results: list[dict] = []
+    res_cancelled: list[dict] = []
     for terms in sorted(terminal_terms,
                         key=lambda t: (t.security_id, t.kind.value)):
         from stock_strategy_shared.wealth_core.terminal import apply_terminal
         _b = by_sec.get(terms.security_id)
-        terminal_results.append(
-            {"session": session,
-             **apply_terminal(
+        terminal_result = apply_terminal(
                  state, terms, ledger=ledger, session=session, cfg=cfg,
                  # Staleness carried in from PRIOR sessions — THIS session's
                  # marks have not been built yet, which is correct: "sessions
@@ -412,12 +618,17 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                  executable_price=(float(_b.raw_mark_close)
                                    if _b is not None and _b.can_execute
                                    and _b.raw_mark_close else None),
-                 counters=settlement_counters)})
+                 counters=settlement_counters)
+        transformed, cancelled = _transform_pending_for_terminal(
+            state, pending, terms=terms, result=terminal_result,
+            session=session)
+        order_transformations.extend(transformed)
+        res_cancelled.extend(cancelled)
+        terminal_results.append({"session": session, **terminal_result})
     terminated = {t.security_id for t in terminal_terms}
 
     # ── 4. execute orders decided BEFORE this session ────────────────────────
     fills: list[dict] = []
-    res_cancelled: list[dict] = []
     still_pending: list[PendingOrder] = []
     entered_this_session: list[int] = []
     for po in pending:
@@ -427,11 +638,14 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
             # would pop an episode the terminal action already removed
             # (KeyError). Dropping the order is the only coherent outcome, and
             # it is RECORDED so a vanished order is never silent.
-            res_cancelled.append(
-                {"session": session, "security_id": po.security_id,
-                 "ticker": po.ticker, "slot_id": po.slot_id,
-                 "wanted_shares": po.shares,
-                 "reason": "TERMINATED_BEFORE_FILL"})
+            res_cancelled.append(_cancelled_order(
+                state, po, session=session, reason="TERMINATED_BEFORE_FILL"))
+            continue
+        if (po.operation is Operation.OPEN_SLOT_POSITION
+                and (po.shares <= 0 or not is_integral(po.shares))):
+            res_cancelled.append(_cancelled_order(
+                state, po, session=session,
+                reason="INEXPRESSIBLE_FRACTIONAL_ENTRY"))
             continue
         b = by_sec.get(po.security_id)
         if b is None or not b.can_execute:
@@ -440,6 +654,16 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
             continue
         px = float(b.raw_open)
         if po.operation is Operation.CLOSE_POSITION:
+            ep = state.episodes.get(po.slot_id)
+            if ep is None or ep.security_id != po.security_id:
+                res_cancelled.append(_cancelled_order(
+                    state, po, session=session, reason="STALE_CLOSE_INTENT"))
+                continue
+            if float(ep.current_shares) != float(po.shares):
+                raise ValueError(
+                    f"pending close quantity {po.shares!r} for "
+                    f"{po.security_id!r} does not match transformed episode "
+                    f"quantity {ep.current_shares!r}")
             before = state.cash
             apply_exit(state, slot_id=po.slot_id, raw_open=px, cfg=cfg)
             ledger.post(session=session, event_type=EventType.SELL,
@@ -447,8 +671,14 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                         security_id=po.security_id, ticker=po.ticker,
                         shares_delta=-po.shares, price=px,
                         fees=po.shares * px * cfg.transaction_cost_bps / 10_000.0,
-                        reason=po.reason)
+                        reason=po.reason,
+                        detail=({"pending_transformations":
+                                 list(po.transformations)}
+                                if po.transformations else None))
         else:
+            # OPEN quantities remain whole-share trades even if a split stored
+            # the transformed quantity as an integral float.
+            po.shares = int(po.shares)
             # NO LEVERAGE, checked at the fill and not only at the decision.
             # The size was computed from session t's close; this is t+1's open
             # and it can gap. Fill what the cash actually covers.
@@ -487,11 +717,18 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                         security_id=po.security_id, ticker=po.ticker,
                         shares_delta=po.shares, price=px,
                         fees=po.shares * px * cfg.transaction_cost_bps / 10_000.0,
-                        reason=po.reason)
+                        reason=po.reason,
+                        detail=({"pending_transformations":
+                                 list(po.transformations)}
+                                if po.transformations else None))
             entered_this_session.append(po.slot_id)
-        fills.append({"session": session, "security_id": po.security_id,
-                      "operation": po.operation.value, "shares": po.shares,
-                      "raw_open": px, "waited": po.sessions_waiting})
+        fill = {"session": session, "security_id": po.security_id,
+                "operation": po.operation.value,
+                "shares": _as_json(po.shares),
+                "raw_open": px, "waited": po.sessions_waiting}
+        if po.transformations:
+            fill["transformations"] = list(po.transformations)
+        fills.append(fill)
     pending[:] = still_pending
 
     # ── 5. age, then 6. seed the entry-session peak ──────────────────────────
@@ -620,4 +857,5 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                          estimated_equity=ev.estimated_equity_including_stale_marks,
                          blocked=not ev.is_resolved, cancelled=res_cancelled,
                          terminal_results=terminal_results,
-                         relabelled=relabelled)
+                         relabelled=relabelled,
+                         transformed=order_transformations)

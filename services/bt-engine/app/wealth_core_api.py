@@ -55,7 +55,14 @@ from stock_strategy_shared.wealth_core.hashes import HASH_ORDER
 from stock_strategy_shared.wealth_core.risk_profile import PROFILE_NAME
 from stock_strategy_shared.wealth_core.signals import REQUIRED_CLOSES
 
-from app.jobs_busy import busy_detail, running_job_kind
+from app.jobs_busy import (
+    CorpusGenerationUnavailable,
+    acquire_corpus_read_lock,
+    acquire_job_start_gate,
+    busy_detail,
+    load_ready_data_generation,
+    running_job_kind,
+)
 from app.wealth_core_chain import (
     ChainRehearsalDiverged,
     DEFAULT_RETENTION_TAIL,
@@ -126,6 +133,7 @@ def _engine_identity() -> dict:
 
 
 WARMUP_SESSIONS = REQUIRED_CLOSES - 1
+CANONICAL_BASELINE_STARTING_CASH = 1_000_000.0
 
 #: Calendar days queried back to FIND those sessions. 126 sessions is ~183
 #: calendar days; 400 leaves room for holidays and a thin patch without a second
@@ -144,8 +152,24 @@ PROGRESS_EVERY = int(os.getenv("WEALTH_CORE_PROGRESS_EVERY", "5"))
 
 #: The live progress slot. IN MEMORY on purpose: it is a display, it is worthless
 #: after the process that produced it has gone, and persisting it would mean a DB
-#: write every few sessions for the whole run. `/wealth-core/progress` reads it.
+#: write every few sessions for the whole run. It is nevertheless run-scoped:
+#: a terminal row must never be paired with a plausible snapshot from that run.
 _progress: dict = {}
+_progress_run_id: str | None = None
+
+
+def _begin_progress(run_id: str) -> None:
+    """Give the newly admitted run sole ownership of the live progress slot."""
+    global _progress, _progress_run_id
+    _progress_run_id = run_id
+    _progress = {}
+
+
+def _publish_progress_for(run_id: str, snapshot: dict) -> None:
+    """Publish only if ``run_id`` still owns the live display slot."""
+    global _progress
+    if _progress_run_id == run_id:
+        _progress = {"run_id": run_id, **snapshot}
 
 
 def _publish_progress(snapshot: dict) -> None:
@@ -153,7 +177,20 @@ def _publish_progress(snapshot: dict) -> None:
     assignment, which is atomic under the GIL — no lock, and no partially
     written snapshot can ever be observed."""
     global _progress
-    _progress = snapshot
+    # Backward-compatible direct callback for isolated `_execute` callers. The
+    # background path binds a run id with `_publish_progress_for`; direct test
+    # calls may update the current slot but cannot create one from nothing.
+    owner = _progress_run_id
+    if owner is not None:
+        _publish_progress_for(owner, snapshot)
+
+
+def _finish_progress(run_id: str) -> None:
+    """Clear only the run that owns the slot; delayed cleanup is harmless."""
+    global _progress, _progress_run_id
+    if _progress_run_id == run_id:
+        _progress = {}
+        _progress_run_id = None
 
 
 # A Wealth Core run loads the whole corpus for its date range; two at once, or
@@ -294,6 +331,10 @@ class WealthCoreJobRequest(BaseModel):
     baseline_hashes: dict | None = None
     # BASELINE_REPLAY only.
     expected_hashes: dict | None = None
+    # The exact READY bt_data_version from the independently retained expected-
+    # hash artifact. Hashes without their generation can be replayed against a
+    # later in-place vendor correction and misreported as an engine divergence.
+    expected_data_version: str | None = None
     # CHAIN_REHEARSAL only. How much per-session diagnostic detail the rehearsal
     # keeps in memory; see `wealth_core_chain.RETENTION_MODES`. Retention never
     # influences execution — every hash, counter and certification output is
@@ -363,6 +404,34 @@ def _validate(req: WealthCoreJobRequest) -> None:
             raise HTTPException(422, (
                 "a baseline_replay records no change — it reproduces the "
                 "reference stream. Use mode=experiment."))
+        if not req.expected_data_version:
+            raise HTTPException(422, (
+                "baseline_replay requires expected_data_version from the "
+                "retained expected-hash artifact. Hashes without the exact "
+                "corpus generation can be checked against later data and turn "
+                "a corpus change into a false engine divergence."))
+        if req.starting_cash != CANONICAL_BASELINE_STARTING_CASH:
+            raise HTTPException(422, (
+                "baseline_replay uses the producer's canonical starting_cash "
+                f"{CANONICAL_BASELINE_STARTING_CASH}; received "
+                f"{req.starting_cash!r}. Use mode=experiment for a different "
+                "capital base."))
+        if req.config:
+            raise HTTPException(422, (
+                "baseline_replay accepts no WealthCoreConfig overrides; it "
+                "reproduces the producer's canonical strategy and volatility "
+                "profile defaults. Use mode=experiment for a variant."))
+        if req.eligibility:
+            raise HTTPException(422, (
+                "baseline_replay accepts no EligibilityConfig overrides; it "
+                "reproduces the producer's canonical eligibility and "
+                "volatility profile defaults. Use mode=experiment for a "
+                "variant."))
+    elif req.expected_data_version is not None:
+        raise HTTPException(422, (
+            "expected_data_version is baseline_replay-only. Refused rather "
+            "than ignored so a caller cannot believe a generation pin applied "
+            f"to mode={req.mode!r}."))
 
     if req.mode == "experiment":
         if not req.change:
@@ -411,6 +480,18 @@ def _split_warmup(all_sessions, start_iso: str):
     return before[-WARMUP_SESSIONS:], [s for s in all_sessions if s >= start_iso]
 
 
+def _exclusive_prior_session(all_sessions, warmup_sessions) -> str | None:
+    """Trading session immediately before retained feature history."""
+    if not warmup_sessions:
+        return None
+    first = warmup_sessions[0]
+    try:
+        index = list(all_sessions).index(first)
+    except ValueError:
+        return None
+    return str(all_sessions[index - 1]) if index > 0 else None
+
+
 def corpus_date_range(req: WealthCoreJobRequest) -> tuple[date, date]:
     """The corpus range as DATE OBJECTS, never strings.
 
@@ -429,6 +510,23 @@ def corpus_date_range(req: WealthCoreJobRequest) -> tuple[date, date]:
     return req.start_date, req.end_date
 
 
+def require_expected_data_generation(req: WealthCoreJobRequest,
+                                     generation) -> None:
+    """Bind expected hashes to the READY generation held by this snapshot."""
+    if req.mode != "baseline_replay":
+        return
+    expected = req.expected_data_version
+    if not expected:  # `_validate` owns the HTTP-facing shape; fail closed too.
+        raise CorpusGenerationUnavailable(
+            "baseline replay has no expected_data_version")
+    if generation.version != expected:
+        raise CorpusGenerationUnavailable(
+            "baseline replay expected bt-data generation "
+            f"{expected!r}, but the locked READY snapshot is "
+            f"{generation.version!r}. Re-run the expected-hash producer; no "
+            "corpus loader query was issued.")
+
+
 async def _load_corpus(req: WealthCoreJobRequest) -> dict:
     """Read the corpus through the BACKTESTER's loader, in a worker thread.
 
@@ -440,7 +538,9 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
     from app.live.wealth_core_replay import (  # COPYed at image build
         ACTIONS_CAVEATS, CAVEATS, DERIVED_SPLIT_CAVEATS, REQUIRE_ACTIONS,
         CorporateActionsUnavailable, RawPriceDomainUnavailable,
-        assert_raw_price_domain, dividends_from_actions, load_actions,
+        actions_after_session, actions_effective_in_sessions,
+        assert_raw_price_domain,
+        dividends_from_actions, load_actions,
         load_bars, load_identity, load_meta, load_sessions, sessions_index,
         split_ratios_from_actions, terminal_events_from_actions,
         unusable_dividend_rows)
@@ -456,6 +556,22 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
     warmup_from = start - timedelta(days=WARMUP_CALENDAR_DAYS)
 
     async with _state["engine"].connect() as aconn:
+        # One immutable, identified corpus.  SET TRANSACTION must be the first
+        # statement: SQLAlchemy's connection context otherwise uses PostgreSQL's
+        # default READ COMMITTED mode, where every loader query may see a newer
+        # writer commit than the previous one.  The non-blocking shared advisory
+        # lock is cross-process, pairs with bt-data's whole-job exclusive lock,
+        # and refuses instead of silently queueing a rehearsal behind a writer.
+        await aconn.execute(text(
+            "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
+        await acquire_corpus_read_lock(aconn)
+        generation = await load_ready_data_generation(aconn)
+        # This check is deliberately before `_ThreadConn` exists and therefore
+        # before the canonical loader can issue its first corpus query.  The
+        # expected hashes and this generation came from one retained artifact;
+        # checking after load would spend hours computing an answer over data
+        # the request never authorised.
+        require_expected_data_generation(req, generation)
         conn = _ThreadConn(aconn, loop)
 
         def _work() -> dict:
@@ -475,8 +591,21 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
                     f"while the benchmark is measured fully invested from day "
                     f"one. Remedy: request a later start_date, or backfill "
                     f"bt_prices further back.")
+            actions_exclusive_prior_session = _exclusive_prior_session(
+                all_sessions, warmup_sessions)
+            if actions_exclusive_prior_session is None:
+                raise RawPriceDomainUnavailable(
+                    f"the {WARMUP_SESSIONS} retained warm-up sessions have no "
+                    f"immediately preceding trading session inside the "
+                    f"{WARMUP_CALENDAR_DAYS}-calendar-day lookup. That session "
+                    f"is the exclusive corporate-action cutoff; without it a "
+                    f"weekend/holiday event at the boundary cannot be placed "
+                    f"without guessing. Backfill further or widen the lookup.")
 
-            meta = load_meta(conn)
+            # Universe/identity are point-in-time inputs, not present-day
+            # metadata. The replay boundary is the requested end session; a
+            # later snapshot must not leak into this historical rehearsal.
+            meta = load_meta(conn, as_of=end)
             if not meta:
                 # REFUSED, not run. An empty universe does not produce an error
                 # anywhere downstream: no candidates means no scores, no
@@ -497,7 +626,7 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
                     f"run would complete successfully and report a 0% return. "
                     f"Remedy: run the TICKERS stage on bt-data "
                     f"(POST /jobs/backfill), then re-submit.")
-            identity = load_identity(conn)
+            identity = load_identity(conn, as_of=end)
             # TWO indices, and the split is load-bearing.
             #
             # `snap_to_session` maps an action to the first session ON OR AFTER
@@ -518,11 +647,19 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
             #                        first session, for a security the run never
             #                        held. Dropping is correct — the security
             #                        simply has no bars after it delisted.
-            idx = sessions_index(sessions)
+            #
+            # The full index is still TRIMMED to 126 warm-up sessions. Actions
+            # on or before its immediately preceding trading session must be
+            # removed first; otherwise `snap_to_session` puts them all on the
+            # boundary. The cutoff is EXCLUSIVE so a weekend/holiday event
+            # between prior and first retained session correctly maps forward.
             full_idx = sessions_index([*warmup_sessions, *sessions])
-            action_rows = load_actions(conn, warmup_from, end)
-            measured_action_rows = [r for r in action_rows
-                                    if str(r["date"]) >= str(start)]
+            source_action_rows = load_actions(conn, warmup_from, end)
+            actions_first_retained_session = warmup_sessions[0]
+            action_rows = actions_after_session(
+                source_action_rows, actions_exclusive_prior_session)
+            measured_action_rows = actions_effective_in_sessions(
+                action_rows, full_idx, sessions)
             # The benchmark, over the SAME sessions. Fail-soft: no rows means
             # no comparison, never a failed run.
             benchmark_closes = load_benchmark_closes(
@@ -530,7 +667,8 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
             use_actions = bool(action_rows)
             if not use_actions and REQUIRE_ACTIONS:
                 raise CorporateActionsUnavailable(
-                    f"bt_actions is empty between {start} and {end} and "
+                    f"bt_actions has no rows in the retained causal window "
+                    f"after {actions_exclusive_prior_session} through {end} and "
                     f"WEALTH_CORE_REQUIRE_ACTIONS is set. Remedy: POST "
                     f"/jobs/backfill-actions on bt-data.")
 
@@ -545,7 +683,8 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
                                  reconciliation=reconciliation, dividends=divs,
                                  identity=identity)
                 terminal = terminal_events_from_actions(
-                    measured_action_rows, idx, known_securities=set(meta),
+                    measured_action_rows, full_idx,
+                    known_securities=set(meta),
                     identity=identity, meta=meta, unresolved=identity.unresolved)
             else:
                 bars = load_bars(conn, warmup_from, end, identity=identity)
@@ -567,6 +706,13 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
                     "raw_close_coverage": round(coverage, 4),
                     "split_source": "actions" if use_actions else "derived",
                     "actions_rows": len(action_rows),
+                    "actions_rows_loaded": len(source_action_rows),
+                    "actions_rows_at_or_before_prior_cutoff":
+                        len(source_action_rows) - len(action_rows),
+                    "actions_first_retained_session":
+                        actions_first_retained_session,
+                    "actions_exclusive_prior_session":
+                        actions_exclusive_prior_session,
                     "terminal_events_applied": len(terminal),
                     "split_reconciliation": dict(sorted(reconciliation.items())),
                     "dividend_rows_unusable": dropped,
@@ -577,10 +723,17 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
                 },
             }
 
-        return await asyncio.to_thread(_work)
+        corpus = await asyncio.to_thread(_work)
+        corpus["provenance"].update({
+            "bt_data_version": generation.version,
+            "bt_data_status": generation.status,
+            "bt_data_source_mode": generation.source_mode,
+            "bt_data_updated_at": generation.to_dict()["updated_at"],
+        })
+        return corpus
 
 
-def _execute(req: WealthCoreJobRequest, corpus: dict) -> dict:
+def _execute(req: WealthCoreJobRequest, corpus: dict, *, on_progress=None) -> dict:
     """Dispatch to the tunnel or the rehearsal. Pure once the corpus is loaded —
     which is what lets the whole thing run off the event loop."""
     cfg = _apply(WealthCoreConfig(), req.config, "WealthCoreConfig")
@@ -595,7 +748,7 @@ def _execute(req: WealthCoreJobRequest, corpus: dict) -> dict:
         r = rehearse_chain(**common, cfg=cfg, eligibility_cfg=elig,
                            warmup_sessions=warmup,
                            config={"execution_model": STATEFUL_MODEL},
-                           on_progress=_publish_progress,
+                           on_progress=(on_progress or _publish_progress),
                            progress_every=PROGRESS_EVERY,
                            retention_mode=req.retention_mode,
                            retention_tail=req.retention_tail,
@@ -631,8 +784,15 @@ async def _run_bg(run_id: str, req: WealthCoreJobRequest) -> None:
     try:
         async with lock:
             corpus = await _load_corpus(req)
-            out = await asyncio.to_thread(_execute, req, corpus)
+            out = await asyncio.to_thread(
+                _execute, req, corpus,
+                on_progress=lambda snapshot: _publish_progress_for(
+                    run_id, snapshot))
         out["summary"] = {**out["summary"], "provenance": corpus["provenance"]}
+        # Stop advertising provisional metrics BEFORE publishing a terminal DB
+        # row. This ordering closes even the small await window in which a
+        # caller could otherwise observe status=success beside running=true.
+        _finish_progress(run_id)
         async with engine.begin() as conn:
             await conn.execute(text(
                 "UPDATE bt_wealth_core_runs SET status='success', "
@@ -641,6 +801,7 @@ async def _run_bg(run_id: str, req: WealthCoreJobRequest) -> None:
                 {"s": json.dumps(out["summary"], default=str),
                  "h": json.dumps(out["parity_hashes"]), "r": run_id})
     except Exception as exc:  # noqa: BLE001
+        _finish_progress(run_id)
         # A ParityViolation / ChainRehearsalDiverged is a RESULT, not a crash —
         # the one the run existed to look for — so it is recorded with its full
         # message rather than reduced to "failed".
@@ -655,6 +816,11 @@ async def _run_bg(run_id: str, req: WealthCoreJobRequest) -> None:
                 "run_id=CAST(:r AS UUID)"),
                 {"e": f"{kind}: {exc}\n{traceback.format_exc()[-2000:]}",
                  "r": run_id})
+    finally:
+        # Defensive against an exception in either terminal-row UPDATE. The
+        # durable row may need restart reclamation, but its dead worker must not
+        # keep presenting an active in-memory rehearsal.
+        _finish_progress(run_id)
 
 
 @router.post("/jobs/run")
@@ -672,6 +838,12 @@ async def start_wealth_core_job(req: WealthCoreJobRequest,
 
     run_id = str(uuid.uuid4())
     async with _state["engine"].begin() as conn:
+        # CHECK + INSERT must be one serial admission decision.  The local
+        # asyncio lock is acquired later by the background task, so two HTTP
+        # requests (or two engine processes) can otherwise both observe no
+        # running row and both commit one.  The xact lock releases with this
+        # transaction; the durable running row is what the next waiter sees.
+        await acquire_job_start_gate(conn)
         # Shared with `/jobs/run` and `/sweeps/run` so all three enforce the
         # SAME constraint. This side was the only one ever enforced; see
         # app/jobs_busy.py for what that cost.
@@ -713,7 +885,7 @@ async def start_wealth_core_job(req: WealthCoreJobRequest,
           f"retention_mode={req.retention_mode} "
           f"retention_tail={req.retention_tail}", flush=True)
 
-    _publish_progress({})   # a previous run's snapshot is not this run's
+    _begin_progress(run_id)
     background_tasks.add_task(_run_bg, run_id, req)
     return {"run_id": run_id, "mode": req.mode, "status": "running",
             "risk_profile": PROFILE_NAME if req.mode == "chain_rehearsal" else None}
@@ -725,9 +897,24 @@ async def wealth_core_progress():
     `_progress_snapshot`: it is measured before the parity check, so a run that
     later diverges will have shown healthy numbers the whole way and then
     publish no final metrics at all."""
-    if not _progress:
+    snapshot = dict(_progress)
+    if not snapshot:
         return {"running": False, "detail": "no rehearsal has reported progress"}
-    return {"running": True, **_progress}
+    run_id = snapshot.get("run_id")
+    try:
+        row = await _fetch("WHERE run_id = CAST(:r AS UUID)", {"r": run_id})
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        _finish_progress(str(run_id))
+        return {"running": False, "detail": "progress owner no longer exists"}
+    # The durable run row is authoritative, and rechecking the slot closes a
+    # race with cleanup or a subsequent run while the query awaited Postgres.
+    if row.get("status") != "running" or _progress.get("run_id") != run_id:
+        _finish_progress(str(run_id))
+        return {"running": False,
+                "detail": f"rehearsal {run_id} is no longer running"}
+    return {"running": True, **snapshot}
 
 
 @router.get("/runs/latest")
@@ -736,7 +923,8 @@ async def latest_wealth_core_run():
     # Merged only while the run is still going: once it is terminal the summary
     # is authoritative and a stale provisional block beside it would invite
     # someone to read the wrong CAGR.
-    if row.get("status") == "running" and _progress:
+    if (row.get("status") == "running"
+            and _progress.get("run_id") == row.get("run_id")):
         row = {**row, "progress": _progress}
     return row
 

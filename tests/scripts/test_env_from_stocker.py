@@ -374,7 +374,12 @@ class TestTheWhitelistIsCOMPLETEAgainstCompose:
         assert "BT_ENGINE_MEM_LIMIT" in got, (
             "the backtest compose file is not being scanned — which is exactly "
             "how BT_ENGINE_MEM_LIMIT was missed")
-        assert len(got) >= 15, sorted(got)
+        # The active Sentinel compose deliberately uses the literal
+        # ``sentinel:latest`` convenience alias; image identity is verified by
+        # digest instead of a fifteenth interpolated environment variable.
+        # Keep this as a non-vacuity floor while the classification test below
+        # remains the authoritative complete-set guard.
+        assert len(got) >= 14, sorted(got)
 
     def test_every_composed_variable_is_CLASSIFIED(self):
         mod_ns = {}

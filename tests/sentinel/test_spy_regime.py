@@ -14,10 +14,13 @@ proof is NAS-bound.
 from __future__ import annotations
 
 import math
+import os
+from pathlib import Path
 
 import pytest
 
 from sentinel.controller import frozen_rule
+from sentinel.regime.spy import dated_spy_regime
 from sentinel.regime import (
     MIN_CLOSES,
     R20_LOOKBACK_SESSIONS,
@@ -32,6 +35,10 @@ from sentinel.regime import (
     total_return,
     volatility_acceleration,
 )
+
+
+REPO = Path(os.environ.get("SENTINEL_REPO_ROOT") or
+            Path(__file__).resolve().parents[2])
 
 
 @pytest.fixture(scope="module")
@@ -54,6 +61,40 @@ def closes_for_r20(target, n=MIN_CLOSES, base=100.0):
     out = [base] * n
     out[-1] = base * (1.0 + target)
     return out
+
+
+class TestDatedProductionInput:
+    @staticmethod
+    def _tail():
+        return [f"2026-07-{day:02d}" for day in range(1, MIN_CLOSES + 1)]
+
+    def test_exact_expected_tail_ending_on_decision_is_available(self):
+        sessions = self._tail()
+        result = dated_spy_regime(
+            sessions, [100.0 + i for i in range(MIN_CLOSES)],
+            decision_session=sessions[-1], expected_sessions=sessions)
+        assert math.isfinite(result.spy_r20)
+        assert math.isfinite(result.spy_vol_ratio)
+
+    @pytest.mark.parametrize("defect", ["missing_newest", "missing_interior",
+                                         "duplicate", "out_of_order"])
+    def test_invalid_chronology_is_unavailable(self, defect):
+        expected = self._tail()
+        sessions = list(expected)
+        closes = [100.0 + i for i in range(MIN_CLOSES)]
+        if defect == "missing_newest":
+            sessions[-1] = "2026-07-31"
+        elif defect == "missing_interior":
+            sessions[10] = "2026-07-30"
+        elif defect == "duplicate":
+            sessions[10] = sessions[9]
+        else:
+            sessions[9], sessions[10] = sessions[10], sessions[9]
+        result = dated_spy_regime(
+            sessions, closes, decision_session=expected[-1],
+            expected_sessions=expected)
+        assert math.isnan(result.spy_r20)
+        assert math.isnan(result.spy_vol_ratio)
 
 
 class TestTheThresholdsComeFromTheFrozenRule:
@@ -455,9 +496,9 @@ class TestNoLeakIntoOtherDomains:
         """Breadth is SIGNAL-domain by construction. If it could reach the
         regime sensor it could reach a total-return price."""
         import ast
-        from pathlib import Path
-
-        for py in sorted(Path("sentinel/breadth").glob("*.py")):
+        paths = sorted((REPO / "sentinel" / "breadth").glob("*.py"))
+        assert paths, "the breadth source scan is vacuous"
+        for py in paths:
             tree = ast.parse(py.read_text())
             for node in ast.walk(tree):
                 if isinstance(node, ast.ImportFrom):
@@ -465,21 +506,20 @@ class TestNoLeakIntoOtherDomains:
                 if isinstance(node, ast.Import):
                     assert not any("regime" in a.name for a in node.names), py
 
-    def test_no_other_sentinel_module_imports_the_SPY_sensor_yet(self):
-        """The chain is assemblable, not activated. When a driver is wired it
-        will import this — and that change should be visible, so this test is
-        the tripwire that makes it visible rather than a prohibition."""
+    def test_only_production_composition_imports_the_SPY_sensor(self):
+        """Only deterministic production composition may cross this seam."""
         import ast
-        from pathlib import Path
-
         importers = []
-        for py in sorted(Path("sentinel").rglob("*.py")):
-            if py.as_posix().startswith("sentinel/regime"):
+        paths = sorted((REPO / "sentinel").rglob("*.py"))
+        assert paths, "the Sentinel source scan is vacuous"
+        for py in paths:
+            relative = py.relative_to(REPO).as_posix()
+            if relative.startswith("sentinel/regime"):
                 continue
             tree = ast.parse(py.read_text())
             for node in ast.walk(tree):
                 if isinstance(node, ast.ImportFrom) and "regime" in (node.module or ""):
-                    importers.append(py.as_posix())
+                    importers.append(relative)
         assert importers == ["sentinel/core/production.py"], (
             "something now imports the SPY sensor: " + ", ".join(importers)
             + ". Only the deterministic production composition may do so.")

@@ -67,9 +67,11 @@ async def test_close_position_translates_url():
 async def test_get_positions_returns_system_form():
     client = MagicMock()
     resp = MagicMock(status_code=200)
-    resp.json.return_value = [{"symbol": "PBR.A", "qty": "5", "side": "long"}]
+    resp.json.return_value = [{"symbol": "PBR.A", "asset_id": "asset-pbr-a",
+                               "qty": "5", "side": "long"}]
     resp.raise_for_status = MagicMock()
     client.get = AsyncMock(return_value=resp)
     a = _adapter(client)
     positions = await a.get_positions()
     assert positions[0].ticker == "PBR-A"
+    assert positions[0].broker_instrument_id == "asset-pbr-a"
