@@ -216,7 +216,12 @@ the equity universe; repeated seed/daily loads are idempotent.
   pass; the fallback removes three `cpus:` entries, retains every `mem_limit`
   and `shm_size`, and changes no other service configuration.
 - `git diff --check`: pass.
-- GitHub full safety workflow: pending the single post-push run for this draft.
+- GitHub `Sentinel safety` workflow at code head `f1edc51`: pass
+  ([run 31772109533](https://github.com/flabber1835/stocker/actions/runs/31772109533)).
+  The network-isolated complete Sentinel suite passed `2219` tests; the changed
+  production backtester boundary passed `100` tests with no skips; tracked
+  shell syntax, canonical/automation/authorized-cli Compose graphs, and
+  `git diff --check` all passed.
 
 ## Change policy
 
