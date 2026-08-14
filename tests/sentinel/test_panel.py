@@ -996,7 +996,9 @@ class TestItCannotAct:
                 "sentinel_corpus_publications",
                 "sentinel_readiness_snapshots", "feed_ingest_runs",
                 "sentinel_processed_sessions", "sentinel_execution_plans",
-                "sentinel_rollout_state", "sentinel_observations",
+                "sentinel_rollout_state",
+                "sentinel_behavioral_schema_migrations",
+                "sentinel_observations",
                 "sentinel_commands"):
             assert table in sql
         assert sql.count("LIMIT 0") == len(app_mod._REQUIRED_SCHEMA_PROBES)

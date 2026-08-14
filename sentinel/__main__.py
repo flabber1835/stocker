@@ -676,11 +676,12 @@ def _migration_refusal_types() -> tuple[type[BaseException], ...]:
     programming faults that benefit an operator from a traceback.
     """
     from sentinel import authority, broker as broker_mod
-    from sentinel import binding as binding_mod, handover
+    from sentinel import binding as binding_mod, handover, schema
     from sentinel.execution import journal
     from stock_strategy_shared.broker import alpaca as shared_alpaca
 
     return (
+        schema.SchemaMigrationRefused,
         authority.AuthorityRefused,
         handover.MigrationRefused,
         binding_mod.AlreadyBound,
@@ -752,6 +753,8 @@ async def _adopt_restored(config: SentinelConfig, args) -> int:
             notes=args.notes or "",
             authority_check=lambda: guard.check(
                 grant, AdministrativeBrokerOperation.FINALIZE_BINDING, None))
+    except schema.SchemaMigrationRefused as exc:
+        return _paper_refused(exc)
     except binding_mod.AccountNotBound as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return EXIT_NOT_ESTABLISHED
@@ -770,7 +773,7 @@ async def _adopt_restored(config: SentinelConfig, args) -> int:
 
 def _paper_refusal_types() -> tuple[type[BaseException], ...]:
     """Safety refusals reported as an operator checkpoint, not a traceback."""
-    from sentinel import authority, binding as binding_mod, handover, paper
+    from sentinel import authority, binding as binding_mod, handover, paper, schema
     from sentinel.automation import model as automation_model
     from sentinel.controller import frozen_rule
     from sentinel.core import catchup
@@ -779,6 +782,7 @@ def _paper_refusal_types() -> tuple[type[BaseException], ...]:
     from sentinel.feed import calendar, publication
 
     return (
+        schema.SchemaMigrationRefused,
         paper.PaperActivationRefused,
         automation_model.AutomationRefused,
         authority.AuthorityRefused,
@@ -788,6 +792,7 @@ def _paper_refusal_types() -> tuple[type[BaseException], ...]:
         executor.StalePlanRefused,
         executor.RiskEnvelopeViolation,
         journal.WriterLockUnavailable,
+        journal.PlanAuthorityMissing,
         journal.PlanEconomicsChanged,
         journal.CommandEconomicsChanged,
         journal.RecoveredOrderConflict,

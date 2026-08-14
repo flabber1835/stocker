@@ -47,6 +47,8 @@ _REQUIRED_SCHEMA_PROBES = (
     "FROM sentinel_execution_plans LIMIT 0",
     "SELECT id, mode, version, certificate_sha256, updated_at "
     "FROM sentinel_rollout_state LIMIT 0",
+    "SELECT version, name, migration_sha256, bootstrap_kind, source_git_oid, "
+    "applied_at FROM sentinel_behavioral_schema_migrations LIMIT 0",
     "SELECT seq, observed_at, completeness, positions, orders, runtime_state "
     "FROM sentinel_observations LIMIT 0",
     "SELECT state, updated_at FROM sentinel_commands LIMIT 0",

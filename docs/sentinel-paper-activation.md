@@ -271,8 +271,14 @@ and a corpus publication pin:
   `--confirm-pinned-rollout-may-increase-exposure` acknowledgement, and must
   never be described as de-risking: it forces 100% Wealth Core exposure and
   can increase risk from a controller target of 0, 0.55, or 0.65. A missing
-  rollout singleton is corruption; preparation/execution refuse and startup
-  does not recreate it;
+  rollout singleton or table is corruption; preparation/execution refuse and
+  startup does not recreate it. The behavioral-schema migration ledger is the
+  authority: only a behaviorally empty database or recognized pre-rollout
+  schema receives the initial pinned row. The complete intact `6113bffd`
+  schema is bridged without changing its existing rollout intent. Missing,
+  corrupt, gapped, future, or schema-inconsistent migration authority is a
+  hard operator refusal. Do not manually recreate the table or seed pinned
+  state; investigate or restore verified durable state;
 - a `SENTINEL_OWNED` binding whose full identity matches both the plan and a
   fresh typed broker account snapshot;
 - explicit confirmation of the paper account id, plan id, effective session,

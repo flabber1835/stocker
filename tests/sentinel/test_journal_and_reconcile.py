@@ -26,7 +26,10 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
-from tests.support.postgres import _EphemeralPostgres  # noqa: E402
+from tests.support.postgres import (  # noqa: E402
+    _EphemeralPostgres,
+    drop_public_tables,
+)
 
 from sentinel import binding as B, schema  # noqa: E402
 from sentinel.execution import journal, recovery, reconcile as R  # noqa: E402
@@ -75,15 +78,7 @@ def pg():
 @pytest.fixture()
 def conn(pg):
     c = feed_store.connect(pg.sync_dsn)
-    with c.cursor() as cur:
-        for t in ("sentinel_account_binding", "sentinel_ownership_events",
-                  "sentinel_commands", "sentinel_command_events",
-                  "sentinel_execution_plans", "sentinel_fills",
-                  "sentinel_observations",
-                  "sentinel_terminal_recovery_watermark",
-                  "sentinel_bars", "sentinel_actions"):
-            cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
-    c.commit()
+    drop_public_tables(c)
     schema.ensure_schema(c)
     feed_store.ensure_schema(c)
     B.bind(c, deployment_id="nas-1", broker="sim",
@@ -242,8 +237,9 @@ class TestWriterLock:
                     cur.execute(
                         "INSERT INTO sentinel_execution_plans"
                         " (plan_id,decision_session,effective_session,"
-                        " target_exposure) VALUES"
-                        " ('uncommitted','2026-08-10','2026-08-11',1)")
+                        " target_exposure,rollout_mode,rollout_version) VALUES"
+                        " ('uncommitted','2026-08-10','2026-08-11',1,"
+                        "  'PINNED_1_00',1)")
                 raise RuntimeError("abort")
 
         assert journal.load_plan(conn, "uncommitted") is None

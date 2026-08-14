@@ -51,7 +51,10 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
-from tests.support.postgres import _EphemeralPostgres  # noqa: E402
+from tests.support.postgres import (  # noqa: E402
+    _EphemeralPostgres,
+    drop_public_tables,
+)
 
 from sentinel.core import catchup as CU  # noqa: E402
 from sentinel.execution import journal  # noqa: E402
@@ -77,10 +80,8 @@ def pg():
 @pytest.fixture()
 def conn(pg):
     c = S.connect(pg.sync_dsn)
+    drop_public_tables(c)
     with c.cursor() as cur:
-        cur.execute("SELECT tablename FROM pg_tables WHERE schemaname='public'")
-        for (t,) in cur.fetchall():
-            cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
         # A REAL durable strategy state, standing in for Wealth Core's book.
         # The whole point of this file is that an in-memory dict cannot
         # demonstrate the property, so the fake has to be a table.

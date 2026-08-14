@@ -37,7 +37,10 @@ for p in (str(ROOT), str(ROOT / "shared")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from tests.support.postgres import _EphemeralPostgres  # noqa: E402
+from tests.support.postgres import (  # noqa: E402
+    _EphemeralPostgres,
+    drop_public_tables,
+)
 
 from sentinel import schema  # noqa: E402
 from sentinel.execution import journal  # noqa: E402
@@ -64,9 +67,7 @@ def pg():
 @pytest.fixture()
 def conn(pg):
     c = feed_store.connect(pg.sync_dsn)
-    with c.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS sentinel_execution_plans CASCADE")
-    c.commit()
+    drop_public_tables(c)
     schema.ensure_schema(c)
     yield c
     c.close()

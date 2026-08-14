@@ -29,7 +29,10 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
-from tests.support.postgres import _EphemeralPostgres  # noqa: E402
+from tests.support.postgres import (  # noqa: E402
+    _EphemeralPostgres,
+    drop_public_tables,
+)
 
 from sentinel import binding as B, schema  # noqa: E402
 from sentinel.execution import (  # noqa: E402
@@ -46,12 +49,6 @@ from sentinel.feed import store as feed_store  # noqa: E402
 DEPLOY = DeploymentIdentity("nas-1", "sim", "SIM-ACCOUNT", 1)
 AAA = BrokerInstrument(security_id="SEC-AAA", symbol="AAA", broker_id="b-AAA")
 MON, WED = date(2026, 8, 10), date(2026, 8, 12)
-
-STATE_TABLES = ("sentinel_account_binding", "sentinel_ownership_events",
-                "sentinel_commands", "sentinel_command_events",
-                "sentinel_execution_plans", "sentinel_fills",
-                "sentinel_observations",
-                "sentinel_terminal_recovery_watermark")
 
 
 def run(coro):
@@ -78,10 +75,7 @@ def pg():
 @pytest.fixture()
 def conn(pg):
     c = feed_store.connect(pg.sync_dsn)
-    with c.cursor() as cur:
-        for t in STATE_TABLES:
-            cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
-    c.commit()
+    drop_public_tables(c)
     schema.ensure_schema(c)
     B.bind(c, deployment_id="nas-1", broker="sim",
            broker_account_id="SIM-ACCOUNT")

@@ -257,6 +257,48 @@ def test_current_plan_never_constructs_a_broker(monkeypatch, capsys):
     assert conn.closed
 
 
+@pytest.mark.parametrize(
+    "command", ["prepare", "current", "execute"])
+def test_schema_migration_refusal_stops_paper_startup_before_broker(
+        monkeypatch, capsys, command):
+    calls = []
+    conn = _wire_database(monkeypatch, calls)
+
+    def refuse_schema(actual):
+        calls.append(("behavior_schema", actual))
+        raise schema.SchemaMigrationRefused(
+            "behavioral migration authority is missing")
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError(
+            f"{command} continued past behavioral schema refusal")
+
+    monkeypatch.setattr(schema, "ensure_schema", refuse_schema)
+    monkeypatch.setattr(paper, "build_security_resolver", forbidden)
+    monkeypatch.setattr(cli, "build_execution_broker", forbidden)
+    monkeypatch.setattr(paper, "prepare_paper_plan", forbidden)
+    monkeypatch.setattr(paper, "current_paper_plan", forbidden)
+    monkeypatch.setattr(paper, "execute_paper_plan", forbidden)
+
+    if command == "prepare":
+        args = SimpleNamespace(
+            through="2026-08-12", warmup_sessions=252,
+            expect_account="paper-123")
+        result = asyncio.run(cli._prepare_paper_plan(_config(), args))
+    elif command == "current":
+        result = asyncio.run(cli._current_paper_plan(_config()))
+    else:
+        result = asyncio.run(
+            cli._execute_paper_plan(_config(), _execution_args()))
+
+    assert result == cli.EXIT_NOT_ESTABLISHED
+    assert capsys.readouterr().err == (
+        "REFUSED: behavioral migration authority is missing\n")
+    assert [call[0] for call in calls] == [
+        "connect", "feed_schema", "behavior_schema"]
+    assert conn.closed
+
+
 def test_execute_passes_every_explicit_confirmation(monkeypatch, capsys):
     calls = []
     conn = _wire_database(monkeypatch, calls)

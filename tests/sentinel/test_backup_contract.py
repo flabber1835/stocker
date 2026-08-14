@@ -160,6 +160,8 @@ def test_restore_drill_is_isolated_and_cleans_only_its_unique_objects():
     assert 'docker volume rm "$VOLUME"' in text
     assert "sentinel_pgdata" not in text
     assert "sentinel_processed_sessions" in text
+    assert "sentinel_behavioral_schema_migrations" in text
+    assert "sentinel_rollout_state" in text
     assert "sentinel_backup_recovery_markers" in text
     assert "pg_last_wal_replay_lsn" in text
     assert "TARGET_LSN" in text

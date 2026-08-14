@@ -1,11 +1,9 @@
 """Durable system certification and pinned/controller rollout authority."""
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import sys
-import threading
 from pathlib import Path
 
 import pytest
@@ -14,7 +12,10 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
-from tests.support.postgres import _EphemeralPostgres  # noqa: E402
+from tests.support.postgres import (  # noqa: E402
+    _EphemeralPostgres,
+    drop_public_tables,
+)
 
 from sentinel import authority, schema  # noqa: E402
 from sentinel.feed import store as feed_store  # noqa: E402
@@ -116,11 +117,7 @@ def pg():
 @pytest.fixture()
 def conn(pg):
     c = feed_store.connect(pg.sync_dsn)
-    with c.cursor() as cur:
-        cur.execute("SELECT tablename FROM pg_tables WHERE schemaname='public'")
-        for (table,) in cur.fetchall():
-            cur.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE')
-    c.commit()
+    drop_public_tables(c)
     schema.ensure_schema(c)
     yield c
     c.close()
@@ -138,71 +135,31 @@ def test_new_database_is_durably_pinned_at_version_one(conn, pg):
         restarted.close()
 
 
-def test_upgrade_that_genuinely_creates_rollout_table_seeds_once(conn):
-    """A pre-rollout database gets the initial row as part of its migration."""
-    with conn.cursor() as cur:
-        cur.execute("DROP TABLE sentinel_rollout_events")
-        cur.execute("DROP TABLE sentinel_rollout_state")
-    conn.commit()
-
-    schema.ensure_schema(conn)
-
-    assert authority.load_rollout_state(conn) == authority.RolloutState(
-        authority.RolloutMode.PINNED_1_00, 1, None)
-    with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM sentinel_rollout_state")
-        assert cur.fetchone()[0] == 1
-
-
 def test_deleted_rollout_row_is_not_recreated_by_schema_check_or_restart(
         conn, pg):
     with conn.cursor() as cur:
         cur.execute("DELETE FROM sentinel_rollout_state WHERE id=1")
     conn.commit()
 
-    schema.ensure_schema(conn)
+    with pytest.raises(schema.SchemaMigrationRefused,
+                       match="(?i)operator"):
+        schema.ensure_schema(conn)
+    conn.rollback()
     with pytest.raises(authority.AuthorityRefused,
                        match="durable rollout state is missing"):
         authority.load_rollout_state(conn)
 
     restarted = feed_store.connect(pg.sync_dsn)
     try:
-        schema.ensure_schema(restarted)
+        with pytest.raises(schema.SchemaMigrationRefused,
+                           match="(?i)operator"):
+            schema.ensure_schema(restarted)
+        restarted.rollback()
         with pytest.raises(authority.AuthorityRefused,
                            match="durable rollout state is missing"):
             authority.load_rollout_state(restarted)
     finally:
         restarted.close()
-
-
-def test_concurrent_first_rollout_migration_seeds_exactly_one_row(conn, pg):
-    with conn.cursor() as cur:
-        cur.execute("DROP TABLE sentinel_rollout_events")
-        cur.execute("DROP TABLE sentinel_rollout_state")
-    conn.commit()
-
-    start = threading.Barrier(2)
-
-    def initialize() -> None:
-        worker = feed_store.connect(pg.sync_dsn)
-        try:
-            start.wait(timeout=10)
-            schema.ensure_schema(worker)
-        finally:
-            worker.close()
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = [pool.submit(initialize) for _ in range(2)]
-        for future in futures:
-            future.result(timeout=30)
-
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT id,mode,version,certificate_sha256"
-            " FROM sentinel_rollout_state")
-        assert cur.fetchall() == [(1, "PINNED_1_00", 1, None)]
-        cur.execute("SELECT COUNT(*) FROM sentinel_rollout_events")
-        assert cur.fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("payload,match", [

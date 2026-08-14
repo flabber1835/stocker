@@ -267,6 +267,47 @@ class TestEstablishOwnershipIsRetired:
             "--expect-account", "ACC-123"]) \
             == cli.EXIT_CONFIG
 
+    @pytest.mark.parametrize("command", ["migrate", "adopt"])
+    def test_schema_migration_refusal_stops_administrative_startup_before_broker(
+            self, command, monkeypatch, tmp_path, capsys):
+        class Connection:
+            closed = False
+
+            def close(self):
+                self.closed = True
+
+        connection = Connection()
+        config = SentinelConfig.from_env(env(
+            SENTINEL_STATE_DIR=str(tmp_path),
+            SENTINEL_DATABASE_URL="postgresql://test/db"))
+        monkeypatch.setattr(feed_store, "connect", lambda _url: connection)
+        monkeypatch.setattr(
+            schema, "ensure_schema",
+            lambda _conn: (_ for _ in ()).throw(
+                schema.SchemaMigrationRefused(
+                    "behavioral migration authority is corrupt")))
+        monkeypatch.setattr(
+            cli, "build_broker",
+            lambda _config: (_ for _ in ()).throw(
+                AssertionError(
+                    f"{command} built a broker after schema refusal")))
+
+        if command == "migrate":
+            args = SimpleNamespace(
+                deployment_id="nas-1", expect_account="ACC-123",
+                notes="ticket")
+            result = asyncio.run(cli._migrate_account(config, args))
+        else:
+            args = SimpleNamespace(
+                confirm_old_credentials_revoked=True,
+                confirm_paper_account="ACC-123", notes="ticket")
+            result = asyncio.run(cli._adopt_restored(config, args))
+
+        assert result == cli.EXIT_NOT_ESTABLISHED
+        assert capsys.readouterr().err == (
+            "REFUSED: behavioral migration authority is corrupt\n")
+        assert connection.closed is True
+
     @pytest.mark.parametrize("error", [
         broker_mod.AdministrativeObservationRefused("bad position side"),
         IncompleteOrderList("open-order pagination incomplete"),
