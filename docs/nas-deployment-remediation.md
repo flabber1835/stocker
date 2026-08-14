@@ -51,6 +51,18 @@ effective and the migration bootstrap decision remains durable.
 
 **Observed:** a daily ingest reported 14 price-domain split ratios for which
 SHARADAR/ACTIONS had no row, including unusually large ratios.
+The subsequent bounded backfill reported the same 14 tickers on the backfill's
+different leading date. This demonstrates that they are adjustment-vintage seam
+artifacts, not 14 corporate actions that happened on both reported dates. The
+normalizer's seam guard records and suppresses such ratios, but the shared
+warning incorrectly says it is "using the derived ratio".
+
+The same backfill also found three ACTIONS/price-domain disagreements where the
+two values were near exact reciprocals (for example approximately 30 versus
+1/30). The current policy unconditionally applies ACTIONS. That is not enough
+evidence to distinguish a vendor share ratio from a price adjustment factor,
+and an orientation error would materially corrupt share counts for a position
+held across the event.
 
 **Impact:** fallback is safer than ignoring a genuine split, but a certified
 run must not hide whether an uncorroborated ratio affected an eligible or held
@@ -58,7 +70,10 @@ security.
 
 **Acceptance:** certification retains the complete derived-only event list and
 states a deterministic warning/refusal policy based on economic relevance.
-Tests cover ordinary, seam, eligible, and held-security cases.
+Seam-suppressed artifacts are not reported as applied derived-only splits.
+Reciprocal disagreements refuse economically relevant use until the ACTIONS
+orientation is proved from retained source evidence. Tests cover ordinary,
+seam, reciprocal, eligible, and held-security cases.
 
 ### 5. Backup validation cannot use attestation when Docker root is protected
 
