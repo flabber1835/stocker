@@ -172,3 +172,12 @@ class TestItHasNotDriftedFromTheCANONICAL:
         for action in T.TERMINAL_ACTIONS:
             assert f'"{action}": ActionSide.TARGET' in src
         assert "acquisitionof" not in T.TERMINAL_ACTIONS
+
+    def test_both_stream_normalizers_use_the_shared_coalescing_contract(self):
+        import inspect
+
+        canonical = CANONICAL.read_text()
+        sentinel = inspect.getsource(T)
+        for source in (canonical, sentinel):
+            assert "from stock_strategy_shared.terminal_coalescing import" in source
+            assert "coalesce_terminal_terms(" in source

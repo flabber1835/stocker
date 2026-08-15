@@ -54,6 +54,10 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Iterable, Mapping, Optional, Sequence
 
+from stock_strategy_shared.terminal_coalescing import (
+    TerminalCandidate,
+    coalesce_terminal_terms,
+)
 from stock_strategy_shared.wealth_core.terminal import TerminalKind, TerminalTerms
 
 
@@ -179,18 +183,17 @@ terminal action name would otherwise be silent."""
 EXCLUDED_OUTSIDE_WINDOW = "OUTSIDE_OPERATIONAL_WINDOW"
 """Dated outside the window being loaded."""
 
-EXCLUDED_EQUIVALENT_TERMINAL = "EQUIVALENT_TERMINAL_SIBLING"
-"""A distinct source row whose mapped terminal economics equal its sibling.
-Only mapped equivalence permits one application; source identity alone never
-chooses among conflicting deal terms."""
+COALESCED_TERMINAL_SOURCE = "COALESCED_TERMINAL_SOURCE_ROW"
+"""A source row accounted for by the selected record for its economic key."""
 
-# Compatibility name for callers/tests that predate source-row identity.  Exact
-# source repeats are removed before storage; terminal deduplication now means
-# mapped-economic equivalence, never merely a repeated coarse vendor key.
-EXCLUDED_DUPLICATE = EXCLUDED_EQUIVALENT_TERMINAL
+# Compatibility names for callers/tests that predate the explicit collapsed
+# audit bucket.  The value names what happened; these aliases must not cause a
+# coalesced terminal row to be counted as an ordinary exclusion.
+EXCLUDED_EQUIVALENT_TERMINAL = COALESCED_TERMINAL_SOURCE
+EXCLUDED_DUPLICATE = COALESCED_TERMINAL_SOURCE
 
 CONFLICTING_TERMINAL_TERMS = "CONFLICTING_TERMINAL_TERMS"
-"""Distinct terminal siblings map to different economic terms. Apply none."""
+"""Richest terminal siblings disagree on mapped economics. Apply none."""
 
 EXCLUDED_ABSENT_FROM_CORPUS = "SECURITY_ABSENT_FROM_CORPUS"
 """No bar carries this ticker anywhere in the window, so no book could have held
@@ -227,11 +230,14 @@ class TerminalRow:
         when = (f"{self.session}->{self.effective_session}"
                 if self.effective_session and self.effective_session != self.session
                 else self.session)
+        security = (f" security_id={self.security_id}"
+                    if self.security_id else "")
         row_id = (f" source_row_id={self.source_row_id}"
                   if self.source_row_id else "")
         return (f"{when} {self.ticker} {self.action.upper()}"
-                f" reason={self.reason}{row_id}" if self.reason
-                else f"{when} {self.ticker} {self.action.upper()}{row_id}")
+                f" reason={self.reason}{security}{row_id}" if self.reason
+                else f"{when} {self.ticker} {self.action.upper()}"
+                     f"{security}{row_id}")
 
 
 @dataclass(frozen=True)
@@ -246,8 +252,8 @@ class TerminalLoadResult:
 
     CONSERVATION IS THE POINT:
 
-        discovered == excluded + resolved + unresolved
-        relevant   == resolved + unresolved
+        discovered == excluded + resolved + collapsed + unresolved
+        relevant   == resolved + collapsed + unresolved
 
     Two equations rather than one, because they fail differently: the first
     catches a row that was neither used nor accounted for, the second catches a
@@ -269,17 +275,39 @@ class TerminalLoadResult:
         return [r for r in self.rows if r.disposition == "resolved"]
 
     @property
+    def collapsed(self) -> list:
+        return [r for r in self.rows if r.disposition == "collapsed"]
+
+    @property
     def unresolved(self) -> list:
         return [r for r in self.rows if r.disposition == "unresolved"]
 
     @property
     def relevant(self) -> int:
-        return len(self.resolved) + len(self.unresolved)
+        return len(self.resolved) + len(self.collapsed) + len(self.unresolved)
 
     def conservation_holds(self) -> bool:
         return (self.discovered
-                == len(self.excluded) + len(self.resolved) + len(self.unresolved)
-                and self.relevant == len(self.resolved) + len(self.unresolved))
+                == (len(self.excluded) + len(self.resolved)
+                    + len(self.collapsed) + len(self.unresolved))
+                and self.relevant
+                == len(self.resolved) + len(self.collapsed) + len(self.unresolved))
+
+    def normalized_stream_holds(self) -> bool:
+        keys = [(event.session, event.security_id) for event in self.events]
+        return len(keys) == len(set(keys))
+
+    @staticmethod
+    def _row_dict(r: TerminalRow) -> dict:
+        return {
+            "vendor_session": r.session,
+            "effective_session": r.effective_session,
+            "ticker": r.ticker,
+            "action": r.action,
+            "reason": r.reason,
+            "security_id": r.security_id,
+            "source_row_id": r.source_row_id,
+        }
 
     def exclusion_counts(self) -> dict:
         out: dict = {}
@@ -292,30 +320,19 @@ class TerminalLoadResult:
             "discovered": self.discovered,
             "relevant": self.relevant,
             "resolved": len(self.resolved),
+            "collapsed": len(self.collapsed),
             "excluded": len(self.excluded),
             "unresolved": len(self.unresolved),
             "conservation_holds": self.conservation_holds(),
+            "normalized_stream_holds": self.normalized_stream_holds(),
             "exclusions": self.exclusion_counts(),
+            "resolved_rows": [self._row_dict(r) for r in self.resolved],
+            "collapsed_rows": [self._row_dict(r) for r in self.collapsed],
             # The offending rows THEMSELVES. An operator needs the date, the
             # ticker, the action and the reason — "unresolved: 1" is a number
             # nobody can act on.
-            "unresolved_rows": [
-                {"vendor_session": r.session,
-                 "effective_session": r.effective_session,
-                 "ticker": r.ticker, "action": r.action,
-                 "reason": r.reason,
-                 "source_row_id": r.source_row_id} for r in self.unresolved],
+            "unresolved_rows": [self._row_dict(r) for r in self.unresolved],
         }
-
-
-def _economic_terms(terms: TerminalTerms) -> tuple:
-    """The mapped economics, excluding source-only provenance text."""
-    return (
-        terms.session, terms.security_id, terms.kind.value,
-        terms.cash_per_share, terms.delivered_security_id,
-        terms.delivered_ticker, terms.delivered_issuer_id,
-        terms.exchange_ratio, terms.cash_in_lieu_price_per_delivered_share,
-    )
 
 
 def _corpus_tickers(conn, start: str, end: str) -> set:
@@ -401,9 +418,7 @@ def load_terminal_events(conn, *, start: str, end: str,
     priced = _corpus_tickers(conn, start, end)
     out: list = []
     audit: list = []
-    terminal_candidates: dict[
-        tuple, list[tuple[str, TerminalTerms, TerminalRow]]
-    ] = {}
+    terminal_candidates: list[TerminalCandidate] = []
 
     for (source_row_id, ticker, session, action, value,
          contraticker, contraname) in rows:
@@ -413,7 +428,6 @@ def load_terminal_events(conn, *, start: str, end: str,
         # Raw vendor dates are retained for audit, but execution identity is the
         # effective exchange session.  Saturday and Sunday rows that both snap
         # to Monday describe one economic terminal event, not two applications.
-        key = (tk.upper(), effective, act)
 
         def _row(disposition, reason="", sid=None):
             return TerminalRow(ticker=tk, session=s, action=act,
@@ -471,29 +485,29 @@ def load_terminal_events(conn, *, start: str, end: str,
         # type and is a back-compat FACTORY over TerminalTerms for the two
         # original kinds — it cannot express CONVERSION at all, which is
         # exactly what a public acquirer produces.
-        terminal_candidates.setdefault(key, []).append(
-            (str(source_row_id), terms, _row("resolved", sid=sid)))
+        terminal_candidates.append(TerminalCandidate(
+            terms=terms,
+            source_key=str(source_row_id),
+            payload=_row("resolved", sid=sid),
+        ))
 
-    for siblings in terminal_candidates.values():
-        signatures = {_economic_terms(terms)
-                      for _source_row_id, terms, _audit_row in siblings}
-        if len(signatures) != 1:
-            # Every row stays visible and attributable.  Filing only the later
-            # siblings as conflicting would leave the hash-first row looking
-            # resolved even though no term set was safe to apply.
-            audit.extend(replace(row, disposition="unresolved",
+    for outcome in coalesce_terminal_terms(terminal_candidates):
+        if outcome.conflicting:
+            # Every row stays visible and attributable. Filing only the richest
+            # siblings as conflicting would make a generic `delisted` row look
+            # safely resolved even though no event was selected.
+            audit.extend(replace(candidate.payload, disposition="unresolved",
                                  reason=CONFLICTING_TERMINAL_TERMS)
-                         for _source_row_id, _terms, row in siblings)
+                         for candidate in outcome.conflicting)
             continue
 
-        # Source rows are already ordered deterministically by the query.  The
-        # chosen reference may differ, but the signature proves the economics
-        # do not; every sibling remains in the audit with its source identity.
-        _source_row_id, terms, row = siblings[0]
-        out.append(terms)
-        audit.append(row)
-        audit.extend(replace(sibling_row, disposition="excluded",
-                             reason=EXCLUDED_EQUIVALENT_TERMINAL)
-                     for _sid, _terms, sibling_row in siblings[1:])
+        selected = outcome.selected
+        if selected is None:  # pragma: no cover - impossible helper contract
+            raise AssertionError(f"terminal coalescer produced no verdict for {outcome.key}")
+        out.append(selected.terms)
+        audit.append(selected.payload)
+        audit.extend(replace(candidate.payload, disposition="collapsed",
+                             reason=COALESCED_TERMINAL_SOURCE)
+                     for candidate in outcome.collapsed)
 
     return TerminalLoadResult(events=out, rows=audit)

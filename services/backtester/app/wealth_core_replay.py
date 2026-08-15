@@ -40,6 +40,10 @@ from typing import Iterable, Sequence
 
 from sqlalchemy import text
 
+from stock_strategy_shared.terminal_coalescing import (
+    TerminalCandidate,
+    coalesce_terminal_terms,
+)
 from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
 from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
 from stock_strategy_shared.wealth_core.feed import SecurityMeta, VendorBar
@@ -646,33 +650,27 @@ def terminal_events_from_actions(rows: Iterable[dict],
     # while the reason row names the acquirer (and its ticker when public). That
     # is precisely the identity the old vocabulary was discarding, so preferring
     # the bare row would reintroduce the loss under a new mechanism.
-    best: dict[tuple[str, str], TerminalTerms] = {}
-    for t in out:
-        k = (t.session, t.security_id)
-        prior = best.get(k)
-        if prior is None or _terms_richness(t) > _terms_richness(prior):
-            if prior is not None:
-                _count("terminal_duplicate_rows_collapsed")
-            best[k] = t
-        else:
+    coalesced: list[TerminalTerms] = []
+    outcomes = coalesce_terminal_terms(
+        TerminalCandidate(terms=t, source_key=t.reference or "") for t in out)
+    for outcome in outcomes:
+        if outcome.conflicting:
+            for _candidate in outcome.conflicting:
+                _count("terminal_conflicting_rows")
+            evidence = "; ".join(
+                candidate.terms.reference or candidate.source_key
+                for candidate in outcome.conflicting)
+            raise ValueError(
+                "conflicting terminal evidence for permanent security "
+                f"{outcome.key[1]!r} on {outcome.key[0]!r}: {evidence}")
+        if outcome.selected is None:  # pragma: no cover - helper contract
+            raise AssertionError(
+                f"terminal coalescer produced no verdict for {outcome.key}")
+        coalesced.append(outcome.selected.terms)
+        for _candidate in outcome.collapsed:
             _count("terminal_duplicate_rows_collapsed")
-    return sorted(best.values(),
+    return sorted(coalesced,
                   key=lambda t: (t.session, t.security_id, t.kind.value))
-
-
-def _terms_richness(t: TerminalTerms) -> tuple:
-    """How much a terminal-terms record actually tells us. Ordering only.
-
-    Deterministic and total, so collapsing duplicates cannot depend on the order
-    the database returned rows in — the same rule the universe writer applies to
-    duplicate identities, and for the same reason.
-    """
-    return (t.delivered_security_id is not None,
-            t.delivered_ticker is not None,
-            t.exchange_ratio is not None,
-            t.cash_per_share is not None,
-            len(t.reference or ""),
-            t.reference or "")
 
 
 def reconcile_split(derived: float, authoritative: float | None,

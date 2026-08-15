@@ -464,6 +464,55 @@ class TestTheBlockIsREALNotJustAShape:
 
 class TestTheEventStream:
 
+    class _IGMSIdentity:
+        @staticmethod
+        def resolve(ticker, session):
+            assert session == "2025-08-13"
+            return {"IGMS": "110543", "BBB": "220000", "CCC": "330000"}.get(
+                ticker)
+
+    def test_the_exact_IGMS_pair_coalesces_once_independent_of_order(self):
+        sessions = sessions_index(["2025-08-13"])
+        rows = [
+            action(ticker="IGMS", date="2025-08-13",
+                   action="acquisitionby", value=76.6, contraticker="N/A"),
+            action(ticker="IGMS", date="2025-08-13", action="delisted",
+                   value=76.6, contraticker="N/A"),
+        ]
+        counts: dict[str, int] = {}
+        forward = terminal_events_from_actions(
+            rows, sessions, {"110543"}, identity=self._IGMSIdentity(),
+            unresolved=counts)
+        reverse = terminal_events_from_actions(
+            list(reversed(rows)), sessions, {"110543"},
+            identity=self._IGMSIdentity())
+
+        assert forward == reverse
+        assert len(forward) == 1
+        assert forward[0].security_id == "110543"
+        assert forward[0].reference == (
+            "actions/acquisitionby deal_value_musd=76.6")
+        assert forward[0].cash_per_share is None
+        assert forward[0].kind is not TerminalKind.WRITE_OFF
+        assert counts == {"terminal_duplicate_rows_collapsed": 1}
+
+    def test_equally_rich_conflicting_terminal_evidence_refuses(self):
+        sessions = sessions_index(["2025-08-13"])
+        rows = [
+            action(ticker="IGMS", date="2025-08-13",
+                   action="acquisitionby", contraticker="BBB"),
+            action(ticker="IGMS", date="2025-08-13",
+                   action="acquisitionby", contraticker="CCC"),
+        ]
+        counts: dict[str, int] = {}
+        with pytest.raises(
+                ValueError,
+                match="conflicting terminal evidence.*110543.*2025-08-13"):
+            terminal_events_from_actions(
+                rows, sessions, {"110543"}, identity=self._IGMSIdentity(),
+                unresolved=counts)
+        assert counts == {"terminal_conflicting_rows": 2}
+
     def test_actions_on_unknown_tickers_are_excluded(self):
         """An action on a security the run cannot hold is not a run event, and
         emitting it anyway puts tens of thousands of NOT_HELD rows into

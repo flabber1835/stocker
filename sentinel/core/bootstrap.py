@@ -150,6 +150,14 @@ def bootstrap(conn, *, start: str, end: str, starting_cash: float,
         loaded = load_terminal_events(
             conn, start=w.sessions[0], end=w.sessions[-1],
             resolve_with_reason=_r.resolve_with_reason)
+        if not loaded.conservation_holds() or not loaded.normalized_stream_holds():
+            raise RuntimeError(
+                "terminal normalization did not produce a conserved, unique "
+                "Wealth Core event stream; run `check-data`")
+        if loaded.unresolved:
+            raise RuntimeError(
+                "cannot bootstrap with unresolved terminal evidence: "
+                + "; ".join(row.describe() for row in loaded.unresolved[:10]))
         events, terminal_load = loaded.events, loaded
     else:
         events, terminal_load = [], None
@@ -170,14 +178,6 @@ def bootstrap(conn, *, start: str, end: str, starting_cash: float,
     book.terminal_events = len(events)
     if terminal_load is not None:
         book.terminal_accounting = terminal_load.to_dict()
-        if terminal_load.unresolved:
-            # NAMED on the book itself. A target planned while a termination
-            # could not be attributed is a book that may hold a security that no
-            # longer exists, and the count alone does not say which.
-            book.caveats.append(
-                f"{len(terminal_load.unresolved)} UNRESOLVED terminal "
-                f"action(s) in this window: "
-                + "; ".join(r.describe() for r in terminal_load.unresolved[:5]))
     if not events:
         # NAMED rather than assumed benign. Zero events over a 252-session window
         # is a missing ingest, not a quiet market — and it presents exactly as a
