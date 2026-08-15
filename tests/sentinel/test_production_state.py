@@ -17,6 +17,7 @@ from sentinel.core.production import (
     FeedAnchor, PublishedSession, SessionState, advance_state,
     load_published_session)
 from sentinel.core import production
+from sentinel.core.terminal import TerminalLoadResult
 
 
 def _spy_fields(session: str, closes):
@@ -625,7 +626,7 @@ def test_published_loader_reconstructs_prior_split_factor_from_pinned_rows(
     monkeypatch.setattr("sentinel.core.loader.load_meta", lambda _: meta)
     monkeypatch.setattr(
         "sentinel.core.loader.load_terminal_events",
-        lambda *_, **__: SimpleNamespace(events=[]))
+        lambda *_, **__: TerminalLoadResult(events=[], rows=[]))
     monkeypatch.setattr(
         "sentinel.feed.universe.load_resolver",
         lambda _: SimpleNamespace(resolve_with_reason=lambda *_: None))

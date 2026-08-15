@@ -1509,12 +1509,42 @@ cash distributions on one ticker/effective session sum once per distinct source
 row.  More than one distinct split row on one ticker/effective session has no
 vendor-defined composition order: Sentinel applies no ACTIONS multiplier and
 publishes ``AMBIGUOUS_SPLIT_MULTIPLICITY`` certification evidence.  It may not
-pick the first/last row.  Terminal consumers map every distinct source row
-before deduplication.  Siblings produce one event only when their mapped
-economic terms are identical; conflicting mapped terms produce no event, and
-every sibling remains named as unresolved evidence by source-row identity.
+pick the first/last row.
+
+Terminal consumers map every distinct source row before coalescing.  The
+economic key is ``(effective exchange session, permanent security id)`` -- not
+the raw ticker, action name, or vendor date.  Sharadar normally states one
+termination with a reason-specific row plus a bare ``delisted`` row.  The
+canonical backtester has always collapsed that representation by retaining the
+richest supported mapped record; Sentinel and the backtester now call the same
+shared selector.  Richness comes only from supported terminal fields.  ACTIONS
+``value`` remains transaction-size provenance and never makes a record richer
+as cash per share, an exchange ratio, or any other settlement term.
+
+Selection is deterministic and independent of source-row order.  A less
+informative generic row may be subsumed by a reason-specific row.  Candidates
+at the same richest information level must agree on mapped economics; otherwise
+the group produces no event and every source row is ``CONFLICTING_TERMINAL_TERMS``.
+One selected source row is ``resolved`` and every other source row for an
+accepted group is recorded separately as ``collapsed`` with reason
+``COALESCED_TERMINAL_SOURCE_ROW``.  Thus source-row conservation includes four
+explicit buckets -- excluded, resolved, collapsed, unresolved -- while Wealth
+Core receives exactly one event per economic key.
+
+``check-data`` loads this exact normalized stream and verifies both source-row
+conservation and uniqueness of the stream Wealth Core will consume.  Bootstrap,
+one-session production, forward-chain certification, and the canonical replay
+all use the same coalescing rule.  An unresolved identity or irreconcilable
+richest-record conflict remains fail-closed and names ticker, permanent security
+id when known, source dates/actions, source-row identities, and reason.
 Relationship rows have no ranking, price, split, dividend, terminal, or issuer-
 family effect.
+
+This normalization is a reader correction.  Existing published rows such as
+IGMS ``acquisitionby`` + ``delisted`` on 2025-08-13 are valid evidence and need
+no deletion, manual SQL mutation, reseed, database restore, or Sharadar refetch.
+After deploying the corrected images, run ``check-data`` and ``target-book``
+again against the existing corpus.
 
 The failed production daily run
 ``7a0e20f4-9a51-4737-8fd6-ecbfadf39075`` stopped in ACTIONS after committing

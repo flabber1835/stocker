@@ -378,9 +378,20 @@ def load_published_session(conn, session: str, *, spy_sessions: int = 41,
             f"ending {session}: expected {expected_spy_sessions}, got "
             f"{actual_spy_sessions}")
     resolver = load_resolver(conn)
-    terminals = load_terminal_events(
+    terminal_result = load_terminal_events(
         conn, start=session, end=session,
-        resolve_with_reason=resolver.resolve_with_reason).events
+        resolve_with_reason=resolver.resolve_with_reason)
+    if (not terminal_result.conservation_holds()
+            or not terminal_result.normalized_stream_holds()):
+        raise RuntimeError(
+            f"terminal normalization for {session} did not produce a "
+            "conserved, unique Wealth Core event stream")
+    if terminal_result.unresolved:
+        raise RuntimeError(
+            f"unresolved terminal evidence for {session}: "
+            + "; ".join(row.describe()
+                        for row in terminal_result.unresolved[:10]))
+    terminals = terminal_result.events
     missing = sorted(
         {bar.security_id for bar in bars} - set(known_feed_security_ids))
     factors = {sid: 1.0 for sid in missing}

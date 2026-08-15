@@ -376,27 +376,49 @@ def test_conflicting_terminal_siblings_fail_closed_with_complete_evidence(conn):
 
 def test_economically_equivalent_terminal_siblings_apply_once_and_stay_audited(
         conn):
-    day = "2026-08-14"
+    # The production IGMS pair that exposed the defect: one reason-specific
+    # row plus the vendor's generic delisting representation of the same event.
+    day = "2025-08-13"
     rows = [
-        {"ticker": "AAA", "date": day, "action": "acquisitionby",
-         "value": 100, "contraticker": "BBB", "contraname": "Buyer One"},
-        {"ticker": "AAA", "date": day, "action": "acquisitionby",
-         "value": 200, "contraticker": "BBB", "contraname": "Buyer Two"},
+        {"ticker": "IGMS", "date": day, "action": "acquisitionby",
+         "value": 76.6, "contraticker": "N/A", "contraname": None},
+        {"ticker": "IGMS", "date": day, "action": "delisted",
+         "value": 76.6, "contraticker": "N/A", "contraname": None},
     ]
-    _publish_actions(conn, rows)
+    _publish_actions(conn, rows, lo=day, hi=day)
     result = terminal.load_terminal_events(
         conn, start=day, end=day,
-        resolve_identity=lambda ticker, session: "SEC-AAA")
+        resolve_identity=lambda ticker, session: "110543")
     assert len(result.events) == 1
-    assert result.events[0].delivered_ticker == "BBB"
+    assert result.events[0].security_id == "110543"
+    assert result.events[0].cash_per_share is None
+    assert result.events[0].kind.value != "WRITE_OFF"
+    assert result.events[0].reference == (
+        "actions/acquisitionby deal_value_musd=76.6")
     assert len(result.rows) == 2 and len(result.resolved) == 1
-    assert [row.reason for row in result.excluded] == [
-        terminal.EXCLUDED_EQUIVALENT_TERMINAL]
+    assert result.excluded == []
+    assert [row.reason for row in result.collapsed] == [
+        terminal.COALESCED_TERMINAL_SOURCE]
+    assert {row.action for row in result.rows} == {"acquisitionby", "delisted"}
+    assert {row.security_id for row in result.rows} == {"110543"}
     assert len({row.source_row_id for row in result.rows}) == 2
     assert result.conservation_holds()
+    assert result.normalized_stream_holds()
     active = actions.active_rows(conn, start=day, end=day)
-    assert {(float(row["value"]), row["contraname"]) for row in active} == {
-        (100.0, "Buyer One"), (200.0, "Buyer Two")}
+    assert {(row["action"], float(row["value"]), row["contraticker"])
+            for row in active} == {
+        ("acquisitionby", 76.6, "N/A"), ("delisted", 76.6, "N/A")}
+
+    # Source response order is not allowed to choose a different survivor.
+    _publish_actions(conn, list(reversed(rows)), lo=day, hi=day)
+    reversed_result = terminal.load_terminal_events(
+        conn, start=day, end=day,
+        resolve_identity=lambda ticker, session: "110543")
+    assert reversed_result.events == result.events
+    assert sorted((row.action, row.disposition, row.reason)
+                  for row in reversed_result.rows) == sorted(
+                      (row.action, row.disposition, row.reason)
+                      for row in result.rows)
 
 
 def test_pr86_observation_schema_upgrade_is_idempotent_and_preserves_history(conn):

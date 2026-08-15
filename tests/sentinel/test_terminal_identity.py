@@ -1,4 +1,6 @@
-"""Every terminal action is EXCLUDED for a stated reason, or RESOLVED. Nothing vanishes.
+"""Every terminal action is EXCLUDED, RESOLVED, COLLAPSED, or UNRESOLVED.
+
+Nothing vanishes.
 
 THE DEFECT. `load_terminal_events` dropped a row whose ticker could not be
 resolved to a permanent security and returned a bare list. Its own docstring
@@ -9,10 +11,8 @@ hold a security that had been acquired, with nothing anywhere saying so.
 
 THE ACCOUNTING, and it is two equations because they fail differently:
 
-    discovered == excluded + resolved + unresolved     a row neither used nor
-                                                       accounted for
-    relevant   == resolved + unresolved                a row miscounted as
-                                                       irrelevant
+    discovered == excluded + resolved + collapsed + unresolved
+    relevant   == resolved + collapsed + unresolved
 
 EXCLUSIONS ARE POSITIVE STATEMENTS. There is deliberately no NOT_RELEVANT
 bucket: a catch-all is where a mapping failure hides, and the one exclusion that
@@ -38,6 +38,7 @@ sys.path.insert(0, str(ROOT / "shared"))
 
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
+from sentinel.core import bootstrap as B  # noqa: E402
 from sentinel.core import terminal as T  # noqa: E402
 from sentinel import identity as identity_record  # noqa: E402
 from sentinel.feed import publication as P  # noqa: E402
@@ -203,7 +204,8 @@ class TestResolutionIsEffectiveDateBased:
 
         loaded = load(conn, start=monday, end=monday)
         assert len(loaded.events) == 1
-        assert [row.reason for row in loaded.excluded] == [T.EXCLUDED_DUPLICATE]
+        assert [row.reason for row in loaded.collapsed] == [
+            T.COALESCED_TERMINAL_SOURCE]
         assert loaded.conservation_holds()
 
     def test_a_plain_interval_gap_is_distinguished_from_reuse(self):
@@ -382,4 +384,89 @@ class TestReadinessRefusesAnUnresolvedTermination:
         assert isinstance(c.value, dict)
         assert c.value["conservation_holds"] is True
         assert set(c.value) >= {"discovered", "relevant", "resolved",
-                                "excluded", "unresolved", "unresolved_rows"}
+                                "collapsed", "excluded", "unresolved",
+                                "normalized_stream_holds", "resolved_rows",
+                                "collapsed_rows", "unresolved_rows"}
+
+
+class TestIGMSProductionPair:
+    """The exact NAS evidence passes readiness and the target-book path."""
+
+    @staticmethod
+    def _corpus(conn):
+        sessions = sess(300, end="2025-08-13")
+        S.write_bars(conn, [
+            NormalisedBar(
+                close_signal=50.0,
+                vendor=VendorBar(
+                    session=session, security_id="110543", ticker="IGMS",
+                    raw_close=50.0, raw_open=50.0, volume=1_000_000,
+                    split_ratio=1.0, dividend_per_share=0.0))
+            for session in sessions
+        ])
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_universe (permaticker,ticker,category,"
+                "first_price_date,last_price_date,snapshot_date) VALUES "
+                "('110543','IGMS','Domestic Common Stock',%s,NULL,%s)",
+                (sessions[0], sessions[-1]))
+            for act in ("acquisitionby", "delisted"):
+                cur.execute(
+                    "INSERT INTO sentinel_actions "
+                    "(ticker,session,action,value,contraticker) VALUES "
+                    "('IGMS','2025-08-13',%s,76.6,'N/A')", (act,))
+        conn.commit()
+        return sessions
+
+    def test_readiness_and_target_book_consume_the_same_one_event_stream(
+            self, conn):
+        sessions = self._corpus(conn)
+        report = R.check_readiness(conn, today="2025-08-14")
+        check = {item.name: item for item in report.checks}["terminal identity"]
+        assert check.status == R.PASS
+        assert check.value["discovered"] == 2
+        assert check.value["resolved"] == 1
+        assert check.value["collapsed"] == 1
+        assert check.value["unresolved"] == 0
+        assert check.value["conservation_holds"] is True
+        assert check.value["normalized_stream_holds"] is True
+        assert {row["action"] for row in check.value["resolved_rows"]
+                + check.value["collapsed_rows"]} == {
+                    "acquisitionby", "delisted"}
+
+        book = B.bootstrap(
+            conn, start=sessions[0], end=sessions[-1],
+            starting_cash=1_000_000.0)
+        assert book.terminal_events == 1
+        assert book.terminal_accounting["resolved"] == 1
+        assert book.terminal_accounting["collapsed"] == 1
+        assert book.terminal_accounting["normalized_stream_holds"] is True
+
+    def test_conflicting_richest_evidence_is_an_actionable_readiness_failure(
+            self, conn):
+        self._corpus(conn)
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM sentinel_actions")
+            cur.execute(
+                "INSERT INTO sentinel_actions "
+                "(ticker,session,action,value,contraticker) VALUES "
+                "('IGMS','2025-08-13','acquisitionby',76.6,'BBB'),"
+                "('IGMS','2025-08-13','mergerto',76.6,'CCC')")
+        conn.commit()
+
+        report = R.check_readiness(conn, today="2025-08-14")
+        check = {item.name: item for item in report.checks}["terminal identity"]
+        assert check.status == R.FAIL
+        assert check.value["resolved"] == 0
+        assert check.value["collapsed"] == 0
+        assert check.value["unresolved"] == 2
+        for expected in (
+                "2025-08-13", "IGMS", "110543", "ACQUISITIONBY", "MERGERTO",
+                T.CONFLICTING_TERMINAL_TERMS):
+            assert expected in check.detail
+        assert {row["action"] for row in check.value["unresolved_rows"]} == {
+            "acquisitionby", "mergerto"}
+        with pytest.raises(RuntimeError, match="unresolved terminal evidence"):
+            B.bootstrap(
+                conn, start=sess(300, end="2025-08-13")[0],
+                end="2025-08-13", starting_cash=1_000_000.0)

@@ -684,8 +684,9 @@ def check_readiness(conn, *, today: Optional[str] = None,
             conn, start=terminal_start, end=frontier,
             resolve_with_reason=load_resolver(conn).resolve_with_reason)
         counts = (f"discovered {acc.discovered} · relevant {acc.relevant} · "
-                  f"resolved {len(acc.resolved)} · excluded {len(acc.excluded)} "
-                  f"· unresolved {len(acc.unresolved)}")
+                  f"resolved {len(acc.resolved)} · collapsed {len(acc.collapsed)} "
+                  f"· excluded {len(acc.excluded)} · unresolved "
+                  f"{len(acc.unresolved)}")
 
         if not acc.conservation_holds():
             # Cannot happen by construction, which is exactly why it is checked:
@@ -694,6 +695,21 @@ def check_readiness(conn, *, today: Optional[str] = None,
             r.add("terminal identity", FAIL,
                   f"CONSERVATION VIOLATED — {counts}. A row was neither used "
                   f"nor accounted for.", acc.to_dict())
+        elif not acc.normalized_stream_holds():
+            # This is the exact event list bootstrap hands to run_sessions.
+            # Readiness must not say READY for a stream whose duplicate guard
+            # will reject it before producing a book.
+            duplicates: dict[tuple[str, str], int] = {}
+            for event in acc.events:
+                key = (event.session, event.security_id)
+                duplicates[key] = duplicates.get(key, 0) + 1
+            bad = "; ".join(
+                f"{session} security_id={security_id} count={count}"
+                for (session, security_id), count in sorted(duplicates.items())
+                if count > 1)
+            r.add("terminal identity", FAIL,
+                  f"NORMALIZED TERMINAL STREAM REJECTED — {counts}. "
+                  f"Duplicate economic keys: {bad}", acc.to_dict())
         elif acc.unresolved:
             # The offending ROWS, not the count. "unresolved: 1" is a number an
             # operator cannot act on; a date, a ticker and a reason is a fetch
