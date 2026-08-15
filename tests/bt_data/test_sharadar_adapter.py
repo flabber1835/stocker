@@ -212,6 +212,25 @@ class TestTheUniverseStageIsReplayableAlone:
     def test_it_has_its_own_endpoint(self):
         assert '@app.post("/jobs/backfill-universe")' in self.SRC
 
+    def test_current_TICKERS_cannot_be_backdated(self):
+        body = self.SRC[self.SRC.index("async def start_universe_backfill"):
+                        self.SRC.index("# ── Data-depth report")]
+        assert "if snap != today" in body
+        assert "fabricate point-in-time evidence" in body
+
+    def test_backdated_TICKERS_request_is_behaviorally_refused(self):
+        import asyncio
+
+        import pytest
+        from fastapi import BackgroundTasks, HTTPException
+
+        from app import main as bt_main
+
+        with pytest.raises(HTTPException, match="point-in-time evidence") as exc:
+            asyncio.run(bt_main.start_universe_backfill(
+                BackgroundTasks(), snapshot_date="2023-12-29"))
+        assert exc.value.status_code == 400
+
     def test_every_stage_that_can_gain_a_column_is_replayable_alone(self):
         """The general rule, not just this instance. Prices, fundamentals,
         actions and the universe have all gained mapped columns after their

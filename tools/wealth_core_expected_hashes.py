@@ -259,10 +259,12 @@ def load_corpus(conn, *, start: str, end: str, bt) -> dict[str, Any]:
             f"requested {start}..{end}, observed "
             f"{measured[0]}..{measured[-1]}")
 
-    meta = bt.load_meta(conn, as_of=end)
+    meta = bt.load_meta(conn, as_of=start)
     if not meta:
         raise ExpectedHashesRefused(
-            f"bt_universe is empty as of {end}; a cash-only run is not evidence")
+            f"bt_universe has no decision metadata observed by {start}; later "
+            f"TICKERS metadata cannot be backdated, and a cash-only run is not "
+            f"evidence")
     identity = bt.load_identity(conn, as_of=end)
     actions_ingestion = load_actions_ingestion_evidence(
         conn, start=date.fromisoformat(warmup_from), end=date.fromisoformat(end))
@@ -289,6 +291,11 @@ def load_corpus(conn, *, start: str, end: str, bt) -> dict[str, Any]:
     if unknown:
         bars = {session: [bar for bar in rows if bar.security_id in meta]
                 for session, rows in bars.items()}
+    if not any(bars.values()):
+        raise ExpectedHashesRefused(
+            f"wealth_core_expected_hashes: canonical bars are empty after "
+            f"identity/reference metadata filtering for {warmup_from} through "
+            f"{end}; a zero-security run is not certification evidence")
     normalized_bars = sum(len(rows) for rows in bars.values())
     measured_actions = bt.actions_effective_in_sessions(
         action_rows, full_index, measured)

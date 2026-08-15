@@ -537,11 +537,16 @@ class TestTheCorpusSnapshotIsIdentifiedAndStable:
                            match="no corpus loader query"):
             api.require_expected_data_generation(request, generation)
 
-    def test_identity_and_meta_are_bounded_by_the_requested_end(self):
+    def test_decision_meta_is_bounded_and_identity_is_separate_authority(self):
         body = self.SRC[self.SRC.index("async def _load_corpus"):
                         self.SRC.index("def _execute(")]
-        assert "load_meta(conn, as_of=end)" in body
+        assert "load_meta(conn, as_of=start)" in body
         assert "load_identity(conn, as_of=end)" in body
+        canonical = (REPO / "services" / "backtester" / "app" /
+                     "wealth_core_replay.py").read_text()
+        identity_sql = canonical[canonical.index("_IDENTITY_SQL = text"):
+                                 canonical.index("def assert_raw_price_domain")]
+        assert "snapshot_date <= :as_of" not in identity_sql
 
     def test_READY_generation_is_preserved_for_run_provenance(self):
         async def scenario():
@@ -890,7 +895,8 @@ class TestAnEmptyUniverseIsRefusedNotScored:
                         self.SRC.index("def _execute(")]
         msg = body[body.index("if not meta:"):body.index("identity = load_identity")]
         assert "bt_universe" in msg
-        assert "/jobs/backfill" in msg, "the remedy must be a command, not advice"
+        assert "restore a legitimately observed TICKERS snapshot" in msg
+        assert "/jobs/backfill-universe" in msg and "must not be backdated" in msg
         assert "0%" in msg and "NOT a strategy result" in msg
 
 

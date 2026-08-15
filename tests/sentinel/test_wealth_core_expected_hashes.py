@@ -68,7 +68,7 @@ class FakeBT:
                    "wealth_core_replay.py")
 
     def __init__(self, start="2024-06-03", end="2024-06-04", *,
-                 actions=True, shift_start=False):
+                 actions=True, shift_start=False, bars=True):
         self.start = start
         self.end = end
         start_day = date.fromisoformat(start)
@@ -83,6 +83,8 @@ class FakeBT:
         self.actions = ([{"date": start, "ticker": "AAA",
                           "action": "dividend", "value": 1.0}]
                         if actions else [])
+        self.bars = ({start: [SimpleNamespace(security_id="P:1")]}
+                     if bars else {})
         self.observed = {}
 
     def assert_raw_price_domain(self, _conn, start, end):
@@ -152,9 +154,8 @@ class FakeBT:
         self.observed["dividend_mapping"] = mapping
         return mapping
 
-    @staticmethod
-    def load_bars(_conn, _start, _end, **_kwargs):
-        return {}
+    def load_bars(self, _conn, _start, _end, **_kwargs):
+        return self.bars
 
     def terminal_events_from_actions(self, rows, sessions, **_kwargs):
         self.observed["terminal_actions"] = list(rows)
@@ -225,7 +226,7 @@ class TestWindowAndSource:
             conn, start=bt.start, end=bt.end, bt=bt)
         assert len(corpus["warmup_sessions"]) == 126
         assert corpus["sessions"] == [bt.start, bt.end]
-        assert bt.observed["meta_as_of"] == bt.end
+        assert bt.observed["meta_as_of"] == bt.start
         assert bt.observed["identity_as_of"] == bt.end
         assert corpus["source"]["split_source"] == "actions"
         assert corpus["source"]["actions_ingestion"]["coverage_complete"]
@@ -240,6 +241,13 @@ class TestWindowAndSource:
     def test_missing_actions_never_falls_back_to_derived_splits(self):
         bt = FakeBT(actions=False)
         with pytest.raises(TOOL.ExpectedHashesRefused, match="derived"):
+            TOOL.load_corpus(
+                SnapshotConn(), start=bt.start, end=bt.end, bt=bt)
+
+    def test_zero_bars_after_reference_filtering_is_refused(self):
+        bt = FakeBT(bars=False)
+        with pytest.raises(TOOL.ExpectedHashesRefused,
+                           match="zero-security run"):
             TOOL.load_corpus(
                 SnapshotConn(), start=bt.start, end=bt.end, bt=bt)
 

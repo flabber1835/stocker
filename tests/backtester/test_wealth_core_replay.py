@@ -90,6 +90,13 @@ class TestItRefusesWithoutTheAsTradedDomain:
 
 class TestTheDomainMapping:
 
+    class Resolver:
+        unresolved = {}
+
+        @staticmethod
+        def resolve(ticker, _session):
+            return f"P:{ticker}"
+
     def rows(self):
         # A 2:1 split between the two sessions. The corpus is a snapshot under
         # the vendor's CURRENT adjustment, so the pre-split row carries
@@ -103,21 +110,24 @@ class TestTheDomainMapping:
         ]
 
     def test_the_mark_is_the_as_traded_close_never_the_adjusted_one(self):
-        bars = load_bars(FakeConn({"close_unadjusted": self.rows()}), "a", "b")
+        bars = load_bars(FakeConn({"close_unadjusted": self.rows()}), "a", "b",
+                         identity=self.Resolver())
         first = bars["2020-01-02"][0]
         assert first.raw_close == 100.0, (
             "raw_close must be SEP.closeunadj. Taking SEP.close would mark a "
             "post-split holding at the adjusted level and misweight it forever")
 
     def test_the_open_is_rescaled_into_the_as_traded_domain(self):
-        bars = load_bars(FakeConn({"close_unadjusted": self.rows()}), "a", "b")
+        bars = load_bars(FakeConn({"close_unadjusted": self.rows()}), "a", "b",
+                         identity=self.Resolver())
         first = bars["2020-01-02"][0]
         # 49 x (100/50) = 98: SEP's open is split-adjusted like its close, so it
         # has to be scaled or orders fill in a different domain than they mark.
         assert first.raw_open == pytest.approx(98.0)
 
     def test_a_split_is_recovered_from_the_two_domains_diverging(self):
-        bars = load_bars(FakeConn({"close_unadjusted": self.rows()}), "a", "b")
+        bars = load_bars(FakeConn({"close_unadjusted": self.rows()}), "a", "b",
+                         identity=self.Resolver())
         assert bars["2020-01-02"][0].split_ratio == 1.0     # no prior session
         assert bars["2020-01-03"][0].split_ratio == 2.0
 
@@ -199,7 +209,7 @@ class TestMeta:
              "first_price_date": "2010-01-04"}]})
         assert load_meta(conn, as_of="2020-12-31") == {}
 
-    def test_reference_and_identity_metadata_are_pinned_to_replay_as_of(self):
+    def test_decision_metadata_is_pinned_but_identity_uses_listing_intervals(self):
         rows = [{"ticker": "AAA", "category": "Domestic Common Stock",
                  "permaticker": 123, "related_tickers": "AAA",
                  "first_price_date": "2010-01-04",
@@ -213,8 +223,13 @@ class TestMeta:
         identity_conn = FakeConn({"bt_universe": rows})
         load_identity(identity_conn, as_of="2020-12-31")
         identity_sql, identity_params = identity_conn.calls[-1]
-        assert "snapshot_date <= :as_of" in identity_sql
-        assert identity_params == {"as_of": "2020-12-31"}
+        assert "snapshot_date <= :as_of" not in identity_sql
+        assert "first_price_date" in identity_sql
+        assert identity_params is None
+
+        replay = MODULE.read_text()
+        body = replay[replay.index("def run_wealth_core_replay"):]
+        assert "load_meta(conn, as_of=req.start_date)" in body
 
 
 def test_the_unmodelled_parts_travel_with_the_result():

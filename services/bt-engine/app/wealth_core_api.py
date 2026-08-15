@@ -547,7 +547,8 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
         assert_raw_price_domain,
         dividends_from_actions, load_actions,
         load_bars, load_identity, load_meta, load_sessions, sessions_index,
-        split_ratios_from_actions, terminal_events_from_actions,
+        require_usable_bars, split_ratios_from_actions,
+        terminal_events_from_actions,
         unusable_dividend_rows)
     # Its OWN module, also COPYed at image build. The loader above is guarded
     # against ever naming the total-return column — the series a benchmark
@@ -607,10 +608,11 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
                     f"weekend/holiday event at the boundary cannot be placed "
                     f"without guessing. Backfill further or widen the lookup.")
 
-            # Universe/identity are point-in-time inputs, not present-day
-            # metadata. The replay boundary is the requested end session; a
-            # later snapshot must not leak into this historical rehearsal.
-            meta = load_meta(conn, as_of=end)
+            # One static metadata map serves every measured decision, so bound
+            # it at the first measured session. End metadata would let a later
+            # category/relationship rewrite an earlier decision. Identity is a
+            # separate interval-proven authority.
+            meta = load_meta(conn, as_of=start)
             if not meta:
                 # REFUSED, not run. An empty universe does not produce an error
                 # anywhere downstream: no candidates means no scores, no
@@ -625,12 +627,15 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
                 # exactly equal to starting cash, with `securities: 0` the only
                 # trace of what had happened.
                 raise RawPriceDomainUnavailable(
-                    f"bt_universe has no securities, so the {len(sessions)} "
-                    f"session(s) between {start} and {end} have nothing to rank. "
+                    f"bt_universe has no decision metadata observed by the "
+                    f"first measured session {start}, so the {len(sessions)} "
+                    f"session(s) through {end} have nothing causal to rank. "
                     f"This is NOT a strategy result: with an empty universe the "
                     f"run would complete successfully and report a 0% return. "
-                    f"Remedy: run the TICKERS stage on bt-data "
-                    f"(POST /jobs/backfill), then re-submit.")
+                    f"Remedy: restore a legitimately observed TICKERS snapshot "
+                    f"dated on or before {start}, or choose a start on or after "
+                    f"an observed snapshot. POST /jobs/backfill-universe repairs "
+                    f"identity only; it must not be backdated.")
             identity = load_identity(conn, as_of=end)
             # TWO indices, and the split is load-bearing.
             #
@@ -699,6 +704,8 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
             if unknown:
                 bars = {s: [b for b in v if b.security_id in meta]
                         for s, v in bars.items()}
+            require_usable_bars(
+                bars, start=warmup_from, end=end, context="bt_engine_corpus")
             return {
                 "sessions": sessions, "bars_by_session": bars, "meta": meta,
                 "warmup_sessions": warmup_sessions,

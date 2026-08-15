@@ -743,6 +743,19 @@ fail-closed tombstone for the retired service graph. Current build/freeze is
 **Run completed 2026-08-09, status SUCCESS.** Read the counters before the
 performance; that rule is doing real work on this run.
 
+**Identity-corpus impact discovered 2026-08-15.** That run predates commit
+`b18e46269d3bc8e83a7ee42d02163975a48ee317` (2026-08-13), which added
+`snapshot_date <= replay_end` to both reference-metadata and identity loading.
+The complete-zero cold-boot failure is therefore a later reconstruction and
+certification defect; it did not cause the 2026-08-09 process to load zero
+bars. Before that guard, however, the rehearsal consumed whatever TICKERS
+metadata was then current, including category and relationships without
+effective-date history. The recorded 7.87% CAGR and 28.86% drawdown therefore
+cannot be declared invariant under the corrected temporal contract. They remain
+the recorded result of that run, not a re-certified result, and the exact-image
+NAS rerun after this fix must determine whether they change. Do not re-pin a
+golden result merely to preserve either number.
+
 ```text
 pending_terms_carried              8      $342,136.68
 derived_last_mark_settlements      8      $342,419.72

@@ -1224,19 +1224,28 @@ async def start_universe_backfill(background_tasks: BackgroundTasks,
     metadata that have nothing to do with prices. That is how a stage becomes
     one nobody replays.
 
-    IDEMPOTENT. ON CONFLICT (snapshot_date, ticker) DO UPDATE rewrites every
+    IDEMPOTENT. ON CONFLICT (snapshot_date, permaticker) DO UPDATE rewrites every
     mapped column in place, so this both backfills the new ones and corrects
     stale ones. bt_prices is never touched.
 
-    `snapshot_date` defaults to TODAY. Pass an existing snapshot's date to
-    repair that snapshot rather than adding another.
+    `snapshot_date` is an observation date, not the effective date of TICKERS
+    metadata. It defaults to TODAY; the optional parameter exists only so old
+    clients receive an explicit refusal instead of silently backdating today's
+    delivery. A TICKERS-only retry on the same day updates that observation.
     """
-    snap = snapshot_date or date.today().isoformat()
+    today = date.today().isoformat()
+    snap = snapshot_date or today
     try:
         date.fromisoformat(snap)
     except ValueError:
         raise HTTPException(status_code=400,
                             detail="snapshot_date must be ISO YYYY-MM-DD")
+    if snap != today:
+        raise HTTPException(
+            status_code=400,
+            detail="snapshot_date is the TICKERS observation date and must be "
+                   f"today ({today}); backdating current metadata would "
+                   "fabricate point-in-time evidence")
     if _job_active:
         return {"status": "already_running",
                 "detail": "a backfill/topup is already in progress — not spawning another"}
