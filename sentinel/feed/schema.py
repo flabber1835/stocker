@@ -194,7 +194,8 @@ DDL = [
         WHERE last_written_run_id IS NOT NULL AND kind IN (
           'SPLIT_AUTHORITATIVE_APPLIED', 'SPLIT_CORROBORATED_DERIVED',
           'SPLIT_ONLY_DERIVED', 'SEAM_SPLIT_UNCORROBORATED',
-          'SPLIT_DISAGREEMENT', 'SPLIT_RESOLVED_NO_EVENT')""",
+          'SPLIT_DISAGREEMENT', 'AMBIGUOUS_SPLIT_MULTIPLICITY',
+          'SPLIT_RESOLVED_NO_EVENT')""",
 
     """CREATE TABLE IF NOT EXISTS sentinel_actions (
         ticker       TEXT NOT NULL,
@@ -332,20 +333,77 @@ DDL = [
         observed_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         CHECK (window_start <= window_end))""",
     """CREATE TABLE IF NOT EXISTS sentinel_action_observations (
+        source_row_id        TEXT NOT NULL,
+        source_payload       JSONB NOT NULL,
         ticker              TEXT NOT NULL,
         session             DATE NOT NULL,
         action              TEXT NOT NULL,
+        name                TEXT,
         value               DOUBLE PRECISION,
         contraticker        TEXT,
+        contraname          TEXT,
         disposition         TEXT NOT NULL
                             CHECK (disposition IN ('PRESENT','REMOVED')),
         last_written_run_id UUID NOT NULL,
         observed_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        PRIMARY KEY (ticker, session, action, last_written_run_id))""",
+        PRIMARY KEY (last_written_run_id, source_row_id))""",
+    # PR #86 shipped the table at the invalid economic-event grain.  Upgrade it
+    # transactionally: preserve every append-only observation, give old rows a
+    # deterministic legacy identity from the content they retained, then move
+    # the key.  If any statement fails ensure_schema rolls the whole migration
+    # back; a partially keyed table can never look initialized.
+    """ALTER TABLE sentinel_action_observations
+        ADD COLUMN IF NOT EXISTS source_row_id TEXT""",
+    """ALTER TABLE sentinel_action_observations
+        ADD COLUMN IF NOT EXISTS source_payload JSONB""",
+    """ALTER TABLE sentinel_action_observations
+        ADD COLUMN IF NOT EXISTS name TEXT""",
+    """ALTER TABLE sentinel_action_observations
+        ADD COLUMN IF NOT EXISTS contraname TEXT""",
+    """UPDATE sentinel_action_observations
+           SET source_payload=jsonb_build_object(
+                 'date',session::TEXT,'action',action,'ticker',ticker,
+                 'name',name,
+                 'value',CASE WHEN value IS NULL THEN NULL
+                              ELSE value::TEXT END,
+                 'contraticker',contraticker,'contraname',contraname)
+         WHERE source_payload IS NULL""",
+    """UPDATE sentinel_action_observations
+           SET source_row_id='legacy-v1:' || md5(source_payload::TEXT)
+         WHERE source_row_id IS NULL""",
+    """DO $$
+        DECLARE old_primary_key TEXT;
+        BEGIN
+          SELECT c.conname INTO old_primary_key
+            FROM pg_constraint c
+           WHERE c.conrelid='sentinel_action_observations'::regclass
+             AND c.contype='p'
+             AND c.conkey <> ARRAY[
+               (SELECT attnum FROM pg_attribute WHERE attrelid=c.conrelid
+                  AND attname='last_written_run_id'),
+               (SELECT attnum FROM pg_attribute WHERE attrelid=c.conrelid
+                  AND attname='source_row_id')]::smallint[];
+          IF old_primary_key IS NOT NULL THEN
+            EXECUTE format('ALTER TABLE sentinel_action_observations DROP CONSTRAINT %I',
+                           old_primary_key);
+          END IF;
+          ALTER TABLE sentinel_action_observations
+            ALTER COLUMN source_row_id SET NOT NULL,
+            ALTER COLUMN source_payload SET NOT NULL;
+          IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+               WHERE conrelid='sentinel_action_observations'::regclass
+                 AND contype='p') THEN
+            ALTER TABLE sentinel_action_observations
+              ADD CONSTRAINT sentinel_action_observations_pkey
+              PRIMARY KEY (last_written_run_id,source_row_id);
+          END IF;
+        END $$""",
     """CREATE INDEX IF NOT EXISTS idx_sentinel_action_obs_written_by
         ON sentinel_action_observations (last_written_run_id)""",
+    """DROP INDEX IF EXISTS idx_sentinel_action_obs_window""",
     """CREATE INDEX IF NOT EXISTS idx_sentinel_action_obs_window
-        ON sentinel_action_observations (session, ticker, action)""",
+        ON sentinel_action_observations (session, ticker, action, source_row_id)""",
     """CREATE TABLE IF NOT EXISTS sentinel_action_generation_events (
         event_id          BIGSERIAL PRIMARY KEY,
         generation_run_id UUID NOT NULL REFERENCES sentinel_action_generations
@@ -386,9 +444,27 @@ DDL = [
     # are visible only when their old writer published; NULL provenance remains
     # the oldest baseline.  A REMOVED winner is retained in history but omitted
     # from the active projection.
-    """CREATE OR REPLACE VIEW sentinel_active_actions AS
+    # CREATE OR REPLACE cannot prepend/change view columns on the PR #86 shape.
+    # Drop/recreate is transactional; a failure rolls back to the intact old
+    # view instead of exposing a partial projection.
+    """DROP VIEW IF EXISTS sentinel_active_actions""",
+    """CREATE VIEW sentinel_active_actions AS
         WITH candidates AS (
-          SELECT a.ticker,a.session,a.action,a.value,a.contraticker,
+          SELECT ('legacy-v1:' || md5(jsonb_build_object(
+                   'date',a.session::TEXT,'action',a.action,'ticker',a.ticker,
+                   'name',NULL,
+                   'value',CASE WHEN a.value IS NULL THEN NULL
+                                ELSE a.value::TEXT END,
+                   'contraticker',a.contraticker,'contraname',NULL)::TEXT))
+                   AS source_row_id,
+                 jsonb_build_object('date',a.session::TEXT,'action',a.action,
+                   'ticker',a.ticker,'name',NULL,
+                   'value',CASE WHEN a.value IS NULL THEN NULL
+                                ELSE a.value::TEXT END,
+                   'contraticker',a.contraticker,'contraname',NULL)
+                   AS source_payload,
+                 a.ticker,a.session,a.action,NULL::TEXT AS name,a.value,
+                 a.contraticker,NULL::TEXT AS contraname,
                  'PRESENT'::TEXT AS disposition,
                  a.last_written_run_id,
                  COALESCE(p.version,0::BIGINT) AS publication_version,
@@ -398,19 +474,20 @@ DDL = [
               ON p.run_id=a.last_written_run_id
            WHERE a.last_written_run_id IS NULL OR p.run_id IS NOT NULL
           UNION ALL
-          SELECT o.ticker,o.session,o.action,o.value,o.contraticker,
+          SELECT o.source_row_id,o.source_payload,o.ticker,o.session,o.action,
+                 o.name,o.value,o.contraticker,o.contraname,
                  o.disposition,o.last_written_run_id,p.version,1
             FROM sentinel_action_observations o
             JOIN sentinel_corpus_publications p
               ON p.run_id=o.last_written_run_id
         ), ranked AS (
           SELECT c.*,RANK() OVER (
-                   PARTITION BY ticker,session,action
+                   PARTITION BY source_row_id
                    ORDER BY publication_version DESC,source_rank DESC) AS rank
             FROM candidates c
         )
-        SELECT ticker,session,action,value,contraticker,last_written_run_id,
-               publication_version
+        SELECT source_row_id,source_payload,ticker,session,action,name,value,
+               contraticker,contraname,last_written_run_id,publication_version
           FROM ranked WHERE rank=1 AND disposition='PRESENT'""",
 
     # Immutable state transitions for stamped anomaly observations.  The

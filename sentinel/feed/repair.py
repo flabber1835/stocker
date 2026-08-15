@@ -125,14 +125,24 @@ def _authoritative_splits(conn, start: str, end: str) -> dict:
     """
     raw_start, raw_end = calendar.action_date_window(start, end)
     with conn.cursor() as cur:
-        cur.execute("SELECT ticker,session,action,value"
+        cur.execute("SELECT source_row_id,ticker,session,action,name,value,"
+                    " contraticker,contraname"
                     " FROM sentinel_active_actions"
                     " WHERE session BETWEEN %s AND %s",
                     (raw_start, raw_end))
-        rows = [{"ticker": t, "date": str(d), "action": a, "value": v}
-                for t, d, a, v in cur.fetchall()]
-    return actions_map.split_ratios_from_actions(
+        rows = [{"source_row_id": source_row_id, "ticker": ticker,
+                 "date": str(session), "action": action, "name": name,
+                 "value": value, "contraticker": contraticker,
+                 "contraname": contraname}
+                for (source_row_id, ticker, session, action, name, value,
+                     contraticker, contraname) in cur.fetchall()]
+    ratios, ambiguous = actions_map.split_rows_from_actions(
         rows, calendar.sessions_in_range(start, end))
+    if ambiguous:
+        raise RuntimeError(
+            "split repair refused ambiguous ACTIONS multiplicity; certification "
+            "evidence must be resolved before a multiplier can be repaired")
+    return ratios
 
 
 def audit(conn, *, start: str, end: str) -> AuditResult:

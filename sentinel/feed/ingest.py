@@ -47,7 +47,7 @@ def _today() -> str:
     return _dt.date.today().isoformat()
 
 
-def _report_split_disagreements(report, authoritative) -> list:
+def _report_split_disagreements(report, authoritative, *, ignore_keys=()) -> list:
     """LOUD when the stated and derived split ratios describe different events.
 
     Equal or reciprocal evidence is oriented deterministically. Anything else
@@ -56,7 +56,9 @@ def _report_split_disagreements(report, authoritative) -> list:
     """
     from sentinel.feed import actions_map
 
-    bad = actions_map.split_disagreements(report, authoritative)
+    ignored = set(ignore_keys)
+    bad = [d for d in actions_map.split_disagreements(report, authoritative)
+           if (d["ticker"], d["session"]) not in ignored]
     for d in bad[:20]:
         log.warning(
             "sentinel: SPLIT DISAGREEMENT %s %s stated=%.6g derived=%.6g — "
@@ -107,9 +109,14 @@ def _action_maps(conn, start: str, end: str, *, include_run_id=None):
     rows = actions.active_rows(
         conn, start=lo, end=end, include_run_id=include_run_id)
     sessions = calendar.sessions_in_range(start, end)
-    return (actions_map.split_ratios_from_actions(rows, sessions),
-            actions_map.dividends_from_actions(rows, sessions),
-            rows)
+    splits, ambiguous = actions_map.split_rows_from_actions(rows, sessions)
+    # A zero stated value makes the normaliser apply 1.0 and records an
+    # unresolved disposition.  It also prevents the price-derived fallback
+    # from silently deciding which of several vendor rows was intended.
+    for item in ambiguous:
+        splits[(item["ticker"], item["session"])] = 0.0
+    return (splits, actions_map.dividends_from_actions(rows, sessions),
+            rows, ambiguous)
 
 
 def _ordered_sep(conn, rows: Iterable[dict], *, run_id: str, chunk: str):
@@ -269,7 +276,7 @@ def _resolution_tombstones(conn, run, *, lo: str, hi: str, report,
 
 def _persist_chunk_evidence(conn, run, chunk: str, lo: str, hi: str,
                             report, splits, action_rows,
-                            current_action_rows) -> None:
+                            current_action_rows, ambiguous_splits=()) -> None:
     """Everything the chunk learned that is not a bar.
 
     All of it durable, because a certification runs in a different process
@@ -292,7 +299,9 @@ def _persist_chunk_evidence(conn, run, chunk: str, lo: str, hi: str,
 
     # 3. anomalies that were RESOLVED but not resolved away
     anomalies = []
-    reported_disagreements = _report_split_disagreements(report, splits)
+    ambiguous_keys = {(d["ticker"], d["session"]) for d in ambiguous_splits}
+    reported_disagreements = _report_split_disagreements(
+        report, splits, ignore_keys=ambiguous_keys)
     for d in reported_disagreements:
         anomalies.append({
             "kind": "SPLIT_DISAGREEMENT", "ticker": d["ticker"],
@@ -302,7 +311,17 @@ def _persist_chunk_evidence(conn, run, chunk: str, lo: str, hi: str,
         anomalies.append({
             "kind": "SPLIT_ONLY_DERIVED", "ticker": d["ticker"],
             "session": d["session"], "detail": f"derived={d['derived']:.6g}"})
+    for d in ambiguous_splits:
+        anomalies.append({
+            "kind": "AMBIGUOUS_SPLIT_MULTIPLICITY", "ticker": d["ticker"],
+            "session": d["session"],
+            "detail": f"distinct_rows={d['distinct_rows']} "
+                      f"distinct_values={d['distinct_values']!r} "
+                      f"invalid_value_rows={d['invalid_value_rows']}; "
+                      "no ACTIONS multiplier applied"})
     for (tkr, sess), item in sorted(report.split_dispositions.items()):
+        if (tkr, sess) in ambiguous_keys:
+            continue
         disposition = item["disposition"]
         if disposition in {
                 actions_map.SPLIT_CORROBORATED_DIRECT,
@@ -439,7 +458,7 @@ def _seed_locked(conn, *, date_from: str, date_to: Optional[str],
             # ratio came from price-domain inference. A genuine 3:2 is 1.5,
             # equidistant from the 1 and 2 the derived ratio snaps to, and S5
             # made that error matter by preserving fractional entitlement.
-            splits, divs, action_rows = _action_maps(
+            splits, divs, action_rows, ambiguous_splits = _action_maps(
                 conn, lo, hi, include_run_id=run.progress.run_id)
             # THE PREVIOUS OBSERVATION OF EACH SECURITY, from the corpus. Read
             # BEFORE this chunk writes anything, so it is strictly the state as
@@ -460,7 +479,7 @@ def _seed_locked(conn, *, date_from: str, date_to: Optional[str],
             # process, and the certification that needs it runs in a different
             # one, hours later.
             _persist_chunk_evidence(conn, run, lo[:4], lo, hi, report, splits,
-                                    action_rows, action_rows)
+                                    action_rows, action_rows, ambiguous_splits)
             run.progress.rows_written += written
             run.progress.rows_dropped += (report.dropped_no_raw_close
                                           + report.dropped_no_identity)
@@ -577,7 +596,7 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
 
     with run.chunk("prices"):
         report = domains.NormalisationReport()
-        splits, divs, action_rows = _action_maps(
+        splits, divs, action_rows, ambiguous_splits = _action_maps(
             conn, start, to, include_run_id=run.progress.run_id)
         bars = domains.normalise_sep_rows(
             _ordered_sep(conn,
@@ -595,7 +614,7 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
         run.progress.rows_written += feed_store.write_bars(
             conn, bars, run_id=run.progress.run_id, require_lock=True)
         _persist_chunk_evidence(conn, run, "prices", start, to, report, splits,
-                                action_rows, action_rows)
+                                action_rows, action_rows, ambiguous_splits)
         run.progress.rows_dropped += (report.dropped_no_raw_close
                                       + report.dropped_no_identity)
         # Checked on the DAILY path, where a vendor outage looks like a quiet

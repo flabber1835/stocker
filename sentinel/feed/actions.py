@@ -19,36 +19,44 @@ def active_rows(conn, *, start: str, end: str,
     """Active raw-date rows, optionally overlaid by one candidate generation."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT ticker,session,action,value,contraticker"
+            "SELECT source_row_id,source_payload,ticker,session,action,name,"
+            " value,contraticker,contraname"
             " FROM sentinel_active_actions"
             " WHERE session BETWEEN %s AND %s",
             (start, end))
         published = cur.fetchall()
 
     keyed = {
-        (str(ticker), str(session), str(action)):
+        str(source_row_id):
         {"ticker": str(ticker), "date": str(session), "action": str(action),
-         "value": value, "contraticker": contraticker}
-        for ticker, session, action, value, contraticker in published
+         "name": name, "value": value, "contraticker": contraticker,
+         "contraname": contraname, "source_row_id": str(source_row_id),
+         "source_payload": source_payload}
+        for (source_row_id, source_payload, ticker, session, action, name, value,
+             contraticker, contraname) in published
     }
     if include_run_id is not None:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT ticker,session,action,value,contraticker,disposition"
+                "SELECT source_row_id,source_payload,ticker,session,action,name,"
+                " value,contraticker,contraname,disposition"
                 " FROM sentinel_action_observations"
                 " WHERE last_written_run_id=%s AND session BETWEEN %s AND %s",
                 (str(include_run_id), start, end))
-            for ticker, session, action, value, contraticker, disposition in cur:
-                key = (str(ticker), str(session), str(action))
+            for (source_row_id, source_payload, ticker, session, action, name,
+                 value, contraticker, contraname, disposition) in cur:
+                key = str(source_row_id)
                 if disposition == "REMOVED":
                     keyed.pop(key, None)
                 else:
                     keyed[key] = {
                         "ticker": str(ticker), "date": str(session),
-                        "action": str(action), "value": value,
-                        "contraticker": contraticker}
+                        "action": str(action), "name": name, "value": value,
+                        "contraticker": contraticker, "contraname": contraname,
+                        "source_row_id": key, "source_payload": source_payload}
     return [keyed[key] for key in sorted(keyed,
-                                         key=lambda k: (k[1], k[0], k[2]))]
+              key=lambda k: (keyed[k]["date"], keyed[k]["ticker"],
+                             keyed[k]["action"], k))]
 
 
 def record_pending(conn, *, run_id: str) -> None:

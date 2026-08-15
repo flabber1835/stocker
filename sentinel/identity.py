@@ -347,18 +347,19 @@ def _corpus_pinned(conn, *, start: str, end: str, publication_record) -> dict:
     raw_start, raw_end = calendar.action_date_window(start, end)
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT session, ticker, action, value, contraticker"
+            "SELECT session,ticker,action,value,contraticker,source_row_id"
             " FROM sentinel_active_actions WHERE session BETWEEN %s AND %s"
-            " ORDER BY session, ticker, action", (raw_start, raw_end))
+            " ORDER BY session,ticker,action,source_row_id", (raw_start, raw_end))
         action_rows = []
-        for raw_session, ticker, action, value, contraticker in cur:
+        for raw_session, ticker, action, value, contraticker, source_row_id in cur:
             effective = calendar.session_on_or_after(str(raw_session))
             if start <= effective <= end:
                 # Preserve both dates.  The raw value proves what the vendor
                 # supplied; the effective value proves where Sentinel applied
                 # it under the pinned XNYS calendar contract.
                 action_rows.append((str(raw_session), effective, ticker,
-                                    action, value, contraticker))
+                                    action, value, contraticker,
+                                    str(source_row_id)))
     actions = _digest_rows(action_rows)
     universe = _digest_query(
         conn,

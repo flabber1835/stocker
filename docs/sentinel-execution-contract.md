@@ -896,6 +896,26 @@ lock. The same publication transaction activates the action generation,
 anomaly disposition, and split-repair overlay, and rolls all activation back if
 the publication row fails.
 
+Universe recovery is deliberately different because TICKERS is a complete
+dated snapshot keyed by `(permaticker, ticker, snapshot_date)`. A retry on a
+later date cannot overwrite the failed snapshot's keys. Once the retry is
+durably successful and has written exactly one non-empty complete universe
+snapshot, its publication transaction deletes only rows owned by durably failed
+unpublished runs whose snapshot date is not later than the retry snapshot. The
+publication evidence records each retired run and row count. A published row,
+a future-dated candidate, or a candidate not durably failed is never retired by
+this rule, and rollback restores the candidate if publication fails.
+
+This retirement rule does not extend to destructive economic-key tables.
+`sentinel_bars`, `sentinel_spy_total_return`, and the legacy
+`sentinel_actions` surface may have overwritten a key that an earlier
+publication named; deleting the failed owner would then delete corpus history
+rather than restore it. The ordinary daily price overlap and required
+41-session SPY fetch must rewrite those keys under the retry run, and
+publication refuses while any older unpublished owner remains. Production
+ACTIONS, anomalies and split repairs use their append-only lifecycle rules
+instead of destructive retirement.
+
 ### 8.3 Published is not enough on its own — the pin must freeze the ROWS
 
 That rule buys the right property against a corpus that only GROWS. Against one

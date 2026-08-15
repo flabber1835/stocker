@@ -263,6 +263,92 @@ def assert_coherent(conn, *, exhaustive: bool = False) -> CoherenceReport:
     return report
 
 
+def assert_retry_superseded_prior_candidates(conn, *, run_id: str) -> None:
+    """Refuse publication while an older unpublished run still owns live rows.
+
+    In-place upserts make retry the supported recovery: the corrected run must
+    rewrite every key touched by the failed daily candidate.  Publishing while
+    even one old owner remains would advance the version while coherence still
+    fails and would falsely advertise a clean retry.
+    """
+    writer = str(run_id)
+    runs = tuple(r for r in _unpublished_runs_from_run_table(conn)
+                 if str(r) != writer)
+    if not runs:
+        return
+    counts = {
+        "bars": sum(_rows_per_run(conn, "sentinel_bars", runs).values()),
+        "legacy_actions": sum(_rows_per_run(conn, "sentinel_actions", runs).values()),
+        "spy": sum(_rows_per_run(conn, "sentinel_spy_total_return", runs).values()),
+        "universe": sum(_rows_per_run(conn, "sentinel_universe", runs).values()),
+    }
+    remaining = sum(counts.values())
+    if remaining:
+        raise CorpusIncoherent(
+            f"retry run {writer} cannot publish: {remaining} row(s) remain "
+            f"owned by older unpublished run(s) {list(runs)}; counts={counts}. "
+            "The retry must rewrite or supersede the complete failed candidate "
+            "before publication.")
+
+
+def retire_failed_universe_candidates(conn, *, run_id: str) -> dict[str, int]:
+    """Retire older failed full-snapshot rows covered by this retry.
+
+    TICKERS is fetched as one complete dated snapshot.  Unlike bars and SPY,
+    its primary key includes that snapshot date, so tomorrow's retry cannot
+    take ownership of yesterday's failed rows by upsert.  Once a successful
+    retry has written one non-empty snapshot, older failed unpublished
+    snapshots through that date are redundant candidate state and may be
+    deleted in the same transaction as publication.
+
+    This is intentionally universe-only.  Deleting a failed bar/SPY/legacy-
+    ACTIONS owner could delete a key that the failed upsert replaced in place;
+    those tables must be rewritten by the retry and remain guarded by
+    :func:`assert_retry_superseded_prior_candidates`.
+    """
+    writer = str(run_id)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT r.status,COUNT(u.permaticker),"
+            "MIN(u.snapshot_date),MAX(u.snapshot_date)"
+            " FROM feed_ingest_runs r"
+            " LEFT JOIN sentinel_universe u"
+            "   ON u.last_written_run_id=r.run_id"
+            " WHERE r.run_id=%s GROUP BY r.status", (writer,))
+        current = cur.fetchone()
+    if current is None:
+        raise RuntimeError(f"ingest run {writer} does not exist")
+    status, row_count, first_snapshot, last_snapshot = current
+    if not int(row_count):
+        return {}
+    if status != "success":
+        raise RuntimeError(
+            f"universe candidate from run {writer} cannot retire prior rows: "
+            f"status={status!r}")
+    if first_snapshot != last_snapshot:
+        raise RuntimeError(
+            f"universe candidate from run {writer} is not one complete dated "
+            f"snapshot: {first_snapshot}..{last_snapshot}")
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "WITH deleted AS ("
+            " DELETE FROM sentinel_universe old USING feed_ingest_runs r"
+            " WHERE old.last_written_run_id=r.run_id"
+            "   AND old.last_written_run_id<>%s"
+            "   AND r.status='failed'"
+            "   AND old.snapshot_date<=%s"
+            "   AND NOT EXISTS ("
+            "     SELECT 1 FROM sentinel_corpus_publications p"
+            "     WHERE p.run_id=old.last_written_run_id)"
+            " RETURNING old.last_written_run_id)"
+            " SELECT last_written_run_id,COUNT(*) FROM deleted"
+            " GROUP BY last_written_run_id ORDER BY last_written_run_id",
+            (writer, last_snapshot))
+        return {str(candidate): int(count)
+                for candidate, count in cur.fetchall()}
+
+
 def _unpublished_runs_from_run_table(conn) -> tuple:
     with conn.cursor() as cur:
         cur.execute(
@@ -479,11 +565,21 @@ def publish(conn, *, run_id: Optional[str] = None,
                 "make that decision's recorded data_version a lie.")
     try:
         if run_id is not None:
+            retired_universe = retire_failed_universe_candidates(
+                conn, run_id=str(run_id))
+            assert_retry_superseded_prior_candidates(conn, run_id=str(run_id))
             from sentinel.feed import actions as action_store
             action_store.publish_run(conn, run_id=str(run_id))
             from sentinel.feed import anomalies as anomaly_store
             anomaly_store.publish_run(conn, run_id=str(run_id))
+        else:
+            retired_universe = {}
         previous = current(conn)
+        publication_evidence = dict(evidence or {})
+        if retired_universe:
+            publication_evidence["retired_failed_universe_candidates"] = [
+                {"run_id": candidate, "rows": retired_universe[candidate]}
+                for candidate in sorted(retired_universe)]
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO sentinel_corpus_publications (previous_version,"
@@ -491,7 +587,8 @@ def publish(conn, *, run_id: Optional[str] = None,
                 " VALUES (%s,%s,%s,%s,%s) RETURNING version",
                 (previous.version if previous else None, run_id,
                  window_start, window_end,
-                 json.dumps(evidence or {}, sort_keys=True, default=str)))
+                 json.dumps(publication_evidence,
+                            sort_keys=True, default=str)))
             cur.fetchone()          # RETURNING drains the statement
         conn.commit()
     except BaseException:                                      # noqa: BLE001

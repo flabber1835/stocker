@@ -138,6 +138,25 @@ def test_pure_1_for_30_orientation_cannot_expand_shares():
 
 class TestTheCorpusCarriesTheAUTHORITATIVEValues:
 
+    def test_multiple_distinct_splits_fail_closed_with_certification_evidence(
+            self, conn):
+        day = sess()[15]
+        load(conn, vendor(split_at=day, ratio=2.0, actions=[
+            {"ticker": "AAA", "date": day, "action": "split", "value": 2.0,
+             "contraticker": None},
+            {"ticker": "AAA", "date": day, "action": "split", "value": 3.0,
+             "contraticker": "SIBLING"},
+        ]))
+        ratio, _ = bars(conn, day)
+        assert float(ratio) == 1.0
+        with conn.cursor() as cur:
+            cur.execute("SELECT kind,detail FROM sentinel_corpus_anomalies"
+                        " WHERE ticker='AAA' AND session=%s", (day,))
+            evidence = cur.fetchall()
+        assert len(evidence) == 1
+        assert evidence[0][0] == "AMBIGUOUS_SPLIT_MULTIPLICITY"
+        assert "no ACTIONS multiplier applied" in evidence[0][1]
+
     def test_a_3_for_2_split_lands_as_1_point_5(self, conn):
         """THE case the derived inference cannot be trusted on: 1.5 sits exactly
         between the 1 and 2 it snaps to."""
