@@ -24,7 +24,23 @@ _SUMMARY_ITEM = re.compile(
     r"(?P<count>[0-9]+) (?P<status>passed|failed|skipped|xfailed|xpassed|"
     r"errors?|warnings?)\b"
 )
-_COLLECTED = re.compile(r"(?P<count>[0-9]+) tests? collected\b")
+_DURATION = (
+    r"[0-9]+(?:\.[0-9]+)?s"
+    r"(?: \([0-9]+:[0-5][0-9]:[0-5][0-9]\))?"
+)
+_SUMMARY_LINE = re.compile(
+    r"^(?:[0-9]+ (?:passed|failed|skipped|xfailed|xpassed|errors?|warnings?), )*"
+    r"[0-9]+ (?:passed|failed|skipped|xfailed|xpassed|errors?|warnings?) in "
+    + _DURATION + r"\r?$",
+    re.MULTILINE,
+)
+# Both evidence summaries must occupy a complete physical line. Parameter ids
+# may contain summary-shaped text, including a literal escaped newline.
+_COLLECTED = re.compile(
+    r"^(?P<count>[0-9]+) tests? collected in "
+    + _DURATION + r"\r?$",
+    re.MULTILINE,
+)
 # Parameter ids are allowed to contain spaces (and this suite has several).
 # The path itself is constrained to the Sentinel suite and the separator must
 # name a concrete collected item rather than a module-only collection line.
@@ -181,10 +197,7 @@ def counts_from_log(raw: bytes, *, exit_code: int) -> dict[str, int]:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise TestRunRefused("pytest log is not UTF-8") from exc
-    summary_lines = [
-        line for line in text.splitlines()
-        if " in " in line and _SUMMARY_ITEM.search(line)
-    ]
+    summary_lines = [match.group(0) for match in _SUMMARY_LINE.finditer(text)]
     if len(summary_lines) != 1:
         raise TestRunRefused("pytest log does not contain one terminal summary")
     counts = {

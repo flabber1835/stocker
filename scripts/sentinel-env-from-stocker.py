@@ -121,6 +121,14 @@ DELIBERATELY_UNSET = {
     "BT_ENGINE_IMAGE_ID":
         "the resolved image ID for the same run; inheriting it would let the "
         "manifest attest to an artefact that did not produce the evidence",
+    "BT_ENGINE_SOURCE_REVISION":
+        "injected by scripts/bt-engine-up.sh for the selected source revision; "
+        "inheriting a stale revision from a retired deployment would misbind "
+        "the engine run to source it did not select",
+    "SENTINEL_RUNTIME_IMAGE_REF":
+        "selected by the certified deployment/promotion workflow; inheriting "
+        "a stale mutable or digest-qualified image reference from a retired "
+        "deployment could run an image the current promotion did not select",
     "BT_BASELINE_MAX_AGE_DAYS": "bt-scheduler knob; defaults are the contract",
     "BT_EXPERIMENTS_PER_WEEK": "bt-scheduler knob",
     "BT_EXPERIMENT_HOUR": "bt-scheduler knob",
