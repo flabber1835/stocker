@@ -668,6 +668,14 @@ lock. The committed hash list is the reviewed trust decision; regeneration is a
 dependency change and requires the same review and certification as a pin
 change.
 
+**Host orchestration has its own compatibility boundary.** The application and
+test images remain Python 3.12.13. The NAS shell entry points and the Python
+utilities they invoke support host Python **3.8.15 or newer**. Certification
+runs a semantic preflight through that host interpreter before any image build,
+push, corpus mutation, or evidence publication. The preflight imports the real
+host evidence producers and exercises their immutable RepoDigest parsers; a
+version check alone would not have falsified the Synology failure.
+
 ### 10d. The record must name the BUILT IMAGE, not only its inputs
 
 `sentinel identity` describes the environment inside the container. It cannot
@@ -697,6 +705,28 @@ anyway: **deploying to another machine must go by immutable registry digest**,
 not by rebuilding from the same Dockerfile and calling the result equivalent.
 That assumption is exactly what the pins, the lock and this manifest exist to
 remove.
+
+Build, promotion, and certification are therefore separate supported phases.
+The build phase never claims registry identity. The push phase tags the exact
+local runtime and test image ids with the source Git SHA, pushes those tags, and
+atomically retains the resulting RepoDigests. The verify phase refuses mutable
+tags and runs identity, source comparison, the Sentinel suite, and manifest
+assembly through the retained digest-qualified references. Rebuilding between
+push and verify changes the local image id and is a refusal, not an implicit new
+attempt. The exact NAS commands are in `docs/nas-deployment-remediation.md`.
+
+Dependency-closure history is certification evidence, not attempt state.
+`distributions_hash.prev` is not an authority and is no longer written. A later
+run names the exact prior `FINALIZED`/`PASS` manifest whose closure is its
+baseline. A `FROZEN`, `READY_FOR_REHEARSAL`, `FINALIZING`, `BLOCKED`, failed, or
+abandoned manifest can never become that baseline. If the lock and closure
+legitimately change, the operator creates and reviews an immutable transition
+record binding the prior manifest bytes, old closure, new lock, new closure,
+and new Git commit, then supplies that record explicitly. Neither the old
+manifest nor the transition record is deleted or overwritten when the new run
+eventually finalizes. The one-time unlocked bootstrap closure is retained too;
+an explicitly named certified baseline supersedes it without moving or deleting
+the bootstrap evidence.
 
 Every named image is MANDATORY before the truncate (`--require-images`), and the
 Postgres reference is the digest-qualified one read out of the compose file

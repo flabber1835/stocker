@@ -289,15 +289,27 @@ class TestTheRebuildProvesTheLock:
 
     def test_the_hash_is_compared_across_runs_by_the_SCRIPT(self):
         body = text()
-        assert "distributions_hash.prev" in body, (
-            "the before/after comparison is left to the operator — an "
-            "instruction people follow the first time")
-        assert "the dependency closure MOVED against" in body
+        state = (REPO / "scripts" / "sentinel_certification_state.py").read_text()
+        assert "distributions_hash.prev" not in body
+        assert "--certified-baseline" in body
+        assert "FINALIZED" in state and "verdict" in state
+        assert "dependency closure moved" in state
 
     def test_a_MOVED_closure_is_a_failure_not_a_note(self):
         body = text()
-        gate = body[body.index("BASELINE_KIND"):body.index("2c/9")]
-        assert "fail " in gate
+        assert "check-closure" in body
+        assert "the current dependency closure is not bound" in body
+
+    def test_an_attempt_file_cannot_be_selected_implicitly(self):
+        state = (REPO / "scripts" / "sentinel_certification_state.py").read_text()
+        assert "name --certified-baseline explicitly" in state
+        assert 'manifest.get("lifecycle") != "FINALIZED"' in state
+
+    def test_a_reviewed_transition_is_durable_and_no_clobber(self):
+        state = (REPO / "scripts" / "sentinel_certification_state.py").read_text()
+        assert "review-transition" in state
+        assert "write_no_clobber" in state
+        assert "baseline" in state and "target" in state
 
     def test_the_operator_is_told_NOT_to_edit_the_lock(self):
         """The one instruction that makes the comparison meaningful: a lock
@@ -309,6 +321,40 @@ class TestTheRebuildProvesTheLock:
         assert "--generate-hashes" in body
         assert "--hash=sha256:" in body
         assert "--no-emit-trusted-host" in body
+
+
+class TestTheImmutableImagePhases:
+
+    def test_host_python_preflight_precedes_build_and_evidence(self):
+        assert line_of("sentinel_host_python.py") < line_of("docker build")
+        assert line_of("sentinel_host_python.py") < line_of(
+            "sentinel_manifest.py")
+
+    def test_build_push_and_verify_are_explicit_mutually_exclusive_phases(self):
+        body = text()
+        for option in ("--build-only", "--push-only", "--verify-only"):
+            assert option in body
+        assert "choose exactly one" in body
+        assert "capture-build" in body
+        assert "capture-promotion" in body
+        assert "resolve-promotion" in body
+
+    def test_verify_runs_the_promoted_digest_refs(self):
+        body = text()
+        assert 'export SENTINEL_RUNTIME_IMAGE_REF="${RUNTIME_IMAGE_REF}"' in body
+        assert '--runtime-ref "${RUNTIME_IMAGE_REF}"' in body
+        assert '--test-ref "${TEST_IMAGE_REF}"' in body
+        assert 'SUITE_CMD=(docker run --rm --network none "${TEST_IMAGE_REF}"' \
+            in body
+
+    def test_build_and_push_exit_before_identity_or_corpus_work(self):
+        body = text()
+        build = body[body.index('if [ "${PHASE}" = "build" ]'):]
+        build = build[:build.index('if [ "${PHASE}" = "push" ]')]
+        push = body[body.index('if [ "${PHASE}" = "push" ]'):]
+        push = push[:push.index('[ -f "${PROMOTION_RECORD}" ]')]
+        assert "exit 0" in build and "identity --require-certified" not in build
+        assert "exit 0" in push and "TRUNCATE TABLE" not in push
 
 
 # ── 3. the artefact is NAMED ─────────────────────────────────────────────────
@@ -867,12 +913,13 @@ class TestTheBootstrapBindsTheLockToTheIMAGE:
         assert "the unlocked bootstrap build" in body
         assert "MOVED against" in body
 
-    def test_a_proven_bootstrap_is_RETIRED(self):
-        """Once the locked rebuild reproduces it, later runs must compare
-        against the last CERTIFIED run — not forever against a build from
-        before the lock existed, which would refuse every legitimate future
-        dependency change for the wrong reason."""
-        assert "${BOOT}.proven" in text()
+    def test_a_proven_bootstrap_is_RETAINED_but_an_explicit_certified_baseline_wins(self):
+        """An attempt must not move bootstrap evidence. Once certified
+        evidence exists, naming it explicitly selects the durable baseline and
+        permits a separately reviewed dependency transition."""
+        body = text()
+        assert 'mv "${BOOT}"' not in body
+        assert '[ -z "${CERTIFIED_BASELINE}" ] && [ -f "${BOOT}" ]' in body
 
 
 # ── 6. the Postgres image is NAMED, and mandatory ────────────────────────────
@@ -1091,7 +1138,7 @@ class TestTheLockScriptPointsAtTheREBUILD:
                  if "--verify-only" in l and "scripts/sentinel-certify.sh" in l
                  and "NOT" not in l]
         assert not instr, instr
-        assert "--keep-corpus" in body
+        assert "--build-only" in body
 
 
 

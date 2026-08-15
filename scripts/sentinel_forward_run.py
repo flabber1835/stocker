@@ -19,14 +19,19 @@ import sys
 import tempfile
 from typing import Any, Callable, Mapping, Sequence
 
-from sentinel.core import production as production_module
-
-
 SCHEMA = "sentinel.production-forward-chain-run/1"
 REPORT_SCHEMA = "sentinel.production-forward-chain/1"
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RUNNER = ROOT / "tools" / "sentinel_forward_chain.py"
-DEFAULT_PRODUCTION = Path(production_module.__file__).resolve()
+# This producer runs on the NAS host, whose compatibility floor is Python
+# 3.8.15. Importing the Python-3.12 application here makes the host utility
+# execute the wrong runtime surface merely to locate one source file.
+_INSTALLED_PRODUCTION = Path("/app/sentinel/core/production.py")
+DEFAULT_PRODUCTION = (
+    _INSTALLED_PRODUCTION
+    if _INSTALLED_PRODUCTION.is_file()
+    else ROOT / "sentinel" / "core" / "production.py"
+)
 DEFAULT_RULE = (
     ROOT / "docs" / "sentinel-handoff" / "00_README"
     / "FROZEN_SENTINEL_1P1_RULE.json"
@@ -172,6 +177,12 @@ def _sha(value: object, *, label: str, git: bool = False) -> str:
     return value
 
 
+def _without_sha256_prefix(value: str) -> str:
+    """Return the digest payload without requiring Python 3.9."""
+    prefix = "sha256:"
+    return value[len(prefix):] if value.startswith(prefix) else value
+
+
 def _integer(value: object, *, label: str, positive: bool = False) -> int:
     if type(value) is not int or value < (1 if positive else 0):
         raise ForwardRunRefused(f"{label} is not a canonical integer")
@@ -200,7 +211,7 @@ def _unique_repo_identity(image: object, *, label: str) -> tuple[str, str]:
         if not isinstance(ref, str) or "@sha256:" not in ref:
             raise ForwardRunRefused(f"{label} has a malformed RepoDigest")
         digest = "sha256:" + ref.rsplit("@sha256:", 1)[1]
-        _sha(digest.removeprefix("sha256:"), label=f"{label} digest")
+        _sha(_without_sha256_prefix(digest), label=f"{label} digest")
         digests.add(digest)
     if len(digests) != 1:
         raise ForwardRunRefused(f"{label} has ambiguous content digests")
@@ -279,7 +290,8 @@ def _validate_base_binding(base: object) -> Mapping[str, Any]:
         digest = base.get(field)
         if not isinstance(digest, str) or not digest.startswith("sha256:"):
             raise ForwardRunRefused(f"base_manifest.{field} is malformed")
-        _sha(digest.removeprefix("sha256:"), label=f"base_manifest.{field}")
+        _sha(_without_sha256_prefix(digest),
+             label=f"base_manifest.{field}")
     if base["runtime_image_digest"] == base["test_image_digest"]:
         raise ForwardRunRefused("base manifest image digests are identical")
     _integer(base.get("publication_data_version"),

@@ -59,6 +59,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+HOST_PYTHON="${SENTINEL_HOST_PYTHON:-python3}"
 
 # THE RESOLVER decides which compose file this host can actually run. On a
 # Synology with no CPU CFS quota the canonical one makes the daemon refuse
@@ -72,6 +73,9 @@ DB_SERVICE="sentinel-postgres"
 
 die() { printf '\n\033[31mMEASUREMENT FAILED\033[0m  %s\n' "$*" >&2; exit 1; }
 step() { printf '\n\033[36m── %s\033[0m\n' "$*"; }
+
+"${HOST_PYTHON}" scripts/sentinel_host_python.py || \
+  die "host Python is not compatible with the measurement utilities; the minimum supported host interpreter is Python 3.8.15"
 
 PHASE="${1:-}"
 [ -n "${PHASE}" ] || die "usage: $0 <phase-name> -- <command...>"
@@ -106,21 +110,21 @@ RUNTIME_IMAGE_JSON="$(docker image inspect "${RUNTIME_REF}" 2>/dev/null)" \
 TEST_IMAGE_JSON="$(docker image inspect "${TEST_REF}" 2>/dev/null)" \
   || die "reviewed test image is not installed by digest"
 read -r RUNTIME_IMAGE_ID RUNTIME_REVISION <<<"$(printf '%s' "${RUNTIME_IMAGE_JSON}" | \
-  python3 -c 'import json,sys; i=json.load(sys.stdin)[0]; print(i["Id"], (i.get("Config",{}).get("Labels") or {}).get("org.opencontainers.image.revision", ""))')"
+  "${HOST_PYTHON}" -c 'import json,sys; i=json.load(sys.stdin)[0]; print(i["Id"], (i.get("Config",{}).get("Labels") or {}).get("org.opencontainers.image.revision", ""))')"
 read -r TEST_IMAGE_ID TEST_REVISION <<<"$(printf '%s' "${TEST_IMAGE_JSON}" | \
-  python3 -c 'import json,sys; i=json.load(sys.stdin)[0]; print(i["Id"], (i.get("Config",{}).get("Labels") or {}).get("org.opencontainers.image.revision", ""))')"
+  "${HOST_PYTHON}" -c 'import json,sys; i=json.load(sys.stdin)[0]; print(i["Id"], (i.get("Config",{}).get("Labels") or {}).get("org.opencontainers.image.revision", ""))')"
 [ "${RUNTIME_REVISION}" = "${SENTINEL_GIT_COMMIT}" ] \
   || die "runtime image source revision differs from SENTINEL_GIT_COMMIT"
 [ "${TEST_REVISION}" = "${SENTINEL_GIT_COMMIT}" ] \
   || die "test image source revision differs from SENTINEL_GIT_COMMIT"
 
-COMMAND_JSON="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:],sort_keys=True,separators=(",",":")))' "$@")"
-COMMAND_SHA="$(printf '%s' "${COMMAND_JSON}" | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
-POLICY_SHA="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "${SENTINEL_RESOURCE_POLICY_FILE}")"
-AUTOMATION_SHA="$(python3 -c 'import hashlib,json,sys; v=json.load(open(sys.argv[1])); b=json.dumps(v,sort_keys=True,separators=(",",":"),ensure_ascii=True,allow_nan=False).encode("ascii"); print(hashlib.sha256(b).hexdigest())' "${SENTINEL_AUTOMATION_CONFIG_FILE}")"
+COMMAND_JSON="$("${HOST_PYTHON}" -c 'import json,sys; print(json.dumps(sys.argv[1:],sort_keys=True,separators=(",",":")))' "$@")"
+COMMAND_SHA="$(printf '%s' "${COMMAND_JSON}" | "${HOST_PYTHON}" -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
+POLICY_SHA="$("${HOST_PYTHON}" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "${SENTINEL_RESOURCE_POLICY_FILE}")"
+AUTOMATION_SHA="$("${HOST_PYTHON}" -c 'import hashlib,json,sys; v=json.load(open(sys.argv[1])); b=json.dumps(v,sort_keys=True,separators=(",",":"),ensure_ascii=True,allow_nan=False).encode("ascii"); print(hashlib.sha256(b).hexdigest())' "${SENTINEL_AUTOMATION_CONFIG_FILE}")"
 MEASUREMENT_PRODUCER="scripts/sentinel-measure.sh"
-PRODUCER_SHA="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "${MEASUREMENT_PRODUCER}")"
-if ! python3 - "${SENTINEL_RESOURCE_POLICY_FILE}" "${PHASE}" "${COMMAND_JSON}" \
+PRODUCER_SHA="$("${HOST_PYTHON}" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "${MEASUREMENT_PRODUCER}")"
+if ! "${HOST_PYTHON}" - "${SENTINEL_RESOURCE_POLICY_FILE}" "${PHASE}" "${COMMAND_JSON}" \
   "${SENTINEL_GIT_COMMIT}" "${SENTINEL_RUNTIME_IMAGE_DIGEST}" \
   "${SENTINEL_TEST_IMAGE_DIGEST}" "${AUTOMATION_SHA}" <<'PY'
 import json, sys
@@ -151,10 +155,10 @@ REPORT="${ART}/${PHASE}-${STAMP}.json"
 # ceiling the kernel cannot hold is not a limit with headroom — it is not a
 # limit, and #15 must not report one as certified.
 step "probing what this host can ENFORCE"
-CAPS_JSON="$(python3 scripts/sentinel_host_capabilities.py --json)" \
+CAPS_JSON="$("${HOST_PYTHON}" scripts/sentinel_host_capabilities.py --json)" \
   || die "the host capability probe failed; the envelope would describe limits
   that may not be in force"
-echo "${CAPS_JSON}" | python3 -c 'import json,sys; d=json.load(sys.stdin);
+echo "${CAPS_JSON}" | "${HOST_PYTHON}" -c 'import json,sys; d=json.load(sys.stdin);
 print("  cpu_quota    :", d["capabilities"]["cpu_quota"]);
 print("  memory_limit :", d["capabilities"]["memory_limit"]);
 print("  kernel       :", d["host"]["kernel"], "cgroup", d["host"]["cgroup_version"])'
@@ -162,7 +166,7 @@ mkdir -p "${ART}"
 echo "${CAPS_JSON}" > "${ART}/capabilities-${STAMP}.json"
 
 step "reading the declared limits from docker-compose.sentinel.yml"
-LIMITS_JSON="$(python3 - <<'PY'
+LIMITS_JSON="$("${HOST_PYTHON}" - <<'PY'
 import json, re, sys, yaml, pathlib
 c = yaml.safe_load(pathlib.Path("docker-compose.sentinel.yml").read_text())
 _SCALE = {"": 0, "k": 1, "m": 2, "g": 3, "t": 4}
@@ -181,7 +185,7 @@ for name, svc in (c.get("services") or {}).items():
 print(json.dumps(out))
 PY
 )" || die "could not read the declared limits — the comparison would be against nothing"
-echo "${LIMITS_JSON}" | python3 -m json.tool
+echo "${LIMITS_JSON}" | "${HOST_PYTHON}" -m json.tool
 
 # ── the database has to be up BEFORE the baseline ────────────────────────────
 step "bringing up ${DB_SERVICE}"
@@ -221,7 +225,7 @@ sample_once() {
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   avail="$(awk '/^MemAvailable:/ {print $2 * 1024}' /proc/meminfo 2>/dev/null || echo 0)"
   docker stats --no-stream --format '{{.Name}}|{{.MemUsage}}|{{.CPUPerc}}' 2>/dev/null \
-    | SAMPLE_NOW="${now}" SAMPLE_AVAIL="${avail}" python3 -c '
+    | SAMPLE_NOW="${now}" SAMPLE_AVAIL="${avail}" "${HOST_PYTHON}" -c '
 import os, re, sys
 now, avail = os.environ["SAMPLE_NOW"], os.environ["SAMPLE_AVAIL"]
 def b(tok):
@@ -299,7 +303,7 @@ docker rm -f "${PHASE_CONTAINER}" >/dev/null 2>&1 || true
 OOM_JSON="$(docker ps -a --filter 'name=sentinel' --format '{{.Names}}' \
   | while read -r n; do
       docker inspect -f '{"name":"{{.Name}}","oom_killed":{{.State.OOMKilled}},"restarts":{{.RestartCount}},"exit_code":{{.State.ExitCode}}}' "$n" 2>/dev/null
-    done | python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in sys.stdin if l.strip()]))')"
+    done | "${HOST_PYTHON}" -c 'import json,sys; print(json.dumps([json.loads(l) for l in sys.stdin if l.strip()]))')"
 
 step "the envelope"
 PHASE="${PHASE}" STAMP="${STAMP}" RC="${RC}" ELAPSED="${ELAPSED}" \
@@ -318,7 +322,7 @@ TEST_REPOSITORY="${TEST_REPOSITORY}" TEST_REF="${TEST_REF}" \
 TEST_DIGEST="${SENTINEL_TEST_IMAGE_DIGEST}" \
 TEST_IMAGE_ID="${TEST_IMAGE_ID}" TEST_REVISION="${TEST_REVISION}" \
 SAMPLES="${SAMPLES}" REPORT="${REPORT}" \
-python3 <<'PY'
+"${HOST_PYTHON}" <<'PY'
 import csv, hashlib, json, os, pathlib, sys
 from collections import defaultdict
 
@@ -570,7 +574,7 @@ print(json.dumps(report, indent=2, sort_keys=True))
 print(f"\n  -> {env['REPORT']}")
 PY
 
-read -r VERDICT CPU_ENF <<<"$(python3 -c '
+read -r VERDICT CPU_ENF <<<"$("${HOST_PYTHON}" -c '
 import json, sys
 r = json.load(open(sys.argv[1]))
 print(r["headroom_verdict"].split()[0], r["cpu_limit_enforcement"])' "${REPORT}")"
@@ -581,7 +585,7 @@ print(r["headroom_verdict"].split()[0], r["cpu_limit_enforcement"])' "${REPORT}"
 # EVERY axis is printed, whatever the memory verdict says. A reader who sees
 # only "MEMORY ENVELOPE MEASURED" would reasonably assume the rest were bounded
 # too, and on this hardware three of them are not.
-python3 - "${REPORT}" <<'PYX'
+"${HOST_PYTHON}" - "${REPORT}" <<'PYX'
 import json, sys
 r = json.load(open(sys.argv[1]))
 print("\n  ── what this run actually proves ──")

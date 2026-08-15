@@ -27,5 +27,6 @@ grep -q -- '--hash=sha256:' sentinel/requirements.lock || {
   exit 1
 }
 echo "wrote hash-checked sentinel/requirements.lock"
-echo "review it, commit it, then rebuild and certify from a clean tree:"
-echo "  scripts/sentinel-certify.sh --start YYYY-MM-DD --end YYYY-MM-DD --keep-corpus"
+echo "review it, commit it, then begin the documented immutable workflow:"
+echo "  scripts/sentinel-certify.sh --start YYYY-MM-DD --end YYYY-MM-DD --build-only"
+echo "then push and verify exactly as documented in docs/nas-deployment-remediation.md"

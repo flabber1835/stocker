@@ -35,6 +35,7 @@
 # Ordinary build behaviour and ALLOW_DRIFT=1 remain for non-certification work.
 set -euo pipefail
 
+HOST_PYTHON="${SENTINEL_HOST_PYTHON:-python3}"
 COMPOSE="docker compose -f docker-compose.backtest.yml"
 BUILD=1; START=""; END=""; MANIFEST=""
 while [ $# -gt 0 ]; do
@@ -47,6 +48,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+"${HOST_PYTHON}" scripts/sentinel_host_python.py || {
+  echo "REFUSED: host Python is incompatible; minimum Python is 3.8.15" >&2
+  exit 1
+}
+
 if [ "${BUILD}" -eq 1 ]; then
   echo "== building bt-engine"
   ${COMPOSE} build bt-engine
@@ -56,7 +62,7 @@ fi
 # different opinions about which artefact they mean. The previous version
 # guessed `$(basename $(pwd))-bt-engine`, but Compose uses the file's top-level
 # `name:` as the project — `stocker-bt-bt-engine`, not `stocker-bt-engine`.
-REF=$(python3 scripts/compose_image.py \
+REF=$("${HOST_PYTHON}" scripts/compose_image.py \
   --file docker-compose.backtest.yml --service bt-engine) || {
   echo "REFUSED: the bt-engine image could not be resolved from its compose" >&2
   echo "         file. NOT guessed — a wrong name that resolves is worse than" >&2
@@ -110,7 +116,7 @@ else
 fi
 FROZEN=""
 if [ -n "${USE_MANIFEST}" ]; then
-  if ! FROZEN=$(python3 - "${USE_MANIFEST}" <<'PY'
+  if ! FROZEN=$("${HOST_PYTHON}" - "${USE_MANIFEST}" <<'PY'
 import json
 import pathlib
 import sys

@@ -17,6 +17,7 @@
 # moment they exist.
 set -uo pipefail
 
+HOST_PYTHON="${SENTINEL_HOST_PYTHON:-python3}"
 URL="${BT_ENGINE_URL:-http://localhost:8031}"
 # 10s was too tight. Phase 1 and phase 3 are CPU-bound and hold the GIL, so
 # bt-engine's event loop answers slowly even when it is perfectly healthy — a
@@ -26,6 +27,11 @@ WATCH=0; EVERY=30
 if [ "${1:-}" = "-w" ] || [ "${1:-}" = "--watch" ]; then
     WATCH=1; [ -n "${2:-}" ] && EVERY="$2"
 fi
+
+"${HOST_PYTHON}" scripts/sentinel_host_python.py || {
+    printf 'REFUSED: host Python is incompatible; minimum Python is 3.8.15\n' >&2
+    exit 1
+}
 
 render() {
     curl -s --max-time "$TIMEOUT" "$URL/wealth-core/progress" -o /tmp/.wc_prog.json
@@ -46,7 +52,7 @@ render() {
         return 1
     fi
     curl -s --max-time "$TIMEOUT" "$URL/wealth-core/runs/latest" -o /tmp/.wc_run.json
-    python3 - "$URL" <<'PY'
+    "${HOST_PYTHON}" - "$URL" <<'PY'
 import json, sys, datetime
 
 C = {"b": "\033[1m", "d": "\033[2m", "g": "\033[32m", "y": "\033[33m",
@@ -280,7 +286,7 @@ if [ "$WATCH" = "1" ]; then
     while true; do
         clear; render
         st=$(curl -s --max-time "$TIMEOUT" "$URL/wealth-core/runs/latest" \
-             | python3 -c "import json,sys; print(json.load(sys.stdin).get('status',''))" 2>/dev/null)
+             | "${HOST_PYTHON}" -c "import json,sys; print(json.load(sys.stdin).get('status',''))" 2>/dev/null)
         case "$st" in success|failed) echo "  run is terminal — stopping watch"; break;; esac
         sleep "$EVERY"
     done

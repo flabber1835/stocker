@@ -131,7 +131,8 @@ def test_pull_request_ci_proves_it_is_testing_the_synthetic_merge():
 
 def test_ci_compiles_python_and_syntax_checks_every_tracked_shell_script():
     workflow = _read(".github/workflows/sentinel-safety.yml")
-    assert workflow.count("-m compileall -q -f") == 2
+    assert workflow.count("-m compileall -q -f") == 3
+    assert "python -m compileall -q -f scripts" in workflow
     for path in ("/app/sentinel", "/usr/local/lib/python3.12/site-packages/stock_strategy_shared",
                  "/work/tests/sentinel", "/work/tools", "/work/repo/scripts",
                  "/app/app", "/shared/stock_strategy_shared",
@@ -238,8 +239,9 @@ def _executable(path: Path, body: str) -> Path:
 def test_make_certify_requires_and_forwards_an_exact_window():
     body = _read("Makefile")
     target = body[body.index("certify:"):]
-    assert 'test -n "$(START)" -a -n "$(END)"' in target
+    assert 'test -n "$(START)" -a -n "$(END)" -a -n "$(PHASE)"' in target
     assert 'sentinel-certify.sh --start "$(START)" --end "$(END)"' in target
+    assert "--$(PHASE)-only" in target
 
 
 def test_make_host_test_runner_installs_async_pytest_support():

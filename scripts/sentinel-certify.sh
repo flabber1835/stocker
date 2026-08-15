@@ -41,8 +41,9 @@
 # be a script nobody reads the output of.
 #
 # Usage:
-#   scripts/sentinel-certify.sh --start 2021-01-04 --end 2023-12-29
-#   scripts/sentinel-certify.sh --start ... --end ... --keep-corpus
+#   scripts/sentinel-certify.sh --start ... --end ... --build-only
+#   scripts/sentinel-certify.sh --start ... --end ... --push-only \
+#     --runtime-repository REGISTRY/REPO --test-repository REGISTRY/REPO
 #   scripts/sentinel-certify.sh --start ... --end ... --verify-only
 set -euo pipefail
 
@@ -52,8 +53,19 @@ set -euo pipefail
 # the manifest, so the record says which limits were actually in force.
 COMPOSE="bash $(dirname "$0")/sentinel-compose.sh --run"
 RUN="${COMPOSE} run --rm -T sentinel"
-START=""; END=""; KEEP=0; VERIFY_ONLY=0; SEED_FROM="1998-01-01"
+HOST_PYTHON="${SENTINEL_HOST_PYTHON:-python3}"
+START=""; END=""; KEEP=0; PHASE=""; SEED_FROM="1998-01-01"
+RUNTIME_REPOSITORY=""; TEST_REPOSITORY=""
+CERTIFIED_BASELINE=""; CLOSURE_TRANSITION=""
 ART="artifacts/sentinel"
+
+select_phase() {
+  [ -z "${PHASE}" ] || {
+    echo "choose exactly one of --build-only, --push-only, --verify-only" >&2
+    exit 2
+  }
+  PHASE="$1"
+}
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -61,20 +73,54 @@ while [ $# -gt 0 ]; do
     --end) END="$2"; shift 2 ;;
     --seed-from) SEED_FROM="$2"; shift 2 ;;
     --keep-corpus) KEEP=1; shift ;;
-    --verify-only) VERIFY_ONLY=1; KEEP=1; shift ;;
+    --build-only) select_phase build; shift ;;
+    --push-only) select_phase push; shift ;;
+    --verify-only) select_phase verify; shift ;;
+    --runtime-repository) RUNTIME_REPOSITORY="$2"; shift 2 ;;
+    --test-repository) TEST_REPOSITORY="$2"; shift 2 ;;
+    --certified-baseline) CERTIFIED_BASELINE="$2"; shift 2 ;;
+    --closure-transition) CLOSURE_TRANSITION="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 [ -n "$START" ] && [ -n "$END" ] || { echo "--start and --end are required" >&2; exit 2; }
+[ -n "${PHASE}" ] || {
+  echo "choose one phase: --build-only, --push-only, or --verify-only" >&2
+  exit 2
+}
+if [ "${PHASE}" != "verify" ] && { [ "${KEEP}" -ne 0 ] || \
+    [ -n "${CERTIFIED_BASELINE}" ] || [ -n "${CLOSURE_TRANSITION}" ]; }; then
+  echo "corpus and closure options apply only to --verify-only" >&2
+  exit 2
+fi
+if [ "${PHASE}" = "push" ]; then
+  [ -n "${RUNTIME_REPOSITORY}" ] && [ -n "${TEST_REPOSITORY}" ] || {
+    echo "--push-only requires both explicit image repositories" >&2
+    exit 2
+  }
+elif [ -n "${RUNTIME_REPOSITORY}" ] || [ -n "${TEST_REPOSITORY}" ]; then
+  echo "image repository options apply only to --push-only" >&2
+  exit 2
+fi
 
 # EVIDENCE GOES IN THE ARTIFACT DIRECTORY, not /tmp. A certification input that
 # lives where the operating system may delete it is not retained evidence, and
 # the whole batch is about being able to reproduce a verdict later.
-mkdir -p "${ART}"
 RUNSTAMP="${START}_${END}"
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 fail() { printf '\n\033[31mCERTIFICATION BLOCKED: %s\033[0m\n' "$*" >&2; exit 1; }
+
+# The Synology failure occurred in a host evidence producer after the image
+# build. Exercise that exact semantic surface before any build, push, corpus
+# mutation, or evidence publication.
+"${HOST_PYTHON}" scripts/sentinel_host_python.py || \
+  fail "host Python is not compatible with the certification utilities; the minimum supported host interpreter is Python 3.8.15"
+
+mkdir -p "${ART}"
+SOURCE_GIT_SHA="$(git rev-parse HEAD)"
+BUILD_RECORD="${ART}/image-build-${RUNSTAMP}-${SOURCE_GIT_SHA}.json"
+PROMOTION_RECORD="${ART}/image-promotion-${RUNSTAMP}-${SOURCE_GIT_SHA}.json"
 
 # A production image without authenticated dependency bytes is not buildable,
 # and a certification attempt must explain that before spending build time.
@@ -84,9 +130,8 @@ grep -q -- '--hash=sha256:' sentinel/requirements.lock || \
   fail "sentinel/requirements.lock is version-only; regenerate its hashes"
 
 # ── 1. the pinned image ──────────────────────────────────────────────────────
-if [ "$VERIFY_ONLY" -eq 0 ]; then
+if [ "${PHASE}" = "build" ]; then
   step "1/9  building the pinned image"
-  SOURCE_GIT_SHA="$(git rev-parse HEAD)"
   # --pull is DELIBERATELY ABSENT. The base is pinned by digest, so there is
   # nothing to pull that would not already be that exact image; passing it
   # would only make a network hiccup look like a build failure.
@@ -126,7 +171,51 @@ if [ "$VERIFY_ONLY" -eq 0 ]; then
   BT_POSTGRES_PASSWORD="${BT_POSTGRES_PASSWORD:-build-only}" \
     docker compose -f docker-compose.backtest.yml build \
       --build-arg SOURCE_GIT_SHA="${SOURCE_GIT_SHA}" bt-data bt-engine
+
+  "${HOST_PYTHON}" scripts/sentinel_certification_state.py capture-build \
+    --git-commit "${SOURCE_GIT_SHA}" \
+    --runtime-ref sentinel-authorized:latest \
+    --test-ref sentinel-test:latest --output "${BUILD_RECORD}" || \
+    fail "the exact local runtime/test image ids could not be retained"
+  echo "BUILD PHASE COMPLETE: ${BUILD_RECORD}"
+  echo "Next: rerun with --push-only and explicit runtime/test repositories."
+  exit 0
 fi
+
+if [ "${PHASE}" = "push" ]; then
+  [ -f "${BUILD_RECORD}" ] || fail \
+    "${BUILD_RECORD} is missing; complete --build-only first"
+  [ -z "$(git status --porcelain)" ] || fail \
+    "the working tree is dirty; promotion must name the exact reviewed commit"
+  "${HOST_PYTHON}" scripts/sentinel_certification_state.py verify-build \
+    --record "${BUILD_RECORD}" || fail \
+    "the local runtime/test image ids moved after --build-only"
+  RUNTIME_TAG="${RUNTIME_REPOSITORY}:${SOURCE_GIT_SHA}"
+  TEST_TAG="${TEST_REPOSITORY}:${SOURCE_GIT_SHA}"
+  docker tag sentinel-authorized:latest "${RUNTIME_TAG}"
+  docker tag sentinel-test:latest "${TEST_TAG}"
+  docker push "${RUNTIME_TAG}"
+  docker push "${TEST_TAG}"
+  "${HOST_PYTHON}" scripts/sentinel_certification_state.py capture-promotion \
+    --build-record "${BUILD_RECORD}" --runtime-tag "${RUNTIME_TAG}" \
+    --test-tag "${TEST_TAG}" --output "${PROMOTION_RECORD}" || \
+    fail "the pushed images could not be bound to immutable RepoDigests"
+  echo "PUSH PHASE COMPLETE: ${PROMOTION_RECORD}"
+  echo "Next: rerun with --verify-only to certify by immutable digest."
+  exit 0
+fi
+
+[ -f "${PROMOTION_RECORD}" ] || fail \
+  "${PROMOTION_RECORD} is missing; complete --build-only and --push-only first"
+RUNTIME_IMAGE_REF=$("${HOST_PYTHON}" \
+  scripts/sentinel_certification_state.py resolve-promotion \
+  --record "${PROMOTION_RECORD}" --git-commit "${SOURCE_GIT_SHA}" \
+  --kind runtime) || fail "the promoted runtime image is not immutable"
+TEST_IMAGE_REF=$("${HOST_PYTHON}" \
+  scripts/sentinel_certification_state.py resolve-promotion \
+  --record "${PROMOTION_RECORD}" --git-commit "${SOURCE_GIT_SHA}" \
+  --kind test) || fail "the promoted test image is not immutable"
+export SENTINEL_RUNTIME_IMAGE_REF="${RUNTIME_IMAGE_REF}"
 
 # `wealth_core_baseline_run` verifies the engine dependency lock and complete
 # installed distribution closure against the manifest.  The canonical expected
@@ -139,7 +228,7 @@ ${RUN} identity --require-certified > "${ART}/identity-env.json" \
   || fail "the image is not the certified environment — pin drift, the wrong
   interpreter, or a source tree that could not be located. See
   ${ART}/identity-env.json"
-python3 - "${ART}/identity-env.json" <<'PY' || fail "the identity record is incomplete"
+"${HOST_PYTHON}" - "${ART}/identity-env.json" <<'PY' || fail "the identity record is incomplete"
 import json, sys
 env = json.load(open(sys.argv[1]))["environment"]
 for k in ("sentinel_source", "wealth_core_source"):
@@ -166,8 +255,8 @@ scripts/sentinel-backup-status.sh || fail \
 # nobody could ever rebuild the environment for. A refusal is only a refusal if
 # it comes before the irreversible step.
 step "2b/9 the dependency closure must be LOCKED"
-CLOSURE=$(python3 -c "import json; print(json.load(open('${ART}/identity-env.json'))['environment']['distributions_hash'])")
-IMAGE_LOCK=$(python3 -c "import json; print(json.load(open('${ART}/identity-env.json'))['environment'].get('image_lock_sha256') or '')")
+CLOSURE=$("${HOST_PYTHON}" -c "import json; print(json.load(open('${ART}/identity-env.json'))['environment']['distributions_hash'])")
+IMAGE_LOCK=$("${HOST_PYTHON}" -c "import json; print(json.load(open('${ART}/identity-env.json'))['environment'].get('image_lock_sha256') or '')")
 BOOT="${ART}/bootstrap_closure.txt"
 
 if [ ! -f sentinel/requirements.lock ]; then
@@ -193,12 +282,13 @@ if [ ! -f sentinel/requirements.lock ]; then
 
     scripts/sentinel-lock.sh                       # read the closure OUT of it
     git add sentinel/requirements.lock && git commit
-    scripts/sentinel-certify.sh --start ${START} --end ${END} --keep-corpus
+    scripts/sentinel-certify.sh --start ${START} --end ${END} --build-only
 
-  Note the REBUILD: --verify-only does NOT rebuild the image, so it would check
-  a lock that exists in the checkout against an image that never consumed one.
-  The rebuild is where the lock proves itself, and this script then compares the
-  closure against the recorded bootstrap value automatically.
+  Then follow the documented push and verify phases, adding --keep-corpus to
+  the verify phase. Note the REBUILD: --verify-only does NOT rebuild the image,
+  so it would check a lock in the checkout against an image that never consumed
+  one. The rebuild is where the lock proves itself, and this script then compares
+  the closure against the recorded bootstrap value automatically.
 
 EOF
   exit 1
@@ -230,16 +320,13 @@ if [ "${IMAGE_LOCK}" != "${LOCK_SHA}" ]; then
 fi
 echo "  image built from the checkout lock: ${LOCK_SHA}"
 
-# AND THE CLOSURE MUST NOT HAVE MOVED. Compared against the bootstrap value
-# where one exists — that is the proof the lock DESCRIBES the image it came
-# from — and against the previous certified run otherwise.
-PREV="${ART}/distributions_hash.prev"
+# AND THE CLOSURE MUST NOT HAVE MOVED. The bootstrap value proves the first
+# locked rebuild. Later history comes only from explicitly named successful
+# FINALIZED/PASS evidence; an abandoned attempt is never a baseline.
 BASELINE=""
 BASELINE_KIND=""
-if [ -f "${BOOT}" ]; then
+if [ -z "${CERTIFIED_BASELINE}" ] && [ -f "${BOOT}" ]; then
   BASELINE=$(cat "${BOOT}"); BASELINE_KIND="the unlocked bootstrap build"
-elif [ -f "${PREV}" ]; then
-  BASELINE=$(cat "${PREV}"); BASELINE_KIND="the previous certified run"
 fi
 if [ -n "${BASELINE}" ]; then
   if [ "${BASELINE}" != "${CLOSURE}" ]; then
@@ -251,15 +338,19 @@ if [ -n "${BASELINE}" ]; then
   list in ${ART}/identity-env.json against the lock."
   fi
   echo "  closure UNCHANGED against ${BASELINE_KIND}: ${CLOSURE}"
-  # The bootstrap has served its purpose: the locked rebuild reproduced it.
-  # Retired so a later legitimate dependency change is compared against the
-  # last CERTIFIED run rather than against a build from before the lock existed.
-  [ -f "${BOOT}" ] && mv "${BOOT}" "${BOOT}.proven"
 else
-  echo "  closure recorded for the first time: ${CLOSURE}"
-  echo "  (a later run compares against it and refuses if it moved)"
+  echo "  no bootstrap closure remains: ${CLOSURE}"
 fi
-printf '%s' "${CLOSURE}" > "${PREV}"
+
+CLOSURE_ARGS=(--art "${ART}" --identity "${ART}/identity-env.json" \
+  --lock sentinel/requirements.lock --git-commit "${SOURCE_GIT_SHA}")
+[ -z "${CERTIFIED_BASELINE}" ] || \
+  CLOSURE_ARGS+=(--baseline "${CERTIFIED_BASELINE}")
+[ -z "${CLOSURE_TRANSITION}" ] || \
+  CLOSURE_ARGS+=(--transition "${CLOSURE_TRANSITION}")
+"${HOST_PYTHON}" scripts/sentinel_certification_state.py check-closure \
+  "${CLOSURE_ARGS[@]}" || fail \
+  "the current dependency closure is not bound to successful certified evidence"
 
 # ── 2c. THE ENGINE CARRIES THE CERTIFIED WEALTH CORE ─────────────────────────
 # Checked BEFORE anything is destroyed. The forced stocker-base rebuild above
@@ -278,7 +369,7 @@ step "2c/9 the engine carries the certified Wealth Core"
 # while Compose uses the file's top-level `name:` — `stocker-bt-bt-engine`, not
 # `stocker-bt-engine`. Close enough to read as a typo, different enough never
 # to resolve.
-BT_REF=$(python3 scripts/compose_image.py \
+BT_REF=$("${HOST_PYTHON}" scripts/compose_image.py \
   --file docker-compose.backtest.yml --service bt-engine) \
   || fail "the bt-engine image could not be resolved from its compose file.
   NOT guessed: a wrong image name that resolves is worse than one that does
@@ -288,7 +379,7 @@ echo "  bt-engine image: ${BT_REF}"
 BT_WC=$(docker run --rm --entrypoint python "${BT_REF}" -c \
   "from stock_strategy_shared import identity_hashes as i; print(i.wealth_core_source_hash())" \
   2>/dev/null || true)
-SENTINEL_WC=$(python3 -c "import json; print(json.load(open('${ART}/identity-env.json'))['environment']['wealth_core_source']['hash'])")
+SENTINEL_WC=$("${HOST_PYTHON}" -c "import json; print(json.load(open('${ART}/identity-env.json'))['environment']['wealth_core_source']['hash'])")
 if [ -z "${BT_WC}" ] || [ "${BT_WC}" = "None" ]; then
   fail "the bt-engine image ${BT_REF} could not report a Wealth Core source
   hash. It runs the three-hour rehearsal; an engine that cannot name the engine
@@ -314,10 +405,10 @@ echo "  both carry Wealth Core ${BT_WC}"
 # corpus being certified, and an unresolved or locally-tagged `postgres:16`
 # would leave the record naming the wrong server, or nothing at all.
 step "2d/9 recording the artefact identity"
-BT_DATA_REF=$(python3 scripts/compose_image.py \
+BT_DATA_REF=$("${HOST_PYTHON}" scripts/compose_image.py \
   --file docker-compose.backtest.yml --service bt-data) || \
   fail "the bt-data image could not be resolved from Compose"
-PG_REF=$(python3 -c "
+PG_REF=$("${HOST_PYTHON}" -c "
 import re,sys
 t=open('docker-compose.sentinel.yml').read()
 m=re.search(r'image:\s*(postgres:[^\s]+)', t)
@@ -330,9 +421,16 @@ docker image inspect "${PG_REF}" >/dev/null 2>&1 || docker pull "${PG_REF}" >/de
   || fail "the pinned Postgres image ${PG_REF} could not be resolved. It PRODUCES
   the corpus being certified; a record that cannot name it is not a record."
 
-python3 scripts/sentinel_manifest.py "${ART}" "${RUNSTAMP}" "${LOCK_SHA}" \
+MANIFEST_ARGS=("${ART}" "${RUNSTAMP}" "${LOCK_SHA}" \
   --postgres-ref "${PG_REF}" --bt-data-ref "${BT_DATA_REF}" \
-  --bt-engine-ref "${BT_REF}" --require-images \
+  --bt-engine-ref "${BT_REF}" --runtime-ref "${RUNTIME_IMAGE_REF}" \
+  --test-ref "${TEST_IMAGE_REF}" --require-images \
+  --enforce-closure-context)
+[ -z "${CERTIFIED_BASELINE}" ] || \
+  MANIFEST_ARGS+=(--certified-baseline "${CERTIFIED_BASELINE}")
+[ -z "${CLOSURE_TRANSITION}" ] || \
+  MANIFEST_ARGS+=(--closure-transition "${CLOSURE_TRANSITION}")
+"${HOST_PYTHON}" scripts/sentinel_manifest.py "${MANIFEST_ARGS[@]}" \
   || fail "the artefact manifest is incomplete — every image it names must
   resolve, and the source tree must be clean, BEFORE anything is destroyed."
 
@@ -342,7 +440,7 @@ python3 scripts/sentinel_manifest.py "${ART}" "${RUNSTAMP}" "${LOCK_SHA}" \
 # test-run record and evidence bundler consume this retained object rather than
 # trusting its asserted hash.
 PRE_SUITE_MANIFEST="${ART}/manifest-frozen-${RUNSTAMP}.json"
-python3 scripts/sentinel_test_run.py retain-manifest \
+"${HOST_PYTHON}" scripts/sentinel_test_run.py retain-manifest \
   --manifest "${ART}/manifest-${RUNSTAMP}.json" \
   --output "${PRE_SUITE_MANIFEST}" \
   || fail "the exact FROZEN manifest bytes could not be retained by atomic
@@ -351,7 +449,7 @@ python3 scripts/sentinel_test_run.py retain-manifest \
 # Signed execution authority is deployable on another host, so its test record
 # cannot name only local Docker image ids. Require exactly one immutable content
 # digest for both images before the destructive corpus reset, not after it.
-TEST_IMAGE_REF=$(python3 scripts/sentinel_test_run.py validate-manifest \
+TEST_IMAGE_REF=$("${HOST_PYTHON}" scripts/sentinel_test_run.py validate-manifest \
   --manifest "${PRE_SUITE_MANIFEST}" --print-test-ref) \
   || fail "the runtime and test images do not each have one immutable registry
   digest. Push the exact built images and repeat identity recording; local tags
@@ -458,7 +556,7 @@ printf '%s\n' "${SUITE}" > "${SUITE_LOG}"
 # exact pre-suite manifest, immutable runtime/test digests, canonical command,
 # sorted unique collection inventory and retained pytest log. It publishes by
 # atomic no-clobber only when the exit/status counts prove a complete run.
-python3 scripts/sentinel_test_run.py publish \
+"${HOST_PYTHON}" scripts/sentinel_test_run.py publish \
   --manifest "${PRE_SUITE_MANIFEST}" \
   --inventory-log "${INVENTORY_LOG}" --pytest-log "${SUITE_LOG}" \
   --exit-code "${SUITE_RC}" \
@@ -506,7 +604,7 @@ ${RUN} rejection-audit --start "${START}" --end "${END}" --assert-no-holdings \
 
 # ── 8. loader parity, both kinds ─────────────────────────────────────────────
 step "8/9  Sentinel loader vs the canonical Wealth Core data path (synthetic)"
-docker run --rm sentinel-test:latest tests/sentinel/test_loader_parity.py -q \
+docker run --rm "${TEST_IMAGE_REF}" tests/sentinel/test_loader_parity.py -q \
   || fail "Sentinel's bars differ from the canonical path's — the engine is
   certified, what is handed to it is not"
 
@@ -537,7 +635,7 @@ step "8b/9 the SEEDED corpus vs the canonical corpus, over the real window"
 docker run --rm --network host --entrypoint python \
   -e SENTINEL_DATABASE_URL="${SENTINEL_DATABASE_URL}" \
   -e BT_DATABASE_URL="${BT_DATABASE_URL}" \
-  sentinel-test:latest -m tools.corpus_parity \
+  "${TEST_IMAGE_REF}" -m tools.corpus_parity \
   --start "${START}" --end "${END}" \
   > "${ART}/corpus-parity-${RUNSTAMP}.json" \
   2> "${ART}/corpus-parity-${RUNSTAMP}.err" \
@@ -571,7 +669,7 @@ step "9/9  recording the rehearsal identity"
 ${RUN} identity --require-certified --start "${START}" --end "${END}" \
   > "${ART}/identity-${RUNSTAMP}.json" \
   || fail "the identity record could not be produced"
-python3 - "${ART}/identity-${RUNSTAMP}.json" <<'PY'
+"${HOST_PYTHON}" - "${ART}/identity-${RUNSTAMP}.json" <<'PY'
 import json, sys
 rec = json.load(open(sys.argv[1]))
 c = rec.get("corpus", {})
@@ -589,7 +687,7 @@ PY
 # The frozen manifest becomes READY_FOR_REHEARSAL here. Its corpus hash and
 # parity generations cannot exist before the corpus comparison; completion
 # remains null until the separately authenticated rehearsal passes every gate.
-python3 - "${ART}" "${RUNSTAMP}" <<'PYX' || fail "the manifest could not be completed"
+"${HOST_PYTHON}" - "${ART}" "${RUNSTAMP}" <<'PYX' || fail "the manifest could not be completed"
 import hashlib, json, sys
 from pathlib import Path
 art, stamp = Path(sys.argv[1]), sys.argv[2]
