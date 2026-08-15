@@ -50,7 +50,7 @@ one destroys a live holding.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Iterable, Mapping, Optional, Sequence
 
@@ -179,10 +179,18 @@ terminal action name would otherwise be silent."""
 EXCLUDED_OUTSIDE_WINDOW = "OUTSIDE_OPERATIONAL_WINDOW"
 """Dated outside the window being loaded."""
 
-EXCLUDED_DUPLICATE = "DUPLICATE_VENDOR_ROW"
-"""A second row with the same (ticker, session, action). Applying a termination
-twice is not idempotent — the first releases the episode and the second finds
-NOT_HELD — so duplicates are collapsed rather than replayed."""
+EXCLUDED_EQUIVALENT_TERMINAL = "EQUIVALENT_TERMINAL_SIBLING"
+"""A distinct source row whose mapped terminal economics equal its sibling.
+Only mapped equivalence permits one application; source identity alone never
+chooses among conflicting deal terms."""
+
+# Compatibility name for callers/tests that predate source-row identity.  Exact
+# source repeats are removed before storage; terminal deduplication now means
+# mapped-economic equivalence, never merely a repeated coarse vendor key.
+EXCLUDED_DUPLICATE = EXCLUDED_EQUIVALENT_TERMINAL
+
+CONFLICTING_TERMINAL_TERMS = "CONFLICTING_TERMINAL_TERMS"
+"""Distinct terminal siblings map to different economic terms. Apply none."""
 
 EXCLUDED_ABSENT_FROM_CORPUS = "SECURITY_ABSENT_FROM_CORPUS"
 """No bar carries this ticker anywhere in the window, so no book could have held
@@ -200,7 +208,7 @@ PRICED but cannot be NAMED stays unresolved and stays loud."""
 UNRESOLVED_REASONS = frozenset({
     "NO_PERMANENT_ID", "AMBIGUOUS_IDENTITY", "TICKER_REUSE_UNRESOLVED",
     "IDENTITY_INTERVAL_GAP", "MULTIPLE_EFFECTIVE_MAPPINGS",
-    "TERMS_NOT_EXPRESSIBLE"})
+    "TERMS_NOT_EXPRESSIBLE", CONFLICTING_TERMINAL_TERMS})
 
 
 @dataclass(frozen=True)
@@ -213,14 +221,17 @@ class TerminalRow:
     reason: str = ""
     security_id: Optional[str] = None
     effective_session: Optional[str] = None
+    source_row_id: Optional[str] = None
 
     def describe(self) -> str:
         when = (f"{self.session}->{self.effective_session}"
                 if self.effective_session and self.effective_session != self.session
                 else self.session)
+        row_id = (f" source_row_id={self.source_row_id}"
+                  if self.source_row_id else "")
         return (f"{when} {self.ticker} {self.action.upper()}"
-                f" reason={self.reason}" if self.reason
-                else f"{when} {self.ticker} {self.action.upper()}")
+                f" reason={self.reason}{row_id}" if self.reason
+                else f"{when} {self.ticker} {self.action.upper()}{row_id}")
 
 
 @dataclass(frozen=True)
@@ -292,8 +303,19 @@ class TerminalLoadResult:
                 {"vendor_session": r.session,
                  "effective_session": r.effective_session,
                  "ticker": r.ticker, "action": r.action,
-                 "reason": r.reason} for r in self.unresolved],
+                 "reason": r.reason,
+                 "source_row_id": r.source_row_id} for r in self.unresolved],
         }
+
+
+def _economic_terms(terms: TerminalTerms) -> tuple:
+    """The mapped economics, excluding source-only provenance text."""
+    return (
+        terms.session, terms.security_id, terms.kind.value,
+        terms.cash_per_share, terms.delivered_security_id,
+        terms.delivered_ticker, terms.delivered_issuer_id,
+        terms.exchange_ratio, terms.cash_in_lieu_price_per_delivered_share,
+    )
 
 
 def _corpus_tickers(conn, start: str, end: str) -> set:
@@ -378,10 +400,13 @@ def load_terminal_events(conn, *, start: str, end: str,
 
     priced = _corpus_tickers(conn, start, end)
     out: list = []
-    seen: set = set()
     audit: list = []
+    terminal_candidates: dict[
+        tuple, list[tuple[str, TerminalTerms, TerminalRow]]
+    ] = {}
 
-    for source_row_id, ticker, session, action, value, contraticker, contraname in rows:
+    for (source_row_id, ticker, session, action, value,
+         contraticker, contraname) in rows:
         s, tk = str(session), str(ticker)
         act = (action or "").lower()
         effective = calendar.session_on_or_after(s)
@@ -394,12 +419,8 @@ def load_terminal_events(conn, *, start: str, end: str,
             return TerminalRow(ticker=tk, session=s, action=act,
                                disposition=disposition, reason=reason,
                                security_id=sid,
-                               effective_session=effective)
-
-        if key in seen:
-            audit.append(_row("excluded", EXCLUDED_DUPLICATE))
-            continue
-        seen.add(key)
+                               effective_session=effective,
+                               source_row_id=str(source_row_id))
 
         if effective not in effective_window:
             audit.append(_row("excluded", EXCLUDED_OUTSIDE_WINDOW))
@@ -450,7 +471,29 @@ def load_terminal_events(conn, *, start: str, end: str,
         # type and is a back-compat FACTORY over TerminalTerms for the two
         # original kinds — it cannot express CONVERSION at all, which is
         # exactly what a public acquirer produces.
+        terminal_candidates.setdefault(key, []).append(
+            (str(source_row_id), terms, _row("resolved", sid=sid)))
+
+    for siblings in terminal_candidates.values():
+        signatures = {_economic_terms(terms)
+                      for _source_row_id, terms, _audit_row in siblings}
+        if len(signatures) != 1:
+            # Every row stays visible and attributable.  Filing only the later
+            # siblings as conflicting would leave the hash-first row looking
+            # resolved even though no term set was safe to apply.
+            audit.extend(replace(row, disposition="unresolved",
+                                 reason=CONFLICTING_TERMINAL_TERMS)
+                         for _source_row_id, _terms, row in siblings)
+            continue
+
+        # Source rows are already ordered deterministically by the query.  The
+        # chosen reference may differ, but the signature proves the economics
+        # do not; every sibling remains in the audit with its source identity.
+        _source_row_id, terms, row = siblings[0]
         out.append(terms)
-        audit.append(_row("resolved", sid=sid))
+        audit.append(row)
+        audit.extend(replace(sibling_row, disposition="excluded",
+                             reason=EXCLUDED_EQUIVALENT_TERMINAL)
+                     for _sid, _terms, sibling_row in siblings[1:])
 
     return TerminalLoadResult(events=out, rows=audit)

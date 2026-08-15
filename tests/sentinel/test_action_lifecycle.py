@@ -17,6 +17,7 @@ from sentinel.feed import actions, calendar, ingest, publication as P  # noqa: E
 from sentinel.feed import readiness  # noqa: E402
 from sentinel.feed import rejection_audit as RA  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
+from sentinel.feed import universe  # noqa: E402
 from stock_strategy_shared.wealth_core.feed import VendorBar  # noqa: E402
 
 EVENT, PRIOR, END = "2024-06-03", "2024-05-31", "2024-06-03"
@@ -46,6 +47,7 @@ def conn(pg):
                 "sentinel_action_generation_events",
                 "sentinel_action_observations", "sentinel_action_generations",
                 "sentinel_bar_split_repairs", "sentinel_bars",
+                "sentinel_spy_total_return",
                 "sentinel_actions", "sentinel_universe",
                 "sentinel_corpus_publications", "feed_ingest_runs",
                 "sentinel_corpus_anomalies"):
@@ -325,8 +327,8 @@ def test_source_row_siblings_disappearance_restatement_and_dividends(conn):
     assert len(terminal_result.rows) == 4
     relation_rows = [row for row in terminal_result.rows if row.ticker == "XRN"]
     assert len(relation_rows) == 2
-    assert {row.reason for row in relation_rows} == {
-        terminal.EXCLUDED_UNSUPPORTED, terminal.EXCLUDED_DUPLICATE}
+    assert [row.reason for row in relation_rows] == [
+        terminal.EXCLUDED_UNSUPPORTED, terminal.EXCLUDED_UNSUPPORTED]
 
     xrn_restatement = {**xrn_b, "value": 7}
     _publish_actions(conn, [xrn_a, xrn_restatement, *dividends])
@@ -348,7 +350,7 @@ def test_source_row_siblings_disappearance_restatement_and_dividends(conn):
         ("XRTXF", None)]
 
 
-def test_terminal_multiplicity_is_audited_but_not_applied_twice(conn):
+def test_conflicting_terminal_siblings_fail_closed_with_complete_evidence(conn):
     day = "2026-08-14"
     rows = [
         {"ticker": "AAA", "date": day, "action": "acquisitionby",
@@ -360,9 +362,41 @@ def test_terminal_multiplicity_is_audited_but_not_applied_twice(conn):
     result = terminal.load_terminal_events(
         conn, start=day, end=day,
         resolve_identity=lambda ticker, session: "SEC-AAA")
-    assert len(result.events) == 1
+    assert result.events == []
     assert len(result.rows) == 2
-    assert sum(row.reason == terminal.EXCLUDED_DUPLICATE for row in result.rows) == 1
+    assert result.resolved == [] and result.excluded == []
+    assert {row.reason for row in result.unresolved} == {
+        terminal.CONFLICTING_TERMINAL_TERMS}
+    assert len({row.source_row_id for row in result.unresolved}) == 2
+    assert result.conservation_holds()
+    active = actions.active_rows(conn, start=day, end=day)
+    assert {(row["contraticker"], row["contraname"]) for row in active} == {
+        ("BBB", "Buyer One"), ("CCC", "Buyer Two")}
+
+
+def test_economically_equivalent_terminal_siblings_apply_once_and_stay_audited(
+        conn):
+    day = "2026-08-14"
+    rows = [
+        {"ticker": "AAA", "date": day, "action": "acquisitionby",
+         "value": 100, "contraticker": "BBB", "contraname": "Buyer One"},
+        {"ticker": "AAA", "date": day, "action": "acquisitionby",
+         "value": 200, "contraticker": "BBB", "contraname": "Buyer Two"},
+    ]
+    _publish_actions(conn, rows)
+    result = terminal.load_terminal_events(
+        conn, start=day, end=day,
+        resolve_identity=lambda ticker, session: "SEC-AAA")
+    assert len(result.events) == 1
+    assert result.events[0].delivered_ticker == "BBB"
+    assert len(result.rows) == 2 and len(result.resolved) == 1
+    assert [row.reason for row in result.excluded] == [
+        terminal.EXCLUDED_EQUIVALENT_TERMINAL]
+    assert len({row.source_row_id for row in result.rows}) == 2
+    assert result.conservation_holds()
+    active = actions.active_rows(conn, start=day, end=day)
+    assert {(float(row["value"]), row["contraname"]) for row in active} == {
+        (100.0, "Buyer One"), (200.0, "Buyer Two")}
 
 
 def test_pr86_observation_schema_upgrade_is_idempotent_and_preserves_history(conn):
@@ -421,9 +455,12 @@ def test_pr86_observation_schema_upgrade_is_idempotent_and_preserves_history(con
     assert "source_row_id" in window_index
 
 
-def test_failed_13216_row_daily_candidate_is_superseded_by_corrected_retry(conn):
+def test_failed_13216_row_daily_candidate_is_retired_by_later_daily_retry(conn):
     # Published v2 at the August 13 frontier.
     S.write_bars(conn, [_bar("2026-08-13")])
+    universe.write_universe(
+        conn, [{"permaticker": "SEC-AAA", "ticker": "AAA"}],
+        "2026-08-13")
     P.publish(conn, run_id=None, window_start="2026-08-13", window_end="2026-08-13")
     P.publish(conn, run_id=None, window_start="2026-08-13", window_end="2026-08-13")
     with conn.cursor() as cur:
@@ -473,12 +510,12 @@ def test_failed_13216_row_daily_candidate_is_superseded_by_corrected_retry(conn)
             ]
         raise AssertionError(table)
 
-    ingest.daily(conn, fetch=corrected_fetch, today="2026-08-14")
+    ingest.daily(conn, fetch=corrected_fetch, today="2026-08-15")
     assert P.coherence(conn).coherent
     assert S.latest_visible_session(conn) == "2026-08-14"
     readiness_checks = {
         check.name: check.status
-        for check in readiness.check_readiness(conn, today="2026-08-14").checks}
+        for check in readiness.check_readiness(conn, today="2026-08-15").checks}
     assert readiness_checks["corpus coherence"] == readiness.PASS
     assert readiness_checks["frontier benchmark"] == readiness.PASS
     assert readiness_checks["freshness"] == readiness.PASS
@@ -486,11 +523,111 @@ def test_failed_13216_row_daily_candidate_is_superseded_by_corrected_retry(conn)
         cur.execute("SELECT COUNT(*) FROM sentinel_spy_total_return r WHERE "
                     + P.visible_predicate("r"))
         assert cur.fetchone()[0] == 41
+        cur.execute(
+            "SELECT COUNT(*) FROM sentinel_universe"
+            " WHERE last_written_run_id=%s", (FAILED_PRODUCTION_RUN,))
+        assert cur.fetchone()[0] == 0
+        cur.execute(
+            "SELECT COUNT(*) FROM sentinel_universe"
+            " WHERE snapshot_date='2026-08-15'")
+        assert cur.fetchone()[0] == 13217
+        cur.execute(
+            "SELECT COUNT(*) FROM sentinel_universe"
+            " WHERE snapshot_date='2026-08-13'"
+            "   AND last_written_run_id IS NULL")
+        assert cur.fetchone()[0] == 1, "published history was preserved"
+        cur.execute(
+            "SELECT date_to FROM feed_ingest_runs"
+            " WHERE status='success' ORDER BY completed_at DESC LIMIT 1")
+        assert str(cur.fetchone()[0]) == "2026-08-15"
         cur.execute("SELECT COUNT(*) FROM sentinel_action_generation_events e"
                     " JOIN LATERAL (SELECT state FROM sentinel_action_generation_events"
                     " x WHERE x.generation_run_id=e.generation_run_id ORDER BY event_id"
                     " DESC LIMIT 1) latest ON TRUE WHERE latest.state='PENDING'")
         assert cur.fetchone()[0] == 0
+    publication = P.require_current(conn)
+    assert publication.evidence["retired_failed_universe_candidates"] == [{
+        "run_id": FAILED_PRODUCTION_RUN, "rows": 13216}]
+
+
+def test_later_daily_retry_rewrites_failed_bar_and_spy_owners(conn):
+    S.write_bars(conn, [_bar("2026-08-13")])
+    P.publish(conn, window_start="2026-08-13", window_end="2026-08-13")
+    failed = S.IngestRun(
+        conn, "daily", date_from="2026-07-30", date_to="2026-08-14")
+    with S.corpus_write_lock(conn):
+        S.write_bars(conn, [_bar("2026-08-14", close=51.0)],
+                     run_id=failed.progress.run_id, require_lock=True)
+        S.write_spy_total_return(
+            conn, [{"ticker": "SPY", "date": "2026-08-14",
+                    "closeadj": 501.0}],
+            run_id=failed.progress.run_id, require_lock=True)
+        failed.finish("failed", "fixture stopped after destructive writes")
+    assert P.coherence(conn).unpublished_rows == 2
+
+    def corrected_fetch(table, params=None):
+        from sentinel.feed import sharadar
+        if table == sharadar.TICKERS:
+            return [{"permaticker": "SEC-AAA", "ticker": "AAA",
+                     "firstpricedate": "2020-01-01",
+                     "lastpricedate": "2026-08-14"}]
+        if table == sharadar.ACTIONS:
+            return []
+        if table == sharadar.SFP:
+            return [{"ticker": "SPY", "date": day,
+                     "closeadj": 600.0 + i}
+                    for i, day in enumerate(calendar.sessions_in_range(
+                        params["date.gte"], params["date.lte"]))]
+        if table == sharadar.SEP:
+            return [
+                {"ticker": "AAA", "date": "2026-08-13", "close": 50,
+                 "closeunadj": 50, "open": 50, "volume": 1_000_000},
+                {"ticker": "AAA", "date": "2026-08-14", "close": 52,
+                 "closeunadj": 52, "open": 52, "volume": 1_000_000},
+            ]
+        raise AssertionError(table)
+
+    ingest.daily(conn, fetch=corrected_fetch, today="2026-08-15")
+    assert P.coherence(conn).coherent
+    with conn.cursor() as cur:
+        for table in ("sentinel_bars", "sentinel_spy_total_return"):
+            cur.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE last_written_run_id=%s",
+                (failed.progress.run_id,))
+            assert cur.fetchone()[0] == 0
+    assert "retired_failed_universe_candidates" not in P.require_current(
+        conn).evidence
+
+
+def test_universe_retirement_never_deletes_unrewritten_economic_keys(conn):
+    failed = S.IngestRun(
+        conn, "daily", date_from="2026-07-30", date_to="2026-08-14")
+    with S.corpus_write_lock(conn):
+        S.write_bars(conn, [_bar("2026-08-14")],
+                     run_id=failed.progress.run_id, require_lock=True)
+        universe.write_universe(
+            conn, [{"permaticker": "FAILED-ONLY", "ticker": "OLD"}],
+            "2026-08-14", run_id=failed.progress.run_id)
+        failed.finish("failed", "fixture left a destructive bar owner")
+
+    retry = S.IngestRun(
+        conn, "daily", date_from="2026-07-31", date_to="2026-08-15")
+    with S.corpus_write_lock(conn):
+        universe.write_universe(
+            conn, [{"permaticker": "SEC-AAA", "ticker": "AAA"}],
+            "2026-08-15", run_id=retry.progress.run_id)
+        retry.finish("success")
+        with pytest.raises(P.CorpusIncoherent, match="bars.*1"):
+            P.publish(conn, run_id=retry.progress.run_id,
+                      window_start="2026-07-31", window_end="2026-08-15")
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM sentinel_bars"
+                    " WHERE last_written_run_id=%s", (failed.progress.run_id,))
+        assert cur.fetchone()[0] == 1
+        cur.execute("SELECT COUNT(*) FROM sentinel_universe"
+                    " WHERE last_written_run_id=%s", (failed.progress.run_id,))
+        assert cur.fetchone()[0] == 1, "failed publication rolled retirement back"
 
 
 def test_feed_startup_durably_aborts_failed_pending_lifecycle(conn):

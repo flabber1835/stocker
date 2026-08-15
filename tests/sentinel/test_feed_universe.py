@@ -179,14 +179,17 @@ class TestTheResolverDrivesTheFeed:
 
 class TestUniversePublication:
     def test_an_unpublished_snapshot_cannot_change_identity_resolution(self, conn):
-        run1 = S.IngestRun(conn, "seed").progress.run_id
+        first = S.IngestRun(conn, "seed")
+        run1 = first.progress.run_id
         U.write_universe(
             conn, [{"ticker": "ABC", "permaticker": "P1",
                     "firstpricedate": "2000-01-01"}],
             "2024-01-01", run_id=run1)
+        first.finish("success")
         P.publish(conn, run_id=run1)
 
-        run2 = S.IngestRun(conn, "daily").progress.run_id
+        second = S.IngestRun(conn, "daily")
+        run2 = second.progress.run_id
         U.write_universe(
             conn, [{"ticker": "ABC", "permaticker": "P2",
                     "firstpricedate": "2000-01-01"}],
@@ -196,6 +199,7 @@ class TestUniversePublication:
         assert U.load_resolver(conn).resolve("ABC", "2024-01-02") == "P1"
         assert not P.coherence(conn).coherent
         assert P.current(conn).version == 1
+        second.finish("success")
         P.publish(conn, run_id=run2)
         assert U.load_resolver(conn).resolve("ABC", "2024-01-02") is None, (
             "two published overlapping identities must refuse as ambiguous")

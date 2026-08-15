@@ -1509,8 +1509,10 @@ cash distributions on one ticker/effective session sum once per distinct source
 row.  More than one distinct split row on one ticker/effective session has no
 vendor-defined composition order: Sentinel applies no ACTIONS multiplier and
 publishes ``AMBIGUOUS_SPLIT_MULTIPLICITY`` certification evidence.  It may not
-pick the first/last row.  Terminal consumers retain every source row for audit
-but deduplicate the already-defined effective terminal event before applying it.
+pick the first/last row.  Terminal consumers map every distinct source row
+before deduplication.  Siblings produce one event only when their mapped
+economic terms are identical; conflicting mapped terms produce no event, and
+every sibling remains named as unresolved evidence by source-row identity.
 Relationship rows have no ranking, price, split, dividend, terminal, or issuer-
 family effect.
 
@@ -1520,12 +1522,18 @@ The failed production daily run
 published corpus with frontier 2026-08-13, freshness fails for 2026-08-14, the
 required SFP SPY tail is missing, and coherence/frontier/freshness are the three
 failed checks.  A normal corrected ``feed-daily`` retry is the recovery path:
-startup durably fails any orphan candidate, the full TICKERS refresh and overlap
-rewrite/supersede the failed candidate rows, ACTIONS lifecycle state is retired,
-the required SPY tail is fetched, and publication moves atomically only after
-no row owned by an older unpublished run remains.  Publication refuses if the
-retry did not cover every blocker.  Manual SQL deletion and database restore are
-not the normal recovery.
+startup durably fails any orphan candidate, the required SPY tail and price
+overlap rewrite their economic-date keys, ACTIONS lifecycle state is retired,
+and the full TICKERS refresh writes a newer dated snapshot.  In the publication
+transaction, that complete newer universe snapshot retires rows owned by
+durably failed unpublished runs at or before its snapshot date and records the
+retired run/count evidence.  It never deletes or rewrites a row named by a
+publication, and it never retires a future-dated candidate.  Bars, SPY and the
+legacy destructive ACTIONS table do not receive this deletion rule: a failed
+upsert may have replaced a previously published key, so the retry must actually
+rewrite every remaining owner or publication refuses.  Publication moves only
+after no destructive blocker remains.  Manual SQL deletion and database restore
+are not the normal recovery.
 
 #### Wealth Core and CAGR impact
 
