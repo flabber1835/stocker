@@ -278,7 +278,8 @@ class TestItRunsOnTheHostInterpreter:
         sh = self.MEASURE.read_text()
         for i, code in enumerate(_re.findall(r"<<'PY'\n(.*?)\nPY\b", sh, _re.S)):
             out.append((f"{self.MEASURE.name}:heredoc{i}", code))
-        for i, code in enumerate(_re.findall(r"python3 -c '\n(.*?)\n'", sh, _re.S)):
+        inline = r'(?:python3|"\$\{HOST_PYTHON\}") -c \'\n(.*?)\n\''
+        for i, code in enumerate(_re.findall(inline, sh, _re.S)):
             out.append((f"{self.MEASURE.name}:inline{i}", code))
         return out
 
@@ -287,6 +288,18 @@ class TestItRunsOnTheHostInterpreter:
         assertion below."""
         got = self.host_python_sources()
         assert len(got) >= 4, [n for n, _ in got]
+
+    def test_measurement_uses_the_selected_compatible_host_python(self):
+        body = self.MEASURE.read_text()
+        assert 'HOST_PYTHON="${SENTINEL_HOST_PYTHON:-python3}"' in body
+        assert "scripts/sentinel_host_python.py" in body
+        assert body.index("scripts/sentinel_host_python.py") \
+            < body.index("docker image inspect")
+        executable = "\n".join(
+            line for line in body.splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        assert not __import__("re").search(r"(^|[|;&(]\s*)python3\s", executable)
 
     def test_the_SYNTAX_parses_at_the_floor(self):
         import ast

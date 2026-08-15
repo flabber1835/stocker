@@ -39,10 +39,34 @@ reader has to notice is missing something.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import subprocess
 import sys
 from pathlib import Path
+
+try:
+    from scripts.sentinel_certification_state import validate_closure_context
+except ModuleNotFoundError as exc:
+    if exc.name not in {"scripts", "scripts.sentinel_certification_state"}:
+        raise
+    try:
+        from sentinel_certification_state import validate_closure_context
+    except ModuleNotFoundError as direct_exc:
+        if direct_exc.name != "sentinel_certification_state":
+            raise
+        # Some certification tests load this file directly from its path while
+        # deliberately keeping the inspection checkout off ``sys.path``. Load
+        # the sibling without weakening that runtime/inspection boundary.
+        sibling = Path(__file__).with_name("sentinel_certification_state.py")
+        spec = importlib.util.spec_from_file_location(
+            "sentinel_certification_state_sibling", sibling
+        )
+        if spec is None or spec.loader is None:  # pragma: no cover
+            raise ImportError("cannot load " + str(sibling))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        validate_closure_context = module.validate_closure_context
 
 
 _IGNORED_PARTS = {".git", "__pycache__", ".pytest_cache"}
@@ -410,9 +434,23 @@ def bt_engine_runtime_identity(ref: str) -> dict | None:
 def build(art: Path, stamp: str, lock_sha: str,
           postgres_ref: str = "postgres:16",
           bt_engine_ref: str = "stocker-bt-engine:latest",
-          bt_data_ref: str = "stocker-bt-bt-data:latest") -> dict:
+          bt_data_ref: str = "stocker-bt-bt-data:latest",
+          runtime_ref: str = "sentinel-authorized:latest",
+          test_ref: str = "sentinel-test:latest",
+          certified_baseline: Path | None = None,
+          closure_transition: Path | None = None,
+          enforce_closure_context: bool = False) -> dict:
     rec = json.loads((art / "identity-env.json").read_text())
     env = rec["environment"]
+    git_commit = sh("git", "rev-parse", "HEAD")
+    closure_context = {"baseline": None, "transition": None}
+    if enforce_closure_context:
+        closure_context = validate_closure_context(
+            art=art, identity_path=art / "identity-env.json",
+            lock_path=Path("sentinel/requirements.lock"),
+            git_commit=git_commit or "", baseline_path=certified_baseline,
+            transition_path=closure_transition,
+        )
     checkout_hashes = checkout_source_hashes(Path.cwd())
     engine_hash = bt_engine_app_source_hash(bt_engine_ref)
     engine_runtime = bt_engine_runtime_identity(bt_engine_ref)
@@ -424,7 +462,7 @@ def build(art: Path, stamp: str, lock_sha: str,
         ]),
         "bt_engine_app": engine_hash,
         "certification_inputs": image_bundle_source_hash(
-            "sentinel-test:latest",
+            test_ref,
             [[str(source), logical] for source, logical in
              _certification_input_spec(Path("/work/repo"), image=True)]),
     }
@@ -433,7 +471,7 @@ def build(art: Path, stamp: str, lock_sha: str,
         "lifecycle": "FROZEN",
         "verdict": None,
         "failures": [],
-        "git_commit": sh("git", "rev-parse", "HEAD"),
+        "git_commit": git_commit,
         # A DIRTY tree means the manifest names a commit that is not what was
         # built. Recorded as a field so the verdict is the reader's, and warned
         # about loudly because it invalidates the git_commit line above it.
@@ -445,8 +483,8 @@ def build(art: Path, stamp: str, lock_sha: str,
         "git_dirty_paths": [l for l in
                             (sh("git", "status", "--porcelain") or "").splitlines()
                             if l.strip()][:50],
-        "sentinel_runtime_image": image("sentinel-authorized:latest"),
-        "sentinel_test_image": image("sentinel-test:latest"),
+        "sentinel_runtime_image": image(runtime_ref),
+        "sentinel_test_image": image(test_ref),
         # THE PINNED, DIGEST-QUALIFIED REFERENCE from compose — not the bare
         # `postgres:16` tag. PostgreSQL PRODUCES the corpus being certified, so
         # a record naming whatever happens to be tagged `postgres:16` locally
@@ -471,6 +509,8 @@ def build(art: Path, stamp: str, lock_sha: str,
         "distributions_hash": env["distributions_hash"],
         "distributions_count": env["distributions_count"],
         "requirements_lock_sha256": lock_sha,
+        "previous_certified_evidence": closure_context["baseline"],
+        "closure_transition": closure_context["transition"],
         "sentinel_source_hash": env["sentinel_source"]["hash"],
         "wealth_core_source_hash": env["wealth_core_source"]["hash"],
         "python": env["python"],
@@ -514,6 +554,11 @@ def main(argv=None) -> int:
     ap.add_argument("--postgres-ref", default="postgres:16")
     ap.add_argument("--bt-engine-ref", default="stocker-bt-engine:latest")
     ap.add_argument("--bt-data-ref", default="stocker-bt-bt-data:latest")
+    ap.add_argument("--runtime-ref", default="sentinel-authorized:latest")
+    ap.add_argument("--test-ref", default="sentinel-test:latest")
+    ap.add_argument("--certified-baseline", type=Path)
+    ap.add_argument("--closure-transition", type=Path)
+    ap.add_argument("--enforce-closure-context", action="store_true")
     ap.add_argument("--require-images", action="store_true",
                     help="exit non-zero unless every named image resolved and "
                          "the source tree is clean. Used before the "
@@ -521,7 +566,11 @@ def main(argv=None) -> int:
     args = ap.parse_args(list(argv or sys.argv[1:]))
     art, stamp, lock_sha = Path(args.art), args.stamp, args.lock_sha
     m = build(art, stamp, lock_sha, postgres_ref=args.postgres_ref,
-              bt_engine_ref=args.bt_engine_ref, bt_data_ref=args.bt_data_ref)
+              bt_engine_ref=args.bt_engine_ref, bt_data_ref=args.bt_data_ref,
+              runtime_ref=args.runtime_ref, test_ref=args.test_ref,
+              certified_baseline=args.certified_baseline,
+              closure_transition=args.closure_transition,
+              enforce_closure_context=args.enforce_closure_context)
 
     problems = []
     if not m["git_tree_clean"]:
@@ -580,7 +629,27 @@ def main(argv=None) -> int:
         print(f"  {'REFUSED' if args.require_images else 'WARNING'}: {p}")
 
     out = art / f"manifest-{stamp}.json"
-    out.write_text(json.dumps(m, indent=2, sort_keys=True))
+    rendered = json.dumps(m, indent=2, sort_keys=True).encode("utf-8")
+    output_conflict = False
+    if out.exists() and out.read_bytes() != rendered:
+        # A finalized or abandoned lifecycle record is evidence. A new freeze
+        # for the same window must never erase it merely because the historical
+        # filename is shared. Retain the refused attempt separately so the
+        # operator can diagnose it without clobbering the existing record.
+        suffix = hashlib.sha256(rendered).hexdigest()[:16]
+        refused = art / f"manifest-refused-{stamp}-{suffix}.json"
+        try:
+            with refused.open("xb") as handle:
+                handle.write(rendered)
+        except FileExistsError:
+            if refused.read_bytes() != rendered:
+                raise
+        print(f"  REFUSED: {out} already contains different evidence")
+        print(f"  retained attempted bytes at {refused}")
+        output_conflict = True
+    elif not out.exists():
+        with out.open("xb") as handle:
+            handle.write(rendered)
     print(f"  git      {m['git_commit']} clean={m['git_tree_clean']}")
     print(f"  runtime  {m['sentinel_runtime_image']['id']}")
     print(f"  test     {m['sentinel_test_image']['id']}")
@@ -591,7 +660,7 @@ def main(argv=None) -> int:
     print(f"  -> {out}")
     # WRITTEN EVEN WHEN REFUSING, so the operator can see exactly which field
     # was missing rather than being told a file could not be produced.
-    return 1 if (problems and args.require_images) else 0
+    return 1 if output_conflict or (problems and args.require_images) else 0
 
 
 if __name__ == "__main__":                                   # pragma: no cover

@@ -136,6 +136,14 @@ feed-repair:
 
 # ── certification ───────────────────────────────────────────────────────────
 certify:
-	@test -n "$(START)" -a -n "$(END)" || \
-	    { echo "usage: make certify START=YYYY-MM-DD END=YYYY-MM-DD"; exit 2; }
-	bash scripts/sentinel-certify.sh --start "$(START)" --end "$(END)"
+	@test -n "$(START)" -a -n "$(END)" -a -n "$(PHASE)" || \
+	    { echo "usage: make certify START=YYYY-MM-DD END=YYYY-MM-DD PHASE=build|push|verify"; exit 2; }
+	@test "$(PHASE)" = build -o "$(PHASE)" = push -o "$(PHASE)" = verify || \
+	    { echo "PHASE must be build, push, or verify"; exit 2; }
+	bash scripts/sentinel-certify.sh --start "$(START)" --end "$(END)" \
+	    --$(PHASE)-only \
+	    $(if $(RUNTIME_REPOSITORY),--runtime-repository "$(RUNTIME_REPOSITORY)",) \
+	    $(if $(TEST_REPOSITORY),--test-repository "$(TEST_REPOSITORY)",) \
+	    $(if $(KEEP_CORPUS),--keep-corpus,) \
+	    $(if $(CERTIFIED_BASELINE),--certified-baseline "$(CERTIFIED_BASELINE)",) \
+	    $(if $(CLOSURE_TRANSITION),--closure-transition "$(CLOSURE_TRANSITION)",)

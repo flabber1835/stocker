@@ -663,8 +663,9 @@ volatility dispersion.
 # replay the SEP stage so the as-traded price exists (hours)
 scripts/backfill-sep-raw-close.sh
 
-# build and verify the current Sentinel/certification graph
-scripts/sentinel-certify.sh --start YYYY-MM-DD --end YYYY-MM-DD --keep-corpus
+# build, push, then verify the current Sentinel/certification graph
+# (exact registry and baseline arguments are in nas-deployment-remediation.md)
+scripts/sentinel-certify.sh --start YYYY-MM-DD --end YYYY-MM-DD --build-only
 
 # start the exact frozen rehearsal image, without rebuilding it
 scripts/bt-engine-up.sh --no-build --start YYYY-MM-DD --end YYYY-MM-DD

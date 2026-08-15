@@ -95,9 +95,10 @@ migration, preparation, and execution.
    finalization requires a run id and a fresh database read. Offline envelopes
    remain export/audit artifacts but cannot finalize certification unless bound
    by a separately reviewed signature scheme.
-4. `--verify-only` binds the current checkout tree and commit to image labels
-   and in-image source hashes. A stale image cannot be named as evidence for a
-   newer clean checkout.
+4. `--verify-only` consumes the retained build/promotion record and binds the
+   current checkout tree and commit to digest-qualified images and in-image
+   source hashes. A mutable tag or stale image cannot be named as evidence for
+   a newer clean checkout.
 5. The certification database and HTTP surfaces bind loopback and have no known
    default credential. Operational health is readiness: required database and
    schema probes must pass before a service reports healthy.

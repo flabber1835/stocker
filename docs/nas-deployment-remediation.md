@@ -252,6 +252,81 @@ stamp the same ingest run, and publish atomically with the corpus. Daily repair
 requests the exact 41-session readiness window. SFP rows never enter SEP bars or
 the equity universe; repeated seed/daily loads are idempotent.
 
+### 7. Host Python and certification lifecycle
+
+**Observed:** Synology supplied host Python 3.8.15. Certification reached step
+2d and then `scripts/sentinel_test_run.py` raised because `str.removeprefix`
+does not exist before Python 3.9. The same defect existed in the formal
+forward-run producer. The run also exposed two lifecycle contradictions:
+certification rebuilt runtime/test images and immediately required registry
+RepoDigests that a local build cannot have, and it overwrote
+`distributions_hash.prev` before the run became certified.
+
+**Contract:** the minimum supported host interpreter is **Python 3.8.15**. This
+applies only to shell orchestration and host evidence utilities. The Sentinel
+application, authorized runtime, test lens, bt-engine, and other containers
+remain on their pinned Python 3.12 runtime. Host compatibility changes may not
+alter canonical JSON encodings, hashes, schema validation, or refusal behavior.
+
+The supported NAS certification workflow is intentionally three-phase:
+
+```bash
+START=2021-01-04
+END=2023-12-29
+
+# 1. Build local images and retain their exact ids. This phase publishes no
+#    evidence and claims no registry identity.
+scripts/sentinel-certify.sh --start "$START" --end "$END" --build-only
+
+# 2. Promote those exact ids. Repositories are explicit; the script tags each
+#    image with the full source Git SHA, pushes it, and atomically retains the
+#    resulting immutable RepoDigest record.
+scripts/sentinel-certify.sh --start "$START" --end "$END" --push-only \
+  --runtime-repository registry.example/sentinel-authorized \
+  --test-repository registry.example/sentinel-test
+
+# 3. Resume by immutable digest. No image is rebuilt or selected by :latest.
+#    --keep-corpus is optional; omit it when the reviewed certification calls
+#    for the existing explicit corpus reset and seed.
+scripts/sentinel-certify.sh --start "$START" --end "$END" --verify-only \
+  --keep-corpus
+```
+
+On every run after the first successful certification, phase 3 also names the
+exact prior certified evidence:
+
+```bash
+scripts/sentinel-certify.sh --start "$START" --end "$END" --verify-only \
+  --certified-baseline artifacts/sentinel/manifest-<prior-window>.json
+```
+
+Only a clean `FINALIZED`/`PASS` manifest is accepted. A newer timestamp, file
+mtime, identity record, build record, frozen manifest, blocked finalization, or
+abandoned attempt is not a substitute and is never selected implicitly.
+
+When a reviewed dependency update intentionally changes the lock and closure,
+first let immutable verification write the new `identity-env.json` and refuse
+the mismatch before corpus mutation. Then create a durable transition record:
+
+```bash
+python3 scripts/sentinel_certification_state.py review-transition \
+  --baseline artifacts/sentinel/manifest-<prior-window>.json \
+  --identity artifacts/sentinel/identity-env.json \
+  --lock sentinel/requirements.lock \
+  --reviewer "$USER" \
+  --reason "reviewed dependency update <change/PR reference>" \
+  --output artifacts/sentinel/closure-transition-<new-window>.json
+
+scripts/sentinel-certify.sh --start "$START" --end "$END" --verify-only \
+  --certified-baseline artifacts/sentinel/manifest-<prior-window>.json \
+  --closure-transition artifacts/sentinel/closure-transition-<new-window>.json
+```
+
+Transition publication is atomic and no-clobber. It binds the SHA-256 of the
+old manifest bytes, the old closure and lock, the new closure and lock, and the
+new Git commit. The old certification and transition remain retained after the
+new run finalizes; no command silently deletes or overwrites either.
+
 ## Deployment observations that are not yet code defects
 
 - Existing PostgreSQL volumes do not adopt a changed Compose password. The

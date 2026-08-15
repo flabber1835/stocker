@@ -76,6 +76,12 @@ def _require_sha(value: object, *, field: str, git: bool = False) -> str:
     return value
 
 
+def _without_sha256_prefix(value: str) -> str:
+    """Return the digest payload without requiring Python 3.9."""
+    prefix = "sha256:"
+    return value[len(prefix):] if value.startswith(prefix) else value
+
+
 def _unique_repo_identity(image: object, *, field: str) -> tuple[str, str]:
     if not isinstance(image, dict):
         raise TestRunRefused(f"{field} is not an image identity object")
@@ -91,7 +97,7 @@ def _unique_repo_identity(image: object, *, field: str) -> tuple[str, str]:
         digest = ref.rsplit("@", 1)[1]
         if not digest.startswith("sha256:"):
             raise TestRunRefused(f"{field}.repo_digests is not SHA-256")
-        _require_sha(digest.removeprefix("sha256:"), field=field)
+        _require_sha(_without_sha256_prefix(digest), field=field)
         digests.add(digest)
     if len(digests) != 1:
         raise TestRunRefused(
@@ -238,7 +244,7 @@ def validate_canonical_command(
         not isinstance(expected_test_image_digest, str)
         or not expected_test_image_digest.startswith("sha256:")
         or _SHA256.fullmatch(
-            expected_test_image_digest.removeprefix("sha256:")
+            _without_sha256_prefix(expected_test_image_digest)
         ) is None
     ):
         raise TestRunRefused("manifest-bound test image digest is malformed")

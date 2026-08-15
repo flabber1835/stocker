@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 CANONICAL="docker-compose.sentinel.yml"
 BACKUP="docker-compose.sentinel-backup.yml"
 GENERATED="artifacts/compose/docker-compose.sentinel.nocpu.yml"
-PYTHON="${SENTINEL_PYTHON:-python3}"
+PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
 EXPLAIN=0
 RUN=0
 
@@ -23,6 +23,11 @@ while [ $# -gt 0 ]; do
 done
 
 note() { [ "$EXPLAIN" -eq 1 ] && printf '%s\n' "$*" >&2 || true; }
+
+"$PYTHON" scripts/sentinel_host_python.py >/dev/null || {
+  echo "REFUSED: host Python is incompatible; minimum Python is 3.8.15" >&2
+  exit 1
+}
 
 [ -n "${SENTINEL_BACKUP_DIR:-}" ] || {
   echo "REFUSED: SENTINEL_BACKUP_DIR is required; every supported Sentinel" >&2

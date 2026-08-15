@@ -27,6 +27,7 @@ set -euo pipefail
 
 COMPOSE="bash scripts/sentinel-compose.sh --run"
 RUN="${COMPOSE} run --rm -T sentinel"
+HOST_PYTHON="${SENTINEL_HOST_PYTHON:-python3}"
 ART="artifacts/sentinel"
 START=""; END=""; RUN_ID=""
 
@@ -48,7 +49,7 @@ step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 mark_blocked() {
   local reason="$1"
   [ -f "${MANIFEST}" ] || return 0
-  python3 - "${MANIFEST}" "${reason}" <<'PY' || true
+  "${HOST_PYTHON}" - "${MANIFEST}" "${reason}" <<'PY' || true
 import json, sys
 from pathlib import Path
 from scripts.sentinel_manifest import block_finalization
@@ -66,9 +67,21 @@ fail() {
   exit 1
 }
 
+"${HOST_PYTHON}" scripts/sentinel_host_python.py || \
+  fail "host Python is not compatible with the certification utilities; minimum Python is 3.8.15"
 mkdir -p "${ART}"
 [ -f "${MANIFEST}" ] || fail "${MANIFEST} does not exist; run scripts/sentinel-certify.sh first"
-python3 - "${MANIFEST}" <<'PY' || fail "the manifest is not ready for finalization"
+RUNTIME_IMAGE_REF=$("${HOST_PYTHON}" - "${MANIFEST}" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+ref = (m.get("sentinel_runtime_image") or {}).get("ref")
+if not isinstance(ref, str) or "@sha256:" not in ref:
+    raise SystemExit("runtime image ref is not digest-qualified")
+print(ref)
+PY
+) || fail "the manifest does not name an immutable runtime image"
+export SENTINEL_RUNTIME_IMAGE_REF="${RUNTIME_IMAGE_REF}"
+"${HOST_PYTHON}" - "${MANIFEST}" <<'PY' || fail "the manifest is not ready for finalization"
 import json, sys
 from pathlib import Path
 from scripts.sentinel_manifest import begin_finalization
@@ -86,7 +99,7 @@ step "1/4  reading and validating the authoritative rehearsal row"
 SRC="${ART}/rehearsal-${RUN_ID}.json"
 [ -n "${BT_DATABASE_URL:-}" ] || fail "BT_DATABASE_URL is unset, so the
 rehearsal row cannot be read. Offline JSON is audit evidence, not authority."
-python3 scripts/sentinel_rehearsal.py finalize \
+"${HOST_PYTHON}" scripts/sentinel_rehearsal.py finalize \
   --run-id "${RUN_ID}" --envelope-out "${SRC}" --book-out "${BOOK}" \
   --start "${START}" --end "${END}" \
   || fail "the authoritative rehearsal row was REFUSED"
@@ -117,7 +130,7 @@ ${RUN} identity --require-certified --start "${START}" --end "${END}" \
   || fail "the final Sentinel environment/corpus identity could not be read"
 
 step "3/4  completing the certification manifest"
-python3 - "${ART}" "${RUNSTAMP}" "${SRC}" "${FINAL_IDENTITY}" <<'PY' || fail "the certification conditions were NOT met. The attempted evidence and failure list are retained in ${MANIFEST}. A rehearsal whose generation moved, whose session path did not reproduce its bulk replay, or whose terminal episodes do not reconcile is not certified."
+"${HOST_PYTHON}" - "${ART}" "${RUNSTAMP}" "${SRC}" "${FINAL_IDENTITY}" <<'PY' || fail "the certification conditions were NOT met. The attempted evidence and failure list are retained in ${MANIFEST}. A rehearsal whose generation moved, whose session path did not reproduce its bulk replay, or whose terminal episodes do not reconcile is not certified."
 import hashlib, json, subprocess, sys
 from pathlib import Path
 from scripts.sentinel_manifest import (
