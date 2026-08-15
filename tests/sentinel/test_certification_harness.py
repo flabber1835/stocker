@@ -834,16 +834,48 @@ class TestCanonicalCertificationTestRun:
             module.manifest_binding(manifest)
 
     @pytest.mark.parametrize("collection", [
-        "tests/sentinel/test_a.py::test_first\n2 tests collected in 0.1s\n",
-        ("tests/sentinel/test_a.py::test_first\n"
-         "tests/sentinel/test_a.py::test_first\n"
-         "2 tests collected in 0.1s\n"),
-        "2 tests collected in 0.1s\n",
+        pytest.param(
+            "tests/sentinel/test_a.py::test_first\n",
+            id="no-terminal-summary",
+        ),
+        pytest.param(
+            "tests/sentinel/test_a.py::test_first\n"
+            "2 tests collected in 0.1s\n",
+            id="declared-count-differs",
+        ),
+        pytest.param(
+            "tests/sentinel/test_a.py::test_first\n"
+            "1 test collected in 0.1s\n"
+            "1 test collected in 0.2s\n",
+            id="multiple-terminal-summaries",
+        ),
+        pytest.param(
+            "tests/sentinel/test_a.py::test_first\n"
+            "tests/sentinel/test_a.py::test_first\n"
+            "2 tests collected in 0.1s\n",
+            id="duplicate-nodeids-mask-count",
+        ),
+        pytest.param(
+            "2 tests collected in 0.1s\n",
+            id="no-nodeids",
+        ),
     ])
     def test_inventory_must_match_sorted_unique_nodeids(self, collection):
         module = certification_test_run_module()
         with pytest.raises(module.TestRunRefused):
             module.inventory_from_log(collection.encode())
+
+    def test_collection_summary_is_a_complete_physical_line(self):
+        module = certification_test_run_module()
+        nodeid = (
+            "tests/sentinel/test_certification_harness.py::"
+            "test_inventory[2 tests collected in 0.1s\\n]"
+        )
+        inventory = module.inventory_from_log(
+            f"{nodeid}\n1 test collected in 25.48s\n".encode()
+        )
+        assert inventory["count"] == 1
+        assert inventory["nodeids"] == [nodeid]
 
     def test_inventory_preserves_parameter_ids_with_spaces(self):
         module = certification_test_run_module()
@@ -852,6 +884,16 @@ class TestCanonicalCertificationTestRun:
             b"1 test collected in 0.1s\n")
         assert inventory["nodeids"] == [
             "tests/sentinel/test_a.py::test_first[buy sell]"]
+
+    def test_pytest_summary_is_a_complete_physical_line(self):
+        module = certification_test_run_module()
+        with pytest.raises(module.TestRunRefused):
+            module.counts_from_log(
+                b"node-id[1 passed in 0.1s]\n", exit_code=0
+            )
+        assert module.counts_from_log(
+            b"node-id[1 passed in 0.1s]\n1 passed in 0.2s\n", exit_code=0
+        )["passed"] == 1
 
     def test_the_producer_is_valid_python_and_the_harness_is_valid_bash(self):
         compile(TEST_RUN_PRODUCER.read_text(), str(TEST_RUN_PRODUCER), "exec")

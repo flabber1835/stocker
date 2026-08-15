@@ -426,3 +426,15 @@ class TestTheWhitelistIsCOMPLETEAgainstCompose:
         """Named explicitly, because it is the bug this class exists for and a
         regression would otherwise only reappear on somebody's NAS."""
         assert "BT_ENGINE_MEM_LIMIT" in mod.CARRY
+
+    def test_workflow_selected_identities_are_never_carried(self, mod):
+        expected_owner = {
+            "SENTINEL_RUNTIME_IMAGE_REF": "deployment/promotion workflow",
+            "BT_ENGINE_SOURCE_REVISION": "scripts/bt-engine-up.sh",
+        }
+        for name, owner in expected_owner.items():
+            assert name in mod.DELIBERATELY_UNSET
+            assert name not in mod.CARRY
+            reason = mod.DELIBERATELY_UNSET[name]
+            assert owner in reason
+            assert "stale" in reason
