@@ -24,17 +24,21 @@ _SUMMARY_ITEM = re.compile(
     r"(?P<count>[0-9]+) (?P<status>passed|failed|skipped|xfailed|xpassed|"
     r"errors?|warnings?)\b"
 )
+_DURATION = (
+    r"[0-9]+(?:\.[0-9]+)?s"
+    r"(?: \([0-9]+:[0-5][0-9]:[0-5][0-9]\))?"
+)
 _SUMMARY_LINE = re.compile(
     r"^(?:[0-9]+ (?:passed|failed|skipped|xfailed|xpassed|errors?|warnings?), )*"
     r"[0-9]+ (?:passed|failed|skipped|xfailed|xpassed|errors?|warnings?) in "
-    r"[0-9]+(?:\.[0-9]+)?s\r?$",
+    + _DURATION + r"\r?$",
     re.MULTILINE,
 )
 # Both evidence summaries must occupy a complete physical line. Parameter ids
 # may contain summary-shaped text, including a literal escaped newline.
 _COLLECTED = re.compile(
     r"^(?P<count>[0-9]+) tests? collected in "
-    r"[0-9]+(?:\.[0-9]+)?s\r?$",
+    + _DURATION + r"\r?$",
     re.MULTILINE,
 )
 # Parameter ids are allowed to contain spaces (and this suite has several).

@@ -671,7 +671,9 @@ class TestCanonicalCertificationTestRun:
             "5 tests collected in 0.03s\n"
         )
         log = tmp_path / "suite.txt"
-        log.write_text("..xxx [100%]\n2 passed, 3 xfailed in 0.21s\n")
+        log.write_text(
+            "..xxx [100%]\n2 passed, 3 xfailed in 0.21s (0:00:00)\n"
+        )
         return inventory, log
 
     def test_the_harness_emits_the_record_from_the_actual_command(self):
@@ -784,12 +786,12 @@ class TestCanonicalCertificationTestRun:
 
     @pytest.mark.parametrize(
         ("summary", "exit_code"), [
-            ("1 passed, 1 skipped in 0.1s", 0),
-            ("1 passed, 1 xpassed in 0.1s", 0),
-            ("1 passed, 1 failed in 0.1s", 1),
-            ("1 passed, 1 error in 0.1s", 1),
-            ("1 passed in 0.1s", 4),
-            ("1 xfailed in 0.1s", 0),
+            ("1 passed, 1 skipped in 0.1s (0:00:01)", 0),
+            ("1 passed, 1 xpassed in 0.1s (0:00:01)", 0),
+            ("1 passed, 1 failed in 0.1s (0:00:01)", 1),
+            ("1 passed, 1 error in 0.1s (0:00:01)", 1),
+            ("1 passed in 0.1s (0:00:01)", 4),
+            ("1 xfailed in 0.1s (0:00:01)", 0),
         ])
     def test_no_failed_partial_or_vacuous_result_can_publish(
             self, tmp_path, summary, exit_code):
@@ -845,7 +847,7 @@ class TestCanonicalCertificationTestRun:
         ),
         pytest.param(
             "tests/sentinel/test_a.py::test_first\n"
-            "1 test collected in 0.1s\n"
+            "1 test collected in 0.1s (0:00:00)\n"
             "1 test collected in 0.2s\n",
             id="multiple-terminal-summaries",
         ),
@@ -858,6 +860,11 @@ class TestCanonicalCertificationTestRun:
         pytest.param(
             "2 tests collected in 0.1s\n",
             id="no-nodeids",
+        ),
+        pytest.param(
+            "tests/sentinel/test_a.py::test_first\n"
+            "1 test collected in 0.1s (0:60:00)\n",
+            id="malformed-duration",
         ),
     ])
     def test_inventory_must_match_sorted_unique_nodeids(self, collection):
@@ -877,6 +884,14 @@ class TestCanonicalCertificationTestRun:
         assert inventory["count"] == 1
         assert inventory["nodeids"] == [nodeid]
 
+    def test_collection_summary_accepts_pytest_human_duration(self):
+        module = certification_test_run_module()
+        inventory = module.inventory_from_log(
+            b"tests/sentinel/test_a.py::test_first\n"
+            b"1 test collected in 25.48s (0:00:25)\n"
+        )
+        assert inventory["count"] == 1
+
     def test_inventory_preserves_parameter_ids_with_spaces(self):
         module = certification_test_run_module()
         inventory = module.inventory_from_log(
@@ -887,13 +902,43 @@ class TestCanonicalCertificationTestRun:
 
     def test_pytest_summary_is_a_complete_physical_line(self):
         module = certification_test_run_module()
+        embedded = b"node-id[2283 passed in 242.46s (0:04:02)]\n"
         with pytest.raises(module.TestRunRefused):
-            module.counts_from_log(
-                b"node-id[1 passed in 0.1s]\n", exit_code=0
-            )
+            module.counts_from_log(embedded, exit_code=0)
         assert module.counts_from_log(
-            b"node-id[1 passed in 0.1s]\n1 passed in 0.2s\n", exit_code=0
-        )["passed"] == 1
+            embedded + b"2279 passed in 1985.28s (0:33:05)\n", exit_code=0
+        )["passed"] == 2279
+
+    @pytest.mark.parametrize(("summary", "passed"), [
+        ("2279 passed in 1985.28s (0:33:05)", 2279),
+        ("2283 passed in 242.46s (0:04:02)", 2283),
+    ])
+    def test_pytest_summary_accepts_human_duration(self, summary, passed):
+        module = certification_test_run_module()
+        counts = module.counts_from_log((summary + "\n").encode(), exit_code=0)
+        assert counts["passed"] == passed
+
+    @pytest.mark.parametrize("summary", [
+        "2283 passed in 242.46s (0:4:02)",
+        "2283 passed in 242.46s (0:60:02)",
+        "2283 passed in 242.46s (0:04:60)",
+        "2283 passed in 242.46s (0:04)",
+        "2283 passed in 242.46s (0:04:02) trailing",
+    ])
+    def test_pytest_summary_refuses_malformed_duration(self, summary):
+        module = certification_test_run_module()
+        with pytest.raises(module.TestRunRefused):
+            module.counts_from_log((summary + "\n").encode(), exit_code=0)
+
+    @pytest.mark.parametrize("log", [
+        b"no terminal summary\n",
+        (b"2279 passed in 1985.28s (0:33:05)\n"
+         b"2283 passed in 242.46s (0:04:02)\n"),
+    ])
+    def test_pytest_log_requires_exactly_one_genuine_summary(self, log):
+        module = certification_test_run_module()
+        with pytest.raises(module.TestRunRefused):
+            module.counts_from_log(log, exit_code=0)
 
     def test_the_producer_is_valid_python_and_the_harness_is_valid_bash(self):
         compile(TEST_RUN_PRODUCER.read_text(), str(TEST_RUN_PRODUCER), "exec")
