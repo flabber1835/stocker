@@ -22,8 +22,8 @@ cd "$(dirname "$0")/.."
   exit 2
 }
 
-exec docker compose \
-  -f docker-compose.sentinel.yml \
-  -f docker-compose.sentinel-backup.yml \
-  -f docker-compose.sentinel-automation.yml \
+# Share the exact same CPU-capability decision with the ordinary and authorized
+# CLI paths. The resolver strips the automation overlay too when CFS quotas are
+# unavailable, preventing it from reintroducing NanoCPUs on Synology.
+exec bash scripts/sentinel-compose.sh --automation-overlay --run \
   --profile automation "$@"
