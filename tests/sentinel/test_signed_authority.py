@@ -186,10 +186,19 @@ def test_valid_test_vector_signature_and_disabled_production_root_refuses():
         authority.verify_signed_certificate(payload, now=NOW)
 
 
-def test_production_trust_store_has_no_usable_root():
+def test_production_trust_store_enables_only_the_reviewed_operational_root():
     roots = authority.load_trust_roots()
-    assert roots
-    assert all(root.status != "ACTIVE" for root in roots.values())
+    placeholder = roots[
+        "ed25519-sha256:21fe31dfa154a261626bf854046fd2271b7bed4b6abe45aa58877ef47f9721b9"]
+    operational = roots[
+        "ed25519-sha256:64cc85416e64596c5e8f64ab211e63246252183c776b1a694d1ea4a48e33b1f6"]
+
+    assert placeholder.status == "DISABLED"
+    assert operational.status == "ACTIVE"
+    assert operational.public_key.hex() == (
+        "3e9d98e4f3082c9c9679368c3ae97e62fd21a4097fe7681414fc0046677786bb")
+    assert [root.key_id for root in roots.values()
+            if root.status == "ACTIVE"] == [operational.key_id]
 
 
 def test_retired_key_verifies_existing_but_cannot_install_and_revoked_refuses():
