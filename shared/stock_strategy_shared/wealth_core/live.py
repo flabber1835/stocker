@@ -209,6 +209,7 @@ def plan_session(*, session: str,
 def dry_run(*, sessions: Sequence[str],
             bars_by_session: Mapping[str, Sequence[VendorBar]],
             meta: Mapping[str, SecurityMeta],
+            metadata_timeline: DecisionMetadataTimeline | None = None,
             starting_cash: float,
             cfg: WealthCoreConfig | None = None,
             eligibility_cfg: EligibilityConfig | None = None,
@@ -223,6 +224,7 @@ def dry_run(*, sessions: Sequence[str],
     """
     result, hashes = run_with_hashes(
         sessions=list(sessions), bars_by_session=bars_by_session, meta=meta,
+        metadata_timeline=metadata_timeline,
         starting_cash=starting_cash, cfg=cfg, eligibility_cfg=eligibility_cfg,
         terminal_events=terminal_events)
 

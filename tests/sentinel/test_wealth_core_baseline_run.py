@@ -34,13 +34,25 @@ def expected_artifact() -> dict:
                    "requested_end": "2023-12-29"},
         "hashes": hashes(),
         "corpus": {"version": "generation-7", "status": "READY",
-                   "source_mode": "sharadar", "split_source": "actions"},
+                   "source_mode": "sharadar", "split_source": "actions",
+                   "distinct_securities": 2000,
+                   "first_session_securities": 1900,
+                   "last_session_securities": 1950,
+                   "maximum_session_securities": 1960},
         "run": {"strategy_id": "wealth-core", "strategy_version": "1",
                 "starting_cash": 1_000_000.0,
                 "config_hash": behavior["engine_config_hash"],
                 "behavior_identity": behavior},
         "provenance": {"producer": "tools/wealth_core_expected_hashes.py"},
     }
+
+
+def test_zero_timeline_population_is_not_citable_expected_evidence():
+    artifact = expected_artifact()
+    artifact["corpus"]["first_session_securities"] = 0
+    with pytest.raises(baseline.BaselineRunRefused,
+                       match="causal metadata population"):
+        baseline._expected(artifact)
 
 
 def manifest() -> dict:

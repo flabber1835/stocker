@@ -763,6 +763,16 @@ identity for corpus parity, but it cannot certify a 2021--2023 rehearsal. That
 rehearsal remains blocked until authoritative historical TICKERS observations
 are restored; today's snapshot must not masquerade as that history.
 
+Repository and vendor audit (2026-08-15): no retained repository artifact is a
+per-session TICKERS history. The reproduction kit references one external
+current-state `SHARADAR_TICKERS.zip`, and the vendor TICKERS table has no
+effective-date dimension for category/relationships. No legacy NAS database
+with provenance-complete 2021--2023 daily observations has been identified.
+The blocker is therefore evidence, not loader capability: produce and verify
+the retained daily observations, or obtain a vendor effective-dated metadata
+product / separately reviewed strategy contract that removes those decision
+fields. Backdating today's export is not an option.
+
 ```text
 pending_terms_carried              8      $342,136.68
 derived_last_mark_settlements      8      $342,419.72
@@ -1214,6 +1224,13 @@ two stacks share no docker network by design).
    passed; the formal replay follows the finalized chain rehearsal at step 7a,
    because its authority record must bind the final manifest bytes.
 
+   Population evidence comes only from the session-effective timeline:
+   `distinct_securities` is the permanent-ID union across the measured window;
+   `first_session_securities` and `last_session_securities` are the exact
+   populations on those measured sessions; `maximum_session_securities` is the
+   largest exact session population in the window. A populated certification
+   run reporting zero distinct or maximum population is invalid.
+
    ```bash
    START=2021-01-04
    END=2023-12-29
@@ -1244,6 +1261,11 @@ two stacks share no docker network by design).
    assert a["corpus"]["source_mode"] == "sharadar"
    assert a["corpus"]["split_source"] == "actions"
    assert a["corpus"]["actions_ingestion"]["coverage_complete"] is True
+   assert a["corpus"]["distinct_securities"] > 0
+   assert a["corpus"]["first_session_securities"] > 0
+   assert a["corpus"]["last_session_securities"] > 0
+   assert a["corpus"]["maximum_session_securities"] > 0
+   assert a["corpus"]["maximum_session_securities"] <= a["corpus"]["distinct_securities"]
    assert a["window"]["warmup_sessions"] == 126
    assert re.fullmatch(r"[0-9a-f]{64}", a["corpus"]["causal_input_sha256"])
    assert re.fullmatch(r"[0-9a-f]{64}", a["corpus"]["actions_sha256"])

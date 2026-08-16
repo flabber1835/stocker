@@ -244,7 +244,7 @@ def _t(**over) -> dict:
     base = {"ticker": "AAPL", "name": "Apple Inc", "sector": "Technology",
             "category": "Domestic Common Stock", "exchange": "NASDAQ",
             "firstpricedate": "1980-12-12", "lastpricedate": "2026-07-24",
-            "isdelisted": "N"}
+            "relatedtickers": "", "isdelisted": "N"}
     base.update(over)
     return base
 
@@ -277,6 +277,19 @@ def test_absent_last_price_date_stays_null_not_a_sentinel():
     sentinel date would delist every live company on that day."""
     m = map_tickers_row(_t(lastpricedate=""), "2026-07-25")
     assert m["last_price_date"] is None
+    assert m["decision_metadata_complete"] is True
+
+
+def test_authoritative_empty_and_absent_relatedtickers_are_distinguished():
+    complete = map_tickers_row(_t(relatedtickers=""), "2026-07-25")
+    incomplete_row = _t()
+    incomplete_row.pop("relatedtickers")
+    incomplete = map_tickers_row(incomplete_row, "2026-07-25")
+
+    assert complete["related_tickers"] == []
+    assert complete["decision_metadata_complete"] is True
+    assert incomplete["related_tickers"] == []
+    assert incomplete["decision_metadata_complete"] is False
 
 
 def test_datetime_valued_dates_are_truncated_to_the_date():
@@ -459,6 +472,14 @@ def test_every_mapped_universe_field_reaches_the_INSERT():
     mapped = set(map_tickers_row(_t(), "2026-07-25"))
     assert not (mapped - cols), f"mapped but never persisted: {mapped - cols}"
     assert not (cols - mapped), f"in the INSERT but never mapped: {cols - mapped}"
+
+
+def test_completeness_provenance_is_rewritten_with_the_snapshot():
+    import inspect
+    from app import main as bt_main
+
+    sql = inspect.getsource(bt_main._upsert_universe)
+    assert "decision_metadata_complete=EXCLUDED.decision_metadata_complete" in sql
 
 
 def test_related_tickers_are_flattened_before_binding():

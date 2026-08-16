@@ -547,6 +547,36 @@ from the contemporaneous `relatedtickers` observation.
 The observation date always caps the interval: a delivery observed on D cannot
 authorize a price session after D, even if `lastpricedate` is absent or bad.
 
+Each retained decision snapshot is complete, so a row never inherits nullable
+values from the preceding observation. The ingestion contract is:
+
+```text
+field                 present but empty/NULL             field absent
+category              authoritative unknown; ineligible incomplete delivery; refuse
+relatedtickers         authoritative empty family;        incomplete delivery; refuse
+                      fall back to that security's
+                      permaticker only
+firstpricedate         authoritative unknown lower bound; incomplete delivery; refuse
+                      ineligible for a new admission
+lastpricedate          authoritative open/unknown upper   incomplete delivery; refuse
+                      bound at that observation
+```
+
+`bt_universe.decision_metadata_complete` records that the vendor delivery
+contained all four keys before normalization. Existing rows pre-dating that
+provenance default to false and cannot certify a decision timeline. In
+particular, the normalized SQL `NULL` for an observed empty `relatedtickers`
+value means **clear the relationship**; it never means “reuse yesterday.”
+Missing category never inherits an earlier common-stock label. Ticker and
+permaticker remain required row identity; unusable permanent identity is
+rejected by the writer.
+
+The ingestion job buffers the complete paginated TICKERS response before the
+snapshot write. A fetch exception therefore records a failed run and publishes
+no partial observation. Independently, every retained row must carry the
+per-row completeness bit above; completing the HTTP delivery cannot turn an
+absent decision field into an authoritative empty value.
+
 This split repairs the cold-boot case without future leakage. A fresh database
 may contain historical `bt_prices` and only today's TICKERS delivery: bars whose
 vendor interval covers their session resolve; bars outside it do not. A
@@ -571,3 +601,22 @@ rehearsal certifiable. Such a rehearsal additionally requires the legitimately
 observed TICKERS snapshot for every measured market session; a current-only
 rebuilt corpus fails closed until that history is restored from an authoritative
 retained source.
+
+### Historical decision-metadata source audit
+
+The repository contains no per-session historical TICKERS archive or database
+dump. The reproduction-kit manifest names one external
+`SHARADAR_TICKERS.zip`; it is one current securities-master export and has no
+observation-date column from which daily category/relationship history can be
+reconstructed. The Nasdaq Data Link TICKERS schema likewise exposes current
+rows plus `firstpricedate`, `lastpricedate`, and `lastupdated`, not an
+effective-dated history of category or `relatedtickers`.
+
+The rebuilt NAS database has only its 2026 observation. No legacy NAS database
+containing legitimate 2021--2023 daily observations has been identified or
+verified. Unless an operator produces such a retained database/archive with
+observation provenance, causal rehearsal remains blocked. A defensible
+alternative would require a vendor product that supplies effective-dated
+category and issuer-family relationships (plus listing identity), or a reviewed
+strategy contract that demonstrably does not consume those fields; neither is
+currently available. Current TICKERS rows must not be expanded backward.

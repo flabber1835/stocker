@@ -27,12 +27,15 @@ from stock_strategy_shared.wealth_core.execution_model import (
     STATEFUL_OWNERSHIP_CHAIN,
 )
 from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
+from stock_strategy_shared.wealth_core.feed import DecisionMetadataTimelineBuilder
 from stock_strategy_shared.wealth_core.golden import golden_scenario
+from stock_strategy_shared.wealth_core.live import dry_run
 from stock_strategy_shared.wealth_core.risk_profile import (
     PROFILE_NAME,
     WealthCoreRiskProfile,
 )
-from stock_strategy_shared.wealth_core.run import run_sessions
+from stock_strategy_shared.wealth_core.run import run_sessions, run_with_hashes
+from app.wealth_core_tunnel import baseline_replay
 
 # A slice long enough to build the book AND reach the first exit (the STOPOUT
 # crash resolves at S145), short enough to stay fast. A shorter slice makes
@@ -59,6 +62,47 @@ def rehearsal(scenario):
 # ── the equivalence: this is the test ───────────────────────────────────────
 
 class TestTheLivePathReproducesTheReplay:
+
+    def test_bulk_chain_tunnel_and_live_share_the_causal_metadata_hashes(self):
+        g = golden_scenario()
+        sessions = list(g.sessions[:20])
+        builder = DecisionMetadataTimelineBuilder(sessions)
+        for session in sessions:
+            builder.add_snapshot(session, g.meta)
+        timeline = builder.finish()
+
+        bulk, bulk_hashes = run_with_hashes(
+            sessions=sessions, bars_by_session=g.bars_by_session, meta={},
+            metadata_timeline=timeline, starting_cash=g.starting_cash,
+            terminal_events=g.terminal_events)
+        chain = rehearse_chain(
+            sessions=sessions, bars_by_session=g.bars_by_session, meta={},
+            metadata_timeline=timeline, starting_cash=g.starting_cash,
+            terminal_events=g.terminal_events,
+            config={"execution_model": STATEFUL_MODEL})
+        tunnel = baseline_replay(
+            sessions=sessions, bars_by_session=g.bars_by_session, meta={},
+            metadata_timeline=timeline, starting_cash=g.starting_cash,
+            expected=bulk_hashes, terminal_events=g.terminal_events)
+        live_result, live_hashes, _ = dry_run(
+            sessions=sessions, bars_by_session=g.bars_by_session, meta={},
+            metadata_timeline=timeline, starting_cash=g.starting_cash,
+            terminal_events=g.terminal_events)
+
+        expected = bulk_hashes.to_dict()
+        assert chain.bulk_hashes == expected
+        assert tunnel.hashes.to_dict() == expected
+        assert live_hashes == expected
+        assert bulk.result_hash() == tunnel.result.result_hash()
+        assert bulk.result_hash() == live_result.result_hash()
+
+        _static, static_hashes = run_with_hashes(
+            sessions=sessions, bars_by_session=g.bars_by_session,
+            meta=g.meta, starting_cash=g.starting_cash,
+            terminal_events=g.terminal_events)
+        assert static_hashes["normalized_input"] != \
+            expected["normalized_input"], (
+                "a causal replay silently fell back to static metadata")
 
     def test_terminal_state_and_ledger_match_the_bulk_run(self, rehearsal):
         eq = rehearsal.equivalence

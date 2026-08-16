@@ -158,18 +158,19 @@ ALTER TABLE bt_fundamentals
     ALTER COLUMN revenue_growth TYPE NUMERIC(24,6),
     ALTER COLUMN eps_growth TYPE NUMERIC(24,6);
 
--- Per-day investable universe snapshot (which tickers were tradeable / listed on D).
--- Sharadar SEP includes delisted names, so a backtest can hold a name that later
--- disappeared — survivorship-bias-free.
+-- Observed TICKERS securities-master snapshot. Membership and nullable fields
+-- are authoritative only on snapshot_date; this is not by itself a historical
+-- investable-universe reconstruction. Sharadar SEP includes delisted names, so
+-- a backtest can still hold a name that later disappeared.
 CREATE TABLE IF NOT EXISTS bt_universe (
     snapshot_date   DATE         NOT NULL,
     ticker          VARCHAR(20)  NOT NULL,
     name            VARCHAR(200),
     sector          VARCHAR(100),
-    -- POINT-IN-TIME listing window (2026-07). Sharadar TICKERS carries these and
-    -- map_tickers_row discarded them, so the engine had one snapshot and inferred
-    -- historical eligibility from price presence alone. With these, a ticker is
-    -- eligible on D iff first_price_date <= D <= COALESCE(last_price_date, ∞).
+    -- Vendor listing interval (2026-07). Sharadar TICKERS carries these and
+    -- map_tickers_row discarded them. A later observation may use the interval
+    -- to resolve historical ticker/permaticker identity; decision eligibility
+    -- additionally requires the TICKERS observation for that exact session.
     --
     -- HONEST LIMIT: TICKERS is CURRENT-STATE metadata with historical DATE
     -- columns. The dates are point-in-time; `sector` is NOT — it is today's
@@ -186,9 +187,10 @@ ALTER TABLE bt_universe
     ADD COLUMN IF NOT EXISTS is_delisted      BOOLEAN;
 
 -- Wealth Core v1 needs three TICKERS fields the mapper previously discarded:
--- `category` decides common-equity membership from its RAW string, and
--- permaticker/related_tickers are the ONLY non-heuristic route to issuer
--- identity. Idempotent adds, so an existing bt-postgres picks them up on
+-- `category` decides common-equity membership from its RAW string.
+-- `permaticker` is permanent SECURITY identity; issuer-family grouping is a
+-- separate construction from contemporaneous `related_tickers`. Idempotent
+-- adds, so an existing bt-postgres picks them up on
 -- bt-data startup; they stay NULL until TICKERS is re-fetched.
 --
 -- POSITION MATTERS: this must sit AFTER the CREATE TABLE above. It was first
@@ -199,7 +201,12 @@ ALTER TABLE bt_universe
 ALTER TABLE bt_universe
     ADD COLUMN IF NOT EXISTS category        TEXT,
     ADD COLUMN IF NOT EXISTS permaticker     TEXT,
-    ADD COLUMN IF NOT EXISTS related_tickers TEXT;
+    ADD COLUMN IF NOT EXISTS related_tickers TEXT,
+    -- TRUE only when the source row contained every nullable decision field
+    -- before normalization. Existing rows default FALSE: SQL NULL alone cannot
+    -- distinguish authoritative empty from an incomplete legacy delivery.
+    ADD COLUMN IF NOT EXISTS decision_metadata_complete BOOLEAN NOT NULL
+        DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS idx_bt_universe_window
     ON bt_universe(first_price_date, last_price_date);
 

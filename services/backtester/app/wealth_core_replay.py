@@ -189,7 +189,7 @@ _IDENTITY_SQL = text("""
 
 _META_TIMELINE_SQL = text("""
     SELECT snapshot_date, permaticker, ticker, category, related_tickers,
-           first_price_date, last_price_date
+           first_price_date, last_price_date, decision_metadata_complete
       FROM bt_universe
      WHERE permaticker IS NOT NULL
        AND snapshot_date <= :end
@@ -1065,7 +1065,6 @@ def load_meta_timeline(conn, *, sessions: Sequence[str]
     rows = conn.execute(_META_TIMELINE_SQL, {
         "end": sessions[-1]}).mappings()
     measured = set(sessions)
-    latest: dict[str, SecurityMeta] = {}
     current_session: str | None = None
     current: dict[str, SecurityMeta] = {}
 
@@ -1083,24 +1082,21 @@ def load_meta_timeline(conn, *, sessions: Sequence[str]
             sid = permanent_id(r["permaticker"])
             if sid is None:
                 continue
-            previous = latest.get(sid)
+            if r["decision_metadata_complete"] is not True:
+                raise DecisionMetadataUnavailable(
+                    f"TICKERS observation {observed} for {sid} lacks source "
+                    f"completeness provenance; SQL NULL cannot be interpreted "
+                    f"as authoritative empty decision metadata")
             meta = SecurityMeta(
                 security_id=sid,
-                ticker=(r["ticker"] or (previous.ticker if previous else "")),
-                category=(r["category"] if r["category"] is not None else
-                          (previous.category if previous else None)),
+                ticker=(r["ticker"] or ""),
+                category=r["category"],
                 permaticker=str(r["permaticker"]),
-                related_tickers=(
-                    tuple(r["related_tickers"].split())
-                    if r["related_tickers"] is not None else
-                    (previous.related_tickers if previous else ())),
+                related_tickers=tuple((r["related_tickers"] or "").split()),
                 first_session=(str(r["first_price_date"])
-                               if r["first_price_date"] else
-                               (previous.first_session if previous else None)),
+                               if r["first_price_date"] else None),
                 last_session=(str(r["last_price_date"])
-                              if r["last_price_date"] else
-                              (previous.last_session if previous else None)))
-            latest[sid] = meta
+                              if r["last_price_date"] else None))
             if observed in measured:
                 current[sid] = meta
         flush()

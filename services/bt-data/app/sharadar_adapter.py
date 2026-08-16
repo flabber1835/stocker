@@ -231,6 +231,8 @@ def map_tickers_row(row: dict, snapshot_date: str) -> Optional[dict]:
         return None
     if exchange not in {"NYSE", "NASDAQ", "NYSEMKT", "NYSEARCA", "BATS", "AMEX"}:
         return None
+    decision_fields = (
+        "category", "relatedtickers", "firstpricedate", "lastpricedate")
     return {
         "snapshot_date": snapshot_date,
         "ticker": row["ticker"],
@@ -255,6 +257,11 @@ def map_tickers_row(row: dict, snapshot_date: str) -> Optional[dict]:
         "first_price_date": _date_or_none(row.get("firstpricedate")),
         "last_price_date": _date_or_none(row.get("lastpricedate")),
         "is_delisted": _bool_or_none(row.get("isdelisted")),
+        # Presence is captured BEFORE empty values are normalized to SQL NULL.
+        # A complete row with relatedtickers="" authoritatively clears the
+        # relationship; a row lacking the key is incomplete and cannot certify
+        # a decision timeline.
+        "decision_metadata_complete": all(k in row for k in decision_fields),
     }
 
 

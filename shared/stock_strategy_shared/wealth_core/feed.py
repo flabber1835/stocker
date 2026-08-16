@@ -175,6 +175,32 @@ class DecisionMetadataTimeline:
         return [security_id, m.ticker, m.category, m.permaticker,
                 sorted(m.related_tickers), m.first_session, m.last_session]
 
+    def population_evidence(self) -> dict[str, int]:
+        """Unambiguous measured-window population counters, without expansion."""
+        if not self.sessions:
+            return {
+                "distinct_securities": 0,
+                "first_session_securities": 0,
+                "last_session_securities": 0,
+                "maximum_session_securities": 0,
+            }
+        delta = [0] * (len(self.sessions) + 1)
+        for ranges in self._intervals.values():
+            for start, end in ranges:
+                delta[start] += 1
+                delta[end + 1] -= 1
+        populations = []
+        current = 0
+        for index in range(len(self.sessions)):
+            current += delta[index]
+            populations.append(current)
+        return {
+            "distinct_securities": len(self.security_ids),
+            "first_session_securities": populations[0],
+            "last_session_securities": populations[-1],
+            "maximum_session_securities": max(populations),
+        }
+
 
 class DecisionMetadataTimelineBuilder:
     """Streaming compressor for ordered, full session snapshots."""
@@ -374,7 +400,8 @@ def to_eligibility_input(bar: VendorBar, series: SecuritySeries,
         issuer_key_source=source,
         listed_on_session=(
             _positive(bar.raw_close)
-            and (meta.first_session is None or meta.first_session <= bar.session)
+            and meta.first_session is not None
+            and meta.first_session <= bar.session
             and (meta.last_session is None or bar.session <= meta.last_session)),
         unadjusted_signal_price=bar.raw_close if _positive(bar.raw_close) else None,
         adv20_dollars=adv20_dollars(

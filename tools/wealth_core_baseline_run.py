@@ -155,6 +155,15 @@ def _expected(artifact: Mapping[str, Any]) -> tuple[dict[str, str], str]:
             or corpus.get("split_source") != "actions"
             or not corpus.get("version")):
         raise BaselineRunRefused("expected hashes do not bind a READY Sharadar ACTIONS corpus")
+    population_fields = (
+        "distinct_securities", "first_session_securities",
+        "last_session_securities", "maximum_session_securities")
+    if (any(not isinstance(corpus.get(field), int)
+            or corpus[field] <= 0 for field in population_fields)
+            or any(corpus[field] > corpus["distinct_securities"]
+                   for field in population_fields[1:])):
+        raise BaselineRunRefused(
+            "expected hashes do not bind a nonzero causal metadata population")
     if run.get("starting_cash") != CANONICAL_STARTING_CASH:
         raise BaselineRunRefused("expected hashes do not bind canonical starting cash")
     if (not isinstance(run.get("config_hash"), str)

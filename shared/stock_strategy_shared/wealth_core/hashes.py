@@ -305,12 +305,22 @@ def order_hash(result) -> str:
     """
     payload = []
     for s in result.sessions:
+        cancellations = []
+        for c in s.cancelled:
+            if c.get("reason") in {
+                    "ISSUER_CONFLICT_BEFORE_FILL"}:
+                # Hash the COMPLETE conflict evidence, including reservation
+                # release and the issuer transformation. The compact legacy row
+                # remains byte-stable for unrelated cancellation kinds.
+                cancellations.append(["ISSUER_CONFLICT", dict(c)])
+            else:
+                cancellations.append(
+                    [c.get("security_id"), c.get("reason"),
+                     c.get("wanted_shares"), c.get("filled_shares")])
         payload.append([s.session,
                         [[f["security_id"], f["operation"], f["shares"],
                           _px(f["raw_open"]), f["waited"]] for f in s.fills],
-                        sorted([[c.get("security_id"), c.get("reason"),
-                                 c.get("wanted_shares"), c.get("filled_shares")]
-                                for c in s.cancelled])])
+                        sorted(cancellations, key=lambda row: str(row))])
     payload.append(["__unfilled__", sorted(
         [[o["security_id"], o["operation"], o["shares"], o["sessions_waiting"]]
          for o in result.unfilled_at_end])])

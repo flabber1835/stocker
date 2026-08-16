@@ -106,6 +106,35 @@ Fractional entitlements **floor** and are settled in cash. `math.floor`, not
 `round()` — rounding up delivers a share the acquirer never issued, and the
 position is permanently one share heavier than the broker's.
 
+## Session-effective issuer-family changes
+
+Issuer-family metadata is rebound at the start of the observed session, before
+pending fills. The one-position-per-issuer admission invariant is then checked
+again against the rebound state; the signal-session reservation is not authority
+to violate the fill-session family.
+
+- A pending entry that now conflicts with a held issuer is cancelled before
+  fill and its slot reservation is released.
+- If several pending entries converge on one issuer, the already-existing
+  reservation wins: earlier `signal_session`, then lower `slot_id`, then
+  permanent `security_id`. Every later reservation is cancelled. This is
+  temporal commitment priority, not a new score or discretionary winner.
+- A metadata change that maps two distinct already-held securities to one issuer
+  is a fail-closed `IssuerFamilyCollision`. Wealth Core has no discretionary
+  trim/unwind rule, so choosing a survivor would invent strategy behavior.
+- Corporate-action conversions are the documented exception: when complete
+  same-session conversion terms prove that every colliding source holding maps
+  to the same delivered permanent security, the terminal waterfall runs and
+  the resulting lots remain held and aggregate exactly as described above.
+  Already-converted lots of that same delivered security are valid too. These
+  are not new admissions. Missing, incomplete, mixed-target, or future terms do
+  not waive the held-collision refusal.
+
+The cancellation record includes the old/new issuer, conflicting slot/security,
+reservation release, and the issuer-rebind transformation. The complete record
+is part of the `order` hash. The held-collision exception carries a sorted,
+structured evidence payload and aborts before fills or decisions.
+
 ## Final-session accounting
 
 Three numbers, deliberately never one:

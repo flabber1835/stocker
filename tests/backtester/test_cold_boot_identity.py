@@ -50,7 +50,8 @@ def engine(pg):
                 category text,
                 related_tickers text,
                 first_price_date date,
-                last_price_date date
+                last_price_date date,
+                decision_metadata_complete boolean NOT NULL DEFAULT true
             )
         """))
         conn.execute(sa.text("""
@@ -92,17 +93,18 @@ def insert_price(conn, ticker: str, session: str) -> None:
 def insert_listing(conn, *, permaticker: str, ticker: str,
                    first: str | None, last: str | None,
                    snapshot: str = "2026-08-14",
-                   category: str = "Domestic Common Stock",
-                   related: str | None = None) -> None:
+                   category: str | None = "Domestic Common Stock",
+                   related: str | None = None,
+                   complete: bool = True) -> None:
     conn.execute(sa.text("""
         INSERT INTO bt_universe
             (snapshot_date, permaticker, ticker, category, related_tickers,
-             first_price_date, last_price_date)
+             first_price_date, last_price_date, decision_metadata_complete)
         VALUES (:snapshot, :permaticker, :ticker, :category, :related,
-                :first, :last)
+                :first, :last, :complete)
     """), {"snapshot": snapshot, "permaticker": permaticker,
             "ticker": ticker, "category": category, "related": related,
-            "first": first, "last": last})
+            "first": first, "last": last, "complete": complete})
 
 
 def canonical_bar_count(bars) -> int:
@@ -192,6 +194,74 @@ class TestColdBootIdentityAuthority:
 
 class TestSessionEffectiveDecisionMetadata:
 
+    def test_authoritative_empty_relationship_clears_only_from_that_session(
+            self, engine):
+        sessions = ["2021-01-04", "2021-01-05"]
+        with engine.begin() as conn:
+            insert_listing(
+                conn, permaticker="101", ticker="AAA", first="2000-01-01",
+                last="2026-08-14", snapshot=sessions[0], related="AAA AAAB")
+            insert_listing(
+                conn, permaticker="101", ticker="AAA", first="2000-01-01",
+                last="2026-08-14", snapshot=sessions[1], related=None)
+            first = BT.load_meta_timeline(conn, sessions=sessions)
+            second = BT.load_meta_timeline(conn, sessions=sessions)
+
+        early = first.metadata_for(sessions[0], "P:101")
+        late = first.metadata_for(sessions[1], "P:101")
+        assert early.related_tickers == ("AAA", "AAAB")
+        assert early.issuer_key()[0] != late.issuer_key()[0]
+        assert late.related_tickers == ()
+        assert late.issuer_key()[0] == "P:101"
+        assert first.session_map(sessions[0]) == second.session_map(sessions[0])
+        assert first.session_map(sessions[1]) == second.session_map(sessions[1])
+
+        bars = {
+            session: [VendorBar(session, "P:101", "AAA", 100.0, 100.0,
+                                1_000_000.0)]
+            for session in sessions}
+        assert normalized_input_hash(sessions, bars, first) == \
+            normalized_input_hash(sessions, bars, second)
+
+    def test_unknown_category_does_not_inherit_prior_eligibility(self, engine):
+        sessions = ["2021-01-04", "2021-01-05"]
+        with engine.begin() as conn:
+            insert_listing(
+                conn, permaticker="101", ticker="AAA", first="2000-01-01",
+                last="2026-08-14", snapshot=sessions[0],
+                category="Domestic Common Stock")
+            insert_listing(
+                conn, permaticker="101", ticker="AAA", first="2000-01-01",
+                last="2026-08-14", snapshot=sessions[1], category=None)
+            timeline = BT.load_meta_timeline(conn, sessions=sessions)
+
+        assert timeline.metadata_for(
+            sessions[0], "P:101").category == "Domestic Common Stock"
+        assert timeline.metadata_for(sessions[1], "P:101").category is None
+
+        feed = Feed({}, metadata_timeline=timeline)
+        warmup = [f"2020-{i:03d}" for i in range(1, 128)]
+        feed.warmup(warmup, {
+            session: [VendorBar(session, "P:101", "AAA", 100.0, 100.0,
+                                1_000_000.0)]
+            for session in warmup})
+        early = feed.advance(sessions[0], [VendorBar(
+            sessions[0], "P:101", "AAA", 100.0, 100.0, 1_000_000.0)])
+        late = feed.advance(sessions[1], [VendorBar(
+            sessions[1], "P:101", "AAA", 100.0, 100.0, 1_000_000.0)])
+        assert early.eligibility["P:101"].reason.value != "NOT_COMMON_EQUITY"
+        assert late.eligibility["P:101"].eligible is False
+        assert late.eligibility["P:101"].reason.value == "NOT_COMMON_EQUITY"
+
+    def test_incomplete_nullable_field_provenance_refuses(self, engine):
+        with engine.begin() as conn:
+            insert_listing(
+                conn, permaticker="101", ticker="AAA", first="2000-01-01",
+                last="2026-08-14", snapshot="2021-01-04", complete=False)
+            with pytest.raises(BT.DecisionMetadataUnavailable,
+                               match="completeness provenance"):
+                BT.load_meta_timeline(conn, sessions=["2021-01-04"])
+
     def test_later_security_and_metadata_change_apply_forward_only(self, engine):
         sessions = ["2021-01-04", "2022-01-03"]
         with engine.begin() as conn:
@@ -220,6 +290,12 @@ class TestSessionEffectiveDecisionMetadata:
         late = timeline.session_map(sessions[1])
         assert set(early) == {"P:101"}
         assert set(late) == {"P:101", "P:202"}
+        assert timeline.population_evidence() == {
+            "distinct_securities": 2,
+            "first_session_securities": 1,
+            "last_session_securities": 2,
+            "maximum_session_securities": 2,
+        }
         assert early["P:101"].category == "Domestic Common Stock"
         assert early["P:101"].related_tickers == ("AAA", "AAAB")
         assert late["P:101"].category == "ADR Common Stock"

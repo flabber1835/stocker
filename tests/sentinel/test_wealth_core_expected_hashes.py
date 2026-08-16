@@ -10,7 +10,7 @@ import pytest
 
 from stock_strategy_shared.wealth_core.hashes import HASH_ORDER
 from stock_strategy_shared.wealth_core.feed import (
-    DecisionMetadataTimelineBuilder, SecurityMeta)
+    DecisionMetadataTimelineBuilder, SecurityMeta, VendorBar)
 from tools import wealth_core_expected_hashes as TOOL
 
 
@@ -85,7 +85,9 @@ class FakeBT:
         self.actions = ([{"date": start, "ticker": "AAA",
                           "action": "dividend", "value": 1.0}]
                         if actions else [])
-        self.bars = ({start: [SimpleNamespace(security_id="P:1")]}
+        self.bars = ({start: [VendorBar(
+            session=start, security_id="P:1", ticker="AAA",
+            raw_close=100.0, raw_open=99.0, volume=1_000_000.0)]}
                      if bars else {})
         self.observed = {}
 
@@ -423,27 +425,15 @@ def test_the_run_warms_the_shared_feed_and_uses_streaming_hashes(monkeypatch):
     assert config_hash
 
 
-def test_the_artifact_binds_hashes_to_window_corpus_and_source(monkeypatch):
+def test_real_load_corpus_to_artifact_reports_timeline_population(monkeypatch):
     conn = SnapshotConn()
     bt = FakeBT()
     hashes = {name: format(i + 1, "064x")
               for i, name in enumerate(HASH_ORDER)}
-    corpus = {
-        "sessions": [bt.start, bt.end],
-        "warmup_sessions": bt.sessions[1:127],
-        "bars_by_session": {}, "meta": {"P:1": object()},
-        "terminal_events": [],
-        "source": {
-            "split_source": "actions", "actions_rows": 1,
-            "actions_sha256": "c" * 64,
-            "actions_ingestion": {"coverage_complete": True},
-        },
-    }
     result = SimpleNamespace(
         state=SimpleNamespace(cash=999_999.0, episodes={}),
         blocked_sessions=[])
 
-    monkeypatch.setattr(TOOL, "load_corpus", lambda *_args, **_kw: corpus)
     from stock_strategy_shared.runtime_identity import (
         wealth_core_baseline_identity,
     )
@@ -472,6 +462,11 @@ def test_the_artifact_binds_hashes_to_window_corpus_and_source(monkeypatch):
     assert out["window"]["requested_start"] == bt.start
     assert out["corpus"]["version"] == "generation-7"
     assert out["corpus"]["source_mode"] == "sharadar"
+    assert out["corpus"]["distinct_securities"] == 1
+    assert out["corpus"]["first_session_securities"] == 1
+    assert out["corpus"]["last_session_securities"] == 1
+    assert out["corpus"]["maximum_session_securities"] == 1
+    assert "securities" not in out["corpus"]
     assert out["corpus"]["normalized_input_hash"] == \
         hashes["normalized_input"]
     assert len(out["corpus"]["causal_input_sha256"]) == 64
@@ -493,6 +488,20 @@ def test_the_artifact_binds_hashes_to_window_corpus_and_source(monkeypatch):
     for mutation in ("INSERT ", "UPDATE ", "DELETE ", "TRUNCATE ",
                      "CREATE ", "ALTER ", "DROP "):
         assert mutation not in sql
+
+
+def test_nonempty_static_meta_cannot_conceal_missing_timeline_population():
+    with pytest.raises(TOOL.ExpectedHashesRefused,
+                       match="static meta map is not population evidence"):
+        TOOL.population_evidence({"meta": {"P:1": object()}})
+
+
+def test_populated_run_cannot_emit_a_zero_session_population():
+    builder = DecisionMetadataTimelineBuilder(["2021-01-04"])
+    builder.add_snapshot("2021-01-04", {})
+    with pytest.raises(TOOL.ExpectedHashesRefused,
+                       match="zero or invalid timeline-derived securities"):
+        TOOL.population_evidence({"metadata_timeline": builder.finish()})
 
 
 def test_causal_hash_includes_warmup_while_seven_hash_contract_stays_separate():

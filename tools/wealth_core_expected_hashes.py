@@ -375,6 +375,35 @@ def causal_input_sha256(corpus: Mapping[str, Any]) -> str:
         corpus.get("metadata_timeline"))
 
 
+def population_evidence(corpus: Mapping[str, Any]) -> dict[str, int]:
+    """Derive measured-window population only from the causal timeline."""
+    timeline = corpus.get("metadata_timeline")
+    if timeline is None or not hasattr(timeline, "population_evidence"):
+        raise ExpectedHashesRefused(
+            "expected-hash corpus has no session-effective metadata timeline; "
+            "a nonempty static meta map is not population evidence")
+    evidence = dict(timeline.population_evidence())
+    required = {
+        "distinct_securities", "first_session_securities",
+        "last_session_securities", "maximum_session_securities"}
+    if set(evidence) != required:
+        raise ExpectedHashesRefused(
+            f"metadata population evidence fields differ: "
+            f"missing={sorted(required - set(evidence))}, "
+            f"extra={sorted(set(evidence) - required)}")
+    if not all(isinstance(value, int) and value > 0
+               for value in evidence.values()):
+        raise ExpectedHashesRefused(
+            "a populated certification run retained zero or invalid "
+            f"timeline-derived securities: {evidence}")
+    if any(evidence[field] > evidence["distinct_securities"] for field in (
+            "first_session_securities", "last_session_securities",
+            "maximum_session_securities")):
+        raise ExpectedHashesRefused(
+            f"session population exceeds distinct population: {evidence}")
+    return evidence
+
+
 def validate_hashes(hashes: Mapping[str, str]) -> dict[str, str]:
     from stock_strategy_shared.wealth_core.hashes import HASH_ORDER
 
@@ -451,6 +480,7 @@ def produce(conn, *, start: str, end: str, bt=None) -> dict[str, Any]:
 
     sessions = corpus["sessions"]
     warmup = corpus["warmup_sessions"]
+    population = population_evidence(corpus)
     return {
         "schema": SCHEMA,
         "status": "ready",
@@ -468,7 +498,7 @@ def produce(conn, *, start: str, end: str, bt=None) -> dict[str, Any]:
         "corpus": {
             **generation.to_dict(),
             **corpus["source"],
-            "securities": len(corpus["meta"]),
+            **population,
             "normalized_input_hash": hashes["normalized_input"],
             "causal_input_sha256": causal_input_sha256(corpus),
         },
@@ -649,6 +679,7 @@ def main(argv=None) -> int:
 __all__ = [
     "DataGeneration", "ExpectedHashesRefused", "SCHEMA",
     "WARMUP_CALENDAR_DAYS", "actions_sha256", "causal_input_sha256",
+    "population_evidence",
     "load_actions_ingestion_evidence", "load_corpus", "main",
     "prepare_snapshot", "produce", "run_corpus", "validate_hashes",
     "validate_window", "write_artifact_atomic",

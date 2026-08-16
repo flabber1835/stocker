@@ -518,7 +518,8 @@ def partition_universe_rows(rows: list[dict]) -> tuple[list[dict], list[dict], l
     def richness(r: dict) -> tuple:
         # Prefer the row that actually carries the listing window and category:
         # a sparser duplicate overwriting a fuller one loses point-in-time data.
-        return (r.get("first_price_date") is not None,
+        return (r.get("decision_metadata_complete") is True,
+                r.get("first_price_date") is not None,
                 r.get("last_price_date") is not None,
                 r.get("category") is not None,
                 r.get("related_tickers") is not None)
@@ -575,10 +576,10 @@ async def _upsert_universe(rows: list[dict], snapshot_date=None) -> dict:
         await conn.execute(text(
             "INSERT INTO bt_universe (snapshot_date, ticker, name, sector, "
             "  first_price_date, last_price_date, is_delisted, category, "
-            "  permaticker, related_tickers) "
+            "  permaticker, related_tickers, decision_metadata_complete) "
             "VALUES (:snapshot_date, :ticker, :name, :sector, "
             "  :first_price_date, :last_price_date, :is_delisted, :category, "
-            "  :permaticker, :related_tickers) "
+            "  :permaticker, :related_tickers, :decision_metadata_complete) "
             # THE KEY IS THE IDENTITY, not the symbol. `ticker` is updated like
             # any other attribute — a security that changed symbol keeps its row
             # instead of forking into two.
@@ -588,7 +589,8 @@ async def _upsert_universe(rows: list[dict], snapshot_date=None) -> dict:
             "  first_price_date=EXCLUDED.first_price_date, "
             "  last_price_date=EXCLUDED.last_price_date, "
             "  is_delisted=EXCLUDED.is_delisted, category=EXCLUDED.category, "
-            "  related_tickers=EXCLUDED.related_tickers"
+            "  related_tickers=EXCLUDED.related_tickers, "
+            "  decision_metadata_complete=EXCLUDED.decision_metadata_complete"
         ), keep)
         report["persisted"] = (await conn.execute(text(
             "SELECT count(*) FROM bt_universe "

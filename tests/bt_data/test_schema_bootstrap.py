@@ -70,6 +70,9 @@ class TestEveryAlterFollowsItsCreate:
                   if "category" in _strip_comments(STATEMENTS[i])]
         assert adding, "the bt_universe category/permaticker ALTER is gone"
         assert all(i > create_at for i in adding)
+        statement = "\n".join(STATEMENTS[i] for i in adding)
+        assert "decision_metadata_complete BOOLEAN NOT NULL" in statement
+        assert "DEFAULT FALSE" in statement
 
     def test_close_unadjusted_is_added_idempotently(self):
         body = _strip_comments(SQL)
