@@ -4,7 +4,12 @@
 # runtime.  The application requires the baked marker below, plus the explicit
 # overlay intent flag, before it will dispatch any command that can construct a
 # broker or enable signed authority.  The base image never receives this file.
-ARG SENTINEL_RUNTIME_BASE_IMAGE=sentinel:latest
+#
+# NO MUTABLE DEFAULT. A newly SHA-labelled authorized image must never inherit
+# whatever `sentinel:latest` happened to mean on the build host. Deployment
+# must name the exact reviewed base explicitly, so omission fails closed at
+# FROM resolution instead of silently blessing stale source.
+ARG SENTINEL_RUNTIME_BASE_IMAGE
 FROM ${SENTINEL_RUNTIME_BASE_IMAGE}
 
 ARG SOURCE_GIT_SHA=unknown
