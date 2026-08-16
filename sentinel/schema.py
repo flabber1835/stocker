@@ -317,16 +317,36 @@ _INITIAL_AUTOMATION_LEASE = """INSERT INTO sentinel_automation_lease
     (id,fence_token) VALUES (1,0) ON CONFLICT (id) DO NOTHING"""
 
 DDL = (
+    # ------------------------------------------------------------------
+    # WHO WE ARE, AND WHOSE ACCOUNT THIS IS.
+    #
+    # Verified at every startup against what the broker says. A mismatch is a
+    # refusal to trade, not a warning.
+    # ------------------------------------------------------------------
     """CREATE TABLE IF NOT EXISTS sentinel_account_binding (
         id                INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
         deployment_id     TEXT        NOT NULL,
         broker            TEXT        NOT NULL,
         broker_account_id TEXT        NOT NULL,
+        -- MONOTONIC. Incremented only by an explicit adopt-restored-account.
+        -- It fences a restored appliance's key namespace off from its
+        -- predecessor's so their orders can never be confused. It does NOT stop
+        -- both trading — that needs credential revocation — but it bounds and
+        -- attributes the damage.
         takeover_epoch    BIGINT      NOT NULL DEFAULT 1,
         ownership_state   TEXT        NOT NULL,
         established_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         notes             TEXT)""",
+
+    # ------------------------------------------------------------------
+    # THE OWNERSHIP HISTORY. Append-only by application convention, and the
+    # same caveat Stocker's intent_proposals earned applies here and is worth
+    # stating rather than implying: nothing at the DATABASE level prevents an
+    # UPDATE or DELETE. What is guaranteed is that no code path in this package
+    # rewrites a row. Before this is treated as a permanent audit ledger it
+    # needs table-level immutability or restricted grants.
+    # ------------------------------------------------------------------
     """CREATE TABLE IF NOT EXISTS sentinel_ownership_events (
         seq        BIGSERIAL PRIMARY KEY,
         state      TEXT        NOT NULL,
@@ -334,6 +354,14 @@ DDL = (
         detail     JSONB       NOT NULL DEFAULT '{}'::jsonb)""",
     """CREATE INDEX IF NOT EXISTS idx_sentinel_ownership_state
         ON sentinel_ownership_events (state)""",
+
+    # ------------------------------------------------------------------
+    # SYSTEM CERTIFICATION SUBSTRATE. The exact manifest bytes are retained,
+    # not a path to a mounted file. They are deliberately non-authoritative
+    # until a separately reviewed trusted issuer/signature verifier exists;
+    # runtime execution currently refuses every row before its first broker
+    # read.
+    # ------------------------------------------------------------------
     """CREATE TABLE IF NOT EXISTS sentinel_system_certificates (
         certificate_sha256  TEXT PRIMARY KEY,
         manifest_bytes      BYTEA       NOT NULL,
@@ -353,6 +381,10 @@ DDL = (
                             CHECK (action IN ('INSTALLED','REVOKED')),
         detail              TEXT        NOT NULL,
         at                  TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+
+    # Signed authority is deliberately separate from the retained unsigned
+    # manifest substrate above.  An old/restored self-attested row can therefore
+    # never become trusted merely because a verifier was added later.
     """CREATE TABLE IF NOT EXISTS sentinel_signed_execution_certificates (
         install_sequence       BIGSERIAL   UNIQUE NOT NULL,
         certificate_sha256     TEXT        PRIMARY KEY
@@ -417,6 +449,11 @@ DDL = (
                                             'RETIRED','REVOKED','KEY_REVOKED')),
         detail                 TEXT        NOT NULL,
         at                     TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+
+    # Administrative broker access happens before the first account binding,
+    # so it cannot borrow the bound execution-certificate singleton above.
+    # Its operation vocabulary is disjoint and its lifecycle is independently
+    # monotonic.  Exact signed bytes remain the authority in both cases.
     """CREATE TABLE IF NOT EXISTS sentinel_signed_administrative_certificates (
         install_sequence       BIGSERIAL   UNIQUE NOT NULL,
         certificate_sha256     TEXT        PRIMARY KEY
@@ -466,6 +503,15 @@ DDL = (
                                             'RETIRED','REVOKED','KEY_REVOKED')),
         detail                 TEXT        NOT NULL,
         at                     TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+
+    # ------------------------------------------------------------------
+    # EXPOSURE ROLLOUT. New and recognized pre-rollout databases are
+    # deliberately pinned at 1.00 by the versioned migration, never by this
+    # replayable DDL and never merely because this table is absent. A
+    # controller transition names the certificate that authorized it and every
+    # transition increments the durable version, even when the resulting
+    # numeric exposure may happen to remain 1.00.
+    # ------------------------------------------------------------------
     """CREATE TABLE IF NOT EXISTS sentinel_rollout_state (
         id                  INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
         mode                TEXT        NOT NULL
@@ -483,11 +529,17 @@ DDL = (
         certificate_sha256  TEXT,
         reason              TEXT        NOT NULL,
         at                  TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+
+    # ------------------------------------------------------------------
+    # EXECUTION PLANS. Immutable. A new session's decision creates a NEW plan
+    # and may supersede the previous one's UNSENT commands; it never edits one.
+    # ------------------------------------------------------------------
     """CREATE TABLE IF NOT EXISTS sentinel_execution_plans (
         plan_id                 TEXT PRIMARY KEY,
         decision_session        DATE        NOT NULL,
         effective_session       DATE        NOT NULL,
         target_exposure         NUMERIC     NOT NULL,
+        -- The corpus version this decision CONSUMED. Architecture invariant #3.
         data_version            BIGINT,
         shadow_snapshot_hash    TEXT,
         sentinel_transition_hash TEXT,
@@ -502,6 +554,9 @@ DDL = (
         cash_residual           NUMERIC     NOT NULL DEFAULT 0,
         unpriced_securities     JSONB       NOT NULL DEFAULT '[]'::jsonb,
         defensive_security      TEXT,
+        -- Every new plan stamps explicit rollout authority. There is no
+        -- database default that can turn an unstamped legacy row into durable
+        -- PINNED/version-1 intent.
         rollout_mode            TEXT        NOT NULL,
         rollout_version         BIGINT      NOT NULL,
         rollout_certificate_sha256 TEXT,
@@ -529,17 +584,32 @@ DDL = (
         DEFAULT '[]'::jsonb""",
     """ALTER TABLE sentinel_execution_plans
         ADD COLUMN IF NOT EXISTS defensive_security TEXT""",
+    # A genuine legacy table may already contain plans. They stay unstamped and
+    # therefore unexecutable; schema migration must not manufacture authority.
     """ALTER TABLE sentinel_execution_plans
         ADD COLUMN IF NOT EXISTS rollout_mode TEXT""",
     """ALTER TABLE sentinel_execution_plans
         ADD COLUMN IF NOT EXISTS rollout_version BIGINT""",
     """ALTER TABLE sentinel_execution_plans
         ADD COLUMN IF NOT EXISTS rollout_certificate_sha256 TEXT""",
+
+    # ------------------------------------------------------------------
+    # THE COMMAND JOURNAL. One row per client_key, which is the whole point:
+    # the key is derived, so a crash-recovered process recomputes it and finds
+    # THIS row rather than guessing.
+    #
+    # `client_key` is the PRIMARY KEY, so a duplicate command is a constraint
+    # violation rather than a second order.
+    # ------------------------------------------------------------------
     """CREATE TABLE IF NOT EXISTS sentinel_commands (
         client_key       TEXT PRIMARY KEY,
         plan_id          TEXT        NOT NULL,
         security_id      TEXT        NOT NULL,
         revision         INT         NOT NULL DEFAULT 0,
+        -- The identity which MINTED client_key. It is stored on every command
+        -- rather than inferred from today's binding: a restored-host adoption
+        -- increments takeover_epoch, while predecessor commands remain real
+        -- broker obligations under their original keys.
         deployment_id    TEXT        NOT NULL,
         broker           TEXT        NOT NULL,
         broker_account_id TEXT       NOT NULL,
@@ -553,9 +623,20 @@ DDL = (
         filled_quantity  NUMERIC     NOT NULL DEFAULT 0,
         filled_average_price NUMERIC,
         detail           TEXT,
+        -- ADOPTED FROM THE BROKER rather than created here. Its client_key was
+        -- minted by a previous generation of this appliance and CANNOT be
+        -- regenerated (the key is a hash; plan_id and revision are not
+        -- recoverable from it), so the recompute check that guards ordinary
+        -- rows is skipped for these. Without adoption a stale restore left the
+        -- position permanently unexplained: the appliance could de-risk but
+        -- never re-risk.
         recovered        BOOLEAN     NOT NULL DEFAULT FALSE,
         created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+    # Existing databases predate per-command identity. Before adoption, every
+    # such row was minted by the one binding present at that time, so the
+    # binding is the only deterministic backfill. Commands with no binding fail
+    # the NOT NULL conversion instead of being attributed by guesswork.
     """ALTER TABLE sentinel_commands
         ADD COLUMN IF NOT EXISTS deployment_id TEXT""",
     """ALTER TABLE sentinel_commands
@@ -585,12 +666,21 @@ DDL = (
         ADD COLUMN IF NOT EXISTS recovered BOOLEAN NOT NULL DEFAULT FALSE""",
     """ALTER TABLE sentinel_commands
         ADD COLUMN IF NOT EXISTS filled_average_price NUMERIC""",
+    # AT MOST ONE IN-FLIGHT COMMAND PER SECURITY, enforced by the database and
+    # not only by `authorize`. The application check can be bypassed by a bug or
+    # a second process; this cannot. UNKNOWN is in the list deliberately — an
+    # order we cannot see may still be resting.
     """CREATE UNIQUE INDEX IF NOT EXISTS idx_sentinel_commands_inflight
         ON sentinel_commands (security_id)
         WHERE state IN ('SEND_PENDING','ACKNOWLEDGED','UNKNOWN',
                         'PARTIALLY_FILLED','CANCEL_PENDING')""",
     """CREATE INDEX IF NOT EXISTS idx_sentinel_commands_plan
         ON sentinel_commands (plan_id)""",
+
+    # ------------------------------------------------------------------
+    # EVERY STATE CHANGE, append-only. The commands table is the CURRENT
+    # answer; this is how it got there, which is what a post-mortem needs.
+    # ------------------------------------------------------------------
     """CREATE TABLE IF NOT EXISTS sentinel_command_events (
         seq         BIGSERIAL PRIMARY KEY,
         client_key  TEXT        NOT NULL,
@@ -601,6 +691,17 @@ DDL = (
         at          TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
     """CREATE INDEX IF NOT EXISTS idx_sentinel_command_events_key
         ON sentinel_command_events (client_key, seq)""",
+
+    # ------------------------------------------------------------------
+    # FILLS, keyed so the same fill cannot be counted twice on replay.
+    # ------------------------------------------------------------------
+    # `fill_key` is a CONTENT fingerprint, not an ordinal. Keying on a fill's
+    # position in whatever list the broker happened to return meant a query over
+    # a different window gave the same fill a different key — and could give a
+    # DIFFERENT fill one already used, which ON CONFLICT DO NOTHING then
+    # silently dropped. See journal.fill_fingerprint, including why this is not
+    # the final answer: broker-native activity ids (and trade corrections) must
+    # replace it before this table becomes the accounting ledger.
     """CREATE TABLE IF NOT EXISTS sentinel_fills (
         broker_order_id TEXT        NOT NULL,
         fill_key        TEXT        NOT NULL,
@@ -609,6 +710,11 @@ DDL = (
         price           NUMERIC     NOT NULL,
         filled_at       TIMESTAMPTZ,
         PRIMARY KEY (broker_order_id, fill_key))""",
+
+    # ------------------------------------------------------------------
+    # OBSERVATIONS, retained because a reconciliation dispute is unanswerable
+    # without knowing what the broker actually said at the time.
+    # ------------------------------------------------------------------
     """CREATE TABLE IF NOT EXISTS sentinel_observations (
         seq          BIGSERIAL PRIMARY KEY,
         observed_at  TIMESTAMPTZ NOT NULL,
@@ -619,19 +725,59 @@ DDL = (
         runtime_state TEXT)""",
     """ALTER TABLE sentinel_observations
         ADD COLUMN IF NOT EXISTS terminal_recovery_through TIMESTAMPTZ""",
+
+    # A broker response being durable is not proof that it was PROCESSED. This
+    # watermark advances only after all Sentinel-keyed terminal rows in the
+    # bounded recovery window have been adopted/synchronized. A crash before
+    # this one-row commit therefore replays the window instead of skipping it.
     """CREATE TABLE IF NOT EXISTS sentinel_terminal_recovery_watermark (
         id                INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
         broker            TEXT        NOT NULL,
         broker_account_id TEXT        NOT NULL,
         processed_through TIMESTAMPTZ NOT NULL,
         updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+
+    # ------------------------------------------------------------------
+    # CATCH-UP. How far the deterministic replay has advanced.
+    #
+    # ONE ROW, keyed by a cursor name. A table with many rows would invite
+    # "the latest by timestamp", and a wall clock is not an ordering of
+    # trading sessions — a re-run at 09:00 would look newer than the session
+    # it is behind.
+    #
+    # The pointer is written in the SAME TRANSACTION as the state the session
+    # produced. Written after the whole loop instead, a crash replays sessions
+    # that already advanced — and Wealth Core's state is path-dependent, so a
+    # replayed session double-ages every episode. Written before, a crash
+    # SKIPS a session, which is the silent one.
+    # ------------------------------------------------------------------
     """CREATE TABLE IF NOT EXISTS sentinel_processed_sessions (
         cursor_name TEXT PRIMARY KEY,
         session     DATE NOT NULL,
+        -- THE STATE, BESIDE THE CURSOR AND IN THE SAME STATEMENT.
+        --
+        -- `advance_state` is handed the transaction so it CAN write its own
+        -- durable state; nothing can make it. Without this column the only
+        -- durable half was the pointer, so a crash after the commit left the
+        -- cursor saying Aug 10 was done while the book still said Aug 9 — and
+        -- Aug 10 is then skipped permanently and silently.
         state       JSONB,
         updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
     """ALTER TABLE sentinel_processed_sessions
         ADD COLUMN IF NOT EXISTS state JSONB""",
+
+    # ------------------------------------------------------------------
+    # EXTERNAL CASH. Declared, never inferred from a balance.
+    #
+    # NAV moves for two reasons and the number does not say which. Guessing
+    # "P&L" puts a $50k deposit into every return the system will ever report;
+    # guessing "cash flow" gives a genuine reconciliation break a benign label
+    # and stops it being investigated. See sentinel/core/cashflow.py.
+    #
+    # `amount` is SIGNED — positive is money in — rather than a magnitude plus
+    # a direction column. Two fields that must agree are two fields that can
+    # disagree, and the disagreement here inverts the correction.
+    # ------------------------------------------------------------------
     """CREATE TABLE IF NOT EXISTS sentinel_cash_flows (
         flow_id     TEXT PRIMARY KEY,
         session     DATE NOT NULL,
@@ -640,6 +786,10 @@ DDL = (
         recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
     """CREATE INDEX IF NOT EXISTS idx_sentinel_cash_flows_session
         ON sentinel_cash_flows (session)""",
+
+    # The residual, kept. "Was Tuesday's move ever explained?" is asked days
+    # later by someone who was not there, and an answer that lived only in a
+    # log line has scrolled past.
     """CREATE TABLE IF NOT EXISTS sentinel_nav_reconciliations (
         session       DATE PRIMARY KEY,
         previous_nav  NUMERIC NOT NULL,
@@ -650,6 +800,12 @@ DDL = (
         attribution   TEXT NOT NULL
                       CHECK (attribution IN ('DECLARED','MARKET','UNEXPLAINED')),
         reconciled_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+
+    # ------------------------------------------------------------------
+    # STAGE 4 AUTOMATION.  Installation is inert: the genuinely new table is
+    # seeded disabled and killed.  Missing rows in existing singleton tables
+    # are corruption and are deliberately NOT repaired by ensure_schema().
+    # ------------------------------------------------------------------
     """CREATE TABLE IF NOT EXISTS sentinel_automation_control (
         id                  INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
         enabled             BOOLEAN     NOT NULL DEFAULT FALSE,
@@ -695,6 +851,7 @@ DDL = (
         at                  TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())""",
     """CREATE INDEX IF NOT EXISTS idx_sentinel_automation_events_generation
         ON sentinel_automation_events (generation,seq)""",
+
     """CREATE TABLE IF NOT EXISTS sentinel_automation_lease (
         id                  INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
         holder_id           TEXT,
@@ -710,6 +867,7 @@ DDL = (
             OR (holder_id IS NOT NULL AND control_generation IS NOT NULL
                 AND acquired_at IS NOT NULL AND heartbeat_at IS NOT NULL
                 AND expires_at IS NOT NULL)))""",
+
     """CREATE TABLE IF NOT EXISTS sentinel_automation_cycles (
         cycle_id                     TEXT PRIMARY KEY,
         state                        TEXT        NOT NULL CHECK (state IN (
@@ -773,6 +931,7 @@ DDL = (
         at                  TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())""",
     """CREATE INDEX IF NOT EXISTS idx_sentinel_automation_cycle_events
         ON sentinel_automation_cycle_events (cycle_id,seq)""",
+
     """CREATE TABLE IF NOT EXISTS sentinel_alert_outbox (
         alert_id             TEXT PRIMARY KEY,
         idempotency_key      TEXT        NOT NULL UNIQUE,
@@ -817,6 +976,7 @@ DDL = (
         at                   TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())""",
     """CREATE INDEX IF NOT EXISTS idx_sentinel_alert_delivery_events
         ON sentinel_alert_delivery_events (alert_id,seq)""",
+
     """CREATE TABLE IF NOT EXISTS sentinel_automation_service_instances (
         instance_id          TEXT PRIMARY KEY,
         started_at           TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
@@ -846,6 +1006,7 @@ def _operator_refusal(detail: str) -> SchemaMigrationRefused:
 
 
 def _normal_sql(value: object) -> str:
+    """Normalize keywords/spacing without changing quoted SQL semantics."""
     source = str(value or "").strip()
     output: list[str] = []
     quote: str | None = None
@@ -881,6 +1042,7 @@ def _normal_sql(value: object) -> str:
 
 
 def _read_catalog(cur):
+    """Return a semantic public-schema view with no OID/attnum assumptions."""
     cur.execute(
         "SELECT c.relname,c.relkind,c.relpersistence,c.relispartition,"
         " c.relrowsecurity,c.relforcerowsecurity"
@@ -893,6 +1055,7 @@ def _read_catalog(cur):
         for (name, kind, persistence, is_partition, row_security,
              force_row_security) in cur.fetchall()
     }
+
     cur.execute(
         "SELECT c.relname,a.attname,"
         " pg_catalog.format_type(a.atttypid,a.atttypmod),a.attnotnull,"
@@ -909,6 +1072,7 @@ def _read_catalog(cur):
     for table, name, type_name, not_null, default in cur.fetchall():
         columns.setdefault(str(table), {})[str(name)] = (
             str(type_name), bool(not_null), default)
+
     cur.execute(
         "SELECT c.relname,k.conname,k.contype,"
         " pg_catalog.pg_get_constraintdef(k.oid,true),k.convalidated"
@@ -920,6 +1084,7 @@ def _read_catalog(cur):
     for table, name, kind, definition, validated in cur.fetchall():
         constraints.setdefault(str(table), []).append(
             (str(name), str(kind), str(definition), bool(validated)))
+
     cur.execute(
         "SELECT t.relname,i.relname,pg_catalog.pg_get_indexdef(i.oid),"
         " x.indisunique,x.indisvalid,x.indisready,x.indislive"
@@ -933,6 +1098,7 @@ def _read_catalog(cur):
          live) in cur.fetchall():
         indexes.setdefault(str(table), {})[str(name)] = (
             str(definition), bool(unique), bool(valid), bool(ready), bool(live))
+
     cur.execute(
         "SELECT c.relname,t.tgname,pg_catalog.pg_get_triggerdef(t.oid,true),"
         " t.tgenabled"
@@ -1000,6 +1166,14 @@ def _validate_backup_infrastructure(
 
 def _semantic_catalog_sha256(
         relations, columns, constraints, indexes, triggers, tables) -> str:
+    """Hash physical behavior while ignoring OIDs and column order.
+
+    Historical ``CREATE`` and ``ALTER`` paths assign different ``attnum``
+    positions to the same logical columns.  Names, types, nullability,
+    defaults, constraint semantics/validation, and index definitions are the
+    behavior that startup must recognize exactly; owners and catalog OIDs are
+    deployment-local and deliberately excluded.
+    """
     manifest = []
     for table in sorted(tables):
         manifest.append(["relation", table, relations.get(table)])
@@ -1068,7 +1242,7 @@ def _require_column(
         not_null: bool | None = None) -> tuple[str, bool, object]:
     try:
         observed = columns[table][name]
-    except KeyError as exc:
+    except KeyError as exc:                                  # pragma: no cover
         raise _operator_refusal(
             f"migration physical schema is missing {table}.{name}") from exc
     if observed[0] != type_name or (
@@ -1085,6 +1259,7 @@ def _validate_common_authority_columns(columns) -> None:
             ("broker_account_id", "text"), ("takeover_epoch", "bigint")):
         _require_column(
             columns, "sentinel_commands", name, type_name, not_null=True)
+
     _require_column(
         columns, "sentinel_execution_plans", "rollout_mode", "text")
     _require_column(
@@ -1092,6 +1267,7 @@ def _validate_common_authority_columns(columns) -> None:
     _require_column(
         columns, "sentinel_execution_plans",
         "rollout_certificate_sha256", "text", not_null=False)
+
     critical = {
         "sentinel_rollout_state": (
             ("id", "integer", True), ("mode", "text", True),
@@ -1261,6 +1437,7 @@ def _validate_rollout_history(cur) -> None:
             or (mode == "CONTROLLER" and certificate is None)):
         raise _operator_refusal(
             "the durable rollout singleton has incoherent certificate authority")
+
     cur.execute(
         "SELECT version,from_mode,to_mode,certificate_sha256,reason"
         " FROM public.sentinel_rollout_events ORDER BY version")
@@ -1269,6 +1446,7 @@ def _validate_rollout_history(cur) -> None:
         raise _operator_refusal(
             "rollout event versions are not the complete chain from 2 through "
             f"the singleton version {version}")
+
     snapshots: dict[int, tuple[str, str | None]] = {1: ("PINNED_1_00", None)}
     prior_mode, prior_certificate = snapshots[1]
     referenced_certificates: set[str] = set()
@@ -1277,14 +1455,7 @@ def _validate_rollout_history(cur) -> None:
         from_mode, to_mode = str(raw_from), str(raw_to)
         event_certificate = str(raw_cert) if raw_cert else None
         if from_mode != prior_mode or to_mode not in {
-                "PINNED_1_00", "CONTROLLER"}:
-            raise _operator_refusal(
-                f"rollout event version {event_version} breaks the mode chain")
-        if to_mode == from_mode and not (
-                to_mode == "CONTROLLER"
-                and prior_certificate is not None
-                and event_certificate is not None
-                and event_certificate != prior_certificate):
+                "PINNED_1_00", "CONTROLLER"} or to_mode == from_mode:
             raise _operator_refusal(
                 f"rollout event version {event_version} breaks the mode chain")
         if not str(raw_reason).strip():
@@ -1302,6 +1473,7 @@ def _validate_rollout_history(cur) -> None:
     if (prior_mode, prior_certificate) != (mode, certificate):
         raise _operator_refusal(
             "rollout event history does not terminate at the durable singleton")
+
     if referenced_certificates:
         cur.execute(
             "SELECT certificate_sha256"
@@ -1318,6 +1490,7 @@ def _validate_rollout_history(cur) -> None:
         if missing:
             raise _operator_refusal(
                 f"rollout history references missing certificate(s): {missing}")
+
     cur.execute(
         "SELECT plan_id,rollout_mode,rollout_version,"
         " rollout_certificate_sha256"
@@ -1371,6 +1544,7 @@ def _classify_markerless(
     observed = _behavioral_relations(relations)
     if not observed:
         return "NEW"
+
     if observed == _PRE_ROLLOUT_TABLES:
         expected = dict(_PRE_ROLLOUT_COLUMNS)
         command_columns = frozenset(columns.get("sentinel_commands", {}))
@@ -1396,6 +1570,7 @@ def _classify_markerless(
                 "pre-rollout behavioral catalog does not match a recognized "
                 f"source fingerprint (observed {catalog_sha})")
         return "LEGACY"
+
     if observed == _CURRENT_NO_LEDGER_TABLES:
         expected = _expected_current_columns(ledger=False)
         _require_exact_columns(
@@ -1409,6 +1584,7 @@ def _classify_markerless(
                 "markerless current catalog is not the exact 6113 "
                 f"compatibility fingerprint (observed {catalog_sha})")
         return "PR84_HEAD_BRIDGE"
+
     rollout_evidence = sorted(observed & _ROLLOUT_TABLES)
     unknown = sorted(observed - _CURRENT_NO_LEDGER_TABLES - {_LEDGER_TABLE})
     raise _operator_refusal(
@@ -1457,9 +1633,15 @@ def _apply_v1(cur, bootstrap_kind: str) -> None:
     if bootstrap_kind in {"NEW", "LEGACY"}:
         for statement in DDL:
             cur.execute(statement)
+        # A plain INSERT is intentional. Classification under the advisory lock
+        # proved that seeding is authorized; conflict suppression would hide a
+        # contradiction in that proof.
         cur.execute(_INITIAL_ROLLOUT_STATE)
-    elif bootstrap_kind != "PR84_HEAD_BRIDGE":
+    elif bootstrap_kind != "PR84_HEAD_BRIDGE":             # pragma: no cover
         raise AssertionError(bootstrap_kind)
+
+    # These statements are deliberately after the seed. A late fault proves
+    # PostgreSQL rolls seed, DDL, and witness back as one transaction.
     for statement in _MIGRATION_FINALIZE_DDL:
         cur.execute(statement)
     cur.execute(_MIGRATION_LEDGER_DDL)
@@ -1473,8 +1655,22 @@ def _apply_v1(cur, bootstrap_kind: str) -> None:
 
 
 def ensure_schema(conn) -> None:
+    """Validate or atomically install behavioral migration authority.
+
+    The transaction-scoped lock is acquired before *any* catalog or ledger
+    read. New, recognized legacy, and exact reviewed-head bootstrap decisions
+    therefore serialize with DDL, the one permitted rollout seed, the
+    structural witness, and the ledger row. A missing current table/row/marker
+    is durable-state corruption, never permission for routine startup to repair
+    or reset it.
+    """
     try:
         with conn.cursor() as cur:
+            # Listing public before pg_temp keeps a temporary relation from
+            # diverting historical unqualified DDL. Deliberately OMIT
+            # pg_catalog: PostgreSQL then searches it implicitly *before* the
+            # explicit path, so a public function/operator/type cannot shadow
+            # built-ins while constraints/defaults are parsed or deparsed.
             cur.execute("SET LOCAL search_path TO public, pg_temp")
             cur.execute(
                 "SELECT pg_advisory_xact_lock(%s,%s)", _SCHEMA_LOCK)
@@ -1485,6 +1681,7 @@ def ensure_schema(conn) -> None:
             automation_control_exists = (
                 "sentinel_automation_control" in relations)
             automation_lease_exists = "sentinel_automation_lease" in relations
+
             if _LEDGER_TABLE in relations:
                 _validate_ledgered(cur, catalog)
             else:
@@ -1493,6 +1690,11 @@ def ensure_schema(conn) -> None:
                 if bootstrap_kind == "PR84_HEAD_BRIDGE":
                     _validate_rollout_history(cur)
                 _apply_v1(cur, bootstrap_kind)
+            # The behavioral core is now either freshly migrated or validated.
+            # Only at this point may additive signed-authority/automation DDL
+            # run. Table absence authorizes its inert singleton seed; row
+            # absence in an existing table remains corruption and is not
+            # repaired.
             for statement in DDL:
                 cur.execute(statement)
             if not automation_control_exists:
@@ -1504,5 +1706,7 @@ def ensure_schema(conn) -> None:
             _validate_ledgered(cur, final_catalog)
         conn.commit()
     except BaseException:
+        # PostgreSQL DDL is transactional. Explicit rollback also releases the
+        # xact advisory lock and leaves startup callers with a usable connection.
         conn.rollback()
         raise
