@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-import os
 from typing import Callable, Mapping, Sequence
 
 from sentinel import administrative_authority as admin_authority
@@ -455,56 +454,38 @@ def build_fresh_administrative_guard(
     return AdministrativeBrokerGuard(check=check)
 
 
-def _database_target(dsn: str) -> tuple[str, str, str, str]:
-    """Return only the non-secret connection identity used for comparison."""
-    try:
-        import psycopg
-        params = psycopg.conninfo.conninfo_to_dict(dsn)
-    except ModuleNotFoundError:                               # pragma: no cover
-        try:
-            from psycopg2.extensions import parse_dsn
-            params = parse_dsn(dsn)
-        except Exception as exc:                             # pragma: no cover
-            raise authority.AuthorityRefused(
-                "administrative fresh PostgreSQL target is malformed") from exc
-    except Exception as exc:
-        raise authority.AuthorityRefused(
-            "administrative fresh PostgreSQL target is malformed") from exc
-    return (
-        str(params.get("host") or ""),
-        str(params.get("port") or "5432"),
-        str(params.get("dbname") or ""),
-        str(params.get("user") or ""),
-    )
-
-
 def fresh_connection_factory(conn):
-    """Build fresh checks that are credentialed and pinned to the same DB.
+    """Reopen the exact same PostgreSQL target with its original password.
 
-    ``psycopg`` intentionally redacts the password from ``conn.info.dsn``. The
-    authorized runtime therefore reconnects with ``SENTINEL_DATABASE_URL``, but
-    only after proving its host/port/database/user identity is exactly the same
-    as the already-open administrative connection. A mutated environment can
-    never redirect authority checks to a second database.
+    Psycopg deliberately omits the password from ``ConnectionInfo.dsn`` but
+    retains it separately as ``ConnectionInfo.password``. Rebuilding the DSN
+    from those two values preserves the original connection target by
+    construction: no process-global environment variable can redirect a fresh
+    authority check to a different database.
     """
-    active_dsn = getattr(getattr(conn, "info", None), "dsn", "")
-    configured_dsn = os.environ.get("SENTINEL_DATABASE_URL", "").strip()
-    if configured_dsn:
-        if not active_dsn:
-            raise authority.AuthorityRefused(
-                "administrative fresh PostgreSQL target cannot be matched to "
-                "the active connection")
-        if _database_target(configured_dsn) != _database_target(active_dsn):
-            raise authority.AuthorityRefused(
-                "administrative fresh PostgreSQL target differs from active "
-                "connection")
-        dsn = configured_dsn
-    else:
-        dsn = active_dsn
+    info = getattr(conn, "info", None)
+    dsn = getattr(info, "dsn", "")
     if not dsn:
         raise authority.AuthorityRefused(
             "administrative broker authority requires a fresh PostgreSQL "
             "connection for every operation")
+    password = getattr(info, "password", None)
+    if password:
+        try:
+            from psycopg.conninfo import make_conninfo
+            dsn = make_conninfo(dsn, password=password)
+        except ModuleNotFoundError:                           # pragma: no cover
+            try:
+                from psycopg2.extensions import make_dsn
+                dsn = make_dsn(dsn, password=password)
+            except Exception as exc:                         # pragma: no cover
+                raise authority.AuthorityRefused(
+                    "administrative fresh PostgreSQL credentials could not "
+                    "be reconstructed") from exc
+        except Exception as exc:
+            raise authority.AuthorityRefused(
+                "administrative fresh PostgreSQL credentials could not be "
+                "reconstructed") from exc
 
     def connect():
         try:
