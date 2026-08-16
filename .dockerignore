@@ -45,6 +45,7 @@ docs/
 !docs/main-review-remediation.md
 !docs/sentinel-deployment.md
 !docs/sentinel-paper-activation.md
+!docs/sentinel-paper-observation.md
 !docs/sentinel-stage-4-automation.md
 
 # Runtime artifacts (written at runtime, not part of any build)

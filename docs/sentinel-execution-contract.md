@@ -1,5 +1,11 @@
 # Sentinel — the execution and recovery contract
 
+`docs/sentinel-paper-observation.md` defines the separate signed
+`PAPER_OBSERVATION_ONLY` authority. It preserves this execution membrane and
+all reconciliation/identity rules, cannot satisfy historical certification,
+and adds only renewable short paper leases plus expiry-degraded exact-account
+reconciliation/cancellation safety.
+
 > **Status: DESIGN SETTLED, BUILT AND TESTED — against a simulator and an
 > ephemeral PostgreSQL, never against a live broker.** This document is the
 > source of truth for how Sentinel talks to a broker, what it persists before it

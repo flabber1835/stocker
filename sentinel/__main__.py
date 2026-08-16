@@ -165,9 +165,39 @@ def cmd_status(config: SentinelConfig) -> int:
         events = []
         view = replace(view, detail=view.detail
                        + f" (audit log unreadable: {exc})")
+    authority_status = {
+        "authority_mode": None,
+        "historical_causality": None,
+        "expires_at": None,
+        "maximum_exposure": None,
+        "lifecycle_current": False,
+    }
+    if config.database_url:
+        from sentinel.automation.health import read_health
+        from sentinel.feed import store as feed_store
+
+        conn = None
+        try:
+            conn = feed_store.connect(config.database_url)
+            health = read_health(conn)
+            authority_status = {
+                "authority_mode": health.authority_mode,
+                "historical_causality": health.historical_causality,
+                "expires_at": (health.authority_expires_at.isoformat()
+                               if health.authority_expires_at else None),
+                "maximum_exposure": health.maximum_exposure,
+                "lifecycle_current": bool(
+                    health.authority_lifecycle_current),
+            }
+        except Exception as exc:                              # noqa: BLE001
+            authority_status["error"] = f"{type(exc).__name__}: {exc}"
+        finally:
+            if conn is not None:
+                conn.close()
     print(json.dumps({
         "config": config.redacted(),
         **view.to_dict(),
+        "paper_execution_authority": authority_status,
         # AUDIT ONLY, and labelled. Kept in the output because it is genuinely
         # useful during an incident; renamed so it can never be mistaken for the
         # answer above.
@@ -301,6 +331,102 @@ def cmd_target_book(config: SentinelConfig, args) -> int:
         conn.close()
 
     print(_json.dumps(book.to_dict(), indent=2))
+    return EXIT_OK
+
+
+def cmd_compare_paper_warmup(args) -> int:
+    """Compare the two existing 253-session target surfaces; broker-free."""
+    import hashlib
+
+    from sentinel.authority import canonical_json_bytes
+
+    try:
+        target_bytes = Path(args.target_book).read_bytes()
+        migration_bytes = Path(args.migration_plan).read_bytes()
+        target = json.loads(target_bytes)
+        migration = json.loads(migration_bytes)
+        target_weights = target["positions"]
+        migration_weights = {
+            str(row["ticker"]): row["weight"]
+            for row in migration["entries"] if "weight" in row}
+        identical = (
+            target.get("session") == migration.get("session")
+            and target.get("warmup_sessions") == 252
+            and target_weights == migration_weights)
+        record = {
+            "schema": "sentinel.paper-observation-warmup-comparison/1",
+            "historical_causality": "HISTORICAL_CAUSALITY_UNVERIFIED",
+            "historical_certification": "NOT_GRANTED",
+            "measured_sessions": 253,
+            "warmup_sessions": target.get("warmup_sessions"),
+            "decision_session": target.get("session"),
+            "target_book_sha256": hashlib.sha256(target_bytes).hexdigest(),
+            "migration_plan_sha256": hashlib.sha256(
+                migration_bytes).hexdigest(),
+            "membership_and_weights_identical": identical,
+        }
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        print(f"REFUSED: warmup comparison input is invalid: {exc}",
+              file=sys.stderr)
+        return EXIT_CONFIG
+    sys.stdout.buffer.write(canonical_json_bytes(record) + b"\n")
+    return EXIT_OK if identical else EXIT_NOT_ESTABLISHED
+
+
+def _utc_cli_instant(value: str, *, label: str):
+    from datetime import datetime, timezone
+
+    if not isinstance(value, str) or not value.endswith("Z"):
+        raise ValueError(f"{label} must be an exact UTC second ending in Z")
+    parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(
+        tzinfo=timezone.utc)
+    return parsed
+
+
+def cmd_create_paper_observation_candidate(
+        config: SentinelConfig, args) -> int:
+    """Emit canonical broker-free claims/evidence from current durable facts."""
+    from sentinel.authority import canonical_json_bytes
+    from sentinel import schema
+    from sentinel.automation_runtime import config_from_env
+    from sentinel.observation_authority import (
+        build_candidate,
+        current_warmup_evidence,
+    )
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = feed_store.connect(config.database_url)
+    try:
+        schema.ensure_schema(conn)
+        ready, _frontier = _closed_preview_frontier(conn)
+        if not ready.ready:
+            raise RuntimeError(
+                "current data readiness failed; run check-data before "
+                "creating observation authority")
+        runtime, strategy = _current_system_identities()
+        warmup = current_warmup_evidence(
+            conn, starting_cash=args.cash)
+        candidate = build_candidate(
+            conn, certificate_id=args.certificate_id,
+            issuer_generation=args.issuer_generation,
+            deployment_id=args.deployment_id,
+            expected_account=args.expect_account,
+            runtime_identity=runtime, strategy_identity=strategy,
+            automation_config_sha256=config_from_env().fingerprint,
+            warmup=warmup, maximum_exposure=args.maximum_exposure,
+            reviewer=args.reviewer, ticket=args.ticket,
+            not_before=_utc_cli_instant(
+                args.not_before, label="not_before"),
+            expires_at=(_utc_cli_instant(args.expires_at, label="expires_at")
+                        if args.expires_at else None))
+    except (ValueError, RuntimeError) + _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        conn.close()
+    sys.stdout.buffer.write(canonical_json_bytes(candidate) + b"\n")
     return EXIT_OK
 
 
@@ -1207,10 +1333,22 @@ def _install_system_certificate(config: SentinelConfig, args) -> int:
                 payload, for_install=True)
             runtime, strategy = _current_system_identities()
             automation_config = config_from_env()
+            observation_bindings = {}
+            if prospective.authorization_mode == authority.PAPER_OBSERVATION_ONLY:
+                from sentinel.observation_authority import (
+                    current_corpus_root_identity,
+                    current_metadata_snapshot_identity,
+                )
+                observation_bindings = {
+                    "current_corpus": current_corpus_root_identity(conn),
+                    "current_metadata_snapshot":
+                        current_metadata_snapshot_identity(conn),
+                }
             bindings = authority.bind_current_immutable_identities(
                 prospective.claims["bindings"], runtime_identity=runtime,
                 strategy_identity=strategy, paper_base_url=config.base_url,
-                automation_config_sha256=automation_config.fingerprint)
+                automation_config_sha256=automation_config.fingerprint,
+                **observation_bindings)
             context = authority.SignedAuthorityContext(
                 deployment_id=binding.deployment_id, broker=binding.broker,
                 broker_account_id=binding.broker_account_id,
@@ -1292,10 +1430,22 @@ def _activate_system_certificate(config: SentinelConfig, args) -> int:
                     "replacement certificates require rotate-system-certificate")
             runtime, strategy = _current_system_identities()
             automation_config = config_from_env()
+            observation_bindings = {}
+            if staged.authorization_mode == authority.PAPER_OBSERVATION_ONLY:
+                from sentinel.observation_authority import (
+                    current_corpus_root_identity,
+                    current_metadata_snapshot_identity,
+                )
+                observation_bindings = {
+                    "current_corpus": current_corpus_root_identity(conn),
+                    "current_metadata_snapshot":
+                        current_metadata_snapshot_identity(conn),
+                }
             bindings = authority.bind_current_immutable_identities(
                 staged.claims["bindings"], runtime_identity=runtime,
                 strategy_identity=strategy, paper_base_url=config.base_url,
-                automation_config_sha256=automation_config.fingerprint)
+                automation_config_sha256=automation_config.fingerprint,
+                **observation_bindings)
             context = authority.SignedAuthorityContext(
                 deployment_id=binding.deployment_id, broker=binding.broker,
                 broker_account_id=binding.broker_account_id,
@@ -1724,6 +1874,24 @@ def main(argv: list[str] | None = None) -> int:
                         help="warm up Wealth Core and print today's target")
     bs.add_argument("--cash", type=float, default=100_000.0)
     bs.add_argument("--sessions", type=int, default=252)
+    compare_warmup = sub.add_parser(
+        "compare-paper-warmup",
+        help="compare retained current target/migration 252+1 warmups")
+    compare_warmup.add_argument("--target-book", required=True)
+    compare_warmup.add_argument("--migration-plan", required=True)
+    candidate = sub.add_parser(
+        "create-paper-observation-candidate",
+        help="emit broker-free PAPER_OBSERVATION_ONLY claims/evidence")
+    candidate.add_argument("--certificate-id", required=True)
+    candidate.add_argument("--issuer-generation", type=int, required=True)
+    candidate.add_argument("--deployment-id", required=True)
+    candidate.add_argument("--expect-account", required=True)
+    candidate.add_argument("--not-before", required=True)
+    candidate.add_argument("--expires-at", default=None)
+    candidate.add_argument("--maximum-exposure", required=True)
+    candidate.add_argument("--cash", type=float, required=True)
+    candidate.add_argument("--reviewer", required=True)
+    candidate.add_argument("--ticket", required=True)
     cd = sub.add_parser("check-data",
                         help="the Wealth Core data contract, per CHECK")
     cd.add_argument("--today", default=None)
@@ -2010,6 +2178,10 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_check_data(config, args.today)
         if args.command == "target-book":
             return cmd_target_book(config, args)
+        if args.command == "compare-paper-warmup":
+            return cmd_compare_paper_warmup(args)
+        if args.command == "create-paper-observation-candidate":
+            return cmd_create_paper_observation_candidate(config, args)
         if args.command == "migration-plan":
             return asyncio.run(_migration_plan(config, args))
         if args.command == "plan":

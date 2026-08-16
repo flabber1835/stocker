@@ -613,6 +613,9 @@ def execution_authority_row(
         lifecycle_status: Optional[str] = None,
         certificate_sha256: Optional[str] = None,
         expires_at: Optional[datetime] = None,
+        authority_mode: Optional[str] = None,
+        historical_causality: Optional[str] = None,
+        maximum_exposure: Optional[str] = None,
         authority_generation: Optional[int] = None,
         lifecycle_current: Optional[bool] = None,
         verdict_binding_matches: Optional[bool] = None,
@@ -632,6 +635,9 @@ def execution_authority_row(
         f" · certificate "
         f"{certificate_sha256[:12] if certificate_sha256 else 'none'}"
         f" · expires {expires_at.isoformat() if expires_at else 'unknown'}"
+        f" · mode {authority_mode or 'unknown'}"
+        f" · historical causality {historical_causality or 'unknown'}"
+        f" · maximum exposure {maximum_exposure or 'not separately bounded'}"
         f" · authority generation "
         f"{authority_generation if authority_generation is not None else 'none'}")
     if not installed:

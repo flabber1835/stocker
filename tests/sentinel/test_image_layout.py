@@ -582,6 +582,7 @@ class TestTheCleanCertificationImageInspectionBundle:
         "docs/main-review-remediation.md",
         "docs/sentinel-deployment.md",
         "docs/sentinel-paper-activation.md",
+        "docs/sentinel-paper-observation.md",
         "docs/sentinel-stage-4-automation.md",
         "deploy/sentinel-authorized-runtime-v1",
         "scripts/",
@@ -636,7 +637,8 @@ class TestTheCleanCertificationImageInspectionBundle:
         ignored = (ROOT / ".dockerignore").read_text().splitlines()
         for path in ("docs/main-review-remediation.md",
                      "docs/sentinel-deployment.md",
-                     "docs/sentinel-paper-activation.md"):
+                     "docs/sentinel-paper-activation.md",
+                     "docs/sentinel-paper-observation.md"):
             assert f"!{path}" in ignored
 
 

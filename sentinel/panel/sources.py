@@ -794,7 +794,7 @@ def _authority_lifecycle(conn) -> dict:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT a.generation,a.active_certificate_sha256,a.updated_at,"
-            " c.expires_at,l.status,"
+            " c.expires_at,l.status,c.claims,"
             " (cr.certificate_sha256 IS NOT NULL),"
             " (kr.key_id IS NOT NULL),"
             " (a.active_certificate_sha256 IS NOT NULL"
@@ -821,8 +821,13 @@ def _authority_lifecycle(conn) -> dict:
         }
     if len(rows) != 1:
         raise ValueError("execution authority singleton is not unique")
-    (generation, digest, _updated, expires, lifecycle, cert_revoked,
+    (generation, digest, _updated, expires, lifecycle, claims, cert_revoked,
      key_revoked, lifecycle_current) = rows[0]
+    if not isinstance(claims, Mapping):
+        try:
+            claims = json.loads(claims or "{}")
+        except (TypeError, json.JSONDecodeError):
+            claims = {}
     if cert_revoked or key_revoked:
         lifecycle = "REVOKED"
     if digest is not None and lifecycle is None:
@@ -833,6 +838,13 @@ def _authority_lifecycle(conn) -> dict:
         "expires_at": _utc(expires),
         "lifecycle_status": str(lifecycle) if lifecycle else None,
         "lifecycle_current": bool(lifecycle_current),
+        "authority_mode": claims.get(
+            "authorization_mode", "HISTORICALLY_CERTIFIED") if claims else None,
+        "historical_causality": claims.get(
+            "historical_causality", "HISTORICALLY_CERTIFIED") if claims else None,
+        "maximum_exposure": (str(claims.get("maximum_exposure"))
+                             if claims.get("maximum_exposure") is not None
+                             else None),
     }
 
 
