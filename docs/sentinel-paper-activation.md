@@ -1,5 +1,10 @@
 # Sentinel paper activation path
 
+For the separate renewable `PAPER_OBSERVATION_ONLY` signed lease, including
+the current-metadata/warmup evidence and rotation procedure, see
+`docs/sentinel-paper-observation.md`. The account inspection and migration
+contract in this document is unchanged and remains a prerequisite.
+
 > **Decision record, 2026-08-12.** This document defines the production
 > preparation and execution boundary for Alpaca paper trading. It does not
 > activate Sentinel, authorize a migration, or authorize an order. The

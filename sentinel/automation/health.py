@@ -1,6 +1,7 @@
 """SELECT-only durable health projection for supervisors and the panel."""
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
@@ -31,6 +32,10 @@ class AutomationHealth(BaseModel):
     authority_detail: str | None = None
     authority_checked_at: datetime | None = None
     authority_lifecycle_current: bool | None = None
+    authority_mode: str | None = None
+    historical_causality: str | None = None
+    authority_expires_at: datetime | None = None
+    maximum_exposure: str | None = None
     leader_holder: str | None = None
     fencing_token: int | None = None
     leader_heartbeat_at: datetime | None = None
@@ -117,7 +122,7 @@ def read_health(conn) -> AutomationHealth:
             "  AND l.status='ACTIVE'"
             "  AND c.expires_at > clock_timestamp()"
             "  AND cr.certificate_sha256 IS NULL"
-            "  AND kr.key_id IS NULL)"
+            "  AND kr.key_id IS NULL),c.claims,c.expires_at"
             " FROM sentinel_execution_authority_state a"
             " LEFT JOIN sentinel_signed_execution_certificates c"
             "   ON c.certificate_sha256=a.active_certificate_sha256"
@@ -135,6 +140,12 @@ def read_health(conn) -> AutomationHealth:
     authority_current = bool(
         authority_row is not None and authority_row[0] is not None
         and authority_row[1])
+    claims = (authority_row[2] if authority_row is not None else {})
+    if not isinstance(claims, dict):
+        try:
+            claims = json.loads(claims or "{}")
+        except (TypeError, json.JSONDecodeError):
+            claims = {}
     if not control.enabled:
         policy = "DISABLED"
     elif control.kill_switch_engaged:
@@ -172,6 +183,15 @@ def read_health(conn) -> AutomationHealth:
         authority_detail=control.authority_detail,
         authority_checked_at=control.authority_checked_at,
         authority_lifecycle_current=authority_current,
+        authority_mode=claims.get(
+            "authorization_mode", "HISTORICALLY_CERTIFIED") if claims else None,
+        historical_causality=claims.get(
+            "historical_causality", "HISTORICALLY_CERTIFIED") if claims else None,
+        authority_expires_at=(authority_row[3]
+                              if authority_row is not None else None),
+        maximum_exposure=(str(claims.get("maximum_exposure"))
+                          if claims.get("maximum_exposure") is not None
+                          else None),
         leader_holder=holder,
         fencing_token=token,
         leader_heartbeat_at=heartbeat,

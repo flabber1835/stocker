@@ -1,5 +1,9 @@
 # Sentinel Stage 4 automation and signed execution authority
 
+The bounded, renewable `PAPER_OBSERVATION_ONLY` authority and its NAS operating
+sequence are defined in `docs/sentinel-paper-observation.md`. Observation mode
+does not weaken or relabel the historical certification path described below.
+
 > **Status: DESIGN CONTRACT FOR THE STACKED IMPLEMENTATION. NOT ACTIVATED.**
 > Stage 4 is paper-only unattended orchestration around the existing canonical
 > preparation and execution paths. Installing or starting the service does not

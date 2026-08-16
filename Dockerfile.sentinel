@@ -90,6 +90,8 @@ RUN pip install --no-cache-dir --no-build-isolation --no-deps /shared/
 # manifest; the oracle tapes are certification evidence and belong to the test
 # image.
 COPY docs/sentinel-handoff/00_README/ ./docs/sentinel-handoff/00_README/
+COPY config/paper-observation-boundary.json \
+     /app/config/paper-observation-boundary.json
 COPY sentinel/ /app/sentinel/
 
 # `ownership.jsonl` lives HERE as retained audit evidence — see

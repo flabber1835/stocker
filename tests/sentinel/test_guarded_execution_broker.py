@@ -192,6 +192,25 @@ def test_prepare_scoped_automation_grant_is_structurally_read_only():
                    for call in inner.calls)
 
 
+def test_recovery_scope_refuses_submit_but_retains_guarded_cancellation():
+    inner = SimulatedBroker()
+    recorder = Recorder()
+    grant = automation_grant().__class__(**{
+        **automation_grant().__dict__, "operation_scope": "RECOVER"})
+    broker = recorder.wrap(inner, grant)
+
+    with pytest.raises(PreTransportAuthorityRefused, match="read-only.*submit"):
+        run(broker.submit(
+            client_key="must-not-submit", instrument=INSTRUMENT,
+            side=Side.BUY, quantity=Decimal("1")))
+    run(broker.cancel("safe-cancel"))
+
+    assert recorder.before_mutations == [
+        (grant, BrokerOperation.CANCEL)]
+    assert not any(call.startswith("submit:") for call in inner.calls)
+    assert "cancel:safe-cancel" in inner.calls
+
+
 def test_paper_preparation_grant_allows_reads_but_never_mutations():
     inner = SimulatedBroker()
     recorder = Recorder()

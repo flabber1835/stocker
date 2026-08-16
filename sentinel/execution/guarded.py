@@ -288,7 +288,7 @@ class GuardedExecutionBroker(ExecutionBroker):
     async def cancel(self, broker_order_id: str) -> CommandOutcome:
         if (isinstance(self._grant, PaperPreparationGrant)
                 or (isinstance(self._grant, AutomationExecutionGrant)
-                    and self._grant.operation_scope != "EXECUTE")):
+                    and self._grant.operation_scope == "PREPARE")):
             raise PreTransportAuthorityRefused(
                 "preparation grant is read-only; cancel refused before "
                 "transport")

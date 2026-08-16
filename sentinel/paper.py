@@ -21,6 +21,7 @@ from sentinel.authority import (
     AuthorityRefused,
     RolloutMode,
     load_rollout_state,
+    require_observation_safety_authority,
 )
 from sentinel.config import DEFAULT_BASE_URL, assert_paper_url
 from sentinel.controller.frozen_rule import ControllerConfig, load as load_controller
@@ -1291,6 +1292,13 @@ async def _execute_current_paper_plan(
                 raise PaperActivationRefused(
                     "controller rollout was authorized by a different system "
                     "certificate")
+            maximum_exposure = getattr(
+                certificate, "maximum_exposure", Decimal(1))
+            if plan.target_exposure > maximum_exposure:
+                raise PaperActivationRefused(
+                    f"current plan exposure {plan.target_exposure} exceeds "
+                    "signed maximum exposure "
+                    f"{maximum_exposure}")
             # Strict activation executes only during the named exchange
             # session. This is before the first broker read and consults the
             # actual XNYS schedule, so a 13:00 half-day close is a hard stop.
@@ -1396,14 +1404,21 @@ async def recover_automated_paper_cycle(
             paper_base_url=base_url,
             current_publication_version=current.version,
             automation_config_sha256=automation_config_sha256)
-        automated = require_current_authority(
-            conn, required_operation="AUTOMATION", **authority_kwargs)
-        readable = require_current_authority(
-            conn, required_operation="EXECUTE_READ", **authority_kwargs)
-        if (automated.certificate_sha256 != readable.certificate_sha256
-                or grant.certificate_sha256 != readable.certificate_sha256):
+        try:
+            automated = require_current_authority(
+                conn, required_operation="AUTOMATION", **authority_kwargs)
+            readable = require_current_authority(
+                conn, required_operation="EXECUTE_READ", **authority_kwargs)
+            if automated.certificate_sha256 != readable.certificate_sha256:
+                raise AuthorityRefused(
+                    "automation and recovery authority differ")
+        except AuthorityRefused:
+            readable = require_observation_safety_authority(
+                conn, required_operation="SAFETY_READ",
+                required_mode=rollout.mode, paper_base_url=base_url)
+        if grant.certificate_sha256 != readable.certificate_sha256:
             raise PaperActivationRefused(
-                "automation recovery grant and signed authority differ")
+                "automation recovery grant and signed safety authority differ")
         _validate_automation_grant(conn, grant)
         clock = lambda: datetime.now(ZoneInfo(calendar.EXCHANGE_TZ))
         broker = _guard_broker(

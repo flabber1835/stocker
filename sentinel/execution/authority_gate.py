@@ -21,6 +21,7 @@ from sentinel.authority import (
     load_active_signed_certificate,
     load_rollout_state,
     require_execution_authority,
+    require_observation_safety_authority,
 )
 from sentinel.config import assert_paper_url
 from sentinel.execution.contract import (
@@ -186,12 +187,22 @@ def require_current_authority(
         publication_policy_implementation_sha256=(
             publication_policy_implementation_sha256()),
         publication_chain_root_sha256=root,
+        current_publication_version=current_publication_version,
         automation_config_sha256=automation_config_sha256,
         now=now)
 
 
 def _authority_operation(
         grant: ExecutionGrant, operation: BrokerOperation) -> str:
+    recovering = (isinstance(grant, AutomationExecutionGrant)
+                  and grant.operation_scope == "RECOVER")
+    if recovering:
+        if operation is BrokerOperation.CANCEL:
+            return "SAFETY_CANCEL"
+        if operation in _READ_OPERATIONS:
+            return "SAFETY_READ"
+        raise AuthorityRefused(
+            f"recovery grant cannot perform broker operation {operation!r}")
     if operation is BrokerOperation.SUBMIT:
         return "SUBMIT"
     if operation is BrokerOperation.CANCEL:
@@ -218,11 +229,14 @@ def build_fresh_execution_guard(
         strategy_identity: IdentityProvider,
         validate_grant: GrantValidator,
         automation_config_sha256: str | None = None,
-        authority_check=None) -> ExecutionBrokerGuard:
+        authority_check=None, safety_authority_check=None
+        ) -> ExecutionBrokerGuard:
     """Create callbacks that never cache broker authority between operations."""
     if not callable(connection_factory):
         raise TypeError("connection_factory must be callable")
     authority_check = authority_check or require_current_authority
+    safety_authority_check = (
+        safety_authority_check or require_observation_safety_authority)
 
     def check(grant: ExecutionGrant, operation: BrokerOperation,
               result: object | None) -> None:
@@ -240,7 +254,30 @@ def build_fresh_execution_guard(
                     paper_base_url=paper_base_url,
                     current_publication_version=current.version,
                     automation_config_sha256=automation_config_sha256)
-                if isinstance(grant, AutomationExecutionGrant):
+                if concrete in {"SAFETY_READ", "SAFETY_CANCEL"}:
+                    regular_operation = (
+                        "CANCEL" if concrete == "SAFETY_CANCEL"
+                        else "EXECUTE_READ")
+                    try:
+                        automated = authority_check(
+                            conn, required_operation="AUTOMATION", **kwargs)
+                        concrete_cert = authority_check(
+                            conn, required_operation=regular_operation,
+                            **kwargs)
+                        if (automated.certificate_sha256
+                                != concrete_cert.certificate_sha256):
+                            raise AuthorityRefused(
+                                "automation and recovery authority differ")
+                    except AuthorityRefused:
+                        concrete_cert = safety_authority_check(
+                            conn, required_operation=concrete,
+                            required_mode=rollout.mode,
+                            paper_base_url=paper_base_url)
+                    if grant.certificate_sha256 != (
+                            concrete_cert.certificate_sha256):
+                        raise AuthorityRefused(
+                            "recovery grant and safety authority differ")
+                elif isinstance(grant, AutomationExecutionGrant):
                     automated = authority_check(
                         conn, required_operation="AUTOMATION", **kwargs)
                     concrete_cert = authority_check(

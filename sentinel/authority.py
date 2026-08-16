@@ -17,6 +17,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 from functools import wraps
 from pathlib import Path
@@ -29,12 +30,17 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 ACTIVATION_PROFILE_SCHEMA = "sentinel.paper_execution_authority/1"
 CERTIFICATION_MANIFEST_SCHEMA = "sentinel.certification_manifest/2"
 SIGNED_CERTIFICATE_SCHEMA = "sentinel.paper_execution_certificate/1"
+OBSERVATION_CERTIFICATE_SCHEMA = "sentinel.paper_observation_certificate/1"
 TRUST_ROOTS_SCHEMA = "sentinel.ed25519_trust_roots/1"
 SIGNED_CERTIFICATE_ALGORITHM = "Ed25519"
 PAPER_SCOPE = "ALPACA_PAPER"
 PAPER_BASE_URL = "https://paper-api.alpaca.markets"
 MAX_CERTIFICATE_BYTES = 1024 * 1024
 MAX_CERTIFICATE_LIFETIME = timedelta(days=31)
+DEFAULT_OBSERVATION_CERTIFICATE_LIFETIME = timedelta(days=31)
+MAX_OBSERVATION_CERTIFICATE_LIFETIME = timedelta(days=35)
+PAPER_OBSERVATION_ONLY = "PAPER_OBSERVATION_ONLY"
+HISTORICAL_CAUSALITY_UNVERIFIED = "HISTORICAL_CAUSALITY_UNVERIFIED"
 DEFAULT_TRUST_ROOTS_PATH = Path(__file__).with_name("trust_roots.json")
 _HEX_64 = re.compile(r"[0-9a-f]{64}\Z")
 _CERTIFICATE_ID = re.compile(r"[A-Za-z0-9._:-]{8,128}\Z")
@@ -182,6 +188,21 @@ class SignedSystemCertificate:
     def allows(self, mode: RolloutMode) -> bool:
         return mode in self.allowed_rollout_modes
 
+    @property
+    def authorization_mode(self) -> str:
+        return str(self.claims.get(
+            "authorization_mode", "HISTORICALLY_CERTIFIED"))
+
+    @property
+    def historical_causality(self) -> str:
+        return str(self.claims.get(
+            "historical_causality", "HISTORICALLY_CERTIFIED"))
+
+    @property
+    def maximum_exposure(self) -> Decimal:
+        value = self.claims.get("maximum_exposure")
+        return Decimal(1) if value is None else Decimal(str(value))
+
 
 def canonical_json_bytes(value) -> bytes:
     """Return the one signed JSON encoding and reject ambiguous value types."""
@@ -249,6 +270,8 @@ def bind_current_immutable_identities(
         claimed_bindings: Mapping, *, runtime_identity: Mapping,
         strategy_identity: Mapping, paper_base_url: str,
         automation_config_sha256: str,
+        current_corpus: Mapping | None = None,
+        current_metadata_snapshot: Mapping | None = None,
         trust_roots_path: Path = DEFAULT_TRUST_ROOTS_PATH) -> Mapping:
     """Replace signed identity slots with independently observed runtime facts.
 
@@ -290,8 +313,18 @@ def bind_current_immutable_identities(
             trust_roots_path=trust_roots_path))
     bindings["automation_config_sha256"] = _hex(
         automation_config_sha256, label="current automation config hash")
-    _validate_bindings(bindings, controller_required=(
-        bindings["controller"]["verdict"] == "PASS"))
+    if set(bindings) == _OBSERVATION_BINDING_FIELDS:
+        if current_corpus is None or current_metadata_snapshot is None:
+            raise AuthorityRefused(
+                "current corpus and metadata identities are required for "
+                "paper-observation authority")
+        bindings["current_corpus"] = dict(current_corpus)
+        bindings["current_metadata_snapshot"] = dict(
+            current_metadata_snapshot)
+        _validate_observation_bindings(bindings)
+    else:
+        _validate_bindings(bindings, controller_required=(
+            bindings["controller"]["verdict"] == "PASS"))
     return bindings
 
 
@@ -457,6 +490,207 @@ _CERTIFICATION_FIELDS = {
     "strict_xfails", "strict_skips", "strict_xpasses", "failed_tests",
     "passed_tests", "completed_checks",
 }
+
+_OBSERVATION_CLAIM_FIELDS = {
+    "certificate_id", "issuer_generation", "issued_at", "not_before",
+    "expires_at", "authorization_mode", "historical_causality",
+    "historical_certification", "scope", "unattended_automation",
+    "allowed_rollout_modes", "permitted_operations", "subject", "rollout",
+    "bindings", "maximum_exposure", "retained_evidence",
+    "supersedes_certificate_sha256",
+}
+OBSERVATION_OPERATIONS = frozenset({
+    "PREPARE_READ", "EXECUTE_READ", "SUBMIT", "CANCEL", "AUTOMATION",
+    "SAFETY_READ", "SAFETY_CANCEL",
+})
+_OBSERVATION_BINDING_FIELDS = {
+    "git_commit", "sentinel_source_sha256", "wealth_core_source_sha256",
+    "runtime_image_digest", "test_image_digest",
+    "requirements_lock_sha256", "runtime_identity_sha256",
+    "strategy_identity_sha256", "execution_config_sha256",
+    "automation_config_sha256", "current_corpus",
+    "current_metadata_snapshot", "publication_policy", "controller",
+}
+
+
+def _canonical_exposure(value, *, label: str) -> Decimal:
+    if not isinstance(value, str) or re.fullmatch(
+            r"(?:0|1|0\.[0-9]{0,17}[1-9])", value) is None:
+        raise AuthorityRefused(
+            f"{label} must be a canonical Decimal string in [0, 1]")
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation as exc:  # pragma: no cover - regex is stricter
+        raise AuthorityRefused(f"{label} is not a Decimal") from exc
+    if not Decimal(0) <= parsed <= Decimal(1):
+        raise AuthorityRefused(f"{label} is outside [0, 1]")
+    return parsed
+
+
+def _validate_observation_bindings(bindings: Mapping) -> None:
+    _exact_fields(
+        bindings, _OBSERVATION_BINDING_FIELDS,
+        label="paper-observation bindings")
+    git_commit = bindings["git_commit"]
+    if (not isinstance(git_commit, str)
+            or re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", git_commit)
+            is None):
+        raise AuthorityRefused(
+            "paper-observation git_commit is not a lowercase Git object id")
+    for field in (
+            "sentinel_source_sha256", "wealth_core_source_sha256",
+            "requirements_lock_sha256", "runtime_identity_sha256",
+            "strategy_identity_sha256", "execution_config_sha256",
+            "automation_config_sha256"):
+        _hex(bindings[field], label=f"paper-observation {field}")
+    for field in ("runtime_image_digest", "test_image_digest"):
+        if (not isinstance(bindings[field], str)
+                or re.fullmatch(r"sha256:[0-9a-f]{64}", bindings[field])
+                is None):
+            raise AuthorityRefused(
+                f"paper-observation {field} is not an immutable digest")
+
+    corpus = _mapping(
+        bindings["current_corpus"], label="current observation corpus")
+    _exact_fields(
+        corpus, {"data_version", "publication_chain_root_sha256"},
+        label="current observation corpus")
+    _positive_int(corpus["data_version"], label="current corpus data_version")
+    _hex(corpus["publication_chain_root_sha256"],
+         label="current corpus publication chain root")
+
+    metadata = _mapping(
+        bindings["current_metadata_snapshot"],
+        label="current metadata snapshot")
+    _exact_fields(
+        metadata, {"snapshot_date", "row_count", "sha256"},
+        label="current metadata snapshot")
+    _date_text(metadata["snapshot_date"], label="metadata snapshot_date")
+    _positive_int(metadata["row_count"], label="metadata row_count")
+    _hex(metadata["sha256"], label="metadata snapshot sha256")
+
+    policy = _mapping(
+        bindings["publication_policy"],
+        label="paper-observation publication policy")
+    _exact_fields(
+        policy, {"schema", "implementation_sha256", "chain_root_sha256"},
+        label="paper-observation publication policy")
+    if policy["schema"] != "sentinel.publication-chain-policy/1":
+        raise AuthorityRefused(
+            "paper-observation publication-policy schema is unknown")
+    _hex(policy["implementation_sha256"],
+         label="publication policy implementation")
+    _hex(policy["chain_root_sha256"], label="publication policy chain root")
+    if (policy["chain_root_sha256"]
+            != corpus["publication_chain_root_sha256"]):
+        raise AuthorityRefused(
+            "paper-observation corpus and publication-policy roots differ")
+
+    controller = _mapping(
+        bindings["controller"], label="paper-observation controller")
+    _exact_fields(
+        controller, {"rule_sha256", "config_sha256"},
+        label="paper-observation controller")
+    _hex(controller["rule_sha256"], label="controller rule sha256")
+    _hex(controller["config_sha256"], label="controller config sha256")
+
+
+def validate_observation_certificate_claims(claims: Mapping) -> Mapping:
+    """Validate the distinct renewable paper-observation lease."""
+    claims = _mapping(claims, label="paper-observation claims")
+    _exact_fields(
+        claims, _OBSERVATION_CLAIM_FIELDS,
+        label="paper-observation claims")
+    certificate_id = claims["certificate_id"]
+    if (not isinstance(certificate_id, str)
+            or _CERTIFICATE_ID.fullmatch(certificate_id) is None):
+        raise AuthorityRefused(
+            "paper-observation certificate_id has an invalid form")
+    _positive_int(claims["issuer_generation"], label="issuer_generation")
+    issued = _instant(claims["issued_at"], label="issued_at")
+    not_before = _instant(claims["not_before"], label="not_before")
+    expires = _instant(claims["expires_at"], label="expires_at")
+    if not (issued <= not_before < expires):
+        raise AuthorityRefused(
+            "observation times must satisfy issued_at <= not_before < "
+            "expires_at")
+    if expires - not_before > MAX_OBSERVATION_CERTIFICATE_LIFETIME:
+        raise AuthorityRefused(
+            "paper-observation certificate lifetime exceeds 35 days")
+    if claims["authorization_mode"] != PAPER_OBSERVATION_ONLY:
+        raise AuthorityRefused(
+            "paper-observation authorization_mode is not explicit")
+    if claims["historical_causality"] != HISTORICAL_CAUSALITY_UNVERIFIED:
+        raise AuthorityRefused(
+            "paper-observation historical causality must remain unverified")
+    if claims["historical_certification"] != "NOT_GRANTED":
+        raise AuthorityRefused(
+            "paper-observation claims cannot grant historical certification")
+    if claims["scope"] != PAPER_SCOPE:
+        raise AuthorityRefused("paper-observation scope is not ALPACA_PAPER")
+    if claims["unattended_automation"] is not True:
+        raise AuthorityRefused(
+            "paper-observation requires explicit unattended automation")
+    if claims["allowed_rollout_modes"] != [RolloutMode.CONTROLLER.value]:
+        raise AuthorityRefused(
+            "paper-observation may authorize only CONTROLLER rollout")
+    if claims["permitted_operations"] != sorted(OBSERVATION_OPERATIONS):
+        raise AuthorityRefused(
+            "paper-observation operation set is not exact and canonical")
+    _canonical_exposure(
+        claims["maximum_exposure"], label="maximum_exposure")
+    _hex(claims["supersedes_certificate_sha256"],
+         label="supersedes_certificate_sha256", nullable=True)
+
+    subject = _mapping(claims["subject"], label="certificate subject")
+    _exact_fields(subject, _SUBJECT_FIELDS, label="certificate subject")
+    for field in ("deployment_id", "broker_account_id"):
+        if not isinstance(subject[field], str) or not subject[field].strip():
+            raise AuthorityRefused(f"certificate subject {field} is empty")
+    if (subject["broker"] != "alpaca"
+            or subject["environment"] != PAPER_SCOPE
+            or subject["paper_base_url"] != PAPER_BASE_URL):
+        raise AuthorityRefused(
+            "paper-observation subject is not the exact Alpaca paper target")
+    _positive_int(subject["takeover_epoch"], label="subject takeover_epoch")
+
+    rollout = _mapping(claims["rollout"], label="certificate rollout")
+    _exact_fields(rollout, _ROLLOUT_FIELDS, label="certificate rollout")
+    try:
+        from_mode = RolloutMode(rollout["from_mode"])
+        to_mode = RolloutMode(rollout["to_mode"])
+    except (TypeError, ValueError) as exc:
+        raise AuthorityRefused(
+            "paper-observation rollout contains an unknown mode") from exc
+    from_version = _positive_int(
+        rollout["from_version"], label="rollout from_version")
+    to_version = _positive_int(
+        rollout["to_version"], label="rollout to_version")
+    if to_mode is not RolloutMode.CONTROLLER or to_version != from_version + 1:
+        raise AuthorityRefused(
+            "paper-observation rollout must enter the next CONTROLLER version")
+    from_sha = _hex(
+        rollout["from_certificate_sha256"],
+        label="rollout from_certificate_sha256", nullable=True)
+    if ((from_mode is RolloutMode.PINNED_1_00 and from_sha is not None)
+            or (from_mode is RolloutMode.CONTROLLER and from_sha is None)):
+        raise AuthorityRefused(
+            "paper-observation rollout predecessor identity is invalid")
+
+    bindings = _mapping(
+        claims["bindings"], label="paper-observation bindings")
+    _validate_observation_bindings(bindings)
+    evidence = _mapping(
+        claims["retained_evidence"], label="retained observation evidence")
+    _exact_fields(
+        evidence, {"schema", "sha256", "accepted_boundary_sha256",
+                   "warmup_sha256"},
+        label="retained observation evidence")
+    if evidence["schema"] != "sentinel.paper-observation-evidence/1":
+        raise AuthorityRefused("retained observation evidence schema is unknown")
+    for field in ("sha256", "accepted_boundary_sha256", "warmup_sha256"):
+        _hex(evidence[field], label=f"retained evidence {field}")
+    return claims
 
 
 def validate_certificate_claims(claims: Mapping) -> Mapping:
@@ -727,24 +961,36 @@ def _validate_envelope_shape(envelope: Mapping) -> tuple[Mapping, bytes]:
     _exact_fields(
         envelope, {"schema", "algorithm", "key_id", "claims", "signature"},
         label="signed certificate envelope")
-    if envelope["schema"] != SIGNED_CERTIFICATE_SCHEMA:
+    schema = envelope["schema"]
+    if schema not in {SIGNED_CERTIFICATE_SCHEMA,
+                      OBSERVATION_CERTIFICATE_SCHEMA}:
         raise AuthorityRefused("signed certificate schema is unknown")
     if envelope["algorithm"] != SIGNED_CERTIFICATE_ALGORITHM:
         raise AuthorityRefused("signed certificate algorithm is unknown")
     if not isinstance(envelope["key_id"], str):
         raise AuthorityRefused("signed certificate key_id is invalid")
-    claims = validate_certificate_claims(
-        _mapping(envelope["claims"], label="certificate claims"))
+    raw_claims = _mapping(envelope["claims"], label="certificate claims")
+    claims = (validate_observation_certificate_claims(raw_claims)
+              if schema == OBSERVATION_CERTIFICATE_SCHEMA
+              else validate_certificate_claims(raw_claims))
     signature = _b64url_decode(
         envelope["signature"], label="certificate signature", length=64)
     return claims, signature
 
 
+def _certificate_schema_for_claims(claims: Mapping) -> str:
+    if claims.get("authorization_mode") == PAPER_OBSERVATION_ONLY:
+        validate_observation_certificate_claims(claims)
+        return OBSERVATION_CERTIFICATE_SCHEMA
+    validate_certificate_claims(claims)
+    return SIGNED_CERTIFICATE_SCHEMA
+
+
 def unsigned_envelope_bytes(*, key_id: str, claims: Mapping) -> bytes:
     """The exact bytes Ed25519 signs."""
-    validate_certificate_claims(claims)
+    schema = _certificate_schema_for_claims(claims)
     return canonical_json_bytes({
-        "schema": SIGNED_CERTIFICATE_SCHEMA,
+        "schema": schema,
         "algorithm": SIGNED_CERTIFICATE_ALGORITHM,
         "key_id": key_id,
         "claims": claims,
@@ -757,7 +1003,7 @@ def signed_envelope_bytes(*, key_id: str, claims: Mapping,
         raise AuthorityRefused("Ed25519 signature must be exactly 64 bytes")
     unsigned_envelope_bytes(key_id=key_id, claims=claims)
     return canonical_json_bytes({
-        "schema": SIGNED_CERTIFICATE_SCHEMA,
+        "schema": _certificate_schema_for_claims(claims),
         "algorithm": SIGNED_CERTIFICATE_ALGORITHM,
         "key_id": key_id,
         "claims": claims,
@@ -769,7 +1015,9 @@ def verify_signed_certificate(
         certificate_bytes: bytes, *, now: datetime | None = None,
         trust_roots_path: Path = DEFAULT_TRUST_ROOTS_PATH,
         trust_roots: Mapping[str, TrustRoot] | None = None,
-        for_install: bool = False) -> SignedSystemCertificate:
+        for_install: bool = False,
+        allow_expired_observation_safety: bool = False
+        ) -> SignedSystemCertificate:
     """Authenticate canonical bytes against a pinned Ed25519 public root."""
     envelope = _parse_canonical_json(
         certificate_bytes, label="signed certificate envelope")
@@ -795,7 +1043,10 @@ def verify_signed_certificate(
     expires_at = _instant(claims["expires_at"], label="expires_at")
     if instant < not_before:
         raise AuthorityRefused("signed certificate is not yet valid")
-    if instant >= expires_at:
+    observation_safety = (
+        allow_expired_observation_safety
+        and claims.get("authorization_mode") == PAPER_OBSERVATION_ONLY)
+    if instant >= expires_at and not observation_safety:
         raise AuthorityRefused("signed certificate has expired")
     if not (root.not_before <= not_before and expires_at <= root.not_after):
         raise AuthorityRefused("certificate validity extends beyond its trusted key")
@@ -1026,7 +1277,9 @@ def _verified_durable_certificate(
         conn, certificate_sha256: str, *, now: datetime | None,
         trust_roots_path: Path,
         trust_roots: Mapping[str, TrustRoot] | None,
-        for_install: bool = False) -> SignedSystemCertificate:
+        for_install: bool = False,
+        allow_expired_observation_safety: bool = False
+        ) -> SignedSystemCertificate:
     row = _load_signed_row(conn, certificate_sha256)
     if row is None:
         raise AuthorityRefused("signed certificate is not durably installed")
@@ -1040,7 +1293,9 @@ def _verified_durable_certificate(
             "durable signed-certificate bytes do not match their SHA-256")
     certificate = verify_signed_certificate(
         raw, now=now, trust_roots_path=trust_roots_path,
-        trust_roots=trust_roots, for_install=for_install)
+        trust_roots=trust_roots, for_install=for_install,
+        allow_expired_observation_safety=(
+            allow_expired_observation_safety))
     stored_envelope = (stored_envelope if isinstance(stored_envelope, Mapping)
                        else json.loads(stored_envelope))
     stored_claims = (stored_claims if isinstance(stored_claims, Mapping)
@@ -1225,7 +1480,8 @@ def load_active_signed_certificate(
         conn, *, context: SignedAuthorityContext | None = None,
         now: datetime | None = None,
         trust_roots_path: Path = DEFAULT_TRUST_ROOTS_PATH,
-        trust_roots: Mapping[str, TrustRoot] | None = None
+        trust_roots: Mapping[str, TrustRoot] | None = None,
+        allow_expired_observation_safety: bool = False
         ) -> SignedSystemCertificate:
     with conn.cursor() as cur:
         cur.execute(
@@ -1244,7 +1500,9 @@ def load_active_signed_certificate(
             "execution certificate is active")
     certificate = _verified_durable_certificate(
         conn, str(certificate_sha), now=now,
-        trust_roots_path=trust_roots_path, trust_roots=trust_roots)
+        trust_roots_path=trust_roots_path, trust_roots=trust_roots,
+        allow_expired_observation_safety=(
+            allow_expired_observation_safety))
     if certificate.status != "ACTIVE":
         raise AuthorityRefused("active authority points to a non-active certificate")
     if certificate.claims["issuer_generation"] != int(highest_issuer):
@@ -1585,6 +1843,7 @@ def require_execution_authority(
         execution_config_sha256: str | None = None,
         publication_policy_implementation_sha256: str | None = None,
         publication_chain_root_sha256: str | None = None,
+        current_publication_version: int | None = None,
         automation_config_sha256: str | None = None,
         now: datetime | None = None,
         trust_roots_path: Path = DEFAULT_TRUST_ROOTS_PATH,
@@ -1661,6 +1920,22 @@ def require_execution_authority(
             != publication_chain_root_sha256):
         raise AuthorityRefused(
             "signed certificate publication policy/chain does not match")
+    if certificate.authorization_mode == PAPER_OBSERVATION_ONLY:
+        corpus = bindings["current_corpus"]
+        if (type(current_publication_version) is not int
+                or current_publication_version < corpus["data_version"]):
+            raise AuthorityRefused(
+                "current corpus is older than the signed observation root")
+        from sentinel.observation_authority import (
+            current_metadata_snapshot_identity,
+            metadata_matches_claim,
+        )
+        current_metadata = current_metadata_snapshot_identity(conn)
+        if not metadata_matches_claim(
+                bindings["current_metadata_snapshot"], current_metadata):
+            raise AuthorityRefused(
+                "current metadata snapshot differs from signed observation "
+                "authority")
     if required_operation == "AUTOMATION":
         if not certificate.unattended_automation:
             raise AuthorityRefused(
@@ -1670,6 +1945,60 @@ def require_execution_authority(
         if bindings["automation_config_sha256"] != automation_config_sha256:
             raise AuthorityRefused(
                 "signed certificate automation configuration does not match")
+    return certificate
+
+
+def require_observation_safety_authority(
+        conn, *, required_operation: str, paper_base_url: str,
+        required_mode: RolloutMode, now: datetime | None = None,
+        trust_roots_path: Path = DEFAULT_TRUST_ROOTS_PATH,
+        trust_roots: Mapping[str, TrustRoot] | None = None
+        ) -> SignedSystemCertificate:
+    """Authenticate expired-safe reconciliation/cancellation authority only.
+
+    Runtime, corpus, metadata and automation drift deliberately cannot turn this
+    scope into submission authority. Account, endpoint, rollout, lifecycle,
+    signature, trust and revocation remain exact.
+    """
+    from sentinel.config import assert_paper_url
+    from sentinel import binding as binding_mod
+
+    assert_paper_url(paper_base_url)
+    if required_operation not in {"SAFETY_READ", "SAFETY_CANCEL"}:
+        raise AuthorityRefused(
+            "paper-observation safety requires one exact safety operation")
+    certificate = load_active_signed_certificate(
+        conn, now=now, trust_roots_path=trust_roots_path,
+        trust_roots=trust_roots, allow_expired_observation_safety=True)
+    if certificate.authorization_mode != PAPER_OBSERVATION_ONLY:
+        raise AuthorityRefused(
+            "historical execution certificates have no expired safety scope")
+    if required_operation not in certificate.claims["permitted_operations"]:
+        raise AuthorityRefused(
+            f"paper-observation certificate does not permit {required_operation}")
+    binding = binding_mod.require(conn)
+    expected_subject = {
+        "deployment_id": binding.deployment_id,
+        "broker": binding.broker,
+        "broker_account_id": binding.broker_account_id,
+        "takeover_epoch": binding.takeover_epoch,
+        "environment": PAPER_SCOPE,
+        "paper_base_url": PAPER_BASE_URL,
+    }
+    if dict(certificate.subject) != expected_subject:
+        raise AuthorityRefused(
+            "paper-observation safety account binding differs")
+    rollout = load_rollout_state(conn)
+    if not isinstance(required_mode, RolloutMode):
+        required_mode = RolloutMode(str(required_mode))
+    certified = certificate.rollout
+    if (rollout.mode is not required_mode
+            or rollout.mode is not RolloutMode.CONTROLLER
+            or rollout.certificate_sha256 != certificate.certificate_sha256
+            or certified["to_mode"] != rollout.mode.value
+            or certified["to_version"] != rollout.version):
+        raise AuthorityRefused(
+            "paper-observation safety rollout identity differs")
     return certificate
 
 
@@ -1784,7 +2113,10 @@ def set_rollout_mode(
 __all__ = [
     "ACTIVATION_PROFILE_SCHEMA", "AuthorityRefused",
     "CERTIFICATION_MANIFEST_SCHEMA", "RolloutMode", "RolloutState",
-    "DEFAULT_TRUST_ROOTS_PATH", "MAX_CERTIFICATE_LIFETIME", "PAPER_SCOPE",
+    "DEFAULT_OBSERVATION_CERTIFICATE_LIFETIME", "DEFAULT_TRUST_ROOTS_PATH",
+    "HISTORICAL_CAUSALITY_UNVERIFIED", "MAX_CERTIFICATE_LIFETIME",
+    "MAX_OBSERVATION_CERTIFICATE_LIFETIME", "OBSERVATION_CERTIFICATE_SCHEMA",
+    "PAPER_BASE_URL", "PAPER_OBSERVATION_ONLY", "PAPER_SCOPE",
     "SIGNED_CERTIFICATE_SCHEMA", "SignedAuthorityContext",
     "SignedSystemCertificate", "SystemCertificate", "TrustRoot",
     "activate_signed_certificate", "bind_current_immutable_identities",
@@ -1794,8 +2126,10 @@ __all__ = [
     "load_installed_signed_certificate",
     "load_active_certificate", "load_rollout_state",
     "load_trust_roots", "require_execution_authority",
+    "require_observation_safety_authority",
     "revoke_signed_certificate", "revoke_signed_key",
     "revoke_system_certificate", "set_rollout_mode", "signed_envelope_bytes",
     "runtime_artifact_identity", "trust_roots_bytes", "unsigned_envelope_bytes",
-    "validate_certificate_claims", "verify_signed_certificate",
+    "validate_certificate_claims", "validate_observation_certificate_claims",
+    "verify_signed_certificate",
 ]

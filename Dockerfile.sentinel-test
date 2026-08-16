@@ -137,6 +137,8 @@ COPY docs/main-review-remediation.md /work/repo/docs/main-review-remediation.md
 COPY docs/sentinel-deployment.md /work/repo/docs/sentinel-deployment.md
 COPY docs/sentinel-paper-activation.md /work/repo/docs/sentinel-paper-activation.md
 COPY docs/sentinel-stage-4-automation.md /work/repo/docs/sentinel-stage-4-automation.md
+COPY docs/sentinel-paper-observation.md /work/repo/docs/sentinel-paper-observation.md
+COPY config/paper-observation-boundary.json /work/repo/config/paper-observation-boundary.json
 # bt-engine RUNS the rehearsal and bt-data INGESTS the corpus, so several tests
 # read their source to check what the engine records and how the feed maps a
 # vendor row. INSPECTION ONLY — under /work/repo, never /work, so nothing here
