@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
+import os
 from typing import Callable, Mapping, Sequence
 
 from sentinel import administrative_authority as admin_authority
@@ -455,8 +456,16 @@ def build_fresh_administrative_guard(
 
 
 def fresh_connection_factory(conn):
-    """Derive a non-logging fresh PostgreSQL connection factory."""
-    dsn = getattr(getattr(conn, "info", None), "dsn", "")
+    """Derive a non-logging fresh PostgreSQL connection factory.
+
+    ``psycopg`` intentionally redacts the password from ``conn.info.dsn``.
+    The authorized runtime already receives the original credential-bearing
+    ``SENTINEL_DATABASE_URL``; prefer that exact configured URL for fresh
+    guard checks, and retain the connection-derived DSN only as a fallback for
+    passwordless/local test connections.
+    """
+    dsn = (os.environ.get("SENTINEL_DATABASE_URL")
+           or getattr(getattr(conn, "info", None), "dsn", ""))
     if not dsn:
         raise authority.AuthorityRefused(
             "administrative broker authority requires a fresh PostgreSQL "
