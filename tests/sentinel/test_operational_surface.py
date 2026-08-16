@@ -107,7 +107,7 @@ def test_pull_requests_run_the_complete_sentinel_safety_suite():
     assert "sentinel-authorized:ci" in workflow
     assert "-f Dockerfile.sentinel-test -t sentinel-test:ci" in workflow
     assert "SENTINEL_IMAGE=sentinel-authorized:ci" in workflow
-    assert workflow.count('--build-arg SOURCE_GIT_SHA="${GITHUB_SHA}"') == 6
+    assert workflow.count('--build-arg SOURCE_GIT_SHA="${GITHUB_SHA}"') == 8
     assert "tests/sentinel -q -ra" in workflow
     assert "tee /tmp/sentinel-complete.txt" in workflow
     assert "the complete Sentinel run skipped tests" in workflow
@@ -147,8 +147,8 @@ def test_ci_compiles_python_and_syntax_checks_every_tracked_shell_script():
 def test_ci_pytest_logs_are_pipefail_safe_and_distinguish_skip_from_xfail():
     workflow = _read(".github/workflows/sentinel-safety.yml")
     assert workflow.count("set -euo pipefail") >= 4
-    assert workflow.count("-q -ra 2>&1 | tee") == 2
-    assert workflow.count("[0-9]+ skipped") == 2
+    assert workflow.count("-q -ra 2>&1 | tee") == 4
+    assert workflow.count("[0-9]+ skipped") == 3
 
     # The gate is intentionally specific to ordinary skips. Strict xfails are
     # reported by pytest's -ra summary and remain visible certification debt;
@@ -218,6 +218,29 @@ def test_pull_requests_execute_the_bt_engine_boundary_in_its_built_image():
     for runtime_dependency in ("sqlalchemy", "asyncpg", "fastapi", "pandas",
                                "numpy", "pydantic"):
         assert runtime_dependency not in locked_names
+
+
+def test_pull_requests_execute_cold_boot_and_bt_data_in_pinned_images():
+    workflow = _read(".github/workflows/sentinel-safety.yml")
+    lens = _read("services/bt-data/Dockerfile.test")
+
+    assert "tests/backtester/test_cold_boot_identity.py" in workflow
+    assert "-f services/bt-data/Dockerfile -t stocker-bt-data:ci" in workflow
+    assert "-f services/bt-data/Dockerfile.test" in workflow
+    assert "stocker-bt-data-test:ci" in workflow
+    for path in (
+            "tests/bt_data/test_sharadar_adapter.py",
+            "tests/bt_data/test_schema_bootstrap.py",
+            "tests/bt_data/test_sf1_coverage.py"):
+        assert path in workflow
+    assert "/tmp/cold-boot-focused.txt /tmp/bt-data-focused.txt" in workflow
+    assert "merge-critical cold-boot tests skipped" in workflow
+
+    assert "ARG BT_DATA_IMAGE=" in lens
+    assert "FROM ${BT_DATA_IMAGE}" in lens
+    assert "--require-hashes --only-binary=:all:" in lens
+    assert "--no-deps" in lens
+    assert 'ENTRYPOINT ["python", "-m", "pytest"]' in lens
 
 
 def test_expected_golden_drift_is_exact_strict_xfail_not_a_suite_mask():

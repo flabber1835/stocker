@@ -801,6 +801,17 @@ def produce_certification_decisions(
                           "run", "provenance"}
             or expected.get("schema") != "wealth_core_expected_hashes.v1"):
         raise EvidenceRefused("expected-hash producer schema is unknown")
+    expected_corpus = expected.get("corpus") or {}
+    population_fields = (
+        "distinct_securities", "first_session_securities",
+        "last_session_securities", "maximum_session_securities")
+    if (any(not isinstance(expected_corpus.get(field), int)
+            or expected_corpus[field] <= 0 for field in population_fields)
+            or any(expected_corpus[field]
+                   > expected_corpus["distinct_securities"]
+                   for field in population_fields[1:])):
+        raise EvidenceRefused(
+            "expected-hash artifact has no nonzero causal metadata population")
     if forward.get("schema") != "sentinel.production-forward-chain/1":
         raise EvidenceRefused("controller forward-chain schema is unknown")
     raw_forward = _validate_formal_forward(

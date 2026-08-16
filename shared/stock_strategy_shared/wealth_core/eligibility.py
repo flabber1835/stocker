@@ -80,6 +80,7 @@ class EligibilityReason(str, Enum):
     DUPLICATE_ISSUER = "DUPLICATE_ISSUER"
     UNRESOLVED_TERMINAL_ACTION = "UNRESOLVED_TERMINAL_ACTION"
     MISSING_ISSUER_IDENTITY = "MISSING_ISSUER_IDENTITY"
+    UNSUPPORTED_EXCHANGE = "UNSUPPORTED_EXCHANGE"
 
 
 @dataclass(frozen=True)
@@ -131,6 +132,8 @@ class EligibilityInput:
     # prototype did not use it, so nothing in certified mode may read it — proven
     # by a test rather than promised in a comment.
     is_primary_listing: bool | None = None
+    exchange: str | None = None
+    exchange_authoritative: bool = False
 
 
 @dataclass(frozen=True)
@@ -168,6 +171,11 @@ def evaluate(inp: EligibilityInput, cfg: EligibilityConfig) -> EligibilityResult
         return no(EligibilityReason.MISSING_ISSUER_IDENTITY)
     if not inp.listed_on_session:
         return no(EligibilityReason.NOT_LISTED_ON_SESSION)
+    if (inp.exchange_authoritative
+            and (inp.exchange or "").upper() not in {
+                "NYSE", "NASDAQ", "NYSEMKT", "NYSEARCA", "BATS", "AMEX"}):
+        return no(EligibilityReason.UNSUPPORTED_EXCHANGE,
+                  exchange=inp.exchange)
     if not is_common_equity(inp.category):
         return no(EligibilityReason.NOT_COMMON_EQUITY, category=inp.category)
     if inp.unadjusted_signal_price is None or \

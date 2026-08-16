@@ -259,10 +259,7 @@ def load_corpus(conn, *, start: str, end: str, bt) -> dict[str, Any]:
             f"requested {start}..{end}, observed "
             f"{measured[0]}..{measured[-1]}")
 
-    meta = bt.load_meta(conn, as_of=end)
-    if not meta:
-        raise ExpectedHashesRefused(
-            f"bt_universe is empty as of {end}; a cash-only run is not evidence")
+    metadata_timeline = bt.load_meta_timeline(conn, sessions=measured)
     identity = bt.load_identity(conn, as_of=end)
     actions_ingestion = load_actions_ingestion_evidence(
         conn, start=date.fromisoformat(warmup_from), end=date.fromisoformat(end))
@@ -284,24 +281,28 @@ def load_corpus(conn, *, start: str, end: str, bt) -> dict[str, Any]:
         conn, warmup_from, end, authoritative_splits=splits,
         reconciliation=reconciliation, dividends=dividends, identity=identity)
 
-    unknown = sorted(
-        {bar.security_id for rows in bars.values() for bar in rows} - set(meta))
-    if unknown:
-        bars = {session: [bar for bar in rows if bar.security_id in meta]
-                for session, rows in bars.items()}
+    bt.require_usable_bars(
+        bars, start=warmup_from, end=end,
+        context="wealth_core_expected_hashes")
+    bt.require_usable_decision_bars(
+        bars, metadata_timeline, start=start, end=end,
+        context="wealth_core_expected_hashes")
     normalized_bars = sum(len(rows) for rows in bars.values())
     measured_actions = bt.actions_effective_in_sessions(
         action_rows, full_index, measured)
     unresolved = getattr(identity, "unresolved", {})
     terminals = bt.terminal_events_from_actions(
-        measured_actions, full_index, known_securities=set(meta),
-        identity=identity, meta=meta, unresolved=unresolved)
+        measured_actions, full_index,
+        known_securities=set(metadata_timeline.security_ids),
+        identity=identity, metadata_timeline=metadata_timeline,
+        unresolved=unresolved)
 
     return {
         "sessions": measured,
         "warmup_sessions": warmup,
         "bars_by_session": bars,
-        "meta": meta,
+        "meta": {},
+        "metadata_timeline": metadata_timeline,
         "terminal_events": terminals,
         "source": {
             "split_source": "actions",
@@ -321,7 +322,7 @@ def load_corpus(conn, *, start: str, end: str, bt) -> dict[str, Any]:
             "split_reconciliation": dict(sorted(reconciliation.items())),
             "dividend_rows_unusable": bt.unusable_dividend_rows(action_rows),
             "identity_unresolved": dict(sorted(unresolved.items())),
-            "excluded_unknown_tickers": len(unknown),
+            "excluded_unknown_tickers": 0,
         },
     }
 
@@ -335,12 +336,14 @@ def run_corpus(corpus: Mapping[str, Any]) -> tuple[Any, dict[str, str], str]:
 
     cfg = WealthCoreConfig()
     eligibility = EligibilityConfig()
-    feed = Feed(corpus["meta"], eligibility)
+    feed = Feed(corpus["meta"], eligibility,
+                corpus.get("metadata_timeline"))
     feed.warmup(corpus["warmup_sessions"], corpus["bars_by_session"])
     result, hashes = run_with_hashes(
         sessions=corpus["sessions"],
         bars_by_session=corpus["bars_by_session"],
         meta=corpus["meta"],
+        metadata_timeline=corpus.get("metadata_timeline"),
         starting_cash=1_000_000.0,
         cfg=cfg,
         eligibility_cfg=eligibility,
@@ -367,7 +370,38 @@ def causal_input_sha256(corpus: Mapping[str, Any]) -> str:
         raise ExpectedHashesRefused(
             "warm-up plus measured sessions are duplicate or unordered; the "
             "causal input cannot be identified")
-    return normalized_input_hash(sessions, corpus["bars_by_session"])
+    return normalized_input_hash(
+        sessions, corpus["bars_by_session"],
+        corpus.get("metadata_timeline"))
+
+
+def population_evidence(corpus: Mapping[str, Any]) -> dict[str, int]:
+    """Derive measured-window population only from the causal timeline."""
+    timeline = corpus.get("metadata_timeline")
+    if timeline is None or not hasattr(timeline, "population_evidence"):
+        raise ExpectedHashesRefused(
+            "expected-hash corpus has no session-effective metadata timeline; "
+            "a nonempty static meta map is not population evidence")
+    evidence = dict(timeline.population_evidence())
+    required = {
+        "distinct_securities", "first_session_securities",
+        "last_session_securities", "maximum_session_securities"}
+    if set(evidence) != required:
+        raise ExpectedHashesRefused(
+            f"metadata population evidence fields differ: "
+            f"missing={sorted(required - set(evidence))}, "
+            f"extra={sorted(set(evidence) - required)}")
+    if not all(isinstance(value, int) and value > 0
+               for value in evidence.values()):
+        raise ExpectedHashesRefused(
+            "a populated certification run retained zero or invalid "
+            f"timeline-derived securities: {evidence}")
+    if any(evidence[field] > evidence["distinct_securities"] for field in (
+            "first_session_securities", "last_session_securities",
+            "maximum_session_securities")):
+        raise ExpectedHashesRefused(
+            f"session population exceeds distinct population: {evidence}")
+    return evidence
 
 
 def validate_hashes(hashes: Mapping[str, str]) -> dict[str, str]:
@@ -446,6 +480,7 @@ def produce(conn, *, start: str, end: str, bt=None) -> dict[str, Any]:
 
     sessions = corpus["sessions"]
     warmup = corpus["warmup_sessions"]
+    population = population_evidence(corpus)
     return {
         "schema": SCHEMA,
         "status": "ready",
@@ -463,7 +498,7 @@ def produce(conn, *, start: str, end: str, bt=None) -> dict[str, Any]:
         "corpus": {
             **generation.to_dict(),
             **corpus["source"],
-            "securities": len(corpus["meta"]),
+            **population,
             "normalized_input_hash": hashes["normalized_input"],
             "causal_input_sha256": causal_input_sha256(corpus),
         },
@@ -644,6 +679,7 @@ def main(argv=None) -> int:
 __all__ = [
     "DataGeneration", "ExpectedHashesRefused", "SCHEMA",
     "WARMUP_CALENDAR_DAYS", "actions_sha256", "causal_input_sha256",
+    "population_evidence",
     "load_actions_ingestion_evidence", "load_corpus", "main",
     "prepare_snapshot", "produce", "run_corpus", "validate_hashes",
     "validate_window", "write_artifact_atomic",

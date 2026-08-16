@@ -518,7 +518,8 @@ def partition_universe_rows(rows: list[dict]) -> tuple[list[dict], list[dict], l
     def richness(r: dict) -> tuple:
         # Prefer the row that actually carries the listing window and category:
         # a sparser duplicate overwriting a fuller one loses point-in-time data.
-        return (r.get("first_price_date") is not None,
+        return (r.get("decision_metadata_complete") is True,
+                r.get("first_price_date") is not None,
                 r.get("last_price_date") is not None,
                 r.get("category") is not None,
                 r.get("related_tickers") is not None)
@@ -561,6 +562,8 @@ async def _upsert_universe(rows: list[dict], snapshot_date=None) -> dict:
         "persisted": 0,
         "rejected_no_permaticker": len(rejected),
         "duplicate_identity_collapsed": len(collapsed),
+        "incomplete_decision_metadata": sum(
+            r.get("decision_metadata_complete") is not True for r in keep),
         # NAMED, not just counted: a bare total cannot distinguish a handful of
         # odd rows from a systematic mapping failure.
         "rejected_sample": sorted({str(r.get("ticker")) for r in rejected})[:20],
@@ -574,21 +577,23 @@ async def _upsert_universe(rows: list[dict], snapshot_date=None) -> dict:
     async with engine.begin() as conn:
         await conn.execute(text(
             "INSERT INTO bt_universe (snapshot_date, ticker, name, sector, "
-            "  first_price_date, last_price_date, is_delisted, category, "
-            "  permaticker, related_tickers) "
+            "  exchange, first_price_date, last_price_date, is_delisted, category, "
+            "  permaticker, related_tickers, decision_metadata_complete) "
             "VALUES (:snapshot_date, :ticker, :name, :sector, "
-            "  :first_price_date, :last_price_date, :is_delisted, :category, "
-            "  :permaticker, :related_tickers) "
+            "  :exchange, :first_price_date, :last_price_date, :is_delisted, :category, "
+            "  :permaticker, :related_tickers, :decision_metadata_complete) "
             # THE KEY IS THE IDENTITY, not the symbol. `ticker` is updated like
             # any other attribute — a security that changed symbol keeps its row
             # instead of forking into two.
             "ON CONFLICT (snapshot_date, permaticker) DO UPDATE SET "
             "  ticker=EXCLUDED.ticker, "
             "  name=EXCLUDED.name, sector=EXCLUDED.sector, "
+            "  exchange=EXCLUDED.exchange, "
             "  first_price_date=EXCLUDED.first_price_date, "
             "  last_price_date=EXCLUDED.last_price_date, "
             "  is_delisted=EXCLUDED.is_delisted, category=EXCLUDED.category, "
-            "  related_tickers=EXCLUDED.related_tickers"
+            "  related_tickers=EXCLUDED.related_tickers, "
+            "  decision_metadata_complete=EXCLUDED.decision_metadata_complete"
         ), keep)
         report["persisted"] = (await conn.execute(text(
             "SELECT count(*) FROM bt_universe "
@@ -905,6 +910,12 @@ async def _load_universe(snapshot_date: str, job_type: str) -> dict:
             if m:
                 rows.append(m)
         report = await _upsert_universe(rows, snapshot_date)
+        if report["incomplete_decision_metadata"]:
+            raise ValueError(
+                f"TICKERS observation {snapshot_date} is incomplete: "
+                f"{report['incomplete_decision_metadata']} retained security "
+                "row(s) lack one or more nullable decision fields; refusing "
+                "instead of publishing a partial decision snapshot")
         total = report["persisted"]
         await _close_run(rid, "success", total)
         # EVERY category on one line, because the failure this replaces was a
@@ -915,6 +926,7 @@ async def _load_universe(snapshot_date: str, job_type: str) -> dict:
               f"distinct_identities={report['distinct_identities']} "
               f"persisted={report['persisted']} "
               f"rejected_no_permaticker={report['rejected_no_permaticker']} "
+              f"incomplete_decision_metadata={report['incomplete_decision_metadata']} "
               f"duplicate_identity_collapsed={report['duplicate_identity_collapsed']}",
               flush=True)
         if report["rejected_no_permaticker"]:
@@ -1224,19 +1236,28 @@ async def start_universe_backfill(background_tasks: BackgroundTasks,
     metadata that have nothing to do with prices. That is how a stage becomes
     one nobody replays.
 
-    IDEMPOTENT. ON CONFLICT (snapshot_date, ticker) DO UPDATE rewrites every
+    IDEMPOTENT. ON CONFLICT (snapshot_date, permaticker) DO UPDATE rewrites every
     mapped column in place, so this both backfills the new ones and corrects
     stale ones. bt_prices is never touched.
 
-    `snapshot_date` defaults to TODAY. Pass an existing snapshot's date to
-    repair that snapshot rather than adding another.
+    `snapshot_date` is an observation date, not the effective date of TICKERS
+    metadata. It defaults to TODAY; the optional parameter exists only so old
+    clients receive an explicit refusal instead of silently backdating today's
+    delivery. A TICKERS-only retry on the same day updates that observation.
     """
-    snap = snapshot_date or date.today().isoformat()
+    today = date.today().isoformat()
+    snap = snapshot_date or today
     try:
         date.fromisoformat(snap)
     except ValueError:
         raise HTTPException(status_code=400,
                             detail="snapshot_date must be ISO YYYY-MM-DD")
+    if snap != today:
+        raise HTTPException(
+            status_code=400,
+            detail="snapshot_date is the TICKERS observation date and must be "
+                   f"today ({today}); backdating current metadata would "
+                   "fabricate point-in-time evidence")
     if _job_active:
         return {"status": "already_running",
                 "detail": "a backfill/topup is already in progress — not spawning another"}

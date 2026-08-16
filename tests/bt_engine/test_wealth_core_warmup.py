@@ -123,7 +123,10 @@ def _corpus(n_sessions: int, n_secs: int = 30):
                 for i in range(n_sessions)]
     meta = {f"S{k}": SecurityMeta(security_id=f"S{k}", ticker=f"T{k}",
                                   category="Domestic Common Stock",
-                                  permaticker=f"P{k}")
+                                  permaticker=f"P{k}",
+                                  # Eligibility is intentionally proven, not
+                                  # inferred from a missing listing bound.
+                                  first_session=sessions[0])
             for k in range(n_secs)}
     bars = {}
     for i, s in enumerate(sessions):

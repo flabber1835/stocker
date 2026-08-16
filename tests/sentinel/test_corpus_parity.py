@@ -176,13 +176,14 @@ class TestBothCorporaArePinnedAndIdentified:
         assert out["canonical_data_version"] == "generation-7"
         assert out["canonical_source_mode"] == "sharadar"
 
-    def test_the_real_run_resolves_identity_as_of_the_window_end(self,
-                                                                 monkeypatch):
-        """The canonical resolver is point-in-time and requires ``as_of``.
+    def test_the_real_run_passes_window_end_as_identity_diagnostic(self,
+                                                                   monkeypatch):
+        """The canonical resolver receives ``as_of`` as audit context.
 
-        Exercise ``run`` rather than inspecting its source: omitting the
-        keyword makes the fake resolver raise ``TypeError`` and the parity
-        report fail closed as unavailable.
+        Identity evidence itself may come from a later observation, but the
+        requested boundary remains part of a refusal and its operator remedy.
+        Exercise ``run`` rather than inspecting its source: omitting the keyword
+        makes the fake resolver raise ``TypeError`` and parity fail closed.
         """
         from contextlib import contextmanager, nullcontext
         from types import SimpleNamespace
@@ -190,6 +191,13 @@ class TestBothCorporaArePinnedAndIdentified:
         import sqlalchemy as sa
         from sentinel.core import loader
         from sentinel.feed import publication
+
+        # Some combined suites inspect both the copied certification loader and
+        # the repository source under the same top-level ``app`` package. Pin
+        # the module CP imports to the canonical object this test patches.
+        import app
+        monkeypatch.setitem(sys.modules, "app.wealth_core_replay", BT)
+        monkeypatch.setattr(app, "wealth_core_replay", BT, raising=False)
 
         observed = {}
         identity = object()

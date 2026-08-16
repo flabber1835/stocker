@@ -646,6 +646,9 @@ def validate_evidence(claims: Mapping, index_path: Path) -> None:
         "wealth_core_expected_hashes.py")
     loader_path = Path(__file__).resolve().parents[1] / (
         "services/backtester/app/wealth_core_replay.py")
+    population_fields = (
+        "distinct_securities", "first_session_securities",
+        "last_session_securities", "maximum_session_securities")
     if (not isinstance(expected_hashes, Mapping)
             or expected_hashes.get("schema") != "wealth_core_expected_hashes.v1"
             or expected_hashes.get("status") != "ready"
@@ -653,6 +656,12 @@ def validate_evidence(claims: Mapping, index_path: Path) -> None:
             or set(expected_values) != set(HASH_ORDER)
             or any(re.fullmatch(r"[0-9a-f]{64}", str(value)) is None
                    for value in expected_values.values())
+            or any(not isinstance(expected_corpus.get(field), int)
+                   or expected_corpus[field] <= 0
+                   for field in population_fields)
+            or any(expected_corpus[field]
+                   > expected_corpus["distinct_securities"]
+                   for field in population_fields[1:])
             or expected_provenance.get("producer")
             != "tools/wealth_core_expected_hashes.py"
             or expected_provenance.get("producer_sha256")
