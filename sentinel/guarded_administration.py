@@ -455,17 +455,52 @@ def build_fresh_administrative_guard(
     return AdministrativeBrokerGuard(check=check)
 
 
-def fresh_connection_factory(conn):
-    """Derive a non-logging fresh PostgreSQL connection factory.
+def _database_target(dsn: str) -> tuple[str, str, str, str]:
+    """Return only the non-secret connection identity used for comparison."""
+    try:
+        import psycopg
+        params = psycopg.conninfo.conninfo_to_dict(dsn)
+    except ModuleNotFoundError:                               # pragma: no cover
+        try:
+            from psycopg2.extensions import parse_dsn
+            params = parse_dsn(dsn)
+        except Exception as exc:                             # pragma: no cover
+            raise authority.AuthorityRefused(
+                "administrative fresh PostgreSQL target is malformed") from exc
+    except Exception as exc:
+        raise authority.AuthorityRefused(
+            "administrative fresh PostgreSQL target is malformed") from exc
+    return (
+        str(params.get("host") or ""),
+        str(params.get("port") or "5432"),
+        str(params.get("dbname") or ""),
+        str(params.get("user") or ""),
+    )
 
-    ``psycopg`` intentionally redacts the password from ``conn.info.dsn``.
-    The authorized runtime already receives the original credential-bearing
-    ``SENTINEL_DATABASE_URL``; prefer that exact configured URL for fresh
-    guard checks, and retain the connection-derived DSN only as a fallback for
-    passwordless/local test connections.
+
+def fresh_connection_factory(conn):
+    """Build fresh checks that are credentialed and pinned to the same DB.
+
+    ``psycopg`` intentionally redacts the password from ``conn.info.dsn``. The
+    authorized runtime therefore reconnects with ``SENTINEL_DATABASE_URL``, but
+    only after proving its host/port/database/user identity is exactly the same
+    as the already-open administrative connection. A mutated environment can
+    never redirect authority checks to a second database.
     """
-    dsn = (os.environ.get("SENTINEL_DATABASE_URL")
-           or getattr(getattr(conn, "info", None), "dsn", ""))
+    active_dsn = getattr(getattr(conn, "info", None), "dsn", "")
+    configured_dsn = os.environ.get("SENTINEL_DATABASE_URL", "").strip()
+    if configured_dsn:
+        if not active_dsn:
+            raise authority.AuthorityRefused(
+                "administrative fresh PostgreSQL target cannot be matched to "
+                "the active connection")
+        if _database_target(configured_dsn) != _database_target(active_dsn):
+            raise authority.AuthorityRefused(
+                "administrative fresh PostgreSQL target differs from active "
+                "connection")
+        dsn = configured_dsn
+    else:
+        dsn = active_dsn
     if not dsn:
         raise authority.AuthorityRefused(
             "administrative broker authority requires a fresh PostgreSQL "
