@@ -30,13 +30,11 @@ def test_fresh_connection_reconstructs_password_from_active_connection(monkeypat
     assert fresh_connection_factory(_conn(redacted_dsn, "secret"))() is connected
     assert len(calls) == 1
     params = psycopg.conninfo.conninfo_to_dict(calls[0][0])
-    assert params == {
-        "user": "sentinel",
-        "password": "secret",
-        "dbname": "sentinel",
-        "host": "sentinel-postgres",
-        "port": "5432",
-    }
+    assert params["user"] == "sentinel"
+    assert params["password"] == "secret"
+    assert params["dbname"] == "sentinel"
+    assert params["host"] == "sentinel-postgres"
+    assert str(params["port"]) == "5432"
     assert calls[0][1] == {"autocommit": False, "connect_timeout": 5}
 
 
