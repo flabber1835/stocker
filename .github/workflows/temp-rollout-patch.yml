@@ -1,17 +1,24 @@
 name: temp-rollout-patch
-on: push
+
+on:
+  push:
+    branches: [fix/rollout-certificate-rotation-chain-v2]
+
 permissions:
   contents: write
+
 jobs:
   patch:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: fix/rollout-certificate-rotation-chain-v2
-      - name: patch
+
+      - name: Apply exact validator patch
         shell: bash
         run: |
+          set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
           p = Path("sentinel/schema.py")
@@ -44,9 +51,11 @@ jobs:
           p.write_text(s.replace(old, new), encoding="utf-8")
           PY
           git diff --check
-      - name: commit
+
+      - name: Commit exact patch and remove temporary workflow
         shell: bash
         run: |
+          set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git rm .github/workflows/temp-rollout-patch.yml
