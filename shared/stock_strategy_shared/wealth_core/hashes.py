@@ -245,7 +245,8 @@ def _money(x):
 
 
 def normalized_input_hash(sessions: Sequence[str],
-                          bars_by_session: Mapping[str, Sequence]) -> str:
+                          bars_by_session: Mapping[str, Sequence],
+                          metadata_timeline=None) -> str:
     """The DATA both engines claim to be running on.
 
     Deliberately computed from the normalised `VendorBar`s rather than from the
@@ -262,12 +263,18 @@ def normalized_input_hash(sessions: Sequence[str],
     for s in sessions:
         rows = sorted(bars_by_session.get(s, ()),
                       key=lambda b: (b.security_id, b.ticker))
-        stream.add([s, [[b.security_id, b.ticker, _px(b.raw_close),
-                         _px(b.raw_open), _px(b.volume),
-                         _px(b.split_ratio), _px(b.dividend_per_share),
-                         bool(b.tradeable),
-                         bool(b.unresolved_corporate_action)]
-                        for b in rows]])
+        bar_rows = [[b.security_id, b.ticker, _px(b.raw_close),
+                     _px(b.raw_open), _px(b.volume),
+                     _px(b.split_ratio), _px(b.dividend_per_share),
+                     bool(b.tradeable),
+                     bool(b.unresolved_corporate_action)]
+                    for b in rows]
+        if metadata_timeline is None:
+            stream.add([s, bar_rows])
+        else:
+            stream.add([s, bar_rows,
+                        [metadata_timeline.canonical_row(s, b.security_id)
+                         for b in rows]])
     return stream.hexdigest()
 
 
@@ -298,12 +305,22 @@ def order_hash(result) -> str:
     """
     payload = []
     for s in result.sessions:
+        cancellations = []
+        for c in s.cancelled:
+            if c.get("reason") in {
+                    "ISSUER_CONFLICT_BEFORE_FILL"}:
+                # Hash the COMPLETE conflict evidence, including reservation
+                # release and the issuer transformation. The compact legacy row
+                # remains byte-stable for unrelated cancellation kinds.
+                cancellations.append(["ISSUER_CONFLICT", dict(c)])
+            else:
+                cancellations.append(
+                    [c.get("security_id"), c.get("reason"),
+                     c.get("wanted_shares"), c.get("filled_shares")])
         payload.append([s.session,
                         [[f["security_id"], f["operation"], f["shares"],
                           _px(f["raw_open"]), f["waited"]] for f in s.fills],
-                        sorted([[c.get("security_id"), c.get("reason"),
-                                 c.get("wanted_shares"), c.get("filled_shares")]
-                                for c in s.cancelled])])
+                        sorted(cancellations, key=lambda row: str(row))])
     payload.append(["__unfilled__", sorted(
         [[o["security_id"], o["operation"], o["shares"], o["sessions_waiting"]]
          for o in result.unfilled_at_end])])
@@ -399,12 +416,14 @@ class SessionHashAccumulator:
         self.sessions.add(session_row)
 
     def finalize(self, result, sessions: Sequence[str],
-                 bars_by_session: Mapping[str, Sequence]) -> "ParityHashes":
+                 bars_by_session: Mapping[str, Sequence],
+                 metadata_timeline=None) -> "ParityHashes":
         self.order.add(["__unfilled__", sorted(
             [[o["security_id"], o["operation"], o["shares"],
               o["sessions_waiting"]] for o in result.unfilled_at_end])])
         return ParityHashes(values={
-            "normalized_input": normalized_input_hash(sessions, bars_by_session),
+            "normalized_input": normalized_input_hash(
+                sessions, bars_by_session, metadata_timeline),
             "candidate_audit": self.candidate_audit.hexdigest(),
             "decision": self.decision.hexdigest(),
             "order": self.order.hexdigest(),
@@ -418,8 +437,10 @@ class SessionHashAccumulator:
 
 
 def parity_hashes(result, sessions: Sequence[str],
-                  bars_by_session: Mapping[str, Sequence]) -> ParityHashes:
-    out = {"normalized_input": normalized_input_hash(sessions, bars_by_session)}
+                  bars_by_session: Mapping[str, Sequence],
+                  metadata_timeline=None) -> ParityHashes:
+    out = {"normalized_input": normalized_input_hash(
+        sessions, bars_by_session, metadata_timeline)}
     for name, fn in _COMPUTERS.items():
         out[name] = fn(result)
     return ParityHashes(values=out)

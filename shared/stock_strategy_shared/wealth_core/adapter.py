@@ -52,6 +52,20 @@ from stock_strategy_shared.wealth_core.terminal_audit import (
     record_grace_print, record_grace_split)
 
 
+class IssuerFamilyCollision(RuntimeError):
+    """Session metadata collapsed distinct held securities into one issuer."""
+
+    def __init__(self, *, session: str, collisions: Sequence[dict]) -> None:
+        self.evidence = {
+            "session": session,
+            "reason": "HELD_ISSUER_COLLISION_AFTER_METADATA_REBIND",
+            "collisions": list(collisions),
+        }
+        super().__init__(
+            "session-effective issuer metadata violates the one-position-per-"
+            f"issuer invariant; refusing before fills: {self.evidence!r}")
+
+
 @dataclass
 class PendingOrder:
     """An order decided after session t, awaiting the next tradeable open.
@@ -304,6 +318,173 @@ def _cancelled_order(state: PortfolioState, po: PendingOrder, *, session: str,
     if po.transformations:
         row["transformations"] = list(po.transformations)
     return row
+
+
+def _is_proven_same_session_consolidation(
+        session: str, holdings: Sequence[tuple[int, str, str]],
+        state: PortfolioState, terminal_terms: Sequence) -> bool:
+    """True only when complete terms will collapse this whole held group.
+
+    The terminal adapter applies one event to one matching episode. Requiring a
+    unique source security for every converted leg avoids treating one event as
+    authority to convert several duplicate lots.
+    """
+    from stock_strategy_shared.wealth_core.terminal import TerminalKind
+
+    counts: dict[str, int] = {}
+    for _slot_id, security_id, _prior in holdings:
+        counts[security_id] = counts.get(security_id, 0) + 1
+    terms_by_security: dict[str, list] = {}
+    for terms in terminal_terms:
+        if (getattr(terms, "kind", None) in {
+                TerminalKind.CONVERSION, TerminalKind.CASH_PLUS_STOCK}
+                and getattr(terms, "session", None) == session
+                and getattr(terms, "security_id", None) in counts):
+            terms_by_security.setdefault(terms.security_id, []).append(terms)
+
+    targets: set[str] = set()
+    converted = False
+    for security_id, count in sorted(counts.items()):
+        matching = terms_by_security.get(security_id, [])
+        if not matching:
+            targets.add(security_id)
+            continue
+        if count != 1 or len(matching) != 1:
+            return False
+        slot_id = next(slot for slot, sec, _prior in holdings
+                       if sec == security_id)
+        terms = matching[0]
+        complete, _reason = terms.completeness(
+            state.episodes[slot_id].current_shares)
+        delivered = getattr(terms, "delivered_security_id", None)
+        if not complete or not delivered:
+            return False
+        targets.add(delivered)
+        converted = converted or delivered != security_id
+    return converted and len(targets) == 1
+
+
+def _rebind_session_issuers(*, session: str, state: PortfolioState,
+                            by_sec: Mapping[str, DailyBar],
+                            pending: Sequence[PendingOrder],
+                            terminal_terms: Sequence = ()) -> None:
+    """Apply today's issuer families only after proving held state is valid.
+
+    Multiple episodes of the SAME delivered permanent security are the explicit
+    corporate-action consolidation exception. Distinct held securities that now
+    share a family have no strategy-defined winner and therefore fail closed.
+    """
+    proposals = []
+    for slot_id, episode in sorted(state.episodes.items()):
+        current = by_sec.get(episode.security_id)
+        issuer = current.issuer_id if current is not None else episode.issuer_id
+        proposals.append((issuer, slot_id, episode.security_id,
+                          episode.issuer_id))
+
+    grouped: dict[str, list[tuple[int, str, str]]] = {}
+    for issuer, slot_id, security_id, prior in proposals:
+        grouped.setdefault(issuer, []).append((slot_id, security_id, prior))
+    collisions = []
+    for issuer in sorted(grouped):
+        holdings = grouped[issuer]
+        if len({security_id for _, security_id, _ in holdings}) <= 1:
+            continue
+        if _is_proven_same_session_consolidation(
+                session, holdings, state, terminal_terms):
+            continue
+        collisions.append({
+            "issuer_id": issuer,
+            "holdings": [
+                {"slot_id": slot_id, "security_id": security_id,
+                 "prior_issuer_id": prior}
+                for slot_id, security_id, prior in holdings],
+        })
+    if collisions:
+        raise IssuerFamilyCollision(session=session, collisions=collisions)
+
+    for issuer, slot_id, _security_id, _prior in proposals:
+        state.episodes[slot_id].issuer_id = issuer
+
+    for po in pending:
+        if po.operation is not Operation.OPEN_SLOT_POSITION:
+            continue
+        current = by_sec.get(po.security_id)
+        slot = state.slots.get(po.slot_id)
+        if current is None or slot is None:
+            continue
+        prior = slot.reserved_issuer
+        current_issuer = current.issuer_id
+        if prior != current_issuer:
+            _record_order_transform(
+                po, session=session, kind="ISSUER_REBIND",
+                from_security_id=po.security_id,
+                to_security_id=po.security_id,
+                from_ticker=po.ticker, to_ticker=po.ticker,
+                shares_before=po.shares, shares_after=po.shares,
+                detail={"from_issuer_id": prior,
+                        "to_issuer_id": current_issuer})
+        slot.reserved_issuer = current_issuer
+
+
+def _cancel_pending_issuer_conflicts(
+        *, session: str, state: PortfolioState, pending: list[PendingOrder],
+        reason: str) -> list[dict]:
+    """Recheck the admission invariant immediately before pending fills.
+
+    Existing holdings own the issuer first. Remaining reservations use temporal
+    commitment priority, with deterministic tie breaks for same-session orders.
+    """
+    claims: dict[str, dict] = {}
+    for slot_id, episode in sorted(state.episodes.items()):
+        claims.setdefault(episode.issuer_id, {
+            "kind": "HELD", "slot_id": slot_id,
+            "security_id": episode.security_id,
+            "signal_session": None,
+        })
+
+    entries = sorted(
+        (po for po in pending
+         if po.operation is Operation.OPEN_SLOT_POSITION),
+        key=lambda po: (po.signal_session, po.slot_id,
+                        po.security_id, po.ticker))
+    rejected: dict[int, dict] = {}
+    for po in entries:
+        slot = state.slots[po.slot_id]
+        issuer = slot.reserved_issuer
+        if issuer is None:
+            # Strict issuer eligibility should make this unreachable. Refusing
+            # the fill is safer than treating the security id as a new family.
+            conflict = {"kind": "MISSING_AUTHORITY", "slot_id": None,
+                        "security_id": None, "signal_session": None}
+        else:
+            conflict = claims.get(issuer)
+        if (conflict is not None and conflict["kind"] == "PENDING"
+                and conflict["slot_id"] == po.slot_id
+                and conflict["security_id"] == po.security_id):
+            # A corrupted/recovery fixture can carry duplicate intent for the
+            # exact same slot/security. It is not two issuer exposures; the
+            # established duplicate-order and fill-affordability guards own it.
+            continue
+        if conflict is None:
+            claims[issuer] = {
+                "kind": "PENDING", "slot_id": po.slot_id,
+                "security_id": po.security_id,
+                "signal_session": po.signal_session,
+            }
+            continue
+        rejected[id(po)] = _cancelled_order(
+            state, po, session=session, reason=reason,
+            issuer_id=issuer, conflict_kind=conflict["kind"],
+            conflicting_slot_id=conflict["slot_id"],
+            conflicting_security_id=conflict["security_id"],
+            conflicting_signal_session=conflict["signal_session"])
+
+    if not rejected:
+        return []
+    pending[:] = [po for po in pending if id(po) not in rejected]
+    return [rejected[key] for key in sorted(
+        rejected, key=lambda key: (
+            rejected[key]["slot_id"], rejected[key]["security_id"]))]
 
 
 def apply_splits(state: PortfolioState, bars: Sequence[DailyBar], ledger: Ledger,
@@ -575,11 +756,22 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     want that, and it says so in its name.
     """
     by_sec = {b.security_id: b for b in bars}
+    res_cancelled: list[dict] = []
 
     # ── 0. re-label ──────────────────────────────────────────────────────────
     # Before anything reads a ticker. Changes no number and no economic state.
     transform_starts = [(po, len(po.transformations)) for po in pending]
     relabelled = apply_ticker_changes(state, bars, pending, session=session)
+    # Issuer-family metadata is session-effective just like the display label.
+    # Rebind held episodes and outstanding entry reservations from TODAY'S
+    # canonical bars before admission checks. Freezing the family at entry
+    # would make a legitimately observed relatedtickers correction ineffective
+    # for every existing holding; using a replay-end family would rewrite the
+    # past. Sessions with no authoritative metadata expose no bar, so the prior
+    # value remains and the ordinary missing-mark gate blocks new admissions.
+    _rebind_session_issuers(
+        session=session, state=state, by_sec=by_sec, pending=pending,
+        terminal_terms=terminal_terms)
     order_transformations = [
         transform
         for po, start in transform_starts
@@ -600,7 +792,6 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     # already terminated. Both are ordering artefacts, so the ordering is now in
     # one place — the same place that documents it.
     terminal_results: list[dict] = []
-    res_cancelled: list[dict] = []
     for terms in sorted(terminal_terms,
                         key=lambda t: (t.security_id, t.kind.value)):
         from stock_strategy_shared.wealth_core.terminal import apply_terminal
@@ -626,6 +817,23 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
         res_cancelled.extend(cancelled)
         terminal_results.append({"session": session, **terminal_result})
     terminated = {t.security_id for t in terminal_terms}
+
+    # Terminal application can change both security and issuer identity after
+    # the session-metadata pass above.  The pre-terminal consolidation waiver is
+    # evidence only for the transition; re-run against the resulting held book
+    # with no waiver. Distinct delivered securities may not silently create one
+    # issuer exposure. Multiple source lots that became the SAME delivered
+    # permanent security remain the deterministic, provenance-retaining
+    # consolidation defined by PortfolioState.
+    _rebind_session_issuers(
+        session=session, state=state, by_sec=by_sec, pending=pending)
+
+    # A terminal conversion may also retarget a still-unfilled entry. It is
+    # still an admission, not the held-lot conversion exception, so enforce the
+    # pending side once more before any open fills.
+    res_cancelled.extend(_cancel_pending_issuer_conflicts(
+        session=session, state=state, pending=pending,
+        reason="ISSUER_CONFLICT_BEFORE_FILL"))
 
     # ── 4. execute orders decided BEFORE this session ────────────────────────
     fills: list[dict] = []

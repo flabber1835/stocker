@@ -743,6 +743,36 @@ fail-closed tombstone for the retired service graph. Current build/freeze is
 **Run completed 2026-08-09, status SUCCESS.** Read the counters before the
 performance; that rule is doing real work on this run.
 
+**Identity-corpus impact discovered 2026-08-15.** That run predates commit
+`b18e46269d3bc8e83a7ee42d02163975a48ee317` (2026-08-13), which added
+`snapshot_date <= replay_end` to both reference-metadata and identity loading.
+The complete-zero cold-boot failure is therefore a later reconstruction and
+certification defect; it did not cause the 2026-08-09 process to load zero
+bars. Before that guard, however, the rehearsal consumed whatever TICKERS
+metadata was then current, including category and relationships without
+effective-date history. The recorded 7.87% CAGR and 28.86% drawdown therefore
+cannot be declared invariant under the corrected temporal contract. They remain
+the recorded result of that run, not a re-certified result, and the exact-image
+NAS rerun after this fix must determine whether they change. Do not re-pin a
+golden result merely to preserve either number.
+
+The corrected contract requires session-effective decision metadata: every
+measured market session must have its legitimately observed TICKERS snapshot.
+The fresh NAS rebuild's current-only snapshot is enough to repair permanent
+identity for corpus parity, but it cannot certify a 2021--2023 rehearsal. That
+rehearsal remains blocked until authoritative historical TICKERS observations
+are restored; today's snapshot must not masquerade as that history.
+
+Repository and vendor audit (2026-08-15): no retained repository artifact is a
+per-session TICKERS history. The reproduction kit references one external
+current-state `SHARADAR_TICKERS.zip`, and the vendor TICKERS table has no
+effective-date dimension for category/relationships. No legacy NAS database
+with provenance-complete 2021--2023 daily observations has been identified.
+The blocker is therefore evidence, not loader capability: produce and verify
+the retained daily observations, or obtain a vendor effective-dated metadata
+product / separately reviewed strategy contract that removes those decision
+fields. Backdating today's export is not an option.
+
 ```text
 pending_terms_carried              8      $342,136.68
 derived_last_mark_settlements      8      $342,419.72
@@ -1194,6 +1224,13 @@ two stacks share no docker network by design).
    passed; the formal replay follows the finalized chain rehearsal at step 7a,
    because its authority record must bind the final manifest bytes.
 
+   Population evidence comes only from the session-effective timeline:
+   `distinct_securities` is the permanent-ID union across the measured window;
+   `first_session_securities` and `last_session_securities` are the exact
+   populations on those measured sessions; `maximum_session_securities` is the
+   largest exact session population in the window. A populated certification
+   run reporting zero distinct or maximum population is invalid.
+
    ```bash
    START=2021-01-04
    END=2023-12-29
@@ -1224,6 +1261,11 @@ two stacks share no docker network by design).
    assert a["corpus"]["source_mode"] == "sharadar"
    assert a["corpus"]["split_source"] == "actions"
    assert a["corpus"]["actions_ingestion"]["coverage_complete"] is True
+   assert a["corpus"]["distinct_securities"] > 0
+   assert a["corpus"]["first_session_securities"] > 0
+   assert a["corpus"]["last_session_securities"] > 0
+   assert a["corpus"]["maximum_session_securities"] > 0
+   assert a["corpus"]["maximum_session_securities"] <= a["corpus"]["distinct_securities"]
    assert a["window"]["warmup_sessions"] == 126
    assert re.fullmatch(r"[0-9a-f]{64}", a["corpus"]["causal_input_sha256"])
    assert re.fullmatch(r"[0-9a-f]{64}", a["corpus"]["actions_sha256"])

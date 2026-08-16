@@ -108,6 +108,7 @@ class ParityReport:
     examples: list[dict] = field(default_factory=list)
     examples_truncated: int = 0
     unavailable: Optional[str] = None
+    canonical_loader_failure: Optional[str] = None
     sentinel_data_version: Optional[int] = None
     canonical_data_version: Optional[str] = None
     canonical_source_mode: Optional[str] = None
@@ -125,6 +126,7 @@ class ParityReport:
     @property
     def agrees(self) -> bool:
         return (self.unavailable is None
+                and self.canonical_loader_failure is None
                 and not self.missing_count
                 and not self.extra_count
                 and not self.field_divergences)
@@ -132,6 +134,7 @@ class ParityReport:
     def to_dict(self) -> dict:
         return {"window": {"start": self.window[0], "end": self.window[1]},
                 "unavailable": self.unavailable,
+                "canonical_loader_failure": self.canonical_loader_failure,
                 "sentinel_bars": self.sentinel_bars,
                 "canonical_bars": self.canonical_bars,
                 "sentinel_data_version": self.sentinel_data_version,
@@ -295,6 +298,19 @@ def run(sentinel_conn, *, start: str, end: str,
                 canonical = bt.load_bars(bt_conn, start, end,
                                          authoritative_splits=splits,
                                          dividends=divs, identity=identity)
+    except (bt.IdentityAuthorityUnavailable,
+            bt.CanonicalBarsUnavailable) as exc:
+        # This is not a membership comparison. Turning a collapsed canonical
+        # loader into millions of ordinary "extra Sentinel" rows hides the one
+        # actionable fact and can exhaust the report process before it says it.
+        return ParityReport(
+            window=(start, end),
+            sentinel_bars=sum(len(v) for v in mine.bars_by_session.values()),
+            canonical_loader_failure="identity_authority",
+            unavailable=f"canonical identity/canonical-loader failure: {exc}",
+            sentinel_data_version=sentinel_publication.version,
+            canonical_data_version=str(generation[0]),
+            canonical_source_mode=str(generation[2]))
     except Exception as exc:                                 # noqa: BLE001
         return ParityReport(window=(start, end), unavailable=(
             f"the canonical corpus could not be read: {exc!r}"))
@@ -339,7 +355,10 @@ def main(argv=None) -> int:
     print(json.dumps(rep.to_dict(), indent=2, default=str))
     if rep.agrees:
         return 0
-    if rep.unavailable:
+    if rep.canonical_loader_failure:
+        print(f"REFUSED: {rep.canonical_loader_failure}: {rep.unavailable}",
+              file=sys.stderr)
+    elif rep.unavailable:
         print(f"REFUSED: {rep.unavailable}", file=sys.stderr)
     else:
         print(f"REFUSED: the seeded corpus differs from the canonical one — "

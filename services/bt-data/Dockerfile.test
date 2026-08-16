@@ -1,0 +1,19 @@
+# Focused test lens for the pinned bt-data runtime.
+ARG BT_DATA_IMAGE=stocker-bt-data:latest
+FROM ${BT_DATA_IMAGE}
+ARG SOURCE_GIT_SHA=unknown
+LABEL org.opencontainers.image.revision=${SOURCE_GIT_SHA}
+
+COPY tests/bt_engine/requirements.lock /tmp/bt-data-test/requirements.lock
+RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
+        --no-deps -r /tmp/bt-data-test/requirements.lock \
+ && pip check
+
+WORKDIR /work
+COPY pytest.ini /work/pytest.ini
+COPY tests/bt_data/ /work/tests/bt_data/
+COPY services/bt-data/ /work/services/bt-data/
+COPY shared/ /work/shared/
+
+ENV PYTHONPATH=/app:/work
+ENTRYPOINT ["python", "-m", "pytest"]

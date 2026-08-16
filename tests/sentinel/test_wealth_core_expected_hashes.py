@@ -9,6 +9,8 @@ from types import SimpleNamespace
 import pytest
 
 from stock_strategy_shared.wealth_core.hashes import HASH_ORDER
+from stock_strategy_shared.wealth_core.feed import (
+    DecisionMetadataTimelineBuilder, SecurityMeta, VendorBar)
 from tools import wealth_core_expected_hashes as TOOL
 
 
@@ -68,7 +70,7 @@ class FakeBT:
                    "wealth_core_replay.py")
 
     def __init__(self, start="2024-06-03", end="2024-06-04", *,
-                 actions=True, shift_start=False):
+                 actions=True, shift_start=False, bars=True):
         self.start = start
         self.end = end
         start_day = date.fromisoformat(start)
@@ -83,6 +85,10 @@ class FakeBT:
         self.actions = ([{"date": start, "ticker": "AAA",
                           "action": "dividend", "value": 1.0}]
                         if actions else [])
+        self.bars = ({start: [VendorBar(
+            session=start, security_id="P:1", ticker="AAA",
+            raw_close=100.0, raw_open=99.0, volume=1_000_000.0)]}
+                     if bars else {})
         self.observed = {}
 
     def assert_raw_price_domain(self, _conn, start, end):
@@ -92,9 +98,16 @@ class FakeBT:
     def load_sessions(self, _conn, _start, _end):
         return list(self.sessions)
 
-    def load_meta(self, _conn, *, as_of):
-        self.observed["meta_as_of"] = as_of
-        return {"P:1": object()}
+    def load_meta_timeline(self, _conn, *, sessions):
+        self.observed["meta_sessions"] = list(sessions)
+        builder = DecisionMetadataTimelineBuilder(sessions)
+        meta = SecurityMeta(
+            security_id="P:1", ticker="AAA",
+            category="Domestic Common Stock", permaticker="1",
+            related_tickers=("AAA",), first_session="2000-01-01")
+        for session in sessions:
+            builder.add_snapshot(session, {"P:1": meta})
+        return builder.finish()
 
     def load_identity(self, _conn, *, as_of):
         self.observed["identity_as_of"] = as_of
@@ -152,9 +165,18 @@ class FakeBT:
         self.observed["dividend_mapping"] = mapping
         return mapping
 
-    @staticmethod
-    def load_bars(_conn, _start, _end, **_kwargs):
-        return {}
+    def load_bars(self, _conn, _start, _end, **_kwargs):
+        return self.bars
+
+    def require_usable_bars(self, bars, **_kwargs):
+        if not any(bars.values()):
+            raise TOOL.ExpectedHashesRefused(
+                "zero-security run is not certification evidence")
+
+    def require_usable_decision_bars(self, bars, _timeline, **_kwargs):
+        if not any(bars.values()):
+            raise TOOL.ExpectedHashesRefused(
+                "zero-security run is not certification evidence")
 
     def terminal_events_from_actions(self, rows, sessions, **_kwargs):
         self.observed["terminal_actions"] = list(rows)
@@ -225,7 +247,7 @@ class TestWindowAndSource:
             conn, start=bt.start, end=bt.end, bt=bt)
         assert len(corpus["warmup_sessions"]) == 126
         assert corpus["sessions"] == [bt.start, bt.end]
-        assert bt.observed["meta_as_of"] == bt.end
+        assert bt.observed["meta_sessions"] == [bt.start, bt.end]
         assert bt.observed["identity_as_of"] == bt.end
         assert corpus["source"]["split_source"] == "actions"
         assert corpus["source"]["actions_ingestion"]["coverage_complete"]
@@ -240,6 +262,13 @@ class TestWindowAndSource:
     def test_missing_actions_never_falls_back_to_derived_splits(self):
         bt = FakeBT(actions=False)
         with pytest.raises(TOOL.ExpectedHashesRefused, match="derived"):
+            TOOL.load_corpus(
+                SnapshotConn(), start=bt.start, end=bt.end, bt=bt)
+
+    def test_zero_bars_after_reference_filtering_is_refused(self):
+        bt = FakeBT(bars=False)
+        with pytest.raises(TOOL.ExpectedHashesRefused,
+                           match="zero-security run"):
             TOOL.load_corpus(
                 SnapshotConn(), start=bt.start, end=bt.end, bt=bt)
 
@@ -396,27 +425,15 @@ def test_the_run_warms_the_shared_feed_and_uses_streaming_hashes(monkeypatch):
     assert config_hash
 
 
-def test_the_artifact_binds_hashes_to_window_corpus_and_source(monkeypatch):
+def test_real_load_corpus_to_artifact_reports_timeline_population(monkeypatch):
     conn = SnapshotConn()
     bt = FakeBT()
     hashes = {name: format(i + 1, "064x")
               for i, name in enumerate(HASH_ORDER)}
-    corpus = {
-        "sessions": [bt.start, bt.end],
-        "warmup_sessions": bt.sessions[1:127],
-        "bars_by_session": {}, "meta": {"P:1": object()},
-        "terminal_events": [],
-        "source": {
-            "split_source": "actions", "actions_rows": 1,
-            "actions_sha256": "c" * 64,
-            "actions_ingestion": {"coverage_complete": True},
-        },
-    }
     result = SimpleNamespace(
         state=SimpleNamespace(cash=999_999.0, episodes={}),
         blocked_sessions=[])
 
-    monkeypatch.setattr(TOOL, "load_corpus", lambda *_args, **_kw: corpus)
     from stock_strategy_shared.runtime_identity import (
         wealth_core_baseline_identity,
     )
@@ -445,6 +462,11 @@ def test_the_artifact_binds_hashes_to_window_corpus_and_source(monkeypatch):
     assert out["window"]["requested_start"] == bt.start
     assert out["corpus"]["version"] == "generation-7"
     assert out["corpus"]["source_mode"] == "sharadar"
+    assert out["corpus"]["distinct_securities"] == 1
+    assert out["corpus"]["first_session_securities"] == 1
+    assert out["corpus"]["last_session_securities"] == 1
+    assert out["corpus"]["maximum_session_securities"] == 1
+    assert "securities" not in out["corpus"]
     assert out["corpus"]["normalized_input_hash"] == \
         hashes["normalized_input"]
     assert len(out["corpus"]["causal_input_sha256"]) == 64
@@ -466,6 +488,20 @@ def test_the_artifact_binds_hashes_to_window_corpus_and_source(monkeypatch):
     for mutation in ("INSERT ", "UPDATE ", "DELETE ", "TRUNCATE ",
                      "CREATE ", "ALTER ", "DROP "):
         assert mutation not in sql
+
+
+def test_nonempty_static_meta_cannot_conceal_missing_timeline_population():
+    with pytest.raises(TOOL.ExpectedHashesRefused,
+                       match="static meta map is not population evidence"):
+        TOOL.population_evidence({"meta": {"P:1": object()}})
+
+
+def test_populated_run_cannot_emit_a_zero_session_population():
+    builder = DecisionMetadataTimelineBuilder(["2021-01-04"])
+    builder.add_snapshot("2021-01-04", {})
+    with pytest.raises(TOOL.ExpectedHashesRefused,
+                       match="zero or invalid timeline-derived securities"):
+        TOOL.population_evidence({"metadata_timeline": builder.finish()})
 
 
 def test_causal_hash_includes_warmup_while_seven_hash_contract_stays_separate():

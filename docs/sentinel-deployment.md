@@ -1179,6 +1179,37 @@ prices.
 An unreadable canonical corpus exits non-zero. Not having run the check is not
 the same as passing it.
 
+#### Cold-boot identity collapse is a loader failure, not membership drift
+
+A rebuilt bt-data database can legitimately have the complete historical SEP
+price corpus and only a current TICKERS observation. Do not backdate that
+observation. The canonical identity loader may use its vendor
+`firstpricedate` / `lastpricedate` interval solely to prove which permaticker
+owned a ticker on each historical session; current category, relationships and
+labels remain unavailable to historical decisions.
+
+If the requested price window is non-empty but no bar can be resolved, parity
+reports `canonical_loader_failure: identity_authority` and exits non-zero. It
+must not report `canonical_bars: 0` followed by every Sentinel bar as an
+ordinary `extra_in_sentinel` population. For identity/corpus parity, repair
+only TICKERS, then rerun:
+
+```bash
+curl -fsS -X POST http://localhost:8021/jobs/backfill-universe
+```
+
+This fetches no SEP prices. The observation is dated today. An operator must
+not pass a historical date or update the NAS tables by hand.
+
+This repair does not reconstruct decision metadata. A causal multi-year Wealth
+Core rehearsal requires the legitimately observed TICKERS snapshot for every
+measured session so category, label, listing eligibility, and issuer-family
+changes become effective only when observed. A current-only snapshot can prove
+historical identity through bounded listing intervals, but the rehearsal must
+refuse it rather than silently run a partial or cash-only universe. Restore that
+snapshot history separately; do not refetch or rewrite the 42-million-row price
+corpus and do not backdate today's TICKERS delivery.
+
 It lives in `tools/`, not in the `sentinel` package, because the canonical
 module imports SQLAlchemy at module scope and that is a retired-stack
 dependency — `tests/sentinel/test_image_layout.py` refuses to let the runtime

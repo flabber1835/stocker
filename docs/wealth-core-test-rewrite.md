@@ -147,7 +147,8 @@ the signal tests (57 passed) and the golden pin (passed) are both blind to it.
 4. ~~profile-discrimination fixture~~ — **done**, 29 tests, artefact untouched
 5. ~~integrate authoritative ACTIONS~~ — **done**, ingest + replay wiring
 6. ~~apply dividends~~ — **done**, with a settlement lag; golden pin left RED on purpose
-7. ~~permanent security / issuer identifiers in place of the ticker~~ — **done**
+7. ~~permanent security identifiers in place of the ticker, with separate
+   contemporaneous issuer-family grouping~~ — **done**
 8. ~~revise and re-pin the certified artefact **once** for those data semantics~~ — **done**, `2643154598f7…`
 8b. ~~rehearse the live chain in the wind tunnel, and expose it~~ — **done**,
     `POST /wealth-core/jobs/run` (baseline_replay | experiment |

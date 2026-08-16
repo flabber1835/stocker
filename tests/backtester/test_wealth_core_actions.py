@@ -627,17 +627,15 @@ class TestPointInTimeIdentity:
         assert r.resolve("X", "2015-01-01") is None
         assert r.unresolved == {"ambiguous_ticker": 1}
 
-    def test_a_SINGLE_owner_is_resolved_without_consulting_the_window(self):
-        """A security's price history can legitimately start before the
-        universe snapshot's first_price_date. Refusing those bars would discard
-        real history for the common case to guard against a reuse that cannot
-        happen when only one security ever held the symbol."""
+    def test_a_SINGLE_owner_still_requires_interval_proof(self):
+        """Owner count is not temporal evidence. Ignoring the interval for the
+        common case would let a current label authorize every historical bar."""
         from app.wealth_core_replay import IdentityResolver
         r = IdentityResolver([{"permaticker": "9", "ticker": "SOLO",
                                "first_price_date": "2015-01-01",
                                "last_price_date": "2016-01-01"}])
-        assert r.resolve("SOLO", "1999-01-01") == "P:9"
-        assert r.unresolved == {}
+        assert r.resolve("SOLO", "1999-01-01") is None
+        assert r.unresolved == {"out_of_window": 1}
 
     def test_the_id_is_PREFIXED_so_it_cannot_be_read_as_a_symbol(self):
         from app.wealth_core_replay import SECURITY_ID_PREFIX, permanent_id

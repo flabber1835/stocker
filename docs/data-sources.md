@@ -500,3 +500,131 @@ A bulk Sharadar export remains a reasonable future step for VINTAGE COHERENCE �
 a corpus assembled piecemeal is a patchwork of vendor vintages and no hash over
 it is reproducible by construction. It is NOT a fix for A, B or D, and doing it
 first would certify a corpus that still carries all three.
+
+### Cold-boot TICKERS temporal contract (2026-08-15)
+
+Sharadar TICKERS is a daily delivery of the vendor's current securities master.
+`snapshot_date` is when Stocker observed that delivery; it is not the effective
+date of every value in the row and must never be backdated. Sharadar documents
+`permaticker` as a unique, unchanging security identifier in its
+[TICKERS documentation](https://sharadar.com/docs/tickers), and exposes
+`firstpricedate` / `lastpricedate` as the price-history interval for a
+`(ticker, permaticker)` row. It does not expose effective-from/effective-to
+history for `category` or `relatedtickers`.
+
+The canonical loader therefore has two deliberately separate authorities:
+
+```text
+field                                      historical use
+permaticker + ticker + first/last price    IDENTITY ONLY. A later observation
+                                           may resolve a price bar only when
+                                           its listing interval covers that
+                                           exact session. The interval is
+                                           required even for a symbol with one
+                                           observed owner. Overlap or absence
+                                           refuses instead of guessing.
+
+category, relatedtickers, display ticker,  DECISION METADATA. The exact TICKERS
+and firstpricedate used for eligibility    snapshot observed for each measured
+or issuer-family construction              session is authoritative for that
+                                           session. Changes apply forward from
+                                           their observation session only.
+```
+
+`firstpricedate` and `lastpricedate` from a later delivery are evidence about
+the label-to-identity pairing only. They do not make the later row a historical
+category, issuer-family, display-label or listing-eligibility observation. If a
+historical run lacks a complete session-by-session decision-metadata timeline,
+the run refuses explicitly before producing candidates, hashes, or performance.
+A start-frozen map would permanently exclude later listings; an end-frozen map
+would rewrite earlier categories and issuer families. The canonical engine
+therefore consumes the metadata snapshot effective for each decision session.
+Identity resolution remains separately available to corpus parity, which needs
+permanent bar keys but makes no eligibility decision. `permaticker` names the
+permanent security; issuer-family grouping is a separate construction derived
+from the contemporaneous `relatedtickers` observation.
+
+The observation date always caps the interval: a delivery observed on D cannot
+authorize a price session after D, even if `lastpricedate` is absent or bad.
+
+Each retained decision snapshot is complete, so a row never inherits nullable
+values from the preceding observation. Snapshot membership is recorded before
+strategy eligibility is evaluated: every TICKERS security with usable row
+identity is retained even when it is a fund, preferred, warrant, has a NULL
+category, or trades on an unsupported exchange. Otherwise the absence of the
+metadata row would erase an existing price row from the decision view and turn
+"observed but ineligible" into "not delivered". The raw exchange is retained;
+unsupported or empty exchange remains visible and is ineligible downstream.
+The ingestion contract is:
+
+```text
+field                 present but empty/NULL             field absent
+category              authoritative unknown; ineligible incomplete delivery; refuse
+relatedtickers         authoritative empty family;        incomplete delivery; refuse
+                      fall back to that security's
+                      permaticker only
+firstpricedate         authoritative unknown lower bound; incomplete delivery; refuse
+                      ineligible for a new admission
+lastpricedate          authoritative open/unknown upper   incomplete delivery; refuse
+                      bound at that observation
+exchange               authoritative unknown; ineligible incomplete delivery; refuse
+```
+
+`bt_universe.decision_metadata_complete` records that the vendor delivery
+contained all five decision keys before normalization. Existing rows pre-dating that
+provenance default to false and cannot certify a decision timeline. In
+particular, the normalized SQL `NULL` for an observed empty `relatedtickers`
+value means **clear the relationship**; it never means “reuse yesterday.”
+Missing category never inherits an earlier common-stock label. Ticker and
+permaticker remain required row identity; unusable permanent identity is
+rejected by the writer.
+
+The ingestion job buffers the complete paginated TICKERS response before the
+snapshot write. A fetch exception therefore records a failed run and publishes
+no partial observation. Independently, every retained row must carry the
+per-row completeness bit above; completing the HTTP delivery cannot turn an
+absent decision field into an authoritative empty value.
+
+This split repairs the cold-boot case without future leakage. A fresh database
+may contain historical `bt_prices` and only today's TICKERS delivery: bars whose
+vendor interval covers their session resolve; bars outside it do not. A
+non-empty price window that resolves to zero is an identity-authority failure,
+not an empty market, a cash-only backtest, or millions of ordinary parity
+membership differences.
+
+Identity repair is TICKERS-only:
+
+```bash
+curl -fsS -X POST http://localhost:8021/jobs/backfill-universe
+```
+
+The endpoint always records the service's current observation date and never
+touches `bt_prices`. Supplying an older `snapshot_date` is refused; copying
+today's metadata under a historical date would fabricate exactly the
+point-in-time evidence the loader is designed not to invent. No SEP refetch is
+required. This current snapshot is sufficient for historical identity/corpus
+parity when its bounded vendor listing intervals prove the pairings. It is
+**not** historical decision metadata and does not make a multi-year Wealth Core
+rehearsal certifiable. Such a rehearsal additionally requires the legitimately
+observed TICKERS snapshot for every measured market session; a current-only
+rebuilt corpus fails closed until that history is restored from an authoritative
+retained source.
+
+### Historical decision-metadata source audit
+
+The repository contains no per-session historical TICKERS archive or database
+dump. The reproduction-kit manifest names one external
+`SHARADAR_TICKERS.zip`; it is one current securities-master export and has no
+observation-date column from which daily category/relationship history can be
+reconstructed. The Nasdaq Data Link TICKERS schema likewise exposes current
+rows plus `firstpricedate`, `lastpricedate`, and `lastupdated`, not an
+effective-dated history of category or `relatedtickers`.
+
+The rebuilt NAS database has only its 2026 observation. No legacy NAS database
+containing legitimate 2021--2023 daily observations has been identified or
+verified. Unless an operator produces such a retained database/archive with
+observation provenance, causal rehearsal remains blocked. A defensible
+alternative would require a vendor product that supplies effective-dated
+category and issuer-family relationships (plus listing identity), or a reviewed
+strategy contract that demonstrably does not consume those fields; neither is
+currently available. Current TICKERS rows must not be expanded backward.

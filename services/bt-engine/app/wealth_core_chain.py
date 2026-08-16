@@ -47,7 +47,8 @@ from stock_strategy_shared.wealth_core.execution_model import (
     RunTrace,
     resolve,
 )
-from stock_strategy_shared.wealth_core.feed import Feed, SecurityMeta, VendorBar
+from stock_strategy_shared.wealth_core.feed import (
+    DecisionMetadataTimeline, Feed, SecurityMeta, VendorBar)
 from stock_strategy_shared.wealth_core.ledger import Ledger
 from stock_strategy_shared.wealth_core.live import plan_session
 from stock_strategy_shared.wealth_core.risk_profile import (
@@ -348,6 +349,7 @@ def _progress_snapshot(done, all_sessions, starting_cash, current,
 def rehearse_chain(*, sessions: Sequence[str],
                    bars_by_session: Mapping[str, Sequence[VendorBar]],
                    meta: Mapping[str, SecurityMeta],
+                   metadata_timeline: DecisionMetadataTimeline | None = None,
                    starting_cash: float,
                    config: Mapping[str, Any] | None = None,
                    cfg: WealthCoreConfig | None = None,
@@ -420,7 +422,7 @@ def rehearse_chain(*, sessions: Sequence[str],
     pending: list[PendingOrder] = []
     ledger = Ledger()
     last_known: dict[str, float] = {}
-    feed = Feed(meta, eligibility_cfg)
+    feed = Feed(meta, eligibility_cfg, metadata_timeline)
     # PRE-START HISTORY. The signal needs REQUIRED_CLOSES observations, so
     # without this the book cannot rank a single name until session 127 — it
     # sits in cash for ~6 months of a dated run and then builds from a truncated
@@ -432,6 +434,8 @@ def rehearse_chain(*, sessions: Sequence[str],
         feed.warmup(list(warmup_sessions), bars_by_session)
 
     for session in sessions:
+        session_meta = (metadata_timeline.session_map(session)
+                        if metadata_timeline is not None else meta)
         # ONE TRACE PER SESSION — the shape RunTrace actually has, and the
         # shape a live run produces. Stages are appended as they are performed
         # so `validate()` checks the real ORDER rather than a list written out
@@ -446,7 +450,8 @@ def rehearse_chain(*, sessions: Sequence[str],
 
         # wealth-core-session — THE live call.
         plan = plan_session(
-            session=session, bars=bars_by_session.get(session, ()), meta=meta,
+            session=session, bars=bars_by_session.get(session, ()),
+            meta=session_meta, metadata_timeline=metadata_timeline,
             state=state, pending=pending, ledger=ledger,
             last_known=last_known, feed=feed, cfg=cfg,
             eligibility_cfg=eligibility_cfg, terminal_events=terminal_events)
@@ -463,7 +468,7 @@ def rehearse_chain(*, sessions: Sequence[str],
 
         # risk — every intent, through the profile.
         by_sec, by_issuer, issuers = _exposures(
-            state, meta, last_known, plan.resolved_equity)
+            state, session_meta, last_known, plan.resolved_equity)
         entries = 0
         for intent in (i.to_dict() for i in plan.intents):
             verdict = _gate(intent, profile=profile, state=state,
@@ -547,7 +552,7 @@ def rehearse_chain(*, sessions: Sequence[str],
     # the chain's would replay the whole run through it a second time; and
     # warming only one of the two makes them see different history, which shows
     # up as a divergence that has nothing to do with the strategy.
-    bulk_feed = Feed(meta, eligibility_cfg)
+    bulk_feed = Feed(meta, eligibility_cfg, metadata_timeline)
     if warmup_sessions:
         bulk_feed.warmup(list(warmup_sessions), bars_by_session)
     # STREAMING under bounded/none retention: the bulk replay is the larger of
@@ -556,6 +561,7 @@ def rehearse_chain(*, sessions: Sequence[str],
     # golden fixture; `full` keeps the objects so debugging is unchanged.
     bulk, bulk_hashes = run_with_hashes(
         sessions=list(sessions), bars_by_session=bars_by_session, meta=meta,
+        metadata_timeline=metadata_timeline,
         starting_cash=starting_cash, cfg=cfg,
         eligibility_cfg=eligibility_cfg, terminal_events=terminal_events,
         feed=bulk_feed,

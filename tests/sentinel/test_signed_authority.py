@@ -675,7 +675,11 @@ def issuer_fixture(tmp_path: Path, *, wealth_verdict="GO", strict_xfails=0,
     expected_value = formal_baseline.complete_expected({
         "schema": "wealth_core_expected_hashes.v1", "status": "ready",
         "window": {}, "hashes": expected_values,
-        "corpus": {"version": "generation-7"},
+        "corpus": {"version": "generation-7",
+                   "distinct_securities": 2000,
+                   "first_session_securities": 1900,
+                   "last_session_securities": 1950,
+                   "maximum_session_securities": 1960},
         "run": {"strategy_id": "wealth-core", "strategy_version": "1",
                 "config_hash": sha("4"), "starting_cash": 1_000_000.0},
         "provenance": {

@@ -89,6 +89,14 @@ jobs:
             --build-arg SOURCE_GIT_SHA="${GITHUB_SHA}" \
             -f services/bt-engine/Dockerfile.test \
             -t stocker-bt-engine-test:ci .
+          docker build \
+            --build-arg SOURCE_GIT_SHA="${GITHUB_SHA}" \
+            -f services/bt-data/Dockerfile -t stocker-bt-data:ci .
+          docker build \
+            --build-arg BT_DATA_IMAGE=stocker-bt-data:ci \
+            --build-arg SOURCE_GIT_SHA="${GITHUB_SHA}" \
+            -f services/bt-data/Dockerfile.test \
+            -t stocker-bt-data-test:ci .
 
       - name: Compile the executable Python and test surfaces
         run: |
@@ -109,6 +117,23 @@ jobs:
           if grep -Eq '(^|, )[0-9]+ skipped(,| in |$)' \
               /tmp/sentinel-complete.txt; then
             echo 'REFUSED: the complete Sentinel run skipped tests' >&2
+            exit 1
+          fi
+
+      - name: Run cold-boot identity and TICKERS behavior without skips
+        run: |
+          set -euo pipefail
+          docker run --rm --network none sentinel-test:ci \
+            tests/backtester/test_cold_boot_identity.py \
+            -q -ra 2>&1 | tee /tmp/cold-boot-focused.txt
+          docker run --rm --network none stocker-bt-data-test:ci \
+            tests/bt_data/test_sharadar_adapter.py \
+            tests/bt_data/test_schema_bootstrap.py \
+            tests/bt_data/test_sf1_coverage.py \
+            -q -ra 2>&1 | tee /tmp/bt-data-focused.txt
+          if grep -Eq '(^|, )[0-9]+ skipped(,| in |$)' \
+              /tmp/cold-boot-focused.txt /tmp/bt-data-focused.txt; then
+            echo 'REFUSED: merge-critical cold-boot tests skipped' >&2
             exit 1
           fi
 
