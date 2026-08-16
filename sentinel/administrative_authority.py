@@ -22,8 +22,9 @@ from sentinel.config import assert_paper_url
 ADMIN_INSPECT = "ADMIN_INSPECT"
 ADMIN_MIGRATE = "ADMIN_MIGRATE"
 ADMIN_ADOPT = "ADMIN_ADOPT"
+ADMIN_BIND_EMPTY = authority.ADMIN_BIND_EMPTY
 ADMINISTRATIVE_OPERATIONS = frozenset({
-    ADMIN_INSPECT, ADMIN_MIGRATE, ADMIN_ADOPT,
+    ADMIN_INSPECT, ADMIN_MIGRATE, ADMIN_ADOPT, ADMIN_BIND_EMPTY,
 })
 
 
@@ -84,6 +85,7 @@ def administrative_execution_config_identity(
         "broker": "alpaca",
         "adapters": {
             "inspection": "sentinel.execution.alpaca.AlpacaExecutionBroker",
+            "empty_account": "sentinel.empty_account.GuardedEmptyAccountBroker",
             "migration": "sentinel.broker.AlpacaSentinelBroker",
         },
         "guard": "sentinel.guarded_administration/1",
@@ -122,7 +124,7 @@ def _administrative_operations(
                    for operation in raw)):
         raise authority.AuthorityRefused(
             "administrative certificates may permit only ADMIN_INSPECT, "
-            "ADMIN_MIGRATE, and ADMIN_ADOPT")
+            "ADMIN_MIGRATE, ADMIN_ADOPT, and ADMIN_BIND_EMPTY")
     if certificate.unattended_automation:
         raise authority.AuthorityRefused(
             "administrative certificates cannot authorize unattended automation")
@@ -130,6 +132,16 @@ def _administrative_operations(
         raise authority.AuthorityRefused(
             "one administrative certificate cannot authorize both first "
             "migration and restored-host adoption")
+    if ADMIN_BIND_EMPTY in raw:
+        if (raw != [ADMIN_BIND_EMPTY]
+                or certificate.authorization_mode != ADMIN_BIND_EMPTY):
+            raise authority.AuthorityRefused(
+                "ADMIN_BIND_EMPTY must be the sole operation in its dedicated "
+                "empty-account certificate")
+        return tuple(raw)
+    if certificate.authorization_mode == ADMIN_BIND_EMPTY:
+        raise authority.AuthorityRefused(
+            "empty-account certificate operation is not ADMIN_BIND_EMPTY")
     if (tuple(certificate.claims["allowed_rollout_modes"])
             != (authority.RolloutMode.PINNED_1_00.value,)
             or certificate.rollout["from_mode"]
@@ -167,13 +179,13 @@ def _context_matches(certificate: authority.SignedSystemCertificate,
 def _binding_matches_operation(conn, *, context: AdministrativeAuthorityContext,
                                operation: str) -> None:
     current = binding_mod.load(conn)
-    if operation == ADMIN_MIGRATE:
+    if operation in {ADMIN_MIGRATE, ADMIN_BIND_EMPTY}:
         if current is not None:
             raise authority.AuthorityRefused(
-                "ADMIN_MIGRATE is valid only before the account is bound")
+                f"{operation} is valid only before the account is bound")
         if context.takeover_epoch != 1:
             raise authority.AuthorityRefused(
-                "first-migration authority must name takeover epoch 1")
+                f"{operation} authority must name takeover epoch 1")
         return
     if operation == ADMIN_ADOPT:
         if current is None:
@@ -227,12 +239,22 @@ def build_current_context(
         paper_base_url=paper_base_url,
         automation_config_sha256=automation_config_sha256,
         trust_roots_path=trust_roots_path)
-    bindings = authority.bind_current_immutable_identities(
-        certificate.claims["bindings"], **kwargs)
-    bindings["execution_config_sha256"] = authority.canonical_sha256(
-        administrative_execution_config_identity(
-            paper_base_url=paper_base_url,
-            trust_roots_path=trust_roots_path))
+    if certificate.authorization_mode == ADMIN_BIND_EMPTY:
+        from sentinel.empty_account_authority import current_bindings
+        bindings = current_bindings(
+            conn, claimed_bindings=certificate.claims["bindings"],
+            **kwargs)
+        rollout = authority.load_rollout_state(conn)
+        if rollout.to_dict() != certificate.claims["durable_rollout"]:
+            raise authority.AuthorityRefused(
+                "empty-account certificate durable rollout changed")
+    else:
+        bindings = authority.bind_current_immutable_identities(
+            certificate.claims["bindings"], **kwargs)
+        bindings["execution_config_sha256"] = authority.canonical_sha256(
+            administrative_execution_config_identity(
+                paper_base_url=paper_base_url,
+                trust_roots_path=trust_roots_path))
 
     from sentinel.execution import authority_gate
     policy = _mapping(
@@ -630,6 +652,60 @@ def revoke_administrative_certificate(
         conn.commit()
 
 
+def consume_empty_binding_authority(
+        conn, *, certificate_sha256: str,
+        reason: str = "consumed by successful ADMIN_BIND_EMPTY",
+        now: datetime | None = None,
+        trust_roots_path: Path = authority.DEFAULT_TRUST_ROOTS_PATH,
+        trust_roots: Mapping[str, authority.TrustRoot] | None = None,
+        commit: bool = False) -> None:
+    """One-shot fence used in the same transaction as the first binding."""
+    certificate = load_active_administrative_certificate(
+        conn, now=now, trust_roots_path=trust_roots_path,
+        trust_roots=trust_roots)
+    if (certificate.certificate_sha256 != certificate_sha256
+            or _administrative_operations(certificate) != (ADMIN_BIND_EMPTY,)):
+        raise authority.AuthorityRefused(
+            "only the exact active ADMIN_BIND_EMPTY certificate can be consumed")
+    revoke_administrative_certificate(
+        conn, certificate_sha256=certificate_sha256,
+        reason=reason, commit=commit)
+
+
+def administrative_authority_status(conn) -> Mapping:
+    """SELECT-only lifecycle projection for operator verification."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT generation,highest_issuer_generation,"
+            " active_certificate_sha256"
+            " FROM sentinel_administrative_authority_state WHERE id=1")
+        state = cur.fetchone()
+        cur.execute(
+            "SELECT certificate_sha256,status,revocation_reason,"
+            " permitted_operations,expires_at"
+            " FROM (SELECT certificate_sha256,status,revocation_reason,"
+            " claims->'permitted_operations' AS permitted_operations,"
+            " expires_at,install_sequence"
+            " FROM sentinel_signed_administrative_certificates"
+            " ORDER BY install_sequence DESC LIMIT 10) recent"
+            " ORDER BY install_sequence DESC")
+        rows = cur.fetchall()
+    return {
+        "generation": int(state[0]) if state else 0,
+        "highest_issuer_generation": int(state[1]) if state else 0,
+        "active_certificate_sha256": (
+            str(state[2]) if state and state[2] else None),
+        "certificates": [{
+            "certificate_sha256": str(row[0]),
+            "status": str(row[1]),
+            "revocation_reason": str(row[2]) if row[2] else None,
+            "permitted_operations": (
+                row[3] if isinstance(row[3], list) else json.loads(row[3])),
+            "expires_at": row[4].isoformat(),
+        } for row in rows],
+    }
+
+
 def require_administrative_authority(
         conn, *, operation: str, deployment_id: str,
         broker_account_id: str, takeover_epoch: int,
@@ -663,10 +739,12 @@ def require_administrative_authority(
 
 
 __all__ = [
-    "ADMIN_ADOPT", "ADMIN_INSPECT", "ADMIN_MIGRATE",
+    "ADMIN_ADOPT", "ADMIN_BIND_EMPTY", "ADMIN_INSPECT", "ADMIN_MIGRATE",
     "ADMINISTRATIVE_OPERATIONS", "AdministrativeAuthorityContext",
     "administrative_execution_config_identity",
+    "administrative_authority_status",
     "activate_administrative_certificate", "build_current_context",
+    "consume_empty_binding_authority",
     "install_administrative_certificate",
     "load_active_administrative_certificate",
     "load_administrative_certificate", "require_administrative_authority",

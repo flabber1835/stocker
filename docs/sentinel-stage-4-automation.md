@@ -276,8 +276,10 @@ their first legitimate use occurs before an account binding exists. They also
 must not fall back to an operator confirmation as trust. A distinct signed
 administrative-certificate lifecycle therefore stages and activates the same
 canonical Ed25519 envelope against an exact proposed deployment, Alpaca paper
-account, and takeover epoch. Its permitted operations are a non-empty subset of
-`ADMIN_INSPECT`, `ADMIN_MIGRATE`, and `ADMIN_ADOPT`, and
+account, and takeover epoch. Historical administrative certificates permit a
+non-empty subset of `ADMIN_INSPECT`, `ADMIN_MIGRATE`, and `ADMIN_ADOPT`.
+A distinct empty-account certificate permits only `ADMIN_BIND_EMPTY`, only for
+an unbound epoch-1 account, and explicitly grants no historical causality.
 `unattended_automation` is always false. An administrative certificate cannot
 carry `PREPARE_READ`, `EXECUTE_READ`, `SUBMIT`, `CANCEL`, or `AUTOMATION`, so it
 can never become daily execution authority.
@@ -308,6 +310,11 @@ not controller or actuator authority.
 `inspect-paper-account` and `migration-plan` require an exact proposed
 deployment/account and an active `ADMIN_INSPECT` certificate.
 `migrate-account` requires `ADMIN_MIGRATE` and an unbound database.
+`inspect-empty-paper-account` and `bind-empty-paper-account` require the
+dedicated `ADMIN_BIND_EMPTY` certificate. The latter uses a read-only broker
+interface, requires two complete stable flat reads plus strict cash-account
+facts, then commits the binding and one-time certificate consumption in the
+same database transaction. It cannot inspect or liquidate an inherited book.
 `adopt-restored-account` requires `ADMIN_ADOPT` for the exact current binding
 and epoch; after the epoch increment that certificate is stale. Before a broker
 object is constructed, the command freshly verifies the certificate, exact
@@ -330,10 +337,10 @@ structurally unreachable.
 The final ownership binding or restored-host epoch change repeats authority
 under the execution writer lock. Authority loss can therefore leave a safely
 flat but unbound account, never an account silently claimed by stale authority.
-After initial binding, `ADMIN_MIGRATE` refuses before broker construction even
-if its certificate remains cryptographically valid. Administrative inspection
-is read-only by type; it has no submit or cancel method that can reach
-transport.
+After initial binding, `ADMIN_MIGRATE` and `ADMIN_BIND_EMPTY` refuse before
+broker construction even if their certificates remain cryptographically valid.
+Administrative inspection is read-only by type; it has no submit or cancel
+method that can reach transport.
 
 ## 6. Durable alert outbox
 

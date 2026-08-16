@@ -31,6 +31,7 @@ ACTIVATION_PROFILE_SCHEMA = "sentinel.paper_execution_authority/1"
 CERTIFICATION_MANIFEST_SCHEMA = "sentinel.certification_manifest/2"
 SIGNED_CERTIFICATE_SCHEMA = "sentinel.paper_execution_certificate/1"
 OBSERVATION_CERTIFICATE_SCHEMA = "sentinel.paper_observation_certificate/1"
+EMPTY_ACCOUNT_CERTIFICATE_SCHEMA = "sentinel.paper_empty_account_certificate/1"
 TRUST_ROOTS_SCHEMA = "sentinel.ed25519_trust_roots/1"
 SIGNED_CERTIFICATE_ALGORITHM = "Ed25519"
 PAPER_SCOPE = "ALPACA_PAPER"
@@ -40,6 +41,9 @@ MAX_CERTIFICATE_LIFETIME = timedelta(days=31)
 DEFAULT_OBSERVATION_CERTIFICATE_LIFETIME = timedelta(days=31)
 MAX_OBSERVATION_CERTIFICATE_LIFETIME = timedelta(days=35)
 PAPER_OBSERVATION_ONLY = "PAPER_OBSERVATION_ONLY"
+ADMIN_BIND_EMPTY = "ADMIN_BIND_EMPTY"
+DEFAULT_EMPTY_ACCOUNT_CERTIFICATE_LIFETIME = timedelta(minutes=15)
+MAX_EMPTY_ACCOUNT_CERTIFICATE_LIFETIME = timedelta(hours=1)
 HISTORICAL_CAUSALITY_UNVERIFIED = "HISTORICAL_CAUSALITY_UNVERIFIED"
 DEFAULT_TRUST_ROOTS_PATH = Path(__file__).with_name("trust_roots.json")
 _HEX_64 = re.compile(r"[0-9a-f]{64}\Z")
@@ -463,10 +467,10 @@ _CLAIM_FIELDS = {
 }
 PERMITTED_OPERATIONS = frozenset({
     "PREPARE_READ", "EXECUTE_READ", "SUBMIT", "CANCEL", "AUTOMATION",
-    "ADMIN_INSPECT", "ADMIN_MIGRATE", "ADMIN_ADOPT",
+    "ADMIN_INSPECT", "ADMIN_MIGRATE", "ADMIN_ADOPT", ADMIN_BIND_EMPTY,
 })
 _ADMINISTRATIVE_OPERATIONS = frozenset({
-    "ADMIN_INSPECT", "ADMIN_MIGRATE", "ADMIN_ADOPT",
+    "ADMIN_INSPECT", "ADMIN_MIGRATE", "ADMIN_ADOPT", ADMIN_BIND_EMPTY,
 })
 _EXECUTION_OPERATIONS = PERMITTED_OPERATIONS - _ADMINISTRATIVE_OPERATIONS
 _SUBJECT_FIELDS = {
@@ -510,6 +514,14 @@ _OBSERVATION_BINDING_FIELDS = {
     "strategy_identity_sha256", "execution_config_sha256",
     "automation_config_sha256", "current_corpus",
     "current_metadata_snapshot", "publication_policy", "controller",
+}
+
+_EMPTY_ACCOUNT_CLAIM_FIELDS = {
+    "certificate_id", "issuer_generation", "issued_at", "not_before",
+    "expires_at", "authorization_mode", "historical_causality",
+    "historical_certification", "scope", "unattended_automation",
+    "permitted_operations", "subject", "durable_rollout", "bindings",
+    "retained_evidence", "supersedes_certificate_sha256",
 }
 
 
@@ -693,6 +705,85 @@ def validate_observation_certificate_claims(claims: Mapping) -> Mapping:
     return claims
 
 
+def validate_empty_account_certificate_claims(claims: Mapping) -> Mapping:
+    """Validate the attended, one-shot ADMIN_BIND_EMPTY authority."""
+    claims = _mapping(claims, label="empty-account binding claims")
+    _exact_fields(
+        claims, _EMPTY_ACCOUNT_CLAIM_FIELDS,
+        label="empty-account binding claims")
+    certificate_id = claims["certificate_id"]
+    if (not isinstance(certificate_id, str)
+            or _CERTIFICATE_ID.fullmatch(certificate_id) is None):
+        raise AuthorityRefused(
+            "empty-account certificate_id has an invalid form")
+    _positive_int(claims["issuer_generation"], label="issuer_generation")
+    issued = _instant(claims["issued_at"], label="issued_at")
+    not_before = _instant(claims["not_before"], label="not_before")
+    expires = _instant(claims["expires_at"], label="expires_at")
+    if not (issued <= not_before < expires):
+        raise AuthorityRefused(
+            "empty-account times must satisfy issued_at <= not_before < "
+            "expires_at")
+    if expires - not_before > MAX_EMPTY_ACCOUNT_CERTIFICATE_LIFETIME:
+        raise AuthorityRefused(
+            "empty-account certificate lifetime exceeds one hour")
+    if claims["authorization_mode"] != ADMIN_BIND_EMPTY:
+        raise AuthorityRefused(
+            "empty-account authorization_mode is not ADMIN_BIND_EMPTY")
+    if claims["historical_causality"] != HISTORICAL_CAUSALITY_UNVERIFIED:
+        raise AuthorityRefused(
+            "empty-account historical causality must remain unverified")
+    if claims["historical_certification"] != "NOT_GRANTED":
+        raise AuthorityRefused(
+            "empty-account authority cannot grant historical certification")
+    if claims["scope"] != PAPER_SCOPE:
+        raise AuthorityRefused("empty-account scope is not ALPACA_PAPER")
+    if claims["unattended_automation"] is not False:
+        raise AuthorityRefused(
+            "empty-account authority must be attended")
+    if claims["permitted_operations"] != [ADMIN_BIND_EMPTY]:
+        raise AuthorityRefused(
+            "empty-account authority may permit only ADMIN_BIND_EMPTY")
+    _hex(claims["supersedes_certificate_sha256"],
+         label="supersedes_certificate_sha256", nullable=True)
+
+    subject = _mapping(claims["subject"], label="certificate subject")
+    _exact_fields(subject, _SUBJECT_FIELDS, label="certificate subject")
+    for field in ("deployment_id", "broker_account_id"):
+        if not isinstance(subject[field], str) or not subject[field].strip():
+            raise AuthorityRefused(f"certificate subject {field} is empty")
+    if (subject["broker"] != "alpaca"
+            or subject["environment"] != PAPER_SCOPE
+            or subject["paper_base_url"] != PAPER_BASE_URL
+            or subject["takeover_epoch"] != 1):
+        raise AuthorityRefused(
+            "empty-account subject is not the exact Alpaca paper epoch-1 target")
+
+    rollout = _mapping(
+        claims["durable_rollout"], label="empty-account durable rollout")
+    _exact_fields(
+        rollout, {"mode", "version", "certificate_sha256"},
+        label="empty-account durable rollout")
+    if (rollout["mode"] != RolloutMode.PINNED_1_00.value
+            or rollout["certificate_sha256"] is not None):
+        raise AuthorityRefused(
+            "empty-account binding requires an inert PINNED_1_00 rollout")
+    _positive_int(rollout["version"], label="durable rollout version")
+
+    _validate_observation_bindings(_mapping(
+        claims["bindings"], label="empty-account bindings"))
+    evidence = _mapping(
+        claims["retained_evidence"], label="empty-account retained evidence")
+    _exact_fields(
+        evidence, {"schema", "sha256"},
+        label="empty-account retained evidence")
+    if evidence["schema"] != "sentinel.paper-empty-account-evidence/1":
+        raise AuthorityRefused(
+            "empty-account retained-evidence schema is unknown")
+    _hex(evidence["sha256"], label="empty-account retained evidence")
+    return claims
+
+
 def validate_certificate_claims(claims: Mapping) -> Mapping:
     """Validate every behaviour-affecting signed claim and cross-binding."""
     claims = _mapping(claims, label="certificate claims")
@@ -738,6 +829,9 @@ def validate_certificate_claims(claims: Mapping) -> Mapping:
         raise AuthorityRefused(
             "permitted_operations must be a sorted unique non-empty subset of "
             + ", ".join(sorted(PERMITTED_OPERATIONS)))
+    if ADMIN_BIND_EMPTY in operations:
+        raise AuthorityRefused(
+            "ADMIN_BIND_EMPTY requires the dedicated empty-account certificate")
     if (("AUTOMATION" in operations)
             != claims["unattended_automation"]):
         raise AuthorityRefused(
@@ -963,16 +1057,20 @@ def _validate_envelope_shape(envelope: Mapping) -> tuple[Mapping, bytes]:
         label="signed certificate envelope")
     schema = envelope["schema"]
     if schema not in {SIGNED_CERTIFICATE_SCHEMA,
-                      OBSERVATION_CERTIFICATE_SCHEMA}:
+                      OBSERVATION_CERTIFICATE_SCHEMA,
+                      EMPTY_ACCOUNT_CERTIFICATE_SCHEMA}:
         raise AuthorityRefused("signed certificate schema is unknown")
     if envelope["algorithm"] != SIGNED_CERTIFICATE_ALGORITHM:
         raise AuthorityRefused("signed certificate algorithm is unknown")
     if not isinstance(envelope["key_id"], str):
         raise AuthorityRefused("signed certificate key_id is invalid")
     raw_claims = _mapping(envelope["claims"], label="certificate claims")
-    claims = (validate_observation_certificate_claims(raw_claims)
-              if schema == OBSERVATION_CERTIFICATE_SCHEMA
-              else validate_certificate_claims(raw_claims))
+    if schema == OBSERVATION_CERTIFICATE_SCHEMA:
+        claims = validate_observation_certificate_claims(raw_claims)
+    elif schema == EMPTY_ACCOUNT_CERTIFICATE_SCHEMA:
+        claims = validate_empty_account_certificate_claims(raw_claims)
+    else:
+        claims = validate_certificate_claims(raw_claims)
     signature = _b64url_decode(
         envelope["signature"], label="certificate signature", length=64)
     return claims, signature
@@ -982,6 +1080,9 @@ def _certificate_schema_for_claims(claims: Mapping) -> str:
     if claims.get("authorization_mode") == PAPER_OBSERVATION_ONLY:
         validate_observation_certificate_claims(claims)
         return OBSERVATION_CERTIFICATE_SCHEMA
+    if claims.get("authorization_mode") == ADMIN_BIND_EMPTY:
+        validate_empty_account_certificate_claims(claims)
+        return EMPTY_ACCOUNT_CERTIFICATE_SCHEMA
     validate_certificate_claims(claims)
     return SIGNED_CERTIFICATE_SCHEMA
 
@@ -2111,10 +2212,13 @@ def set_rollout_mode(
 
 
 __all__ = [
-    "ACTIVATION_PROFILE_SCHEMA", "AuthorityRefused",
+    "ACTIVATION_PROFILE_SCHEMA", "ADMIN_BIND_EMPTY", "AuthorityRefused",
     "CERTIFICATION_MANIFEST_SCHEMA", "RolloutMode", "RolloutState",
+    "DEFAULT_EMPTY_ACCOUNT_CERTIFICATE_LIFETIME",
     "DEFAULT_OBSERVATION_CERTIFICATE_LIFETIME", "DEFAULT_TRUST_ROOTS_PATH",
+    "EMPTY_ACCOUNT_CERTIFICATE_SCHEMA",
     "HISTORICAL_CAUSALITY_UNVERIFIED", "MAX_CERTIFICATE_LIFETIME",
+    "MAX_EMPTY_ACCOUNT_CERTIFICATE_LIFETIME",
     "MAX_OBSERVATION_CERTIFICATE_LIFETIME", "OBSERVATION_CERTIFICATE_SCHEMA",
     "PAPER_BASE_URL", "PAPER_OBSERVATION_ONLY", "PAPER_SCOPE",
     "SIGNED_CERTIFICATE_SCHEMA", "SignedAuthorityContext",
@@ -2130,6 +2234,7 @@ __all__ = [
     "revoke_signed_certificate", "revoke_signed_key",
     "revoke_system_certificate", "set_rollout_mode", "signed_envelope_bytes",
     "runtime_artifact_identity", "trust_roots_bytes", "unsigned_envelope_bytes",
-    "validate_certificate_claims", "validate_observation_certificate_claims",
+    "validate_certificate_claims", "validate_empty_account_certificate_claims",
+    "validate_observation_certificate_claims",
     "verify_signed_certificate",
 ]

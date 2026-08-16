@@ -212,7 +212,7 @@ def test_base_signed_claims_keep_admin_and_execution_authority_disjoint():
         authority.validate_certificate_claims(both_destructive)
 
 
-def test_admin_config_identity_names_both_concrete_broker_adapters(tmp_path):
+def test_admin_config_identity_names_all_concrete_broker_adapters(tmp_path):
     roots_path = tmp_path / "roots.json"
     roots_path.write_text("{}", encoding="utf-8")
     identity = administrative.administrative_execution_config_identity(
@@ -220,6 +220,7 @@ def test_admin_config_identity_names_both_concrete_broker_adapters(tmp_path):
         trust_roots_path=roots_path)
     assert identity["adapters"] == {
         "inspection": "sentinel.execution.alpaca.AlpacaExecutionBroker",
+        "empty_account": "sentinel.empty_account.GuardedEmptyAccountBroker",
         "migration": "sentinel.broker.AlpacaSentinelBroker",
     }
 

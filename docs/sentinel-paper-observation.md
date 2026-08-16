@@ -159,10 +159,72 @@ same decision session, security membership, and weights. It reports
 `HISTORICAL_CAUSALITY_UNVERIFIED`; it never prints `GO`, certified CAGR, or
 certified drawdown.
 
-### 2. Inspect and migrate the exact paper account
+### 2. Bind the exact paper account
 
-Use the separate administrative-certificate procedure in
-`sentinel-paper-activation.md`, then:
+#### Preferred path: brand-new, empty, cash-only paper account
+
+Create the bootstrap candidate before a binding exists.  These candidate,
+installation, and activation commands are broker-free.  The dedicated offline
+issuer uses the already-enrolled Ed25519 key and the existing trusted-root
+system; it does not use or print a private key from the runtime.
+
+```bash
+$COMPOSE run --rm sentinel create-empty-paper-binding-candidate \
+  --certificate-id <UNIQUE_CERTIFICATE_ID> \
+  --issuer-generation <MONOTONIC_GENERATION> \
+  --deployment-id <STABLE_DEPLOYMENT_ID> \
+  --expect-account <PAPER_ACCOUNT_ID> \
+  --not-before <UTC_SECOND_Z> \
+  --reviewer <REVIEWER_ID> --ticket <CHANGE_TICKET> \
+  > "$SENTINEL_AUTHORITY_ARTIFACTS_DIR/empty-binding-candidate.json"
+python -m tools.sentinel_empty_account_authority issue \
+  --candidate "$SENTINEL_AUTHORITY_ARTIFACTS_DIR/empty-binding-candidate.json" \
+  --private-key-file <OFFLINE_ED25519_PKCS8_KEY> \
+  --key-id <ENABLED_TRUSTED_KEY_ID> \
+  --output "$SENTINEL_AUTHORITY_ARTIFACTS_DIR/empty-binding-certificate.json" \
+  --confirm-issue-admin-bind-empty
+EMPTY_BIND_CERT_SHA256="$(sha256sum "$SENTINEL_AUTHORITY_ARTIFACTS_DIR/empty-binding-certificate.json" | awk '{print $1}')"
+bash scripts/sentinel-authorized-cli.sh install-administrative-certificate \
+  --certificate /var/lib/sentinel-authority/empty-binding-certificate.json \
+  --confirm-certificate-sha256 "$EMPTY_BIND_CERT_SHA256" \
+  --deployment-id <STABLE_DEPLOYMENT_ID> \
+  --expect-account <PAPER_ACCOUNT_ID> --takeover-epoch 1 \
+  --reason '<CHANGE_TICKET>' \
+  --confirm-install-administrative-certificate
+bash scripts/sentinel-authorized-cli.sh activate-administrative-certificate \
+  --certificate-sha256 "$EMPTY_BIND_CERT_SHA256" \
+  --deployment-id <STABLE_DEPLOYMENT_ID> \
+  --expect-account <PAPER_ACCOUNT_ID> --takeover-epoch 1 \
+  --reason '<CHANGE_TICKET>' \
+  --confirm-activate-administrative-certificate
+```
+
+Inspect and bind only the exact named account.  Both broker commands use the
+read-only `ADMIN_BIND_EMPTY` facade.  The binding command performs its own two
+stable complete flat observations; inspection output is not cached authority.
+
+```bash
+bash scripts/sentinel-authorized-cli.sh inspect-empty-paper-account \
+  --deployment-id <STABLE_DEPLOYMENT_ID> \
+  --expect-account <PAPER_ACCOUNT_ID>
+bash scripts/sentinel-authorized-cli.sh bind-empty-paper-account \
+  --deployment-id <STABLE_DEPLOYMENT_ID> \
+  --expect-account <PAPER_ACCOUNT_ID> \
+  --notes '<CHANGE_TICKET>'
+$COMPOSE run --rm sentinel status
+```
+
+`status` must show one epoch-1 `SENTINEL_OWNED` binding and the bootstrap
+certificate as `REVOKED`, with the consumption reason.  The account must be
+ACTIVE, unblocked, multiplier 1, cash-only and settled, with zero positions and
+zero open orders throughout both reads.  Any other result is a refusal, not a
+reason to switch to migration.
+
+#### Inherited account: administrative migration
+
+Use the stronger administrative-certificate procedure in
+`sentinel-paper-activation.md` only when the account actually contains an
+inherited book, then:
 
 ```bash
 bash scripts/sentinel-authorized-cli.sh inspect-paper-account \
@@ -179,7 +241,8 @@ $COMPOSE run --rm sentinel status
 ```
 
 Migration is optional for an already-owned, correctly bound, fully reconciled
-account. Never run it twice. The postcondition is an exact
+account. It is not the fresh-empty-account enrollment path and its historical
+certification requirements are unchanged. Never run it twice. The postcondition is an exact
 `SENTINEL_OWNED` binding and two stable flat observations, not merely an
 accepted cancel or sell.
 

@@ -742,6 +742,18 @@ def test_command_parser_preserves_required_confirmations_and_warmup_default(
         seen["inspect"] = (actual_config, vars(args))
         return cli.EXIT_OK
 
+    async def inspect_empty(actual_config, args):
+        seen["inspect_empty"] = (actual_config, vars(args))
+        return cli.EXIT_OK
+
+    async def bind_empty(actual_config, args):
+        seen["bind_empty"] = (actual_config, vars(args))
+        return cli.EXIT_OK
+
+    def empty_candidate(actual_config, args):
+        seen["empty_candidate"] = (actual_config, vars(args))
+        return cli.EXIT_OK
+
     async def execute(actual_config, args):
         seen["execute"] = (actual_config, vars(args))
         return cli.EXIT_OK
@@ -764,6 +776,10 @@ def test_command_parser_preserves_required_confirmations_and_warmup_default(
 
     monkeypatch.setattr(cli, "_prepare_paper_plan", prepare)
     monkeypatch.setattr(cli, "_inspect_paper_account", inspect)
+    monkeypatch.setattr(cli, "_inspect_empty_paper_account", inspect_empty)
+    monkeypatch.setattr(cli, "_bind_empty_paper_account", bind_empty)
+    monkeypatch.setattr(
+        cli, "cmd_create_empty_paper_binding_candidate", empty_candidate)
     monkeypatch.setattr(cli, "_execute_paper_plan", execute)
     monkeypatch.setattr(
         cli, "_install_system_certificate", install_certificate)
@@ -778,6 +794,25 @@ def test_command_parser_preserves_required_confirmations_and_warmup_default(
         "--expect-account", "paper-123",
     ]) == cli.EXIT_OK
     assert seen["inspect"][1]["expect_account"] == "paper-123"
+    assert cli.main([
+        "create-empty-paper-binding-candidate",
+        "--certificate-id", "empty-paper-binding-0001",
+        "--issuer-generation", "7", "--deployment-id", "nas-01",
+        "--expect-account", "paper-123",
+        "--not-before", "2026-08-16T12:00:00Z",
+        "--reviewer", "reviewer", "--ticket", "ticket-1",
+    ]) == cli.EXIT_OK
+    assert seen["empty_candidate"][1]["issuer_generation"] == 7
+    assert cli.main([
+        "inspect-empty-paper-account", "--deployment-id", "nas-01",
+        "--expect-account", "paper-123",
+    ]) == cli.EXIT_OK
+    assert seen["inspect_empty"][1]["expect_account"] == "paper-123"
+    assert cli.main([
+        "bind-empty-paper-account", "--deployment-id", "nas-01",
+        "--expect-account", "paper-123", "--notes", "ticket-1",
+    ]) == cli.EXIT_OK
+    assert seen["bind_empty"][1]["notes"] == "ticket-1"
     assert cli.main([
         "prepare-paper-plan", "--through", "2026-08-12",
         "--expect-account", "paper-123"]) == cli.EXIT_OK
