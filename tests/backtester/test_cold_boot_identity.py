@@ -48,6 +48,7 @@ def engine(pg):
                 permaticker text,
                 ticker text,
                 category text,
+                exchange text,
                 related_tickers text,
                 first_price_date date,
                 last_price_date date,
@@ -94,16 +95,18 @@ def insert_listing(conn, *, permaticker: str, ticker: str,
                    first: str | None, last: str | None,
                    snapshot: str = "2026-08-14",
                    category: str | None = "Domestic Common Stock",
+                   exchange: str | None = "NASDAQ",
                    related: str | None = None,
                    complete: bool = True) -> None:
     conn.execute(sa.text("""
         INSERT INTO bt_universe
-            (snapshot_date, permaticker, ticker, category, related_tickers,
+            (snapshot_date, permaticker, ticker, category, exchange, related_tickers,
              first_price_date, last_price_date, decision_metadata_complete)
-        VALUES (:snapshot, :permaticker, :ticker, :category, :related,
+        VALUES (:snapshot, :permaticker, :ticker, :category, :exchange, :related,
                 :first, :last, :complete)
     """), {"snapshot": snapshot, "permaticker": permaticker,
-            "ticker": ticker, "category": category, "related": related,
+            "ticker": ticker, "category": category, "exchange": exchange,
+            "related": related,
             "first": first, "last": last, "complete": complete})
 
 
@@ -261,6 +264,38 @@ class TestSessionEffectiveDecisionMetadata:
             with pytest.raises(BT.DecisionMetadataUnavailable,
                                match="completeness provenance"):
                 BT.load_meta_timeline(conn, sessions=["2021-01-04"])
+
+    def test_complete_snapshot_keeps_ineligible_price_rows_visible(self, engine):
+        """The regression: mapper filtering made all three prices disappear."""
+        session = "2021-01-04"
+        with engine.begin() as conn:
+            for pt, ticker, category, exchange in (
+                    ("101", "ETF", "ETF", "NYSEARCA"),
+                    ("202", "NULLCAT", None, "NASDAQ"),
+                    ("303", "OTC", "Domestic Common Stock", "OTC")):
+                insert_price(conn, ticker, session)
+                insert_listing(
+                    conn, permaticker=pt, ticker=ticker,
+                    first="2000-01-01", last="2026-08-14",
+                    snapshot=session, category=category, exchange=exchange)
+            timeline = BT.load_meta_timeline(conn, sessions=[session])
+            identity = BT.load_identity(conn, as_of=session)
+            bars = BT.load_bars(conn, session, session, identity=identity)
+
+        feed = Feed({}, metadata_timeline=timeline)
+        warmup = [f"2020-{i:03d}" for i in range(1, 128)]
+        feed.warmup(warmup, {
+            s: [VendorBar(s, f"P:{pt}", ticker, 100.0, 100.0, 1_000_000.0)
+                for pt, ticker in (("101", "ETF"), ("202", "NULLCAT"),
+                                   ("303", "OTC"))]
+            for s in warmup})
+        observed = feed.advance(session, bars[session])
+
+        assert {b.security_id for b in observed.security_bars} == {
+            "P:101", "P:202", "P:303"}
+        assert observed.eligibility["P:101"].reason.value == "NOT_COMMON_EQUITY"
+        assert observed.eligibility["P:202"].reason.value == "NOT_COMMON_EQUITY"
+        assert observed.eligibility["P:303"].reason.value == "UNSUPPORTED_EXCHANGE"
 
     def test_later_security_and_metadata_change_apply_forward_only(self, engine):
         sessions = ["2021-01-04", "2022-01-03"]

@@ -818,9 +818,19 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
         terminal_results.append({"session": session, **terminal_result})
     terminated = {t.security_id for t in terminal_terms}
 
-    # A terminal conversion may retarget a still-unfilled entry after the
-    # metadata pass above. It is still an admission, not the held-lot conversion
-    # exception, so enforce the same invariant once more before any open fills.
+    # Terminal application can change both security and issuer identity after
+    # the session-metadata pass above.  The pre-terminal consolidation waiver is
+    # evidence only for the transition; re-run against the resulting held book
+    # with no waiver. Distinct delivered securities may not silently create one
+    # issuer exposure. Multiple source lots that became the SAME delivered
+    # permanent security remain the deterministic, provenance-retaining
+    # consolidation defined by PortfolioState.
+    _rebind_session_issuers(
+        session=session, state=state, by_sec=by_sec, pending=pending)
+
+    # A terminal conversion may also retarget a still-unfilled entry. It is
+    # still an admission, not the held-lot conversion exception, so enforce the
+    # pending side once more before any open fills.
     res_cancelled.extend(_cancel_pending_issuer_conflicts(
         session=session, state=state, pending=pending,
         reason="ISSUER_CONFLICT_BEFORE_FILL"))

@@ -548,7 +548,14 @@ The observation date always caps the interval: a delivery observed on D cannot
 authorize a price session after D, even if `lastpricedate` is absent or bad.
 
 Each retained decision snapshot is complete, so a row never inherits nullable
-values from the preceding observation. The ingestion contract is:
+values from the preceding observation. Snapshot membership is recorded before
+strategy eligibility is evaluated: every TICKERS security with usable row
+identity is retained even when it is a fund, preferred, warrant, has a NULL
+category, or trades on an unsupported exchange. Otherwise the absence of the
+metadata row would erase an existing price row from the decision view and turn
+"observed but ineligible" into "not delivered". The raw exchange is retained;
+unsupported or empty exchange remains visible and is ineligible downstream.
+The ingestion contract is:
 
 ```text
 field                 present but empty/NULL             field absent
@@ -560,10 +567,11 @@ firstpricedate         authoritative unknown lower bound; incomplete delivery; r
                       ineligible for a new admission
 lastpricedate          authoritative open/unknown upper   incomplete delivery; refuse
                       bound at that observation
+exchange               authoritative unknown; ineligible incomplete delivery; refuse
 ```
 
 `bt_universe.decision_metadata_complete` records that the vendor delivery
-contained all four keys before normalization. Existing rows pre-dating that
+contained all five decision keys before normalization. Existing rows pre-dating that
 provenance default to false and cannot certify a decision timeline. In
 particular, the normalized SQL `NULL` for an observed empty `relatedtickers`
 value means **clear the relationship**; it never means “reuse yesterday.”

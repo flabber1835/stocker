@@ -129,6 +129,14 @@ to violate the fill-session family.
   Already-converted lots of that same delivered security are valid too. These
   are not new admissions. Missing, incomplete, mixed-target, or future terms do
   not waive the held-collision refusal.
+- The exception is provisional until the terminal waterfall has actually
+  applied the identity changes. Immediately after conversions, Wealth Core
+  re-runs both sides of the invariant against the resulting state: distinct
+  held securities may not share an issuer, and pending admissions may not
+  conflict with any resulting holding or earlier reservation. Multiple source
+  lots that deterministically became the same delivered permanent security are
+  the evidenced consolidation above; any other new held collision raises the
+  structured fail-closed refusal before fills or decisions.
 
 The cancellation record includes the old/new issuer, conflicting slot/security,
 reservation release, and the issuer-rebind transformation. The complete record

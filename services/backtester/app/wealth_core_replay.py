@@ -164,6 +164,8 @@ _META_SQL = text("""
                AS category,
            (ARRAY_REMOVE(ARRAY_AGG(related_tickers ORDER BY snapshot_date DESC), NULL))[1]
                AS related_tickers,
+           (ARRAY_REMOVE(ARRAY_AGG(exchange ORDER BY snapshot_date DESC), NULL))[1]
+               AS exchange,
            MIN(first_price_date) AS first_price_date,
            MAX(last_price_date) AS last_price_date
       FROM bt_universe
@@ -188,7 +190,7 @@ _IDENTITY_SQL = text("""
 """)
 
 _META_TIMELINE_SQL = text("""
-    SELECT snapshot_date, permaticker, ticker, category, related_tickers,
+    SELECT snapshot_date, permaticker, ticker, category, related_tickers, exchange,
            first_price_date, last_price_date, decision_metadata_complete
       FROM bt_universe
      WHERE permaticker IS NOT NULL
@@ -955,6 +957,7 @@ def load_meta(conn, *, as_of: str) -> dict[str, SecurityMeta]:
             category=r["category"],
             permaticker=str(r["permaticker"]),
             related_tickers=tuple(related),
+            exchange=r.get("exchange"), exchange_authoritative=True,
             first_session=(str(r["first_price_date"])
                            if r["first_price_date"] else None),
             last_session=(str(r.get("last_price_date"))
@@ -1093,6 +1096,7 @@ def load_meta_timeline(conn, *, sessions: Sequence[str]
                 category=r["category"],
                 permaticker=str(r["permaticker"]),
                 related_tickers=tuple((r["related_tickers"] or "").split()),
+                exchange=r.get("exchange"), exchange_authoritative=True,
                 first_session=(str(r["first_price_date"])
                                if r["first_price_date"] else None),
                 last_session=(str(r["last_price_date"])

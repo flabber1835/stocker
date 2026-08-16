@@ -118,6 +118,11 @@ class SecurityMeta:
     related_tickers: Sequence[str] = ()
     first_session: str | None = None
     last_session: str | None = None
+    # Synthetic fixtures predate exchange provenance and therefore keep the
+    # prior behavior by default. Source-backed loaders set authoritative=True;
+    # then NULL/unsupported is visible but ineligible rather than disappearing.
+    exchange: str | None = None
+    exchange_authoritative: bool = False
 
     def issuer_key(self) -> tuple[str | None, str | None]:
         return build_issuer_group_key(self.ticker, self.related_tickers,
@@ -172,8 +177,11 @@ class DecisionMetadataTimeline:
         m = self.metadata_for(session, security_id)
         if m is None:
             return [security_id, None]
-        return [security_id, m.ticker, m.category, m.permaticker,
-                sorted(m.related_tickers), m.first_session, m.last_session]
+        row = [security_id, m.ticker, m.category, m.permaticker,
+               sorted(m.related_tickers), m.first_session, m.last_session]
+        if m.exchange_authoritative:
+            row.extend([m.exchange, True])
+        return row
 
     def population_evidence(self) -> dict[str, int]:
         """Unambiguous measured-window population counters, without expansion."""
@@ -410,7 +418,9 @@ def to_eligibility_input(bar: VendorBar, series: SecuritySeries,
         signal_dollar_volume=signal_day_dollar_volume(bar.raw_close, bar.volume),
         signal_closes_split_adj_div_unadj=series.signal_window(),
         history_contiguous=series.contiguous(),
-        terminal_state=terminal_state)
+        terminal_state=terminal_state,
+        exchange=meta.exchange,
+        exchange_authoritative=meta.exchange_authoritative)
 
 
 @dataclass

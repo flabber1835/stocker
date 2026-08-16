@@ -297,9 +297,27 @@ def test_datetime_valued_dates_are_truncated_to_the_date():
     assert m["first_price_date"] == "1980-12-12"
 
 
-def test_the_existing_universe_filter_still_applies():
-    assert map_tickers_row(_t(category="ETF"), "2026-07-25") is None
-    assert map_tickers_row(_t(exchange="OTC"), "2026-07-25") is None
+@pytest.mark.parametrize("over", [
+    {"category": "ETF"},
+    {"category": None},
+    {"exchange": "OTC"},
+])
+def test_snapshot_mapping_retains_ineligible_securities(over):
+    """Eligibility is downstream; mapping is complete-snapshot evidence."""
+    mapped = map_tickers_row(_t(**over), "2026-07-25")
+    assert mapped is not None
+    assert mapped["category"] == over.get("category", _t()["category"])
+    assert mapped["exchange"] == over.get("exchange", _t()["exchange"])
+    assert mapped["decision_metadata_complete"] is True
+
+
+def test_absent_exchange_is_incomplete_rather_than_silently_filtered():
+    row = _t()
+    row.pop("exchange")
+    mapped = map_tickers_row(row, "2026-07-25")
+    assert mapped is not None
+    assert mapped["exchange"] is None
+    assert mapped["decision_metadata_complete"] is False
 
 
 # ── DATE binding (the bug that failed a multi-hour backfill) ────────────────

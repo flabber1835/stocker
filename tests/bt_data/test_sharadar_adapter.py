@@ -103,11 +103,15 @@ def test_tickers_includes_common_stock_on_major_exchange():
     assert m["snapshot_date"] == "2023-06-30"
 
 
-def test_tickers_excludes_etf_and_otc():
-    assert map_tickers_row({"ticker": "SPY", "category": "ETF", "exchange": "NYSEARCA"},
-                           "2023-06-30") is None
-    assert map_tickers_row({"ticker": "XYZ", "category": "Domestic Common Stock",
-                            "exchange": "OTC"}, "2023-06-30") is None
+def test_tickers_retains_etf_and_otc_as_snapshot_evidence():
+    for row in (
+            {"ticker": "SPY", "category": "ETF", "exchange": "NYSEARCA"},
+            {"ticker": "XYZ", "category": "Domestic Common Stock",
+             "exchange": "OTC"}):
+        mapped = map_tickers_row(row, "2023-06-30")
+        assert mapped is not None
+        assert mapped["category"] == row["category"]
+        assert mapped["exchange"] == row["exchange"]
 
 
 # ── YoY growth ─────────────────────────────────────────────────────────────────
@@ -231,6 +235,43 @@ class TestTheUniverseStageIsReplayableAlone:
                 BackgroundTasks(), snapshot_date="2023-12-29"))
         assert exc.value.status_code == 400
 
+    def test_incomplete_TICKERS_delivery_is_behaviorally_refused(self,
+                                                                  monkeypatch):
+        import asyncio
+
+        import pytest
+
+        from app import main as bt_main
+
+        async def fetched(*_args, **_kwargs):
+            # Key presence, not truthiness, is the provenance boundary. This
+            # row deliberately omits relatedtickers.
+            yield {"ticker": "AAA", "permaticker": "101",
+                   "category": "Domestic Common Stock", "exchange": "NASDAQ",
+                   "firstpricedate": "2000-01-01", "lastpricedate": ""}
+
+        async def opened(*_args, **_kwargs):
+            return "run-1"
+
+        async def upserted(rows, _snapshot):
+            assert len(rows) == 1
+            assert rows[0]["decision_metadata_complete"] is False
+            return {"persisted": 1, "incomplete_decision_metadata": 1}
+
+        closed = []
+
+        async def close(*args, **kwargs):
+            closed.append((args, kwargs))
+
+        monkeypatch.setattr(bt_main, "fetch_table", fetched)
+        monkeypatch.setattr(bt_main, "_open_run", opened)
+        monkeypatch.setattr(bt_main, "_upsert_universe", upserted)
+        monkeypatch.setattr(bt_main, "_close_run", close)
+
+        with pytest.raises(ValueError, match="partial decision snapshot"):
+            asyncio.run(bt_main._load_universe("2026-08-15", "backfill"))
+        assert closed[-1][0][:2] == ("run-1", "failed")
+
     def test_every_stage_that_can_gain_a_column_is_replayable_alone(self):
         """The general rule, not just this instance. Prices, fundamentals,
         actions and the universe have all gained mapped columns after their
@@ -277,7 +318,8 @@ class TestTheUniverseStageIsReplayableAlone:
             "`persisted` must be MEASURED against the database, never echoed "
             "back from the input")
         for key in ("attempted", "distinct_identities", "persisted",
-                    "rejected_no_permaticker", "duplicate_identity_collapsed"):
+                    "rejected_no_permaticker", "duplicate_identity_collapsed",
+                    "incomplete_decision_metadata"):
             assert f'"{key}"' in upsert, f"{key} missing from the write report"
 
     def test_the_mapper_reads_permaticker_from_the_vendor_row(self):

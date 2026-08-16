@@ -221,23 +221,21 @@ def _fiscal_period(row: dict) -> Optional[str]:
 def map_tickers_row(row: dict, snapshot_date: str) -> Optional[dict]:
     """Sharadar TICKERS metadata row → bt_universe row for a given snapshot date.
 
-    Only equities on major US exchanges are included (mirrors the live universe
-    filter: Stock asset type, US exchanges). Returns None for non-equity / OTC.
+    This is a securities-master mapping, not an eligibility filter.  Funds,
+    preferreds, warrants, NULL categories and unsupported exchanges must remain
+    visible in a complete snapshot so downstream can record why they are
+    ineligible.  Dropping them here turns observed ineligibility into missing
+    delivery and can erase an otherwise valid historical price row.
     """
-    category = (row.get("category") or "").lower()
-    exchange = (row.get("exchange") or "").upper()
-    # Domestic/foreign common stock only; skip ETFs/funds/units/warrants.
-    if "common stock" not in category:
-        return None
-    if exchange not in {"NYSE", "NASDAQ", "NYSEMKT", "NYSEARCA", "BATS", "AMEX"}:
-        return None
     decision_fields = (
-        "category", "relatedtickers", "firstpricedate", "lastpricedate")
+        "category", "relatedtickers", "firstpricedate", "lastpricedate",
+        "exchange")
     return {
         "snapshot_date": snapshot_date,
         "ticker": row["ticker"],
         "name": row.get("name"),
         "sector": row.get("sector"),
+        "exchange": row.get("exchange"),
         # RETAINED, not discarded. Wealth Core decides common-equity membership
         # from this raw string (contains "Common Stock", not "Warrant", not
         # "Preferred"), so re-deriving it from the filter below would give the

@@ -167,6 +167,7 @@ CREATE TABLE IF NOT EXISTS bt_universe (
     ticker          VARCHAR(20)  NOT NULL,
     name            VARCHAR(200),
     sector          VARCHAR(100),
+    exchange        TEXT,
     -- Vendor listing interval (2026-07). Sharadar TICKERS carries these and
     -- map_tickers_row discarded them. A later observation may use the interval
     -- to resolve historical ticker/permaticker identity; decision eligibility
@@ -202,6 +203,7 @@ ALTER TABLE bt_universe
     ADD COLUMN IF NOT EXISTS category        TEXT,
     ADD COLUMN IF NOT EXISTS permaticker     TEXT,
     ADD COLUMN IF NOT EXISTS related_tickers TEXT,
+    ADD COLUMN IF NOT EXISTS exchange        TEXT,
     -- TRUE only when the source row contained every nullable decision field
     -- before normalization. Existing rows default FALSE: SQL NULL alone cannot
     -- distinguish authoritative empty from an incomplete legacy delivery.

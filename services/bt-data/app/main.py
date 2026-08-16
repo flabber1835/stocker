@@ -562,6 +562,8 @@ async def _upsert_universe(rows: list[dict], snapshot_date=None) -> dict:
         "persisted": 0,
         "rejected_no_permaticker": len(rejected),
         "duplicate_identity_collapsed": len(collapsed),
+        "incomplete_decision_metadata": sum(
+            r.get("decision_metadata_complete") is not True for r in keep),
         # NAMED, not just counted: a bare total cannot distinguish a handful of
         # odd rows from a systematic mapping failure.
         "rejected_sample": sorted({str(r.get("ticker")) for r in rejected})[:20],
@@ -575,10 +577,10 @@ async def _upsert_universe(rows: list[dict], snapshot_date=None) -> dict:
     async with engine.begin() as conn:
         await conn.execute(text(
             "INSERT INTO bt_universe (snapshot_date, ticker, name, sector, "
-            "  first_price_date, last_price_date, is_delisted, category, "
+            "  exchange, first_price_date, last_price_date, is_delisted, category, "
             "  permaticker, related_tickers, decision_metadata_complete) "
             "VALUES (:snapshot_date, :ticker, :name, :sector, "
-            "  :first_price_date, :last_price_date, :is_delisted, :category, "
+            "  :exchange, :first_price_date, :last_price_date, :is_delisted, :category, "
             "  :permaticker, :related_tickers, :decision_metadata_complete) "
             # THE KEY IS THE IDENTITY, not the symbol. `ticker` is updated like
             # any other attribute — a security that changed symbol keeps its row
@@ -586,6 +588,7 @@ async def _upsert_universe(rows: list[dict], snapshot_date=None) -> dict:
             "ON CONFLICT (snapshot_date, permaticker) DO UPDATE SET "
             "  ticker=EXCLUDED.ticker, "
             "  name=EXCLUDED.name, sector=EXCLUDED.sector, "
+            "  exchange=EXCLUDED.exchange, "
             "  first_price_date=EXCLUDED.first_price_date, "
             "  last_price_date=EXCLUDED.last_price_date, "
             "  is_delisted=EXCLUDED.is_delisted, category=EXCLUDED.category, "
@@ -907,6 +910,12 @@ async def _load_universe(snapshot_date: str, job_type: str) -> dict:
             if m:
                 rows.append(m)
         report = await _upsert_universe(rows, snapshot_date)
+        if report["incomplete_decision_metadata"]:
+            raise ValueError(
+                f"TICKERS observation {snapshot_date} is incomplete: "
+                f"{report['incomplete_decision_metadata']} retained security "
+                "row(s) lack one or more nullable decision fields; refusing "
+                "instead of publishing a partial decision snapshot")
         total = report["persisted"]
         await _close_run(rid, "success", total)
         # EVERY category on one line, because the failure this replaces was a
@@ -917,6 +926,7 @@ async def _load_universe(snapshot_date: str, job_type: str) -> dict:
               f"distinct_identities={report['distinct_identities']} "
               f"persisted={report['persisted']} "
               f"rejected_no_permaticker={report['rejected_no_permaticker']} "
+              f"incomplete_decision_metadata={report['incomplete_decision_metadata']} "
               f"duplicate_identity_collapsed={report['duplicate_identity_collapsed']}",
               flush=True)
         if report["rejected_no_permaticker"]:

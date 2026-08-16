@@ -201,3 +201,32 @@ def test_same_session_corporate_action_consolidation_remains_valid():
     assert len(state.episodes) == 2
     assert state.shares_by_security()["ACQUIRER"] == 20
     assert [row["applied"] for row in result.terminal_results] == [True, True]
+
+
+def test_conversion_into_an_already_held_issuer_refuses_before_fills():
+    """The regression: only the pre-conversion held state was validated."""
+    state = PortfolioState.fresh(100_000.0)
+    hold(state, 0, "TARGET", "ISSUER_TARGET")
+    hold(state, 1, "EXISTING_CLASS", "ISSUER_ACQUIRER")
+    pending = [reserve(state, 2, "BUY", "ISSUER_OTHER")]
+    terms = [TerminalTerms(
+        session="d1", security_id="TARGET",
+        kind=TerminalKind.CONVERSION,
+        delivered_security_id="DELIVERED_CLASS",
+        delivered_ticker="DELIVERED_CLASS",
+        delivered_issuer_id="ISSUER_ACQUIRER", exchange_ratio=1.0,
+        reference="test/target/to-held-issuer")]
+
+    with pytest.raises(IssuerFamilyCollision) as caught:
+        step(state, pending, [
+            bar("TARGET", "ISSUER_TARGET"),
+            bar("EXISTING_CLASS", "ISSUER_ACQUIRER"),
+            bar("BUY", "ISSUER_OTHER")], terminal_terms=terms)
+
+    collision, = caught.value.evidence["collisions"]
+    assert collision["issuer_id"] == "ISSUER_ACQUIRER"
+    assert {row["security_id"] for row in collision["holdings"]} == {
+        "DELIVERED_CLASS", "EXISTING_CLASS"}
+    # No pending admission reached its broker-model fill boundary.
+    assert 2 not in state.episodes
+    assert pending[0].security_id == "BUY"
