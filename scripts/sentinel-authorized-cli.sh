@@ -36,8 +36,8 @@ SENTINEL_AUTHORITY_ARTIFACTS_DIR="$(
 )"
 export SENTINEL_AUTHORITY_ARTIFACTS_DIR
 
-exec docker compose \
-  -f docker-compose.sentinel.yml \
-  -f docker-compose.sentinel-backup.yml \
-  -f docker-compose.sentinel-automation.yml \
+# Use the same host-capability resolver as every ordinary Sentinel invocation.
+# On Synology this strips CPU CFS limits from BOTH the base graph and the
+# signed-authority overlay before Compose ever sees them.
+exec bash scripts/sentinel-compose.sh --automation-overlay --run \
   --profile authorized-cli run --rm sentinel-authorized-cli "$@"
