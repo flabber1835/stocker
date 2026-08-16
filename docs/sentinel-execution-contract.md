@@ -485,6 +485,52 @@ absent.
 Emergency tooling is outside certified execution and must be labelled as such.
 It is not part of the migration, preparation, or execution commands.
 
+### 4.5 A fresh empty paper account binds without migration authority
+
+`ADMIN_MIGRATE` remains the only inherited-book handover.  It can cancel named
+legacy orders and submit durable exact-quantity SELLs, so its historical
+zero-debt / Wealth Core `GO` requirement is unchanged.
+
+A brand-new empty Alpaca paper account uses a distinct one-time operation:
+
+```text
+ADMIN_BIND_EMPTY
+```
+
+Its signed certificate is a separate schema, not a weakened historical
+execution or migration certificate.  It is Alpaca PAPER only, names the exact
+deployment/account/epoch 1, is attended (`unattended_automation=false`), lasts
+15 minutes by default and at most one hour, explicitly grants no historical
+certification, and binds the current Git/source/image/runtime/strategy,
+execution and automation configuration, publication chain/current corpus,
+metadata snapshot, controller configuration, and durable pinned rollout.
+
+The broker object admitted to this operation exposes only `account_snapshot()`
+and `observe()`.  It has no submit, cancel, replace, close, liquidation, or
+instrument-resolution method.  Each call repeats signature, trusted-root,
+expiry, lifecycle/revocation, endpoint, subject, runtime/configuration, and
+publication checks on a fresh database connection.
+
+Under the execution writer lock the operation refuses an existing binding
+before broker contact, then requires two consecutive complete observations.
+Each observation uses the certified orders/positions/orders race detector and
+complete Alpaca open-order pagination.  Both account snapshots must be exact
+and stable: ACTIVE, every block flag explicitly false, finite positive equity,
+non-negative cash/buying power, multiplier 1, and buying power equal to cash
+within the existing typed cash tolerance.  Both books must contain exactly zero
+positions and zero open/working orders.  Any incomplete, changing, non-flat,
+wrong-account, malformed, margin-capable, blocked, suspended, or unsettled
+evidence refuses.
+
+Only after every check passes, one transaction writes exactly one epoch-1
+`SENTINEL_OWNED` binding and revokes the active bootstrap certificate as
+consumed.  A failure writes neither.  A successful retry therefore refuses
+twice: the binding already exists and the bootstrap authority is no longer
+active.  `ADMIN_BIND_EMPTY` cannot authorize inherited-account inspection or
+migration commands, restored-host adoption, plan preparation/execution,
+rollout changes, or automation.  Its separately named inspection command is
+limited to the same two read-only broker methods.
+
 ---
 
 ## 4a. Adapter status translation

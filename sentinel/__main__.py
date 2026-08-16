@@ -72,6 +72,8 @@ AUTHORIZED_RUNTIME_MARKER_BYTES = b"sentinel-authorized-runtime/1\n"
 AUTHORIZED_RUNTIME_COMMANDS = frozenset({
     "migration-plan",
     "inspect-paper-account",
+    "inspect-empty-paper-account",
+    "bind-empty-paper-account",
     "prepare-paper-plan",
     "execute-paper-plan",
     "install-administrative-certificate",
@@ -172,6 +174,12 @@ def cmd_status(config: SentinelConfig) -> int:
         "maximum_exposure": None,
         "lifecycle_current": False,
     }
+    administrative_status = {
+        "generation": 0,
+        "highest_issuer_generation": 0,
+        "active_certificate_sha256": None,
+        "certificates": [],
+    }
     if config.database_url:
         from sentinel.automation.health import read_health
         from sentinel.feed import store as feed_store
@@ -189,8 +197,14 @@ def cmd_status(config: SentinelConfig) -> int:
                 "lifecycle_current": bool(
                     health.authority_lifecycle_current),
             }
+            from sentinel.administrative_authority import (
+                administrative_authority_status,
+            )
+            administrative_status = administrative_authority_status(conn)
         except Exception as exc:                              # noqa: BLE001
             authority_status["error"] = f"{type(exc).__name__}: {exc}"
+            administrative_status["error"] = (
+                f"{type(exc).__name__}: {exc}")
         finally:
             if conn is not None:
                 conn.close()
@@ -198,6 +212,7 @@ def cmd_status(config: SentinelConfig) -> int:
         "config": config.redacted(),
         **view.to_dict(),
         "paper_execution_authority": authority_status,
+        "administrative_authority": administrative_status,
         # AUDIT ONLY, and labelled. Kept in the output because it is genuinely
         # useful during an incident; renamed so it can never be mistaken for the
         # answer above.
@@ -422,6 +437,43 @@ def cmd_create_paper_observation_candidate(
                 args.not_before, label="not_before"),
             expires_at=(_utc_cli_instant(args.expires_at, label="expires_at")
                         if args.expires_at else None))
+    except (ValueError, RuntimeError) + _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        conn.close()
+    sys.stdout.buffer.write(canonical_json_bytes(candidate) + b"\n")
+    return EXIT_OK
+
+
+def cmd_create_empty_paper_binding_candidate(
+        config: SentinelConfig, args) -> int:
+    """Emit canonical broker-free ADMIN_BIND_EMPTY claims/evidence."""
+    from sentinel import schema
+    from sentinel.authority import canonical_json_bytes
+    from sentinel.automation_runtime import config_from_env
+    from sentinel.empty_account_authority import build_candidate
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = feed_store.connect(config.database_url)
+    try:
+        schema.ensure_schema(conn)
+        runtime, strategy = _current_system_identities()
+        candidate = build_candidate(
+            conn, certificate_id=args.certificate_id,
+            issuer_generation=args.issuer_generation,
+            deployment_id=args.deployment_id,
+            expected_account=args.expect_account,
+            runtime_identity=runtime, strategy_identity=strategy,
+            automation_config_sha256=config_from_env().fingerprint,
+            reviewer=args.reviewer, ticket=args.ticket,
+            not_before=_utc_cli_instant(
+                args.not_before, label="not_before"),
+            expires_at=(_utc_cli_instant(args.expires_at, label="expires_at")
+                        if args.expires_at else None),
+            paper_base_url=config.base_url)
     except (ValueError, RuntimeError) + _paper_refusal_types() as exc:
         return _paper_refused(exc)
     finally:
@@ -899,7 +951,10 @@ async def _adopt_restored(config: SentinelConfig, args) -> int:
 
 def _paper_refusal_types() -> tuple[type[BaseException], ...]:
     """Safety refusals reported as an operator checkpoint, not a traceback."""
-    from sentinel import authority, binding as binding_mod, handover, paper, schema
+    from sentinel import (
+        authority, binding as binding_mod, empty_account, handover, paper,
+        schema,
+    )
     from sentinel.automation import model as automation_model
     from sentinel.controller import frozen_rule
     from sentinel.core import catchup
@@ -914,6 +969,7 @@ def _paper_refusal_types() -> tuple[type[BaseException], ...]:
         authority.AuthorityRefused,
         binding_mod.AccountNotBound,
         binding_mod.AccountMismatch,
+        empty_account.EmptyAccountRefused,
         handover.MigrationRefused,
         executor.StalePlanRefused,
         executor.RiskEnvelopeViolation,
@@ -985,6 +1041,99 @@ async def _inspect_paper_account(config: SentinelConfig, args) -> int:
     finally:
         conn.close()
 
+    print(json.dumps(result.to_dict(), indent=2, default=str))
+    return EXIT_OK
+
+
+async def _inspect_empty_paper_account(config: SentinelConfig, args) -> int:
+    """Read the exact pre-binding account through the empty-only facade."""
+    from sentinel import binding as binding_mod, empty_account, paper, schema
+    from sentinel.feed import calendar, store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = feed_store.connect(config.database_url)
+    try:
+        schema.ensure_schema(conn)
+        if binding_mod.load(conn) is not None:
+            raise empty_account.EmptyAccountRefused(
+                "empty-account inspection refuses an existing binding before "
+                "broker construction")
+        grant, guard = _authorized_administrative_access(
+            conn, config=config, operation="ADMIN_BIND_EMPTY",
+            deployment_id=args.deployment_id,
+            broker_account_id=args.expect_account, takeover_epoch=1)
+        as_of = datetime.now(ZoneInfo(calendar.EXCHANGE_TZ)).date().isoformat()
+        resolver = paper.build_security_resolver(conn, as_of)
+        broker = empty_account.GuardedEmptyAccountBroker(
+            inner=build_execution_broker(
+                config, resolve_security_id=resolver),
+            grant=grant, guard=guard)
+        result = await empty_account.inspect(
+            conn=conn, broker=broker,
+            expected_account=args.expect_account)
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        conn.close()
+    print(json.dumps(result.to_dict(), indent=2, default=str))
+    return EXIT_OK
+
+
+async def _bind_empty_paper_account(config: SentinelConfig, args) -> int:
+    """One-time stable-flat binding; the broker facade cannot mutate."""
+    from sentinel import (
+        administrative_authority, binding as binding_mod, empty_account,
+        paper, schema,
+    )
+    from sentinel.feed import calendar, store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    conn = feed_store.connect(config.database_url)
+    try:
+        schema.ensure_schema(conn)
+        if binding_mod.load(conn) is not None:
+            raise empty_account.EmptyAccountRefused(
+                "ADMIN_BIND_EMPTY refuses an existing binding before broker "
+                "construction")
+        grant, guard = _authorized_administrative_access(
+            conn, config=config, operation="ADMIN_BIND_EMPTY",
+            deployment_id=args.deployment_id,
+            broker_account_id=args.expect_account, takeover_epoch=1)
+        as_of = datetime.now(ZoneInfo(calendar.EXCHANGE_TZ)).date().isoformat()
+        resolver = paper.build_security_resolver(conn, as_of)
+        broker = empty_account.GuardedEmptyAccountBroker(
+            inner=build_execution_broker(
+                config, resolve_security_id=resolver),
+            grant=grant, guard=guard)
+
+        def consume_authority() -> str:
+            from sentinel.guarded_administration import (
+                AdministrativeBrokerOperation,
+            )
+            guard.check(
+                grant, AdministrativeBrokerOperation.FINALIZE_BINDING, None)
+            certificate = _require_administrative_access(
+                conn, config=config, operation="ADMIN_BIND_EMPTY",
+                deployment_id=args.deployment_id,
+                broker_account_id=args.expect_account, takeover_epoch=1)
+            administrative_authority.consume_empty_binding_authority(
+                conn, certificate_sha256=certificate.certificate_sha256,
+                commit=False)
+            return certificate.certificate_sha256
+
+        result = await empty_account.bind_empty_account(
+            conn=conn, broker=broker, deployment_id=args.deployment_id,
+            expected_account=args.expect_account,
+            consume_authority=consume_authority,
+            poll_seconds=config.poll_seconds, notes=args.notes or "")
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        conn.close()
     print(json.dumps(result.to_dict(), indent=2, default=str))
     return EXIT_OK
 
@@ -1892,6 +2041,17 @@ def main(argv: list[str] | None = None) -> int:
     candidate.add_argument("--cash", type=float, required=True)
     candidate.add_argument("--reviewer", required=True)
     candidate.add_argument("--ticket", required=True)
+    empty_candidate = sub.add_parser(
+        "create-empty-paper-binding-candidate",
+        help="emit broker-free attended ADMIN_BIND_EMPTY claims/evidence")
+    empty_candidate.add_argument("--certificate-id", required=True)
+    empty_candidate.add_argument("--issuer-generation", type=int, required=True)
+    empty_candidate.add_argument("--deployment-id", required=True)
+    empty_candidate.add_argument("--expect-account", required=True)
+    empty_candidate.add_argument("--not-before", required=True)
+    empty_candidate.add_argument("--expires-at", default=None)
+    empty_candidate.add_argument("--reviewer", required=True)
+    empty_candidate.add_argument("--ticket", required=True)
     cd = sub.add_parser("check-data",
                         help="the Wealth Core data contract, per CHECK")
     cd.add_argument("--today", default=None)
@@ -1941,6 +2101,17 @@ def main(argv: list[str] | None = None) -> int:
         help="read the exact named paper account and inherited open book")
     inspect.add_argument("--deployment-id", required=True)
     inspect.add_argument("--expect-account", required=True)
+    empty_inspect = sub.add_parser(
+        "inspect-empty-paper-account",
+        help="read the exact pre-binding paper account; no mutation methods")
+    empty_inspect.add_argument("--deployment-id", required=True)
+    empty_inspect.add_argument("--expect-account", required=True)
+    empty_bind = sub.add_parser(
+        "bind-empty-paper-account",
+        help="one-time ADMIN_BIND_EMPTY stable-flat enrollment")
+    empty_bind.add_argument("--deployment-id", required=True)
+    empty_bind.add_argument("--expect-account", required=True)
+    empty_bind.add_argument("--notes", default=None)
     prep = sub.add_parser(
         "prepare-paper-plan",
         help="advance state and adopt one durable current paper plan; dry run")
@@ -2182,12 +2353,18 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_compare_paper_warmup(args)
         if args.command == "create-paper-observation-candidate":
             return cmd_create_paper_observation_candidate(config, args)
+        if args.command == "create-empty-paper-binding-candidate":
+            return cmd_create_empty_paper_binding_candidate(config, args)
         if args.command == "migration-plan":
             return asyncio.run(_migration_plan(config, args))
         if args.command == "plan":
             return asyncio.run(_plan(config))
         if args.command == "inspect-paper-account":
             return asyncio.run(_inspect_paper_account(config, args))
+        if args.command == "inspect-empty-paper-account":
+            return asyncio.run(_inspect_empty_paper_account(config, args))
+        if args.command == "bind-empty-paper-account":
+            return asyncio.run(_bind_empty_paper_account(config, args))
         if args.command == "prepare-paper-plan":
             return asyncio.run(_prepare_paper_plan(config, args))
         if args.command == "current-paper-plan":

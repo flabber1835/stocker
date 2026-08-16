@@ -252,6 +252,13 @@ require both `--deployment-id` and `--expect-account`; neither can infer the
 future deployment from credentials. `migrate-account` requires the separate
 `ADMIN_MIGRATE` operation. A restored-host adoption uses a fresh
 `ADMIN_ADOPT` certificate naming the exact current deployment/account/epoch.
+For a newly created, strictly empty epoch-1 paper account, the separate
+`ADMIN_BIND_EMPTY` schema and operation may bind only after two complete stable
+flat read-only observations and strict cash-account checks. It carries no
+historical `GO` claim, cannot authorize any inherited-book operation, and is
+consumed atomically with the first binding. See
+`docs/sentinel-execution-contract.md` section 4.5 and the exact runbook in
+`docs/sentinel-paper-observation.md`.
 
 Certificate staging, activation, and revocation contact no broker. The active
 administrative certificate is verified before broker construction, around

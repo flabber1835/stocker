@@ -131,8 +131,9 @@ def read(database_url: str = "", state_dir: Optional[Path] = None,
     if bound is None:
         return OwnershipView(
             state=Ownership.NOT_OWNED, source="database", file_events=file_events,
-            detail="no account binding. Run `migrate-account` for a first "
-                   "handover, or `adopt-restored-account` on a replacement host.")
+            detail="no account binding. Run `bind-empty-paper-account` for a "
+                   "new empty paper account, `migrate-account` for an inherited "
+                   "book, or `adopt-restored-account` on a replacement host.")
 
     return OwnershipView(
         state=Ownership.OWNED if bound.is_owned else Ownership.NOT_OWNED,

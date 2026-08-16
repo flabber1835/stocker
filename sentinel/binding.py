@@ -121,7 +121,8 @@ def require(conn) -> AccountBinding:
         raise AccountNotBound(
             "this appliance has no account binding. It does not know whose "
             "account it is connected to, so it will not trade. Run "
-            "`migrate-account` for a first handover, or "
+            "`bind-empty-paper-account` for a new empty paper account, "
+            "`migrate-account` for an inherited-book handover, or "
             "`adopt-restored-account` when moving to a replacement host.")
     return found
 
