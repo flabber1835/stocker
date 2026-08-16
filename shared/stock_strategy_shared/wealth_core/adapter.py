@@ -580,6 +580,24 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     # Before anything reads a ticker. Changes no number and no economic state.
     transform_starts = [(po, len(po.transformations)) for po in pending]
     relabelled = apply_ticker_changes(state, bars, pending, session=session)
+    # Issuer-family metadata is session-effective just like the display label.
+    # Rebind held episodes and outstanding entry reservations from TODAY'S
+    # canonical bars before admission checks. Freezing the family at entry
+    # would make a legitimately observed relatedtickers correction ineffective
+    # for every existing holding; using a replay-end family would rewrite the
+    # past. Sessions with no authoritative metadata expose no bar, so the prior
+    # value remains and the ordinary missing-mark gate blocks new admissions.
+    for episode in state.episodes.values():
+        current = by_sec.get(episode.security_id)
+        if current is not None:
+            episode.issuer_id = current.issuer_id
+    for po in pending:
+        if po.operation is not Operation.OPEN_SLOT_POSITION:
+            continue
+        current = by_sec.get(po.security_id)
+        slot = state.slots.get(po.slot_id)
+        if current is not None and slot is not None:
+            slot.reserved_issuer = current.issuer_id
     order_transformations = [
         transform
         for po, start in transform_starts

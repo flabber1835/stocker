@@ -546,8 +546,9 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
         actions_after_session, actions_effective_in_sessions,
         assert_raw_price_domain,
         dividends_from_actions, load_actions,
-        load_bars, load_identity, load_meta, load_sessions, sessions_index,
-        require_usable_bars, split_ratios_from_actions,
+        load_bars, load_identity, load_meta_timeline, load_sessions,
+        sessions_index, require_usable_bars, require_usable_decision_bars,
+        split_ratios_from_actions,
         terminal_events_from_actions,
         unusable_dividend_rows)
     # Its OWN module, also COPYed at image build. The loader above is guarded
@@ -608,34 +609,7 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
                     f"weekend/holiday event at the boundary cannot be placed "
                     f"without guessing. Backfill further or widen the lookup.")
 
-            # One static metadata map serves every measured decision, so bound
-            # it at the first measured session. End metadata would let a later
-            # category/relationship rewrite an earlier decision. Identity is a
-            # separate interval-proven authority.
-            meta = load_meta(conn, as_of=start)
-            if not meta:
-                # REFUSED, not run. An empty universe does not produce an error
-                # anywhere downstream: no candidates means no scores, no
-                # admissions, no rejections — and the run completes with
-                # `status: success`, a flat equity curve and a 0.00% CAGR.
-                #
-                # That is the worst possible output. A strategy that EARNED
-                # nothing and a strategy that could not RUN are indistinguishable
-                # in the summary, and the second one looks like evidence about
-                # the first. Measured 2026-08-06: a 753-session rehearsal
-                # returned success, 0.00% CAGR, 0.00% drawdown and ending equity
-                # exactly equal to starting cash, with `securities: 0` the only
-                # trace of what had happened.
-                raise RawPriceDomainUnavailable(
-                    f"bt_universe has no decision metadata observed by the "
-                    f"first measured session {start}, so the {len(sessions)} "
-                    f"session(s) through {end} have nothing causal to rank. "
-                    f"This is NOT a strategy result: with an empty universe the "
-                    f"run would complete successfully and report a 0% return. "
-                    f"Remedy: restore a legitimately observed TICKERS snapshot "
-                    f"dated on or before {start}, or choose a start on or after "
-                    f"an observed snapshot. POST /jobs/backfill-universe repairs "
-                    f"identity only; it must not be backdated.")
+            metadata_timeline = load_meta_timeline(conn, sessions=sessions)
             identity = load_identity(conn, as_of=end)
             # TWO indices, and the split is load-bearing.
             #
@@ -694,25 +668,26 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
                                  identity=identity)
                 terminal = terminal_events_from_actions(
                     measured_action_rows, full_idx,
-                    known_securities=set(meta),
-                    identity=identity, meta=meta, unresolved=identity.unresolved)
+                    known_securities=set(metadata_timeline.security_ids),
+                    identity=identity, metadata_timeline=metadata_timeline,
+                    unresolved=identity.unresolved)
             else:
                 bars = load_bars(conn, warmup_from, end, identity=identity)
 
-            unknown = sorted({b.security_id for v in bars.values() for b in v}
-                             - set(meta))
-            if unknown:
-                bars = {s: [b for b in v if b.security_id in meta]
-                        for s, v in bars.items()}
             require_usable_bars(
                 bars, start=warmup_from, end=end, context="bt_engine_corpus")
+            require_usable_decision_bars(
+                bars, metadata_timeline, start=start, end=end,
+                context="bt_engine_corpus")
             return {
-                "sessions": sessions, "bars_by_session": bars, "meta": meta,
+                "sessions": sessions, "bars_by_session": bars, "meta": {},
+                "metadata_timeline": metadata_timeline,
                 "warmup_sessions": warmup_sessions,
                 "benchmark_closes": benchmark_closes,
                 "terminal_events": terminal,
                 "provenance": {
-                    "sessions": len(sessions), "securities": len(meta),
+                    "sessions": len(sessions),
+                    "securities": len(metadata_timeline.security_ids),
                     "warmup_sessions": len(warmup_sessions),
                     "warmup_first_session": warmup_sessions[0] if warmup_sessions else None,
                     "raw_close_coverage": round(coverage, 4),
@@ -729,7 +704,7 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
                     "split_reconciliation": dict(sorted(reconciliation.items())),
                     "dividend_rows_unusable": dropped,
                     "identity_unresolved": dict(sorted(identity.unresolved.items())),
-                    "excluded_unknown_tickers": len(unknown),
+                    "excluded_unknown_tickers": 0,
                     "caveats": list(CAVEATS) + list(
                         ACTIONS_CAVEATS if use_actions else DERIVED_SPLIT_CAVEATS),
                 },
@@ -753,6 +728,7 @@ def _execute(req: WealthCoreJobRequest, corpus: dict, *, on_progress=None) -> di
     common = dict(sessions=corpus["sessions"],
                   bars_by_session=corpus["bars_by_session"],
                   meta=corpus["meta"], starting_cash=req.starting_cash,
+                  metadata_timeline=corpus.get("metadata_timeline"),
                   terminal_events=corpus["terminal_events"])
     warmup = list(corpus.get("warmup_sessions") or ())
 

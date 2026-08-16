@@ -756,6 +756,13 @@ the recorded result of that run, not a re-certified result, and the exact-image
 NAS rerun after this fix must determine whether they change. Do not re-pin a
 golden result merely to preserve either number.
 
+The corrected contract requires session-effective decision metadata: every
+measured market session must have its legitimately observed TICKERS snapshot.
+The fresh NAS rebuild's current-only snapshot is enough to repair permanent
+identity for corpus parity, but it cannot certify a 2021--2023 rehearsal. That
+rehearsal remains blocked until authoritative historical TICKERS observations
+are restored; today's snapshot must not masquerade as that history.
+
 ```text
 pending_terms_carried              8      $342,136.68
 derived_last_mark_settlements      8      $342,419.72

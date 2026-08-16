@@ -46,7 +46,13 @@ from stock_strategy_shared.terminal_coalescing import (
 )
 from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
 from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
-from stock_strategy_shared.wealth_core.feed import SecurityMeta, VendorBar
+from stock_strategy_shared.wealth_core.feed import (
+    DecisionMetadataTimeline,
+    DecisionMetadataTimelineBuilder,
+    FeedError,
+    SecurityMeta,
+    VendorBar,
+)
 from stock_strategy_shared.wealth_core.run import RunResult, TerminalEvent, run_sessions
 from stock_strategy_shared.wealth_core.terminal import TerminalKind, TerminalTerms
 
@@ -84,6 +90,10 @@ class IdentityAuthorityUnavailable(RuntimeError):
 
 class CanonicalBarsUnavailable(RuntimeError):
     """A non-empty price window collapsed to no usable canonical bars."""
+
+
+class DecisionMetadataUnavailable(RuntimeError):
+    """The historical TICKERS observation timeline is incomplete."""
 
 
 # A certified run must not be scored on splits inferred from the price series.
@@ -154,7 +164,8 @@ _META_SQL = text("""
                AS category,
            (ARRAY_REMOVE(ARRAY_AGG(related_tickers ORDER BY snapshot_date DESC), NULL))[1]
                AS related_tickers,
-           MIN(first_price_date) AS first_price_date
+           MIN(first_price_date) AS first_price_date,
+           MAX(last_price_date) AS last_price_date
       FROM bt_universe
      WHERE permaticker IS NOT NULL
        AND snapshot_date <= :as_of
@@ -174,6 +185,15 @@ _IDENTITY_SQL = text("""
       FROM bt_universe
      WHERE permaticker IS NOT NULL AND ticker IS NOT NULL
      ORDER BY ticker, permaticker, snapshot_date
+""")
+
+_META_TIMELINE_SQL = text("""
+    SELECT snapshot_date, permaticker, ticker, category, related_tickers,
+           first_price_date, last_price_date
+      FROM bt_universe
+     WHERE permaticker IS NOT NULL
+       AND snapshot_date <= :end
+     ORDER BY snapshot_date, permaticker
 """)
 
 
@@ -570,6 +590,8 @@ def terminal_events_from_actions(rows: Iterable[dict],
                                  known_securities: set[str] | None = None,
                                  identity: "IdentityResolver | None" = None,
                                  meta: "dict[str, SecurityMeta] | None" = None,
+                                 metadata_timeline:
+                                 "DecisionMetadataTimeline | None" = None,
                                  unresolved: dict[str, int] | None = None
                                  ) -> list[TerminalTerms]:
     """Every terminal action in the window, RESOLVED to permanent identities and
@@ -637,7 +659,9 @@ def terminal_events_from_actions(rows: Iterable[dict],
                 # nothing. Absent metadata falls back to the delivered permanent
                 # id, matching what the feed does for a security whose issuer
                 # cannot be established.
-                m = (meta or {}).get(delivered_sid)
+                m = (metadata_timeline.metadata_for(session, delivered_sid)
+                     if metadata_timeline is not None
+                     else (meta or {}).get(delivered_sid))
                 key = m.issuer_key()[0] if m is not None else None
                 delivered_issuer = key or f"S:{delivered_sid}"
 
@@ -931,7 +955,10 @@ def load_meta(conn, *, as_of: str) -> dict[str, SecurityMeta]:
             category=r["category"],
             permaticker=str(r["permaticker"]),
             related_tickers=tuple(related),
-            first_session=str(r["first_price_date"]) if r["first_price_date"] else None)
+            first_session=(str(r["first_price_date"])
+                           if r["first_price_date"] else None),
+            last_session=(str(r.get("last_price_date"))
+                          if r.get("last_price_date") else None))
     return out
 
 
@@ -1023,6 +1050,91 @@ def load_bars(conn, start: str, end: str,
     return out
 
 
+def load_meta_timeline(conn, *, sessions: Sequence[str]
+                       ) -> DecisionMetadataTimeline:
+    """Load one legitimately observed full TICKERS snapshot per decision day.
+
+    A start-frozen map excludes later listings and an end-frozen map rewrites
+    earlier decisions.  Exact session coverage is intentionally strict: a gap
+    cannot distinguish "nothing changed" from "the observation was lost".
+    """
+    if not sessions:
+        raise DecisionMetadataUnavailable(
+            "decision metadata timeline requires measured sessions")
+    builder = DecisionMetadataTimelineBuilder(sessions)
+    rows = conn.execute(_META_TIMELINE_SQL, {
+        "end": sessions[-1]}).mappings()
+    measured = set(sessions)
+    latest: dict[str, SecurityMeta] = {}
+    current_session: str | None = None
+    current: dict[str, SecurityMeta] = {}
+
+    def flush() -> None:
+        if current_session in measured:
+            builder.add_snapshot(current_session, current)
+
+    try:
+        for r in rows:
+            observed = str(r["snapshot_date"])
+            if observed != current_session:
+                flush()
+                current_session = observed
+                current = {}
+            sid = permanent_id(r["permaticker"])
+            if sid is None:
+                continue
+            previous = latest.get(sid)
+            meta = SecurityMeta(
+                security_id=sid,
+                ticker=(r["ticker"] or (previous.ticker if previous else "")),
+                category=(r["category"] if r["category"] is not None else
+                          (previous.category if previous else None)),
+                permaticker=str(r["permaticker"]),
+                related_tickers=(
+                    tuple(r["related_tickers"].split())
+                    if r["related_tickers"] is not None else
+                    (previous.related_tickers if previous else ())),
+                first_session=(str(r["first_price_date"])
+                               if r["first_price_date"] else
+                               (previous.first_session if previous else None)),
+                last_session=(str(r["last_price_date"])
+                              if r["last_price_date"] else
+                              (previous.last_session if previous else None)))
+            latest[sid] = meta
+            if observed in measured:
+                current[sid] = meta
+        flush()
+        timeline = builder.finish()
+    except FeedError as exc:
+        raise DecisionMetadataUnavailable(
+            f"unsupported historical decision-metadata timeline for "
+            f"{sessions[0]} through {sessions[-1]}: {exc}. Restore the "
+            f"legitimately observed per-session TICKERS snapshots; a current "
+            f"refresh repairs identity only and must not be backdated") from exc
+    if not timeline.security_ids:
+        raise DecisionMetadataUnavailable(
+            f"decision metadata snapshots for {sessions[0]} through "
+            f"{sessions[-1]} contain no permanent securities")
+    return timeline
+
+
+def require_usable_decision_bars(
+        bars: dict[str, list[VendorBar]], timeline: DecisionMetadataTimeline,
+        *, start: str, end: str, context: str) -> None:
+    """Refuse a nonempty identity stream that decision metadata erases."""
+    source = sum(len(v) for v in bars.values())
+    measured = set(timeline.sessions)
+    visible = sum(
+        timeline.metadata_for(session, b.security_id) is not None
+        for session, rows in bars.items() if session in measured
+        for b in rows)
+    if source and not visible:
+        raise CanonicalBarsUnavailable(
+            f"{context}: {source} identity-resolved bar(s) for {start} through "
+            f"{end} have zero session-effective decision metadata; refusing "
+            f"a partial/cash-only strategy result")
+
+
 def require_usable_bars(bars: dict[str, list[VendorBar]], *, start: str,
                         end: str, context: str) -> None:
     """Refuse the second cash-only path: metadata filtering removed all bars."""
@@ -1093,7 +1205,8 @@ ACTIONS_CAVEATS: tuple[str, ...] = (
 
 
 def run_normalized(*, sessions, bars_by_session, meta, starting_cash,
-                   cfg=None, eligibility_cfg=None, terminal_events=()):
+                   metadata_timeline=None, cfg=None, eligibility_cfg=None,
+                   terminal_events=()):
     """Run an ALREADY-NORMALISED stream and return the result plus the seven
     parity hashes.
 
@@ -1106,6 +1219,7 @@ def run_normalized(*, sessions, bars_by_session, meta, starting_cash,
     from stock_strategy_shared.wealth_core.run import run_with_hashes
     return run_with_hashes(sessions=list(sessions),
                            bars_by_session=bars_by_session, meta=meta,
+                           metadata_timeline=metadata_timeline,
                            starting_cash=starting_cash, cfg=cfg,
                            eligibility_cfg=eligibility_cfg,
                            terminal_events=terminal_events)
@@ -1125,18 +1239,7 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
     if not sessions:
         raise RawPriceDomainUnavailable("no sessions in range")
 
-    # The engine consumes one static metadata map, so its causal boundary is the
-    # FIRST measured decision, not replay end. Using end metadata here would let
-    # a late-window category or relationship rewrite earlier decisions. Identity
-    # is separate: later observations may prove a historical pairing only
-    # through the vendor interval checked for each session.
-    meta = load_meta(conn, as_of=req.start_date)
-    if not meta:
-        raise CanonicalBarsUnavailable(
-            f"bt_universe has no decision metadata observed by {req.start_date}; "
-            f"later TICKERS labels/categories/relationships cannot be used in "
-            f"a historical decision. Restore a legitimately observed snapshot "
-            f"on or before the start; do not backdate a current delivery")
+    metadata_timeline = load_meta_timeline(conn, sessions=sessions)
     identity = load_identity(conn, as_of=req.end_date)
 
     # ── the authoritative corporate-action stream ────────────────────────────
@@ -1170,36 +1273,33 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
         derived_terminals = [
             t for t in terminal_events_from_actions(
                 action_rows, sessions_sorted,
-                # PERMANENT ids on both sides. `set(meta)` is P:-keyed, so the
-                # resolver must run BEFORE this filter or nothing matches.
-                known_securities=set(meta), identity=identity, meta=meta,
+                # Permanent ids on both sides; membership is the union of the
+                # observed session-effective decision snapshots.
+                known_securities=set(metadata_timeline.security_ids),
+                identity=identity, metadata_timeline=metadata_timeline,
                 unresolved=identity.unresolved)
             if (t.session, t.security_id) not in supplied]
         terminal_events = list(terminal_events) + derived_terminals
     else:
         bars = load_bars(conn, req.start_date, req.end_date, identity=identity)
 
-    # A bar with no reference row would be admitted on unknown eligibility, so
-    # the feed refuses it. Dropping such tickers HERE, loudly, beats failing
-    # mid-run on session 4,000.
-    unknown = sorted({b.security_id for v in bars.values() for b in v} - set(meta))
-    if unknown:
-        log.warning("wealth_core_replay: %d ticker(s) absent from bt_universe, "
-                    "excluded: %s", len(unknown), unknown[:10])
-        bars = {s: [b for b in v if b.security_id in meta] for s, v in bars.items()}
     require_usable_bars(bars, start=req.start_date, end=req.end_date,
                         context="wealth_core_replay")
+    require_usable_decision_bars(
+        bars, metadata_timeline, start=req.start_date, end=req.end_date,
+        context="wealth_core_replay")
 
     result, hashes = run_normalized(
-        sessions=sessions, bars_by_session=bars, meta=meta,
+        sessions=sessions, bars_by_session=bars, meta={},
+        metadata_timeline=metadata_timeline,
         starting_cash=req.starting_cash, cfg=req.config,
         eligibility_cfg=req.eligibility, terminal_events=terminal_events)
 
     summary = {
         "sessions": len(sessions),
-        "securities": len(meta),
+        "securities": len(metadata_timeline.security_ids),
         "raw_close_coverage": round(coverage, 4),
-        "excluded_unknown_tickers": len(unknown),
+        "excluded_unknown_tickers": 0,
         "final_cash": round(result.state.cash, 2),
         "final_positions": len(result.state.episodes),
         "blocked_sessions": len(result.blocked_sessions),
@@ -1232,7 +1332,8 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
 __all__ = ["ACTIONS_CAVEATS", "CAVEATS", "DERIVED_SPLIT_CAVEATS",
            "CorporateActionsUnavailable", "REQUIRE_ACTIONS", "SPLIT_ACTIONS",
            "TERMINAL_ACTIONS", "DIVIDEND_ACTIONS", "dividends_from_actions",
-           "CanonicalBarsUnavailable", "IdentityAuthorityUnavailable",
+           "CanonicalBarsUnavailable", "DecisionMetadataUnavailable",
+           "IdentityAuthorityUnavailable",
            "IdentityResolver", "IdentityUnresolvable", "SECURITY_ID_PREFIX",
            "permanent_id", "load_identity",
            "unusable_dividend_rows", "load_actions", "actions_after_session",
@@ -1243,5 +1344,6 @@ __all__ = ["ACTIONS_CAVEATS", "CAVEATS", "DERIVED_SPLIT_CAVEATS",
            "terminal_events_from_actions", "terminal_from_action",
            "RawPriceDomainUnavailable", "WealthCoreReplayRequest",
            "assert_raw_price_domain", "load_bars", "load_meta",
-           "require_usable_bars", "run_normalized",
+           "load_meta_timeline", "require_usable_bars",
+           "require_usable_decision_bars", "run_normalized",
            "run_wealth_core_replay", "split_ratio_from_domains"]

@@ -259,12 +259,7 @@ def load_corpus(conn, *, start: str, end: str, bt) -> dict[str, Any]:
             f"requested {start}..{end}, observed "
             f"{measured[0]}..{measured[-1]}")
 
-    meta = bt.load_meta(conn, as_of=start)
-    if not meta:
-        raise ExpectedHashesRefused(
-            f"bt_universe has no decision metadata observed by {start}; later "
-            f"TICKERS metadata cannot be backdated, and a cash-only run is not "
-            f"evidence")
+    metadata_timeline = bt.load_meta_timeline(conn, sessions=measured)
     identity = bt.load_identity(conn, as_of=end)
     actions_ingestion = load_actions_ingestion_evidence(
         conn, start=date.fromisoformat(warmup_from), end=date.fromisoformat(end))
@@ -286,29 +281,28 @@ def load_corpus(conn, *, start: str, end: str, bt) -> dict[str, Any]:
         conn, warmup_from, end, authoritative_splits=splits,
         reconciliation=reconciliation, dividends=dividends, identity=identity)
 
-    unknown = sorted(
-        {bar.security_id for rows in bars.values() for bar in rows} - set(meta))
-    if unknown:
-        bars = {session: [bar for bar in rows if bar.security_id in meta]
-                for session, rows in bars.items()}
-    if not any(bars.values()):
-        raise ExpectedHashesRefused(
-            f"wealth_core_expected_hashes: canonical bars are empty after "
-            f"identity/reference metadata filtering for {warmup_from} through "
-            f"{end}; a zero-security run is not certification evidence")
+    bt.require_usable_bars(
+        bars, start=warmup_from, end=end,
+        context="wealth_core_expected_hashes")
+    bt.require_usable_decision_bars(
+        bars, metadata_timeline, start=start, end=end,
+        context="wealth_core_expected_hashes")
     normalized_bars = sum(len(rows) for rows in bars.values())
     measured_actions = bt.actions_effective_in_sessions(
         action_rows, full_index, measured)
     unresolved = getattr(identity, "unresolved", {})
     terminals = bt.terminal_events_from_actions(
-        measured_actions, full_index, known_securities=set(meta),
-        identity=identity, meta=meta, unresolved=unresolved)
+        measured_actions, full_index,
+        known_securities=set(metadata_timeline.security_ids),
+        identity=identity, metadata_timeline=metadata_timeline,
+        unresolved=unresolved)
 
     return {
         "sessions": measured,
         "warmup_sessions": warmup,
         "bars_by_session": bars,
-        "meta": meta,
+        "meta": {},
+        "metadata_timeline": metadata_timeline,
         "terminal_events": terminals,
         "source": {
             "split_source": "actions",
@@ -328,7 +322,7 @@ def load_corpus(conn, *, start: str, end: str, bt) -> dict[str, Any]:
             "split_reconciliation": dict(sorted(reconciliation.items())),
             "dividend_rows_unusable": bt.unusable_dividend_rows(action_rows),
             "identity_unresolved": dict(sorted(unresolved.items())),
-            "excluded_unknown_tickers": len(unknown),
+            "excluded_unknown_tickers": 0,
         },
     }
 
@@ -342,12 +336,14 @@ def run_corpus(corpus: Mapping[str, Any]) -> tuple[Any, dict[str, str], str]:
 
     cfg = WealthCoreConfig()
     eligibility = EligibilityConfig()
-    feed = Feed(corpus["meta"], eligibility)
+    feed = Feed(corpus["meta"], eligibility,
+                corpus.get("metadata_timeline"))
     feed.warmup(corpus["warmup_sessions"], corpus["bars_by_session"])
     result, hashes = run_with_hashes(
         sessions=corpus["sessions"],
         bars_by_session=corpus["bars_by_session"],
         meta=corpus["meta"],
+        metadata_timeline=corpus.get("metadata_timeline"),
         starting_cash=1_000_000.0,
         cfg=cfg,
         eligibility_cfg=eligibility,
@@ -374,7 +370,9 @@ def causal_input_sha256(corpus: Mapping[str, Any]) -> str:
         raise ExpectedHashesRefused(
             "warm-up plus measured sessions are duplicate or unordered; the "
             "causal input cannot be identified")
-    return normalized_input_hash(sessions, corpus["bars_by_session"])
+    return normalized_input_hash(
+        sessions, corpus["bars_by_session"],
+        corpus.get("metadata_timeline"))
 
 
 def validate_hashes(hashes: Mapping[str, str]) -> dict[str, str]:

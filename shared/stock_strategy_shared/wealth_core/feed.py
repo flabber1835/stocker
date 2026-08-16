@@ -41,6 +41,7 @@ series on every restart with a different lookback and no error anywhere.
 from __future__ import annotations
 
 import math
+from bisect import bisect_right
 from dataclasses import dataclass, field
 from typing import Iterable, Mapping, Sequence
 
@@ -103,7 +104,7 @@ class VendorBar:
 
 @dataclass(frozen=True)
 class SecurityMeta:
-    """The static, per-security reference data eligibility needs.
+    """One observed, session-effective security metadata row.
 
     `category`, `permaticker` and `related_tickers` are carried through
     UNINTERPRETED from Sharadar TICKERS — the certified predicates read the raw
@@ -116,10 +117,116 @@ class SecurityMeta:
     permaticker: str | None = None
     related_tickers: Sequence[str] = ()
     first_session: str | None = None
+    last_session: str | None = None
 
     def issuer_key(self) -> tuple[str | None, str | None]:
         return build_issuer_group_key(self.ticker, self.related_tickers,
                                       self.permaticker)
+
+
+class DecisionMetadataTimeline:
+    """Compressed full-snapshot metadata authority for measured sessions.
+
+    Each measured session must have an independently observed full TICKERS
+    snapshot.  The builder stores membership intervals and metadata changes,
+    rather than retaining ``sessions x securities`` duplicate objects.
+    """
+
+    def __init__(self, sessions: Sequence[str], changes, intervals) -> None:
+        validate_session_stream(sessions, context="decision metadata")
+        self.sessions = tuple(sessions)
+        self._index = {s: i for i, s in enumerate(self.sessions)}
+        self._changes = {k: tuple(v) for k, v in changes.items()}
+        self._intervals = {k: tuple(v) for k, v in intervals.items()}
+        self._change_starts = {
+            k: tuple(row[0] for row in v) for k, v in self._changes.items()}
+        self._interval_starts = {
+            k: tuple(row[0] for row in v) for k, v in self._intervals.items()}
+
+    @property
+    def security_ids(self) -> frozenset[str]:
+        return frozenset(self._intervals)
+
+    def metadata_for(self, session: str, security_id: str
+                     ) -> SecurityMeta | None:
+        idx = self._index.get(session)
+        if idx is None:
+            return None
+        ranges = self._intervals.get(security_id, ())
+        pos = bisect_right(self._interval_starts.get(security_id, ()), idx) - 1
+        if pos < 0 or idx > ranges[pos][1]:
+            return None
+        history = self._changes[security_id]
+        cpos = bisect_right(self._change_starts[security_id], idx) - 1
+        return None if cpos < 0 else history[cpos][1]
+
+    def session_map(self, session: str) -> dict[str, SecurityMeta]:
+        if session not in self._index:
+            raise FeedError(
+                f"no decision-metadata snapshot for measured session {session}; "
+                f"refusing a partial/cash-only strategy result")
+        return {sid: meta for sid in sorted(self.security_ids)
+                if (meta := self.metadata_for(session, sid)) is not None}
+
+    def canonical_row(self, session: str, security_id: str):
+        m = self.metadata_for(session, security_id)
+        if m is None:
+            return [security_id, None]
+        return [security_id, m.ticker, m.category, m.permaticker,
+                sorted(m.related_tickers), m.first_session, m.last_session]
+
+
+class DecisionMetadataTimelineBuilder:
+    """Streaming compressor for ordered, full session snapshots."""
+
+    def __init__(self, sessions: Sequence[str]) -> None:
+        validate_session_stream(sessions, context="decision metadata")
+        self.sessions = tuple(sessions)
+        self._next = 0
+        self._changes: dict[str, list[tuple[int, SecurityMeta]]] = {}
+        self._intervals: dict[str, list[tuple[int, int]]] = {}
+        self._last_meta: dict[str, SecurityMeta] = {}
+        self._last_seen: dict[str, int] = {}
+        self._open_start: dict[str, int] = {}
+
+    def add_snapshot(self, session: str,
+                     metadata: Mapping[str, SecurityMeta]) -> None:
+        if self._next >= len(self.sessions) or session != self.sessions[self._next]:
+            expected = (self.sessions[self._next]
+                        if self._next < len(self.sessions) else None)
+            raise FeedError(
+                f"decision metadata snapshot {session!r} is not the required "
+                f"next measured session {expected!r}")
+        idx = self._next
+        for sid in sorted(metadata):
+            m = metadata[sid]
+            if sid != m.security_id:
+                raise FeedError(
+                    f"decision metadata key {sid!r} disagrees with row "
+                    f"security_id {m.security_id!r}")
+            previous = self._last_seen.get(sid)
+            if previous is None or previous != idx - 1:
+                if previous is not None:
+                    self._intervals.setdefault(sid, []).append(
+                        (self._open_start[sid], previous))
+                self._open_start[sid] = idx
+            if self._last_meta.get(sid) != m:
+                self._changes.setdefault(sid, []).append((idx, m))
+                self._last_meta[sid] = m
+            self._last_seen[sid] = idx
+        self._next += 1
+
+    def finish(self) -> DecisionMetadataTimeline:
+        if self._next != len(self.sessions):
+            missing = list(self.sessions[self._next:self._next + 5])
+            raise FeedError(
+                f"decision metadata timeline is incomplete: missing measured "
+                f"snapshot(s) beginning {missing}")
+        for sid, end in self._last_seen.items():
+            self._intervals.setdefault(sid, []).append(
+                (self._open_start[sid], end))
+        return DecisionMetadataTimeline(
+            self.sessions, self._changes, self._intervals)
 
 
 @dataclass
@@ -265,7 +372,10 @@ def to_eligibility_input(bar: VendorBar, series: SecuritySeries,
         category=meta.category,
         issuer_group_key=key,
         issuer_key_source=source,
-        listed_on_session=_positive(bar.raw_close),
+        listed_on_session=(
+            _positive(bar.raw_close)
+            and (meta.first_session is None or meta.first_session <= bar.session)
+            and (meta.last_session is None or bar.session <= meta.last_session)),
         unadjusted_signal_price=bar.raw_close if _positive(bar.raw_close) else None,
         adv20_dollars=adv20_dollars(
             [c for c in series.raw_closes[-ADV_WINDOW_SESSIONS:]],
@@ -296,8 +406,11 @@ class Feed:
     """
 
     def __init__(self, meta: Mapping[str, SecurityMeta],
-                 cfg: EligibilityConfig | None = None) -> None:
+                 cfg: EligibilityConfig | None = None,
+                 metadata_timeline: DecisionMetadataTimeline | None = None
+                 ) -> None:
         self.meta = dict(meta)
+        self.metadata_timeline = metadata_timeline
         self.cfg = cfg or EligibilityConfig()
         self.series: dict[str, SecuritySeries] = {}
         # The market's session counter, shared by every security. Advanced once
@@ -343,17 +456,20 @@ class Feed:
             seen.add(b.security_id)
         return ordered
 
-    def _series_for(self, bar: VendorBar) -> SecuritySeries:
+    def _series_for(self, bar: VendorBar,
+                    meta: SecurityMeta | None = None) -> SecuritySeries:
         s = self.series.get(bar.security_id)
         if s is None:
-            m = self.meta.get(bar.security_id)
+            m = meta or self.meta.get(bar.security_id)
             if m is None:
-                raise FeedError(
-                    f"no SecurityMeta for {bar.security_id!r}. Eligibility needs "
-                    f"category and issuer identity; admitting a security whose "
-                    f"reference data is missing is the guess strict mode exists "
-                    f"to refuse.")
-            key, _ = m.issuer_key()
+                if self.metadata_timeline is None:
+                    raise FeedError(
+                        f"no SecurityMeta for {bar.security_id!r}. Eligibility "
+                        f"needs category and issuer identity; admitting a "
+                        f"security whose reference data is missing is refused.")
+                key = None
+            else:
+                key, _ = m.issuer_key()
             s = SecuritySeries(security_id=bar.security_id, ticker=bar.ticker,
                                # A security with no resolvable issuer identity
                                # still gets a series (it may be HELD); strict
@@ -378,6 +494,9 @@ class Feed:
                 session, bars_by_session.get(session, ()))
             idx = self._advance_session(session)
             for b in ordered:
+                # Warm-up is price history, not a decision. A security first
+                # observed later may accumulate already-known price history but
+                # cannot enter a candidate set before its metadata observation.
                 self._series_for(b).append(b, idx)
 
     def advance(self, session: str, bars: Iterable[VendorBar],
@@ -392,21 +511,32 @@ class Feed:
         terminal_states = terminal_states or {}
         ordered = self._validated_bars(session, bars)
         idx = self._advance_session(session)
+        effective: dict[str, SecurityMeta] = {}
         for b in ordered:
-            self._series_for(b).append(b, idx)
+            m = (self.metadata_timeline.metadata_for(session, b.security_id)
+                 if self.metadata_timeline is not None
+                 else self.meta.get(b.security_id))
+            s = self._series_for(b, m)
+            s.append(b, idx)
+            if m is not None:
+                key, _ = m.issuer_key()
+                s.issuer_id = key or f"S:{b.security_id}"
+                effective[b.security_id] = m
+
+        visible = [b for b in ordered if b.security_id in effective]
 
         elig_inputs = [
             to_eligibility_input(b, self.series[b.security_id],
-                                 self.meta[b.security_id],
+                                 effective[b.security_id],
                                  terminal_states.get(b.security_id,
                                                      TerminalState.NORMAL))
-            for b in ordered]
+            for b in visible]
         results = leadership_population(elig_inputs, self.cfg)
 
-        daily = [to_daily_bar(b, self.series[b.security_id]) for b in ordered]
+        daily = [to_daily_bar(b, self.series[b.security_id]) for b in visible]
         windows: dict[str, list[float]] = {}
         sec_bars: list[SecurityBar] = []
-        for b in ordered:
+        for b in visible:
             s = self.series[b.security_id]
             r = results[b.security_id]
             w = [c for c in s.signal_window() if c is not None]
@@ -429,7 +559,8 @@ class Feed:
 
 
 __all__ = [
-    "Feed", "FeedError", "NormalisedSession", "SecurityMeta", "SecuritySeries",
+    "DecisionMetadataTimeline", "DecisionMetadataTimelineBuilder", "Feed",
+    "FeedError", "NormalisedSession", "SecurityMeta", "SecuritySeries",
     "VendorBar", "build_signal_series", "to_daily_bar", "to_eligibility_input",
     "validate_session_stream", "PriceDomainError",
 ]

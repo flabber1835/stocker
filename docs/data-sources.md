@@ -506,7 +506,7 @@ first would certify a corpus that still carries all three.
 Sharadar TICKERS is a daily delivery of the vendor's current securities master.
 `snapshot_date` is when Stocker observed that delivery; it is not the effective
 date of every value in the row and must never be backdated. Sharadar documents
-`permaticker` as a unique, unchanging issuer identifier in its
+`permaticker` as a unique, unchanging security identifier in its
 [TICKERS documentation](https://sharadar.com/docs/tickers), and exposes
 `firstpricedate` / `lastpricedate` as the price-history interval for a
 `(ticker, permaticker)` row. It does not expose effective-from/effective-to
@@ -524,20 +524,25 @@ permaticker + ticker + first/last price    IDENTITY ONLY. A later observation
                                            observed owner. Overlap or absence
                                            refuses instead of guessing.
 
-category, relatedtickers, display ticker,  DECISION METADATA. Only observations
-and firstpricedate used for eligibility    made on or before the first measured
-or issuer-family construction              may be used. A later TICKERS delivery
-                                           cannot supply or overwrite them.
+category, relatedtickers, display ticker,  DECISION METADATA. The exact TICKERS
+and firstpricedate used for eligibility    snapshot observed for each measured
+or issuer-family construction              session is authoritative for that
+                                           session. Changes apply forward from
+                                           their observation session only.
 ```
 
 `firstpricedate` and `lastpricedate` from a later delivery are evidence about
 the label-to-identity pairing only. They do not make the later row a historical
 category, issuer-family, display-label or listing-eligibility observation. If a
-historical run has no decision-metadata snapshot on or before its first measured
-session, the run refuses explicitly. The engine consumes one static metadata map,
-so using replay-end metadata would let a late-window category or relationship
-rewrite earlier decisions. Identity resolution remains available to corpus
-parity, which needs permanent bar keys but makes no eligibility decision.
+historical run lacks a complete session-by-session decision-metadata timeline,
+the run refuses explicitly before producing candidates, hashes, or performance.
+A start-frozen map would permanently exclude later listings; an end-frozen map
+would rewrite earlier categories and issuer families. The canonical engine
+therefore consumes the metadata snapshot effective for each decision session.
+Identity resolution remains separately available to corpus parity, which needs
+permanent bar keys but makes no eligibility decision. `permaticker` names the
+permanent security; issuer-family grouping is a separate construction derived
+from the contemporaneous `relatedtickers` observation.
 
 The observation date always caps the interval: a delivery observed on D cannot
 authorize a price session after D, even if `lastpricedate` is absent or bad.
@@ -549,7 +554,7 @@ non-empty price window that resolves to zero is an identity-authority failure,
 not an empty market, a cash-only backtest, or millions of ordinary parity
 membership differences.
 
-The repair is TICKERS-only:
+Identity repair is TICKERS-only:
 
 ```bash
 curl -fsS -X POST http://localhost:8021/jobs/backfill-universe
@@ -559,4 +564,10 @@ The endpoint always records the service's current observation date and never
 touches `bt_prices`. Supplying an older `snapshot_date` is refused; copying
 today's metadata under a historical date would fabricate exactly the
 point-in-time evidence the loader is designed not to invent. No SEP refetch is
-required.
+required. This current snapshot is sufficient for historical identity/corpus
+parity when its bounded vendor listing intervals prove the pairings. It is
+**not** historical decision metadata and does not make a multi-year Wealth Core
+rehearsal certifiable. Such a rehearsal additionally requires the legitimately
+observed TICKERS snapshot for every measured market session; a current-only
+rebuilt corpus fails closed until that history is restored from an authoritative
+retained source.

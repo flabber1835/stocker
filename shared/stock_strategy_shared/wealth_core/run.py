@@ -37,6 +37,7 @@ from stock_strategy_shared.wealth_core.eligibility import (
 )
 from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
 from stock_strategy_shared.wealth_core.feed import (
+    DecisionMetadataTimeline,
     Feed,
     SecurityMeta,
     VendorBar,
@@ -230,6 +231,7 @@ def _json_default(o):
 def run_sessions(*, sessions: Sequence[str],
                  bars_by_session: Mapping[str, Sequence[VendorBar]],
                  meta: Mapping[str, SecurityMeta],
+                 metadata_timeline: DecisionMetadataTimeline | None = None,
                  starting_cash: float,
                  cfg: WealthCoreConfig | None = None,
                  eligibility_cfg: EligibilityConfig | None = None,
@@ -278,7 +280,8 @@ def run_sessions(*, sessions: Sequence[str],
     pending = pending if pending is not None else []
     ledger = ledger if ledger is not None else Ledger()
     last_known = last_known if last_known is not None else {}
-    feed = feed if feed is not None else Feed(meta, eligibility_cfg)
+    feed = feed if feed is not None else Feed(
+        meta, eligibility_cfg, metadata_timeline)
 
     events_by_session: dict[str, list[TerminalEvent]] = {}
     for ev in terminal_events:
@@ -403,13 +406,15 @@ def run_with_hashes(**kw):
         SessionHashAccumulator, parity_hashes)
     if kw.get("hash_mode", "materialized") != "streaming":
         result = run_sessions(**kw)
-        return result, parity_hashes(result, list(kw["sessions"]),
-                                     kw["bars_by_session"])
+        return result, parity_hashes(
+            result, list(kw["sessions"]), kw["bars_by_session"],
+            metadata_timeline=kw.get("metadata_timeline"))
     acc = SessionHashAccumulator()
     try:
         result = run_sessions(**dict(kw, hash_accumulator=acc))
-        return result, acc.finalize(result, list(kw["sessions"]),
-                                    kw["bars_by_session"])
+        return result, acc.finalize(
+            result, list(kw["sessions"]), kw["bars_by_session"],
+            metadata_timeline=kw.get("metadata_timeline"))
     finally:
         acc.dispose()
 

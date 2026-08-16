@@ -9,6 +9,8 @@ from types import SimpleNamespace
 import pytest
 
 from stock_strategy_shared.wealth_core.hashes import HASH_ORDER
+from stock_strategy_shared.wealth_core.feed import (
+    DecisionMetadataTimelineBuilder, SecurityMeta)
 from tools import wealth_core_expected_hashes as TOOL
 
 
@@ -94,9 +96,16 @@ class FakeBT:
     def load_sessions(self, _conn, _start, _end):
         return list(self.sessions)
 
-    def load_meta(self, _conn, *, as_of):
-        self.observed["meta_as_of"] = as_of
-        return {"P:1": object()}
+    def load_meta_timeline(self, _conn, *, sessions):
+        self.observed["meta_sessions"] = list(sessions)
+        builder = DecisionMetadataTimelineBuilder(sessions)
+        meta = SecurityMeta(
+            security_id="P:1", ticker="AAA",
+            category="Domestic Common Stock", permaticker="1",
+            related_tickers=("AAA",), first_session="2000-01-01")
+        for session in sessions:
+            builder.add_snapshot(session, {"P:1": meta})
+        return builder.finish()
 
     def load_identity(self, _conn, *, as_of):
         self.observed["identity_as_of"] = as_of
@@ -156,6 +165,16 @@ class FakeBT:
 
     def load_bars(self, _conn, _start, _end, **_kwargs):
         return self.bars
+
+    def require_usable_bars(self, bars, **_kwargs):
+        if not any(bars.values()):
+            raise TOOL.ExpectedHashesRefused(
+                "zero-security run is not certification evidence")
+
+    def require_usable_decision_bars(self, bars, _timeline, **_kwargs):
+        if not any(bars.values()):
+            raise TOOL.ExpectedHashesRefused(
+                "zero-security run is not certification evidence")
 
     def terminal_events_from_actions(self, rows, sessions, **_kwargs):
         self.observed["terminal_actions"] = list(rows)
@@ -226,7 +245,7 @@ class TestWindowAndSource:
             conn, start=bt.start, end=bt.end, bt=bt)
         assert len(corpus["warmup_sessions"]) == 126
         assert corpus["sessions"] == [bt.start, bt.end]
-        assert bt.observed["meta_as_of"] == bt.start
+        assert bt.observed["meta_sessions"] == [bt.start, bt.end]
         assert bt.observed["identity_as_of"] == bt.end
         assert corpus["source"]["split_source"] == "actions"
         assert corpus["source"]["actions_ingestion"]["coverage_complete"]

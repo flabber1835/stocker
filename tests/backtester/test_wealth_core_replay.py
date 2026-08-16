@@ -209,7 +209,7 @@ class TestMeta:
              "first_price_date": "2010-01-04"}]})
         assert load_meta(conn, as_of="2020-12-31") == {}
 
-    def test_decision_metadata_is_pinned_but_identity_uses_listing_intervals(self):
+    def test_decision_metadata_is_session_effective_but_identity_uses_intervals(self):
         rows = [{"ticker": "AAA", "category": "Domestic Common Stock",
                  "permaticker": 123, "related_tickers": "AAA",
                  "first_price_date": "2010-01-04",
@@ -229,7 +229,9 @@ class TestMeta:
 
         replay = MODULE.read_text()
         body = replay[replay.index("def run_wealth_core_replay"):]
-        assert "load_meta(conn, as_of=req.start_date)" in body
+        assert "load_meta_timeline(conn, sessions=sessions)" in body
+        assert "metadata_timeline=metadata_timeline" in body
+        assert "load_meta(conn, as_of=req.start_date)" not in body
 
 
 def test_the_unmodelled_parts_travel_with_the_result():

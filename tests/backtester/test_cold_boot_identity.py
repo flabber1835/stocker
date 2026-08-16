@@ -15,7 +15,9 @@ sys.path.insert(0, str(ROOT / "shared"))
 sys.path.insert(0, str(ROOT / "services" / "backtester"))
 
 from app import wealth_core_replay as BT  # noqa: E402
-from stock_strategy_shared.wealth_core.feed import VendorBar  # noqa: E402
+from stock_strategy_shared.wealth_core.feed import Feed, VendorBar  # noqa: E402
+from stock_strategy_shared.wealth_core.hashes import normalized_input_hash  # noqa: E402
+from stock_strategy_shared.wealth_core.run import run_with_hashes  # noqa: E402
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 from tools import corpus_parity as CP  # noqa: E402
 
@@ -186,6 +188,111 @@ class TestColdBootIdentityAuthority:
             with pytest.raises(BT.IdentityAuthorityUnavailable,
                                match="no usable"):
                 BT.load_identity(conn, as_of="2023-12-29")
+
+
+class TestSessionEffectiveDecisionMetadata:
+
+    def test_later_security_and_metadata_change_apply_forward_only(self, engine):
+        sessions = ["2021-01-04", "2022-01-03"]
+        with engine.begin() as conn:
+            insert_price(conn, "AAA", sessions[0])
+            insert_price(conn, "BBB", sessions[0])
+            insert_price(conn, "AAA", sessions[1])
+            insert_price(conn, "BBB", sessions[1])
+            insert_listing(
+                conn, permaticker="101", ticker="AAA", first="2000-01-01",
+                last="2026-08-14", snapshot=sessions[0],
+                category="Domestic Common Stock", related="AAA AAAB")
+            insert_listing(
+                conn, permaticker="101", ticker="AAA", first="2000-01-01",
+                last="2026-08-14", snapshot=sessions[1],
+                category="ADR Common Stock", related="AAA NEWFAMILY")
+            insert_listing(
+                conn, permaticker="202", ticker="BBB", first="2000-01-01",
+                last="2026-08-14", snapshot=sessions[1],
+                category="Domestic Common Stock", related="BBB")
+            timeline = BT.load_meta_timeline(conn, sessions=sessions)
+            identity = BT.load_identity(conn, as_of=sessions[-1])
+            bars = BT.load_bars(conn, sessions[0], sessions[-1],
+                                identity=identity)
+
+        early = timeline.session_map(sessions[0])
+        late = timeline.session_map(sessions[1])
+        assert set(early) == {"P:101"}
+        assert set(late) == {"P:101", "P:202"}
+        assert early["P:101"].category == "Domestic Common Stock"
+        assert early["P:101"].related_tickers == ("AAA", "AAAB")
+        assert late["P:101"].category == "ADR Common Stock"
+        assert late["P:101"].related_tickers == ("AAA", "NEWFAMILY")
+
+        feed = Feed({}, metadata_timeline=timeline)
+        warmup = [f"2020-{i:03d}" for i in range(1, 128)]
+        warmup_bars = {
+            s: [VendorBar(s, sid, ticker, 50.0 + i / 10, 50.0 + i / 10,
+                          1_000_000.0)
+                for sid, ticker in (("P:101", "AAA"), ("P:202", "BBB"))]
+            for i, s in enumerate(warmup)}
+        feed.warmup(warmup, warmup_bars)
+        first = feed.advance(sessions[0], bars[sessions[0]])
+        second = feed.advance(sessions[1], bars[sessions[1]])
+        assert {b.security_id for b in first.security_bars} == {"P:101"}
+        assert {b.security_id for b in second.security_bars} == {"P:101", "P:202"}
+        assert second.eligibility["P:202"].eligible is True
+
+        # The later snapshot participates in the input hash, but can never
+        # rewrite the already-hashed first session. Repeated reads are exact.
+        first_hash = normalized_input_hash([sessions[0]], bars, timeline)
+        assert first_hash == normalized_input_hash([sessions[0]], bars, timeline)
+        full_hash = normalized_input_hash(sessions, bars, timeline)
+        assert full_hash == normalized_input_hash(sessions, bars, timeline)
+        assert full_hash != first_hash
+
+        def execute():
+            run_feed = Feed({}, metadata_timeline=timeline)
+            run_feed.warmup(warmup, warmup_bars)
+            return run_with_hashes(
+                sessions=sessions, bars_by_session=bars, meta={},
+                metadata_timeline=timeline, starting_cash=1_000_000.0,
+                feed=run_feed)
+
+        result1, hashes1 = execute()
+        result2, hashes2 = execute()
+        assert result1.result_hash() == result2.result_hash()
+        assert hashes1.to_dict() == hashes2.to_dict()
+
+        prefix_feed = Feed({}, metadata_timeline=timeline)
+        prefix_feed.warmup(warmup, warmup_bars)
+        prefix, _ = run_with_hashes(
+            sessions=[sessions[0]], bars_by_session=bars, meta={},
+            metadata_timeline=timeline, starting_cash=1_000_000.0,
+            feed=prefix_feed)
+        assert (result1.sessions[0].decision.to_dict()
+                == prefix.sessions[0].decision.to_dict())
+
+    def test_current_only_snapshot_cannot_masquerade_as_decision_history(
+            self, engine):
+        with engine.begin() as conn:
+            insert_price(conn, "AAA", "2021-01-04")
+            insert_listing(conn, permaticker="101", ticker="AAA",
+                           first="2000-01-01", last="2026-08-14",
+                           snapshot="2026-08-14")
+            identity = BT.load_identity(conn, as_of="2023-12-29")
+            assert canonical_bar_count(BT.load_bars(
+                conn, "2021-01-04", "2021-01-04", identity=identity)) == 1
+            with pytest.raises(BT.DecisionMetadataUnavailable,
+                               match="unsupported historical"):
+                BT.load_meta_timeline(conn, sessions=["2021-01-04"])
+
+    def test_multi_session_timeline_refuses_a_missing_later_snapshot(
+            self, engine):
+        with engine.begin() as conn:
+            insert_listing(conn, permaticker="101", ticker="AAA",
+                           first="2000-01-01", last="2026-08-14",
+                           snapshot="2021-01-04")
+            with pytest.raises(BT.DecisionMetadataUnavailable,
+                               match="incomplete"):
+                BT.load_meta_timeline(
+                    conn, sessions=["2021-01-04", "2022-01-03"])
 
 
 def test_corpus_parity_classifies_canonical_identity_collapse(

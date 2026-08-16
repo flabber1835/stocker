@@ -48,7 +48,8 @@ from stock_strategy_shared.wealth_core.engine import Operation, WealthCoreConfig
 from stock_strategy_shared.wealth_core.execution_model import (
     LEGACY_STAGES_BYPASSED,
 )
-from stock_strategy_shared.wealth_core.feed import Feed, SecurityMeta, VendorBar
+from stock_strategy_shared.wealth_core.feed import (
+    DecisionMetadataTimeline, Feed, SecurityMeta, VendorBar)
 from stock_strategy_shared.wealth_core.hashes import parity_hashes
 from stock_strategy_shared.wealth_core.ledger import Ledger
 from stock_strategy_shared.wealth_core.run import (
@@ -135,6 +136,7 @@ class LiveSessionPlan:
 def plan_session(*, session: str,
                  bars: Sequence[VendorBar],
                  meta: Mapping[str, SecurityMeta],
+                 metadata_timeline: DecisionMetadataTimeline | None = None,
                  state: PortfolioState,
                  pending: list[PendingOrder],
                  ledger: Ledger,
@@ -159,6 +161,7 @@ def plan_session(*, session: str,
     """
     result, hashes = run_with_hashes(
         sessions=[session], bars_by_session={session: list(bars)}, meta=meta,
+        metadata_timeline=metadata_timeline,
         starting_cash=state.cash, cfg=cfg, eligibility_cfg=eligibility_cfg,
         terminal_events=[t for t in terminal_events if t.session == session],
         state=state, pending=pending, ledger=ledger, last_known=last_known,
