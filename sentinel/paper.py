@@ -605,21 +605,15 @@ def _assert_deterministic_plan_id(plan: ExecutionPlan) -> None:
 
 
 def _fresh_connection_factory(conn):
-    """Derive a fresh-connection factory without exposing or logging the DSN."""
-    dsn = getattr(getattr(conn, "info", None), "dsn", "")
-    if not dsn:
+    """Reuse the credential-preserving, target-pinned fresh DB connection path."""
+    from sentinel.guarded_administration import fresh_connection_factory
+
+    try:
+        return fresh_connection_factory(conn)
+    except AuthorityRefused as exc:
         raise PaperActivationRefused(
-            "paper broker authority requires a fresh PostgreSQL connection "
-            "for every operation")
-    def open_fresh():
-        try:
-            import psycopg
-            return psycopg.connect(
-                dsn, autocommit=False, connect_timeout=5)
-        except ModuleNotFoundError:                           # pragma: no cover
-            import psycopg2
-            return psycopg2.connect(dsn, connect_timeout=5)
-    return open_fresh
+            "paper broker authority could not construct a fresh PostgreSQL "
+            "connection from the active target") from exc
 
 
 def _validate_automation_grant(conn, grant: AutomationExecutionGrant):
