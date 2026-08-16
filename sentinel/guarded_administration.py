@@ -455,12 +455,37 @@ def build_fresh_administrative_guard(
 
 
 def fresh_connection_factory(conn):
-    """Derive a non-logging fresh PostgreSQL connection factory."""
-    dsn = getattr(getattr(conn, "info", None), "dsn", "")
+    """Reopen the exact same PostgreSQL target with its original password.
+
+    Psycopg deliberately omits the password from ``ConnectionInfo.dsn`` but
+    retains it separately as ``ConnectionInfo.password``. Rebuilding the DSN
+    from those two values preserves the original connection target by
+    construction: no process-global environment variable can redirect a fresh
+    authority check to a different database.
+    """
+    info = getattr(conn, "info", None)
+    dsn = getattr(info, "dsn", "")
     if not dsn:
         raise authority.AuthorityRefused(
             "administrative broker authority requires a fresh PostgreSQL "
             "connection for every operation")
+    password = getattr(info, "password", None)
+    if password:
+        try:
+            from psycopg.conninfo import make_conninfo
+            dsn = make_conninfo(dsn, password=password)
+        except ModuleNotFoundError:                           # pragma: no cover
+            try:
+                from psycopg2.extensions import make_dsn
+                dsn = make_dsn(dsn, password=password)
+            except Exception as exc:                         # pragma: no cover
+                raise authority.AuthorityRefused(
+                    "administrative fresh PostgreSQL credentials could not "
+                    "be reconstructed") from exc
+        except Exception as exc:
+            raise authority.AuthorityRefused(
+                "administrative fresh PostgreSQL credentials could not be "
+                "reconstructed") from exc
 
     def connect():
         try:
