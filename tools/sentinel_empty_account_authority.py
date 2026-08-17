@@ -95,7 +95,12 @@ def _parser() -> argparse.ArgumentParser:
     command.add_argument("--key-id", required=True)
     command.add_argument("--output", type=Path, required=True)
     command.add_argument(
-        "--confirm-issue-admin-bind-empty", action="store_true")
+        "--confirm-issue-admin-bind-empty",
+        "--confirm-issue-empty-paper-binding",
+        dest="confirm_issue_admin_bind_empty", action="store_true",
+        help=(
+            "explicitly confirm one attended empty-account binding issuance; "
+            "the second spelling is used by the autonomous deployer"))
     return parser
 
 
