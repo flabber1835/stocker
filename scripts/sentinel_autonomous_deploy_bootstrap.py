@@ -23,6 +23,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import stat
 import subprocess
 import sys
 from typing import Dict, Mapping, Optional, Sequence
@@ -189,12 +190,74 @@ def discover(env: Mapping[str, str]) -> Dict[str, str]:
     return resolved
 
 
+def _backup_path(completed: subprocess.CompletedProcess) -> str:
+    prefix = "verified_base_backup:"
+    for line in reversed((completed.stdout or "").splitlines()):
+        if line.startswith(prefix):
+            value = line[len(prefix):].strip()
+            if value:
+                return value
+    raise core.DeployRefused("base backup did not report its exact backup path")
+
+
+def _safe_update_dotenv(path: Path, updates: Mapping[str, str]) -> None:
+    """Atomically replace managed facts without weakening a secrets file.
+
+    All duplicate managed assignments are collapsed to one value. Existing mode
+    bits are preserved; a newly created .env starts at 0600.
+    """
+    path = Path(path)
+    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    managed = {str(k): str(v) for k, v in updates.items()}
+    emitted = set()
+    out = []
+    for line in lines:
+        stripped = line.strip()
+        candidate = stripped[7:].lstrip() if stripped.startswith("export ") else stripped
+        key = candidate.split("=", 1)[0].strip() if "=" in candidate else None
+        if key in managed:
+            if key not in emitted:
+                out.append("%s=%s" % (key, managed[key]))
+                emitted.add(key)
+            continue
+        out.append(line)
+    remaining = sorted(set(managed) - emitted)
+    if remaining:
+        if out and out[-1] != "":
+            out.append("")
+        out.append("# Managed by scripts/sentinel-autonomous-deploy.sh after PASS.")
+        out.extend("%s=%s" % (key, managed[key]) for key in remaining)
+
+    mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o600
+    temporary = path.with_name(path.name + ".deploy.%d.tmp" % os.getpid())
+    try:
+        fd = os.open(str(temporary), os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(out) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(str(temporary), mode)
+        os.replace(str(temporary), str(path))
+        directory_fd = os.open(
+            str(path.parent), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
 class BootstrapDeploy(hardened.AutonomousDeploy):
     def read_paper_account(self) -> None:
-        """Verify identity/health without assuming an already owned book is flat.
+        """Verify the exact account using the same cash-only contract as execution.
 
-        Existing Sentinel redeploys are allowed to begin with positions. Strict
-        emptiness is enforced later only by the ADMIN_BIND_EMPTY enrollment path.
+        Existing Sentinel redeploys may begin with positions; they do not need
+        to be flat. Cash-only here means multiplier 1 and buying power equal to
+        cash, which is the later preparation/execution contract as well.
         """
         self.phase("preflight: read-only Alpaca paper account identity")
         request = urllib.request.Request(
@@ -232,19 +295,110 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
                 raise core.DeployRefused(
                     "Alpaca paper account flag %s is not false" % flag)
         try:
+            multiplier = Decimal(str(payload["multiplier"]))
             equity = Decimal(str(payload["equity"]))
             cash = Decimal(str(payload["cash"]))
             buying_power = Decimal(str(payload["buying_power"]))
         except (KeyError, InvalidOperation) as exc:
             raise core.DeployRefused(
                 "Alpaca paper account monetary fields are malformed") from exc
-        if not all(x.is_finite() for x in (equity, cash, buying_power)):
+        if not all(x.is_finite() for x in (multiplier, equity, cash, buying_power)):
             raise core.DeployRefused(
                 "Alpaca paper account contains non-finite monetary fields")
-        if equity <= 0 or buying_power < 0:
+        if (multiplier != 1 or equity <= 0 or cash < 0 or buying_power < 0
+                or abs(buying_power - cash) > Decimal("1.00")):
             raise core.DeployRefused(
-                "Alpaca paper account has non-positive equity or negative buying power")
+                "Alpaca paper account does not satisfy Sentinel's cash-only execution contract")
         self.account_equity = equity
+
+    def build_promote(self) -> None:
+        super().build_promote()
+        # From here onward even the ordinary read/write CLI service resolves to
+        # the immutable runtime just promoted, rather than mutable sentinel:latest.
+        self.env["SENTINEL_RUNTIME_IMAGE_REF"] = self.runtime_repo_digest
+        self.runner.env["SENTINEL_RUNTIME_IMAGE_REF"] = self.runtime_repo_digest
+
+    def _create_backup(self, *, restore_drill: bool) -> str:
+        created = self.runner.run(
+            ["bash", "scripts/sentinel-base-backup.sh"], capture=True)
+        backup = _backup_path(created)
+        self.runner.run([
+            "bash", "scripts/sentinel-backup-status.sh", "--backup", backup])
+        if restore_drill:
+            self.runner.run([
+                "bash", "scripts/sentinel-restore-drill.sh", "--backup", backup])
+        return backup
+
+    def quiesce_backup_and_migrate(self) -> None:
+        self.phase("transition: fence and stop old automation")
+        first_kill = self._try_emergency_kill()
+        self._direct_stop_automation()
+        self.phase("transition: start only behavioral PostgreSQL on preserved volume")
+        self.runner.run(self.base_compose + ["up", "-d", "sentinel-postgres"])
+
+        self.phase("durability: fresh pre-migration base backup and restore drill")
+        self._create_backup(restore_drill=True)
+
+        self.phase("schema: explicit migration while automation is stopped")
+        code = (
+            "import os; from sentinel import schema; from sentinel.feed import store; "
+            "c=store.connect(os.environ['SENTINEL_DATABASE_URL']); "
+            "schema.ensure_schema(c); c.close(); print('schema migration PASS')")
+        self.runner.run(self.base_compose + [
+            "--profile", "cli", "run", "--rm", "-T",
+            "--entrypoint", "python", "sentinel", "-c", code])
+        if not self._try_emergency_kill():
+            raise core.DeployRefused(
+                "durable automation kill could not be confirmed after schema migration")
+        if not first_kill:
+            print("  initial kill was unavailable; automation was stopped and durable kill is now confirmed")
+        status_value = self._automation_status()
+        if status_value.get("enabled"):
+            self._base_cli([
+                "deactivate-paper-automation", "--actor", self.cfg.actor,
+                "--reason", "autonomous deployment configuration transition"])
+            status_value = self._automation_status()
+        if (status_value.get("enabled") is not False
+                or status_value.get("kill_switch_engaged") is not True):
+            raise core.DeployRefused(
+                "automation did not reach disabled+killed deployment state")
+
+    def persist_success(self, health: Mapping) -> None:
+        self.phase("finalize: post-deploy backup, persist facts, and retain receipt")
+        post_backup = self._create_backup(restore_drill=False)
+        receipt = {
+            "schema": core.DEPLOY_SCHEMA,
+            "completed_at": core._utc_text(core._utcnow()),
+            "git_commit": self.commit,
+            "runtime_image": self.runtime_repo_digest,
+            "test_image": self.test_repo_digest,
+            "deployment_id": self.cfg.deployment_id,
+            "paper_account_id": self.cfg.account_id,
+            "certificate_sha256": self.new_certificate,
+            "predecessor_certificate_sha256": self.active_certificate or None,
+            "control_generation": health.get("control_generation"),
+            "leader_holder": health.get("leader_holder"),
+            "fencing_token": health.get("fencing_token"),
+            "leader_heartbeat_at": health.get("leader_heartbeat_at"),
+            "policy_state": health.get("policy_state"),
+            "operational_ready": health.get("operational_ready"),
+            "post_deploy_backup": post_backup,
+        }
+        path = self.attempt_dir / "deployment-receipt.json"
+        pending = self.attempt_dir / "deployment-receipt.pending.json"
+        pending.write_text(
+            json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8")
+        _safe_update_dotenv(core.ENV_PATH, {
+            "SENTINEL_GIT_COMMIT": self.commit,
+            "SENTINEL_RUNTIME_IMAGE_REPOSITORY": self.cfg.runtime_repository,
+            "SENTINEL_RUNTIME_IMAGE_DIGEST": self.runtime_digest,
+            "SENTINEL_TEST_IMAGE_REPOSITORY": self.cfg.test_repository,
+            "SENTINEL_TEST_IMAGE_DIGEST": self.test_digest,
+        })
+        os.replace(str(pending), str(path))
+        print("\nDEPLOYMENT PASS: autonomous Alpaca PAPER trading is authorized and operational")
+        print("receipt: %s" % path)
 
     def _verify_signing_key_is_trusted(self) -> None:
         key_mount = (
