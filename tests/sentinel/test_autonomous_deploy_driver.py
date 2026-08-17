@@ -90,7 +90,9 @@ def _deploy_for_wait(tmp_path):
     return obj
 
 
-def _freshness_failure(detail="missing latest closed session"):
+def _freshness_failure(detail="missing latest closed session",
+                       missing=None):
+    missing = list(missing or ["2026-08-17"])
     freshness = {
         "name": "freshness",
         "status": "FAIL",
@@ -98,9 +100,9 @@ def _freshness_failure(detail="missing latest closed session"):
         "value": {
             "evaluable": True,
             "ahead": False,
-            "expected_session": "2026-08-17",
+            "expected_session": missing[-1],
             "frontier": "2026-08-14",
-            "missing_sessions": ["2026-08-17"],
+            "missing_sessions": missing,
         },
     }
     return {
@@ -122,19 +124,21 @@ def _ready_verdict():
     return {"ready": True, "checks": [], "failures": []}
 
 
-def _probe(ready, count=0):
+def _probe(ready, count=0, sessions=None):
+    sessions = list(sessions or ["2026-08-17"])
     return {
         "ready": ready,
-        "minimum_sep_unique_tickers": 5000,
-        "sep_unique_tickers": {"2026-08-17": count},
-        "spy_sessions": ["2026-08-17"] if ready else [],
+        "minimum_usable_securities": 5000,
+        "sep_usable_securities": {session: count for session in sessions},
+        "spy_sessions": list(sessions) if ready else [],
     }
 
 
 def test_freshness_wait_polls_vendor_then_ingests_once_and_continues(
         tmp_path, monkeypatch):
     obj = _deploy_for_wait(tmp_path)
-    verdicts = [_freshness_failure(), _ready_verdict()]
+    stale = _freshness_failure()
+    verdicts = [stale, stale, stale, stale, _ready_verdict()]
     probes = [_probe(False, 0), _probe(False, 4200), _probe(True, 6200)]
     events = []
 
@@ -151,7 +155,7 @@ def test_freshness_wait_polls_vendor_then_ingests_once_and_continues(
     obj.runner = SimpleNamespace(
         env={},
         run=lambda args, **kwargs: events.append(("runner", list(args))))
-    monotonic = iter([100.0, 101.0, 131.0, 161.0])
+    monotonic = iter([100.0, 101.0, 131.0])
     monkeypatch.setattr(driver.time, "monotonic", lambda: next(monotonic))
     monkeypatch.setattr(
         driver.time, "sleep", lambda seconds: events.append(("sleep", seconds)))
@@ -160,7 +164,7 @@ def test_freshness_wait_polls_vendor_then_ingests_once_and_continues(
 
     feed_calls = [e for e in events if e[:2] == ("base", ["feed-daily"])]
     check_calls = [e for e in events if e[:2] == ("base", ["check-data"])]
-    # The key regression: three vendor probes, but only ONE full ingest/publication.
+    # Three vendor probes, but only ONE full ingest/publication.
     assert len(feed_calls) == 1
     assert len(check_calls) == 1 and check_calls[0][2] is True
     assert [e for e in events if e[0] == "sleep"] == [
@@ -171,12 +175,44 @@ def test_freshness_wait_polls_vendor_then_ingests_once_and_continues(
     assert state["attempt"] == 3
 
 
+def test_wait_recomputes_missing_sessions_if_another_close_occurs(
+        tmp_path, monkeypatch):
+    obj = _deploy_for_wait(tmp_path)
+    first = _freshness_failure(missing=["2026-08-17"])
+    second = _freshness_failure(missing=["2026-08-17", "2026-08-18"])
+    verdicts = [first, first, second]
+    probed = []
+    obj._automation_status = lambda: {
+        "enabled": False, "kill_switch_engaged": True}
+    obj._readiness_verdict = lambda: verdicts.pop(0)
+
+    def probe(sessions, minimum):
+        probed.append(tuple(sessions))
+        return _probe(False, 0, sessions=sessions)
+
+    obj._vendor_publication_probe = probe
+    obj._base_cli = lambda *args, **kwargs: SimpleNamespace(
+        stdout="", stderr="", returncode=0)
+    obj.runner = SimpleNamespace(env={}, run=lambda *args, **kwargs: None)
+    monotonic = iter([100.0, 101.0, 401.0])
+    monkeypatch.setattr(driver.time, "monotonic", lambda: next(monotonic))
+    monkeypatch.setattr(driver.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(core.DeployRefused, match="timed out waiting"):
+        obj.refresh_data()
+
+    assert probed == [
+        ("2026-08-17",), ("2026-08-17", "2026-08-18")]
+
+
 def test_freshness_wait_does_not_ingest_partial_vendor_publication(
         tmp_path, monkeypatch):
     obj = _deploy_for_wait(tmp_path)
+    stale = _freshness_failure()
+    verdicts = [stale, stale]
     obj._automation_status = lambda: {
         "enabled": False, "kill_switch_engaged": True}
-    obj._readiness_verdict = lambda: _freshness_failure()
+    obj._readiness_verdict = lambda: verdicts.pop(0)
     obj._vendor_publication_probe = lambda *_args: _probe(False, 4999)
     calls = []
     obj._base_cli = lambda args, **kwargs: (
@@ -233,7 +269,8 @@ def test_nonfreshness_readiness_gets_one_repair_ingest_then_refuses(
 def test_vendor_ready_but_post_ingest_still_stale_is_hard_failure(
         tmp_path, monkeypatch):
     obj = _deploy_for_wait(tmp_path)
-    verdicts = [_freshness_failure(), _freshness_failure("still stale after ingest")]
+    stale = _freshness_failure()
+    verdicts = [stale, stale, stale]
     calls = []
     obj._automation_status = lambda: {
         "enabled": False, "kill_switch_engaged": True}
@@ -283,9 +320,11 @@ def test_non_vendor_freshness_failure_is_not_retryable(tmp_path, monkeypatch):
 def test_freshness_wait_timeout_refuses_and_retains_probe_state(
         tmp_path, monkeypatch):
     obj = _deploy_for_wait(tmp_path)
+    stale = _freshness_failure("2026-08-17 missing")
+    verdicts = [stale, stale]
     obj._automation_status = lambda: {
         "enabled": False, "kill_switch_engaged": True}
-    obj._readiness_verdict = lambda: _freshness_failure("2026-08-17 missing")
+    obj._readiness_verdict = lambda: verdicts.pop(0)
     obj._vendor_publication_probe = lambda *_args: _probe(False, 0)
     obj._base_cli = lambda *args, **kwargs: SimpleNamespace(
         stdout="", stderr="", returncode=0)
@@ -302,7 +341,7 @@ def test_freshness_wait_timeout_refuses_and_retains_probe_state(
     state = json.loads((tmp_path / "deployment-state.json").read_text())
     assert state["state"] == "WAITING_FOR_DATA"
     assert state["failures"][0]["name"] == "freshness"
-    assert state["vendor_probe"]["sep_unique_tickers"]["2026-08-17"] == 0
+    assert state["vendor_probe"]["sep_usable_securities"]["2026-08-17"] == 0
 
 
 def test_waiting_for_data_refuses_if_automation_fence_is_lost(tmp_path):
@@ -313,15 +352,44 @@ def test_waiting_for_data_refuses_if_automation_fence_is_lost(tmp_path):
         obj._assert_wait_fence()
 
 
-def test_vendor_probe_is_read_only_and_covers_sep_and_spy():
+def test_vendor_probe_is_read_only_and_matches_bar_admission_rules():
     source = DRIVER.read_text(encoding="utf-8")
     start = source.index("def _vendor_publication_probe")
     end = source.index("def _write_deployment_state", start)
     block = source[start:end]
     assert "sharadar.fetch_table(sharadar.SEP" in block
     assert "sharadar.fetch_table(sharadar.SFP" in block
+    assert "universe.load_resolver(c).resolve" in block
+    assert "closeunadj" in block
+    assert "closeadj" in block
     assert "write_" not in block
     assert "feed-daily" not in block
+
+
+def test_pre_authority_recheck_returns_to_wait_if_a_session_closed(
+        tmp_path, monkeypatch):
+    cfg = SimpleNamespace(
+        data_wait_timeout_seconds=300,
+        revoke_previous_signing_key=False,
+        signing_key_id="new-key",
+    )
+    obj = driver.AutonomousDeploy(cfg, SimpleNamespace(env={}), tmp_path)
+    obj.commit = "a" * 40
+    stale = _freshness_failure()
+    obj._readiness_verdict = lambda: stale
+    events = []
+    obj._wait_for_data = lambda verdict, **kwargs: events.append("wait")
+
+    original = core.AutonomousDeploy.rotate_observation_authority
+    try:
+        core.AutonomousDeploy.rotate_observation_authority = (
+            lambda self: ("c" * 64, "2026-08-17"))
+        result = obj.rotate_observation_authority()
+    finally:
+        core.AutonomousDeploy.rotate_observation_authority = original
+
+    assert result == ("c" * 64, "2026-08-17")
+    assert events == ["wait"]
 
 
 def test_execution_generation_advances_past_abandoned_staged_certificate(tmp_path):
@@ -407,6 +475,7 @@ def test_optional_key_rotation_revokes_only_different_predecessor_after_rotation
             signing_key_id="new-key"),
         SimpleNamespace(env={}), tmp_path)
     obj.predecessor_key_id = "old-key"
+    obj._readiness_verdict = lambda: _ready_verdict()
     events = []
     obj.phase = lambda text: events.append(("phase", text))
     obj._authorized_cli = lambda args, **kwargs: events.append(("cli", list(args)))
