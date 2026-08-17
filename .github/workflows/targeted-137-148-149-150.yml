@@ -28,8 +28,24 @@ jobs:
         run: |
           set -euo pipefail
           python scripts/apply_issue_137_148_149_150.py
+          python - <<'PY'
+          from pathlib import Path
+          for name in (
+              "tests/sentinel/test_runtime_regressions_137_148_149_150.py",
+              "scripts/sentinel-emergency-kill.sh",
+          ):
+              path = Path(name)
+              lines = path.read_text().splitlines(keepends=True)
+              if lines and lines[0].strip() == "\\":
+                  lines = lines[1:]
+              path.write_text("".join(
+                  line[4:] if line.startswith("    ") else line
+                  for line in lines))
+          PY
           git diff --check
+          python -m py_compile tests/sentinel/test_runtime_regressions_137_148_149_150.py
           bash -n scripts/sentinel-emergency-kill.sh
+          test "$(head -c 2 scripts/sentinel-emergency-kill.sh)" = '#!'
 
       - name: Build only the Sentinel runtime/test lens
         run: |
