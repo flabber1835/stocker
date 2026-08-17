@@ -96,10 +96,11 @@ finally:
 
         A failure merely NAMED freshness is not enough. Calendar-unavailable,
         anomalous-ahead, and malformed freshness states are not publication lag.
-        The retryable state is a normal, evaluable corpus that is behind by one
-        or more named closed sessions, with a passing frontier population check
-        that supplies the same 80%-of-recent-median materiality floor readiness
-        will enforce after ingest.
+        The retryable state is a normal, evaluable corpus behind by named closed
+        sessions. The vendor probe uses a deliberately stricter floor than final
+        readiness: at least 95% of the current frontier's security population,
+        and never less than readiness's 80%-of-recent-median floor. This is only
+        a trigger for the real ingest; it does not certify the new session.
         """
         failures = verdict.get("failures") or []
         if (len(failures) != 1
@@ -125,23 +126,30 @@ finally:
             population.get("value") if isinstance(population, dict) else None)
         minimum = (population_value.get("minimum")
                    if isinstance(population_value, dict) else None)
+        frontier_population = (population_value.get("frontier")
+                               if isinstance(population_value, dict) else None)
         if (not isinstance(population, dict)
                 or population.get("status") != "PASS"
-                or not isinstance(minimum, int)
-                or minimum <= 0):
+                or not isinstance(minimum, int) or minimum <= 0
+                or not isinstance(frontier_population, int)
+                or frontier_population <= 0):
             raise core.DeployRefused(
                 "freshness-only wait has no trustworthy frontier-population floor")
-        return sessions, minimum
+        conservative_vendor_floor = max(
+            minimum, (frontier_population * 95 + 99) // 100)
+        return sessions, conservative_vendor_floor
 
     def _vendor_publication_probe(
             self, sessions: Sequence[str], minimum_rows: int) -> Mapping:
-        """Read-only probe for usable missing-session SEP and SPY evidence.
+        """Read-only probe for broad missing-session SEP and valid SPY evidence.
 
-        A raw ticker count is too optimistic: the real ingest drops rows with no
-        permanent identity or no positive as-traded close. Count distinct
-        security IDs that satisfy those same two admission rules against the
-        currently published resolver, and require a positive finite SPY
-        `closeadj`. Only then is one full authoritative daily ingest warranted.
+        Do NOT use the stored identity resolver here. For an active security,
+        Sharadar TICKERS `lastpricedate` often ends at the stored frontier; the
+        missing next session is therefore outside the OLD resolver interval by
+        construction. The real `feed-daily` refreshes TICKERS before resolving
+        prices and remains the sole authority on identity. This probe asks only
+        whether the vendor has broadly published positive `closeunadj` rows and
+        a valid positive SPY `closeadj`, using the conservative floor above.
         """
         requested = tuple(str(item) for item in sessions)
         if not requested or list(requested) != sorted(requested):
@@ -151,31 +159,25 @@ finally:
             raise core.DeployRefused(
                 "vendor publication probe minimum is malformed")
         code = r'''
-import json, math, os, sys
-from sentinel.feed import sharadar, store, universe
+import json, math, sys
+from sentinel.feed import sharadar
 sessions = tuple(x for x in sys.argv[1].split(',') if x)
 targets = set(sessions)
 seen = {session: set() for session in sessions}
-c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
-try:
-    resolver = universe.load_resolver(c).resolve
-    params = sharadar.date_params(sessions[0], sessions[-1])
-    for row in sharadar.fetch_table(sharadar.SEP, params):
-        session = str(row.get('date') or '')
-        if session not in targets:
-            continue
-        ticker = str(row.get('ticker') or '').strip().upper()
-        try:
-            raw = float(row.get('closeunadj'))
-        except (TypeError, ValueError):
-            raw = float('nan')
-        sid = resolver(ticker, session) if ticker else None
-        if sid is not None and math.isfinite(raw) and raw > 0:
-            seen[session].add(str(sid))
-finally:
-    c.rollback(); c.close()
+params = sharadar.date_params(sessions[0], sessions[-1])
+for row in sharadar.fetch_table(sharadar.SEP, params):
+    session = str(row.get('date') or '')
+    if session not in targets:
+        continue
+    ticker = str(row.get('ticker') or '').strip().upper()
+    try:
+        raw = float(row.get('closeunadj'))
+    except (TypeError, ValueError):
+        raw = float('nan')
+    if ticker and math.isfinite(raw) and raw > 0:
+        seen[session].add(ticker)
 spy = set()
-spy_params = {'ticker': 'SPY', **sharadar.date_params(sessions[0], sessions[-1])}
+spy_params = {'ticker': 'SPY', **params}
 for row in sharadar.fetch_table(sharadar.SFP, spy_params):
     session = str(row.get('date') or '')
     if session not in targets:
@@ -187,7 +189,7 @@ for row in sharadar.fetch_table(sharadar.SFP, spy_params):
     if math.isfinite(value) and value > 0:
         spy.add(session)
 print(json.dumps({
-    'sep_usable_securities': {s: len(seen[s]) for s in sessions},
+    'sep_positive_raw_tickers': {s: len(seen[s]) for s in sessions},
     'spy_sessions': sorted(spy),
 }))
 '''.strip()
@@ -196,7 +198,7 @@ print(json.dumps({
             "--entrypoint", "python", "sentinel", "-c", code,
             ",".join(requested)], capture=True)
         probe = core._json_output(result, label="Sharadar publication probe")
-        counts = probe.get("sep_usable_securities")
+        counts = probe.get("sep_positive_raw_tickers")
         spy = probe.get("spy_sessions")
         if (not isinstance(counts, dict) or not isinstance(spy, list)
                 or set(counts) != set(requested)
@@ -209,8 +211,8 @@ print(json.dumps({
             and set(spy) == set(requested))
         return {
             "ready": ready,
-            "minimum_usable_securities": minimum_rows,
-            "sep_usable_securities": {s: counts[s] for s in requested},
+            "minimum_positive_raw_tickers": minimum_rows,
+            "sep_positive_raw_tickers": {s: counts[s] for s in requested},
             "spy_sessions": sorted(str(item) for item in spy),
         }
 
@@ -251,8 +253,7 @@ print(json.dumps({
             str(item.get("name") or "UNKNOWN") for item in failures)
         raise core.DeployRefused("%s: %s" % (reason, names or "UNKNOWN"))
 
-    def _wait_for_data(self, verdict: Mapping, *, deadline: float,
-                       panel_started: bool) -> None:
+    def _wait_for_data(self, *, deadline: float) -> None:
         """Wait until the current corpus is ready, without repeated full ingests."""
         attempt = 1
         while True:
@@ -285,15 +286,15 @@ print(json.dumps({
             print("  reason: %s" % detail, flush=True)
             counts = ", ".join(
                 "%s=%d/%d" % (
-                    session, probe["sep_usable_securities"][session],
+                    session, probe["sep_positive_raw_tickers"][session],
                     minimum_rows) for session in sessions)
-            print("  vendor usable SEP: %s" % counts, flush=True)
+            print("  vendor positive-price SEP: %s" % counts, flush=True)
             print("  vendor SPY sessions: %s" %
                   (", ".join(probe["spy_sessions"]) or "none"), flush=True)
 
             if probe.get("ready") is True:
                 # One authoritative ingest after direct evidence says the missing
-                # cross-section is materially usable. If that cannot make the
+                # cross-section is broadly published. If that cannot make the
                 # corpus ready, ordinary publication lag is no longer a valid
                 # diagnosis and the deployment refuses rather than churning.
                 self._base_cli(["feed-daily"])
@@ -308,7 +309,7 @@ print(json.dumps({
                     return
                 self._refuse_data_readiness(
                     verdict, attempt=attempt,
-                    reason="Sharadar showed materially usable missing sessions "
+                    reason="Sharadar showed broadly published missing sessions "
                            "but the corpus remained unready after ingest")
 
             remaining = int(max(0, deadline - time.monotonic()))
@@ -352,7 +353,7 @@ print(json.dumps({
                            "retryable vendor-publication state")
 
         self.runner.run(self.base_compose + ["up", "-d", "sentinel-panel"])
-        self._wait_for_data(verdict, deadline=deadline, panel_started=True)
+        self._wait_for_data(deadline=deadline)
 
     def _verify_signing_key_is_trusted(self) -> None:
         """Before transition, prove the private key itself matches an ACTIVE root."""
@@ -527,7 +528,7 @@ c.rollback(); c.close()
                     verdict, attempt=1,
                     reason="data readiness changed before authority creation")
             deadline = time.monotonic() + self.cfg.data_wait_timeout_seconds
-            self._wait_for_data(verdict, deadline=deadline, panel_started=True)
+            self._wait_for_data(deadline=deadline)
         result = super().rotate_observation_authority()
         predecessor_key = self.predecessor_key_id
         if (self.cfg.revoke_previous_signing_key and predecessor_key
