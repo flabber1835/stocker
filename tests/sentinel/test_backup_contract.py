@@ -331,8 +331,13 @@ def test_base_backup_requires_post_base_marker_wal_before_metadata():
     text = _read("scripts/sentinel-base-backup.sh")
     assert "sentinel_backup_recovery_markers" in text
     assert "pg_switch_wal" in text
-    assert '"$BACKUP_ROOT/wal/$MARKER_WAL"' in text
-    assert "sentinel-recovery-marker" in text
+    wal_proof = 'test -f "/sentinel-backup/wal/$wal"'
+    metadata_publish = '> "/sentinel-backup/base/$name/sentinel-recovery-marker"'
+    assert wal_proof in text
+    assert 'test -r "/sentinel-backup/wal/$wal"' in text
+    assert metadata_publish in text
+    assert text.index(wal_proof) < text.index(metadata_publish)
+    assert 'test -f "/sentinel-backup/base/$NAME/sentinel-recovery-marker"' in text
 
 
 def test_supported_compose_wrapper_always_includes_backup_and_preserves_refusal():
