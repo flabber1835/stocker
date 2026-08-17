@@ -11,12 +11,13 @@ observable instead of requiring the operator to duplicate them into .env:
 * signing key id is derived from the configured private key inside the exact new
   network-disabled test image and must match an ACTIVE committed trust root.
 
-A private signing-key *path* is never guessed from arbitrary files.  If no
+A private signing-key *path* is never guessed from arbitrary files. If no
 explicit variable is set, only a short set of documented conventional secret
 locations is considered, and exactly one must exist.
 """
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,8 @@ import shlex
 import subprocess
 import sys
 from typing import Dict, Mapping, Optional, Sequence
+import urllib.error
+import urllib.request
 
 import sentinel_autonomous_deploy as core
 import sentinel_autonomous_deploy_driver as hardened
@@ -89,7 +92,7 @@ def _repository_from_image(reference: str) -> Optional[str]:
 
 
 def _existing_runtime_repository(env: Mapping[str, str]) -> Optional[str]:
-    # Prefer the exact image reference of the existing unattended service.  `-a`
+    # Prefer the exact image reference of the existing unattended service. `-a`
     # matters: a deliberately killed/stopped deployment is still authoritative
     # evidence for where its last promoted runtime came from.
     ids = _run([
@@ -106,8 +109,8 @@ def _existing_runtime_repository(env: Mapping[str, str]) -> Optional[str]:
             if repo:
                 return repo
 
-    # Fallback to a locally promoted authorized image.  RepoDigests are
-    # immutable registry evidence; a plain `sentinel-authorized:latest` is not.
+    # Fallback to a locally promoted authorized image. RepoDigests are immutable
+    # registry evidence; a plain `sentinel-authorized:latest` is not.
     inspected = _run([
         "docker", "image", "inspect", "sentinel-authorized:latest",
         "--format", "{{json .RepoDigests}}"], env=env, check=False)
@@ -177,7 +180,7 @@ def discover(env: Mapping[str, str]) -> Dict[str, str]:
     if key is not None:
         resolved["SENTINEL_DEPLOY_SIGNING_KEY_FILE"] = str(key)
     if not str(resolved.get("SENTINEL_DEPLOY_SIGNING_KEY_ID", "")).strip():
-        # HardenedDeploy replaces AUTO with the private key's derived key id
+        # BootstrapDeploy replaces AUTO with the private key's derived key id
         # before the transition boundary, after proving the root is ACTIVE.
         resolved["SENTINEL_DEPLOY_SIGNING_KEY_ID"] = "AUTO"
 
@@ -187,6 +190,62 @@ def discover(env: Mapping[str, str]) -> Dict[str, str]:
 
 
 class BootstrapDeploy(hardened.AutonomousDeploy):
+    def read_paper_account(self) -> None:
+        """Verify identity/health without assuming an already owned book is flat.
+
+        Existing Sentinel redeploys are allowed to begin with positions. Strict
+        emptiness is enforced later only by the ADMIN_BIND_EMPTY enrollment path.
+        """
+        self.phase("preflight: read-only Alpaca paper account identity")
+        request = urllib.request.Request(
+            core.PAPER_URL + "/v2/account",
+            headers={
+                "APCA-API-KEY-ID": core._require(self.env, "ALPACA_API_KEY"),
+                "APCA-API-SECRET-KEY": core._require(
+                    self.env, "ALPACA_SECRET_KEY"),
+                "Accept": "application/json",
+            }, method="GET")
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            raise core.DeployRefused(
+                "Alpaca paper account read returned HTTP %d" % exc.code) from exc
+        except (OSError, ValueError) as exc:
+            raise core.DeployRefused(
+                "Alpaca paper account read failed: %s" % type(exc).__name__) from exc
+        if not isinstance(payload, dict):
+            raise core.DeployRefused("Alpaca account response is not an object")
+        identities = {
+            str(payload.get("id") or ""),
+            str(payload.get("account_number") or ""),
+        }
+        if self.cfg.account_id not in identities:
+            raise core.DeployRefused(
+                "Alpaca credentials resolve to a different paper account")
+        if str(payload.get("status") or "").upper() != "ACTIVE":
+            raise core.DeployRefused("Alpaca paper account is not ACTIVE")
+        for flag in (
+                "trading_blocked", "account_blocked",
+                "trade_suspended_by_user"):
+            if payload.get(flag) is not False:
+                raise core.DeployRefused(
+                    "Alpaca paper account flag %s is not false" % flag)
+        try:
+            equity = Decimal(str(payload["equity"]))
+            cash = Decimal(str(payload["cash"]))
+            buying_power = Decimal(str(payload["buying_power"]))
+        except (KeyError, InvalidOperation) as exc:
+            raise core.DeployRefused(
+                "Alpaca paper account monetary fields are malformed") from exc
+        if not all(x.is_finite() for x in (equity, cash, buying_power)):
+            raise core.DeployRefused(
+                "Alpaca paper account contains non-finite monetary fields")
+        if equity <= 0 or buying_power < 0:
+            raise core.DeployRefused(
+                "Alpaca paper account has non-positive equity or negative buying power")
+        self.account_equity = equity
+
     def _verify_signing_key_is_trusted(self) -> None:
         key_mount = (
             "type=bind,src=%s,dst=/signing-key,readonly" % self.cfg.signing_key)
