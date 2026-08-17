@@ -3,8 +3,8 @@
 #
 # It updates only by fast-forward, then re-execs the freshly pulled launcher so
 # old orchestration code never continues after changing the checkout beneath
-# itself. The Python driver owns restart convergence and delegates the deployment
-# state machine to sentinel_autonomous_deploy.py.
+# itself. The Python bootstrap recovers only facts already authoritative in the
+# existing deployment; it never guesses account authority or an arbitrary key.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -45,4 +45,4 @@ if [ "$AFTER_PULL" -eq 0 ]; then
   fi
 fi
 
-exec "$PYTHON" scripts/sentinel_autonomous_deploy_driver.py "${ARGS[@]}"
+exec "$PYTHON" scripts/sentinel_autonomous_deploy_bootstrap.py "${ARGS[@]}"
