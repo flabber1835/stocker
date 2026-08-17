@@ -320,7 +320,11 @@ def check_readiness(conn, *, today: Optional[str] = None,
     """Every clause of the §8 contract, against Sentinel's own corpus."""
     cfg = cfg or EligibilityConfig()
     r = Readiness()
-    today = today or _dt.date.today().isoformat()
+    # Operational callers that omit --today ask whether the corpus is ready
+    # now, including whether today's XNYS session has closed. A date-only
+    # default silently means midnight ET and can therefore pass yesterday's
+    # frontier after the close while authority gates correctly refuse it.
+    today = today or _dt.datetime.now(_dt.timezone.utc).isoformat()
 
     # ── the corpus version, BEFORE anything is measured ──────────────────────
     # Every number below describes what a READER sees, and what a reader sees is
