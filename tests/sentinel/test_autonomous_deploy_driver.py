@@ -87,12 +87,7 @@ def test_execution_generation_advances_past_abandoned_staged_certificate(tmp_pat
 
     state = obj._execution_authority_state()
 
-    # The method intentionally exposes max(active-highest, max-installed) under
-    # the key consumed by the core rotation state machine.
     assert state["highest_issuer_generation"] == 8
-    # This fixture bypasses the SQL computation itself, so lock the intended
-    # query shape too: MAX(installed) must be read and max(highest,installed)
-    # must be emitted by the embedded code.
     source = DRIVER.read_text(encoding="utf-8")
     assert "MAX(issuer_generation)" in source
     assert "max(highest,installed)" in source
@@ -171,7 +166,8 @@ def test_optional_key_rotation_revokes_only_different_predecessor_after_rotation
     assert revoke[0][1][:3] == ["revoke-system-key", "--key-id", "old-key"]
 
 
-def test_driver_is_the_launcher_target():
+def test_bootstrap_is_the_launcher_target():
     launcher = SCRIPTS / "sentinel-autonomous-deploy.sh"
     source = launcher.read_text(encoding="utf-8")
-    assert "scripts/sentinel_autonomous_deploy_driver.py" in source
+    assert "scripts/sentinel_autonomous_deploy_bootstrap.py" in source
+    assert "scripts/sentinel_autonomous_deploy_driver.py" not in source
