@@ -1,0 +1,71 @@
+name: Targeted Sentinel 137 148 149 150
+
+on:
+  push:
+    branches: [codex/fix-137-148-149-150]
+    paths:
+      - scripts/apply_issue_137_148_149_150.py
+      - .github/workflows/targeted-137-148-149-150.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: targeted-sentinel-137-148-149-150
+  cancel-in-progress: true
+
+jobs:
+  patch-test-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: codex/fix-137-148-149-150
+          fetch-depth: 2
+
+      - name: Apply reviewed isolated patch
+        run: |
+          set -euo pipefail
+          python scripts/apply_issue_137_148_149_150.py
+          git diff --check
+          bash -n scripts/sentinel-emergency-kill.sh
+
+      - name: Build only the Sentinel runtime/test lens
+        run: |
+          set -euo pipefail
+          docker build \
+            --build-arg SOURCE_GIT_SHA="$(git rev-parse HEAD)" \
+            -f Dockerfile.sentinel -t sentinel:latest .
+          docker build \
+            --build-arg SENTINEL_RUNTIME_BASE_IMAGE=sentinel:latest \
+            --build-arg SOURCE_GIT_SHA="$(git rev-parse HEAD)" \
+            -f Dockerfile.sentinel-authorized -t sentinel-authorized:targeted .
+          docker build \
+            --build-arg SENTINEL_IMAGE=sentinel-authorized:targeted \
+            --build-arg SOURCE_GIT_SHA="$(git rev-parse HEAD)" \
+            -f Dockerfile.sentinel-test -t sentinel-test:targeted .
+
+      - name: Run only targeted regression and directly adjacent tests
+        run: |
+          set -euo pipefail
+          docker run --rm --network none sentinel-test:targeted \
+            tests/sentinel/test_runtime_regressions_137_148_149_150.py \
+            tests/sentinel/test_readiness.py \
+            tests/sentinel/test_signed_authority.py::test_time_window_refuses \
+            tests/sentinel/test_signed_authority.py::test_atomic_stage_activate_restart_and_revocation \
+            tests/sentinel/test_automation_store.py::test_emergency_kill_succeeds_while_execution_writer_lock_is_held \
+            tests/sentinel/test_automation_store.py::test_kill_generation_immediately_invalidates_old_permit \
+            -q -ra
+
+      - name: Commit tested product diff and remove bootstrap machinery
+        run: |
+          set -euo pipefail
+          rm scripts/apply_issue_137_148_149_150.py
+          rm .github/workflows/targeted-137-148-149-150.yml
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix Sentinel emergency fencing, automation locks, and prepare latency"
+          git push origin HEAD:codex/fix-137-148-149-150
