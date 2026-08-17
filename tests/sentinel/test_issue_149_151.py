@@ -33,6 +33,7 @@ def test_149_emergency_wrapper_allows_password_only_in_dotenv(tmp_path):
 
     env = os.environ.copy()
     env.pop("SENTINEL_POSTGRES_PASSWORD", None)
+    assert "SENTINEL_POSTGRES_PASSWORD" not in env
     env.update({
         "PATH": f"{fakebin}:{env['PATH']}",
         "DOCKER_ARGV_FILE": str(argv_file),
