@@ -2,7 +2,7 @@
 # Shared validation for backup scripts. Sourced, not invoked.
 
 sentinel_backup_root() {
-  local root raw_root repo parent docker_root docker_canonical root_dev docker_dev uid child
+  local root raw_root repo parent docker_root docker_canonical root_dev docker_dev uid
   raw_root="${SENTINEL_BACKUP_DIR:-}"
   root="$raw_root"
   [ -n "$root" ] || {
@@ -46,8 +46,6 @@ sentinel_backup_root() {
       echo "REFUSED: Docker data root is not absolute" >&2; return 2 ;;
     esac
     docker_root="${docker_root%/}"
-    # This lexical boundary runs BEFORE traversal. Even an explicit attestation
-    # can never license a target the daemon itself names inside its data root.
     case "$root" in
       "$docker_root"|"$docker_root"/*)
         echo "REFUSED: backup root is inside Docker's data root: $docker_root" >&2
@@ -79,9 +77,7 @@ sentinel_backup_root() {
     return 2
   fi
 
-  # PostgreSQL and pg_basebackup both write this tree as the postgres image's
-  # uid (999). Check the actual authority through disposable containers before
-  # beginning a multi-gigabyte backup; host-root writability proves nothing.
+  # The WAL archive is written by PostgreSQL's uid; prove that exact authority.
   uid="$(docker run --rm --network none --entrypoint id \
     postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b \
     -u postgres 2>/dev/null || true)"
@@ -89,16 +85,26 @@ sentinel_backup_root() {
     echo "REFUSED: could not resolve the postgres container uid" >&2
     return 2
   }
-  for child in wal base; do
-    docker run --rm --network none --user "$uid" \
-      -v "$root/$child:/probe" --entrypoint sh \
-      postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b \
-      -ceu 'p=/probe/.sentinel-write-probe-$$; : > "$p"; rm -f "$p"' \
-      >/dev/null || {
-        echo "REFUSED: postgres uid $uid cannot write the $child backup target" >&2
-        return 2
-      }
-  done
+  docker run --rm --network none --user "$uid" \
+    -v "$root/wal:/probe" --entrypoint sh \
+    postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b \
+    -ceu 'p=/probe/.sentinel-write-probe-$$; : > "$p"; rm -f "$p"' \
+    >/dev/null || {
+      echo "REFUSED: postgres uid $uid cannot write the WAL target" >&2
+      return 2
+    }
+
+  # Physical base backups are intentionally created by container root so the
+  # operator-owned base/ parent does not need to be writable by uid 999. Prove
+  # that exact authority too, before starting a multi-gigabyte backup.
+  docker run --rm --network none \
+    -v "$root/base:/probe" --entrypoint sh \
+    postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b \
+    -ceu 'p=/probe/.sentinel-write-probe-$$; : > "$p"; rm -f "$p"' \
+    >/dev/null || {
+      echo "REFUSED: container root cannot write the base-backup target" >&2
+      return 2
+    }
   printf '%s\n' "$root"
 }
 
