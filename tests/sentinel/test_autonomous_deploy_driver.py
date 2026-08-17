@@ -65,6 +65,132 @@ def test_config_accepts_canonical_exposure(tmp_path, value):
     assert cfg.revoke_previous_signing_key is True
 
 
+def test_data_wait_defaults_are_bounded_and_operator_overridable(tmp_path):
+    cfg = driver.Config(_config_env(tmp_path))
+    assert cfg.data_retry_seconds == 300
+    assert cfg.data_wait_timeout_seconds == 43200
+
+    env = _config_env(tmp_path)
+    env["SENTINEL_DEPLOY_DATA_RETRY_SECONDS"] = "45"
+    env["SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS"] = "600"
+    cfg = driver.Config(env)
+    assert cfg.data_retry_seconds == 45
+    assert cfg.data_wait_timeout_seconds == 600
+
+
+def _deploy_for_wait(tmp_path):
+    cfg = SimpleNamespace(
+        data_retry_seconds=30,
+        data_wait_timeout_seconds=300,
+    )
+    obj = driver.AutonomousDeploy(cfg, SimpleNamespace(env={}), tmp_path)
+    obj.commit = "a" * 40
+    obj.base_compose = ["docker", "compose", "-f", "base.yml"]
+    obj.phase = lambda _text: None
+    return obj
+
+
+def _freshness_failure(detail="missing latest closed session"):
+    return {
+        "ready": False,
+        "failures": [{
+            "name": "freshness",
+            "detail": detail,
+            "value": {"missing_sessions": ["2026-08-17"]},
+        }],
+    }
+
+
+def test_freshness_only_waits_then_continues_same_deployment(tmp_path, monkeypatch):
+    obj = _deploy_for_wait(tmp_path)
+    verdicts = [_freshness_failure(), {"ready": True, "failures": []}]
+    events = []
+
+    obj._automation_status = lambda: {
+        "enabled": False, "kill_switch_engaged": True}
+    obj._readiness_verdict = lambda: verdicts.pop(0)
+
+    def base(args, *, capture=False, check=True):
+        events.append(("base", list(args), check))
+        return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+    obj._base_cli = base
+    obj.runner = SimpleNamespace(
+        env={},
+        run=lambda args, **kwargs: events.append(("runner", list(args))))
+    monotonic = iter([100.0, 101.0, 131.0, 132.0])
+    monkeypatch.setattr(driver.time, "monotonic", lambda: next(monotonic))
+    monkeypatch.setattr(
+        driver.time, "sleep", lambda seconds: events.append(("sleep", seconds)))
+
+    obj.refresh_data()
+
+    feed_calls = [e for e in events if e[:2] == ("base", ["feed-daily"])]
+    check_calls = [e for e in events if e[:2] == ("base", ["check-data"])]
+    assert len(feed_calls) == 2
+    assert len(check_calls) == 1 and check_calls[0][2] is True
+    assert ("sleep", 30) in events
+    assert sum(1 for e in events if e[0] == "runner") == 1
+    state = json.loads((tmp_path / "deployment-state.json").read_text())
+    assert state["state"] == "DATA_READY"
+    assert state["attempt"] == 2
+
+
+def test_nonfreshness_readiness_failure_still_refuses_immediately(tmp_path, monkeypatch):
+    obj = _deploy_for_wait(tmp_path)
+    events = []
+    obj._automation_status = lambda: {
+        "enabled": False, "kill_switch_engaged": True}
+    obj._readiness_verdict = lambda: {
+        "ready": False,
+        "failures": [{"name": "continuity", "detail": "gap", "value": None}],
+    }
+    obj._base_cli = lambda args, *, capture=False, check=True: (
+        events.append((list(args), check))
+        or SimpleNamespace(stdout="", stderr="", returncode=2))
+    obj.runner = SimpleNamespace(env={}, run=lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        driver.time, "sleep",
+        lambda _seconds: pytest.fail("non-freshness faults must never sleep/retry"))
+
+    with pytest.raises(core.DeployRefused, match="continuity"):
+        obj.refresh_data()
+
+    assert events == [(["feed-daily"], True), (["check-data"], False)]
+    state = json.loads((tmp_path / "deployment-state.json").read_text())
+    assert state["state"] == "DATA_REFUSED"
+
+
+def test_freshness_wait_timeout_refuses_and_retains_waiting_state(tmp_path, monkeypatch):
+    obj = _deploy_for_wait(tmp_path)
+    obj._automation_status = lambda: {
+        "enabled": False, "kill_switch_engaged": True}
+    obj._readiness_verdict = lambda: _freshness_failure("2026-08-17 missing")
+    obj._base_cli = lambda *args, **kwargs: SimpleNamespace(
+        stdout="", stderr="", returncode=0)
+    obj.runner = SimpleNamespace(env={}, run=lambda *args, **kwargs: None)
+    monotonic = iter([100.0, 401.0])
+    monkeypatch.setattr(driver.time, "monotonic", lambda: next(monotonic))
+    monkeypatch.setattr(
+        driver.time, "sleep",
+        lambda _seconds: pytest.fail("expired wait budget must not sleep"))
+
+    with pytest.raises(core.DeployRefused, match="timed out waiting"):
+        obj.refresh_data()
+
+    state = json.loads((tmp_path / "deployment-state.json").read_text())
+    assert state["state"] == "WAITING_FOR_DATA"
+    assert state["failures"][0]["name"] == "freshness"
+
+
+def test_waiting_for_data_refuses_if_automation_fence_is_lost(tmp_path):
+    obj = _deploy_for_wait(tmp_path)
+    obj._automation_status = lambda: {
+        "enabled": True, "kill_switch_engaged": False}
+    with pytest.raises(core.DeployRefused, match="lost the required"):
+        obj._assert_wait_fence()
+
+
 def test_execution_generation_advances_past_abandoned_staged_certificate(tmp_path):
     obj = driver.AutonomousDeploy(
         SimpleNamespace(), SimpleNamespace(env={}), tmp_path)
