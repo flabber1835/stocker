@@ -112,7 +112,11 @@ def _freshness_failure(detail="missing latest closed session",
                 "name": "frontier population",
                 "status": "PASS",
                 "detail": "healthy prior frontier",
-                "value": {"minimum": 5000, "recent_median": 6300.0},
+                "value": {
+                    "frontier": 6000,
+                    "minimum": 5000,
+                    "recent_median": 6300.0,
+                },
             },
             freshness,
         ],
@@ -128,10 +132,17 @@ def _probe(ready, count=0, sessions=None):
     sessions = list(sessions or ["2026-08-17"])
     return {
         "ready": ready,
-        "minimum_usable_securities": 5000,
-        "sep_usable_securities": {session: count for session in sessions},
+        "minimum_positive_raw_tickers": 5700,
+        "sep_positive_raw_tickers": {session: count for session in sessions},
         "spy_sessions": list(sessions) if ready else [],
     }
+
+
+def test_vendor_probe_floor_is_stricter_than_final_readiness_floor(tmp_path):
+    obj = _deploy_for_wait(tmp_path)
+    sessions, floor = obj._freshness_wait_requirements(_freshness_failure())
+    assert sessions == ("2026-08-17",)
+    assert floor == 5700  # max(5000 readiness floor, ceil(95% * 6000 frontier))
 
 
 def test_freshness_wait_polls_vendor_then_ingests_once_and_continues(
@@ -139,7 +150,7 @@ def test_freshness_wait_polls_vendor_then_ingests_once_and_continues(
     obj = _deploy_for_wait(tmp_path)
     stale = _freshness_failure()
     verdicts = [stale, stale, stale, stale, _ready_verdict()]
-    probes = [_probe(False, 0), _probe(False, 4200), _probe(True, 6200)]
+    probes = [_probe(False, 0), _probe(False, 5600), _probe(True, 6200)]
     events = []
 
     obj._automation_status = lambda: {
@@ -164,7 +175,6 @@ def test_freshness_wait_polls_vendor_then_ingests_once_and_continues(
 
     feed_calls = [e for e in events if e[:2] == ("base", ["feed-daily"])]
     check_calls = [e for e in events if e[:2] == ("base", ["check-data"])]
-    # Three vendor probes, but only ONE full ingest/publication.
     assert len(feed_calls) == 1
     assert len(check_calls) == 1 and check_calls[0][2] is True
     assert [e for e in events if e[0] == "sleep"] == [
@@ -213,7 +223,7 @@ def test_freshness_wait_does_not_ingest_partial_vendor_publication(
     obj._automation_status = lambda: {
         "enabled": False, "kill_switch_engaged": True}
     obj._readiness_verdict = lambda: verdicts.pop(0)
-    obj._vendor_publication_probe = lambda *_args: _probe(False, 4999)
+    obj._vendor_publication_probe = lambda *_args: _probe(False, 5699)
     calls = []
     obj._base_cli = lambda args, **kwargs: (
         calls.append(list(args))
@@ -341,7 +351,7 @@ def test_freshness_wait_timeout_refuses_and_retains_probe_state(
     state = json.loads((tmp_path / "deployment-state.json").read_text())
     assert state["state"] == "WAITING_FOR_DATA"
     assert state["failures"][0]["name"] == "freshness"
-    assert state["vendor_probe"]["sep_usable_securities"]["2026-08-17"] == 0
+    assert state["vendor_probe"]["sep_positive_raw_tickers"]["2026-08-17"] == 0
 
 
 def test_waiting_for_data_refuses_if_automation_fence_is_lost(tmp_path):
@@ -352,16 +362,16 @@ def test_waiting_for_data_refuses_if_automation_fence_is_lost(tmp_path):
         obj._assert_wait_fence()
 
 
-def test_vendor_probe_is_read_only_and_matches_bar_admission_rules():
+def test_vendor_probe_is_read_only_and_avoids_stale_identity_bounds():
     source = DRIVER.read_text(encoding="utf-8")
     start = source.index("def _vendor_publication_probe")
     end = source.index("def _write_deployment_state", start)
     block = source[start:end]
     assert "sharadar.fetch_table(sharadar.SEP" in block
     assert "sharadar.fetch_table(sharadar.SFP" in block
-    assert "universe.load_resolver(c).resolve" in block
     assert "closeunadj" in block
     assert "closeadj" in block
+    assert "load_resolver" not in block
     assert "write_" not in block
     assert "feed-daily" not in block
 
@@ -378,7 +388,7 @@ def test_pre_authority_recheck_returns_to_wait_if_a_session_closed(
     stale = _freshness_failure()
     obj._readiness_verdict = lambda: stale
     events = []
-    obj._wait_for_data = lambda verdict, **kwargs: events.append("wait")
+    obj._wait_for_data = lambda **kwargs: events.append("wait")
 
     original = core.AutonomousDeploy.rotate_observation_authority
     try:
