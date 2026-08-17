@@ -18,10 +18,10 @@ trap cleanup EXIT
   echo "REFUSED: host Python is incompatible; minimum Python is 3.8.15" >&2
   exit 1
 }
-[ -n "${SENTINEL_POSTGRES_PASSWORD:-}" ] || {
-  echo "REFUSED: SENTINEL_POSTGRES_PASSWORD is required to reach the durable automation fence" >&2
-  exit 2
-}
+# Do not preflight SENTINEL_POSTGRES_PASSWORD in the shell. Compose owns
+# configuration resolution and may load it from the repository's normal .env;
+# requiring it to be exported here recreates the emergency-path guard inversion
+# this wrapper exists to remove.
 if [ "${SENTINEL_FORCE_CPU_LIMITS:-0}" = "1" ] && \
    [ "${SENTINEL_FORCE_NO_CPU_LIMITS:-0}" = "1" ]; then
   echo "REFUSED: CPU-limit force modes are mutually exclusive" >&2

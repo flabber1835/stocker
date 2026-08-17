@@ -1,66 +1,4 @@
-from pathlib import Path
-
-
-def replace_once(path: str, old: str, new: str) -> None:
-    target = Path(path)
-    text = target.read_text()
-    if text.count(old) != 1:
-        raise SystemExit(f"expected exactly one match in {path}, found {text.count(old)}")
-    target.write_text(text.replace(old, new, 1))
-
-
-replace_once(
-    "scripts/sentinel-emergency-kill.sh",
-    '''[ -n "${SENTINEL_POSTGRES_PASSWORD:-}" ] || {
-  echo "REFUSED: SENTINEL_POSTGRES_PASSWORD is required to reach the durable automation fence" >&2
-  exit 2
-}
-''',
-    '''# Do not preflight SENTINEL_POSTGRES_PASSWORD in the shell. Compose owns
-# configuration resolution and may load it from the repository's normal .env;
-# requiring it to be exported here recreates the emergency-path guard inversion
-# this wrapper exists to remove.
-''')
-
-replace_once(
-    "sentinel/panel/model.py",
-    '''    if error:
-        return Row("ownership", "Ownership", "UNREADABLE", UNKNOWN,
-                   f"the canonical binding could not be read — {error}", at)
-    if state in ("SENTINEL_OWNERSHIP_ESTABLISHED",
-                 "WEALTH_CORE_BOOTSTRAP_ALLOWED"):
-''',
-    '''    if error:
-        return Row("ownership", "Ownership", "UNREADABLE", UNKNOWN,
-                   f"the canonical binding could not be read — {error}", at)
-
-    # The panel source consumes OwnershipView.state.value directly. These are
-    # the canonical database-backed ownership facts; never reinterpret them as
-    # stages of the retired handover state machine.
-    if state == "OWNED":
-        return Row(
-            "ownership", "Ownership", "SENTINEL OWNED", OK,
-            "canonical PostgreSQL account binding establishes Sentinel "
-            "ownership; see Broker for current positions", at)
-    if state == "NOT_OWNED":
-        return Row(
-            "ownership", "Ownership", "NOT ESTABLISHED", WARN,
-            "canonical PostgreSQL account binding is absent — Sentinel must "
-            "not treat the account as owned", at)
-    if state in (None, "UNKNOWN"):
-        return Row(
-            "ownership", "Ownership", "UNKNOWN", UNKNOWN,
-            "canonical ownership state is unknown; no ownership authority is "
-            "inferred from audit files", at)
-
-    # Legacy vocabulary is retained only for old direct model callers. The
-    # production panel source above never emits these strings; PostgreSQL's
-    # OwnershipView enum is authoritative.
-    if state in ("SENTINEL_OWNERSHIP_ESTABLISHED",
-                 "WEALTH_CORE_BOOTSTRAP_ALLOWED"):
-''')
-
-Path("tests/sentinel/test_issue_149_151.py").write_text(r'''from __future__ import annotations
+from __future__ import annotations
 
 import os
 from pathlib import Path
@@ -170,6 +108,3 @@ def test_151_model_does_not_treat_unknown_as_not_owned():
     assert unknown.value == "UNKNOWN"
     assert not_owned.status is model.WARN
     assert not_owned.value == "NOT ESTABLISHED"
-''')
-
-print("applied #149 review fix and #151 panel fix")

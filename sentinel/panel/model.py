@@ -143,6 +143,29 @@ def ownership_row(*, state: Optional[str], at: Optional[datetime],
     if error:
         return Row("ownership", "Ownership", "UNREADABLE", UNKNOWN,
                    f"the canonical binding could not be read — {error}", at)
+
+    # The panel source consumes OwnershipView.state.value directly. These are
+    # the canonical database-backed ownership facts; never reinterpret them as
+    # stages of the retired handover state machine.
+    if state == "OWNED":
+        return Row(
+            "ownership", "Ownership", "SENTINEL OWNED", OK,
+            "canonical PostgreSQL account binding establishes Sentinel "
+            "ownership; see Broker for current positions", at)
+    if state == "NOT_OWNED":
+        return Row(
+            "ownership", "Ownership", "NOT ESTABLISHED", WARN,
+            "canonical PostgreSQL account binding is absent — Sentinel must "
+            "not treat the account as owned", at)
+    if state in (None, "UNKNOWN"):
+        return Row(
+            "ownership", "Ownership", "UNKNOWN", UNKNOWN,
+            "canonical ownership state is unknown; no ownership authority is "
+            "inferred from audit files", at)
+
+    # Legacy vocabulary is retained only for old direct model callers. The
+    # production panel source above never emits these strings; PostgreSQL's
+    # OwnershipView enum is authoritative.
     if state in ("SENTINEL_OWNERSHIP_ESTABLISHED",
                  "WEALTH_CORE_BOOTSTRAP_ALLOWED"):
         return Row("ownership", "Ownership", "SENTINEL OWNED", OK,
