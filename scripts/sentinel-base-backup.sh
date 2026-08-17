@@ -21,7 +21,10 @@ MODE="$(${COMPOSE[@]} exec -T sentinel-postgres \
   exit 3
 }
 
-${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
+# Keep every filesystem object in the backup tree under the same authority as
+# PostgreSQL itself. docker compose exec defaults to root for this image, which
+# would create a root-owned base backup that postgres cannot later annotate.
+${COMPOSE[@]} exec -T -u postgres sentinel-postgres sh -ceu '
   test ! -e "/sentinel-backup/base/'"$NAME"'"
   test ! -e "/sentinel-backup/base/'"$NAME"'.part"
   export PGPASSWORD="$POSTGRES_PASSWORD"
