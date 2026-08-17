@@ -10,6 +10,15 @@ case "$MAX_AGE_HOURS" in *[!0-9]*|'')
   echo "REFUSED: SENTINEL_BACKUP_MAX_AGE_HOURS must be an integer" >&2; exit 2 ;;
 esac
 
+EXPECTED=""
+if [ "$#" -gt 0 ]; then
+  [ "$#" -eq 2 ] && [ "$1" = "--backup" ] || {
+    echo "REFUSED: usage: sentinel-backup-status.sh [--backup PATH]" >&2
+    exit 2
+  }
+  EXPECTED="$2"
+fi
+
 COMPOSE=(docker compose -f docker-compose.sentinel.yml \
   -f docker-compose.sentinel-backup.yml)
 ARCHIVER="$(${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel -Atc \
@@ -32,8 +41,16 @@ WAL_AGE_HOURS="$(( (NOW - LAST_OK) / 3600 ))"
 [ "$WAL_AGE_HOURS" -le "$MAX_AGE_HOURS" ] || {
   echo "REFUSED: last WAL archive is ${WAL_AGE_HOURS}h old" >&2; exit 4; }
 
-LATEST="$(find "$BACKUP_ROOT/base" -mindepth 1 -maxdepth 1 -type d \
-  -name 'base-*' -print | sort | tail -1)"
+if [ -n "$EXPECTED" ]; then
+  case "$EXPECTED" in
+    "$BACKUP_ROOT"/base/base-*) LATEST="$EXPECTED" ;;
+    *) echo "REFUSED: requested backup is outside the Sentinel base-backup root" >&2; exit 4 ;;
+  esac
+  [ -d "$LATEST" ] || { echo "REFUSED: requested base backup does not exist: $LATEST" >&2; exit 4; }
+else
+  LATEST="$(find "$BACKUP_ROOT/base" -mindepth 1 -maxdepth 1 -type d \
+    -name 'base-*' -print | sort | tail -1)"
+fi
 [ -n "$LATEST" ] || { echo "REFUSED: no base backup exists" >&2; exit 4; }
 [ -f "$LATEST/backup_manifest" ] || {
   echo "REFUSED: latest backup has no manifest: $LATEST" >&2; exit 4
