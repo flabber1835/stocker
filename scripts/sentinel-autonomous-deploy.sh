@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Fully autonomous, fail-closed Alpaca PAPER deployment entrypoint.
 #
-# It updates only by fast-forward, then re-execs the freshly pulled launcher so
-# old orchestration code never continues after changing the checkout beneath
-# itself. The Python bootstrap recovers only facts already authoritative in the
+# A host-global lock is acquired before Git can move, so a second invocation
+# cannot fast-forward the checkout underneath an active deployment. The lock FD
+# is inherited across exec, including the re-exec after a successful ff-only
+# update. The Python bootstrap recovers only facts already authoritative in the
 # existing deployment; it never guesses account authority or an arbitrary key.
 set -euo pipefail
 
@@ -15,34 +16,62 @@ PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
   exit 1
 }
 
-TARGET_BRANCH="${SENTINEL_DEPLOY_GIT_BRANCH:-main}"
-AFTER_PULL=0
-ARGS=()
-for arg in "$@"; do
-  if [ "$arg" = "--after-fast-forward" ]; then
-    AFTER_PULL=1
-  else
-    ARGS+=("$arg")
-  fi
-done
+# Serialize the whole deployment, including the Git update. Python owns the
+# flock because fcntl is already part of Sentinel's supported Linux host
+# contract; the descriptor is deliberately inheritable across exec/re-exec.
+if [ -z "${SENTINEL_DEPLOY_LOCK_FD:-}" ]; then
+  exec "$PYTHON" - "$0" "$@" <<'PY'
+import fcntl
+import os
+import sys
+from datetime import datetime, timezone
 
-if [ "$AFTER_PULL" -eq 0 ]; then
-  current_branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
-  [ "$current_branch" = "$TARGET_BRANCH" ] || {
-    echo "REFUSED: autonomous deployment requires checked-out branch '$TARGET_BRANCH'; current branch is '${current_branch:-DETACHED}'" >&2
-    exit 2
-  }
-  [ -z "$(git status --porcelain --untracked-files=all)" ] || {
-    echo "REFUSED: working tree is dirty; autonomous deployment will never reset or discard local work" >&2
-    git status --short >&2 || true
-    exit 2
-  }
-  before="$(git rev-parse HEAD)"
-  git pull --ff-only origin "$TARGET_BRANCH"
-  after="$(git rev-parse HEAD)"
-  if [ "$before" != "$after" ]; then
-    exec bash scripts/sentinel-autonomous-deploy.sh --after-fast-forward "${ARGS[@]}"
-  fi
+path = "/tmp/sentinel-autonomous-deploy.lock"
+handle = open(path, "a+", encoding="utf-8")
+try:
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+except OSError:
+    print("REFUSED: another autonomous Sentinel deployment is running", file=sys.stderr)
+    raise SystemExit(2)
+handle.seek(0)
+handle.truncate()
+handle.write("pid=%d started=%s\n" % (
+    os.getpid(), datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")))
+handle.flush()
+os.set_inheritable(handle.fileno(), True)
+env = dict(os.environ)
+env["SENTINEL_DEPLOY_LOCK_FD"] = str(handle.fileno())
+os.execvpe("bash", ["bash", sys.argv[1]] + sys.argv[2:], env)
+PY
 fi
 
-exec "$PYTHON" scripts/sentinel_autonomous_deploy_bootstrap.py "${ARGS[@]}"
+# Refuse a forged/stale marker rather than treating an environment variable as
+# proof that the lock is held.
+"$PYTHON" - "$SENTINEL_DEPLOY_LOCK_FD" <<'PY'
+import fcntl
+import os
+import sys
+fd = int(sys.argv[1])
+os.fstat(fd)
+fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+PY
+
+TARGET_BRANCH="${SENTINEL_DEPLOY_GIT_BRANCH:-main}"
+current_branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+[ "$current_branch" = "$TARGET_BRANCH" ] || {
+  echo "REFUSED: autonomous deployment requires checked-out branch '$TARGET_BRANCH'; current branch is '${current_branch:-DETACHED}'" >&2
+  exit 2
+}
+[ -z "$(git status --porcelain --untracked-files=all)" ] || {
+  echo "REFUSED: working tree is dirty; autonomous deployment will never reset or discard local work" >&2
+  git status --short >&2 || true
+  exit 2
+}
+before="$(git rev-parse HEAD)"
+git pull --ff-only origin "$TARGET_BRANCH"
+after="$(git rev-parse HEAD)"
+if [ "$before" != "$after" ]; then
+  exec bash scripts/sentinel-autonomous-deploy.sh "$@"
+fi
+
+exec "$PYTHON" scripts/sentinel_autonomous_deploy_bootstrap.py "$@"
