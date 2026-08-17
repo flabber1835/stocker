@@ -36,7 +36,9 @@ ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
 
 # Prove recovery beyond the base-backup boundary.  The marker is created only
 # after pg_basebackup completed, then its transaction WAL is forced to archive.
-# Metadata is published only after pg_stat_archiver names that segment.
+# Verify and publish marker metadata from inside the PostgreSQL container: the
+# durable backup tree is intentionally private to postgres and the unprivileged
+# NAS user running this wrapper may not be able to traverse it.
 ${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel \
   -v ON_ERROR_STOP=1 -Atc "
     CREATE TABLE IF NOT EXISTS sentinel_backup_recovery_markers (
@@ -55,15 +57,23 @@ EOF
 ${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel -Atc \
   "SELECT pg_switch_wal()" >/dev/null
 for _ in $(seq 1 60); do
-  ARCHIVED="$(${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel -Atc \
-    "SELECT coalesce(last_archived_wal,'') FROM pg_stat_archiver")"
-  [ -f "$BACKUP_ROOT/wal/$MARKER_WAL" ] || {
-    sleep 1; continue; }
-  printf 'marker=%s\nlsn=%s\nwal=%s\n' \
-    "$MARKER" "$MARKER_LSN" "$MARKER_WAL" > "$METADATA"
+  if ! ${COMPOSE[@]} exec -T -u postgres sentinel-postgres sh -ceu '
+    wal="$1"
+    test -f "/sentinel-backup/wal/$wal"
+    test -r "/sentinel-backup/wal/$wal"
+  ' sh "$MARKER_WAL"; then
+    sleep 1
+    continue
+  fi
+  ${COMPOSE[@]} exec -T -u postgres sentinel-postgres sh -ceu '
+    name="$1" marker="$2" lsn="$3" wal="$4"
+    printf "marker=%s\nlsn=%s\nwal=%s\n" "$marker" "$lsn" "$wal" \
+      > "/sentinel-backup/base/$name/sentinel-recovery-marker"
+  ' sh "$NAME" "$MARKER" "$MARKER_LSN" "$MARKER_WAL"
   break
 done
-[ -f "$METADATA" ] || {
+${COMPOSE[@]} exec -T -u postgres sentinel-postgres \
+  test -f "/sentinel-backup/base/$NAME/sentinel-recovery-marker" || {
   echo "REFUSED: marker WAL $MARKER_WAL was not archived" >&2; exit 4; }
 
 echo "verified_base_backup:$BACKUP_ROOT/base/$NAME"
