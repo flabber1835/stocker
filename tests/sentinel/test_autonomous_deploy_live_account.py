@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 import sys
@@ -10,10 +11,9 @@ import sys
 import pytest
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT")
+            or Path(__file__).resolve().parents[2])
 SCRIPTS = ROOT / "scripts"
-if not (SCRIPTS / "sentinel_autonomous_deploy.py").is_file():
-    SCRIPTS = ROOT / "repo" / "scripts"
 
 
 def _load(name, path):
@@ -54,9 +54,34 @@ def _object(tmp_path):
     return obj
 
 
-def test_redeploy_preflight_allows_invested_owned_account(monkeypatch, tmp_path):
-    # Cash and buying power intentionally differ materially: a deployed Sentinel
-    # account can own positions. Flatness belongs only to ADMIN_BIND_EMPTY.
+def test_redeploy_preflight_allows_invested_cash_only_owned_account(
+        monkeypatch, tmp_path):
+    # The account may already hold positions: equity can materially exceed cash.
+    # The only economics required here are the same cash-only constraints that
+    # prepare/execute will enforce later.
+    payload = {
+        "id": "uuid-1",
+        "account_number": "PA3UVTMJYYGM",
+        "status": "ACTIVE",
+        "trading_blocked": False,
+        "account_blocked": False,
+        "trade_suspended_by_user": False,
+        "equity": "123456.78",
+        "cash": "23456.78",
+        "buying_power": "23456.78",
+        "multiplier": "1",
+    }
+    monkeypatch.setattr(
+        bootstrap.urllib.request, "urlopen",
+        lambda *_args, **_kwargs: Response(payload))
+    obj = _object(tmp_path)
+
+    obj.read_paper_account()
+
+    assert str(obj.account_equity) == "123456.78"
+
+
+def test_redeploy_preflight_refuses_margin_before_transition(monkeypatch, tmp_path):
     payload = {
         "id": "uuid-1",
         "account_number": "PA3UVTMJYYGM",
@@ -74,9 +99,8 @@ def test_redeploy_preflight_allows_invested_owned_account(monkeypatch, tmp_path)
         lambda *_args, **_kwargs: Response(payload))
     obj = _object(tmp_path)
 
-    obj.read_paper_account()
-
-    assert str(obj.account_equity) == "123456.78"
+    with pytest.raises(core.DeployRefused, match="cash-only execution contract"):
+        obj.read_paper_account()
 
 
 def test_redeploy_preflight_still_refuses_wrong_account(monkeypatch, tmp_path):
