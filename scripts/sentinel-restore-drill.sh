@@ -1,13 +1,30 @@
 #!/usr/bin/env bash
-# Restore the newest physical backup into an isolated disposable volume and
-# verify canonical tables. The primary database is read-only to this script.
+# Restore one physical backup into an isolated disposable volume and verify
+# canonical tables. The primary database is read-only to this script.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 . scripts/sentinel-backup-lib.sh
 BACKUP_ROOT="$(sentinel_backup_root)"
-LATEST="$(find "$BACKUP_ROOT/base" -mindepth 1 -maxdepth 1 -type d \
-  -name 'base-*' -print | sort | tail -1)"
+
+EXPECTED=""
+if [ "$#" -gt 0 ]; then
+  [ "$#" -eq 2 ] && [ "$1" = "--backup" ] || {
+    echo "REFUSED: usage: sentinel-restore-drill.sh [--backup PATH]" >&2
+    exit 2
+  }
+  EXPECTED="$2"
+fi
+if [ -n "$EXPECTED" ]; then
+  case "$EXPECTED" in
+    "$BACKUP_ROOT"/base/base-*) LATEST="$EXPECTED" ;;
+    *) echo "REFUSED: requested backup is outside the Sentinel base-backup root" >&2; exit 4 ;;
+  esac
+  [ -d "$LATEST" ] || { echo "REFUSED: requested base backup does not exist: $LATEST" >&2; exit 4; }
+else
+  LATEST="$(find "$BACKUP_ROOT/base" -mindepth 1 -maxdepth 1 -type d \
+    -name 'base-*' -print | sort | tail -1)"
+fi
 [ -n "$LATEST" ] || { echo "REFUSED: no base backup exists" >&2; exit 4; }
 [ -f "$LATEST/backup_manifest" ] || {
   echo "REFUSED: backup manifest missing: $LATEST" >&2; exit 4
@@ -69,7 +86,7 @@ docker exec "$CONTAINER" psql -U sentinel -d sentinel -v ON_ERROR_STOP=1 -Atc \
          to_regclass('"'"'public.sentinel_behavioral_schema_migrations'"'"') IS NULL OR
          to_regclass('"'"'public.sentinel_rollout_state'"'"') IS NULL OR
          to_regclass('"'"'public.sentinel_processed_sessions'"'"') IS NULL OR
-        to_regclass('"'"'public.sentinel_execution_plans'"'"') IS NULL THEN
+         to_regclass('"'"'public.sentinel_execution_plans'"'"') IS NULL THEN
        RAISE EXCEPTION '"'"'canonical Sentinel tables are missing'"'"';
      END IF;
      IF NOT pg_is_in_recovery() THEN
