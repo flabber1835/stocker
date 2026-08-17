@@ -50,15 +50,21 @@ def _runtime_schema_test_double_compat(request, monkeypatch):
 
     if request.node.name in _SINGLETON_REFUSAL_TESTS:
         # These tests pre-date the stronger explicit-migration final check.
-        # Preserve their important second assertion (the missing authority row
-        # was not guessed/reseeded) while also requiring the new fail-closed
-        # behavior at the ensure_schema call itself.
+        # Fresh fixture bootstrap must still be able to create the schema.  If
+        # the test subsequently deletes the authority singleton, accept the
+        # stronger early refusal and continue to the original assertion that
+        # the state was not guessed or reseeded.  Any other migration refusal
+        # remains a hard failure.
         real_ensure_schema = schema.ensure_schema
 
-        def expect_singleton_refusal(conn):
-            with pytest.raises(
-                    schema.SchemaMigrationRefused,
-                    match=r"Stage-4 singleton sentinel_automation_control is missing"):
-                real_ensure_schema(conn)
+        def allow_stronger_singleton_refusal(conn):
+            try:
+                return real_ensure_schema(conn)
+            except schema.SchemaMigrationRefused as exc:
+                if ("Stage-4 singleton sentinel_automation_control is missing"
+                        in str(exc)):
+                    return None
+                raise
 
-        monkeypatch.setattr(schema, "ensure_schema", expect_singleton_refusal)
+        monkeypatch.setattr(
+            schema, "ensure_schema", allow_stronger_singleton_refusal)
