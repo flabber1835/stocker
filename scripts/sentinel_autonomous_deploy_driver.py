@@ -55,6 +55,7 @@ from sentinel.feed import readiness, store
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
 try:
     result = readiness.check_readiness(c)
+    readiness.save_snapshot(c, result)
     print(json.dumps({
         'ready': bool(result.ready),
         'failures': [
@@ -127,9 +128,9 @@ finally:
             failures = verdict.get("failures") or []
 
             if verdict.get("ready") is True:
-                # Re-run the ordinary command so the canonical human report and
-                # persisted readiness snapshot are produced by the same gate used
-                # everywhere else.  The structured probe above only classifies.
+                # Re-run the ordinary command so the canonical human report is
+                # produced by the same gate used everywhere else. The structured
+                # probe has already persisted the current readiness snapshot.
                 self._base_cli(["check-data"])
                 if not panel_started:
                     self.runner.run(
@@ -146,7 +147,7 @@ finally:
                 len(failures) == 1
                 and str(failures[0].get("name") or "") == "freshness")
             if not freshness_only:
-                # Print the full canonical contract once before refusing.  Do not
+                # Print the full canonical contract once before refusing. Do not
                 # turn continuity/identity/coherence/etc. into a retry loop.
                 self._base_cli(["check-data"], check=False)
                 self._write_deployment_state(
