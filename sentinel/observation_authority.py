@@ -240,7 +240,9 @@ def build_candidate(
         label="expires_at")
     if not_before < now:
         raise AuthorityRefused(
-            "paper-observation not_before cannot precede candidate creation")
+            "paper-observation not_before "
+            f"{_instant_text(not_before)} precedes lifecycle reference "
+            f"{_instant_text(now)}")
     if expires_at - not_before > MAX_OBSERVATION_CERTIFICATE_LIFETIME:
         raise AuthorityRefused(
             "paper-observation candidate lifetime exceeds 35 days")

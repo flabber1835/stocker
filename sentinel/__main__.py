@@ -413,9 +413,23 @@ def cmd_create_paper_observation_candidate(
     if not config.database_url:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
         return EXIT_CONFIG
+    # One reference is captured before any readiness/warmup work.  A
+    # multi-minute candidate build must not consume its own not_before margin.
+    lifecycle_reference = datetime.now(ZoneInfo("UTC")).replace(microsecond=0)
+    try:
+        not_before = _utc_cli_instant(args.not_before, label="not_before")
+        expires_at = (_utc_cli_instant(args.expires_at, label="expires_at")
+                      if args.expires_at else None)
+        if not_before < lifecycle_reference:
+            raise ValueError(
+                f"not_before {args.not_before} precedes candidate lifecycle "
+                f"reference {lifecycle_reference.strftime('%Y-%m-%dT%H:%M:%SZ')}")
+    except ValueError as exc:
+        return _paper_refused(exc)
+
     conn = feed_store.connect(config.database_url)
     try:
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         ready, _frontier = _closed_preview_frontier(conn)
         if not ready.ready:
             raise RuntimeError(
@@ -433,10 +447,8 @@ def cmd_create_paper_observation_candidate(
             automation_config_sha256=config_from_env().fingerprint,
             warmup=warmup, maximum_exposure=args.maximum_exposure,
             reviewer=args.reviewer, ticket=args.ticket,
-            not_before=_utc_cli_instant(
-                args.not_before, label="not_before"),
-            expires_at=(_utc_cli_instant(args.expires_at, label="expires_at")
-                        if args.expires_at else None))
+            not_before=not_before, expires_at=expires_at,
+            now=lifecycle_reference)
     except (ValueError, RuntimeError) + _paper_refusal_types() as exc:
         return _paper_refused(exc)
     finally:
@@ -1150,7 +1162,7 @@ async def _prepare_paper_plan(config: SentinelConfig, args) -> int:
     conn = feed_store.connect(config.database_url)
     try:
         feed_store.ensure_schema(conn)
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         resolve_security_id = paper.build_security_resolver(conn, args.through)
         broker = build_execution_broker(
             config, resolve_security_id=resolve_security_id)
@@ -1179,7 +1191,7 @@ async def _current_paper_plan(config: SentinelConfig) -> int:
     conn = feed_store.connect(config.database_url)
     try:
         feed_store.ensure_schema(conn)
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         result = paper.current_paper_plan(conn, base_url=config.base_url)
     except _paper_refusal_types() as exc:
         return _paper_refused(exc)
@@ -1203,7 +1215,7 @@ async def _execute_paper_plan(config: SentinelConfig, args) -> int:
     conn = feed_store.connect(config.database_url)
     try:
         feed_store.ensure_schema(conn)
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         resolve_security_id = paper.build_security_resolver(
             conn, args.confirm_effective_session)
         broker = build_execution_broker(
@@ -1904,7 +1916,8 @@ def _remove_automation_authority(config: SentinelConfig, args, *, kill: bool) ->
         return EXIT_CONFIG
     conn = feed_store.connect(config.database_url)
     try:
-        schema.ensure_schema(conn)
+        if not kill:
+            schema.require_runtime_schema(conn)
         # Emergency fencing must remain available while an executor owns the
         # shared writer advisory lock across slow broker I/O. These control
         # mutations serialize on their singleton row, bump the generation and
@@ -1962,7 +1975,7 @@ async def _automation_run(config: SentinelConfig) -> int:
         return EXIT_CONFIG
     conn = feed_store.connect(config.database_url)
     try:
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
     finally:
         conn.close()
     stop = asyncio.Event()

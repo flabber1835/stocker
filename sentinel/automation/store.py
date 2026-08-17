@@ -394,30 +394,43 @@ def heartbeat_lease(
 
 
 def require_leader(conn, permit: LeaderPermit) -> LeaderPermit:
-    """Fresh database-time fence check for a control-sensitive boundary."""
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT l.acquired_at,l.expires_at"
-            " FROM sentinel_automation_control AS c"
-            " JOIN sentinel_automation_lease AS l ON l.id=1"
-            " WHERE c.id=1 AND c.enabled AND NOT c.kill_switch_engaged"
-            " AND c.generation=%s AND l.control_generation=c.generation"
-            " AND l.holder_id=%s AND l.fence_token=%s"
-            " AND l.expires_at > clock_timestamp()",
-            (permit.control_generation, permit.holder_id, permit.fence_token))
-        row = cur.fetchone()
-        if row is None:
+    """Fresh database-time fence check with no surviving read transaction.
+
+    Callers use the returned permit only as a proof. Mutating store operations
+    perform their own conditional SQL fence after this boundary, so this
+    function deliberately owns and closes its read transaction instead of
+    holding AccessShare locks across scheduler sleeps or broker work.
+    """
+    try:
+        with conn.cursor() as cur:
             cur.execute(
-                "SELECT EXISTS(SELECT 1 FROM sentinel_automation_control"
-                " WHERE id=1),EXISTS(SELECT 1 FROM sentinel_automation_lease"
-                " WHERE id=1)")
-            control_exists, lease_exists = cur.fetchone()
-            if not control_exists or not lease_exists:
-                raise MissingAutomationState(
-                    "automation control or lease singleton is missing")
-            raise StaleLeaderRefused(
-                "caller does not hold the live automation fencing token")
-    return permit.model_copy(update={"acquired_at": row[0], "expires_at": row[1]})
+                "SELECT l.acquired_at,l.expires_at"
+                " FROM sentinel_automation_control AS c"
+                " JOIN sentinel_automation_lease AS l ON l.id=1"
+                " WHERE c.id=1 AND c.enabled AND NOT c.kill_switch_engaged"
+                " AND c.generation=%s AND l.control_generation=c.generation"
+                " AND l.holder_id=%s AND l.fence_token=%s"
+                " AND l.expires_at > clock_timestamp()",
+                (permit.control_generation, permit.holder_id, permit.fence_token))
+            row = cur.fetchone()
+            if row is None:
+                cur.execute(
+                    "SELECT EXISTS(SELECT 1 FROM sentinel_automation_control"
+                    " WHERE id=1),EXISTS(SELECT 1 FROM sentinel_automation_lease"
+                    " WHERE id=1)")
+                control_exists, lease_exists = cur.fetchone()
+                if not control_exists or not lease_exists:
+                    raise MissingAutomationState(
+                        "automation control or lease singleton is missing")
+                raise StaleLeaderRefused(
+                    "caller does not hold the live automation fencing token")
+        result = permit.model_copy(
+            update={"acquired_at": row[0], "expires_at": row[1]})
+        conn.rollback()
+        return result
+    except BaseException:
+        conn.rollback()
+        raise
 
 
 def release_lease(conn, *, permit: LeaderPermit) -> None:

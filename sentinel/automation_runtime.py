@@ -245,7 +245,7 @@ class ProductionAutomation:
         conn = self.connect()
         try:
             feed_store.ensure_schema(conn)
-            schema.ensure_schema(conn)
+            schema.require_runtime_schema(conn)
             cycle, _control = self._assert_cycle_authority(
                 conn, context, operation_scope="REFRESH")
             visible = feed_store.latest_visible_session(conn)
@@ -288,7 +288,7 @@ class ProductionAutomation:
         conn = self.connect()
         try:
             feed_store.ensure_schema(conn)
-            schema.ensure_schema(conn)
+            schema.require_runtime_schema(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="PREPARE")
             prior = catchup.last_processed_session(conn)
@@ -367,7 +367,7 @@ class ProductionAutomation:
         conn = self.connect()
         try:
             feed_store.ensure_schema(conn)
-            schema.ensure_schema(conn)
+            schema.require_runtime_schema(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="RECOVER")
             broker = self._broker(conn, cycle.effective_session.isoformat())
@@ -522,7 +522,7 @@ class ProductionAutomation:
         conn = self.connect()
         try:
             feed_store.ensure_schema(conn)
-            schema.ensure_schema(conn)
+            schema.require_runtime_schema(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="EXECUTE")
             broker = self._broker(conn, cycle.effective_session.isoformat())

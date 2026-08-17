@@ -342,9 +342,22 @@ def check_readiness(conn, *, today: Optional[str] = None,
         return r
     frontier = str(frontier)
 
-    total = _q1(conn, "SELECT COUNT(DISTINCT session) FROM sentinel_bars b"
-                      f" WHERE {_VISIBLE_BARS}")
-    r.add("sessions", PASS, f"{total:,} distinct sessions to {frontier}", total)
+    # Session DEPTH is an operational warmup fact, not a lifetime corpus
+    # statistic.  The old COUNT(DISTINCT session) filtered every visible bar in
+    # the ~23M-row relation and was repeated by preparation guards.  Read only
+    # the deliberately generous recent window that continuity already needs,
+    # and reuse the same session axis below.  Publication visibility is kept
+    # byte-for-byte identical, so rows from an unpublished ingest stay hidden.
+    with conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT session FROM sentinel_bars b"
+                    " WHERE session >= %s"
+                    f"   AND {_VISIBLE_BARS} ORDER BY session",
+                    (_window_start(frontier),))
+        actual = [str(x[0]) for x in cur.fetchall()]
+    total = len(actual)
+    r.add("sessions", PASS,
+          f"{total:,} visible sessions in the bounded readiness window to "
+          f"{frontier}", total)
 
     # A single valid bar used to establish the newest session and barely moved
     # the 127-session aggregate domain percentages.  Compare the frontier's
@@ -428,13 +441,9 @@ def check_readiness(conn, *, today: Optional[str] = None,
     # COMPLETENESS are different questions, and anchoring on today would report
     # every evening between the close and the ingest — and the whole unbuilt
     # history during a seed — as missing.
-    with conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT session FROM sentinel_bars b"
-                    " WHERE session >= %s"
-                    f"   AND {_VISIBLE_BARS} ORDER BY session",
-                    (_window_start(frontier),))
-        actual = [str(x[0]) for x in cur.fetchall()]
-
+    # `actual` was loaded once above and is intentionally reused here.
+    # A preparation operation therefore has one bounded session-axis scan, not
+    # a lifetime count followed by a second continuity scan.
     try:
         window = _cal.previous_sessions(frontier, PREFERRED_SESSIONS)
         # A GAP and a SHORT HISTORY are different faults and must not be

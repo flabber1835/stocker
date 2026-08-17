@@ -1142,7 +1142,11 @@ def verify_signed_certificate(
         raise AuthorityRefused("trusted key is outside its validity interval")
     not_before = _instant(claims["not_before"], label="not_before")
     expires_at = _instant(claims["expires_at"], label="expires_at")
-    if instant < not_before:
+    # Installation authenticates bytes and durable bindings; it does not
+    # confer authority. Future-dated certificates may therefore be staged so
+    # operators can complete review/rotation ahead of not_before. Every active
+    # load/activation still calls this with for_install=False and refuses early.
+    if instant < not_before and not for_install:
         raise AuthorityRefused("signed certificate is not yet valid")
     observation_safety = (
         allow_expired_observation_safety
