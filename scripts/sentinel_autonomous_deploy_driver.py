@@ -4,8 +4,8 @@
 The core module contains the deployment state machine.  This driver owns the
 adversarial/restart rules that need database history rather than just current
 active state: abandoned staged issuer generations, administrative predecessor
-rotation, exact private-key identity, exact plan re-read, and optional durable
-predecessor signing-key revocation.
+rotation, exact private-key identity, exact plan re-read, vendor-freshness
+waiting, and optional durable predecessor signing-key revocation.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 from types import SimpleNamespace
 from typing import Mapping, Optional, Sequence, Tuple
 
@@ -33,10 +34,152 @@ class Config(core.Config):
         self.revoke_previous_signing_key = core._as_bool(
             env.get("SENTINEL_DEPLOY_REVOKE_PREVIOUS_SIGNING_KEY", "0"),
             name="SENTINEL_DEPLOY_REVOKE_PREVIOUS_SIGNING_KEY")
+        self.data_retry_seconds = core._int(
+            env.get("SENTINEL_DEPLOY_DATA_RETRY_SECONDS", "300"),
+            name="SENTINEL_DEPLOY_DATA_RETRY_SECONDS",
+            minimum=30, maximum=3600)
+        self.data_wait_timeout_seconds = core._int(
+            env.get("SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS", "43200"),
+            name="SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS",
+            minimum=300, maximum=86400)
 
 
 class AutonomousDeploy(core.AutonomousDeploy):
     predecessor_key_id: str = ""
+
+    def _readiness_verdict(self) -> Mapping:
+        """Read the exact readiness object as JSON without parsing terminal prose."""
+        code = r'''
+import json, os
+from sentinel.feed import readiness, store
+c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
+try:
+    result = readiness.check_readiness(c)
+    print(json.dumps({
+        'ready': bool(result.ready),
+        'failures': [
+            {'name': item.name, 'detail': item.detail, 'value': item.value}
+            for item in result.failures
+        ],
+    }, default=str))
+finally:
+    c.rollback(); c.close()
+'''.strip()
+        result = self.runner.run(self.base_compose + [
+            "--profile", "cli", "run", "--rm", "-T",
+            "--entrypoint", "python", "sentinel", "-c", code],
+            capture=True)
+        verdict = core._json_output(result, label="data readiness")
+        if not isinstance(verdict.get("ready"), bool):
+            raise core.DeployRefused("structured data readiness has no boolean ready verdict")
+        failures = verdict.get("failures")
+        if not isinstance(failures, list):
+            raise core.DeployRefused("structured data readiness has no failure list")
+        for failure in failures:
+            if not isinstance(failure, dict) or not str(failure.get("name") or ""):
+                raise core.DeployRefused("structured data readiness contains a malformed failure")
+        return verdict
+
+    def _write_deployment_state(self, state: str, *, attempt: int,
+                                failures) -> None:
+        """Retain the staged/waiting fact beside the deployment evidence."""
+        payload = {
+            "schema": core.DEPLOY_SCHEMA,
+            "state": state,
+            "updated_at": core._utc_text(core._utcnow()),
+            "git_commit": self.commit,
+            "attempt": int(attempt),
+            "failures": list(failures or []),
+        }
+        path = self.attempt_dir / "deployment-state.json"
+        temporary = self.attempt_dir / "deployment-state.json.tmp"
+        temporary.write_text(
+            json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n",
+            encoding="utf-8")
+        temporary.replace(path)
+
+    def _assert_wait_fence(self) -> None:
+        status = self._automation_status()
+        if (status.get("enabled") is not False
+                or status.get("kill_switch_engaged") is not True):
+            raise core.DeployRefused(
+                "WAITING_FOR_DATA lost the required disabled+kill automation fence")
+
+    def refresh_data(self) -> None:
+        """Wait through ordinary post-close vendor lag, never through other faults.
+
+        Build/test/promotion, backup/restore and migration have already completed
+        when this runs.  Repeating those immutable/expensive phases because the
+        vendor has not published the just-closed session is operationally wrong.
+        The only retryable readiness state is exactly one failure named
+        `freshness`; every other readiness failure remains an immediate refusal.
+        """
+        self.phase("data: current daily ingest and full readiness contract")
+        deadline = time.monotonic() + self.cfg.data_wait_timeout_seconds
+        attempt = 0
+        panel_started = False
+
+        while True:
+            self._assert_wait_fence()
+            attempt += 1
+            self._base_cli(["feed-daily"])
+            verdict = self._readiness_verdict()
+            failures = verdict.get("failures") or []
+
+            if verdict.get("ready") is True:
+                # Re-run the ordinary command so the canonical human report and
+                # persisted readiness snapshot are produced by the same gate used
+                # everywhere else.  The structured probe above only classifies.
+                self._base_cli(["check-data"])
+                if not panel_started:
+                    self.runner.run(
+                        self.base_compose + ["up", "-d", "sentinel-panel"])
+                self._write_deployment_state(
+                    "DATA_READY", attempt=attempt, failures=[])
+                if attempt > 1:
+                    print(
+                        "  data readiness recovered; continuing the same "
+                        "deployment attempt", flush=True)
+                return
+
+            freshness_only = (
+                len(failures) == 1
+                and str(failures[0].get("name") or "") == "freshness")
+            if not freshness_only:
+                # Print the full canonical contract once before refusing.  Do not
+                # turn continuity/identity/coherence/etc. into a retry loop.
+                self._base_cli(["check-data"], check=False)
+                self._write_deployment_state(
+                    "DATA_REFUSED", attempt=attempt, failures=failures)
+                names = ", ".join(
+                    str(item.get("name") or "UNKNOWN") for item in failures)
+                raise core.DeployRefused(
+                    "current data readiness failed outside the retryable "
+                    "freshness-only state: %s" % names)
+
+            if not panel_started:
+                self.runner.run(
+                    self.base_compose + ["up", "-d", "sentinel-panel"])
+                panel_started = True
+
+            failure = failures[0]
+            detail = str(failure.get("detail") or "freshness is not current")
+            self._write_deployment_state(
+                "WAITING_FOR_DATA", attempt=attempt, failures=failures)
+            remaining = int(max(0, deadline - time.monotonic()))
+            print("\nDEPLOYMENT STAGED: WAITING_FOR_DATA", flush=True)
+            print("  automation: disabled and kill switch engaged", flush=True)
+            print("  reason: %s" % detail, flush=True)
+
+            if remaining <= 0:
+                raise core.DeployRefused(
+                    "timed out waiting for current Sharadar data; automation "
+                    "remains fenced")
+            sleep_for = min(self.cfg.data_retry_seconds, remaining)
+            print(
+                "  retrying feed-daily + readiness in %ds (wait budget %ds)" %
+                (sleep_for, remaining), flush=True)
+            time.sleep(sleep_for)
 
     def _verify_signing_key_is_trusted(self) -> None:
         """Before transition, prove the private key itself matches an ACTIVE root."""
@@ -274,9 +417,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.explain:
         print(
             "git ff-only -> account read -> build/test/push -> kill/stop -> "
-            "backup/restore -> schema -> daily/readiness -> ownership -> "
-            "signed certificate/key rotation -> prepare -> activate killed -> "
-            "start -> release -> heartbeat proof -> post-deploy backup")
+            "backup/restore -> schema -> daily/readiness(wait freshness only) -> "
+            "ownership -> signed certificate/key rotation -> prepare -> "
+            "activate killed -> start -> release -> heartbeat proof -> "
+            "post-deploy backup")
         return 0
     try:
         env = core.merged_environment()
