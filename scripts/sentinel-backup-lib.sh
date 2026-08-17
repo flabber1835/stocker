@@ -2,7 +2,7 @@
 # Shared validation for backup scripts. Sourced, not invoked.
 
 sentinel_backup_root() {
-  local root raw_root repo parent docker_root docker_canonical root_dev docker_dev uid
+  local root raw_root repo parent docker_root docker_canonical root_dev docker_dev uid child
   raw_root="${SENTINEL_BACKUP_DIR:-}"
   root="$raw_root"
   [ -n "$root" ] || {
@@ -37,7 +37,7 @@ sentinel_backup_root() {
   done
 
   # A directory beside Docker's data root is not a second target merely because
-  # it has another name.  Prove both the path boundary and the backing device,
+  # it has another name. Prove both the path boundary and the backing device,
   # or require an explicit operator attestation for a remote/durable filesystem
   # whose Linux device number is intentionally shared by the mount layer.
   docker_root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
@@ -79,9 +79,9 @@ sentinel_backup_root() {
     return 2
   fi
 
-  # The archive process runs as the postgres image's uid (999).  Check actual
-  # write authority through a disposable container; host-root writability is
-  # not evidence that archive_command can create a WAL file.
+  # PostgreSQL and pg_basebackup both write this tree as the postgres image's
+  # uid (999). Check the actual authority through disposable containers before
+  # beginning a multi-gigabyte backup; host-root writability proves nothing.
   uid="$(docker run --rm --network none --entrypoint id \
     postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b \
     -u postgres 2>/dev/null || true)"
@@ -89,14 +89,16 @@ sentinel_backup_root() {
     echo "REFUSED: could not resolve the postgres container uid" >&2
     return 2
   }
-  docker run --rm --network none --user "$uid" \
-    -v "$root/wal:/probe" --entrypoint sh \
-    postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b \
-    -ceu 'p=/probe/.sentinel-write-probe-$$; : > "$p"; rm -f "$p"' \
-    >/dev/null || {
-      echo "REFUSED: postgres uid $uid cannot write the WAL target" >&2
-      return 2
-    }
+  for child in wal base; do
+    docker run --rm --network none --user "$uid" \
+      -v "$root/$child:/probe" --entrypoint sh \
+      postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b \
+      -ceu 'p=/probe/.sentinel-write-probe-$$; : > "$p"; rm -f "$p"' \
+      >/dev/null || {
+        echo "REFUSED: postgres uid $uid cannot write the $child backup target" >&2
+        return 2
+      }
+  done
   printf '%s\n' "$root"
 }
 
