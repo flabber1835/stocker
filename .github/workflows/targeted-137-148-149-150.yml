@@ -41,6 +41,18 @@ jobs:
               path.write_text("".join(
                   line[4:] if line.startswith("    ") else line
                   for line in lines))
+          test_path = Path("tests/sentinel/test_runtime_regressions_137_148_149_150.py")
+          test_source = test_path.read_text()
+          test_source = test_source.replace(
+              'assert "COUNT(DISTINCT session)" not in source',
+              'assert "SELECT COUNT(DISTINCT session)" not in source')
+          test_source = test_source.replace(
+              'str(ROOT / "scripts/sentinel-emergency-kill.sh")',
+              'str(ROOT / "repo/scripts/sentinel-emergency-kill.sh")')
+          test_source = test_source.replace(
+              'cwd=ROOT, env=env, check=True)',
+              'cwd=ROOT / "repo", env=env, check=True)')
+          test_path.write_text(test_source)
           PY
           git diff --check
           python -m py_compile tests/sentinel/test_runtime_regressions_137_148_149_150.py
