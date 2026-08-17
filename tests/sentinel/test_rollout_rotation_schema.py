@@ -54,9 +54,18 @@ def _install_signed_certificate(
             "  supersedes_certificate_sha256,not_before,expires_at)"
             " VALUES (%s,%s,'fixture-key',%s,%s::jsonb,%s::jsonb,%s,%s,"
             "         '2026-08-01T00:00:00Z','2026-09-01T00:00:00Z')",
-            (certificate_sha256, f"fixture-{issuer_generation}",
+            (certificate_sha256, f"fixture-{certificate_sha256[:12]}",
              payload.encode(), payload, payload, issuer_generation,
              supersedes))
+
+
+def _install_legacy_certificate(conn, certificate_sha256: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_system_certificates"
+            " (certificate_sha256,manifest_bytes,manifest,allowed_rollout_modes)"
+            " VALUES (%s,%s,'{}'::jsonb,'[\"CONTROLLER\"]'::jsonb)",
+            (certificate_sha256, b"{}"))
 
 
 def _controller_v2(conn, certificate_sha256: str) -> None:
@@ -71,6 +80,20 @@ def _controller_v2(conn, certificate_sha256: str) -> None:
             " (version,from_mode,to_mode,certificate_sha256,reason)"
             " VALUES (2,'PINNED_1_00','CONTROLLER',%s,'initial controller')",
             (certificate_sha256,))
+    conn.commit()
+
+
+def _controller_v3(conn, certificate_sha256: str, *, reason: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE sentinel_rollout_state"
+            " SET mode='CONTROLLER',version=3,certificate_sha256=%s"
+            " WHERE id=1", (certificate_sha256,))
+        cur.execute(
+            "INSERT INTO sentinel_rollout_events"
+            " (version,from_mode,to_mode,certificate_sha256,reason)"
+            " VALUES (3,'CONTROLLER','CONTROLLER',%s,%s)",
+            (certificate_sha256, reason))
     conn.commit()
 
 
@@ -95,16 +118,8 @@ def test_controller_certificate_rotation_is_valid_rollout_history(database):
             "  rollout_mode,rollout_version,rollout_certificate_sha256)"
             " VALUES ('pre-rotation','2026-08-14','2026-08-17',1,"
             "         'CONTROLLER',2,%s)", (first,))
-        cur.execute(
-            "UPDATE sentinel_rollout_state"
-            " SET mode='CONTROLLER',version=3,certificate_sha256=%s"
-            " WHERE id=1", (second,))
-        cur.execute(
-            "INSERT INTO sentinel_rollout_events"
-            " (version,from_mode,to_mode,certificate_sha256,reason)"
-            " VALUES (3,'CONTROLLER','CONTROLLER',%s,'certificate rotation')",
-            (second,))
     database.commit()
+    _controller_v3(database, second, reason="certificate rotation")
 
     schema.ensure_schema(database)
 
@@ -118,15 +133,40 @@ def test_controller_certificate_rotation_is_valid_rollout_history(database):
 def test_controller_same_certificate_noop_still_breaks_mode_chain(database):
     certificate = "c" * 64
     _controller_v2(database, certificate)
-    with database.cursor() as cur:
-        cur.execute(
-            "UPDATE sentinel_rollout_state SET version=3 WHERE id=1")
-        cur.execute(
-            "INSERT INTO sentinel_rollout_events"
-            " (version,from_mode,to_mode,certificate_sha256,reason)"
-            " VALUES (3,'CONTROLLER','CONTROLLER',%s,'meaningless replay')",
-            (certificate,))
+    _controller_v3(database, certificate, reason="meaningless replay")
+
+    _assert_mode_chain_refusal(database)
+
+
+def test_different_legacy_certificate_cannot_masquerade_as_rotation(database):
+    first = "d" * 64
+    legacy = "e" * 64
+    _controller_v2(database, first)
+    _install_legacy_certificate(database, legacy)
     database.commit()
+    _controller_v3(database, legacy, reason="legacy certificate swap")
+
+    _assert_mode_chain_refusal(database)
+
+
+def test_unrelated_signed_certificate_cannot_masquerade_as_rotation(database):
+    first = "f" * 64
+    unrelated = "1" * 64
+    _controller_v2(database, first)
+    _install_signed_certificate(database, unrelated, 2, supersedes=None)
+    database.commit()
+    _controller_v3(database, unrelated, reason="unrelated signed certificate")
+
+    _assert_mode_chain_refusal(database)
+
+
+def test_nonadvancing_issuer_generation_cannot_rotate(database):
+    first = "2" * 64
+    second = "3" * 64
+    _controller_v2(database, first)
+    _install_signed_certificate(database, second, 1, supersedes=first)
+    database.commit()
+    _controller_v3(database, second, reason="nonadvancing issuer generation")
 
     _assert_mode_chain_refusal(database)
 
