@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT")
+            or Path(__file__).resolve().parents[2])
 SCRIPTS = ROOT / "scripts"
-if not (SCRIPTS / "sentinel_autonomous_deploy.py").is_file():
-    SCRIPTS = ROOT / "repo" / "scripts"
 CORE = SCRIPTS / "sentinel_autonomous_deploy.py"
 DRIVER = SCRIPTS / "sentinel_autonomous_deploy_driver.py"
 
