@@ -21,6 +21,10 @@ MODE="$(${COMPOSE[@]} exec -T sentinel-postgres \
   exit 3
 }
 
+# The physical base-backup tree is written by container root. This is deliberate:
+# the operator-owned base/ parent need not be writable by PostgreSQL's uid, and
+# the resulting 0700 backup remains private. Restore/status code must therefore
+# inspect backup contents through a container, never through the NAS host user.
 ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
   test ! -e "/sentinel-backup/base/'"$NAME"'"
   test ! -e "/sentinel-backup/base/'"$NAME"'.part"
@@ -35,9 +39,9 @@ ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
 
 # Prove recovery beyond the base-backup boundary. The marker is created only
 # after pg_basebackup completed, then its transaction WAL is forced to archive.
-# The backup bind mount is intentionally private to postgres (0700/0600 is a
-# valid deployment), so both the WAL visibility proof and marker publication
-# happen inside the PostgreSQL container rather than through the NAS host user.
+# WAL visibility is proven as postgres, the authority that archives WAL. The
+# marker itself is published as container root into the private root-owned base
+# backup, keeping ownership consistent without widening filesystem permissions.
 ${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel \
   -v ON_ERROR_STOP=1 -Atc "
     CREATE TABLE IF NOT EXISTS sentinel_backup_recovery_markers (
@@ -64,14 +68,14 @@ for _ in $(seq 1 60); do
     sleep 1
     continue
   fi
-  ${COMPOSE[@]} exec -T -u postgres sentinel-postgres sh -ceu '
+  ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
     name="$1" marker="$2" lsn="$3" wal="$4"
     printf "marker=%s\nlsn=%s\nwal=%s\n" "$marker" "$lsn" "$wal" \
       > "/sentinel-backup/base/$name/sentinel-recovery-marker"
   ' sh "$NAME" "$MARKER" "$MARKER_LSN" "$MARKER_WAL"
   break
 done
-${COMPOSE[@]} exec -T -u postgres sentinel-postgres \
+${COMPOSE[@]} exec -T sentinel-postgres \
   test -f "/sentinel-backup/base/$NAME/sentinel-recovery-marker" || {
   echo "REFUSED: marker WAL $MARKER_WAL was not archived" >&2; exit 4; }
 

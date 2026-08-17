@@ -37,7 +37,7 @@ sentinel_backup_root() {
   done
 
   # A directory beside Docker's data root is not a second target merely because
-  # it has another name.  Prove both the path boundary and the backing device,
+  # it has another name. Prove both the path boundary and the backing device,
   # or require an explicit operator attestation for a remote/durable filesystem
   # whose Linux device number is intentionally shared by the mount layer.
   docker_root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
@@ -46,8 +46,6 @@ sentinel_backup_root() {
       echo "REFUSED: Docker data root is not absolute" >&2; return 2 ;;
     esac
     docker_root="${docker_root%/}"
-    # This lexical boundary runs BEFORE traversal. Even an explicit attestation
-    # can never license a target the daemon itself names inside its data root.
     case "$root" in
       "$docker_root"|"$docker_root"/*)
         echo "REFUSED: backup root is inside Docker's data root: $docker_root" >&2
@@ -79,9 +77,7 @@ sentinel_backup_root() {
     return 2
   fi
 
-  # The archive process runs as the postgres image's uid (999).  Check actual
-  # write authority through a disposable container; host-root writability is
-  # not evidence that archive_command can create a WAL file.
+  # The WAL archive is written by PostgreSQL's uid; prove that exact authority.
   uid="$(docker run --rm --network none --entrypoint id \
     postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b \
     -u postgres 2>/dev/null || true)"
@@ -95,6 +91,18 @@ sentinel_backup_root() {
     -ceu 'p=/probe/.sentinel-write-probe-$$; : > "$p"; rm -f "$p"' \
     >/dev/null || {
       echo "REFUSED: postgres uid $uid cannot write the WAL target" >&2
+      return 2
+    }
+
+  # Physical base backups are intentionally created by container root so the
+  # operator-owned base/ parent does not need to be writable by uid 999. Prove
+  # that exact authority too, before starting a multi-gigabyte backup.
+  docker run --rm --network none \
+    -v "$root/base:/probe" --entrypoint sh \
+    postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b \
+    -ceu 'p=/probe/.sentinel-write-probe-$$; : > "$p"; rm -f "$p"' \
+    >/dev/null || {
+      echo "REFUSED: container root cannot write the base-backup target" >&2
       return 2
     }
   printf '%s\n' "$root"

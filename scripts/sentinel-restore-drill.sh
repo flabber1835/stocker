@@ -6,6 +6,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 . scripts/sentinel-backup-lib.sh
 BACKUP_ROOT="$(sentinel_backup_root)"
+COMPOSE=(docker compose -f docker-compose.sentinel.yml \
+  -f docker-compose.sentinel-backup.yml)
 
 EXPECTED=""
 if [ "$#" -gt 0 ]; then
@@ -16,26 +18,38 @@ if [ "$#" -gt 0 ]; then
   EXPECTED="$2"
 fi
 if [ -n "$EXPECTED" ]; then
-  case "$EXPECTED" in
-    "$BACKUP_ROOT"/base/base-*) LATEST="$EXPECTED" ;;
-    *) echo "REFUSED: requested backup is outside the Sentinel base-backup root" >&2; exit 4 ;;
+  NAME="${EXPECTED##*/}"
+  case "$NAME" in base-*) ;; *)
+    echo "REFUSED: requested backup has an invalid name" >&2; exit 4 ;;
   esac
-  [ -d "$LATEST" ] || { echo "REFUSED: requested base backup does not exist: $LATEST" >&2; exit 4; }
+  [ "$EXPECTED" = "$BACKUP_ROOT/base/$NAME" ] || {
+    echo "REFUSED: requested backup is outside the Sentinel base-backup root" >&2; exit 4; }
 else
-  LATEST="$(find "$BACKUP_ROOT/base" -mindepth 1 -maxdepth 1 -type d \
-    -name 'base-*' -print | sort | tail -1)"
+  NAME="$(${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
+    find /sentinel-backup/base -mindepth 1 -maxdepth 1 -type d \
+      -name "base-*" -printf "%f\n" | sort | tail -1
+  ')"
 fi
-[ -n "$LATEST" ] || { echo "REFUSED: no base backup exists" >&2; exit 4; }
-[ -f "$LATEST/backup_manifest" ] || {
-  echo "REFUSED: backup manifest missing: $LATEST" >&2; exit 4
-}
-MARKER_FILE="$LATEST/sentinel-recovery-marker"
-[ -f "$MARKER_FILE" ] || {
+[ -n "$NAME" ] || { echo "REFUSED: no base backup exists" >&2; exit 4; }
+LATEST="$BACKUP_ROOT/base/$NAME"
+${COMPOSE[@]} exec -T sentinel-postgres test -d "/sentinel-backup/base/$NAME" || {
+  echo "REFUSED: requested base backup does not exist: $LATEST" >&2; exit 4; }
+${COMPOSE[@]} exec -T sentinel-postgres test -f "/sentinel-backup/base/$NAME/backup_manifest" || {
+  echo "REFUSED: backup manifest missing: $LATEST" >&2; exit 4; }
+${COMPOSE[@]} exec -T sentinel-postgres \
+  test -f "/sentinel-backup/base/$NAME/sentinel-recovery-marker" || {
   echo "REFUSED: post-base recovery marker metadata missing: $LATEST" >&2
   exit 4
 }
-MARKER="$(sed -n 's/^marker=//p' "$MARKER_FILE")"
-TARGET_LSN="$(sed -n 's/^lsn=//p' "$MARKER_FILE")"
+MARKER_ROW="$(${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
+  file="/sentinel-backup/base/$1/sentinel-recovery-marker"
+  marker="$(sed -n "s/^marker=//p" "$file")"
+  lsn="$(sed -n "s/^lsn=//p" "$file")"
+  printf "%s|%s\n" "$marker" "$lsn"
+' sh "$NAME")"
+IFS='|' read -r MARKER TARGET_LSN <<EOF
+$MARKER_ROW
+EOF
 [ -n "$MARKER" ] && [ -n "$TARGET_LSN" ] || {
   echo "REFUSED: recovery marker metadata is malformed" >&2; exit 4; }
 
