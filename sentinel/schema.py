@@ -1450,18 +1450,39 @@ def _validate_rollout_history(cur) -> None:
     snapshots: dict[int, tuple[str, str | None]] = {1: ("PINNED_1_00", None)}
     prior_mode, prior_certificate = snapshots[1]
     referenced_certificates: set[str] = set()
+    signed_lineage: dict[str, tuple[str | None, int]] = {}
+    cur.execute(
+        "SELECT to_regclass('public.sentinel_signed_execution_certificates')")
+    if cur.fetchone()[0] is not None:
+        cur.execute(
+            "SELECT certificate_sha256,supersedes_certificate_sha256,"
+            " issuer_generation"
+            " FROM public.sentinel_signed_execution_certificates")
+        signed_lineage = {
+            str(raw_sha): (
+                str(raw_supersedes) if raw_supersedes else None,
+                int(raw_generation))
+            for raw_sha, raw_supersedes, raw_generation in cur.fetchall()
+        }
     for raw_event_version, raw_from, raw_to, raw_cert, raw_reason in events:
         event_version = int(raw_event_version)
         from_mode, to_mode = str(raw_from), str(raw_to)
         event_certificate = str(raw_cert) if raw_cert else None
-        # A renewal/rotation may keep CONTROLLER while changing the signed
-        # certificate that authorizes it. That is a real authority transition,
-        # not a no-op mode event. Every other same-mode event remains invalid.
+        # A renewal/rotation may keep CONTROLLER only when the durable
+        # signed-certificate lineage proves it is the exact successor. Merely
+        # changing a SHA would let unrelated or legacy certificates manufacture
+        # rollout history that activate_signed_certificate() could never create.
+        prior_signed = signed_lineage.get(prior_certificate or "")
+        event_signed = signed_lineage.get(event_certificate or "")
         same_mode_rotation = (
             from_mode == to_mode == "CONTROLLER"
             and prior_certificate is not None
             and event_certificate is not None
-            and event_certificate != prior_certificate)
+            and event_certificate != prior_certificate
+            and prior_signed is not None
+            and event_signed is not None
+            and event_signed[0] == prior_certificate
+            and event_signed[1] > prior_signed[1])
         if (from_mode != prior_mode
                 or to_mode not in {"PINNED_1_00", "CONTROLLER"}
                 or (to_mode == from_mode and not same_mode_rotation)):
