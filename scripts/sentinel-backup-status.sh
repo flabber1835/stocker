@@ -42,25 +42,32 @@ WAL_AGE_HOURS="$(( (NOW - LAST_OK) / 3600 ))"
   echo "REFUSED: last WAL archive is ${WAL_AGE_HOURS}h old" >&2; exit 4; }
 
 if [ -n "$EXPECTED" ]; then
-  case "$EXPECTED" in
-    "$BACKUP_ROOT"/base/base-*) LATEST="$EXPECTED" ;;
-    *) echo "REFUSED: requested backup is outside the Sentinel base-backup root" >&2; exit 4 ;;
+  NAME="${EXPECTED##*/}"
+  case "$NAME" in base-*) ;; *)
+    echo "REFUSED: requested backup has an invalid name" >&2; exit 4 ;;
   esac
-  [ -d "$LATEST" ] || { echo "REFUSED: requested base backup does not exist: $LATEST" >&2; exit 4; }
+  [ "$EXPECTED" = "$BACKUP_ROOT/base/$NAME" ] || {
+    echo "REFUSED: requested backup is outside the Sentinel base-backup root" >&2; exit 4; }
 else
-  LATEST="$(find "$BACKUP_ROOT/base" -mindepth 1 -maxdepth 1 -type d \
-    -name 'base-*' -print | sort | tail -1)"
+  NAME="$(${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
+    find /sentinel-backup/base -mindepth 1 -maxdepth 1 -type d \
+      -name "base-*" -printf "%f\n" | sort | tail -1
+  ')"
 fi
-[ -n "$LATEST" ] || { echo "REFUSED: no base backup exists" >&2; exit 4; }
-[ -f "$LATEST/backup_manifest" ] || {
-  echo "REFUSED: latest backup has no manifest: $LATEST" >&2; exit 4
-}
-MTIME="$(stat -c %Y "$LATEST/backup_manifest")"
+[ -n "$NAME" ] || { echo "REFUSED: no base backup exists" >&2; exit 4; }
+LATEST="$BACKUP_ROOT/base/$NAME"
+${COMPOSE[@]} exec -T sentinel-postgres test -d "/sentinel-backup/base/$NAME" || {
+  echo "REFUSED: requested base backup does not exist: $LATEST" >&2; exit 4; }
+${COMPOSE[@]} exec -T sentinel-postgres test -f "/sentinel-backup/base/$NAME/backup_manifest" || {
+  echo "REFUSED: latest backup has no manifest: $LATEST" >&2; exit 4; }
+MTIME="$(${COMPOSE[@]} exec -T sentinel-postgres \
+  stat -c %Y "/sentinel-backup/base/$NAME/backup_manifest")"
 AGE_HOURS="$(( (NOW - MTIME) / 3600 ))"
 [ "$AGE_HOURS" -le "$MAX_AGE_HOURS" ] || {
   echo "REFUSED: latest base backup is ${AGE_HOURS}h old (max ${MAX_AGE_HOURS}h)" >&2
   exit 4
 }
-[ -f "$LATEST/sentinel-recovery-marker" ] || {
+${COMPOSE[@]} exec -T sentinel-postgres \
+  test -f "/sentinel-backup/base/$NAME/sentinel-recovery-marker" || {
   echo "REFUSED: latest backup lacks a post-base recovery marker" >&2; exit 4; }
 echo "backup_ready:true base=$LATEST age_hours=$AGE_HOURS wal_age_hours=$WAL_AGE_HOURS"
