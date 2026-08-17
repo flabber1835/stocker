@@ -2,17 +2,18 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
+import stat
 from types import SimpleNamespace
 import sys
 
 import pytest
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT")
+            or Path(__file__).resolve().parents[2])
 SCRIPTS = ROOT / "scripts"
-if not (SCRIPTS / "sentinel_autonomous_deploy.py").is_file():
-    SCRIPTS = ROOT / "repo" / "scripts"
 
 
 def _load(name, path):
@@ -115,6 +116,61 @@ def test_multiple_conventional_signing_keys_refuse_ambiguity(monkeypatch, tmp_pa
         bootstrap._signing_key_path({})
 
 
+def test_safe_dotenv_preserves_mode_and_collapses_managed_duplicates(tmp_path):
+    path = tmp_path / ".env"
+    path.write_text(
+        "ALPACA_SECRET_KEY=keep-me\n"
+        "SENTINEL_RUNTIME_IMAGE_DIGEST=sha256:old-a\n"
+        "SENTINEL_RUNTIME_IMAGE_DIGEST=sha256:old-b\n",
+        encoding="utf-8")
+    path.chmod(0o600)
+
+    bootstrap._safe_update_dotenv(path, {
+        "SENTINEL_RUNTIME_IMAGE_DIGEST": "sha256:" + "1" * 64,
+        "SENTINEL_GIT_COMMIT": "a" * 40,
+    })
+
+    text = path.read_text(encoding="utf-8")
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert "ALPACA_SECRET_KEY=keep-me" in text
+    assert text.count("SENTINEL_RUNTIME_IMAGE_DIGEST=") == 1
+    assert "sha256:old-a" not in text and "sha256:old-b" not in text
+
+
+def test_backup_checks_and_restore_use_the_exact_created_backup(tmp_path):
+    calls = []
+    exact = "/backups/base/base-20260817T120000Z"
+
+    class Runner:
+        env = {}
+        def run(self, args, **kwargs):
+            calls.append(list(args))
+            if args[-1] == "scripts/sentinel-base-backup.sh":
+                return SimpleNamespace(
+                    stdout="verified_base_backup:" + exact + "\n",
+                    stderr="", returncode=0)
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+    obj = bootstrap.BootstrapDeploy(SimpleNamespace(), Runner(), tmp_path)
+    assert obj._create_backup(restore_drill=True) == exact
+    assert ["bash", "scripts/sentinel-backup-status.sh", "--backup", exact] in calls
+    assert ["bash", "scripts/sentinel-restore-drill.sh", "--backup", exact] in calls
+
+
+def test_promoted_runtime_becomes_the_ordinary_cli_image(monkeypatch, tmp_path):
+    runner = SimpleNamespace(env={})
+    obj = bootstrap.BootstrapDeploy(SimpleNamespace(), runner, tmp_path)
+
+    def promoted(self):
+        self.runtime_repo_digest = "ghcr.io/example/sentinel@sha256:" + "1" * 64
+
+    monkeypatch.setattr(driver.AutonomousDeploy, "build_promote", promoted)
+    obj.build_promote()
+
+    assert obj.env["SENTINEL_RUNTIME_IMAGE_REF"] == obj.runtime_repo_digest
+    assert runner.env["SENTINEL_RUNTIME_IMAGE_REF"] == obj.runtime_repo_digest
+
+
 def test_bootstrap_key_verifier_accepts_auto_only_after_active_root_proof(tmp_path):
     cfg = SimpleNamespace(signing_key=tmp_path / "key", signing_key_id="AUTO")
     cfg.signing_key.write_text("fixture", encoding="utf-8")
@@ -145,4 +201,5 @@ def test_bootstrap_does_not_persist_discovered_facts_before_final_pass():
     source = (SCRIPTS / "sentinel_autonomous_deploy_bootstrap.py").read_text(
         encoding="utf-8")
     assert "os.environ.update(env)" in source
-    assert "update_dotenv" not in source
+    assert source.index("post_backup = self._create_backup") < source.index(
+        "_safe_update_dotenv(core.ENV_PATH")
