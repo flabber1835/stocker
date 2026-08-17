@@ -31,6 +31,7 @@ import hashlib
 import json
 
 _SCHEMA_LOCK = (1_397_050_964, 1_380_928_588)  # ASCII SENT / ROLL.
+_SCHEMA_LOCK_TIMEOUT_MS = 2_000
 
 _MIGRATION_VERSION = 1
 _MIGRATION_NAME = "rollout-authority-v1"
@@ -234,6 +235,18 @@ _STAGE4_TABLES = frozenset({
     "sentinel_alert_delivery_events",
     "sentinel_automation_service_instances",
 })
+
+# Additive Stage-4 migrations that historically arrived through ALTER.
+# Runtime validation requires these exact witnesses plus every Stage-4 table;
+# it never tries to recreate them.  The core behavioral catalog continues to
+# receive the stronger closed semantic fingerprint in _validate_ledgered().
+_STAGE4_RUNTIME_REQUIRED_COLUMNS = {
+    "sentinel_automation_control": frozenset({
+        "authority_verdict", "authority_detail", "authority_checked_at"}),
+    "sentinel_automation_cycles": frozenset({"historical_state_only"}),
+    "sentinel_automation_service_instances": frozenset({
+        "authority_verdict", "authority_detail", "authority_checked_at"}),
+}
 
 _PLAN_AUTHORITY_CHECK = "sentinel_execution_plan_rollout_authority_ck"
 
@@ -1659,6 +1672,35 @@ def _validate_ledgered(cur, catalog) -> None:
     _validate_rollout_history(cur)
 
 
+def _validate_stage4_runtime(cur, catalog) -> None:
+    relations, columns, _constraints, _indexes, _triggers = catalog
+    missing = sorted(_STAGE4_TABLES - set(relations))
+    if missing:
+        raise _operator_refusal(
+            "Stage-4 operational schema is not installed completely; "
+            f"missing relations={missing}. Run the explicit schema migration "
+            "before unattended automation")
+    malformed = sorted(
+        table for table in _STAGE4_TABLES
+        if relations.get(table) != ("r", "p", False, False, False))
+    if malformed:
+        raise _operator_refusal(
+            f"Stage-4 operational relations are not exact ordinary tables: "
+            f"{malformed}")
+    for table, required in _STAGE4_RUNTIME_REQUIRED_COLUMNS.items():
+        absent = sorted(required - set(columns.get(table, {})))
+        if absent:
+            raise _operator_refusal(
+                f"Stage-4 relation {table} is missing migration columns "
+                f"{absent}; routine startup will not repair authority schema")
+    for table in ("sentinel_automation_control", "sentinel_automation_lease"):
+        cur.execute(f"SELECT COUNT(*) FROM public.{table} WHERE id=1")
+        if int(cur.fetchone()[0]) != 1:
+            raise _operator_refusal(
+                f"Stage-4 singleton {table} is missing; routine startup will "
+                "not guess or reseed authority-bearing state")
+
+
 def _apply_v1(cur, bootstrap_kind: str) -> None:
     if bootstrap_kind in {"NEW", "LEGACY"}:
         for statement in DDL:
@@ -1684,6 +1726,36 @@ def _apply_v1(cur, bootstrap_kind: str) -> None:
          bootstrap_kind, source_oid))
 
 
+def require_runtime_schema(conn) -> None:
+    """Validate the established behavioral/Stage-4 schema without DDL.
+
+    This is the unattended/runtime gate.  Missing migration evidence is an
+    operator refusal, never permission to CREATE/ALTER a hot authority table.
+    A local lock timeout bounds even catalog reads queued behind an explicit
+    migration so status/heartbeat paths fail visibly rather than hang forever.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SET LOCAL lock_timeout TO '{_SCHEMA_LOCK_TIMEOUT_MS}ms'")
+            cur.execute("SET LOCAL search_path TO public, pg_temp")
+            catalog = _read_catalog(cur)
+            relations, columns, constraints, indexes, triggers = catalog
+            _validate_backup_infrastructure(
+                relations, columns, constraints, indexes, triggers)
+            if _LEDGER_TABLE not in relations:
+                raise _operator_refusal(
+                    "behavioral schema migration is not installed; runtime "
+                    "validation cannot bootstrap or migrate it")
+            _validate_ledgered(cur, catalog)
+            _validate_stage4_runtime(cur, catalog)
+        # Read-only proof: leave no transaction open across scheduler sleeps.
+        conn.rollback()
+    except BaseException:
+        conn.rollback()
+        raise
+
+
 def ensure_schema(conn) -> None:
     """Validate or atomically install behavioral migration authority.
 
@@ -1702,6 +1774,11 @@ def ensure_schema(conn) -> None:
             # explicit path, so a public function/operator/type cannot shadow
             # built-ins while constraints/defaults are parsed or deparsed.
             cur.execute("SET LOCAL search_path TO public, pg_temp")
+            # Explicit migration may need AccessExclusive DDL locks, but it may
+            # never wait without bound and become the queue head for control,
+            # heartbeat, status, or emergency fencing traffic.
+            cur.execute(
+                f"SET LOCAL lock_timeout TO '{_SCHEMA_LOCK_TIMEOUT_MS}ms'")
             cur.execute(
                 "SELECT pg_advisory_xact_lock(%s,%s)", _SCHEMA_LOCK)
             catalog = _read_catalog(cur)
@@ -1734,6 +1811,7 @@ def ensure_schema(conn) -> None:
             final_catalog = _read_catalog(cur)
             _validate_backup_infrastructure(*final_catalog)
             _validate_ledgered(cur, final_catalog)
+            _validate_stage4_runtime(cur, final_catalog)
         conn.commit()
     except BaseException:
         # PostgreSQL DDL is transactional. Explicit rollback also releases the

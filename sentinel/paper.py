@@ -760,7 +760,12 @@ def _validate_broker_grant(conn, grant, _operation: BrokerOperation,
     else:                                                       # pragma: no cover
         raise PaperActivationRefused("unknown guarded broker grant")
 
-    _readiness_or_refuse(conn, now_et=now_et)
+    # Full readiness was computed once by prepare_paper_plan while the
+    # originating connection holds publication.pinned()'s session-level shared
+    # advisory lock.  That lock excludes ingest/publication writers for the
+    # whole preparation. Fresh guard connections still recheck the cheap
+    # publication/frontier/calendar identity before every broker read, but must
+    # not rescan the corpus just to prove a fact the retained pin cannot change.
     latest_closed = calendar.latest_closed_session(now_et)
     if (decision_session.isoformat() != latest_closed
             or str(frontier) != decision_session.isoformat()):
@@ -800,7 +805,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
     """Advance and adopt one current plan without any broker mutation."""
     assert_paper_url(base_url)
     _require_certified_paper_broker(broker)
-    schema.ensure_schema(conn)
+    schema.require_runtime_schema(conn)
     through_date = (through if isinstance(through, date)
                     else date.fromisoformat(str(through)))
     through_text = through_date.isoformat()
@@ -1229,7 +1234,7 @@ async def _execute_current_paper_plan(
     real_clock = today is None
     now_et = _execution_observation_time(today)
     today = now_et.date()
-    schema.ensure_schema(conn)
+    schema.require_runtime_schema(conn)
 
     with journal.writer_lock(conn):
         from sentinel.handover import assert_no_legacy_path
@@ -1385,7 +1390,7 @@ async def recover_automated_paper_cycle(
             "automation recovery requires a RECOVER-scoped grant")
     assert_paper_url(base_url)
     _require_certified_paper_broker(broker)
-    schema.ensure_schema(conn)
+    schema.require_runtime_schema(conn)
     with journal.writer_lock(conn):
         from sentinel.handover import assert_no_legacy_path
         binding = assert_no_legacy_path(conn)

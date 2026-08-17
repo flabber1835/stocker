@@ -248,9 +248,14 @@ accepted cancel or sell.
 
 ### 3. Create, review, sign, install, and activate the lease
 
-Candidate creation is database-read-only and broker-free. Omit
-`--expires-at` for the 31-day default; an instant more than 35 days after
-`--not-before` is refused.
+Candidate creation is database-read-only and broker-free. The command
+captures one UTC lifecycle reference **before** readiness and the 253-session
+warmup are computed; `issued_at` and the `not_before >= issued_at` check use
+that same reference, so construction time cannot consume the operator's
+validity margin. A correctly signed future-dated certificate may be installed
+as `STAGED` before `not_before`, but activation and all ordinary authority remain
+refused until `not_before` is reached. Omit `--expires-at` for the 31-day
+default; an instant more than 35 days after `--not-before` is refused.
 
 ```bash
 $COMPOSE run --rm sentinel create-paper-observation-candidate \

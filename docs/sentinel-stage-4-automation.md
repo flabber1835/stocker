@@ -65,6 +65,22 @@ further transport. A slow broker call or executor holding the writer lock
 therefore cannot make the kill command unavailable. It performs no broker
 mutation and does not cancel an already-sent request.
 
+The supported emergency host path is `scripts/sentinel-emergency-kill.sh`. It
+uses only the ordinary Sentinel runtime plus the behavioral PostgreSQL target;
+it deliberately does **not** load the backup overlay, authorized-runtime
+overlay, broker credentials, Git/image certification variables, backup-root
+attestation, WAL write probes, or a leader lease. Database unavailability or a
+corrupt/missing control singleton may still refuse because that row is the
+fence authority. Ordinary startup and backup operations keep their existing
+durability preflight unchanged.
+
+Unattended runtime startup is also not a schema-migration surface. Once Stage 4
+is installed, automation uses a read-only behavioral-schema validation gate.
+Schema installation/upgrade remains explicit and serialized; its PostgreSQL
+lock wait is bounded so an attempted migration fails visibly rather than
+becoming an unbounded AccessExclusive queue head in front of heartbeat, status,
+or emergency control traffic.
+
 Changing the binding takeover epoch, certificate, rollout version, or automation
 configuration makes the activation stale. If a running service observes a
 different automation-config digest, it atomically engages the kill switch,
