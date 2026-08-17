@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT")
+            or Path(__file__).resolve().parents[2])
 SCRIPT = ROOT / "scripts" / "sentinel_autonomous_deploy.py"
 LAUNCHER = ROOT / "scripts" / "sentinel-autonomous-deploy.sh"
-if not SCRIPT.is_file():
-    SCRIPT = ROOT / "repo" / "scripts" / "sentinel_autonomous_deploy.py"
-    LAUNCHER = ROOT / "repo" / "scripts" / "sentinel-autonomous-deploy.sh"
 
 spec = importlib.util.spec_from_file_location("sentinel_autonomous_deploy", SCRIPT)
 deploy = importlib.util.module_from_spec(spec)
@@ -203,19 +202,19 @@ def test_signer_is_network_disabled_and_private_key_is_read_only():
     assert "configured signing key is not an ACTIVE trust root" in source
 
 
-def test_launcher_is_fast_forward_only_and_reexecs_after_update():
+def test_launcher_serializes_before_fast_forward_and_reexecs_after_update():
     source = LAUNCHER.read_text(encoding="utf-8")
+    assert "/tmp/sentinel-autonomous-deploy.lock" in source
+    assert "SENTINEL_DEPLOY_LOCK_FD" in source
     assert 'git pull --ff-only origin "$TARGET_BRANCH"' in source
     assert "git reset" not in source
     assert "git clean" not in source
-    assert "--after-fast-forward" in source
-    assert "exec bash scripts/sentinel-autonomous-deploy.sh" in source
+    assert "--after-fast-forward" not in source
+    assert 'exec bash scripts/sentinel-autonomous-deploy.sh "$@"' in source
 
 
 def test_empty_issuer_keeps_original_confirmation_and_autonomous_alias():
-    issuer = (ROOT / "tools" / "sentinel_empty_account_authority.py")
-    if not issuer.is_file():
-        issuer = ROOT / "repo" / "tools" / "sentinel_empty_account_authority.py"
+    issuer = ROOT / "tools" / "sentinel_empty_account_authority.py"
     source = issuer.read_text(encoding="utf-8")
     assert "--confirm-issue-admin-bind-empty" in source
     assert "--confirm-issue-empty-paper-binding" in source
