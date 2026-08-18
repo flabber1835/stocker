@@ -762,6 +762,36 @@ def rejected_tickers(conn, start: str, end: str, reason: str = "NO_IDENTITY") ->
         return {str(t[0]).upper() for t in cur.fetchall() if t[0]}
 
 
+_PREVIOUS_OBSERVATIONS_SQL = """
+WITH RECURSIVE security_ids(security_id) AS (
+    (SELECT b.security_id
+       FROM sentinel_bars b
+      ORDER BY b.security_id
+      LIMIT 1)
+    UNION ALL
+    SELECT next_id.security_id
+      FROM security_ids prior
+      CROSS JOIN LATERAL (
+        SELECT b.security_id
+          FROM sentinel_bars b
+         WHERE b.security_id > prior.security_id
+         ORDER BY b.security_id
+         LIMIT 1
+      ) next_id
+)
+SELECT ids.security_id, previous.close_signal, previous.close_unadjusted
+  FROM security_ids ids
+  CROSS JOIN LATERAL (
+    SELECT b.close_signal, b.close_unadjusted
+      FROM sentinel_bars b
+     WHERE b.security_id = ids.security_id
+       AND b.session < %s
+     ORDER BY b.session DESC
+     LIMIT 1
+  ) previous
+"""
+
+
 def previous_observations(conn, before_session: str) -> dict:
     """`security_id -> (close_signal, close_unadjusted)` for the last bar each
     security printed STRICTLY BEFORE `before_session`.
@@ -783,15 +813,21 @@ def previous_observations(conn, before_session: str) -> dict:
     hand one company's previous close to another and derive a split from the
     splice.
 
-    Bounded by the number of securities (~10k), not by sessions. `DISTINCT ON`
-    walks the (security_id, session) primary key backwards, so this is an index
-    scan rather than a corpus read.
+    Bounded by SECURITIES, not corpus history. The recursive term is a loose
+    index walk: each step seeks to the first `security_id` greater than the one
+    just returned, so it visits each security group once instead of reading all
+    of its sessions. The lateral predecessor probe then fixes that security_id,
+    applies the strict date bound, and takes `ORDER BY session DESC LIMIT 1`.
+    `idx_sentinel_bars_predecessor` supplies the mixed ordering and both close
+    columns, avoiding both the old global sort and a heap read per security.
+
+    Do not replace this with `DISTINCT ON`. A matching mixed-order index removes
+    its Sort node, but on PostgreSQL releases without a useful loose/skip scan it
+    can still walk every qualifying historical index entry before `Unique`
+    collapses them — cheaper than the defect in #162, but still lifetime-sized.
     """
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT DISTINCT ON (security_id) security_id, close_signal,"
-            " close_unadjusted FROM sentinel_bars WHERE session < %s"
-            " ORDER BY security_id, session DESC", (before_session,))
+        cur.execute(_PREVIOUS_OBSERVATIONS_SQL, (before_session,))
         return {
             str(sid): (float(c) if c is not None else None,
                        float(r) if r is not None else None)

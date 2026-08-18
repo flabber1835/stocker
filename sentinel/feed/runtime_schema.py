@@ -233,6 +233,7 @@ _CONSTRAINT_WITNESSES = {
 
 _INDEXES = {
     "idx_sentinel_bars_session": False,
+    "idx_sentinel_bars_predecessor": False,
     "idx_sentinel_spy_total_return_written_by": False,
     "idx_sentinel_rejections_session": False,
     "idx_sentinel_rejections_written_by": False,
@@ -264,6 +265,9 @@ _INDEXES = {
 }
 
 _INDEX_WITNESSES = {
+    "idx_sentinel_bars_predecessor": (
+        "on public.sentinel_bars", "(security_id, session desc)",
+        "include (close_signal, close_unadjusted)"),
     "uq_sentinel_rejection_run_observation": (
         "(ticker, session, reason, last_written_run_id)", "where",
         "last_written_run_id is not null"),

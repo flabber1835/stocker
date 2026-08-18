@@ -47,6 +47,13 @@ DDL = [
         PRIMARY KEY (security_id, session))""",
     """CREATE INDEX IF NOT EXISTS idx_sentinel_bars_session
         ON sentinel_bars (session)""",
+    # Exact predecessor lookup needs mixed ordering. The primary key can produce
+    # ASC/ASC or DESC/DESC globally, not security ASC with session DESC. INCLUDE
+    # keeps the one-row-per-security probe on the index instead of turning it
+    # into thousands of random heap reads on the NAS.
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_bars_predecessor
+        ON sentinel_bars (security_id ASC, session DESC)
+        INCLUDE (close_signal, close_unadjusted)""",
     # Dedicated total-return domain. Wealth Core is structurally unable to read
     # it; only sentinel.regime uses it when assembling a production observation.
     """CREATE TABLE IF NOT EXISTS sentinel_spy_total_return (
