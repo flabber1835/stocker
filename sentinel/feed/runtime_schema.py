@@ -10,11 +10,13 @@ only through the explicit store migration API.
 from __future__ import annotations
 
 from sentinel import schema as behavioral_schema
+from sentinel.feed.domains import SEP_FORBIDDEN_COLUMNS
 from sentinel.feed.schema import DDL
 
 
 _SCHEMA_LOCK = (1_397_050_964, 1_179_796_516)  # SENT / FEED.
 _SCHEMA_LOCK_TIMEOUT_MS = 2_000
+_TOTAL_RETURN_COLUMN = SEP_FORBIDDEN_COLUMNS[0]
 
 
 class FeedSchemaRefused(behavioral_schema.SchemaMigrationRefused):
@@ -63,7 +65,7 @@ _COLUMNS = {
         "last_written_run_id": ("uuid", False),
     },
     "sentinel_spy_total_return": {
-        "session": ("date", True), "closeadj": ("double precision", True),
+        "session": ("date", True), _TOTAL_RETURN_COLUMN: ("double precision", True),
         "last_written_run_id": ("uuid", False),
     },
     "sentinel_ingest_rejections": {
@@ -161,7 +163,7 @@ _COLUMNS = {
         "session": ("date", True), "ticker": ("text", True),
         "open": ("double precision", False), "close": ("double precision", False),
         "closeunadj": ("double precision", False),
-        "closeadj": ("double precision", False), "volume": ("double precision", False),
+        _TOTAL_RETURN_COLUMN: ("double precision", False), "volume": ("double precision", False),
     },
     "sentinel_active_ingest_rejections": {
         "observation_id": ("bigint", False), "ticker": ("text", False),
