@@ -131,6 +131,13 @@ class TestCurrentSessionIdentityCoverage:
             dropped_no_identity_by_session={"2024-02-01": 1})
         assert D.assert_identity_domain(report, "2024-02-01") == pytest.approx(0.99)
 
+    def test_two_percent_identity_loss_is_refused(self):
+        report = D.NormalisationReport(
+            rows_by_session={"2024-02-01": 100},
+            dropped_no_identity_by_session={"2024-02-01": 2})
+        with pytest.raises(D.IdentityDomainUnavailable, match="need 99%"):
+            D.assert_identity_domain(report, "2024-02-01")
+
     def test_a_session_SEP_has_not_published_is_owned_by_freshness_not_this_gate(self):
         report = D.NormalisationReport(rows_by_session={"2024-01-31": 100})
         assert D.assert_identity_domain(report, "2024-02-01") == 1.0
@@ -284,19 +291,28 @@ class TestLegacySchemaMigration:
                     " PRIMARY KEY (ticker,session,reason))")
                 cur.execute(
                     "INSERT INTO sentinel_ingest_rejections"
-                    " (ticker,session,reason,close_unadjusted,volume)"
-                    " VALUES ('AAA','2024-06-03','NO_IDENTITY',50,1000000)")
+                    " (ticker,session,reason,close_unadjusted,volume) VALUES"
+                    " ('AAA','2024-06-03','NO_IDENTITY',50,1000000),"
+                    " ('BBB','2024-06-03','NO_IDENTITY',25,500000),"
+                    " ('AAA','2024-06-04','NO_RAW_CLOSE',NULL,900000)")
             c.commit()
+            S.ensure_schema(c)
             S.ensure_schema(c)
 
             with c.cursor() as cur:
                 cur.execute(
-                    "SELECT observation_id,last_written_run_id,ticker,reason"
-                    " FROM sentinel_ingest_rejections")
-                observation_id, writer, ticker, reason = cur.fetchone()
-                assert observation_id is not None
-                assert writer is None
-                assert (ticker, reason) == ("AAA", "NO_IDENTITY")
+                    "SELECT observation_id,last_written_run_id,ticker,session,reason"
+                    " FROM sentinel_ingest_rejections"
+                    " ORDER BY ticker,session,reason")
+                rows = cur.fetchall()
+                assert len(rows) == 3
+                assert all(row[0] is not None for row in rows)
+                assert all(row[1] is None for row in rows)
+                assert [(row[2], str(row[3]), row[4]) for row in rows] == [
+                    ("AAA", "2024-06-03", "NO_IDENTITY"),
+                    ("AAA", "2024-06-04", "NO_RAW_CLOSE"),
+                    ("BBB", "2024-06-03", "NO_IDENTITY"),
+                ]
                 cur.execute(
                     "SELECT a.attname FROM pg_constraint c"
                     " JOIN unnest(c.conkey) WITH ORDINALITY k(attnum,ord) ON TRUE"
@@ -305,5 +321,12 @@ class TestLegacySchemaMigration:
                     " WHERE c.conrelid='sentinel_ingest_rejections'::regclass"
                     "   AND c.contype='p' ORDER BY k.ord")
                 assert [row[0] for row in cur.fetchall()] == ["observation_id"]
+                cur.execute(
+                    "SELECT indexname FROM pg_indexes"
+                    " WHERE schemaname='public'"
+                    "   AND tablename='sentinel_ingest_rejections'")
+                indexes = {row[0] for row in cur.fetchall()}
+                assert "uq_sentinel_rejection_run_observation" in indexes
+                assert "uq_sentinel_rejection_legacy_observation" in indexes
         finally:
             c.close()
