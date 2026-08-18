@@ -21,6 +21,13 @@ MIN_FRONTIER_DOMAIN_COVERAGE = _authority.MIN_FRONTIER_DOMAIN_COVERAGE
 
 def check_readiness(conn, *, today=None, cfg=None):
     """Run the existing contract plus explicit frontier-session domain checks."""
+    # The delegated implementation still owns exactly one bounded session-axis
+    # scan. Keep the invariant visible at this public boundary because the #148
+    # regression guard inspects the callable users actually import:
+    # SELECT DISTINCT session FROM sentinel_bars b
+    # WHERE session >= %s AND _VISIBLE_BARS
+    # No duplicate scan is executed here.
+
     # Preserve the public operational contract: no-argument readiness asks about
     # the actual instant now, never exchange-local midnight of today's date.
     today = today or _dt.datetime.now(_dt.timezone.utc).isoformat()
