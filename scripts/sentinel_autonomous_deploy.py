@@ -906,6 +906,7 @@ class AutonomousDeploy:
                 or status.get("kill_switch_engaged") is not True):
             raise DeployRefused(
                 "deployment receipt requires disabled+killed automation")
+        post_backup = self._post_deploy_backup()
         self._persist_deploy_facts({
             "SENTINEL_GIT_COMMIT": self.commit,
             "SENTINEL_RUNTIME_IMAGE_REPOSITORY": self.cfg.runtime_repository,
@@ -913,7 +914,6 @@ class AutonomousDeploy:
             "SENTINEL_TEST_IMAGE_REPOSITORY": self.cfg.test_repository,
             "SENTINEL_TEST_IMAGE_DIGEST": self.test_digest,
         })
-        post_backup = self._post_deploy_backup()
         receipt = {
             "schema": DEPLOY_SCHEMA,
             "completed_at": _utc_text(_utcnow()),
