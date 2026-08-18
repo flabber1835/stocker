@@ -22,6 +22,7 @@ import sentinel_autonomous_deploy as core
 
 
 _CANONICAL_EXPOSURE = re.compile(r"^(?:0|1|0\.[0-9]{0,17}[1-9])$")
+_PUBLICATION_STABILIZATION_POLLS = 2
 
 
 class Config(core.Config):
@@ -280,6 +281,8 @@ print(json.dumps({
     def _wait_for_data(self, *, deadline: float) -> None:
         """Wait until the current corpus is ready, without repeated full ingests."""
         attempt = 1
+        previous_positive_frontier = None
+        stable_positive_polls = 0
         while True:
             self._assert_wait_fence()
             verdict = self._readiness_verdict()
@@ -299,6 +302,32 @@ print(json.dumps({
             detail = str(
                 failures[0].get("detail") or "freshness is not current")
             probe = self._vendor_publication_probe(sessions, minimum_rows)
+
+            frontier = tuple(
+                (session,
+                 probe["sep_resolved_positive_securities"][session])
+                for session in sessions)
+            positive_frontier = bool(frontier) and all(
+                count > 0 for _session, count in frontier)
+            signature = (tuple(sessions), frontier)
+            if positive_frontier:
+                if signature == previous_positive_frontier:
+                    stable_positive_polls += 1
+                else:
+                    previous_positive_frontier = signature
+                    stable_positive_polls = 1
+            else:
+                previous_positive_frontier = None
+                stable_positive_polls = 0
+            stabilized = (
+                stable_positive_polls >= _PUBLICATION_STABILIZATION_POLLS)
+            trigger_authoritative_readiness = (
+                probe.get("ready") is True or stabilized)
+            probe = dict(probe)
+            probe["stable_positive_polls"] = stable_positive_polls
+            probe["stabilized"] = stabilized
+            probe["trigger_authoritative_readiness"] = (
+                trigger_authoritative_readiness)
             self._write_deployment_state(
                 "WAITING_FOR_DATA", attempt=attempt, failures=failures,
                 vendor_probe=probe)
@@ -317,8 +346,13 @@ print(json.dumps({
             print("  vendor resolved SEP: %s" % counts, flush=True)
             print("  vendor SPY sessions: %s" %
                   (", ".join(probe["spy_sessions"]) or "none"), flush=True)
+            if stabilized and probe.get("ready") is not True:
+                print(
+                    "  vendor SEP frontier stable across %d positive polls; "
+                    "running authoritative ingest/readiness" %
+                    _PUBLICATION_STABILIZATION_POLLS, flush=True)
 
-            if probe.get("ready") is True:
+            if trigger_authoritative_readiness:
                 self._base_cli(["feed-daily"])
                 verdict = self._readiness_verdict()
                 if verdict.get("ready") is True:
@@ -331,8 +365,8 @@ print(json.dumps({
                     return
                 self._refuse_data_readiness(
                     verdict, attempt=attempt,
-                    reason="Sharadar SEP/TICKERS/SPY covered the missing sessions "
-                           "but the corpus remained unready after ingest")
+                    reason="Sharadar publication trigger fired but the corpus "
+                           "remained unready after ingest")
 
             remaining = int(max(0, deadline - time.monotonic()))
             if remaining <= 0:
