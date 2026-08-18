@@ -120,8 +120,6 @@ def test_identical_legacy_null_provenance_overlap_is_no_physical_update(conn):
     assert S.write_bars(conn, [original], run_id=RUN_2) == 1
     after = state(conn)
 
-    # NULL provenance is the legacy baseline, not evidence of a failed
-    # candidate. A routine overlap must not rewrite it just to claim ownership.
     assert after == before
     assert after[4] is None
 
@@ -131,10 +129,6 @@ def test_identical_unpublished_candidate_is_reowned_by_retry(conn):
     assert S.write_bars(conn, [original], run_id=RUN_1) == 1
     before = state(conn)
 
-    # Publication recovery requires the new complete candidate to supersede an
-    # older unpublished owner. This is intentionally the rare exception to the
-    # routine-overlap no-op rule; otherwise the old invisible owner survives and
-    # the retry is correctly refused by publication coherence.
     assert S.write_bars(conn, [original], run_id=RUN_2) == 1
     after = state(conn)
 
@@ -189,15 +183,11 @@ def test_split_non_downgrade_remains_noop_unless_other_content_changes(conn):
     publish(conn, RUN_1)
     before = state(conn)
 
-    # Incoming 1.0 is absence of split evidence, so effective durable content is
-    # unchanged: no tuple rewrite and no provenance reassignment.
     S.write_bars(conn, [bar(split_ratio=1.0)], run_id=RUN_2)
     after_noop = state(conn)
     assert after_noop == before
     assert after_noop[3] == 2.0
 
-    # A real price restatement must still update, while retaining the proven
-    # split ratio under the existing non-downgrade rule.
     S.write_bars(conn, [bar(close=101.0, split_ratio=1.0)], run_id=RUN_3)
     after_change = state(conn)
     assert after_change[0] != before[0]
