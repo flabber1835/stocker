@@ -319,6 +319,53 @@ def validate_owned_status(status: Mapping, cfg: Config) -> str:
     raise DeployRefused("canonical ownership state is malformed: %r" % (state,))
 
 
+def validate_deployment_integrity_status(status: Mapping, cfg: Config) -> str:
+    """Validate durable authority-bearing state without requiring readiness."""
+    state = status.get("ownership")
+    if state == "OWNED":
+        if (status.get("broker") != "alpaca"
+                or status.get("broker_account_id") != cfg.account_id
+                or status.get("deployment_id") != cfg.deployment_id
+                or not isinstance(status.get("takeover_epoch"), int)
+                or int(status["takeover_epoch"]) < 1):
+            raise DeployRefused(
+                "durable OWNED binding contradicts configured deployment/account")
+    elif state == "NOT_OWNED":
+        # Enrollment is an activation prerequisite, not an install prerequisite.
+        pass
+    elif state == "UNKNOWN":
+        raise DeployRefused("canonical account ownership is UNKNOWN")
+    else:
+        raise DeployRefused("canonical ownership state is malformed: %r" % (state,))
+
+    for field in ("paper_execution_authority", "administrative_authority"):
+        value = status.get(field)
+        if not isinstance(value, dict):
+            raise DeployRefused("%s status is malformed" % field)
+        if value.get("error"):
+            raise DeployRefused(
+                "%s durable state is unreadable: %s" % (field, value["error"]))
+    return str(state)
+
+
+def classify_paper_account_for_deployment(payload: Mapping, cfg: Config) -> str:
+    """Separate broker identity integrity from temporary operational readiness."""
+    if not isinstance(payload, dict):
+        raise DeployRefused("Alpaca account response is not an object")
+    identities = {
+        str(payload.get("id") or ""),
+        str(payload.get("account_number") or ""),
+    }
+    if cfg.account_id not in identities:
+        raise DeployRefused("Alpaca credentials resolve to a different paper account")
+    if str(payload.get("status") or "").upper() != "ACTIVE":
+        return "BROKER_NOT_READY"
+    for flag in ("trading_blocked", "account_blocked", "trade_suspended_by_user"):
+        if payload.get(flag) is not False:
+            return "BROKER_NOT_READY"
+    return "BROKER_READY"
+
+
 def health_heartbeat_proof(first: Mapping, second: Mapping, *, cfg: Config,
                            certificate_sha256: str) -> None:
     for label, health in (("first", first), ("second", second)):
@@ -362,6 +409,8 @@ class AutonomousDeploy:
         self.active_certificate = ""
         self.new_certificate = ""
         self.account_equity = Decimal(0)
+        self.broker_readiness = "BROKER_NOT_CHECKED"
+        self.ownership_state = "UNKNOWN"
 
     def phase(self, text: str) -> None:
         print("\n== %s" % text, flush=True)
@@ -424,6 +473,43 @@ class AutonomousDeploy:
         if abs(buying_power - cash) > Decimal("1.00"):
             raise DeployRefused("Alpaca paper buying power differs from cash by more than $1")
         self.account_equity = equity
+
+    def check_paper_account_deployment_integrity(self) -> str:
+        """Read broker identity if reachable; never require broker readiness."""
+        self.phase("preflight: broker identity integrity (readiness may be unavailable)")
+        request = urllib.request.Request(
+            PAPER_URL + "/v2/account",
+            headers={
+                "APCA-API-KEY-ID": _require(self.env, "ALPACA_API_KEY"),
+                "APCA-API-SECRET-KEY": _require(self.env, "ALPACA_SECRET_KEY"),
+                "Accept": "application/json",
+            }, method="GET")
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            if exc.code in {401, 403, 408, 425, 429} or 500 <= exc.code <= 599:
+                self.broker_readiness = "BROKER_NOT_READY"
+                return self.broker_readiness
+            raise DeployRefused(
+                "Alpaca paper account integrity probe returned unexpected HTTP %d"
+                % exc.code) from exc
+        except OSError:
+            self.broker_readiness = "BROKER_NOT_READY"
+            return self.broker_readiness
+        except ValueError as exc:
+            raise DeployRefused("Alpaca paper account response is malformed") from exc
+        self.broker_readiness = classify_paper_account_for_deployment(
+            payload, self.cfg)
+        return self.broker_readiness
+
+    def check_durable_deployment_integrity(self) -> Mapping:
+        """Refuse contradictory durable authority while allowing not-ready state."""
+        self.phase("integrity: durable ownership/authority state (readiness not required)")
+        status = self._status()
+        self.ownership_state = validate_deployment_integrity_status(
+            status, self.cfg)
+        return status
 
     def resolve_compose(self) -> None:
         explained = self.runner.run(
@@ -929,6 +1015,8 @@ class AutonomousDeploy:
             "operational_ready": bool(status.get("operational_ready") is True),
             "policy_state": status.get("policy_state"),
             "active_certificate_sha256_at_install": status.get("certificate_sha256"),
+            "broker_readiness_at_install": self.broker_readiness,
+            "ownership_at_install": self.ownership_state,
             "post_deploy_backup": post_backup,
         }
         path = self.attempt_dir / "deployment-receipt.json"
@@ -977,9 +1065,13 @@ class AutonomousDeploy:
         # Operational readiness (data, broker, ownership, authority, plan, leader)
         # is deliberately not part of this success boundary.
         self.git_preflight()
+        # A reachable broker with a different identity is a deployment-integrity
+        # contradiction. Temporary unavailability/blocking is merely readiness.
+        self.check_paper_account_deployment_integrity()
         self.build_promote()
         with self.transition():
             self.quiesce_backup_and_migrate()
+            self.check_durable_deployment_integrity()
             status = self.start_fenced_runtime()
             self.persist_deployed(status)
 
@@ -1030,8 +1122,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         help="print the enforced deployment phases and exit without deployment")
     args = parser.parse_args(argv)
     if args.explain:
-        print("git ff-only -> build/test/push -> kill/stop -> backup/restore -> "
-              "schema -> start exact runtime disabled+killed -> persist DEPLOYED/FENCED; "
+        print("git ff-only -> broker identity integrity -> build/test/push -> kill/stop -> "
+              "backup/restore -> schema -> durable authority integrity -> "
+              "start exact runtime disabled+killed -> persist DEPLOYED/FENCED; "
               "runtime later owns data/readiness and activation prerequisites")
         return 0
     try:
