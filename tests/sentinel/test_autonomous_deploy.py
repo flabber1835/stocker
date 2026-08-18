@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import os
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -59,6 +60,36 @@ def test_update_dotenv_changes_only_named_deploy_facts(tmp_path):
     assert "ALPACA_SECRET_KEY=keep-this-secret" in text
     assert "sha256:old" not in text
     assert "SENTINEL_GIT_COMMIT=" + "a" * 40 in text
+
+
+def test_runner_can_stream_progress_while_retaining_captured_output(tmp_path, capsys):
+    log = tmp_path / "commands.log"
+    runner = deploy.Runner(os.environ, log)
+
+    result = runner.run([
+        sys.executable, "-c",
+        "import sys; print('progress-1'); print('progress-2', file=sys.stderr)",
+    ], stream=True)
+
+    visible = capsys.readouterr().out
+    assert "progress-1" in visible
+    assert "progress-2" in visible
+    assert "progress-1" in result.stdout
+    assert "progress-2" in result.stdout
+    retained = log.read_text(encoding="utf-8")
+    assert "progress-1" in retained
+    assert "progress-2" in retained
+
+
+def test_full_deploy_suite_uses_live_streaming_without_weakening_skip_gate():
+    source = SCRIPT.read_text(encoding="utf-8")
+    suite_start = source.index(
+        'self.phase("test: complete Sentinel suite in the exact new test image")')
+    suite_end = source.index('self.runner.run([\n            "docker", "run"', suite_start + 1)
+    block = source[suite_start:suite_end]
+
+    assert '"tests/sentinel", "-q", "-ra"], stream=True)' in block
+    assert "complete Sentinel deployment suite skipped tests" in block
 
 
 def test_owned_binding_must_match_every_configured_identity():
