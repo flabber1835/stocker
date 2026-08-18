@@ -46,7 +46,7 @@ _RELATIONS = {
     "sentinel_corpus_anomalies": ("r", "p", False, False, False),
     "sentinel_actions": ("r", "p", False, False, False),
     "sentinel_universe": ("r", "p", False, False, False),
-    "sentinel_universe_current": ("r", "p", False, False, False),
+    "feed_universe_current": ("r", "p", False, False, False),
     "sentinel_corpus_publications": ("r", "p", False, False, False),
     "sentinel_bar_split_repairs": ("r", "p", False, False, False),
     "feed_ingest_runs": ("r", "p", False, False, False),
@@ -109,7 +109,7 @@ _COLUMNS = {
         "last_price_date": ("date", False), "is_delisted": ("boolean", False),
         "snapshot_date": ("date", True), "last_written_run_id": ("uuid", False),
     },
-    "sentinel_universe_current": {
+    "feed_universe_current": {
         "permaticker": ("text", True), "ticker": ("text", True),
         "category": ("text", False), "sector": ("text", False),
         "related_tickers": ("text", False), "first_price_date": ("date", False),
@@ -208,7 +208,7 @@ _PRIMARY_KEYS = {
     "sentinel_corpus_anomalies": "primary key (observation_id)",
     "sentinel_actions": "primary key (ticker, session, action)",
     "sentinel_universe": "primary key (permaticker, ticker, snapshot_date)",
-    "sentinel_universe_current": "primary key (permaticker, ticker)",
+    "feed_universe_current": "primary key (permaticker, ticker)",
     "sentinel_corpus_publications": "primary key (version)",
     "sentinel_bar_split_repairs": "primary key (security_id, session, last_written_run_id)",
     "feed_ingest_runs": "primary key (run_id)",
