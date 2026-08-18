@@ -57,41 +57,66 @@ DDL = [
         ON sentinel_spy_total_return (last_written_run_id)
         WHERE last_written_run_id IS NOT NULL""",
 
-    # RAW VENDOR ROWS THE INGEST REFUSED. Not a log — EVIDENCE.
-    #
-    # A SEP row whose ticker cannot be resolved to a permanent security is
-    # dropped before `sentinel_bars`, correctly: keying it on the ticker would
-    # re-introduce the reuse splice. But the terminal-identity accounting then
-    # asks "did the vendor price this ticker in the window?" and reads the
-    # answer from `sentinel_bars`, where the row no longer is — so a terminal
-    # action for that ticker was classified SECURITY_ABSENT_FROM_CORPUS, which
-    # is the one exclusion that must never be able to swallow an identity
-    # failure. This table is what makes the raw presence survive the drop.
-    # The PRICE and VOLUME are carried because certification has to answer
-    # "could this dropped security have changed the universe, the ranking or
-    # the selection?", and the eligibility floors decide that from an
-    # as-traded price, a dollar volume and a session count. A rejection row
-    # holding only a ticker and a date leaves that permanently UNDETERMINED —
-    # which under a fail-closed certification rule blocks the rehearsal instead
-    # of informing it.
+    # RAW VENDOR ROWS THE INGEST REFUSED. Append-only observations, not a
+    # mutable statement that this ticker/date is rejected forever. Publication
+    # chooses which generation became authoritative, and a later published bar
+    # can resolve the active rejection without erasing the failed history.
     """CREATE TABLE IF NOT EXISTS sentinel_ingest_rejections (
-        ticker           TEXT NOT NULL,
-        session          DATE NOT NULL,
-        reason           TEXT NOT NULL,
-        close_unadjusted DOUBLE PRECISION,
-        volume           DOUBLE PRECISION,
-        first_seen       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        PRIMARY KEY (ticker, session, reason))""",
-    # CREATE TABLE IF NOT EXISTS does nothing to a table that already exists,
-    # so an already-seeded database would keep the two-column version and the
-    # audit would read NULL prices forever while every test on a fresh schema
-    # passed.
+        observation_id    BIGSERIAL PRIMARY KEY,
+        ticker            TEXT NOT NULL,
+        session           DATE NOT NULL,
+        reason            TEXT NOT NULL,
+        close_unadjusted  DOUBLE PRECISION,
+        volume            DOUBLE PRECISION,
+        first_seen        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_written_run_id UUID)""",
+    # Upgrade the legacy mutable (ticker,session,reason) table in place. Legacy
+    # observations retain NULL provenance; that is UNKNOWN, not permission to
+    # invent the ingest that produced them. A later publication timestamp can
+    # still prove current resolution without guessing their producer.
     """ALTER TABLE sentinel_ingest_rejections
         ADD COLUMN IF NOT EXISTS close_unadjusted DOUBLE PRECISION""",
     """ALTER TABLE sentinel_ingest_rejections
         ADD COLUMN IF NOT EXISTS volume DOUBLE PRECISION""",
+    """ALTER TABLE sentinel_ingest_rejections
+        ADD COLUMN IF NOT EXISTS observation_id BIGSERIAL""",
+    """ALTER TABLE sentinel_ingest_rejections
+        ADD COLUMN IF NOT EXISTS last_written_run_id UUID""",
+    """DO $$
+        DECLARE old_primary_key TEXT;
+        BEGIN
+          SELECT c.conname INTO old_primary_key
+            FROM pg_constraint c
+           WHERE c.conrelid = 'sentinel_ingest_rejections'::regclass
+             AND c.contype = 'p'
+             AND c.conkey <> ARRAY[(SELECT attnum FROM pg_attribute
+                                     WHERE attrelid = c.conrelid
+                                       AND attname = 'observation_id')]::smallint[];
+          IF old_primary_key IS NOT NULL THEN
+            EXECUTE format('ALTER TABLE sentinel_ingest_rejections DROP CONSTRAINT %I',
+                           old_primary_key);
+          END IF;
+          IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+               WHERE conrelid = 'sentinel_ingest_rejections'::regclass
+                 AND contype = 'p') THEN
+            ALTER TABLE sentinel_ingest_rejections
+              ADD CONSTRAINT sentinel_ingest_rejections_pkey
+              PRIMARY KEY (observation_id);
+          END IF;
+        END $$""",
     """CREATE INDEX IF NOT EXISTS idx_sentinel_rejections_session
         ON sentinel_ingest_rejections (session)""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_rejections_written_by
+        ON sentinel_ingest_rejections (last_written_run_id)
+        WHERE last_written_run_id IS NOT NULL""",
+    """CREATE UNIQUE INDEX IF NOT EXISTS uq_sentinel_rejection_run_observation
+        ON sentinel_ingest_rejections
+           (ticker, session, reason, last_written_run_id)
+        WHERE last_written_run_id IS NOT NULL""",
+    """CREATE UNIQUE INDEX IF NOT EXISTS uq_sentinel_rejection_legacy_observation
+        ON sentinel_ingest_rejections (ticker, session, reason)
+        WHERE last_written_run_id IS NULL""",
 
     # EVIDENCE THAT EVIDENCE WAS LOST. `NormalisationReport` retains at most
     # `max_rejections` rejection rows per chunk and then only counts the rest,
@@ -265,6 +290,47 @@ DDL = [
         ADD COLUMN IF NOT EXISTS last_written_run_id UUID""",
     """ALTER TABLE sentinel_actions
         ADD COLUMN IF NOT EXISTS last_written_run_id UUID""",
+    # Current rejection state is a PROJECTION of immutable observations. A
+    # published rejection remains active until a later published bar for the
+    # same ticker/session proves it was repaired. Failed/unpublished rejection
+    # candidates never become active. Legacy NULL-run observations are not
+    # attributed by guess: only a provenance-tracked publication occurring
+    # after their durable `first_seen` timestamp may resolve them.
+    """DROP VIEW IF EXISTS sentinel_active_ingest_rejections""",
+    """CREATE VIEW sentinel_active_ingest_rejections AS
+        WITH candidates AS (
+          SELECT r.observation_id,r.ticker,r.session,r.reason,
+                 r.close_unadjusted,r.volume,r.first_seen,
+                 r.last_written_run_id,p.version AS publication_version
+            FROM sentinel_ingest_rejections r
+            LEFT JOIN sentinel_corpus_publications p
+              ON p.run_id=r.last_written_run_id
+           WHERE r.last_written_run_id IS NULL OR p.run_id IS NOT NULL
+        ), unresolved AS (
+          SELECT c.*
+            FROM candidates c
+           WHERE NOT EXISTS (
+             SELECT 1
+               FROM sentinel_bars b
+               JOIN sentinel_corpus_publications bp
+                 ON bp.run_id=b.last_written_run_id
+              WHERE UPPER(b.ticker)=UPPER(c.ticker)
+                AND b.session=c.session
+                AND ((c.last_written_run_id IS NOT NULL
+                      AND bp.version > c.publication_version)
+                     OR (c.last_written_run_id IS NULL
+                         AND bp.published_at >= c.first_seen)))
+        ), ranked AS (
+          SELECT u.*,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY UPPER(ticker),session,reason
+                   ORDER BY COALESCE(publication_version,0) DESC,
+                            observation_id DESC) AS active_rank
+            FROM unresolved u
+        )
+        SELECT observation_id,ticker,session,reason,close_unadjusted,volume,
+               first_seen,last_written_run_id,publication_version
+          FROM ranked WHERE active_rank=1""",
     # PARTIAL, on the non-NULL rows only. The coherence check asks "how many
     # rows belong to these unpublished runs?", and the answer is normally zero —
     # which an index turns into a lookup and a bare scan turns into reading
