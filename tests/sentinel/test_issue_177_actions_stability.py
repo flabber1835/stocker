@@ -17,16 +17,21 @@ def _publication_version(conn):
     return None if current is None else current.version
 
 
-def _removed_observations(conn):
+def _active_action_count(conn, *, ticker: str, day: str, action: str) -> int:
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT COUNT(*) FROM sentinel_action_observations"
-            " WHERE disposition='REMOVED'")
+            "SELECT COUNT(*) FROM sentinel_active_actions"
+            " WHERE ticker=%s AND session=%s AND action=%s",
+            (ticker, day, action))
         return int(cur.fetchone()[0])
 
 
 def test_partial_actions_fetch_cannot_remove_prior_or_publish_candidate(conn):
-    day = sess()[10]
+    # Keep the known action inside the daily ACTIONS window so an empty first
+    # traversal really does stage a REMOVED candidate. The assertion below is
+    # that this candidate cannot become authoritative, not that append-only
+    # evidence of the failed observation must be erased.
+    day = sess()[-5]
     prior = {
         "ticker": "AAA", "date": day, "action": "dividend", "value": 0.25,
         "name": "ordinary dividend", "contraticker": None, "contraname": None,
@@ -36,12 +41,8 @@ def test_partial_actions_fetch_cannot_remove_prior_or_publish_candidate(conn):
         fetch=vendor(actions=[prior]))
 
     before_version = _publication_version(conn)
-    before_removed = _removed_observations(conn)
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT COUNT(*) FROM sentinel_action_observations"
-            " WHERE ticker='AAA' AND action='dividend' AND disposition='PRESENT'")
-        assert int(cur.fetchone()[0]) >= 1
+    assert _active_action_count(
+        conn, ticker="AAA", day=day, action="dividend") == 1
 
     calls = 0
     stable = vendor(actions=[prior])
@@ -59,12 +60,15 @@ def test_partial_actions_fetch_cannot_remove_prior_or_publish_candidate(conn):
         ingest.daily(conn, fetch=moving_actions, today=TODAY)
 
     assert calls == 2
-    assert _removed_observations(conn) == before_removed
+    # The first observation may have staged a REMOVED row in append-only
+    # evidence, but without a publication it cannot replace the active action.
+    assert _active_action_count(
+        conn, ticker="AAA", day=day, action="dividend") == 1
     assert _publication_version(conn) == before_version
 
 
 def test_terminal_seen_only_after_partial_observation_needs_stable_snapshot(conn):
-    day = sess()[10]
+    day = sess()[-5]
     prior = {
         "ticker": "AAA", "date": day, "action": "dividend", "value": 0.25,
         "name": "ordinary dividend", "contraticker": None, "contraname": None,
@@ -91,18 +95,11 @@ def test_terminal_seen_only_after_partial_observation_needs_stable_snapshot(conn
     with pytest.raises(authority.VendorPublicationUnstable):
         ingest.daily(conn, fetch=publication_moves, today=TODAY)
 
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT COUNT(*) FROM sentinel_action_observations"
-            " WHERE ticker='AAA' AND action='acquisitionby'")
-        assert int(cur.fetchone()[0]) == 0
+    assert _active_action_count(
+        conn, ticker="AAA", day=terminal["date"], action="acquisitionby") == 0
 
     # A later attempt sees the complete key-set twice. Only now may the terminal
     # row enter the candidate lifecycle and participate in publication.
     ingest.daily(conn, fetch=stable_prices, today=TODAY)
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT COUNT(*) FROM sentinel_action_observations"
-            " WHERE ticker='AAA' AND action='acquisitionby'"
-            "   AND disposition='PRESENT'")
-        assert int(cur.fetchone()[0]) >= 1
+    assert _active_action_count(
+        conn, ticker="AAA", day=terminal["date"], action="acquisitionby") == 1
