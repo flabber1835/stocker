@@ -209,7 +209,7 @@ def assert_frontier_domains(
 
     domains = (
         ("signal close", "signal_close"),
-        ("raw close", "raw_close"),
+        ("raw close (closeunadj)", "raw_close"),
         ("raw open", "raw_open"),
         ("volume", "volume"),
     )
@@ -232,25 +232,39 @@ def assert_frontier_domains(
 class StableSharadarFetch:
     """A fetch adapter that turns transport success into publication evidence.
 
-    ACTIONS is small enough to retain its second observation in memory. SEP is
-    not: the second observation is spooled to a temporary file, validated in
-    full, and only then replayed to the ingest. No authority-bearing write sees
-    a SEP row until the two complete traversals agree.
+    The first ACTIONS traversal is allowed to enter the candidate run so price
+    normalisation can cross-check splits exactly as before, but it is not local
+    authority: those observations remain invisible until the run publishes.  A
+    second complete ACTIONS observation is deliberately delayed until after the
+    first protected SEP traversal.  If the key/content set moved, the run fails
+    before any protected SEP row can be replayed and before publication can make
+    the candidate ACTIONS lifecycle visible.
+
+    SEP itself is not materialised in RAM: its second observation is spooled to
+    a temporary file, validated in full, and only then replayed to the ingest.
+    This preserves the bounded-memory property of the existing bulk path.
     """
 
     def __init__(self, fetch, *, protect_sep=None, after_session: str | None = None):
         self._fetch = fetch
         self._protect_sep = protect_sep or (lambda _params: True)
         self._after_session = after_session
+        self._actions_first: SourceObservation | None = None
+        self._actions_params: dict | None = None
+        self._actions_kwargs: dict | None = None
 
     def __call__(self, table, params=None, **kwargs):
         from sentinel.feed import sharadar
 
         if table == sharadar.ACTIONS:
-            first = observe_actions(self._fetch(table, params, **kwargs))
+            if self._actions_first is not None:
+                raise RuntimeError(
+                    "ACTIONS was requested again before its first candidate "
+                    "snapshot could be corroborated")
             rows = list(self._fetch(table, params, **kwargs))
-            second = observe_actions(rows)
-            require_stable(sharadar.ACTIONS, first, second)
+            self._actions_first = observe_actions(rows)
+            self._actions_params = dict(params or {})
+            self._actions_kwargs = dict(kwargs)
             return rows
 
         if table == sharadar.SEP and self._protect_sep(params or {}):
@@ -258,11 +272,31 @@ class StableSharadarFetch:
 
         return self._fetch(table, params, **kwargs)
 
+    def _require_actions_stable(self) -> None:
+        from sentinel.feed import sharadar
+
+        if self._actions_first is None:
+            return
+        rows = list(self._fetch(
+            sharadar.ACTIONS,
+            dict(self._actions_params or {}),
+            **dict(self._actions_kwargs or {})))
+        second = observe_actions(rows)
+        require_stable(sharadar.ACTIONS, self._actions_first, second)
+        self._actions_first = None
+        self._actions_params = None
+        self._actions_kwargs = None
+
     def _stable_sep(self, table, params, **kwargs):
         import pickle
         import tempfile
 
+        # This complete first SEP traversal separates the two ACTIONS snapshots
+        # in time and preserves the long-standing TICKERS -> ACTIONS -> SFP -> SEP
+        # orchestration. It is evidence only; no row is returned to the ingest.
         first = observe_sep(self._fetch(table, params, **kwargs))
+        self._require_actions_stable()
+
         spool = tempfile.TemporaryFile(mode="w+b")
         fingerprint = _CommutativeFingerprint()
         sessions: dict[str, DomainCounts] = {}
