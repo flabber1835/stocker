@@ -111,6 +111,21 @@ def test_identical_published_overlap_is_no_physical_update_and_keeps_provenance(
     assert after[4] == RUN_1
 
 
+def test_identical_legacy_null_provenance_overlap_is_no_physical_update(conn):
+    original = bar()
+    assert S.write_bars(conn, [original]) == 1
+    before = state(conn)
+    assert before[4] is None
+
+    assert S.write_bars(conn, [original], run_id=RUN_2) == 1
+    after = state(conn)
+
+    # NULL provenance is the legacy baseline, not evidence of a failed
+    # candidate. A routine overlap must not rewrite it just to claim ownership.
+    assert after == before
+    assert after[4] is None
+
+
 def test_identical_unpublished_candidate_is_reowned_by_retry(conn):
     original = bar()
     assert S.write_bars(conn, [original], run_id=RUN_1) == 1
