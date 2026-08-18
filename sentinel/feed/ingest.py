@@ -551,15 +551,21 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
                   resolve_identity, overlap_days: int,
                   today: Optional[str]) -> feed_store.IngestProgress:
     to = today or _today()
-    frontier = feed_store.latest_session(conn)
-    if frontier is None:
+    # Two frontiers answer two different questions. The PHYSICAL frontier keeps
+    # the overlap fetch bounded and lets an interrupted write resume. The VISIBLE
+    # frontier is the authority for identity validation. A failed candidate can
+    # commit bars and advance the physical MAX(session), but it has no publication
+    # and therefore must never make that same date "old" on the retry.
+    resume_frontier = feed_store.latest_session(conn)
+    validation_frontier = feed_store.latest_visible_session(conn)
+    if resume_frontier is None:
         raise RuntimeError(
             "the corpus is empty, so there is no frontier to resume from. Run "
             "`feed-seed` first — a daily fetch would silently load a two-week "
             "window and leave Wealth Core with far less history than the 126 "
             "sessions it needs, which surfaces as an eligibility failure rather "
             "than as the missing seed it actually is.")
-    start = (_dt.date.fromisoformat(frontier)
+    start = (_dt.date.fromisoformat(resume_frontier)
              - _dt.timedelta(days=overlap_days)).isoformat()
     # Refuse before opening the durable run row.  A future/corrupt frontier must
     # not become a successful empty ingest whose publication advances anyway.
@@ -625,14 +631,14 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
         # sparse early years, so the same threshold there would refuse a healthy
         # load.
         domains.assert_raw_price_domain(report)
-        # The frontier was captured BEFORE this ingest wrote anything. Validate
-        # every SEP session the vendor actually exposed beyond that frontier —
-        # not the requested wall-clock `to`. That distinction is what makes a
-        # Saturday catch-up inspect Friday, a holiday stay N/A, and a multi-day
-        # catch-up unable to hide a collapsed intermediate session behind a
-        # healthy latest session.
+        # Validate every SEP session the vendor actually exposed beyond the
+        # PRE-INGEST PUBLISHED frontier, not beyond the physical resume point and
+        # not beyond wall-clock `to`. An unpublished failed run may already have
+        # rows on disk for Friday; those rows are not authority and the retry
+        # must inspect Friday again. `None` means there is no currently visible
+        # bar, so every observed session in this bounded fetch requires proof.
         for session in sorted(report.rows_by_session):
-            if session > frontier:
+            if validation_frontier is None or session > validation_frontier:
                 domains.assert_identity_domain(report, session)
 
     run.finish("success")

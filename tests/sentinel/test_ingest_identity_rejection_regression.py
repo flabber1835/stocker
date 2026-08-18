@@ -188,16 +188,36 @@ class TestDailyPublicationBoundary:
         assert before is not None
 
         friday = [sep_row(f"T{i:03d}", "2024-02-02") for i in range(100)]
+
+        def resolve(ticker, _session):
+            return f"P-{ticker}" if int(ticker[1:]) < 5 else None
+
         with pytest.raises(D.IdentityDomainUnavailable, match="2024-02-02"):
             ingest.daily(
                 conn, fetch=fetcher(friday), today="2024-02-03",
-                resolve_identity=lambda ticker, _session:
-                    f"P-{ticker}" if int(ticker[1:]) < 5 else None)
+                resolve_identity=resolve)
 
         after = publication.current(conn)
         assert after is not None
         assert after.version == before.version
         assert after.run_id == before.run_id
+        assert S.run_status(conn, 1)[0]["status"] == "failed"
+
+        # The failed candidate physically wrote the five identities it could
+        # resolve, so MAX(session) has advanced even though publication has not.
+        # A retry must not mistake that physical row for authority and silently
+        # waive the Friday guard.
+        assert S.latest_session(conn) == "2024-02-02"
+        assert S.latest_visible_session(conn) == "2024-02-01"
+        with pytest.raises(D.IdentityDomainUnavailable, match="2024-02-02"):
+            ingest.daily(
+                conn, fetch=fetcher(friday), today="2024-02-03",
+                resolve_identity=resolve)
+
+        after_retry = publication.current(conn)
+        assert after_retry is not None
+        assert after_retry.version == before.version
+        assert after_retry.run_id == before.run_id
         assert S.run_status(conn, 1)[0]["status"] == "failed"
 
     @pytest.mark.parametrize("today", ["2024-02-18", "2024-02-19"])
