@@ -227,3 +227,71 @@ def assert_frontier_domains(
                     f"{present:,}/{counts.rows:,} rows ({share:.1%}); authority "
                     f"requires at least {minimum:.0%}. Historical coverage may "
                     f"not dilute a broken current decision session into PASS.")
+
+
+class StableSharadarFetch:
+    """A fetch adapter that turns transport success into publication evidence.
+
+    ACTIONS is small enough to retain its second observation in memory. SEP is
+    not: the second observation is spooled to a temporary file, validated in
+    full, and only then replayed to the ingest. No authority-bearing write sees
+    a SEP row until the two complete traversals agree.
+    """
+
+    def __init__(self, fetch, *, protect_sep=None, after_session: str | None = None):
+        self._fetch = fetch
+        self._protect_sep = protect_sep or (lambda _params: True)
+        self._after_session = after_session
+
+    def __call__(self, table, params=None, **kwargs):
+        from sentinel.feed import sharadar
+
+        if table == sharadar.ACTIONS:
+            first = observe_actions(self._fetch(table, params, **kwargs))
+            rows = list(self._fetch(table, params, **kwargs))
+            second = observe_actions(rows)
+            require_stable(sharadar.ACTIONS, first, second)
+            return rows
+
+        if table == sharadar.SEP and self._protect_sep(params or {}):
+            return self._stable_sep(table, params, **kwargs)
+
+        return self._fetch(table, params, **kwargs)
+
+    def _stable_sep(self, table, params, **kwargs):
+        import pickle
+        import tempfile
+
+        first = observe_sep(self._fetch(table, params, **kwargs))
+        spool = tempfile.TemporaryFile(mode="w+b")
+        fingerprint = _CommutativeFingerprint()
+        sessions: dict[str, DomainCounts] = {}
+        try:
+            for row in self._fetch(table, params, **kwargs):
+                fingerprint.add(_sep_payload(row))
+                session = str(row.get("date") or "")
+                if session:
+                    sessions[session] = sessions.get(
+                        session, DomainCounts()).add(row)
+                pickle.dump(dict(row), spool, protocol=pickle.HIGHEST_PROTOCOL)
+            second = SourceObservation(
+                table="SEP", rows=fingerprint.rows,
+                digest=fingerprint.digest(), sessions=sessions)
+            require_stable("SEP", first, second)
+            assert_frontier_domains(second, after_session=self._after_session)
+            spool.seek(0)
+        except Exception:
+            spool.close()
+            raise
+
+        def replay():
+            try:
+                while True:
+                    try:
+                        yield pickle.load(spool)
+                    except EOFError:
+                        return
+            finally:
+                spool.close()
+
+        return replay()
