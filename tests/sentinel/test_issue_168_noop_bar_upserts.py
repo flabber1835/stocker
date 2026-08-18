@@ -40,6 +40,7 @@ def conn(pg):
     c = S.connect(pg.sync_dsn)
     with c.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS sentinel_bars")
+        cur.execute("DROP TABLE IF EXISTS sentinel_corpus_publications")
         cur.execute(
             "CREATE TABLE sentinel_bars ("
             " security_id TEXT NOT NULL, session DATE NOT NULL, ticker TEXT NOT NULL,"
@@ -48,6 +49,12 @@ def conn(pg):
             " split_ratio DOUBLE PRECISION NOT NULL DEFAULT 1.0,"
             " dividend_per_share DOUBLE PRECISION NOT NULL DEFAULT 0.0,"
             " last_written_run_id UUID, PRIMARY KEY (security_id, session))")
+        cur.execute(
+            "CREATE TABLE sentinel_corpus_publications ("
+            " version BIGSERIAL PRIMARY KEY, run_id UUID)")
+        cur.execute(
+            "CREATE INDEX idx_test_publications_run"
+            " ON sentinel_corpus_publications (run_id)")
     c.commit()
     try:
         yield c
@@ -69,6 +76,15 @@ def bar(session="2026-08-14", *, close=100.0, open_=99.0, volume=1_000_000,
     )
 
 
+def publish(conn, run_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_corpus_publications (run_id) VALUES (%s)",
+            (run_id,),
+        )
+    conn.commit()
+
+
 def state(conn, session="2026-08-14"):
     with conn.cursor() as cur:
         cur.execute(
@@ -80,12 +96,13 @@ def state(conn, session="2026-08-14"):
         return cur.fetchone()
 
 
-def test_identical_overlap_is_no_physical_update_and_keeps_provenance(conn):
+def test_identical_published_overlap_is_no_physical_update_and_keeps_provenance(conn):
     original = bar()
     assert S.write_bars(conn, [original], run_id=RUN_1) == 1
+    publish(conn, RUN_1)
     before = state(conn)
 
-    # Bare VendorBar carries close_signal=None.  Replaying that NULL is part of
+    # Bare VendorBar carries close_signal=None. Replaying that NULL is part of
     # the contract: ordinary <> comparisons would not be NULL-safe here.
     assert S.write_bars(conn, [original], run_id=RUN_2) == 1
     after = state(conn)
@@ -94,8 +111,26 @@ def test_identical_overlap_is_no_physical_update_and_keeps_provenance(conn):
     assert after[4] == RUN_1
 
 
+def test_identical_unpublished_candidate_is_reowned_by_retry(conn):
+    original = bar()
+    assert S.write_bars(conn, [original], run_id=RUN_1) == 1
+    before = state(conn)
+
+    # Publication recovery requires the new complete candidate to supersede an
+    # older unpublished owner. This is intentionally the rare exception to the
+    # routine-overlap no-op rule; otherwise the old invisible owner survives and
+    # the retry is correctly refused by publication coherence.
+    assert S.write_bars(conn, [original], run_id=RUN_2) == 1
+    after = state(conn)
+
+    assert after[0] != before[0]
+    assert after[2] == before[2]
+    assert after[4] == RUN_2
+
+
 def test_real_content_change_updates_tuple_and_current_provenance(conn):
     S.write_bars(conn, [bar()], run_id=RUN_1)
+    publish(conn, RUN_1)
     before = state(conn)
 
     S.write_bars(conn, [bar(close=101.5)], run_id=RUN_2)
@@ -108,6 +143,7 @@ def test_real_content_change_updates_tuple_and_current_provenance(conn):
 
 def test_null_to_value_is_a_real_change(conn):
     S.write_bars(conn, [bar()], run_id=RUN_1)
+    publish(conn, RUN_1)
     before = state(conn)
 
     normalised = SimpleNamespace(vendor=bar(), close_signal=98.25)
@@ -135,6 +171,7 @@ def test_new_session_still_inserts_normally(conn):
 
 def test_split_non_downgrade_remains_noop_unless_other_content_changes(conn):
     S.write_bars(conn, [bar(split_ratio=2.0)], run_id=RUN_1)
+    publish(conn, RUN_1)
     before = state(conn)
 
     # Incoming 1.0 is absence of split evidence, so effective durable content is
