@@ -1,15 +1,16 @@
 name: Issue 160 PR176 focused fix
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/issue-160-deployed-fenced
+      - main
 
 permissions:
   contents: write
 
 jobs:
   patch-test-push:
+    if: github.event.pull_request.head.ref == 'fix/issue-160-deployed-fenced'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
