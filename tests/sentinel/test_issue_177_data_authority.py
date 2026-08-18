@@ -67,6 +67,16 @@ def test_frontier_domain_collapse_is_checked_per_session(missing, label):
         A.assert_frontier_domains(observation)
 
 
+def test_zero_volume_is_observed_data_not_a_missing_publication_domain():
+    rows = _sep("2026-08-18", 100)
+    for row in rows:
+        row["volume"] = 0
+    # A zero-volume security can be ineligible later. The publication detector
+    # answers a different question: did Sharadar expose the strategy-critical
+    # field? Conflating the two would make authority depend on portfolio rules.
+    A.assert_frontier_domains(A.observe_sep(rows))
+
+
 def test_actions_disappearance_and_later_terminal_are_not_one_snapshot_truth():
     prior = {
         "ticker": "AAA", "date": "2026-08-01", "action": "dividend",
