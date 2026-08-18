@@ -284,10 +284,10 @@ class NormalisationReport:
         The price is not decoration. Certification has to answer "could this
         dropped security have changed the universe, the ranking or the
         selection?", and that question is decided by the eligibility floors —
-        an as-traded price, a dollar volume and a session count. Recording only
+        an as-traded price, a dollar volume, a session count. Recording only
         the ticker and the date leaves every rejection permanently
-        UNDETERMINED, which under a fail-closed certification rule blocks the
-        rehearsal instead of informing it.
+        UNDETERMINED, which under a fail-closed rule blocks the rehearsal
+        rather than informing it.
         """
         if len(self.rejections) >= self.max_rejections:
             self.rejections_truncated += 1
