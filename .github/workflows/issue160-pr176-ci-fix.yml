@@ -27,27 +27,19 @@ jobs:
 
           core = Path('scripts/sentinel_autonomous_deploy.py')
           text = core.read_text(encoding='utf-8')
-          old = '''        self._persist_deploy_facts({
-              "SENTINEL_GIT_COMMIT": self.commit,
-              "SENTINEL_RUNTIME_IMAGE_REPOSITORY": self.cfg.runtime_repository,
-              "SENTINEL_RUNTIME_IMAGE_DIGEST": self.runtime_digest,
-              "SENTINEL_TEST_IMAGE_REPOSITORY": self.cfg.test_repository,
-              "SENTINEL_TEST_IMAGE_DIGEST": self.test_digest,
-          })
-          post_backup = self._post_deploy_backup()
-          '''
-          new = '''        post_backup = self._post_deploy_backup()
-          self._persist_deploy_facts({
-              "SENTINEL_GIT_COMMIT": self.commit,
-              "SENTINEL_RUNTIME_IMAGE_REPOSITORY": self.cfg.runtime_repository,
-              "SENTINEL_RUNTIME_IMAGE_DIGEST": self.runtime_digest,
-              "SENTINEL_TEST_IMAGE_REPOSITORY": self.cfg.test_repository,
-              "SENTINEL_TEST_IMAGE_DIGEST": self.test_digest,
-          })
-          '''
-          if text.count(old) != 1:
-              raise SystemExit('REFUSED: persist_deployed ordering block did not match exactly once')
-          core.write_text(text.replace(old, new), encoding='utf-8')
+          start = text.index('    def persist_deployed(self, status: Mapping) -> None:')
+          end = text.index('\n    def persist_success(self, health: Mapping) -> None:', start)
+          section = text[start:end]
+          backup = '        post_backup = self._post_deploy_backup()\n'
+          persist = '        self._persist_deploy_facts({\n'
+          if section.count(backup) != 1 or section.count(persist) != 1:
+              raise SystemExit('REFUSED: persist_deployed structure is not the expected unique shape')
+          if section.index(persist) > section.index(backup):
+              raise SystemExit('REFUSED: persist_deployed is already backup-before-persist')
+          section = section.replace(backup, '', 1)
+          section = section.replace(persist, backup + persist, 1)
+          text = text[:start] + section + text[end:]
+          core.write_text(text, encoding='utf-8')
 
           test = Path('tests/sentinel/test_autonomous_deploy_bootstrap.py')
           text = test.read_text(encoding='utf-8')
