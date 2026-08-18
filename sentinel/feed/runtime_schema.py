@@ -15,7 +15,7 @@ from sentinel.feed.schema import DDL as _BASE_DDL
 from sentinel.feed.universe_projection import DDL as _UNIVERSE_PROJECTION_DDL
 
 # The projection is a migration-owned derived read model rather than raw corpus
-# evidence.  Keep its installation beside the runtime schema contract so an old
+# evidence. Keep its installation beside the runtime schema contract so an old
 # appliance refuses before a reader can query a relation that has not yet been
 # explicitly migrated.
 DDL = [*_BASE_DDL, *_UNIVERSE_PROJECTION_DDL]
@@ -111,9 +111,13 @@ _COLUMNS = {
     },
     "feed_universe_current": {
         "permaticker": ("text", True), "ticker": ("text", True),
-        "category": ("text", False), "sector": ("text", False),
-        "related_tickers": ("text", False), "first_price_date": ("date", False),
-        "last_price_date": ("date", False), "is_delisted": ("boolean", False),
+        "category": ("text", False), "category_snapshot_date": ("date", False),
+        "sector": ("text", False), "sector_snapshot_date": ("date", False),
+        "related_tickers": ("text", False),
+        "related_tickers_snapshot_date": ("date", False),
+        "first_price_date": ("date", False), "last_price_date": ("date", False),
+        "is_delisted": ("boolean", False),
+        "is_delisted_snapshot_date": ("date", False),
         "snapshot_date": ("date", True),
     },
     "sentinel_corpus_publications": {
