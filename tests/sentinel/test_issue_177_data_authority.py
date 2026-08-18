@@ -87,22 +87,29 @@ def test_actions_disappearance_and_later_terminal_are_not_one_snapshot_truth():
     A.require_stable("ACTIONS", complete, again)
 
 
-def test_stable_fetch_refuses_before_returning_a_moving_actions_snapshot():
-    calls = 0
+def test_moving_actions_are_refused_before_protected_sep_can_replay():
+    action_calls = 0
     prior = {"ticker": "AAA", "date": "2026-08-01", "action": "dividend",
              "value": 0.25}
 
     def fetch(table, params=None, **kwargs):
-        nonlocal calls
-        assert table == sharadar.ACTIONS
-        calls += 1
-        return [] if calls == 1 else [prior]
+        nonlocal action_calls
+        if table == sharadar.ACTIONS:
+            action_calls += 1
+            return [] if action_calls == 1 else [prior]
+        assert table == sharadar.SEP
+        return _sep("2026-08-18", 100)
 
     guarded = A.StableSharadarFetch(fetch)
+    # The first response may populate a PENDING candidate. It is not authority:
+    # the second observation is delayed across a full SEP traversal and must
+    # agree before any protected SEP row can be handed to the ingest/publisher.
+    assert guarded(sharadar.ACTIONS, {"date.gte": "2026-08-01",
+                                      "date.lte": "2026-08-18"}) == []
     with pytest.raises(A.VendorPublicationUnstable):
-        guarded(sharadar.ACTIONS, {"date.gte": "2026-08-01",
-                                   "date.lte": "2026-08-18"})
-    assert calls == 2
+        guarded(sharadar.SEP, {"date.gte": "2026-08-01",
+                               "date.lte": "2026-08-18"})
+    assert action_calls == 2
 
 
 def test_stable_fetch_refuses_moving_sep_before_replay():
