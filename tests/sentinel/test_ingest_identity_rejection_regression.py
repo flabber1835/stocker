@@ -138,9 +138,9 @@ class TestCurrentSessionIdentityCoverage:
         with pytest.raises(D.IdentityDomainUnavailable, match="need 99%"):
             D.assert_identity_domain(report, "2024-02-01")
 
-    def test_a_session_SEP_has_not_published_is_owned_by_freshness_not_this_gate(self):
+    def test_a_session_SEP_has_not_published_is_explicitly_na_not_pass(self):
         report = D.NormalisationReport(rows_by_session={"2024-01-31": 100})
-        assert D.assert_identity_domain(report, "2024-02-01") == 1.0
+        assert D.assert_identity_domain(report, "2024-02-01") is None
 
 
 class TestDailyPublicationBoundary:
@@ -179,6 +179,74 @@ class TestDailyPublicationBoundary:
                 "SELECT COUNT(*) FROM sentinel_active_ingest_rejections"
                 " WHERE session='2024-02-01'")
             assert cur.fetchone()[0] == 0
+
+    def test_saturday_catch_up_validates_friday_not_wall_clock_saturday(self, conn):
+        ingest.seed(
+            conn, date_from="2024-01-01", date_to="2024-02-01",
+            fetch=fetcher([sep_row("AAA", "2024-02-01")]))
+        before = publication.current(conn)
+        assert before is not None
+
+        friday = [sep_row(f"T{i:03d}", "2024-02-02") for i in range(100)]
+        with pytest.raises(D.IdentityDomainUnavailable, match="2024-02-02"):
+            ingest.daily(
+                conn, fetch=fetcher(friday), today="2024-02-03",
+                resolve_identity=lambda ticker, _session:
+                    f"P-{ticker}" if int(ticker[1:]) < 5 else None)
+
+        after = publication.current(conn)
+        assert after is not None
+        assert after.version == before.version
+        assert after.run_id == before.run_id
+        assert S.run_status(conn, 1)[0]["status"] == "failed"
+
+    @pytest.mark.parametrize("today", ["2024-02-18", "2024-02-19"])
+    def test_weekend_or_holiday_without_new_SEP_session_is_not_identity_failure(
+            self, conn, today):
+        friday = [sep_row("AAA", "2024-02-16")]
+        ingest.seed(
+            conn, date_from="2024-02-01", date_to="2024-02-16",
+            fetch=fetcher(friday))
+        before = publication.current(conn)
+        assert before is not None
+
+        ingest.daily(
+            conn, fetch=fetcher(friday), today=today,
+            resolve_identity=lambda ticker, _session: f"P-{ticker}")
+
+        after = publication.current(conn)
+        assert after is not None
+        assert after.version == before.version + 1
+        assert S.run_status(conn, 1)[0]["status"] == "success"
+
+    def test_intermediate_new_session_collapse_cannot_hide_behind_healthy_latest(
+            self, conn):
+        ingest.seed(
+            conn, date_from="2024-01-01", date_to="2024-01-31",
+            fetch=fetcher([sep_row("AAA", "2024-01-31")]))
+        before = publication.current(conn)
+        assert before is not None
+
+        fresh = [
+            sep_row(f"T{i:03d}", session)
+            for session in ("2024-02-01", "2024-02-02")
+            for i in range(100)
+        ]
+
+        def resolve(ticker, session):
+            if session == "2024-02-01" and int(ticker[1:]) >= 5:
+                return None
+            return f"P-{ticker}"
+
+        with pytest.raises(D.IdentityDomainUnavailable, match="2024-02-01"):
+            ingest.daily(
+                conn, fetch=fetcher(fresh), today="2024-02-02",
+                resolve_identity=resolve)
+
+        after = publication.current(conn)
+        assert after is not None
+        assert after.version == before.version
+        assert after.run_id == before.run_id
 
 
 class TestRejectionGenerationLifecycle:
@@ -242,6 +310,82 @@ class TestRejectionGenerationLifecycle:
                 "SELECT COUNT(*) FROM sentinel_ingest_rejections"
                 " WHERE ticker='AAA' AND session='2024-06-03'")
             assert cur.fetchone()[0] == 1, "repair deleted historical evidence"
+
+    def test_reject_failed_repair_published_repair_and_rereject_lifecycle(self, conn):
+        rejected_run = str(uuid.uuid4())
+        failed_repair_run = str(uuid.uuid4())
+        repair_run = str(uuid.uuid4())
+        rereject_run = str(uuid.uuid4())
+
+        S.write_rejections(conn, [{
+            "ticker": "aaa", "session": "2024-06-03",
+            "reason": RA.NO_IDENTITY, "close": 50.0, "volume": 1_000_000,
+        }], run_id=rejected_run)
+        publish_run(conn, rejected_run)
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM sentinel_active_ingest_rejections"
+                " WHERE UPPER(ticker)='AAA' AND session='2024-06-03'")
+            assert cur.fetchone()[0] == 1
+
+            # A repair candidate wrote a bar but the ingest failed before
+            # publication. Unpublished evidence must not resolve a published
+            # rejection.
+            cur.execute(
+                "INSERT INTO feed_ingest_runs (run_id,kind,status,completed_at)"
+                " VALUES (%s,'daily','failed',NOW())", (failed_repair_run,))
+            cur.execute(
+                "INSERT INTO sentinel_bars"
+                " (security_id,session,ticker,close_signal,close_unadjusted,"
+                "  open_unadjusted,volume,last_written_run_id)"
+                " VALUES ('P-AAA','2024-06-03','AAA',50,50,49,1000000,%s)",
+                (failed_repair_run,))
+        conn.commit()
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM sentinel_active_ingest_rejections"
+                " WHERE UPPER(ticker)='AAA' AND session='2024-06-03'")
+            assert cur.fetchone()[0] == 1
+
+            # A later candidate replaces the failed row at the storage key. It
+            # becomes authoritative only after its publication is recorded.
+            cur.execute(
+                "UPDATE sentinel_bars SET last_written_run_id=%s"
+                " WHERE security_id='P-AAA' AND session='2024-06-03'",
+                (repair_run,))
+        conn.commit()
+        publish_run(conn, repair_run)
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM sentinel_active_ingest_rejections"
+                " WHERE UPPER(ticker)='AAA' AND session='2024-06-03'")
+            assert cur.fetchone()[0] == 0
+
+        # A later published rejection is newer than the repair and must become
+        # active again. The case variants deliberately pin UPPER(ticker) as the
+        # projection's economic identity rather than exact symbol spelling.
+        S.write_rejections(conn, [{
+            "ticker": "AaA", "session": "2024-06-03",
+            "reason": RA.NO_IDENTITY, "close": 75.0, "volume": 1_000_000,
+        }], run_id=rereject_run)
+        publish_run(conn, rereject_run)
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*),MAX(close_unadjusted),MAX(last_written_run_id::text)"
+                " FROM sentinel_active_ingest_rejections"
+                " WHERE UPPER(ticker)='AAA' AND session='2024-06-03'")
+            count, max_close, active_run = cur.fetchone()
+            assert count == 1
+            assert max_close == 75.0
+            assert active_run == rereject_run
+            cur.execute(
+                "SELECT COUNT(*) FROM sentinel_ingest_rejections"
+                " WHERE UPPER(ticker)='AAA' AND session='2024-06-03'")
+            assert cur.fetchone()[0] == 2, "repair or rereject erased raw history"
 
     def test_legacy_runless_rejection_is_resolved_only_by_a_later_publication(
             self, conn):
@@ -328,5 +472,19 @@ class TestLegacySchemaMigration:
                 indexes = {row[0] for row in cur.fetchall()}
                 assert "uq_sentinel_rejection_run_observation" in indexes
                 assert "uq_sentinel_rejection_legacy_observation" in indexes
+
+                cur.execute(
+                    "SELECT indexname,indexdef FROM pg_indexes"
+                    " WHERE schemaname='public' AND indexname IN"
+                    " ('idx_sentinel_rejections_active_projection_key',"
+                    "  'idx_sentinel_bars_active_rejection_lookup')")
+                indexdefs = {row[0]: row[1] for row in cur.fetchall()}
+                assert set(indexdefs) == {
+                    "idx_sentinel_rejections_active_projection_key",
+                    "idx_sentinel_bars_active_rejection_lookup",
+                }
+                for definition in indexdefs.values():
+                    folded = definition.lower()
+                    assert "upper(" in folded and "ticker" in folded
         finally:
             c.close()

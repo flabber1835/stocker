@@ -508,14 +508,15 @@ def assert_raw_price_domain(report: NormalisationReport,
 
 
 def assert_identity_domain(report: NormalisationReport, session: str,
-                           minimum_coverage: float = 0.99) -> float:
-    """Refuse material point-in-time identity loss on one vendor session.
+                           minimum_coverage: float = 0.99) -> Optional[float]:
+    """Refuse material point-in-time identity loss on one observed vendor session.
 
     The check is deliberately SESSION-scoped. A 14-day daily overlap can contain
     tens of thousands of healthy historical rows, so an aggregate ratio can hide
     exactly the post-close failure this guard exists for. If SEP has not exposed
-    `session` at all, this check is silent: calendar/readiness owns missing-session
-    freshness. Once SEP *has* exposed it, Sentinel requires at least 99% of that
+    `session` at all, the result is explicitly N/A (`None`): calendar/readiness
+    owns missing-session freshness, and absence is not evidence of 100% identity
+    coverage. Once SEP *has* exposed it, Sentinel requires at least 99% of that
     priced cross-section to resolve to permanent identity. This keeps the proven
     ordinary one-percent unknown tail permissible without allowing a materially
     partial session to become an authoritative corpus generation.
@@ -523,7 +524,7 @@ def assert_identity_domain(report: NormalisationReport, session: str,
     key = str(session)
     total = int(report.rows_by_session.get(key, 0))
     if not total:
-        return 1.0
+        return None
     dropped = int(report.dropped_no_identity_by_session.get(key, 0))
     coverage = (total - dropped) / total
     if coverage < minimum_coverage:

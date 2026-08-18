@@ -625,13 +625,15 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
         # sparse early years, so the same threshold there would refuse a healthy
         # load.
         domains.assert_raw_price_domain(report)
-        # SEP and TICKERS publish independently.  Once SEP exposes today's rows,
-        # a stale TICKERS snapshot can make essentially the whole fresh session
-        # unresolvable while the healthy overlap makes aggregate counters look
-        # normal.  Refuse that generation here — inside the chunk, so the run is
-        # durably FAILED and can never be published — and retry after TICKERS
-        # catches up. A handful of ordinary unknown instruments remains allowed.
-        domains.assert_identity_domain(report, to)
+        # The frontier was captured BEFORE this ingest wrote anything. Validate
+        # every SEP session the vendor actually exposed beyond that frontier —
+        # not the requested wall-clock `to`. That distinction is what makes a
+        # Saturday catch-up inspect Friday, a holiday stay N/A, and a multi-day
+        # catch-up unable to hide a collapsed intermediate session behind a
+        # healthy latest session.
+        for session in sorted(report.rows_by_session):
+            if session > frontier:
+                domains.assert_identity_domain(report, session)
 
     run.finish("success")
     # AFTER both daily-domain validations. A version published before them would

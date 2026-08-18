@@ -117,6 +117,12 @@ DDL = [
     """CREATE UNIQUE INDEX IF NOT EXISTS uq_sentinel_rejection_legacy_observation
         ON sentinel_ingest_rejections (ticker, session, reason)
         WHERE last_written_run_id IS NULL""",
+    # The active projection partitions by case-folded ticker/session/reason.
+    # Keep that expression indexable rather than forcing a sort over the raw
+    # observation history every time rejection-audit asks for current evidence.
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_rejections_active_projection_key
+        ON sentinel_ingest_rejections
+           (UPPER(ticker), session, reason, observation_id DESC)""",
 
     # EVIDENCE THAT EVIDENCE WAS LOST. `NormalisationReport` retains at most
     # `max_rejections` rejection rows per chunk and then only counts the rest,
@@ -339,6 +345,12 @@ DDL = [
     # the subject of the question.
     """CREATE INDEX IF NOT EXISTS idx_sentinel_bars_written_by
         ON sentinel_bars (last_written_run_id)
+        WHERE last_written_run_id IS NOT NULL""",
+    # Active-rejection resolution is a case-insensitive ticker/session anti-join.
+    # Without the matching expression index, each candidate can force scans over
+    # the multi-million-row bar table even though the economic key is selective.
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_bars_active_rejection_lookup
+        ON sentinel_bars (UPPER(ticker), session, last_written_run_id)
         WHERE last_written_run_id IS NOT NULL""",
     """CREATE INDEX IF NOT EXISTS idx_sentinel_actions_written_by
         ON sentinel_actions (last_written_run_id)
