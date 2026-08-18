@@ -149,10 +149,13 @@ finally:
         stayed Friday and roughly that many rows were dropped. That is consistent
         with vendor TICKERS intervals still ending at the old frontier.
 
-        Probe the vendor's current TICKERS rows whose `lastpricedate` reaches the
-        earliest missing session, build a resolver from those vendor rows, and
-        count only positive-price SEP rows that resolve for each missing session.
-        A positive finite SPY SFP `closeadj` is required too. Nothing is written.
+        Probe only vendor `table=SEP` TICKERS rows whose `lastpricedate` reaches
+        the earliest missing session, build a resolver from those current vendor
+        rows, and count positive-price SEP rows that resolve for each missing
+        session. A positive finite SPY SFP `closeadj` is required too. Nothing is
+        written. Filtering `table=SEP` matters: TICKERS also contains SF1/SF2/SFP
+        rows for overlapping symbols, and those metadata families are not
+        authority for an SEP price row.
         """
         requested = tuple(str(item) for item in sessions)
         if not requested or list(requested) != sorted(requested):
@@ -166,10 +169,8 @@ import json, math, sys
 from sentinel.feed import sharadar, universe
 sessions = tuple(x for x in sys.argv[1].split(',') if x)
 targets = set(sessions)
-# The datatable API accepts the same column comparison operators used by
-# date_params. Restrict TICKERS to listings whose current vendor interval reaches
-# the missing window; this keeps the read-only poll bounded to the live edge.
 ticker_params = {
+    'table': 'SEP',
     'lastpricedate.gte': sessions[0],
     'qopts.columns': 'permaticker,ticker,firstpricedate,lastpricedate,isdelisted',
 }
@@ -276,8 +277,6 @@ print(json.dumps({
         attempt = 1
         while True:
             self._assert_wait_fence()
-            # Recompute every pass. A configured wait may cross another market
-            # close, or another process may have advanced the corpus meanwhile.
             verdict = self._readiness_verdict()
             if verdict.get("ready") is True:
                 self._base_cli(["check-data"])
@@ -307,17 +306,13 @@ print(json.dumps({
                     session,
                     probe["sep_resolved_positive_securities"][session],
                     minimum_rows) for session in sessions)
-            print("  vendor TICKERS rows reaching window: %d" %
+            print("  vendor SEP TICKERS reaching window: %d" %
                   probe["vendor_ticker_rows"], flush=True)
             print("  vendor resolved SEP: %s" % counts, flush=True)
             print("  vendor SPY sessions: %s" %
                   (", ".join(probe["spy_sessions"]) or "none"), flush=True)
 
             if probe.get("ready") is True:
-                # One authoritative ingest after direct evidence says all three
-                # vendor surfaces cover the missing window. If that cannot make
-                # the corpus ready, ordinary publication lag is no longer a valid
-                # diagnosis and the deployment refuses rather than churning.
                 self._base_cli(["feed-daily"])
                 verdict = self._readiness_verdict()
                 if verdict.get("ready") is True:
@@ -354,9 +349,6 @@ print(json.dumps({
         requirements = self._freshness_wait_requirements(verdict)
 
         if requirements is None:
-            # Preserve ordinary deployment semantics: one daily refresh repairs
-            # restatements and gives non-freshness ingest faults one normal chance
-            # to resolve. Only subsequent freshness-only lag enters the wait.
             self._base_cli(["feed-daily"])
             verdict = self._readiness_verdict()
             if verdict.get("ready") is True:
@@ -539,9 +531,6 @@ c.rollback(); c.close()
         return state
 
     def rotate_observation_authority(self) -> Tuple[str, str]:
-        # Close the liveness gap between the data phase and authority phase. If a
-        # session closes while ownership verification is running, return to the
-        # same safe vendor-wait path before asking the candidate's own final gate.
         verdict = self._readiness_verdict()
         if verdict.get("ready") is not True:
             if self._freshness_wait_requirements(verdict) is None:
