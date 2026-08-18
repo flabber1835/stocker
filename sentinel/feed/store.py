@@ -73,6 +73,13 @@ _BAR_UPSERT = """
                THEN sentinel_bars.split_ratio
                ELSE EXCLUDED.split_ratio END
        OR sentinel_bars.dividend_per_share IS DISTINCT FROM EXCLUDED.dividend_per_share
+       OR (EXCLUDED.last_written_run_id IS NOT NULL
+           AND sentinel_bars.last_written_run_id IS NOT NULL
+           AND sentinel_bars.last_written_run_id IS DISTINCT FROM
+               EXCLUDED.last_written_run_id
+           AND NOT EXISTS (
+               SELECT 1 FROM sentinel_corpus_publications p
+               WHERE p.run_id = sentinel_bars.last_written_run_id))
 """
 
 _SPY_TOTAL_RETURN_UPSERT = """
