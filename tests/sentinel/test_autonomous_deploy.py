@@ -81,6 +81,20 @@ def test_runner_can_stream_progress_while_retaining_captured_output(tmp_path, ca
     assert "progress-2" in retained
 
 
+def test_runner_streamed_failure_still_refuses_with_child_output(tmp_path, capsys):
+    log = tmp_path / "commands.log"
+    runner = deploy.Runner(os.environ, log)
+
+    with pytest.raises(deploy.DeployRefused, match="streamed-failure"):
+        runner.run([
+            sys.executable, "-c",
+            "import sys; print('streamed-failure'); raise SystemExit(7)",
+        ], stream=True)
+
+    assert "streamed-failure" in capsys.readouterr().out
+    assert "streamed-failure" in log.read_text(encoding="utf-8")
+
+
 def test_full_deploy_suite_uses_live_streaming_without_weakening_skip_gate():
     source = SCRIPT.read_text(encoding="utf-8")
     suite_start = source.index(
