@@ -128,17 +128,25 @@ class TestARealIngestPreservesTheRefusal:
         assert "XYZ" in rejected, (
             "the ingest dropped a priced row and left no evidence it existed")
 
-    def test_the_rejection_is_IDEMPOTENT_across_re_ingest(self, conn):
+    def test_re_ingest_appends_history_but_active_projection_is_idempotent(self, conn):
         f = fake_vendor(sep_tickers=["AAA", "XYZ"],
                         tickers=[listing("AAA", "P:AAA")])
         ingest.seed(conn, date_from="2024-11-01", date_to=TODAY, fetch=f)
         ingest.seed(conn, date_from="2024-11-01", date_to=TODAY, fetch=f)
+        expected = len(sess(30))
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM sentinel_ingest_rejections"
+            cur.execute("SELECT COUNT(*), COUNT(DISTINCT last_written_run_id)"
+                        " FROM sentinel_ingest_rejections"
                         " WHERE ticker = 'XYZ'")
-            n = cur.fetchone()[0]
-        assert n == len(sess(30)), (
-            "re-ingesting the same window multiplied the rejection rows")
+            raw_count, generations = cur.fetchone()
+            cur.execute("SELECT COUNT(*) FROM sentinel_active_ingest_rejections"
+                        " WHERE ticker = 'XYZ'")
+            active_count = cur.fetchone()[0]
+        assert raw_count == 2 * expected, (
+            "re-ingest must retain one immutable rejection observation per run")
+        assert generations == 2, "re-ingest collapsed distinct evidence generations"
+        assert active_count == expected, (
+            "the current rejection projection multiplied across equivalent re-ingests")
 
     def test_SEED_records_them_too(self, conn):
         ingest.seed(conn, date_from="2024-11-01", date_to=TODAY,
