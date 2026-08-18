@@ -132,7 +132,7 @@ def _probe(ready, count=0, sessions=None, ticker_rows=6000):
     sessions = list(sessions or ["2026-08-17"])
     return {
         "ready": ready,
-        "minimum_resolved_positive_securities": 5400,
+        "minimum_resolved_positive_securities": 5000,
         "vendor_ticker_rows_total": 50000,
         "vendor_sep_ticker_rows_reaching_window": ticker_rows,
         "sep_resolved_positive_securities": {
@@ -141,11 +141,11 @@ def _probe(ready, count=0, sessions=None, ticker_rows=6000):
     }
 
 
-def test_vendor_probe_floor_is_stricter_than_final_readiness_floor(tmp_path):
+def test_vendor_probe_reuses_canonical_readiness_floor(tmp_path):
     obj = _deploy_for_wait(tmp_path)
     sessions, floor = obj._freshness_wait_requirements(_freshness_failure())
     assert sessions == ("2026-08-17",)
-    assert floor == 5400  # max(5000 readiness floor, ceil(90% * 6000 frontier))
+    assert floor == 5000
 
 
 def test_freshness_wait_polls_vendor_then_ingests_once_and_continues(
@@ -154,7 +154,7 @@ def test_freshness_wait_polls_vendor_then_ingests_once_and_continues(
     stale = _freshness_failure()
     verdicts = [stale, stale, stale, stale, _ready_verdict()]
     probes = [_probe(False, 0, ticker_rows=0),
-              _probe(False, 5300, ticker_rows=5350),
+              _probe(False, 4900, ticker_rows=4950),
               _probe(True, 5900, ticker_rows=5950)]
     events = []
 
