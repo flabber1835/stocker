@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import inspect
 
 import pytest
 
@@ -74,10 +73,9 @@ def test_schema_installs_and_requires_the_mixed_order_predecessor_index():
 
 
 def test_query_is_a_loose_security_walk_not_corpus_wide_distinct_on():
-    source = inspect.getsource(feed_store.previous_observations).casefold()
     sql = feed_store._PREVIOUS_OBSERVATIONS_SQL.casefold()
 
-    assert "distinct on" not in source
+    # Test executable SQL, not explanatory prose in the function docstring.
     assert "distinct on" not in sql
     assert "with recursive security_ids" in sql
     assert "b.security_id > prior.security_id" in sql
