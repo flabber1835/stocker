@@ -389,7 +389,7 @@ class IngestRun:
                 or anomaly_store.has_pending(
                     self.conn, run_id=self.progress.run_id)):
             _assert_corpus_locked(self.conn)
-        with conn.cursor() as cur:
+        with self.conn.cursor() as cur:
             cur.execute(
                 "UPDATE feed_ingest_runs SET status=%s, completed_at=NOW(),"
                 " updated_at=NOW(), error_message=%s WHERE run_id=%s",
@@ -686,7 +686,7 @@ def write_rejection_truncation(conn, *, run_id, chunk: str, window_start: str,
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_rejection_truncation"
-            " (run_id, chunk, window_start, window_end,retained,truncated)"
+            " (run_id, chunk, window_start, window_end, retained, truncated)"
             " VALUES (%s,%s,%s,%s,%s,%s)"
             " ON CONFLICT (run_id, chunk) DO UPDATE SET"
             " retained = EXCLUDED.retained, truncated = EXCLUDED.truncated",
