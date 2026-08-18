@@ -25,7 +25,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Iterable, Iterator, Optional, Sequence
 
-from sentinel.feed.schema import DDL, RECLAIM_ORPHANS, RESTART_ABORT_MARKER
+from sentinel.feed.schema import RECLAIM_ORPHANS, RESTART_ABORT_MARKER
 
 _BAR_UPSERT = """
     INSERT INTO sentinel_bars (security_id, session, ticker, close_signal,
@@ -197,7 +197,7 @@ def _assert_corpus_locked(conn) -> None:
         raise CorpusBusy(
             "write_bars was called without the corpus write lock. Wrap the "
             "ingest in `store.corpus_write_lock(conn)`: an in-place upsert "
-            "while a session holds the corpus pinned changes what that "
+            "while a session has the corpus pinned changes what that "
             "session's data_version describes.")
 
 
@@ -248,11 +248,28 @@ def streaming_cursor(conn, sql: str, params=(), *, batch: int = 5000,
             pass
 
 
+def migrate_schema(conn) -> None:
+    """Apply feed DDL through the guarded explicit migration path."""
+    from sentinel.feed.runtime_schema import migrate_feed_schema
+
+    migrate_feed_schema(conn)
+
+
+def require_feed_schema(conn) -> None:
+    """Fail closed unless the installed feed schema has the reviewed shape."""
+    from sentinel.feed.runtime_schema import require_feed_schema as require_schema
+
+    require_schema(conn)
+
+
 def ensure_schema(conn) -> None:
-    with conn.cursor() as cur:
-        for stmt in DDL:
-            cur.execute(stmt)
-    conn.commit()
+    """Runtime-safe compatibility spelling for :func:`require_feed_schema`.
+
+    This name historically executed all feed DDL. Keeping it read-only protects
+    legacy runtime/CLI callers while they move to the explicit validator. Feed
+    DDL now has exactly one entry point: :func:`migrate_schema`.
+    """
+    require_feed_schema(conn)
 
 
 def reclaim_orphans(conn) -> int:
