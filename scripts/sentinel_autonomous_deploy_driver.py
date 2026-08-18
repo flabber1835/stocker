@@ -4,8 +4,8 @@
 The core module contains the deployment state machine.  This driver owns the
 adversarial/restart rules that need database history rather than just current
 active state: abandoned staged issuer generations, administrative predecessor
-rotation, exact private-key identity, exact plan re-read, and optional durable
-predecessor signing-key revocation.
+rotation, exact private-key identity, exact plan re-read, vendor-freshness
+waiting, and optional durable predecessor signing-key revocation.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 from types import SimpleNamespace
 from typing import Mapping, Optional, Sequence, Tuple
 
@@ -33,10 +34,345 @@ class Config(core.Config):
         self.revoke_previous_signing_key = core._as_bool(
             env.get("SENTINEL_DEPLOY_REVOKE_PREVIOUS_SIGNING_KEY", "0"),
             name="SENTINEL_DEPLOY_REVOKE_PREVIOUS_SIGNING_KEY")
+        self.data_retry_seconds = core._int(
+            env.get("SENTINEL_DEPLOY_DATA_RETRY_SECONDS", "300"),
+            name="SENTINEL_DEPLOY_DATA_RETRY_SECONDS",
+            minimum=30, maximum=3600)
+        self.data_wait_timeout_seconds = core._int(
+            env.get("SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS", "43200"),
+            name="SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS",
+            minimum=300, maximum=86400)
 
 
 class AutonomousDeploy(core.AutonomousDeploy):
     predecessor_key_id: str = ""
+
+    def _readiness_verdict(self) -> Mapping:
+        """Read the exact readiness object as JSON without parsing terminal prose."""
+        code = r'''
+import json, os
+from sentinel.feed import readiness, store
+c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
+try:
+    result = readiness.check_readiness(c)
+    readiness.save_snapshot(c, result)
+    checks = [
+        {'name': item.name, 'status': item.status,
+         'detail': item.detail, 'value': item.value}
+        for item in result.checks
+    ]
+    print(json.dumps({
+        'ready': bool(result.ready),
+        'checks': checks,
+        'failures': [item for item in checks if item['status'] == 'FAIL'],
+    }, default=str))
+finally:
+    c.rollback(); c.close()
+'''.strip()
+        result = self.runner.run(self.base_compose + [
+            "--profile", "cli", "run", "--rm", "-T",
+            "--entrypoint", "python", "sentinel", "-c", code],
+            capture=True)
+        verdict = core._json_output(result, label="data readiness")
+        if not isinstance(verdict.get("ready"), bool):
+            raise core.DeployRefused(
+                "structured data readiness has no boolean ready verdict")
+        checks = verdict.get("checks")
+        failures = verdict.get("failures")
+        if not isinstance(checks, list) or not isinstance(failures, list):
+            raise core.DeployRefused(
+                "structured data readiness has no check/failure list")
+        for item in checks + failures:
+            if (not isinstance(item, dict)
+                    or not str(item.get("name") or "")
+                    or not str(item.get("status") or "")):
+                raise core.DeployRefused(
+                    "structured data readiness contains a malformed check")
+        return verdict
+
+    def _freshness_wait_requirements(
+            self, verdict: Mapping) -> Optional[Tuple[Tuple[str, ...], int]]:
+        """Return exact vendor evidence needed for retryable staleness.
+
+        A failure merely NAMED freshness is not enough. Calendar-unavailable,
+        anomalous-ahead, and malformed freshness states are not publication lag.
+        The retryable state is a normal, evaluable corpus behind by named closed
+        sessions. The vendor probe deliberately reuses the canonical frontier
+        population minimum already computed by readiness. It never invents a
+        second acceptance threshold; it only decides when one authoritative
+        `feed-daily` attempt is warranted. Full readiness remains the sole policy.
+        """
+        failures = verdict.get("failures") or []
+        if (len(failures) != 1
+                or str(failures[0].get("name") or "") != "freshness"):
+            return None
+        value = failures[0].get("value")
+        if not isinstance(value, dict):
+            return None
+        missing = value.get("missing_sessions")
+        if (value.get("evaluable") is not True
+                or value.get("ahead") is True
+                or not isinstance(missing, list)
+                or not missing):
+            return None
+        sessions = tuple(str(item) for item in missing if str(item))
+        if len(sessions) != len(missing) or list(sessions) != sorted(sessions):
+            return None
+
+        population = next(
+            (item for item in (verdict.get("checks") or [])
+             if str(item.get("name") or "") == "frontier population"), None)
+        population_value = (
+            population.get("value") if isinstance(population, dict) else None)
+        minimum = (population_value.get("minimum")
+                   if isinstance(population_value, dict) else None)
+        if (not isinstance(population, dict)
+                or population.get("status") != "PASS"
+                or not isinstance(minimum, int) or minimum <= 0):
+            raise core.DeployRefused(
+                "freshness-only wait has no trustworthy frontier-population floor")
+        return sessions, minimum
+
+    def _vendor_publication_probe(
+            self, sessions: Sequence[str], minimum_rows: int) -> Mapping:
+        """Read-only proof that SEP, TICKERS and SPY cover missing sessions.
+
+        The real ingest refreshes TICKERS before SEP and resolves each price row
+        against that NEW metadata. The NAS exposed why SEP alone is insufficient:
+        roughly one full session of extra SEP rows arrived while the frontier
+        stayed Friday and roughly that many rows were dropped. That is consistent
+        with vendor TICKERS intervals still ending at the old frontier.
+
+        Nasdaq Tables row filters are dataset-specific. Do not make the safety
+        gate depend on an undocumented assumption that Sharadar TICKERS exposes
+        `table` or `lastpricedate` as server-side filters. Request only the narrow
+        TICKERS columns using the standard qopts column selector, paginate the
+        table, then filter `table=SEP` and interval coverage locally. Build a
+        resolver from those current vendor rows and count positive-price SEP rows
+        that resolve for each missing session. A positive finite SPY SFP
+        `closeadj` is required too. Nothing is written.
+        """
+        requested = tuple(str(item) for item in sessions)
+        if not requested or list(requested) != sorted(requested):
+            raise core.DeployRefused(
+                "vendor publication probe sessions are malformed")
+        if not isinstance(minimum_rows, int) or minimum_rows <= 0:
+            raise core.DeployRefused(
+                "vendor publication probe minimum is malformed")
+        code = r'''
+import json, math, sys
+from sentinel.feed import sharadar, universe
+sessions = tuple(x for x in sys.argv[1].split(',') if x)
+targets = set(sessions)
+all_ticker_rows = list(sharadar.fetch_table(sharadar.TICKERS, {
+    'qopts.columns': 'table,permaticker,ticker,firstpricedate,lastpricedate,isdelisted',
+}))
+ticker_rows = []
+for row in all_ticker_rows:
+    if str(row.get('table') or '').strip().upper() != 'SEP':
+        continue
+    last = str(row.get('lastpricedate') or '')[:10]
+    if last and last >= sessions[0]:
+        ticker_rows.append(row)
+resolver = universe.IdentityResolver(universe.listings_from_rows(ticker_rows)).resolve
+seen = {session: set() for session in sessions}
+params = sharadar.date_params(sessions[0], sessions[-1])
+for row in sharadar.fetch_table(sharadar.SEP, params):
+    session = str(row.get('date') or '')
+    if session not in targets:
+        continue
+    ticker = str(row.get('ticker') or '').strip().upper()
+    try:
+        raw = float(row.get('closeunadj'))
+    except (TypeError, ValueError):
+        raw = float('nan')
+    sid = resolver(ticker, session) if ticker else None
+    if sid is not None and math.isfinite(raw) and raw > 0:
+        seen[session].add(str(sid))
+spy = set()
+spy_params = {'ticker': 'SPY', **params}
+for row in sharadar.fetch_table(sharadar.SFP, spy_params):
+    session = str(row.get('date') or '')
+    if session not in targets:
+        continue
+    try:
+        value = float(row.get('closeadj'))
+    except (TypeError, ValueError):
+        value = float('nan')
+    if math.isfinite(value) and value > 0:
+        spy.add(session)
+print(json.dumps({
+    'ticker_rows_total': len(all_ticker_rows),
+    'sep_ticker_rows_reaching_window': len(ticker_rows),
+    'sep_resolved_positive_securities': {s: len(seen[s]) for s in sessions},
+    'spy_sessions': sorted(spy),
+}))
+'''.strip()
+        result = self.runner.run(self.base_compose + [
+            "--profile", "cli", "run", "--rm", "-T",
+            "--entrypoint", "python", "sentinel", "-c", code,
+            ",".join(requested)], capture=True)
+        probe = core._json_output(result, label="Sharadar publication probe")
+        counts = probe.get("sep_resolved_positive_securities")
+        spy = probe.get("spy_sessions")
+        ticker_rows_total = probe.get("ticker_rows_total")
+        sep_ticker_rows = probe.get("sep_ticker_rows_reaching_window")
+        if (not isinstance(counts, dict) or not isinstance(spy, list)
+                or not isinstance(ticker_rows_total, int)
+                or ticker_rows_total < 0
+                or not isinstance(sep_ticker_rows, int)
+                or sep_ticker_rows < 0
+                or set(counts) != set(requested)
+                or any(not isinstance(counts[s], int) or counts[s] < 0
+                       for s in requested)):
+            raise core.DeployRefused(
+                "Sharadar publication probe returned malformed evidence")
+        ready = (
+            all(counts[session] >= minimum_rows for session in requested)
+            and set(spy) == set(requested))
+        return {
+            "ready": ready,
+            "minimum_resolved_positive_securities": minimum_rows,
+            "vendor_ticker_rows_total": ticker_rows_total,
+            "vendor_sep_ticker_rows_reaching_window": sep_ticker_rows,
+            "sep_resolved_positive_securities": {
+                s: counts[s] for s in requested},
+            "spy_sessions": sorted(str(item) for item in spy),
+        }
+
+    def _write_deployment_state(self, state: str, *, attempt: int,
+                                failures, vendor_probe=None) -> None:
+        """Retain the staged/waiting fact beside the deployment evidence."""
+        payload = {
+            "schema": core.DEPLOY_SCHEMA,
+            "state": state,
+            "updated_at": core._utc_text(core._utcnow()),
+            "git_commit": self.commit,
+            "attempt": int(attempt),
+            "failures": list(failures or []),
+        }
+        if vendor_probe is not None:
+            payload["vendor_probe"] = dict(vendor_probe)
+        path = self.attempt_dir / "deployment-state.json"
+        temporary = self.attempt_dir / "deployment-state.json.tmp"
+        temporary.write_text(
+            json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n",
+            encoding="utf-8")
+        temporary.replace(path)
+
+    def _assert_wait_fence(self) -> None:
+        status = self._automation_status()
+        if (status.get("enabled") is not False
+                or status.get("kill_switch_engaged") is not True):
+            raise core.DeployRefused(
+                "WAITING_FOR_DATA lost the required disabled+kill automation fence")
+
+    def _refuse_data_readiness(self, verdict: Mapping, *, attempt: int,
+                               reason: str) -> None:
+        failures = verdict.get("failures") or []
+        self._base_cli(["check-data"], check=False)
+        self._write_deployment_state(
+            "DATA_REFUSED", attempt=attempt, failures=failures)
+        names = ", ".join(
+            str(item.get("name") or "UNKNOWN") for item in failures)
+        raise core.DeployRefused("%s: %s" % (reason, names or "UNKNOWN"))
+
+    def _wait_for_data(self, *, deadline: float) -> None:
+        """Wait until the current corpus is ready, without repeated full ingests."""
+        attempt = 1
+        while True:
+            self._assert_wait_fence()
+            verdict = self._readiness_verdict()
+            if verdict.get("ready") is True:
+                self._base_cli(["check-data"])
+                self._write_deployment_state(
+                    "DATA_READY", attempt=attempt, failures=[])
+                return
+            requirements = self._freshness_wait_requirements(verdict)
+            if requirements is None:
+                self._refuse_data_readiness(
+                    verdict, attempt=attempt,
+                    reason="data readiness left the retryable "
+                           "vendor-publication state")
+            sessions, minimum_rows = requirements
+            failures = verdict.get("failures") or []
+            detail = str(
+                failures[0].get("detail") or "freshness is not current")
+            probe = self._vendor_publication_probe(sessions, minimum_rows)
+            self._write_deployment_state(
+                "WAITING_FOR_DATA", attempt=attempt, failures=failures,
+                vendor_probe=probe)
+
+            print("\nDEPLOYMENT STAGED: WAITING_FOR_DATA", flush=True)
+            print("  automation: disabled and kill switch engaged", flush=True)
+            print("  reason: %s" % detail, flush=True)
+            counts = ", ".join(
+                "%s=%d/%d" % (
+                    session,
+                    probe["sep_resolved_positive_securities"][session],
+                    minimum_rows) for session in sessions)
+            print("  vendor TICKERS rows total: %d; SEP reaching window: %d" %
+                  (probe["vendor_ticker_rows_total"],
+                   probe["vendor_sep_ticker_rows_reaching_window"]), flush=True)
+            print("  vendor resolved SEP: %s" % counts, flush=True)
+            print("  vendor SPY sessions: %s" %
+                  (", ".join(probe["spy_sessions"]) or "none"), flush=True)
+
+            if probe.get("ready") is True:
+                self._base_cli(["feed-daily"])
+                verdict = self._readiness_verdict()
+                if verdict.get("ready") is True:
+                    self._base_cli(["check-data"])
+                    self._write_deployment_state(
+                        "DATA_READY", attempt=attempt, failures=[])
+                    print(
+                        "  data readiness recovered; continuing the same "
+                        "deployment attempt", flush=True)
+                    return
+                self._refuse_data_readiness(
+                    verdict, attempt=attempt,
+                    reason="Sharadar SEP/TICKERS/SPY covered the missing sessions "
+                           "but the corpus remained unready after ingest")
+
+            remaining = int(max(0, deadline - time.monotonic()))
+            if remaining <= 0:
+                raise core.DeployRefused(
+                    "timed out waiting for current Sharadar data; automation "
+                    "remains fenced")
+            sleep_for = min(self.cfg.data_retry_seconds, remaining)
+            print(
+                "  probing vendor again in %ds (wait budget %ds)" %
+                (sleep_for, remaining), flush=True)
+            time.sleep(sleep_for)
+            attempt += 1
+
+    def refresh_data(self) -> None:
+        """Refresh once, or wait read-only through ordinary post-close lag."""
+        self.phase("data: current daily ingest and full readiness contract")
+        deadline = time.monotonic() + self.cfg.data_wait_timeout_seconds
+        self._assert_wait_fence()
+        verdict = self._readiness_verdict()
+        requirements = self._freshness_wait_requirements(verdict)
+
+        if requirements is None:
+            self._base_cli(["feed-daily"])
+            verdict = self._readiness_verdict()
+            if verdict.get("ready") is True:
+                self._base_cli(["check-data"])
+                self.runner.run(
+                    self.base_compose + ["up", "-d", "sentinel-panel"])
+                self._write_deployment_state(
+                    "DATA_READY", attempt=1, failures=[])
+                return
+            requirements = self._freshness_wait_requirements(verdict)
+            if requirements is None:
+                self._refuse_data_readiness(
+                    verdict, attempt=1,
+                    reason="current data readiness failed outside the "
+                           "retryable vendor-publication state")
+
+        self.runner.run(self.base_compose + ["up", "-d", "sentinel-panel"])
+        self._wait_for_data(deadline=deadline)
 
     def _verify_signing_key_is_trusted(self) -> None:
         """Before transition, prove the private key itself matches an ACTIVE root."""
@@ -201,6 +537,14 @@ c.rollback(); c.close()
         return state
 
     def rotate_observation_authority(self) -> Tuple[str, str]:
+        verdict = self._readiness_verdict()
+        if verdict.get("ready") is not True:
+            if self._freshness_wait_requirements(verdict) is None:
+                self._refuse_data_readiness(
+                    verdict, attempt=1,
+                    reason="data readiness changed before authority creation")
+            deadline = time.monotonic() + self.cfg.data_wait_timeout_seconds
+            self._wait_for_data(deadline=deadline)
         result = super().rotate_observation_authority()
         predecessor_key = self.predecessor_key_id
         if (self.cfg.revoke_previous_signing_key and predecessor_key
@@ -274,9 +618,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.explain:
         print(
             "git ff-only -> account read -> build/test/push -> kill/stop -> "
-            "backup/restore -> schema -> daily/readiness -> ownership -> "
-            "signed certificate/key rotation -> prepare -> activate killed -> "
-            "start -> release -> heartbeat proof -> post-deploy backup")
+            "backup/restore -> schema -> daily/readiness(wait freshness only) -> "
+            "ownership -> signed certificate/key rotation -> prepare -> "
+            "activate killed -> start -> release -> heartbeat proof -> "
+            "post-deploy backup")
         return 0
     try:
         env = core.merged_environment()
