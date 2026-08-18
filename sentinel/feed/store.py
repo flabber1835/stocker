@@ -63,6 +63,23 @@ _BAR_UPSERT = """
         dividend_per_share = EXCLUDED.dividend_per_share,
         last_written_run_id = COALESCE(EXCLUDED.last_written_run_id,
                                        sentinel_bars.last_written_run_id)
+    WHERE sentinel_bars.ticker IS DISTINCT FROM EXCLUDED.ticker
+       OR sentinel_bars.close_signal IS DISTINCT FROM EXCLUDED.close_signal
+       OR sentinel_bars.close_unadjusted IS DISTINCT FROM EXCLUDED.close_unadjusted
+       OR sentinel_bars.open_unadjusted IS DISTINCT FROM EXCLUDED.open_unadjusted
+       OR sentinel_bars.volume IS DISTINCT FROM EXCLUDED.volume
+       OR sentinel_bars.split_ratio IS DISTINCT FROM
+          CASE WHEN EXCLUDED.split_ratio = 1.0
+               THEN sentinel_bars.split_ratio
+               ELSE EXCLUDED.split_ratio END
+       OR sentinel_bars.dividend_per_share IS DISTINCT FROM EXCLUDED.dividend_per_share
+       OR (EXCLUDED.last_written_run_id IS NOT NULL
+           AND sentinel_bars.last_written_run_id IS NOT NULL
+           AND sentinel_bars.last_written_run_id IS DISTINCT FROM
+               EXCLUDED.last_written_run_id
+           AND NOT EXISTS (
+               SELECT 1 FROM sentinel_corpus_publications p
+               WHERE p.run_id = sentinel_bars.last_written_run_id))
 """
 
 _SPY_TOTAL_RETURN_UPSERT = """
