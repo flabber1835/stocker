@@ -21,6 +21,7 @@ jobs:
       - name: Apply deployed-fenced boundary
         run: |
           set -euo pipefail
+          python tools/issue160_escape_fix.py
           python tools/issue160_worker.py
           git diff --check
 
@@ -52,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           git checkout origin/main -- .github/workflows/sentinel-safety.yml
-          rm .github/workflows/issue160-worker.yml tools/issue160_worker.py
+          rm .github/workflows/issue160-worker.yml tools/issue160_worker.py tools/issue160_escape_fix.py
           git add -A
           git config user.name "sentinel-repair-bot"
           git config user.email "sentinel-repair-bot@users.noreply.github.com"
