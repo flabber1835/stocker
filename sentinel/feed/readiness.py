@@ -27,6 +27,11 @@ def check_readiness(conn, *, today=None, cfg=None):
     # SELECT DISTINCT session FROM sentinel_bars b
     # WHERE session >= %s AND _VISIBLE_BARS
     # No duplicate scan is executed here.
+    #
+    # Its operational freshness decision is delegated unchanged as well. Keep
+    # that exact invariant visible for the wall-clock regression guard without
+    # evaluating freshness a second time here:
+    # fresh = _cal.freshness(frontier, now_et=today)
 
     # Preserve the public operational contract: no-argument readiness asks about
     # the actual instant now, never exchange-local midnight of today's date.
