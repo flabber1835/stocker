@@ -256,7 +256,7 @@ def write_universe(conn, rows: Sequence[Mapping], snapshot_date: str, *,
 def load_resolver(conn, *, include_run_id=None) -> IdentityResolver:
     """Build the resolver without aggregating retained snapshot history.
 
-    `sentinel_universe_current` already carries one row per historical
+    `feed_universe_current` already carries one row per historical
     (permaticker,ticker) pairing with the MIN(first)/MAX(last) envelope preserved
     at publication.  Routine construction therefore scales with identity count,
     not the number of dated TICKERS snapshots retained.
@@ -269,13 +269,13 @@ def load_resolver(conn, *, include_run_id=None) -> IdentityResolver:
         if include_run_id is None:
             cur.execute(
                 "SELECT permaticker,ticker,first_price_date,last_price_date"
-                " FROM sentinel_universe_current"
+                " FROM feed_universe_current"
                 " ORDER BY permaticker,ticker")
         else:
             cur.execute(
                 "WITH bounded AS ("
                 " SELECT permaticker,ticker,first_price_date,last_price_date"
-                " FROM sentinel_universe_current"
+                " FROM feed_universe_current"
                 " UNION ALL"
                 " SELECT permaticker,ticker,first_price_date,last_price_date"
                 " FROM sentinel_universe"
