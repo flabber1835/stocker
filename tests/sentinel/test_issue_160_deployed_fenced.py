@@ -26,15 +26,17 @@ def test_deploy_success_boundary_stops_before_operational_gates(tmp_path):
     obj = deploy.AutonomousDeploy(SimpleNamespace(), SimpleNamespace(env={}), tmp_path)
     events = []
     obj.git_preflight = lambda: events.append("git")
+    obj.check_paper_account_deployment_integrity = lambda: events.append("broker-integrity")
     obj.build_promote = lambda: events.append("build")
     obj.quiesce_backup_and_migrate = lambda: events.append("migrate")
+    obj.check_durable_deployment_integrity = lambda: events.append("durable-integrity")
     obj.start_fenced_runtime = lambda: (
         events.append("install") or {
             "enabled": False, "kill_switch_engaged": True,
             "operational_ready": False})
     obj.persist_deployed = lambda status: events.append(
         ("receipt", status["kill_switch_engaged"]))
-    obj.read_paper_account = lambda: pytest.fail("broker gate reached")
+    obj.read_paper_account = lambda: pytest.fail("operational broker-readiness gate reached")
     obj.refresh_data = lambda: pytest.fail("data gate reached")
     obj.ensure_ownership = lambda: pytest.fail("ownership gate reached")
     obj.rotate_observation_authority = lambda: pytest.fail("authority gate reached")
@@ -43,7 +45,9 @@ def test_deploy_success_boundary_stops_before_operational_gates(tmp_path):
 
     obj.run()
 
-    assert events == ["git", "build", "migrate", "install", ("receipt", True)]
+    assert events == [
+        "git", "broker-integrity", "build", "migrate", "durable-integrity",
+        "install", ("receipt", True)]
 
 
 def test_persisted_deployment_receipt_is_explicitly_fenced(tmp_path):

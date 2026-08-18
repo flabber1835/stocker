@@ -194,8 +194,7 @@ def test_run_build_failure_does_not_enter_fail_close(tmp_path):
         SimpleNamespace(), SimpleNamespace(env={}), tmp_path)
     events = []
     obj.git_preflight = lambda: events.append("git")
-    obj.read_paper_account = lambda: pytest.fail(
-        "broker readiness must not be consulted for deployment success")
+    obj.check_paper_account_deployment_integrity = lambda: events.append("broker-integrity")
 
     def fail_build():
         events.append("build")
@@ -205,7 +204,7 @@ def test_run_build_failure_does_not_enter_fail_close(tmp_path):
     obj.fail_close = lambda: events.append("fenced")
     with pytest.raises(deploy.DeployRefused):
         obj.run()
-    assert events == ["git", "build"]
+    assert events == ["git", "broker-integrity", "build"]
 
 
 def test_run_post_transition_install_failure_always_fail_closes(tmp_path):
@@ -213,10 +212,10 @@ def test_run_post_transition_install_failure_always_fail_closes(tmp_path):
         SimpleNamespace(), SimpleNamespace(env={}), tmp_path)
     events = []
     obj.git_preflight = lambda: events.append("git")
-    obj.read_paper_account = lambda: pytest.fail(
-        "broker readiness is not a deployment gate")
+    obj.check_paper_account_deployment_integrity = lambda: events.append("broker-integrity")
     obj.build_promote = lambda: events.append("build")
     obj.quiesce_backup_and_migrate = lambda: events.append("quiesce")
+    obj.check_durable_deployment_integrity = lambda: events.append("durable-integrity")
 
     def fail_install():
         events.append("install")
@@ -226,7 +225,116 @@ def test_run_post_transition_install_failure_always_fail_closes(tmp_path):
     obj.fail_close = lambda: events.append("fenced")
     with pytest.raises(deploy.DeployRefused):
         obj.run()
-    assert events == ["git", "build", "quiesce", "install", "fenced"]
+    assert events == [
+        "git", "broker-integrity", "build", "quiesce",
+        "durable-integrity", "install", "fenced"]
+
+
+class _AccountResponse:
+    def __init__(self, payload):
+        import json
+        self.body = json.dumps(payload).encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def read(self):
+        return self.body
+
+
+def _broker_probe(tmp_path):
+    cfg = _cfg()
+    runner = SimpleNamespace(env={
+        "ALPACA_API_KEY": "key",
+        "ALPACA_SECRET_KEY": "secret",
+    })
+    obj = deploy.AutonomousDeploy(cfg, runner, tmp_path)
+    obj.phase = lambda _text: None
+    return obj
+
+
+def _account_payload(**updates):
+    payload = {
+        "id": "PAPER-123",
+        "account_number": "account-number",
+        "status": "ACTIVE",
+        "trading_blocked": False,
+        "account_blocked": False,
+        "trade_suspended_by_user": False,
+    }
+    payload.update(updates)
+    return payload
+
+
+def test_broker_unavailable_is_operational_not_deployment_failure(tmp_path, monkeypatch):
+    obj = _broker_probe(tmp_path)
+    monkeypatch.setattr(
+        deploy.urllib.request, "urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("offline")))
+
+    assert obj.check_paper_account_deployment_integrity() == "BROKER_NOT_READY"
+
+
+def test_broker_trading_block_is_operational_not_deployment_failure(tmp_path, monkeypatch):
+    obj = _broker_probe(tmp_path)
+    monkeypatch.setattr(
+        deploy.urllib.request, "urlopen",
+        lambda *_args, **_kwargs: _AccountResponse(
+            _account_payload(trading_blocked=True)))
+
+    assert obj.check_paper_account_deployment_integrity() == "BROKER_NOT_READY"
+
+
+def test_broker_identity_contradiction_still_blocks_deployment(tmp_path, monkeypatch):
+    obj = _broker_probe(tmp_path)
+    monkeypatch.setattr(
+        deploy.urllib.request, "urlopen",
+        lambda *_args, **_kwargs: _AccountResponse(
+            _account_payload(id="DIFFERENT", account_number="DIFFERENT")))
+
+    with pytest.raises(deploy.DeployRefused, match="different paper account"):
+        obj.check_paper_account_deployment_integrity()
+
+
+def test_durable_not_owned_and_noncurrent_authority_are_valid_fenced_install_states():
+    status = {
+        "ownership": "NOT_OWNED",
+        "paper_execution_authority": {
+            "authority_mode": None,
+            "lifecycle_current": False,
+        },
+        "administrative_authority": {
+            "active_certificate_sha256": None,
+        },
+    }
+    assert deploy.validate_deployment_integrity_status(status, _cfg()) == "NOT_OWNED"
+
+
+def test_durable_owned_identity_contradiction_still_blocks_deployment():
+    status = {
+        "ownership": "OWNED",
+        "broker": "alpaca",
+        "broker_account_id": "OTHER",
+        "deployment_id": "sentinel-nas-paper-01",
+        "takeover_epoch": 1,
+        "paper_execution_authority": {},
+        "administrative_authority": {},
+    }
+    with pytest.raises(deploy.DeployRefused, match="contradicts"):
+        deploy.validate_deployment_integrity_status(status, _cfg())
+
+
+def test_unreadable_durable_authority_still_blocks_deployment():
+    status = {
+        "ownership": "NOT_OWNED",
+        "paper_execution_authority": {"error": "corrupt authority row"},
+        "administrative_authority": {},
+    }
+    with pytest.raises(deploy.DeployRefused, match="durable state is unreadable"):
+        deploy.validate_deployment_integrity_status(status, _cfg())
 
 
 def test_deployer_contains_no_destructive_reseed_or_account_migration_command():
