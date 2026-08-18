@@ -87,10 +87,9 @@ PASS, WARN, FAIL = "PASS", "WARN", "FAIL"
 
 #: PUBLISHED IS WHAT READABLE MEANS, and readiness must measure what a reader
 #: sees. Bound once, from the single definition in `publication`, and
-#: interpolated into every query below: two hand-written copies of a visibility
-#: rule is how a report starts describing a corpus the engine cannot load.
+#: interpolated into every bar query below. Universe current-state reads use the
+#: publication-maintained bounded projection instead of replaying raw snapshots.
 _VISIBLE_BARS = _publication.visible_predicate("b")
-_VISIBLE_UNIVERSE = _publication.visible_predicate("u")
 
 
 def _window_start(frontier: str) -> str:
@@ -574,25 +573,31 @@ def check_readiness(conn, *, today: Optional[str] = None,
     securities = _q1(conn, "SELECT COUNT(DISTINCT security_id)"
                            " FROM sentinel_bars b WHERE session >= %s"
                            f"   AND {_VISIBLE_BARS}", (window_start,))
+    # CURRENT identity cardinality comes from the publication-maintained read
+    # model.  Counting raw dated snapshots here made this check grow with corpus
+    # age and made historical copies look like additional live securities.
     listed = _q1(conn, "SELECT COUNT(DISTINCT permaticker)"
-                       " FROM sentinel_universe u"
-                       f" WHERE {_VISIBLE_UNIVERSE}")
+                       " FROM feed_universe_current")
     if not listed:
         r.add("identity", FAIL,
-              "sentinel_universe is EMPTY, so every bar was keyed on its ticker "
-              "or dropped. Ticker reuse splices two unrelated companies into one "
-              "security and computes momentum across the seam.", 0)
+              "the current universe projection is EMPTY, so every bar was keyed "
+              "on its ticker or dropped. Ticker reuse splices two unrelated "
+              "companies into one security and computes momentum across the seam.",
+              0)
     else:
         r.add("identity", PASS,
-              f"{securities:,} securities priced, {listed:,} identities stored",
+              f"{securities:,} securities priced, {listed:,} current identities",
               securities)
 
     # ── issuer keys ──────────────────────────────────────────────────────────
     # Without these the GOOG/GOOGL class of defect is not merely present, it is
     # UNDETECTABLE: the duplicate-issuer invariant has nothing to compare.
-    with_related = _q1(conn, "SELECT COUNT(*) FROM sentinel_universe u"
-                             " WHERE related_tickers IS NOT NULL"
-                             f" AND {_VISIBLE_UNIVERSE}") or 0
+    # Distinct PERMATICKER is the semantic security count. A security may retain
+    # multiple historical ticker pairings in the compact projection, and neither
+    # those pairings nor dated snapshots are extra live securities.
+    with_related = _q1(
+        conn, "SELECT COUNT(DISTINCT permaticker) FROM feed_universe_current"
+              " WHERE related_tickers IS NOT NULL") or 0
     if listed and with_related == 0:
         r.add("issuer keys", FAIL,
               "no security carries related_tickers, so every issuer key falls "
@@ -600,7 +605,8 @@ def check_readiness(conn, *, today: Optional[str] = None,
               "cannot be detected as the same issuer.", 0)
     elif listed:
         r.add("issuer keys", PASS,
-              f"{with_related:,} securities carry related tickers", with_related)
+              f"{with_related:,} current securities carry related tickers",
+              with_related)
 
     # ── corporate actions ────────────────────────────────────────────────────
     recent_actions = _q1(conn, "SELECT COUNT(*) FROM sentinel_active_actions"
