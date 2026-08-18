@@ -128,12 +128,14 @@ def _ready_verdict():
     return {"ready": True, "checks": [], "failures": []}
 
 
-def _probe(ready, count=0, sessions=None):
+def _probe(ready, count=0, sessions=None, ticker_rows=6000):
     sessions = list(sessions or ["2026-08-17"])
     return {
         "ready": ready,
-        "minimum_positive_raw_tickers": 5700,
-        "sep_positive_raw_tickers": {session: count for session in sessions},
+        "minimum_resolved_positive_securities": 5700,
+        "vendor_ticker_rows": ticker_rows,
+        "sep_resolved_positive_securities": {
+            session: count for session in sessions},
         "spy_sessions": list(sessions) if ready else [],
     }
 
@@ -142,7 +144,7 @@ def test_vendor_probe_floor_is_stricter_than_final_readiness_floor(tmp_path):
     obj = _deploy_for_wait(tmp_path)
     sessions, floor = obj._freshness_wait_requirements(_freshness_failure())
     assert sessions == ("2026-08-17",)
-    assert floor == 5700  # max(5000 readiness floor, ceil(95% * 6000 frontier))
+    assert floor == 5700
 
 
 def test_freshness_wait_polls_vendor_then_ingests_once_and_continues(
@@ -150,7 +152,9 @@ def test_freshness_wait_polls_vendor_then_ingests_once_and_continues(
     obj = _deploy_for_wait(tmp_path)
     stale = _freshness_failure()
     verdicts = [stale, stale, stale, stale, _ready_verdict()]
-    probes = [_probe(False, 0), _probe(False, 5600), _probe(True, 6200)]
+    probes = [_probe(False, 0, ticker_rows=0),
+              _probe(False, 5600, ticker_rows=5650),
+              _probe(True, 6200, ticker_rows=6250)]
     events = []
 
     obj._automation_status = lambda: {
@@ -198,7 +202,7 @@ def test_wait_recomputes_missing_sessions_if_another_close_occurs(
 
     def probe(sessions, minimum):
         probed.append(tuple(sessions))
-        return _probe(False, 0, sessions=sessions)
+        return _probe(False, 0, sessions=sessions, ticker_rows=0)
 
     obj._vendor_publication_probe = probe
     obj._base_cli = lambda *args, **kwargs: SimpleNamespace(
@@ -215,7 +219,7 @@ def test_wait_recomputes_missing_sessions_if_another_close_occurs(
         ("2026-08-17",), ("2026-08-17", "2026-08-18")]
 
 
-def test_freshness_wait_does_not_ingest_partial_vendor_publication(
+def test_freshness_wait_does_not_ingest_until_tickers_and_sep_are_ready(
         tmp_path, monkeypatch):
     obj = _deploy_for_wait(tmp_path)
     stale = _freshness_failure()
@@ -223,7 +227,10 @@ def test_freshness_wait_does_not_ingest_partial_vendor_publication(
     obj._automation_status = lambda: {
         "enabled": False, "kill_switch_engaged": True}
     obj._readiness_verdict = lambda: verdicts.pop(0)
-    obj._vendor_publication_probe = lambda *_args: _probe(False, 5699)
+    # SEP may already contain nearly a full session, but stale TICKERS means few
+    # rows resolve. This is the shape the NAS exposed with ~6,040 drops.
+    obj._vendor_publication_probe = lambda *_args: _probe(
+        False, 100, ticker_rows=100)
     calls = []
     obj._base_cli = lambda args, **kwargs: (
         calls.append(list(args))
@@ -335,7 +342,8 @@ def test_freshness_wait_timeout_refuses_and_retains_probe_state(
     obj._automation_status = lambda: {
         "enabled": False, "kill_switch_engaged": True}
     obj._readiness_verdict = lambda: verdicts.pop(0)
-    obj._vendor_publication_probe = lambda *_args: _probe(False, 0)
+    obj._vendor_publication_probe = lambda *_args: _probe(
+        False, 0, ticker_rows=0)
     obj._base_cli = lambda *args, **kwargs: SimpleNamespace(
         stdout="", stderr="", returncode=0)
     obj.runner = SimpleNamespace(env={}, run=lambda *args, **kwargs: None)
@@ -351,7 +359,8 @@ def test_freshness_wait_timeout_refuses_and_retains_probe_state(
     state = json.loads((tmp_path / "deployment-state.json").read_text())
     assert state["state"] == "WAITING_FOR_DATA"
     assert state["failures"][0]["name"] == "freshness"
-    assert state["vendor_probe"]["sep_positive_raw_tickers"]["2026-08-17"] == 0
+    assert state["vendor_probe"]["vendor_ticker_rows"] == 0
+    assert state["vendor_probe"]["sep_resolved_positive_securities"]["2026-08-17"] == 0
 
 
 def test_waiting_for_data_refuses_if_automation_fence_is_lost(tmp_path):
@@ -362,16 +371,19 @@ def test_waiting_for_data_refuses_if_automation_fence_is_lost(tmp_path):
         obj._assert_wait_fence()
 
 
-def test_vendor_probe_is_read_only_and_avoids_stale_identity_bounds():
+def test_vendor_probe_is_read_only_and_requires_tickers_sep_and_spy():
     source = DRIVER.read_text(encoding="utf-8")
     start = source.index("def _vendor_publication_probe")
     end = source.index("def _write_deployment_state", start)
     block = source[start:end]
+    assert "sharadar.fetch_table(sharadar.TICKERS" in block
+    assert "lastpricedate.gte" in block
+    assert "qopts.columns" in block
+    assert "universe.IdentityResolver" in block
     assert "sharadar.fetch_table(sharadar.SEP" in block
     assert "sharadar.fetch_table(sharadar.SFP" in block
     assert "closeunadj" in block
     assert "closeadj" in block
-    assert "load_resolver" not in block
     assert "write_" not in block
     assert "feed-daily" not in block
 
