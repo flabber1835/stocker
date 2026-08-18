@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import inspect
+import os
 from pathlib import Path
 import re
 
@@ -191,7 +192,9 @@ def test_normal_cli_operations_never_name_the_feed_migration():
 
 
 def _migration_phase(script: str, next_method: str) -> str:
-    path = Path(__file__).resolve().parents[2] / "scripts" / script
+    root = Path(os.environ.get("SENTINEL_REPO_ROOT")
+                or Path(__file__).resolve().parents[2])
+    path = root / "scripts" / script
     source = path.read_text(encoding="utf-8")
     assert source.count("store.migrate_schema(c)") == 1
     start = source.index("    def quiesce_backup_and_migrate(self) -> None:")
