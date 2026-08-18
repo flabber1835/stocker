@@ -97,10 +97,13 @@ finally:
         A failure merely NAMED freshness is not enough. Calendar-unavailable,
         anomalous-ahead, and malformed freshness states are not publication lag.
         The retryable state is a normal, evaluable corpus behind by named closed
-        sessions. The vendor probe uses a deliberately stricter floor than final
-        readiness: at least 95% of the current frontier's security population,
-        and never less than readiness's 80%-of-recent-median floor. This is only
-        a trigger for the real ingest; it does not certify the new session.
+        sessions. The vendor probe uses a stricter floor than final readiness:
+        at least 90% of the current frontier's security population, and never
+        less than readiness's 80%-of-recent-median floor. The 90% trigger is
+        intentionally not 95%: the supplied certified corpus contains a fully
+        published session whose cross-section fell about 5.3% day-over-day, so a
+        95% polling threshold would deadlock on valid vendor data. This is only a
+        trigger for the real ingest; it does not certify the new session.
         """
         failures = verdict.get("failures") or []
         if (len(failures) != 1
@@ -136,7 +139,7 @@ finally:
             raise core.DeployRefused(
                 "freshness-only wait has no trustworthy frontier-population floor")
         conservative_vendor_floor = max(
-            minimum, (frontier_population * 95 + 99) // 100)
+            minimum, (frontier_population * 90 + 99) // 100)
         return sessions, conservative_vendor_floor
 
     def _vendor_publication_probe(
