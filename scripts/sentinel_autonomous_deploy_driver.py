@@ -141,15 +141,18 @@ finally:
 
     def _vendor_publication_probe(
             self, sessions: Sequence[str], minimum_rows: int) -> Mapping:
-        """Read-only probe for broad missing-session SEP and valid SPY evidence.
+        """Read-only proof that SEP, TICKERS and SPY cover missing sessions.
 
-        Do NOT use the stored identity resolver here. For an active security,
-        Sharadar TICKERS `lastpricedate` often ends at the stored frontier; the
-        missing next session is therefore outside the OLD resolver interval by
-        construction. The real `feed-daily` refreshes TICKERS before resolving
-        prices and remains the sole authority on identity. This probe asks only
-        whether the vendor has broadly published positive `closeunadj` rows and
-        a valid positive SPY `closeadj`, using the conservative floor above.
+        The real ingest refreshes TICKERS before SEP and resolves each price row
+        against that NEW metadata. The NAS exposed why SEP alone is insufficient:
+        roughly one full session of extra SEP rows arrived while the frontier
+        stayed Friday and roughly that many rows were dropped. That is consistent
+        with vendor TICKERS intervals still ending at the old frontier.
+
+        Probe the vendor's current TICKERS rows whose `lastpricedate` reaches the
+        earliest missing session, build a resolver from those vendor rows, and
+        count only positive-price SEP rows that resolve for each missing session.
+        A positive finite SPY SFP `closeadj` is required too. Nothing is written.
         """
         requested = tuple(str(item) for item in sessions)
         if not requested or list(requested) != sorted(requested):
@@ -160,9 +163,18 @@ finally:
                 "vendor publication probe minimum is malformed")
         code = r'''
 import json, math, sys
-from sentinel.feed import sharadar
+from sentinel.feed import sharadar, universe
 sessions = tuple(x for x in sys.argv[1].split(',') if x)
 targets = set(sessions)
+# The datatable API accepts the same column comparison operators used by
+# date_params. Restrict TICKERS to listings whose current vendor interval reaches
+# the missing window; this keeps the read-only poll bounded to the live edge.
+ticker_params = {
+    'lastpricedate.gte': sessions[0],
+    'qopts.columns': 'permaticker,ticker,firstpricedate,lastpricedate,isdelisted',
+}
+ticker_rows = list(sharadar.fetch_table(sharadar.TICKERS, ticker_params))
+resolver = universe.IdentityResolver(universe.listings_from_rows(ticker_rows)).resolve
 seen = {session: set() for session in sessions}
 params = sharadar.date_params(sessions[0], sessions[-1])
 for row in sharadar.fetch_table(sharadar.SEP, params):
@@ -174,8 +186,9 @@ for row in sharadar.fetch_table(sharadar.SEP, params):
         raw = float(row.get('closeunadj'))
     except (TypeError, ValueError):
         raw = float('nan')
-    if ticker and math.isfinite(raw) and raw > 0:
-        seen[session].add(ticker)
+    sid = resolver(ticker, session) if ticker else None
+    if sid is not None and math.isfinite(raw) and raw > 0:
+        seen[session].add(str(sid))
 spy = set()
 spy_params = {'ticker': 'SPY', **params}
 for row in sharadar.fetch_table(sharadar.SFP, spy_params):
@@ -189,7 +202,8 @@ for row in sharadar.fetch_table(sharadar.SFP, spy_params):
     if math.isfinite(value) and value > 0:
         spy.add(session)
 print(json.dumps({
-    'sep_positive_raw_tickers': {s: len(seen[s]) for s in sessions},
+    'ticker_rows': len(ticker_rows),
+    'sep_resolved_positive_securities': {s: len(seen[s]) for s in sessions},
     'spy_sessions': sorted(spy),
 }))
 '''.strip()
@@ -198,9 +212,11 @@ print(json.dumps({
             "--entrypoint", "python", "sentinel", "-c", code,
             ",".join(requested)], capture=True)
         probe = core._json_output(result, label="Sharadar publication probe")
-        counts = probe.get("sep_positive_raw_tickers")
+        counts = probe.get("sep_resolved_positive_securities")
         spy = probe.get("spy_sessions")
+        ticker_rows = probe.get("ticker_rows")
         if (not isinstance(counts, dict) or not isinstance(spy, list)
+                or not isinstance(ticker_rows, int) or ticker_rows < 0
                 or set(counts) != set(requested)
                 or any(not isinstance(counts[s], int) or counts[s] < 0
                        for s in requested)):
@@ -211,8 +227,10 @@ print(json.dumps({
             and set(spy) == set(requested))
         return {
             "ready": ready,
-            "minimum_positive_raw_tickers": minimum_rows,
-            "sep_positive_raw_tickers": {s: counts[s] for s in requested},
+            "minimum_resolved_positive_securities": minimum_rows,
+            "vendor_ticker_rows": ticker_rows,
+            "sep_resolved_positive_securities": {
+                s: counts[s] for s in requested},
             "spy_sessions": sorted(str(item) for item in spy),
         }
 
@@ -286,16 +304,19 @@ print(json.dumps({
             print("  reason: %s" % detail, flush=True)
             counts = ", ".join(
                 "%s=%d/%d" % (
-                    session, probe["sep_positive_raw_tickers"][session],
+                    session,
+                    probe["sep_resolved_positive_securities"][session],
                     minimum_rows) for session in sessions)
-            print("  vendor positive-price SEP: %s" % counts, flush=True)
+            print("  vendor TICKERS rows reaching window: %d" %
+                  probe["vendor_ticker_rows"], flush=True)
+            print("  vendor resolved SEP: %s" % counts, flush=True)
             print("  vendor SPY sessions: %s" %
                   (", ".join(probe["spy_sessions"]) or "none"), flush=True)
 
             if probe.get("ready") is True:
-                # One authoritative ingest after direct evidence says the missing
-                # cross-section is broadly published. If that cannot make the
-                # corpus ready, ordinary publication lag is no longer a valid
+                # One authoritative ingest after direct evidence says all three
+                # vendor surfaces cover the missing window. If that cannot make
+                # the corpus ready, ordinary publication lag is no longer a valid
                 # diagnosis and the deployment refuses rather than churning.
                 self._base_cli(["feed-daily"])
                 verdict = self._readiness_verdict()
@@ -309,7 +330,7 @@ print(json.dumps({
                     return
                 self._refuse_data_readiness(
                     verdict, attempt=attempt,
-                    reason="Sharadar showed broadly published missing sessions "
+                    reason="Sharadar SEP/TICKERS/SPY covered the missing sessions "
                            "but the corpus remained unready after ingest")
 
             remaining = int(max(0, deadline - time.monotonic()))
