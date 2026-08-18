@@ -85,7 +85,9 @@ def test_full_deploy_suite_uses_live_streaming_without_weakening_skip_gate():
     source = SCRIPT.read_text(encoding="utf-8")
     suite_start = source.index(
         'self.phase("test: complete Sentinel suite in the exact new test image")')
-    suite_end = source.index('self.runner.run([\n            "docker", "run"', suite_start + 1)
+    suite_end = source.index(
+        'self.phase("promote: push exact image IDs and freeze immutable RepoDigests")',
+        suite_start)
     block = source[suite_start:suite_end]
 
     assert '"tests/sentinel", "-q", "-ra"], stream=True)' in block
