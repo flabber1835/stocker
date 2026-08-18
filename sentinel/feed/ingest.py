@@ -285,8 +285,11 @@ def _persist_chunk_evidence(conn, run, chunk: str, lo: str, hi: str,
     """
     from sentinel.feed import actions_map
 
-    # 1. the refused rows themselves
-    feed_store.write_rejections(conn, report.rejections)
+    # 1. the refused rows themselves — stamped with the candidate generation.
+    # A later successful publication may resolve them in the active projection,
+    # but the failed history is never deleted or attributed by guess.
+    feed_store.write_rejections(
+        conn, report.rejections, run_id=run.progress.run_id)
 
     # 2. THAT SOME REFUSALS WERE NOT KEPT. The report retains at most
     #    `max_rejections` rows and counts the rest, which is right — a broad
@@ -622,10 +625,17 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
         # sparse early years, so the same threshold there would refuse a healthy
         # load.
         domains.assert_raw_price_domain(report)
+        # SEP and TICKERS publish independently.  Once SEP exposes today's rows,
+        # a stale TICKERS snapshot can make essentially the whole fresh session
+        # unresolvable while the healthy overlap makes aggregate counters look
+        # normal.  Refuse that generation here — inside the chunk, so the run is
+        # durably FAILED and can never be published — and retry after TICKERS
+        # catches up. A handful of ordinary unknown instruments remains allowed.
+        domains.assert_identity_domain(report, to)
 
     run.finish("success")
-    # AFTER `assert_raw_price_domain`, which is the daily path's validation. A
-    # version published before it would be citable by a decision made against a
-    # corpus the ingest was about to reject.
+    # AFTER both daily-domain validations. A version published before them would
+    # be citable by a decision made against a corpus the ingest was about to
+    # reject.
     _publish_version(conn, run, start, to)
     return run.progress
