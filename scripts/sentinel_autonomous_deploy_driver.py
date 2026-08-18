@@ -92,7 +92,7 @@ finally:
 
     def _freshness_wait_requirements(
             self, verdict: Mapping) -> Optional[Tuple[Tuple[str, ...], int]]:
-        """Return the exact vendor evidence needed for retryable staleness.
+        """Return exact vendor evidence needed for retryable staleness.
 
         A failure merely NAMED freshness is not enough. Calendar-unavailable,
         anomalous-ahead, and malformed freshness states are not publication lag.
@@ -152,13 +152,14 @@ finally:
         stayed Friday and roughly that many rows were dropped. That is consistent
         with vendor TICKERS intervals still ending at the old frontier.
 
-        Probe only vendor `table=SEP` TICKERS rows whose `lastpricedate` reaches
-        the earliest missing session, build a resolver from those current vendor
-        rows, and count positive-price SEP rows that resolve for each missing
-        session. A positive finite SPY SFP `closeadj` is required too. Nothing is
-        written. Filtering `table=SEP` matters: TICKERS also contains SF1/SF2/SFP
-        rows for overlapping symbols, and those metadata families are not
-        authority for an SEP price row.
+        Nasdaq Tables row filters are dataset-specific. Do not make the safety
+        gate depend on an undocumented assumption that Sharadar TICKERS exposes
+        `table` or `lastpricedate` as server-side filters. Request only the narrow
+        TICKERS columns using the standard qopts column selector, paginate the
+        table, then filter `table=SEP` and interval coverage locally. Build a
+        resolver from those current vendor rows and count positive-price SEP rows
+        that resolve for each missing session. A positive finite SPY SFP
+        `closeadj` is required too. Nothing is written.
         """
         requested = tuple(str(item) for item in sessions)
         if not requested or list(requested) != sorted(requested):
@@ -172,12 +173,16 @@ import json, math, sys
 from sentinel.feed import sharadar, universe
 sessions = tuple(x for x in sys.argv[1].split(',') if x)
 targets = set(sessions)
-ticker_params = {
-    'table': 'SEP',
-    'lastpricedate.gte': sessions[0],
-    'qopts.columns': 'permaticker,ticker,firstpricedate,lastpricedate,isdelisted',
-}
-ticker_rows = list(sharadar.fetch_table(sharadar.TICKERS, ticker_params))
+all_ticker_rows = list(sharadar.fetch_table(sharadar.TICKERS, {
+    'qopts.columns': 'table,permaticker,ticker,firstpricedate,lastpricedate,isdelisted',
+}))
+ticker_rows = []
+for row in all_ticker_rows:
+    if str(row.get('table') or '').strip().upper() != 'SEP':
+        continue
+    last = str(row.get('lastpricedate') or '')[:10]
+    if last and last >= sessions[0]:
+        ticker_rows.append(row)
 resolver = universe.IdentityResolver(universe.listings_from_rows(ticker_rows)).resolve
 seen = {session: set() for session in sessions}
 params = sharadar.date_params(sessions[0], sessions[-1])
@@ -206,7 +211,8 @@ for row in sharadar.fetch_table(sharadar.SFP, spy_params):
     if math.isfinite(value) and value > 0:
         spy.add(session)
 print(json.dumps({
-    'ticker_rows': len(ticker_rows),
+    'ticker_rows_total': len(all_ticker_rows),
+    'sep_ticker_rows_reaching_window': len(ticker_rows),
     'sep_resolved_positive_securities': {s: len(seen[s]) for s in sessions},
     'spy_sessions': sorted(spy),
 }))
@@ -218,9 +224,13 @@ print(json.dumps({
         probe = core._json_output(result, label="Sharadar publication probe")
         counts = probe.get("sep_resolved_positive_securities")
         spy = probe.get("spy_sessions")
-        ticker_rows = probe.get("ticker_rows")
+        ticker_rows_total = probe.get("ticker_rows_total")
+        sep_ticker_rows = probe.get("sep_ticker_rows_reaching_window")
         if (not isinstance(counts, dict) or not isinstance(spy, list)
-                or not isinstance(ticker_rows, int) or ticker_rows < 0
+                or not isinstance(ticker_rows_total, int)
+                or ticker_rows_total < 0
+                or not isinstance(sep_ticker_rows, int)
+                or sep_ticker_rows < 0
                 or set(counts) != set(requested)
                 or any(not isinstance(counts[s], int) or counts[s] < 0
                        for s in requested)):
@@ -232,7 +242,8 @@ print(json.dumps({
         return {
             "ready": ready,
             "minimum_resolved_positive_securities": minimum_rows,
-            "vendor_ticker_rows": ticker_rows,
+            "vendor_ticker_rows_total": ticker_rows_total,
+            "vendor_sep_ticker_rows_reaching_window": sep_ticker_rows,
             "sep_resolved_positive_securities": {
                 s: counts[s] for s in requested},
             "spy_sessions": sorted(str(item) for item in spy),
@@ -309,8 +320,9 @@ print(json.dumps({
                     session,
                     probe["sep_resolved_positive_securities"][session],
                     minimum_rows) for session in sessions)
-            print("  vendor SEP TICKERS reaching window: %d" %
-                  probe["vendor_ticker_rows"], flush=True)
+            print("  vendor TICKERS rows total: %d; SEP reaching window: %d" %
+                  (probe["vendor_ticker_rows_total"],
+                   probe["vendor_sep_ticker_rows_reaching_window"]), flush=True)
             print("  vendor resolved SEP: %s" % counts, flush=True)
             print("  vendor SPY sessions: %s" %
                   (", ".join(probe["spy_sessions"]) or "none"), flush=True)
