@@ -45,7 +45,10 @@ class DomainCounts:
         signal = _positive(row.get("close"))
         raw = _positive(row.get("closeunadj"))
         open_ = _positive(row.get("open"))
-        volume = _positive(row.get("volume"))
+        # Zero volume is an observed liquidity fact, not a missing domain.  The
+        # strategy may reject the security later; publication completeness must
+        # stay independent of portfolio eligibility.
+        volume = _nonnegative(row.get("volume"))
         return DomainCounts(
             rows=self.rows + 1,
             signal_close=self.signal_close + int(signal),
@@ -125,6 +128,16 @@ def _positive(value) -> bool:
     except (TypeError, ValueError):
         return False
     return math.isfinite(number) and number > 0
+
+
+def _nonnegative(value) -> bool:
+    if value is None:
+        return False
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(number) and number >= 0
 
 
 def _sep_payload(row: Mapping) -> bytes:
