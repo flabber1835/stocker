@@ -73,6 +73,17 @@ class RawPriceDomainUnavailable(RuntimeError):
     """
 
 
+class IdentityDomainUnavailable(RuntimeError):
+    """The vendor priced a session whose permanent identities are not ready.
+
+    SEP and TICKERS are independently published vendor tables.  A normal close
+    can therefore appear in SEP before TICKERS has advanced its listing
+    intervals.  Dropping a handful of instruments is ordinary noise; dropping
+    the cross-section is a transient publication state and must never become a
+    successful Sentinel corpus generation.
+    """
+
+
 def split_ratio_from_domains(
     prev_close: Optional[float], prev_raw: Optional[float],
     close: Optional[float], raw: Optional[float],
@@ -201,6 +212,13 @@ class NormalisationReport:
     dropped_no_identity: int = 0
     dropped_no_raw_close: int = 0
     splits_detected: int = 0
+    # Per-session identity accounting is exact and tiny (the daily path spans
+    # only an overlap window; even a seed has one key per market date).  The
+    # aggregate counter cannot detect the failure that matters here: one fresh
+    # session can lose its whole cross-section while 13 healthy overlap days
+    # make the total look acceptable.
+    rows_by_session: dict[str, int] = field(default_factory=dict)
+    dropped_no_identity_by_session: dict[str, int] = field(default_factory=dict)
     # THE DROPPED ROWS THEMSELVES, not just how many.
     #
     # A count cannot answer the question the terminal-identity accounting has to
@@ -330,6 +348,7 @@ def normalise_sep_rows(
         rep.rows += 1
         session = str(r["date"])
         ticker = str(r["ticker"])
+        rep.rows_by_session[session] = rep.rows_by_session.get(session, 0) + 1
         if last_session is not None and session < last_session:
             raise SessionsOutOfOrder(
                 f"SEP rows went backwards: {session} after {last_session}. The "
@@ -345,6 +364,8 @@ def normalise_sep_rows(
         volume = _positive(r.get("volume"))
         if sid is None:
             rep.dropped_no_identity += 1
+            rep.dropped_no_identity_by_session[session] = (
+                rep.dropped_no_identity_by_session.get(session, 0) + 1)
             rep.note_rejection(ticker, session, "NO_IDENTITY",
                                close=raw, volume=volume)
             continue
@@ -483,4 +504,35 @@ def assert_raw_price_domain(report: NormalisationReport,
             f"would produce a complete, plausible book in split-adjusted "
             f"currency and value every post-split security wrong forever."
         )
+    return coverage
+
+
+def assert_identity_domain(report: NormalisationReport, session: str,
+                           minimum_coverage: float = 0.99) -> Optional[float]:
+    """Refuse material point-in-time identity loss on one observed vendor session.
+
+    The check is deliberately SESSION-scoped. A 14-day daily overlap can contain
+    tens of thousands of healthy historical rows, so an aggregate ratio can hide
+    exactly the post-close failure this guard exists for. If SEP has not exposed
+    `session` at all, the result is explicitly N/A (`None`): calendar/readiness
+    owns missing-session freshness, and absence is not evidence of 100% identity
+    coverage. Once SEP *has* exposed it, Sentinel requires at least 99% of that
+    priced cross-section to resolve to permanent identity. This keeps the proven
+    ordinary one-percent unknown tail permissible without allowing a materially
+    partial session to become an authoritative corpus generation.
+    """
+    key = str(session)
+    total = int(report.rows_by_session.get(key, 0))
+    if not total:
+        return None
+    dropped = int(report.dropped_no_identity_by_session.get(key, 0))
+    coverage = (total - dropped) / total
+    if coverage < minimum_coverage:
+        raise IdentityDomainUnavailable(
+            f"permanent identity resolved on only {coverage:.1%} of {total} "
+            f"SEP rows for {key} (need {minimum_coverage:.0%}); "
+            f"{dropped} priced row(s) were refused. SEP and TICKERS are "
+            "temporarily out of publication sync; refusing this corpus "
+            "generation rather than publishing a confident partial cross-section. "
+            "Retry feed-daily after vendor TICKERS catches up.")
     return coverage

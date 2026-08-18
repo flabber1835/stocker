@@ -607,26 +607,39 @@ def write_actions(conn, rows: Sequence[Any], *, run_id=None,
     return len(current)
 
 
-def write_rejections(conn, rejections) -> int:
-    """Persist rows the normaliser refused. Idempotent on (ticker, session,
-    reason), so a re-ingest of the same window does not multiply them."""
+def write_rejections(conn, rejections, *, run_id=None) -> int:
+    """Append refused vendor rows at ingest-generation grain.
+
+    A rejection is evidence about one candidate generation, not a mutable fact
+    about a ticker/date forever.  Production callers stamp the ingest run so a
+    later successful publication can resolve the rejection without deleting the
+    history that proves the earlier corpus was defective.  ``run_id=None`` is
+    retained only for legacy/tests and keeps its old idempotent key.
+    """
+    writer = None if run_id is None else str(run_id)
     rows = [(r["ticker"], r["session"], r["reason"], r.get("close"),
-             r.get("volume")) for r in rejections]
+             r.get("volume"), writer) for r in rejections]
     if not rows:
         return 0
     with conn.cursor() as cur:
-        # DO UPDATE, not DO NOTHING, on the price columns: a re-ingest after a
-        # vendor restatement carries a corrected price, and an evidence row
-        # that keeps the first value ever seen is evidence of the wrong thing.
-        # The KEY is still (ticker, session, reason), so this does not multiply
-        # rows — the idempotence the audit counts on is unchanged.
-        cur.executemany(
-            "INSERT INTO sentinel_ingest_rejections"
-            " (ticker, session, reason, close_unadjusted, volume)"
-            " VALUES (%s,%s,%s,%s,%s)"
-            " ON CONFLICT (ticker, session, reason) DO UPDATE SET"
-            " close_unadjusted = EXCLUDED.close_unadjusted,"
-            " volume = EXCLUDED.volume", rows)
+        if writer is None:
+            cur.executemany(
+                "INSERT INTO sentinel_ingest_rejections"
+                " (ticker,session,reason,close_unadjusted,volume,last_written_run_id)"
+                " VALUES (%s,%s,%s,%s,%s,%s)"
+                " ON CONFLICT (ticker,session,reason)"
+                " WHERE last_written_run_id IS NULL DO UPDATE SET"
+                " close_unadjusted=EXCLUDED.close_unadjusted,"
+                " volume=EXCLUDED.volume", rows)
+        else:
+            cur.executemany(
+                "INSERT INTO sentinel_ingest_rejections"
+                " (ticker,session,reason,close_unadjusted,volume,last_written_run_id)"
+                " VALUES (%s,%s,%s,%s,%s,%s)"
+                " ON CONFLICT (ticker,session,reason,last_written_run_id)"
+                " WHERE last_written_run_id IS NOT NULL DO UPDATE SET"
+                " close_unadjusted=EXCLUDED.close_unadjusted,"
+                " volume=EXCLUDED.volume", rows)
     conn.commit()
     return len(rows)
 
@@ -707,9 +720,9 @@ def write_anomalies(conn, anomalies, *, run_id=None, require_lock: bool = False,
 
 
 def rejected_tickers(conn, start: str, end: str, reason: str = "NO_IDENTITY") -> set:
-    """Raw vendor tickers the ingest refused in [start, end]."""
+    """Raw vendor tickers with CURRENTLY active published refusals."""
     with conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT ticker FROM sentinel_ingest_rejections"
+        cur.execute("SELECT DISTINCT ticker FROM sentinel_active_ingest_rejections"
                     " WHERE session BETWEEN %s AND %s AND reason = %s",
                     (start, end, reason))
         return {str(t[0]).upper() for t in cur.fetchall() if t[0]}

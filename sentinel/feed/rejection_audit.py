@@ -9,15 +9,24 @@ READINESS      "is the feed healthy enough to plan a book tomorrow?"
                instruments Sentinel has no identity for and never wants. WARN.
 
 CERTIFICATION  "is THIS replay, over THIS interval, complete?"
-               A rejected row is a security the vendor priced and the corpus
-               does not contain. Whether that mattered is a question with an
-               answer, and the rehearsal is not evidence until it is answered.
+               An ACTIVE rejected row is a security the vendor priced and the
+               current published corpus does not contain from a later repair.
+               Whether that mattered is a question with an answer, and the
+               rehearsal is not evidence until it is answered.
 ```
+
+Rejection observations are retained by generation. The audit reads
+`sentinel_active_ingest_rejections`, not raw history: a later published bar may
+resolve an earlier refusal, but it never deletes the observation proving the old
+publication was defective. Unpublished/failed rejection candidates never become
+current evidence. Legacy observations without a run id fail closed until a
+provenance-tracked publication after their `first_seen` timestamp supplies the
+same ticker/session.
 
 So a rejection is never automatically a certification failure — the ticker may
 be economically irrelevant — but "we did not check" is. This module classifies
-every rejected ticker in the interval into exactly one of three verdicts and
-refuses when any lands in the third.
+every active rejected ticker in the interval into exactly one of three verdicts
+and refuses when any lands in the third.
 
 ## The three verdicts
 
@@ -200,13 +209,19 @@ class RejectionAudit:
 
 
 def _rows(conn, start: str, end: str) -> list[tuple]:
+    """Aggregate only the CURRENT published rejection projection.
+
+    Raw observations are append-only history. Reading the base table here was
+    the defect: version 7 could repair every bar version 6 rejected and the
+    audit still treated version 6's evidence as a current hole forever.
+    """
     with conn.cursor() as cur:
         cur.execute(
             "SELECT ticker, COUNT(*), COUNT(DISTINCT session),"
             " MIN(session), MAX(session),"
             " ARRAY_AGG(DISTINCT reason), MAX(close_unadjusted),"
             " MAX(close_unadjusted * COALESCE(volume, 0))"
-            " FROM sentinel_ingest_rejections"
+            " FROM sentinel_active_ingest_rejections"
             " WHERE session BETWEEN %s AND %s GROUP BY ticker ORDER BY ticker",
             (start, end))
         return list(cur.fetchall())
@@ -312,7 +327,7 @@ def audit(conn, *, start: str, end: str,
           held_tickers: Optional[Iterable[str]] = None,
           pending_terminal_tickers: Optional[Iterable[str]] = None,
           eligibility: EligibilityConfig | None = None) -> RejectionAudit:
-    """Classify every refused ticker in [start, end].
+    """Classify every active refused ticker in [start, end].
 
     `held_tickers` / `pending_terminal_tickers` are `None` by DEFAULT, meaning
     the caller could not tell us — not that the book was empty. Pass `()` to
