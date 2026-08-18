@@ -125,19 +125,23 @@ def load_meta(conn) -> dict[str, SecurityMeta]:
 
     `feed_universe_current` carries one row per historical ticker pairing, with
     its latest non-null labels and listing envelope maintained transactionally at
-    publication.  We still choose the latest non-null label ACROSS a security's
-    ticker pairings and retain MIN(first_price_date), but that aggregation is now
-    bounded by identity cardinality rather than by every dated vendor snapshot.
+    publication. We still choose the latest non-null label ACROSS a security's
+    ticker pairings and retain MIN(first_price_date), but each label is ordered
+    by its own observation date. A ticker pair with a newer blank snapshot must
+    not outrank another pair's more recently observed category or issuer links.
+    The aggregation is bounded by identity cardinality rather than every dated
+    vendor snapshot.
     """
     with conn.cursor() as cur:
         cur.execute(
             "SELECT permaticker,"
             " (ARRAY_REMOVE(ARRAY_AGG(ticker ORDER BY snapshot_date DESC),"
             "  NULL))[1] AS ticker,"
-            " (ARRAY_REMOVE(ARRAY_AGG(category ORDER BY snapshot_date DESC),"
-            "  NULL))[1] AS category,"
-            " (ARRAY_REMOVE(ARRAY_AGG(related_tickers ORDER BY snapshot_date"
-            "  DESC), NULL))[1] AS related_tickers,"
+            " (ARRAY_REMOVE(ARRAY_AGG(category ORDER BY"
+            "  category_snapshot_date DESC NULLS LAST), NULL))[1] AS category,"
+            " (ARRAY_REMOVE(ARRAY_AGG(related_tickers ORDER BY"
+            "  related_tickers_snapshot_date DESC NULLS LAST), NULL))[1]"
+            "  AS related_tickers,"
             " MIN(first_price_date) AS first_session"
             " FROM feed_universe_current WHERE permaticker IS NOT NULL"
             " GROUP BY permaticker")
