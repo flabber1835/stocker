@@ -45,12 +45,9 @@ def pg():
 def conn(pg):
     c = S.connect(pg.sync_dsn)
     with c.cursor() as cur:
-        for t in ("sentinel_action_generation_events",
-                  "sentinel_action_observations", "sentinel_action_generations",
-                  "sentinel_bars", "sentinel_actions", "sentinel_universe",
-                  "feed_universe_current", "sentinel_spy_total_return",
-                  "feed_ingest_runs"):
-            cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
+        cur.execute("SELECT tablename FROM pg_tables WHERE schemaname='public'")
+        for (table,) in cur.fetchall():
+            cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
     c.commit()
     # Test setup is the explicit schema-install boundary. Runtime `ensure_schema`
     # is intentionally read-only and must never repair the catalog.
