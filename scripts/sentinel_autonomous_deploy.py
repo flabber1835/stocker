@@ -595,7 +595,8 @@ class AutonomousDeploy:
         code = (
             "import os; from sentinel import schema; from sentinel.feed import store; "
             "c=store.connect(os.environ['SENTINEL_DATABASE_URL']); "
-            "schema.ensure_schema(c); c.close(); print('schema migration PASS')")
+            "schema.ensure_schema(c); store.migrate_schema(c); c.close(); "
+            "print('schema migration PASS')")
         self.runner.run(self.base_compose + [
             "--profile", "cli", "run", "--rm", "-T",
             "--entrypoint", "python", "sentinel", "-c", code])

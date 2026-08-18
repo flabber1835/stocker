@@ -244,7 +244,7 @@ class ProductionAutomation:
     async def refresh(self, context: CycleContext) -> RefreshResult:
         conn = self.connect()
         try:
-            feed_store.ensure_schema(conn)
+            feed_store.require_feed_schema(conn)
             schema.require_runtime_schema(conn)
             cycle, _control = self._assert_cycle_authority(
                 conn, context, operation_scope="REFRESH")
@@ -287,7 +287,7 @@ class ProductionAutomation:
     async def prepare(self, context: CycleContext) -> PrepareResult:
         conn = self.connect()
         try:
-            feed_store.ensure_schema(conn)
+            feed_store.require_feed_schema(conn)
             schema.require_runtime_schema(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="PREPARE")
@@ -366,7 +366,7 @@ class ProductionAutomation:
     async def recover(self, context: CycleContext) -> ExecuteResult:
         conn = self.connect()
         try:
-            feed_store.ensure_schema(conn)
+            feed_store.require_feed_schema(conn)
             schema.require_runtime_schema(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="RECOVER")
@@ -521,7 +521,7 @@ class ProductionAutomation:
     async def execute(self, context: CycleContext) -> ExecuteResult:
         conn = self.connect()
         try:
-            feed_store.ensure_schema(conn)
+            feed_store.require_feed_schema(conn)
             schema.require_runtime_schema(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="EXECUTE")

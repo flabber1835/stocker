@@ -6,12 +6,10 @@
 exactly how this suite first failed to collect.
 
 A small compatibility fixture also keeps older unit-level database doubles at
-the seam they actually exercise.  Routine Sentinel paths now use the read-only
-`require_runtime_schema()` gate instead of the DDL-capable `ensure_schema()`
-path.  The older automation-runtime and paper-CLI tests deliberately stubbed
-`ensure_schema()` rather than implementing a PostgreSQL catalog, so those two
-modules delegate the new gate to their existing stub.  The real runtime-schema
-contract remains covered by the PostgreSQL-backed schema/regression tests.
+the seam they actually exercise. Routine Sentinel paths now use read-only schema
+validation. Older tests that pre-date that split still use ``ensure_schema`` as
+fixture bootstrap, so this file preserves the historical installer only inside
+the test process; production never imports this module.
 """
 import sys
 from pathlib import Path
@@ -33,12 +31,28 @@ _SINGLETON_REFUSAL_TESTS = {
     "test_missing_control_singleton_refuses_instead_of_reseeding",
     "test_schema_check_never_repairs_a_deleted_control_singleton",
 }
+_FEED_RUNTIME_SCHEMA_CONTRACT_PREFIX = "test_issue_165_feed_schema"
+
+
+def _legacy_feed_fixture_install(conn) -> None:
+    """The pre-#165 feed installer, retained only for legacy test fixtures."""
+    from sentinel.feed.schema import DDL
+
+    try:
+        with conn.cursor() as cur:
+            for statement in DDL:
+                cur.execute(statement)
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
 
 
 @pytest.fixture(autouse=True)
 def _runtime_schema_test_double_compat(request, monkeypatch):
     """Keep legacy doubles narrow without weakening production validation."""
     from sentinel import schema
+    from sentinel.feed import store as feed_store
 
     module_name = request.module.__name__.rsplit(".", 1)[-1]
     if module_name in _LEGACY_SCHEMA_DOUBLE_MODULES:
@@ -47,13 +61,23 @@ def _runtime_schema_test_double_compat(request, monkeypatch):
         monkeypatch.setattr(
             schema, "require_runtime_schema",
             lambda conn: schema.ensure_schema(conn))
+        monkeypatch.setattr(
+            feed_store, "require_feed_schema",
+            lambda conn: feed_store.ensure_schema(conn))
+
+    # Before issue #165, feed fixtures used ensure_schema as an installer.
+    # Preserve that convenience with the OLD DDL-only behavior, rather than
+    # weakening or bypassing the new production migration validator.
+    if not module_name.startswith(_FEED_RUNTIME_SCHEMA_CONTRACT_PREFIX):
+        monkeypatch.setattr(
+            feed_store, "ensure_schema", _legacy_feed_fixture_install)
 
     if request.node.name in _SINGLETON_REFUSAL_TESTS:
         # These tests pre-date the stronger explicit-migration final check.
-        # Fresh fixture bootstrap must still be able to create the schema.  If
+        # Fresh fixture bootstrap must still be able to create the schema. If
         # the test subsequently deletes the authority singleton, accept the
         # stronger early refusal and continue to the original assertion that
-        # the state was not guessed or reseeded.  Any other migration refusal
+        # the state was not guessed or reseeded. Any other migration refusal
         # remains a hard failure.
         real_ensure_schema = schema.ensure_schema
 
