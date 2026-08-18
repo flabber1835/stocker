@@ -21,6 +21,7 @@ from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
 from sentinel.feed import readiness as R  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
+from sentinel.feed import universe as U  # noqa: E402
 from sentinel.feed.domains import NormalisedBar  # noqa: E402
 from stock_strategy_shared.wealth_core.feed import VendorBar  # noqa: E402
 
@@ -47,10 +48,13 @@ def conn(pg):
         for t in ("sentinel_action_generation_events",
                   "sentinel_action_observations", "sentinel_action_generations",
                   "sentinel_bars", "sentinel_actions", "sentinel_universe",
-                  "sentinel_spy_total_return", "feed_ingest_runs"):
+                  "feed_universe_current", "sentinel_spy_total_return",
+                  "feed_ingest_runs"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     c.commit()
-    S.ensure_schema(c)
+    # Test setup is the explicit schema-install boundary. Runtime `ensure_schema`
+    # is intentionally read-only and must never repair the catalog.
+    S.migrate_schema(c)
     yield c
     c.close()
 
@@ -86,17 +90,20 @@ def load(conn, n_sessions=300, *, open_=99.0, volume=1e6, actions=True,
             " VALUES (%s, 100) ON CONFLICT (session) DO UPDATE SET closeadj=100",
             [(session,) for session in
              sessions(n_sessions)[-R.REQUIRED_SPY_SESSIONS:]])
-        if universe:
-            for i in range(n_secs):
-                cur.execute(
-                    "INSERT INTO sentinel_universe (permaticker, ticker,"
-                    " related_tickers, snapshot_date) VALUES (%s,%s,%s,%s)",
-                    (f"P{i}", f"T{i}", related, TODAY))
         if actions:
             cur.execute(
                 "INSERT INTO sentinel_actions (ticker, session, action)"
                 " VALUES ('T0', %s, 'split')", (sessions(n_sessions)[-5],))
     conn.commit()
+    if universe:
+        # Use the real writer: NULL-provenance rows are immediately readable and
+        # the writer advances the bounded projection in the same transaction.
+        U.write_universe(
+            conn,
+            [{"permaticker": f"P{i}", "ticker": f"T{i}",
+              "relatedtickers": related}
+             for i in range(n_secs)],
+            TODAY)
 
 
 def by_name(result):
@@ -166,6 +173,31 @@ class TestWhatARowCountWouldMiss:
         load(conn, n_sessions=300, related=None)
         r = R.check_readiness(conn, today=TODAY)
         assert by_name(r)["issuer keys"].status == R.FAIL
+
+    def test_historical_snapshots_do_not_inflate_issuer_cardinality(self, conn):
+        """The issue #166 symptom: snapshot copies are not extra securities."""
+        load(conn, n_sessions=300, n_secs=2)
+        for day in range(1, 31):
+            U.write_universe(
+                conn,
+                [{"permaticker": "P0", "ticker": "T0",
+                  "relatedtickers": "BBB"},
+                 {"permaticker": "P1", "ticker": "T1",
+                  "relatedtickers": "BBB"}],
+                f"2024-11-{day:02d}")
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM sentinel_universe")
+            raw_rows = int(cur.fetchone()[0])
+            cur.execute("SELECT COUNT(*) FROM feed_universe_current")
+            current_rows = int(cur.fetchone()[0])
+        assert raw_rows == 62
+        assert current_rows == 2
+
+        r = R.check_readiness(conn, today=TODAY)
+        issuer = by_name(r)["issuer keys"]
+        assert issuer.status == R.PASS
+        assert issuer.value == 2
+        assert "2 current securities" in issuer.detail
 
     def test_NO_ACTIONS_over_a_long_window_is_a_missing_ingest(self, conn):
         """Splits and terminal events would both go unseen."""
