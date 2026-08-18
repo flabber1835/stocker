@@ -133,7 +133,8 @@ def _probe(ready, count=0, sessions=None, ticker_rows=6000):
     return {
         "ready": ready,
         "minimum_resolved_positive_securities": 5400,
-        "vendor_ticker_rows": ticker_rows,
+        "vendor_ticker_rows_total": 50000,
+        "vendor_sep_ticker_rows_reaching_window": ticker_rows,
         "sep_resolved_positive_securities": {
             session: count for session in sessions},
         "spy_sessions": list(sessions) if ready else [],
@@ -357,7 +358,8 @@ def test_freshness_wait_timeout_refuses_and_retains_probe_state(
     state = json.loads((tmp_path / "deployment-state.json").read_text())
     assert state["state"] == "WAITING_FOR_DATA"
     assert state["failures"][0]["name"] == "freshness"
-    assert state["vendor_probe"]["vendor_ticker_rows"] == 0
+    assert state["vendor_probe"]["vendor_ticker_rows_total"] == 50000
+    assert state["vendor_probe"]["vendor_sep_ticker_rows_reaching_window"] == 0
     assert state["vendor_probe"]["sep_resolved_positive_securities"]["2026-08-17"] == 0
 
 
@@ -369,15 +371,17 @@ def test_waiting_for_data_refuses_if_automation_fence_is_lost(tmp_path):
         obj._assert_wait_fence()
 
 
-def test_vendor_probe_is_read_only_and_requires_sep_tickers_sep_and_spy():
+def test_vendor_probe_is_read_only_and_filter_independent_for_tickers():
     source = DRIVER.read_text(encoding="utf-8")
     start = source.index("def _vendor_publication_probe")
     end = source.index("def _write_deployment_state", start)
     block = source[start:end]
     assert "sharadar.fetch_table(sharadar.TICKERS" in block
-    assert "'table': 'SEP'" in block
-    assert "lastpricedate.gte" in block
     assert "qopts.columns" in block
+    assert "table,permaticker,ticker,firstpricedate,lastpricedate,isdelisted" in block
+    assert "lastpricedate.gte" not in block
+    assert "row.get('table')" in block
+    assert "row.get('lastpricedate')" in block
     assert "universe.IdentityResolver" in block
     assert "sharadar.fetch_table(sharadar.SEP" in block
     assert "sharadar.fetch_table(sharadar.SFP" in block
