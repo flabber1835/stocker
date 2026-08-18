@@ -208,21 +208,36 @@ class Runner:
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
     def run(self, argv: Sequence[str], *, check: bool = True,
-            capture: bool = False, cwd: Path = ROOT) -> subprocess.CompletedProcess:
+            capture: bool = False, stream: bool = False,
+            cwd: Path = ROOT) -> subprocess.CompletedProcess:
         argv = [str(item) for item in argv]
         stamp = _utc_text(_utcnow())
         with self.log_path.open("a", encoding="utf-8") as log:
             log.write("\n[%s] $ %s\n" % (stamp, " ".join(shlex.quote(x) for x in argv)))
             log.flush()
         try:
-            completed = subprocess.run(
-                argv, cwd=str(cwd), env=self.env,
-                stdout=subprocess.PIPE if capture else None,
-                stderr=subprocess.PIPE if capture else None,
-                text=True, check=False)
+            if stream:
+                process = subprocess.Popen(
+                    argv, cwd=str(cwd), env=self.env,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1)
+                output: List[str] = []
+                assert process.stdout is not None
+                for line in process.stdout:
+                    output.append(line)
+                    print(line, end="", flush=True)
+                returncode = process.wait()
+                completed = subprocess.CompletedProcess(
+                    argv, returncode, stdout="".join(output), stderr="")
+            else:
+                completed = subprocess.run(
+                    argv, cwd=str(cwd), env=self.env,
+                    stdout=subprocess.PIPE if capture else None,
+                    stderr=subprocess.PIPE if capture else None,
+                    text=True, check=False)
         except OSError as exc:
             raise DeployRefused("could not execute %s: %s" % (argv[0], exc)) from exc
-        if capture:
+        if capture or stream:
             with self.log_path.open("a", encoding="utf-8") as log:
                 if completed.stdout:
                     log.write(completed.stdout)
@@ -453,10 +468,8 @@ class AutonomousDeploy:
         self.phase("test: complete Sentinel suite in the exact new test image")
         suite = self.runner.run([
             "docker", "run", "--rm", "--network", "none",
-            "sentinel-test:latest", "tests/sentinel", "-q", "-ra"], capture=True)
+            "sentinel-test:latest", "tests/sentinel", "-q", "-ra"], stream=True)
         combined = (suite.stdout or "") + "\n" + (suite.stderr or "")
-        summary = "\n".join(combined.strip().splitlines()[-4:])
-        print(summary, flush=True)
         if re.search(r"(^|, )\d+ skipped(,| in |$)", combined, re.M):
             raise DeployRefused("complete Sentinel deployment suite skipped tests")
 
