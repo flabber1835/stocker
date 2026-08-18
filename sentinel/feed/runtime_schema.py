@@ -11,7 +11,14 @@ from __future__ import annotations
 
 from sentinel import schema as behavioral_schema
 from sentinel.feed.domains import SEP_FORBIDDEN_COLUMNS
-from sentinel.feed.schema import DDL
+from sentinel.feed.schema import DDL as _BASE_DDL
+from sentinel.feed.universe_projection import DDL as _UNIVERSE_PROJECTION_DDL
+
+# The projection is a migration-owned derived read model rather than raw corpus
+# evidence. Keep its installation beside the runtime schema contract so an old
+# appliance refuses before a reader can query a relation that has not yet been
+# explicitly migrated.
+DDL = [*_BASE_DDL, *_UNIVERSE_PROJECTION_DDL]
 
 
 _SCHEMA_LOCK = (1_397_050_964, 1_179_796_516)  # SENT / FEED.
@@ -39,6 +46,7 @@ _RELATIONS = {
     "sentinel_corpus_anomalies": ("r", "p", False, False, False),
     "sentinel_actions": ("r", "p", False, False, False),
     "sentinel_universe": ("r", "p", False, False, False),
+    "feed_universe_current": ("r", "p", False, False, False),
     "sentinel_corpus_publications": ("r", "p", False, False, False),
     "sentinel_bar_split_repairs": ("r", "p", False, False, False),
     "feed_ingest_runs": ("r", "p", False, False, False),
@@ -100,6 +108,17 @@ _COLUMNS = {
         "related_tickers": ("text", False), "first_price_date": ("date", False),
         "last_price_date": ("date", False), "is_delisted": ("boolean", False),
         "snapshot_date": ("date", True), "last_written_run_id": ("uuid", False),
+    },
+    "feed_universe_current": {
+        "permaticker": ("text", True), "ticker": ("text", True),
+        "category": ("text", False), "category_snapshot_date": ("date", False),
+        "sector": ("text", False), "sector_snapshot_date": ("date", False),
+        "related_tickers": ("text", False),
+        "related_tickers_snapshot_date": ("date", False),
+        "first_price_date": ("date", False), "last_price_date": ("date", False),
+        "is_delisted": ("boolean", False),
+        "is_delisted_snapshot_date": ("date", False),
+        "snapshot_date": ("date", True),
     },
     "sentinel_corpus_publications": {
         "version": ("bigint", True), "previous_version": ("bigint", False),
@@ -193,6 +212,7 @@ _PRIMARY_KEYS = {
     "sentinel_corpus_anomalies": "primary key (observation_id)",
     "sentinel_actions": "primary key (ticker, session, action)",
     "sentinel_universe": "primary key (permaticker, ticker, snapshot_date)",
+    "feed_universe_current": "primary key (permaticker, ticker)",
     "sentinel_corpus_publications": "primary key (version)",
     "sentinel_bar_split_repairs": "primary key (security_id, session, last_written_run_id)",
     "feed_ingest_runs": "primary key (run_id)",

@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
+from sentinel.core import loader as L  # noqa: E402
 from sentinel.feed import universe as U  # noqa: E402
 from sentinel.feed import publication as P  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
@@ -47,7 +48,9 @@ def conn(pg):
         for (table,) in cur.fetchall():
             cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
     c.commit()
-    S.ensure_schema(c)
+    # Test setup is an explicit schema-install operation. `ensure_schema` is
+    # intentionally read-only now and must never recreate a dropped relation.
+    S.migrate_schema(c)
     yield c
     c.close()
 
@@ -196,10 +199,81 @@ class TestUniversePublication:
             "2024-01-02", run_id=run2)
         conn.commit()  # durable candidate at the pre-publication crash boundary
 
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM feed_universe_current")
+            assert cur.fetchone()[0] == 1, (
+                "an unpublished candidate must not enter the current projection")
         assert U.load_resolver(conn).resolve("ABC", "2024-01-02") == "P1"
         assert not P.coherence(conn).coherent
         assert P.current(conn).version == 1
         second.finish("success")
         P.publish(conn, run_id=run2)
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM feed_universe_current")
+            assert cur.fetchone()[0] == 2
         assert U.load_resolver(conn).resolve("ABC", "2024-01-02") is None, (
             "two published overlapping identities must refuse as ambiguous")
+
+    def test_candidate_resolver_reads_current_plus_only_that_candidate(self, conn):
+        first = S.IngestRun(conn, "seed")
+        run1 = first.progress.run_id
+        U.write_universe(
+            conn, [{"ticker": "ABC", "permaticker": "P1",
+                    "firstpricedate": "2000-01-01",
+                    "lastpricedate": "2009-12-31"}],
+            "2024-01-01", run_id=run1)
+        first.finish("success")
+        P.publish(conn, run_id=run1)
+
+        second = S.IngestRun(conn, "daily")
+        run2 = second.progress.run_id
+        U.write_universe(
+            conn, [{"ticker": "ABC", "permaticker": "P2",
+                    "firstpricedate": "2012-01-01"}],
+            "2024-01-02", run_id=run2)
+
+        assert U.load_resolver(conn).resolve("ABC", "2015-01-01") is None
+        candidate = U.load_resolver(conn, include_run_id=run2)
+        assert candidate.resolve("ABC", "2005-01-01") == "P1"
+        assert candidate.resolve("ABC", "2015-01-01") == "P2"
+
+    def test_duplicate_dated_snapshots_collapse_without_losing_boundaries(self,
+                                                                          conn):
+        snapshots = [
+            ("2024-01-01", "2000-01-01", None, "OLD NEW", "Domestic Common Stock"),
+            ("2024-01-02", None, "2020-12-31", None, None),
+            ("2024-01-03", None, None, None, None),
+        ]
+        for snapshot, first_date, last_date, related, category in snapshots:
+            ingest = S.IngestRun(conn, "daily")
+            run_id = ingest.progress.run_id
+            U.write_universe(
+                conn, [{"ticker": "ABC", "permaticker": "P1",
+                        "firstpricedate": first_date,
+                        "lastpricedate": last_date,
+                        "relatedtickers": related,
+                        "category": category}], snapshot, run_id=run_id)
+            ingest.finish("success")
+            P.publish(conn, run_id=run_id)
+
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM sentinel_universe")
+            assert cur.fetchone()[0] == 3, "raw dated evidence must be retained"
+            cur.execute(
+                "SELECT COUNT(*),first_price_date,last_price_date,"
+                " related_tickers,category FROM feed_universe_current"
+                " GROUP BY first_price_date,last_price_date,related_tickers,category")
+            count, first_date, last_date, related, category = cur.fetchone()
+        assert count == 1, "current work must stay one row per ticker pairing"
+        assert str(first_date) == "2000-01-01"
+        assert str(last_date) == "2020-12-31"
+        assert related == "NEW OLD"
+        assert category == "Domestic Common Stock"
+
+        resolver = U.load_resolver(conn)
+        assert resolver.resolve("ABC", "2005-01-01") == "P1"
+        assert resolver.resolve("ABC", "2021-01-01") is None
+        meta = L.load_meta(conn)["P1"]
+        assert meta.category == "Domestic Common Stock"
+        assert meta.related_tickers == ("NEW", "OLD")
+        assert meta.first_session == "2000-01-01"

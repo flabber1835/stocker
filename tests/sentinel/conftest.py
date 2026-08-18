@@ -35,12 +35,18 @@ _FEED_RUNTIME_SCHEMA_CONTRACT_PREFIX = "test_issue_165_feed_schema"
 
 
 def _legacy_feed_fixture_install(conn) -> None:
-    """The pre-#165 feed installer, retained only for legacy test fixtures."""
-    from sentinel.feed.schema import DDL
+    """Install feed DDL without invoking the production schema validator.
+
+    Legacy fixtures still use ``ensure_schema`` as setup. Keep that test-only
+    compatibility spelling, but include derived feed relations required by the
+    current runtime so those fixtures exercise the same data model as production.
+    """
+    from sentinel.feed.schema import DDL as BASE_DDL
+    from sentinel.feed.universe_projection import DDL as UNIVERSE_PROJECTION_DDL
 
     try:
         with conn.cursor() as cur:
-            for statement in DDL:
+            for statement in (*BASE_DDL, *UNIVERSE_PROJECTION_DDL):
                 cur.execute(statement)
         conn.commit()
     except BaseException:
@@ -66,8 +72,9 @@ def _runtime_schema_test_double_compat(request, monkeypatch):
             lambda conn: feed_store.ensure_schema(conn))
 
     # Before issue #165, feed fixtures used ensure_schema as an installer.
-    # Preserve that convenience with the OLD DDL-only behavior, rather than
-    # weakening or bypassing the new production migration validator.
+    # Preserve that convenience with DDL-only behavior, rather than weakening
+    # or bypassing the new production migration validator. The DDL must still
+    # include derived feed relations used by the current runtime.
     if not module_name.startswith(_FEED_RUNTIME_SCHEMA_CONTRACT_PREFIX):
         monkeypatch.setattr(
             feed_store, "ensure_schema", _legacy_feed_fixture_install)

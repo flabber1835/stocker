@@ -44,6 +44,7 @@ from sentinel import identity as identity_record  # noqa: E402
 from sentinel.feed import publication as P  # noqa: E402
 from sentinel.feed import readiness as R  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
+from sentinel.feed import universe as U  # noqa: E402
 from sentinel.feed.domains import NormalisedBar  # noqa: E402
 from sentinel.feed.universe import IdentityResolver, Listing  # noqa: E402
 from stock_strategy_shared.wealth_core.feed import VendorBar  # noqa: E402
@@ -71,7 +72,7 @@ def conn(pg):
         for t in ("sentinel_action_generation_events",
                   "sentinel_action_observations", "sentinel_action_generations",
                   "sentinel_bars", "sentinel_actions", "sentinel_universe",
-                  "feed_ingest_runs"):
+                  "feed_universe_current", "feed_ingest_runs"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     c.commit()
     S.ensure_schema(c)
@@ -106,15 +107,22 @@ def action(conn, ticker, session, act="delisted", contra=None, value=None):
     conn.commit()
 
 
-def universe(conn, rows):
+def universe(conn, rows, *, related=""):
     """rows: (permaticker, ticker, first, last)"""
+    U.write_universe(
+        conn,
+        [{"permaticker": pt, "ticker": tk,
+          "relatedtickers": related,
+          "firstpricedate": first, "lastpricedate": last}
+         for pt, tk, first, last in rows],
+        TODAY)
+
+
+def remove_universe_ticker(conn, ticker):
+    """Deliberately remove an identity from both evidence and its projection."""
     with conn.cursor() as cur:
-        for pt, tk, first, last in rows:
-            cur.execute(
-                "INSERT INTO sentinel_universe (permaticker, ticker,"
-                " related_tickers, first_price_date, last_price_date,"
-                " snapshot_date) VALUES (%s,%s,%s,%s,%s,%s)",
-                (pt, tk, "", first, last, TODAY))
+        cur.execute("DELETE FROM sentinel_universe WHERE ticker = %s", (ticker,))
+        cur.execute("DELETE FROM feed_universe_current WHERE ticker = %s", (ticker,))
     conn.commit()
 
 
@@ -334,16 +342,11 @@ class TestReadinessRefusesAnUnresolvedTermination:
                                                dividend_per_share=0.0))
                 for t in ("AAA", "BBB")])
         universe(conn, [("P:AAA", "AAA", None, None),
-                        ("P:BBB", "BBB", None, None)])
-        with conn.cursor() as cur:
-            cur.execute("UPDATE sentinel_universe SET related_tickers = 'CCC'")
-        conn.commit()
+                        ("P:BBB", "BBB", None, None)], related="CCC")
 
     def test_an_unresolved_terminal_makes_readiness_FALSE(self, conn):
         self._corpus(conn)
-        with conn.cursor() as cur:      # remove BBB's identity, keep its bars
-            cur.execute("DELETE FROM sentinel_universe WHERE ticker = 'BBB'")
-        conn.commit()
+        remove_universe_ticker(conn, "BBB")
         action(conn, "BBB", sess(300)[150])
 
         r = R.check_readiness(conn, today=TODAY)
@@ -353,9 +356,7 @@ class TestReadinessRefusesAnUnresolvedTermination:
 
     def test_the_failure_NAMES_the_date_ticker_action_and_reason(self, conn):
         self._corpus(conn)
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM sentinel_universe WHERE ticker = 'BBB'")
-        conn.commit()
+        remove_universe_ticker(conn, "BBB")
         victim = sess(300)[150]
         action(conn, "BBB", victim, act="delisted")
 
@@ -404,12 +405,13 @@ class TestIGMSProductionPair:
                     split_ratio=1.0, dividend_per_share=0.0))
             for session in sessions
         ])
+        U.write_universe(
+            conn,
+            [{"permaticker": "110543", "ticker": "IGMS",
+              "category": "Domestic Common Stock",
+              "firstpricedate": sessions[0]}],
+            sessions[-1])
         with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO sentinel_universe (permaticker,ticker,category,"
-                "first_price_date,last_price_date,snapshot_date) VALUES "
-                "('110543','IGMS','Domestic Common Stock',%s,NULL,%s)",
-                (sessions[0], sessions[-1]))
             for act in ("acquisitionby", "delisted"):
                 cur.execute(
                     "INSERT INTO sentinel_actions "

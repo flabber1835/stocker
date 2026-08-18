@@ -219,6 +219,11 @@ def write_universe(conn, rows: Sequence[Mapping], snapshot_date: str, *,
     `related_tickers` is stored SPACE-JOINED from the parsed tuple, matching how
     bt-data stores it — so the round trip is stable and a reader that splits on
     whitespace gets back what was parsed.
+
+    A provenance-tracked generation is NOT projected here: it becomes readable
+    only if publication succeeds.  NULL-provenance legacy rows are readable
+    immediately under the existing corpus contract, so they are projected in
+    this same transaction before the commit.
     """
     payload = []
     for r in rows:
@@ -240,33 +245,46 @@ def write_universe(conn, rows: Sequence[Mapping], snapshot_date: str, *,
         return 0
     with conn.cursor() as cur:
         cur.executemany(_UNIVERSE_UPSERT, payload)
+    if run_id is None:
+        from sentinel.feed.universe_projection import project_legacy_snapshot
+
+        project_legacy_snapshot(conn, snapshot_date=snapshot_date)
     conn.commit()
     return len(payload)
 
 
 def load_resolver(conn, *, include_run_id=None) -> IdentityResolver:
-    """Build the resolver from stored snapshots.
+    """Build the resolver without aggregating retained snapshot history.
 
-    MIN(first)/MAX(last) across snapshots, never "newest snapshot only": a fresh
-    TICKERS pull writes NULLs that a later one backfills, so keying on the newest
-    snapshot goes blind the first time a sparse one lands. The live sector readers
-    learned the same lesson.
+    `feed_universe_current` already carries one row per historical
+    (permaticker,ticker) pairing with the MIN(first)/MAX(last) envelope preserved
+    at publication.  Routine construction therefore scales with identity count,
+    not the number of dated TICKERS snapshots retained.
+
+    During ingest, `include_run_id` adds exactly ONE unpublished candidate to the
+    published projection.  Grouping that bounded union preserves sparse-snapshot
+    backfills while preventing an ingest from scanning every prior snapshot.
     """
-    from sentinel.feed.publication import visible_predicate
-
-    visibility = visible_predicate("u")
-    params = ()
-    if include_run_id is not None:
-        visibility = f"({visibility} OR u.last_written_run_id = %s)"
-        params = (str(include_run_id),)
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT permaticker, ticker, MIN(first_price_date) AS f,"
-            " MAX(last_price_date) AS l FROM sentinel_universe u"
-            " WHERE permaticker IS NOT NULL AND ticker IS NOT NULL"
-            f" AND {visibility}"
-            " GROUP BY permaticker, ticker", params)
-
+        if include_run_id is None:
+            cur.execute(
+                "SELECT permaticker,ticker,first_price_date,last_price_date"
+                " FROM feed_universe_current"
+                " ORDER BY permaticker,ticker")
+        else:
+            cur.execute(
+                "WITH bounded AS ("
+                " SELECT permaticker,ticker,first_price_date,last_price_date"
+                " FROM feed_universe_current"
+                " UNION ALL"
+                " SELECT permaticker,ticker,first_price_date,last_price_date"
+                " FROM sentinel_universe"
+                " WHERE last_written_run_id=%s"
+                "   AND permaticker IS NOT NULL AND ticker IS NOT NULL)"
+                " SELECT permaticker,ticker,MIN(first_price_date),"
+                " MAX(last_price_date) FROM bounded"
+                " GROUP BY permaticker,ticker ORDER BY permaticker,ticker",
+                (str(include_run_id),))
         rows = cur.fetchall()
     return IdentityResolver(
         Listing(permaticker=str(p), ticker=str(t),

@@ -22,7 +22,9 @@ from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 from sentinel.core import bootstrap as B  # noqa: E402
 from sentinel.core import loader as L  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
+from sentinel.feed import universe as U  # noqa: E402
 from sentinel.feed.domains import NormalisedBar  # noqa: E402
+from sentinel.feed.universe_projection import project_legacy_snapshot  # noqa: E402
 from stock_strategy_shared.wealth_core.feed import VendorBar  # noqa: E402
 
 N_SESSIONS = 200
@@ -49,7 +51,7 @@ def conn(pg):
         for t in ("sentinel_action_generation_events",
                   "sentinel_action_observations", "sentinel_action_generations",
                   "sentinel_bars", "sentinel_actions", "sentinel_universe",
-                  "feed_ingest_runs"):
+                  "feed_universe_current", "feed_ingest_runs"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     c.commit()
     S.ensure_schema(c)
@@ -76,14 +78,13 @@ def _load(conn, n_secs=40):
                 raw_close=px, raw_open=px * 0.999, volume=2_000_000.0,
                 split_ratio=1.0, dividend_per_share=0.0)))
     S.write_bars(conn, rows)
-    with conn.cursor() as cur:
-        for i in range(n_secs):
-            cur.execute(
-                "INSERT INTO sentinel_universe (permaticker, ticker, category,"
-                " related_tickers, first_price_date, snapshot_date)"
-                " VALUES (%s,%s,'Domestic Common Stock',NULL,%s,%s)",
-                (f"P{i:03d}", f"T{i:03d}", _sessions()[0], END.isoformat()))
-    conn.commit()
+    U.write_universe(
+        conn,
+        [{"permaticker": f"P{i:03d}", "ticker": f"T{i:03d}",
+          "category": "Domestic Common Stock",
+          "firstpricedate": _sessions()[0]}
+         for i in range(n_secs)],
+        END.isoformat())
 
 
 class TestTheWarmupBoundary:
@@ -197,6 +198,7 @@ class TestMetaIsReparsedOnRead:
                 "INSERT INTO sentinel_universe (permaticker, ticker,"
                 " related_tickers, snapshot_date) VALUES"
                 " ('PX','GOOG','GOOGL GOOG','2024-12-31')")
+        project_legacy_snapshot(conn, snapshot_date="2024-12-31")
         conn.commit()
         meta = L.load_meta(conn)
         assert meta["PX"].related_tickers == ("GOOG", "GOOGL")

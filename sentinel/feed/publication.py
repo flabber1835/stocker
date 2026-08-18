@@ -572,6 +572,13 @@ def publish(conn, *, run_id: Optional[str] = None,
             action_store.publish_run(conn, run_id=str(run_id))
             from sentinel.feed import anomalies as anomaly_store
             anomaly_store.publish_run(conn, run_id=str(run_id))
+            # CURRENT TICKERS is a derived read model, not another publication.
+            # Advance it INSIDE this transaction and before the publication row:
+            # if any later step fails, rollback restores the previous projection;
+            # if this succeeds, no reader can observe the new projection without
+            # the publication that made its raw rows authoritative.
+            from sentinel.feed.universe_projection import project_run
+            project_run(conn, run_id=str(run_id))
         else:
             retired_universe = {}
         previous = current(conn)

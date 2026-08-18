@@ -71,8 +71,8 @@ def load_window(conn, *, start: str, end: str) -> CorpusWindow:
     **Only PUBLISHED rows.** `visible_predicate` hides bars written by an ingest
     no corpus publication represents. Without it, an ingest that committed its
     rows and then failed to publish left the physical corpus AHEAD of its own
-    version number, so a decision would read those bars and stamp itself with
-    the PREVIOUS `data_version` — destroying the one thing that field exists for,
+    version number, so a decision would read those bars and stamp itself with the
+    PREVIOUS `data_version` — destroying the one thing that field exists for,
     which is telling a replay divergence apart from a data restatement. A corpus
     behind its version is detectable; one ahead of it is not.
 
@@ -123,24 +123,27 @@ def load_meta(conn) -> dict[str, SecurityMeta]:
     corpus written by an older, comma-only loader still produces correct issuer
     groups today — the GOOG/GOOGL defect cannot be reintroduced by stale rows.
 
-    Latest NON-NULL label across snapshots, never "newest snapshot only": a fresh
-    TICKERS pull writes NULLs that a later one backfills, so keying on the newest
-    snapshot goes blind the first time a sparse one lands.
+    `feed_universe_current` carries one row per historical ticker pairing, with
+    its latest non-null labels and listing envelope maintained transactionally at
+    publication. We still choose the latest non-null label ACROSS a security's
+    ticker pairings and retain MIN(first_price_date), but each label is ordered
+    by its own observation date. A ticker pair with a newer blank snapshot must
+    not outrank another pair's more recently observed category or issuer links.
+    The aggregation is bounded by identity cardinality rather than every dated
+    vendor snapshot.
     """
-    from sentinel.feed.publication import visible_predicate
-
     with conn.cursor() as cur:
         cur.execute(
             "SELECT permaticker,"
             " (ARRAY_REMOVE(ARRAY_AGG(ticker ORDER BY snapshot_date DESC),"
             "  NULL))[1] AS ticker,"
-            " (ARRAY_REMOVE(ARRAY_AGG(category ORDER BY snapshot_date DESC),"
-            "  NULL))[1] AS category,"
-            " (ARRAY_REMOVE(ARRAY_AGG(related_tickers ORDER BY snapshot_date"
-            "  DESC), NULL))[1] AS related_tickers,"
+            " (ARRAY_REMOVE(ARRAY_AGG(category ORDER BY"
+            "  category_snapshot_date DESC NULLS LAST), NULL))[1] AS category,"
+            " (ARRAY_REMOVE(ARRAY_AGG(related_tickers ORDER BY"
+            "  related_tickers_snapshot_date DESC NULLS LAST), NULL))[1]"
+            "  AS related_tickers,"
             " MIN(first_price_date) AS first_session"
-            " FROM sentinel_universe u WHERE permaticker IS NOT NULL"
-            f" AND {visible_predicate('u')}"
+            " FROM feed_universe_current WHERE permaticker IS NOT NULL"
             " GROUP BY permaticker")
         rows = cur.fetchall()
 
