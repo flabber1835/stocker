@@ -874,6 +874,70 @@ class AutonomousDeploy:
             raise DeployRefused("final status does not show current PAPER_OBSERVATION_ONLY authority")
         return second
 
+    def start_fenced_runtime(self) -> Mapping:
+        """Start the exact promoted runtime while durable trading fences stay on."""
+        self.phase("install: start exact promoted runtime in DEPLOYED/FENCED state")
+        before = self._automation_status()
+        if (before.get("enabled") is not False
+                or before.get("kill_switch_engaged") is not True):
+            raise DeployRefused(
+                "fenced runtime install requires disabled+killed automation")
+        self.runner.run(self._authorized_compose() + [
+            "--profile", "automation", "up", "-d", "sentinel-automation"])
+        after = self._automation_status()
+        if (after.get("enabled") is not False
+                or after.get("kill_switch_engaged") is not True):
+            raise DeployRefused(
+                "new runtime did not remain disabled+killed after install")
+        return after
+
+    def _persist_deploy_facts(self, updates: Mapping[str, str]) -> None:
+        update_dotenv(ENV_PATH, updates)
+
+    def _post_deploy_backup(self) -> Optional[str]:
+        self.runner.run(["bash", "scripts/sentinel-base-backup.sh"])
+        self.runner.run(["bash", "scripts/sentinel-backup-status.sh"])
+        return None
+
+    def persist_deployed(self, status: Mapping) -> None:
+        """Persist installation success independently of operational readiness."""
+        self.phase("finalize: persist immutable DEPLOYED facts while fenced")
+        if (status.get("enabled") is not False
+                or status.get("kill_switch_engaged") is not True):
+            raise DeployRefused(
+                "deployment receipt requires disabled+killed automation")
+        post_backup = self._post_deploy_backup()
+        self._persist_deploy_facts({
+            "SENTINEL_GIT_COMMIT": self.commit,
+            "SENTINEL_RUNTIME_IMAGE_REPOSITORY": self.cfg.runtime_repository,
+            "SENTINEL_RUNTIME_IMAGE_DIGEST": self.runtime_digest,
+            "SENTINEL_TEST_IMAGE_REPOSITORY": self.cfg.test_repository,
+            "SENTINEL_TEST_IMAGE_DIGEST": self.test_digest,
+        })
+        receipt = {
+            "schema": DEPLOY_SCHEMA,
+            "completed_at": _utc_text(_utcnow()),
+            "git_commit": self.commit,
+            "runtime_image": self.runtime_repo_digest,
+            "test_image": self.test_repo_digest,
+            "deployment_id": self.cfg.deployment_id,
+            "paper_account_id": self.cfg.account_id,
+            "deployment_state": "DEPLOYED",
+            "operational_state": "FENCED",
+            "automation_enabled": False,
+            "kill_switch_engaged": True,
+            "operational_ready": bool(status.get("operational_ready") is True),
+            "policy_state": status.get("policy_state"),
+            "active_certificate_sha256_at_install": status.get("certificate_sha256"),
+            "post_deploy_backup": post_backup,
+        }
+        path = self.attempt_dir / "deployment-receipt.json"
+        path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8")
+        print("\nDEPLOYMENT PASS: exact Sentinel runtime is installed and durably fenced")
+        print("operational state: FENCED (runtime readiness owns later progression)")
+        print("receipt: %s" % path)
+
     def persist_success(self, health: Mapping) -> None:
         self.phase("finalize: persist immutable deploy facts and post-deploy backup")
         update_dotenv(ENV_PATH, {
@@ -909,17 +973,15 @@ class AutonomousDeploy:
         print("receipt: %s" % path)
 
     def run(self) -> None:
+        # Deployment establishes software/schema identity and a safe writer fence.
+        # Operational readiness (data, broker, ownership, authority, plan, leader)
+        # is deliberately not part of this success boundary.
         self.git_preflight()
-        self.read_paper_account()
         self.build_promote()
         with self.transition():
             self.quiesce_backup_and_migrate()
-            self.refresh_data()
-            self.ensure_ownership()
-            certificate, session = self.rotate_observation_authority()
-            self.prepare_activate_start(certificate, session)
-            health = self.verify_operational(certificate)
-            self.persist_success(health)
+            status = self.start_fenced_runtime()
+            self.persist_deployed(status)
 
 
 def update_dotenv(path: Path, updates: Mapping[str, str]) -> None:
@@ -968,10 +1030,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         help="print the enforced deployment phases and exit without deployment")
     args = parser.parse_args(argv)
     if args.explain:
-        print("git ff-only -> account read -> build/test/push -> kill/stop -> "
-              "backup/restore -> schema -> daily/readiness -> ownership -> "
-              "signed certificate rotate -> prepare -> activate killed -> start -> "
-              "release -> heartbeat proof -> post-deploy backup")
+        print("git ff-only -> build/test/push -> kill/stop -> backup/restore -> "
+              "schema -> start exact runtime disabled+killed -> persist DEPLOYED/FENCED; "
+              "runtime later owns data/readiness and activation prerequisites")
         return 0
     try:
         env = merged_environment()

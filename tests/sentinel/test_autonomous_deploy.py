@@ -194,7 +194,8 @@ def test_run_build_failure_does_not_enter_fail_close(tmp_path):
         SimpleNamespace(), SimpleNamespace(env={}), tmp_path)
     events = []
     obj.git_preflight = lambda: events.append("git")
-    obj.read_paper_account = lambda: events.append("account")
+    obj.read_paper_account = lambda: pytest.fail(
+        "broker readiness must not be consulted for deployment success")
 
     def fail_build():
         events.append("build")
@@ -204,27 +205,28 @@ def test_run_build_failure_does_not_enter_fail_close(tmp_path):
     obj.fail_close = lambda: events.append("fenced")
     with pytest.raises(deploy.DeployRefused):
         obj.run()
-    assert events == ["git", "account", "build"]
+    assert events == ["git", "build"]
 
 
-def test_run_post_transition_failure_always_fail_closes(tmp_path):
+def test_run_post_transition_install_failure_always_fail_closes(tmp_path):
     obj = deploy.AutonomousDeploy(
         SimpleNamespace(), SimpleNamespace(env={}), tmp_path)
     events = []
     obj.git_preflight = lambda: events.append("git")
-    obj.read_paper_account = lambda: events.append("account")
+    obj.read_paper_account = lambda: pytest.fail(
+        "broker readiness is not a deployment gate")
     obj.build_promote = lambda: events.append("build")
     obj.quiesce_backup_and_migrate = lambda: events.append("quiesce")
 
-    def fail_refresh():
-        events.append("refresh")
-        raise deploy.DeployRefused("feed failed")
+    def fail_install():
+        events.append("install")
+        raise deploy.DeployRefused("runtime install failed")
 
-    obj.refresh_data = fail_refresh
+    obj.start_fenced_runtime = fail_install
     obj.fail_close = lambda: events.append("fenced")
     with pytest.raises(deploy.DeployRefused):
         obj.run()
-    assert events == ["git", "account", "build", "quiesce", "refresh", "fenced"]
+    assert events == ["git", "build", "quiesce", "install", "fenced"]
 
 
 def test_deployer_contains_no_destructive_reseed_or_account_migration_command():

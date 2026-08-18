@@ -197,9 +197,28 @@ def test_bootstrap_key_verifier_accepts_auto_only_after_active_root_proof(tmp_pa
     assert "requested in {'AUTO', actual}" in source
 
 
-def test_bootstrap_does_not_persist_discovered_facts_before_final_pass():
-    source = (SCRIPTS / "sentinel_autonomous_deploy_bootstrap.py").read_text(
-        encoding="utf-8")
-    assert "os.environ.update(env)" in source
-    assert source.index("post_backup = self._create_backup") < source.index(
-        "_safe_update_dotenv(core.ENV_PATH")
+def test_bootstrap_does_not_persist_discovered_facts_before_final_pass(tmp_path):
+    calls = []
+    cfg = SimpleNamespace(
+        deployment_id="sentinel-nas-paper-01",
+        account_id="PA3UVTMJYYGM",
+        runtime_repository="ghcr.io/example/sentinel",
+        test_repository="ghcr.io/example/sentinel-test",
+    )
+    obj = bootstrap.BootstrapDeploy(cfg, SimpleNamespace(env={}), tmp_path)
+    obj.commit = "a" * 40
+    obj.runtime_digest = "sha256:" + "1" * 64
+    obj.test_digest = "sha256:" + "2" * 64
+    obj.runtime_repo_digest = cfg.runtime_repository + "@" + obj.runtime_digest
+    obj.test_repo_digest = cfg.test_repository + "@" + obj.test_digest
+    obj._post_deploy_backup = lambda: calls.append("backup") or "/backups/final"
+    obj._persist_deploy_facts = lambda _updates: calls.append("persist")
+
+    obj.persist_deployed({
+        "enabled": False,
+        "kill_switch_engaged": True,
+        "operational_ready": False,
+        "policy_state": "INERT",
+    })
+
+    assert calls == ["backup", "persist"]

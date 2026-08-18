@@ -364,6 +364,12 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
             raise core.DeployRefused(
                 "automation did not reach disabled+killed deployment state")
 
+    def _persist_deploy_facts(self, updates: Mapping[str, str]) -> None:
+        _safe_update_dotenv(core.ENV_PATH, updates)
+
+    def _post_deploy_backup(self) -> str:
+        return self._create_backup(restore_drill=False)
+
     def persist_success(self, health: Mapping) -> None:
         self.phase("finalize: post-deploy backup, persist facts, and retain receipt")
         post_backup = self._create_backup(restore_drill=False)
@@ -443,8 +449,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.explain:
         print(
             "discover existing durable identity -> git/build/test/push -> "
-            "kill/backup/schema/data -> certificate/key rotation -> plan -> "
-            "activate killed -> start -> release -> heartbeat proof")
+            "kill/backup/schema -> start exact runtime disabled+killed -> "
+            "persist DEPLOYED/FENCED; runtime owns later readiness progression")
         return 0
     try:
         env = discover(core.merged_environment())

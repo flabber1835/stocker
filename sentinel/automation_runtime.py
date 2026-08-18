@@ -8,9 +8,10 @@ handover or migration.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Mapping
 from zoneinfo import ZoneInfo
@@ -129,6 +130,11 @@ class ProductionAutomation:
         # inject only an already-constructed typed adapter; there is no
         # environment import-string loader that can execute arbitrary code.
         self.alert_adapter = alert_adapter or outbox.LogAlertAdapter()
+        # Fenced installs may advance only the canonical corpus path. The timer
+        # is deliberately process-local: restart may cause one extra safe probe,
+        # never broker authority or a duplicate trading command.
+        self._fenced_data_next_wake: datetime | None = None
+        self._fenced_data_poll_seconds = 300
         self.service = AutomationService(
             config=automation_config, holder_id=self.holder_id,
             refresh=self.refresh, prepare=self.prepare,
@@ -655,12 +661,74 @@ class ProductionAutomation:
             row = cur.fetchone()
         return row[0] if row and row[0] is not None else None
 
+    async def _fenced_data_wake(self, conn):
+        """Advance canonical Sharadar readiness while broker mutation is fenced.
+
+        This path intentionally has no CycleContext, leader permit, broker, plan,
+        or execution grant. It can only call the same ingest.daily/publication/
+        readiness path used by active automation. Vendor lag and corpus refusal
+        are retained as alerts and retried; they never release the kill switch.
+        """
+        now = datetime.now(timezone.utc)
+        if (self._fenced_data_next_wake is not None
+                and now < self._fenced_data_next_wake):
+            return self._fenced_data_next_wake
+        next_wake = now + timedelta(seconds=self._fenced_data_poll_seconds)
+        self._fenced_data_next_wake = next_wake
+        target = schedule.for_clock(now, self.automation_config).decision_session.isoformat()
+        try:
+            feed_store.require_feed_schema(conn)
+            schema.require_runtime_schema(conn)
+            visible = feed_store.latest_visible_session(conn)
+            if visible != target:
+                ingest.daily(conn, today=target)
+                visible = feed_store.latest_visible_session(conn)
+            report = readiness.check_readiness(
+                conn, today=now.astimezone(
+                    ZoneInfo(calendar.EXCHANGE_TZ)).isoformat())
+            if visible != target or not report.ready:
+                raise RuntimeError(
+                    "fenced data progression has not reached exact ready frontier "
+                    f"{target}; visible={visible!r}")
+        except Exception as exc:                              # noqa: BLE001
+            conn.rollback()
+            detail = f"{type(exc).__name__}: {exc}"[:4000]
+            digest = hashlib.sha256(detail.encode("utf-8")).hexdigest()[:16]
+            outbox.enqueue(
+                conn,
+                idempotency_key=f"fenced-data:{target}:not-ready:{digest}",
+                event_type="AUTOMATION_FENCED_DATA_NOT_READY",
+                severity="WARN",
+                payload={
+                    "decision_session": target,
+                    "state": "DEPLOYED_FENCED",
+                    "readiness": "DATA_NOT_READY",
+                    "detail": detail,
+                },
+                max_attempts=self.automation_config.alert_max_attempts)
+            return next_wake
+        outbox.enqueue(
+            conn,
+            idempotency_key=f"fenced-data:{target}:ready",
+            event_type="AUTOMATION_FENCED_DATA_READY",
+            severity="WARN",
+            payload={
+                "decision_session": target,
+                "state": "DEPLOYED_FENCED",
+                "readiness": "DATA_READY",
+                "frontier": target,
+            },
+            max_attempts=self.automation_config.alert_max_attempts)
+        return next_wake
+
     async def control_wake(self, conn):
         """Refresh durable authority truth while no broker callback is due."""
         from sentinel.automation.model import LeaderPermit
 
         control = store.load_control(conn)
         if not control.enabled or control.kill_switch_engaged:
+            if not control.enabled and control.kill_switch_engaged:
+                return await self._fenced_data_wake(conn)
             return None
         with conn.cursor() as cur:
             cur.execute(
