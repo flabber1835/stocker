@@ -24,7 +24,9 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
          resolve_identity=None):
     """Seed through a stable ACTIONS snapshot and stable latest SEP generation."""
     with _impl.feed_store.corpus_write_lock(conn):
-        resolved_to = date_to or _impl._today()
+        # Use the re-exported seam rather than _impl._today directly so focused
+        # tests/operators that replace ingest._today keep the pre-facade behavior.
+        resolved_to = date_to or _today()
         chunks = sharadar.year_chunks(date_from, resolved_to)
         final_hi = chunks[-1][1]
         guarded = authority.StableSharadarFetch(
