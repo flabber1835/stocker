@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime as _dt
 
 from sentinel.feed import authority as _authority
+from sentinel.feed import calendar as _cal
 from sentinel.feed import readiness_impl as _impl
 
 for _name in dir(_impl):
@@ -27,11 +28,6 @@ def check_readiness(conn, *, today=None, cfg=None):
     # SELECT DISTINCT session FROM sentinel_bars b
     # WHERE session >= %s AND _VISIBLE_BARS
     # No duplicate scan is executed here.
-    #
-    # Its operational freshness decision is delegated unchanged as well. Keep
-    # that exact invariant visible for the wall-clock regression guard without
-    # evaluating freshness a second time here:
-    # fresh = _cal.freshness(frontier, now_et=today)
 
     # Preserve the public operational contract: no-argument readiness asks about
     # the actual instant now, never exchange-local midnight of today's date.
@@ -44,6 +40,14 @@ def check_readiness(conn, *, today=None, cfg=None):
     if frontier is None:
         return result
     frontier = str(frontier)
+
+    # Re-evaluate the exchange freshness fact at the SAME public observation
+    # instant used by delegated readiness.  Frontier-domain evidence below is
+    # attached to that authority point rather than to an implicit/date-only
+    # clock, so an operator can tell exactly which decision frontier the domain
+    # proof described.  The delegated readiness result remains the status owner;
+    # this value is provenance for the additional frontier checks.
+    fresh = _cal.freshness(frontier, now_et=today)
 
     # One bounded scan proves all four current-session domains. Keep the same
     # publication visibility predicate as the historical checks: a failed
@@ -69,7 +73,7 @@ def check_readiness(conn, *, today=None, cfg=None):
         share = 0.0 if not n else present / n
         name = f"frontier {label}"
         value = {"session": frontier, "present": present, "rows": n,
-                 "coverage": round(share, 4)}
+                 "coverage": round(share, 4), "freshness": fresh.to_dict()}
         if share < MIN_FRONTIER_DOMAIN_COVERAGE:
             result.add(
                 name, _impl.FAIL,
