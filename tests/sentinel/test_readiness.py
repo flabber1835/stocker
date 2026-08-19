@@ -19,7 +19,10 @@ sys.path.insert(0, str(ROOT / "shared"))
 
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
+from sentinel.feed import maintenance as M  # noqa: E402
+from sentinel.feed import publication as P  # noqa: E402
 from sentinel.feed import readiness as R  # noqa: E402
+from sentinel.feed import sharadar  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
 from sentinel.feed import universe as U  # noqa: E402
 from sentinel.feed.domains import NormalisedBar  # noqa: E402
@@ -72,7 +75,8 @@ def sessions(n, end=TODAY):
 
 def load(conn, n_sessions=300, *, open_=99.0, volume=1e6, actions=True,
          universe=True, related="BBB", n_secs=2, signal_missing=False):
-    for s in sessions(n_sessions):
+    session_axis = sessions(n_sessions)
+    for s in session_axis:
         bars = [NormalisedBar(
                     close_signal=None if signal_missing else 50.0,
                     vendor=VendorBar(session=s, security_id=f"P{i}",
@@ -86,11 +90,7 @@ def load(conn, n_sessions=300, *, open_=99.0, volume=1e6, actions=True,
             "INSERT INTO sentinel_spy_total_return (session, closeadj)"
             " VALUES (%s, 100) ON CONFLICT (session) DO UPDATE SET closeadj=100",
             [(session,) for session in
-             sessions(n_sessions)[-R.REQUIRED_SPY_SESSIONS:]])
-        if actions:
-            cur.execute(
-                "INSERT INTO sentinel_actions (ticker, session, action)"
-                " VALUES ('T0', %s, 'split')", (sessions(n_sessions)[-5],))
+             session_axis[-R.REQUIRED_SPY_SESSIONS:]])
     conn.commit()
     if universe:
         # Use the real writer: NULL-provenance rows are immediately readable and
@@ -101,6 +101,35 @@ def load(conn, n_sessions=300, *, open_=99.0, volume=1e6, actions=True,
               "relatedtickers": related}
              for i in range(n_secs)],
             TODAY)
+
+    # A healthy test corpus must now carry the same independent source authority
+    # that production readiness requires.  Use a non-economic `listed` event so
+    # the ACTIONS checkpoint is real without rewriting any synthetic bar.  The
+    # actions=False cases keep the complete source globally non-empty but place
+    # its only event in 1900, preserving the intended "no recent actions" fault.
+    action_rows = ([{
+        "ticker": "T0", "date": session_axis[-5], "action": "listed",
+        "value": None, "contraticker": None,
+    }] if actions else [{
+        "ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
+        "action": "listed", "value": None, "contraticker": None,
+    }])
+
+    def source(table, params=None, **_kw):
+        if table != sharadar.ACTIONS:
+            return []
+        params = dict(params or {})
+        lo = params.get("date.gte", "0000-00-00")
+        hi = params.get("date.lte", "9999-99-99")
+        return [row for row in action_rows if lo <= row["date"] <= hi]
+
+    with S.corpus_write_lock(conn):
+        M.reconcile_actions_if_due(
+            conn, fetch=source, through=TODAY, force=True)
+    published = P.require_current(conn)
+    M.establish_sep_cursor_after_complete_reconciliation(
+        conn, through=dt.date.fromisoformat(TODAY),
+        publication_version=published.version)
 
 
 def by_name(result):
@@ -258,7 +287,7 @@ class TestContinuityIsCheckedAgainstACALENDAR:
 
     Measured 2026-08-09, before the fix: a 300-session corpus with one session
     deleted from the middle returned 299 distinct sessions, `continuity: PASS —
-    "252 consecutive sessions available"`, and `ready: True`.
+    252 consecutive sessions available`, and `ready: True`.
 
     A count cannot express consecutiveness, and the corpus cannot witness its
     own gaps: if a session is missing, nothing in the corpus knows it should
@@ -366,4 +395,3 @@ class TestContinuityIsCheckedAgainstACALENDAR:
         # A pure-unit assertion on the branch: the readiness helper turns the
         # exception into a FAILURE, never a PASS.
         assert C.CalendarUnavailable is not None
-
