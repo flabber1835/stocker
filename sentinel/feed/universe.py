@@ -242,7 +242,12 @@ _UNIVERSE_UPSERT = """
 
 def write_universe(conn, rows: Sequence[Mapping], snapshot_date: str, *,
                    run_id=None) -> int:
-    """Store a TICKERS snapshot.
+    """Store the SEP partition of a TICKERS snapshot.
+
+    Production coherence already returns only `table=SEP`; this writer repeats
+    the partition boundary so a future/bypass caller cannot let SF1/SF2/SFP
+    metadata sharing the same identity overwrite strategy authority. Legacy test
+    and migration rows without a `table` field remain accepted.
 
     `related_tickers` is stored SPACE-JOINED from the parsed tuple, matching how
     bt-data stores it — so the round trip is stable and a reader that splits on
@@ -258,6 +263,9 @@ def write_universe(conn, rows: Sequence[Mapping], snapshot_date: str, *,
     """
     payload = []
     for r in rows:
+        source_table = str(r.get("table") or "").strip().upper()
+        if source_table and source_table != "SEP":
+            continue
         pt, tk = r.get("permaticker"), r.get("ticker")
         if not pt or not tk:
             continue
