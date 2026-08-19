@@ -50,7 +50,8 @@ sys.path.insert(0, str(ROOT / "shared"))
 
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
-from sentinel.feed import domains, ingest, maintenance, publication, repair, sharadar  # noqa: E402
+from sentinel.feed import (domains, ingest, maintenance, publication, repair,
+                           sharadar, universe)  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
 
 
@@ -225,14 +226,16 @@ def conn(pg):
 
 
 def put_bar(conn, sid, session, ticker, close, raw, ratio=1.0):
+    raw_open = round(49.0 * (raw / close), 6)
+    stored_volume = domains.raw_compatible_volume(close, raw, 1_000_000)
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_bars (security_id, session, ticker,"
-            " close_signal, close_unadjusted, split_ratio)"
-            " VALUES (%s,%s,%s,%s,%s,%s)"
+            " close_signal, close_unadjusted, open_unadjusted, volume, split_ratio)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)"
             " ON CONFLICT (security_id, session) DO UPDATE SET"
             " split_ratio = EXCLUDED.split_ratio",
-            (sid, session, ticker, close, raw, ratio))
+            (sid, session, ticker, close, raw, raw_open, stored_volume, ratio))
     conn.commit()
 
 
@@ -315,6 +318,11 @@ class TestTheDailyOverlapNoLongerCorrupts:
         put_bar(conn, "P-AAA", "2021-01-08", "AAA", 50.0, 100.0)
         put_bar(conn, "P-AAA", "2021-01-11", "AAA", 50.0, 50.0, ratio=2.0)
         put_bar(conn, "P-AAA", "2021-01-20", "AAA", 50.0, 50.0)
+        universe.write_universe(
+            conn,
+            [{"permaticker": "P-AAA", "ticker": "AAA",
+              "firstpricedate": "2021-01-08", "lastpricedate": "2021-01-20"}],
+            "2021-01-20")
         published = publication.publish(
             conn, window_start="2021-01-08", window_end="2021-01-20")
         maintenance.establish_sep_cursor_after_complete_reconciliation(
