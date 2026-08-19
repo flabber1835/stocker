@@ -6,27 +6,24 @@ useful distinction only if restart understands the intermediate state. Issue
 could remain invisible forever while later daily windows marched forward from a
 physical frontier the reader was not allowed to see.
 
-This module gives that state one supported meaning: VALIDATED, PENDING
-PUBLICATION. Startup under the corpus writer lock either completes that exact
-publication or refuses before a newer candidate can be opened. Failed/running
-candidates are never promoted here.
-
-Failed candidates need ordering too. A failed ordinary daily generation owns
-recent TICKERS/SEP/SFP rows that only another complete daily retry can
-supersede. A failed historical SEP/ACTIONS maintenance generation may own old
-bar keys that only the corresponding maintenance retry will revisit. Exposing
-that one live failed owner lets the facade retry the operation that can actually
-supersede it instead of accidentally opening a different candidate whose
-publication is guaranteed to deadlock on the old owner.
+Normal restart has one cheap convergence rule: exactly one validated SUCCESS
+candidate is publication-pending and may be published; one failed live candidate
+is retried by the operation that can supersede its exact rows. Older deployments
+can already contain several overlapping unpublished candidates, however. Their
+ordering cannot be reconstructed safely. For that legacy state the supported
+recovery is a complete, source-stable reseed: retire the non-authoritative
+candidates, refetch the whole affected history, and let one new generation become
+authority. No candidate is promoted by guess and no published history is retired.
 """
 from __future__ import annotations
 
+import datetime as _dt
 from dataclasses import dataclass
 from typing import Optional
 
 
 class PublicationRecoveryRefused(RuntimeError):
-    """Durable candidate state is ambiguous and cannot be repaired by guessing."""
+    """Durable candidate state cannot be recovered without stronger evidence."""
 
 
 @dataclass(frozen=True)
@@ -46,11 +43,29 @@ class PendingPublication:
 
 
 @dataclass(frozen=True)
+class LiveCandidate:
+    """One unpublished ingest run that still owns authority-bearing candidate rows."""
+
+    run_id: str
+    kind: str
+    status: str
+
+
+@dataclass(frozen=True)
 class FailedLiveCandidate:
     """One failed run that still physically owns unpublished corpus rows."""
 
     run_id: str
     kind: str
+
+
+@dataclass(frozen=True)
+class FullReseedPlan:
+    """Durable retirement decision for a legacy ambiguous candidate set."""
+
+    date_from: str
+    date_to: str
+    retired_run_ids: tuple[str, ...]
 
 
 def pending_validated(conn) -> list[PendingPublication]:
@@ -73,15 +88,8 @@ def pending_validated(conn) -> list[PendingPublication]:
         rows_written=int(r[6]), rows_dropped=int(r[7])) for r in rows]
 
 
-def failed_live_candidates(conn) -> list[FailedLiveCandidate]:
-    """Return failed runs that still own rows blocking a future publication.
-
-    The publication coherence scan is intentionally the source of membership:
-    an old failed ``feed_ingest_runs`` row with no live candidate rows is audit
-    history, not work that must be retried. After ``reclaim_orphans`` and
-    ``resume_pending_publication`` have run, every live unpublished owner must be
-    FAILED. Any other status is an impossible lifecycle and is refused here.
-    """
+def live_candidates(conn) -> list[LiveCandidate]:
+    """Unpublished runs that still own rows capable of blocking publication."""
     from sentinel.feed import publication
 
     report = publication.coherence(conn)
@@ -101,16 +109,27 @@ def failed_live_candidates(conn) -> list[FailedLiveCandidate]:
     if missing:
         raise PublicationRecoveryRefused(
             f"unpublished live corpus owner(s) {missing} have no ingest lifecycle "
-            "row; refusing to guess recovery ordering")
+            "row; this is durable corruption, not a process-crash state")
+    return [LiveCandidate(run_id=run_id, kind=found[run_id][0],
+                          status=found[run_id][1])
+            for run_id in sorted(run_ids)]
 
+
+def failed_live_candidates(conn) -> list[FailedLiveCandidate]:
+    """Return failed runs that still own rows blocking a future publication.
+
+    After ordinary startup recovery every live unpublished owner must be FAILED.
+    Any other status means the caller is using the wrong recovery transition.
+    """
     out: list[FailedLiveCandidate] = []
-    for run_id in run_ids:
-        kind, status = found[run_id]
-        if status != "failed":
+    for candidate in live_candidates(conn):
+        if candidate.status != "failed":
             raise PublicationRecoveryRefused(
-                f"unpublished live corpus owner {run_id} has status {status!r} "
-                "after startup recovery; expected only failed candidates")
-        out.append(FailedLiveCandidate(run_id=run_id, kind=kind))
+                f"unpublished live corpus owner {candidate.run_id} has status "
+                f"{candidate.status!r} after startup recovery; expected only "
+                "failed candidates")
+        out.append(FailedLiveCandidate(
+            run_id=candidate.run_id, kind=candidate.kind))
     return out
 
 
@@ -150,12 +169,11 @@ def require_published(conn, run_id: str):
 def resume_pending_publication(conn):
     """Publish one validated candidate left by a process death, if present.
 
-    Must be called while the caller owns ``store.corpus_write_lock``. More than
-    one validated-unpublished run is refused rather than ordered heuristically:
-    older and newer in-place candidates may overlap, and choosing which one is
-    authoritative without a complete coverage proof would turn recovery into a
-    data repair by guess. Once this code is deployed, the pre-run recovery gate
-    prevents that state from accumulating in normal operation.
+    More than one validated-unpublished run is intentionally not ordered here:
+    in-place candidates may overlap and a timestamp is not source authority. A
+    caller performing a complete source-stable seed can instead invoke
+    :func:`prepare_full_reseed`, which retires the entire non-authoritative set
+    only because the replacement fetch will cover it completely.
     """
     from sentinel.feed import publication
     from sentinel.feed.store import _assert_corpus_locked
@@ -168,8 +186,8 @@ def resume_pending_publication(conn):
         raise PublicationRecoveryRefused(
             f"{len(candidates)} validated-success ingest runs are unpublished: "
             f"{[c.run_id for c in candidates]}. Their coverage ordering is "
-            "ambiguous; refusing to invent a publication sequence. Run the "
-            "explicit complete reconciliation/recovery procedure.")
+            "ambiguous; use the supported complete feed-seed recovery, which "
+            "refetches source authority instead of guessing a publication order.")
     candidate = candidates[0]
     if not candidate.complete:
         raise PublicationRecoveryRefused(
@@ -177,11 +195,6 @@ def resume_pending_publication(conn):
             f"{candidate.chunks_done}/{candidate.chunks_total} chunks; this is "
             "an impossible durable state and cannot be auto-published")
 
-    # The existing publication path independently proves that no older
-    # unpublished owner survives, activates ACTIONS/anomalies/universe in the
-    # same transaction, and advances the explicit version chain. If the process
-    # died *during* publication, PostgreSQL either committed that row (in which
-    # case it is absent from candidates above) or rolled the transaction back.
     published = publication.publish(
         conn, run_id=candidate.run_id,
         window_start=candidate.date_from,
@@ -196,16 +209,198 @@ def resume_pending_publication(conn):
     return published
 
 
-def extended_overlap_days(conn, requested: int) -> int:
-    """Make a retry cover failed physical rows back to published authority.
+def _candidate_session_bounds(conn, run_ids: tuple[str, ...]
+                              ) -> tuple[str | None, str | None]:
+    """Physical date bounds a complete reseed must cover to replace candidates."""
+    if not run_ids:
+        return None, None
+    lows: list[str] = []
+    highs: list[str] = []
+    for table, column in (
+        ("sentinel_bars", "session"),
+        ("sentinel_spy_total_return", "session"),
+        ("sentinel_actions", "session"),
+    ):
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT MIN({column}),MAX({column}) FROM {table}"
+                " WHERE last_written_run_id=ANY(%s::uuid[])",
+                (list(run_ids),))
+            lo, hi = cur.fetchone()
+        if lo is not None:
+            lows.append(str(lo))
+        if hi is not None:
+            highs.append(str(hi))
+    return (min(lows) if lows else None, max(highs) if highs else None)
 
-    ``ingest_impl`` intentionally uses the physical frontier to make ordinary
-    retries cheap. After a failed candidate, however, that frontier can be days
-    ahead of what readers may see. Expanding the overlap by exactly that gap
-    makes the new complete daily generation rewrite/supersede every potentially
-    stranded leading-edge key before publication.
+
+def prepare_full_reseed(conn, *, date_from: str, date_to: str) -> FullReseedPlan:
+    """Retire ambiguous *unpublished* candidates before a complete stable reseed.
+
+    This is the supported upgrade/recovery path for a database that accumulated
+    several candidates before #108 recovery existed. It never publishes any of
+    them. SUCCESS merely meant validation completed; with several overlapping
+    in-place generations, no local timestamp proves which bytes form one coherent
+    snapshot. A complete source-stable refetch is stronger evidence, so those
+    candidates may be durably classified FAILED/ABORTED and superseded by it.
+
+    The returned range is widened to cover every destructive candidate row. Rows
+    are *not deleted here*: until the replacement seed has written a stable chunk,
+    they remain coherence blockers, so a crash between retirement and reseed
+    cannot accidentally make the damaged previous publication look READY.
     """
-    import datetime as dt
+    from sentinel.feed import actions as action_store
+    from sentinel.feed import anomalies as anomaly_store
+    from sentinel.feed.store import _assert_corpus_locked
+
+    _assert_corpus_locked(conn)
+    requested_lo = _dt.date.fromisoformat(str(date_from))
+    requested_hi = _dt.date.fromisoformat(str(date_to))
+    if requested_lo > requested_hi:
+        raise ValueError(f"reversed full-reseed range: {requested_lo} > {requested_hi}")
+
+    pending = pending_validated(conn)
+    live = live_candidates(conn)
+    run_ids = tuple(sorted(
+        {candidate.run_id for candidate in pending}
+        | {candidate.run_id for candidate in live}))
+    if not run_ids:
+        return FullReseedPlan(
+            requested_lo.isoformat(), requested_hi.isoformat(), ())
+
+    invalid = [candidate for candidate in live
+               if candidate.status not in ("failed", "success")]
+    if invalid:
+        raise PublicationRecoveryRefused(
+            "full reseed found a live candidate outside a terminal recoverable "
+            f"state: {[(c.run_id, c.status) for c in invalid]}")
+
+    physical_lo, physical_hi = _candidate_session_bounds(conn, run_ids)
+    lo = min(requested_lo,
+             _dt.date.fromisoformat(physical_lo) if physical_lo else requested_lo)
+    hi = max(requested_hi,
+             _dt.date.fromisoformat(physical_hi) if physical_hi else requested_hi)
+    today = _dt.date.today()
+    if hi > today:
+        raise PublicationRecoveryRefused(
+            f"unpublished candidate data reaches future date {hi}; a process "
+            "crash cannot justify source authority beyond today and full reseed "
+            "will not erase it by guess")
+
+    reason = (
+        "FULL_RESEED_RECOVERY: ambiguous legacy unpublished candidate retired; "
+        f"complete source-stable replacement range {lo}..{hi}")
+    placeholders = ",".join(["%s"] * len(run_ids))
+    with conn.cursor() as cur:
+        # Published history is excluded again in SQL even though the candidate
+        # enumeration already did so. The second proof makes this mutation safe
+        # against a future refactor of the enumerator.
+        cur.execute(
+            "UPDATE feed_ingest_runs r SET status='failed',"
+            " completed_at=COALESCE(completed_at,NOW()), updated_at=NOW(),"
+            " error_message=%s"
+            f" WHERE r.run_id IN ({placeholders}) AND r.status='success'"
+            "   AND NOT EXISTS (SELECT 1 FROM sentinel_corpus_publications p"
+            "                   WHERE p.run_id=r.run_id)",
+            (reason, *run_ids))
+    for run_id in run_ids:
+        action_store.abort_run(
+            conn, run_id=run_id, actor_run_id=run_id, reason=reason)
+        anomaly_store.abort_run(
+            conn, run_id=run_id, actor_run_id=run_id, reason=reason)
+    conn.commit()
+    return FullReseedPlan(lo.isoformat(), hi.isoformat(), run_ids)
+
+
+def retire_failed_bars_in_stable_seed_window(
+        conn, *, run_id: str, start: str, end: str) -> int:
+    """Remove residual old candidate bars only after this source window is stable.
+
+    A row from the current source is already owned by ``run_id`` because the bar
+    upsert deliberately takes ownership from an unpublished predecessor even when
+    values are identical. Anything still owned by an older FAILED run after the
+    complete stable window was replayed is therefore a row the current source no
+    longer contains (or no longer normalizes safely). Deleting it is an observed
+    absence, not a guessed repair.
+
+    This helper is called after each successful seed year. The new seed already
+    owns thousands of candidate bars at that point, so coherence remains blocked
+    if the process dies after this delete and before final publication.
+    """
+    from sentinel.feed.store import _assert_corpus_locked
+
+    _assert_corpus_locked(conn)
+    writer = str(run_id)
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM sentinel_bars b USING feed_ingest_runs r"
+            " WHERE b.last_written_run_id=r.run_id"
+            "   AND b.last_written_run_id<>%s"
+            "   AND r.status='failed'"
+            "   AND b.session BETWEEN %s AND %s"
+            "   AND NOT EXISTS (SELECT 1 FROM sentinel_corpus_publications p"
+            "                   WHERE p.run_id=b.last_written_run_id)",
+            (writer, str(start), str(end)))
+        deleted = int(cur.rowcount)
+    conn.commit()
+    return deleted
+
+
+def retire_failed_nonbar_rows_after_full_seed(
+        conn, *, run_id: str, start: str, end: str) -> dict[str, int]:
+    """Retire residual destructive SPY/legacy-ACTIONS rows covered by full seed.
+
+    TICKERS candidates are retired transactionally by publication itself.
+    ACTIONS observations/anomalies were classified ABORTED before the reseed and
+    remain immutable history. Failed split-repair generations are ignored by the
+    effective overlay. The only remaining destructive families are therefore the
+    dedicated SPY table and pre-generation legacy ACTIONS rows.
+    """
+    from sentinel.feed.store import _assert_corpus_locked
+
+    _assert_corpus_locked(conn)
+    writer = str(run_id)
+    counts: dict[str, int] = {}
+    for table in ("sentinel_spy_total_return", "sentinel_actions"):
+        with conn.cursor() as cur:
+            cur.execute(
+                f"DELETE FROM {table} t USING feed_ingest_runs r"
+                " WHERE t.last_written_run_id=r.run_id"
+                "   AND t.last_written_run_id<>%s"
+                "   AND r.status='failed'"
+                "   AND t.session BETWEEN %s AND %s"
+                "   AND NOT EXISTS (SELECT 1 FROM sentinel_corpus_publications p"
+                "                   WHERE p.run_id=t.last_written_run_id)",
+                (writer, str(start), str(end)))
+            counts[table] = int(cur.rowcount)
+    conn.commit()
+    return counts
+
+
+def assert_full_reseed_covered_live_rows(
+        conn, *, run_id: str, start: str, end: str) -> None:
+    """Refuse publication if an older live candidate lies outside reseed scope."""
+    writer = str(run_id)
+    for table in ("sentinel_bars", "sentinel_spy_total_return", "sentinel_actions"):
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT COUNT(*),MIN(t.session),MAX(t.session) FROM {table} t"
+                " JOIN feed_ingest_runs r ON r.run_id=t.last_written_run_id"
+                " WHERE t.last_written_run_id<>%s AND r.status='failed'"
+                "   AND NOT EXISTS (SELECT 1 FROM sentinel_corpus_publications p"
+                "                   WHERE p.run_id=t.last_written_run_id)"
+                "   AND (t.session<%s OR t.session>%s)",
+                (writer, str(start), str(end)))
+            count, lo, hi = cur.fetchone()
+        if int(count or 0):
+            raise PublicationRecoveryRefused(
+                f"full reseed {writer} did not cover {count} residual {table} "
+                f"candidate row(s) at {lo}..{hi} outside {start}..{end}; "
+                "refusing to delete or publish partial recovery")
+
+
+def extended_overlap_days(conn, requested: int) -> int:
+    """Make a retry cover failed physical rows back to published authority."""
     from sentinel.feed import store
 
     requested = int(requested)
@@ -215,15 +410,19 @@ def extended_overlap_days(conn, requested: int) -> int:
     visible = store.latest_visible_session(conn)
     if physical is None or visible is None:
         return requested
-    p = dt.date.fromisoformat(str(physical))
-    v = dt.date.fromisoformat(str(visible))
+    p = _dt.date.fromisoformat(str(physical))
+    v = _dt.date.fromisoformat(str(visible))
     if p <= v:
         return requested
     return requested + (p - v).days
 
 
 __all__ = [
-    "FailedLiveCandidate", "PendingPublication", "PublicationRecoveryRefused",
-    "extended_overlap_days", "failed_live_candidates", "pending_validated",
-    "require_published", "resume_pending_publication",
+    "FailedLiveCandidate", "FullReseedPlan", "LiveCandidate",
+    "PendingPublication", "PublicationRecoveryRefused",
+    "assert_full_reseed_covered_live_rows", "extended_overlap_days",
+    "failed_live_candidates", "live_candidates", "pending_validated",
+    "prepare_full_reseed", "require_published",
+    "resume_pending_publication", "retire_failed_bars_in_stable_seed_window",
+    "retire_failed_nonbar_rows_after_full_seed",
 ]
