@@ -123,29 +123,98 @@ For additional context, 2022 improves modestly under corrected liquidity in this
 replay: calendar return changes from -11.16% to -9.09% and calendar max drawdown
 from -14.22% to -12.30%.
 
-## Direct architecture controls on the corrected shadow
+## Corrected architecture controls
 
-As a partial champion-selection check, the same corrected Wealth Core shadow was
-run through the current Sentinel 1.1 controller, its immediate Sentinel 1.0
-parent, and no controller at all. Parent NAV is reconstructed with the same
-next-open allocation-change accounting and BIL sleeve as Sentinel 1.1.
+The same corrected Wealth Core shadow was run through the current Sentinel 1.1
+controller, its immediate Sentinel 1.0 parent, the retained binary/systemic
+finalists that are reproducible from source, and no controller. Every scalar
+controller uses the same next-open allocation-change accounting and BIL sleeve.
 
 | Corrected architecture | 20y CAGR | Max DD | Sharpe | Ending multiple |
 |---|---:|---:|---:|---:|
-| Sentinel 1.1 current | **20.2884%** | **-39.9295%** | **1.0565** | **40.2258x** |
+| Sentinel 1.1 current | **20.2884%** | -39.9295% | **1.0565** | **40.2258x** |
 | Sentinel 1.0 parent | 20.2367% | -39.9295% | 1.0464 | 39.8817x |
 | Wealth Core shadow | 18.3971% | -42.9168% | 0.9168 | 29.2991x |
+| Systemic confirmation | 17.4563% | -36.3745% | 0.9618 | 24.9780x |
+| Systemic override | 17.2269% | -36.3745% | 0.9605 | 24.0199x |
+| Binary 15.5% -> 40% Core | 17.1689% | -35.2428% | 0.9273 | 23.7833x |
+| Binary 15.5% -> 25% Core | 16.8080% | -36.6402% | 0.9191 | 22.3603x |
 
-So the corrected current strategy remains ahead of both its direct parent and
-unprotected Wealth Core on CAGR and Sharpe in this independent replay. The 1.1
-increment over its parent is small, consistent with the prior research finding
-that the recovery ramp is mainly a tail-shaping rule rather than independently
-proven return alpha.
+The corrected current strategy remains ahead of every reproducible retained
+finalist on full-sample CAGR and Sharpe. The 1.1 increment over its direct parent
+is small, consistent with the prior research finding that the recovery ramp is
+mainly a tail-shaping rule rather than independently proven return alpha.
 
-This three-path check is **not** the full retained eight-architecture CSCV
-selection process. It narrows the risk that the correction trivially dethroned
-1.1 in favor of its parent or plain Wealth Core, but the full finalist rerun is
-still required before making the stronger champion claim.
+## Reproducible-finalist CSCV champion check
+
+The retained major architecture selection used 16 contiguous blocks and every
+8-of-16 train/test split: 12,870 symmetric CSCV comparisons. The exact
+position-level priority function used by the eighth historical finalist, the
+Selective Survivor Firewall, is explicitly documented in this repository as
+**unrecovered**. Sentinel 1.1 does not consume that priority; the old firewall
+did, so inventing it merely to complete an eight-column matrix would violate the
+repository's fail-closed provenance rule.
+
+Accordingly this check reruns the original block/split procedure over the seven
+finalists whose decision rules are reproducible from retained source:
+
+```text
+Sentinel 1.1
+Sentinel 1.0 parent
+Wealth Core
+systemic confirmation
+systemic override
+binary 25% floor
+binary 40% floor
+```
+
+Selection is highest in-sample daily Sharpe on each 8-block training half. The
+PBO diagnostic counts a selected in-sample winner as overfit when its test-half
+Sharpe rank falls below the median of the candidate set.
+
+### Old-tape control
+
+| Strategy | CSCV train wins | Share |
+|---|---:|---:|
+| Sentinel 1.1 | 10,363 | 80.52% |
+| Sentinel 1.0 parent | 2,463 | 19.14% |
+| Wealth Core | 44 | 0.34% |
+| all four other reproducible finalists | 0 | 0.00% |
+
+Reduced-set PBO: 54 / 12,870 = **0.420%**.
+
+This is a useful control because it reproduces the retained eight-way selection
+pattern closely (the retained run had Sentinel 1.1 at roughly 81.4%, its parent
+at roughly 18.5%, and negligible wins elsewhere) without pretending the missing
+firewall actuator is known.
+
+### Corrected-liquidity rerun
+
+| Strategy | CSCV train wins | Share |
+|---|---:|---:|
+| **Sentinel 1.1** | **8,257** | **64.16%** |
+| Sentinel 1.0 parent | 4,154 | 32.28% |
+| Systemic override | 290 | 2.25% |
+| Wealth Core | 164 | 1.27% |
+| Systemic confirmation | 5 | 0.04% |
+| binary 25% floor | 0 | 0.00% |
+| binary 40% floor | 0 | 0.00% |
+
+Reduced-set PBO: 217 / 12,870 = **1.686%**.
+
+**Conclusion:** the prior Sentinel 1.1 champion remains the champion after the
+liquidity correction among every historical finalist that the retained evidence
+can actually reproduce. Its margin over the direct parent narrows materially,
+and PBO rises, so the correction weakens rather than strengthens the old
+selection evidence. It does not flip the reproducible winner.
+
+The omitted eighth path is not omitted because it performed inconveniently: the
+repository's own provenance record states that its per-name `priority` actuator
+was never recovered, and its old report says the selective hybrid was only a
+marginal improvement over simple binary defenses, not a dominant replacement.
+An exact eight-way rerun is therefore unavailable without new primary evidence.
+This limitation should be preserved in certification rather than repaired by a
+forensic guess.
 
 ## Interpretation / certification consequence
 
@@ -154,11 +223,12 @@ liquidity contract. The corrected independent result is ~20.29% with materially
 worse historical maximum drawdown. Expected hashes must therefore not be blindly
 repinned.
 
-This evidence does **not** establish that a different strategy should replace
-the current champion. It deliberately changes no strategy rule. The direct
-three-path check above still favors Sentinel 1.1, but champion status remains a
-separate acceptance item: rerun the same complete selection procedure that
-originally chose the strategy on corrected liquidity before #185 is closed.
+The corrected replay does, however, answer the practical strategy-selection
+question with the evidence that is reproducible: Sentinel 1.1 remains the winner
+of the retained reproducible finalist set under the same 16-block CSCV design.
+That is enough to reject a strategy switch merely because #185 corrected the
+input domain; it is not permission to claim that an unrecoverable historical
+research actuator was rerun.
 
 The repository's authoritative full-retention before/after rehearsal comparator
 remains the final parity/certification gate. If that result disagrees materially
