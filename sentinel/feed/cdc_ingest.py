@@ -196,6 +196,52 @@ def _track_seed_lastupdated(rows: Iterable[dict], scan: source_state.SepMutation
         yield row
 
 
+def _candidate_previous_observations(conn, *, before_session: str,
+                                     run_id: str) -> dict:
+    """Previous price domains visible to exactly this candidate generation.
+
+    The historical store helper intentionally answers a PHYSICAL question and
+    can therefore see rows left by a failed or success-but-unpublished ingest.
+    Those bytes are useful for restart diagnostics but are not authority for a
+    replacement candidate's split inference. This query admits only:
+
+      * rows belonging to an already-published corpus generation (or legacy
+        NULL-writer rows), and
+      * rows written by THIS candidate earlier in the same seed/daily run.
+
+    The current-run allowance is load-bearing for a multi-year seed: January 1
+    of year N needs December's predecessor from year N-1 even though the seed is
+    not published until every year validates.
+    """
+    visible = publication.visible_predicate("b")
+    sql = (
+        "WITH RECURSIVE security_ids(security_id) AS ("
+        " (SELECT b.security_id FROM sentinel_bars b"
+        "   WHERE (" + visible + " OR b.last_written_run_id=%s)"
+        "   ORDER BY b.security_id LIMIT 1)"
+        " UNION ALL"
+        " SELECT next_id.security_id FROM security_ids prior"
+        " CROSS JOIN LATERAL (SELECT b.security_id FROM sentinel_bars b"
+        "   WHERE b.security_id > prior.security_id"
+        "     AND (" + visible + " OR b.last_written_run_id=%s)"
+        "   ORDER BY b.security_id LIMIT 1) next_id)"
+        " SELECT ids.security_id,previous.close_signal,previous.close_unadjusted"
+        " FROM security_ids ids"
+        " CROSS JOIN LATERAL ("
+        "   SELECT b.close_signal,b.close_unadjusted FROM sentinel_bars b"
+        "   WHERE b.security_id=ids.security_id AND b.session<%s"
+        "     AND (" + visible + " OR b.last_written_run_id=%s)"
+        "   ORDER BY b.session DESC LIMIT 1) previous")
+    writer = str(run_id)
+    with conn.cursor() as cur:
+        cur.execute(sql, (writer, writer, str(before_session), writer))
+        return {
+            str(sid): (float(signal) if signal is not None else None,
+                       float(raw) if raw is not None else None)
+            for sid, signal, raw in cur.fetchall()
+        }
+
+
 def _process_price_window(conn, run, *, fetch, resolver, lo: str, hi: str,
                           chunk: str, validation_frontier: str | None,
                           reconcile: bool,
@@ -211,7 +257,8 @@ def _process_price_window(conn, run, *, fetch, resolver, lo: str, hi: str,
     bars = domains.normalise_sep_rows(
         ordered, resolve_identity=resolver,
         authoritative_splits=splits, dividends=divs,
-        prior_observations=feed_store.previous_observations(conn, lo),
+        prior_observations=_candidate_previous_observations(
+            conn, before_session=lo, run_id=run.progress.run_id),
         report=report)
     run.progress.rows_written += feed_store.write_bars(
         conn, bars, run_id=run.progress.run_id, require_lock=True)
