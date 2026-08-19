@@ -4,6 +4,7 @@ The implementation stays in :mod:`sentinel.feed.ingest_impl`; this boundary
 adds the properties a transport client cannot provide by itself:
 
 * source snapshots must be stable before absence/new frontier is authority;
+* every pre-validation crash is reclaimed before a new candidate can open;
 * a validated-success candidate left by a crash must publish before another run;
 * a failed physical frontier may never shorten the next retry below the
   published authority frontier;
@@ -31,6 +32,20 @@ for _name in dir(_impl):
         globals()[_name] = getattr(_impl, _name)
 
 
+def _recover_before_run(conn) -> None:
+    """Converge every durable pre-run crash state while holding writer authority.
+
+    ``reclaim_orphans`` retires only runs that were still RUNNING when their
+    process died; it deliberately leaves validated SUCCESS rows intact. The
+    second step then resumes publication for exactly such a SUCCESS candidate.
+    The nested advisory-lock acquisition inside ``reclaim_orphans`` is safe and
+    intentional: PostgreSQL session advisory locks are re-entrant/counting, so
+    its matching unlock leaves this facade's outer writer hold in force.
+    """
+    _impl.feed_store.reclaim_orphans(conn)
+    recovery.resume_pending_publication(conn)
+
+
 def _finish_publication_or_refuse(conn, progress):
     """Close the deliberate finish->publish crash window before returning."""
     try:
@@ -52,10 +67,10 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
     """Seed, publish, then establish the mutation cursor the complete seed earned."""
     sharadar.validate_config()
     with _impl.feed_store.corpus_write_lock(conn):
-        # A prior multi-hour seed may be fully validated with only its tiny
-        # publication transaction missing. Finish that exact transition before
-        # a new candidate is allowed to exist.
-        recovery.resume_pending_publication(conn)
+        # This is the supported restart path for all #108 boundaries: an
+        # interrupted pre-validation run is failed/retired; a fully validated
+        # run whose publication transaction never completed is published now.
+        _recover_before_run(conn)
 
         # Use the re-exported seam rather than _impl._today directly so focused
         # tests/operators that replace ingest._today keep the pre-facade behavior.
@@ -112,9 +127,7 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
     today_date = _dt.date.fromisoformat(str(resolved_today))
 
     with _impl.feed_store.corpus_write_lock(conn):
-        # #108: success+unpublished is VALIDATED_PENDING_PUBLICATION, not a dead
-        # run and not permission to start another candidate. Publication first.
-        recovery.resume_pending_publication(conn)
+        _recover_before_run(conn)
 
         # The CDC cursor must have been EARNED by a complete seed/reconciliation.
         # Missing means unknown historical mutation coverage, not permission to
