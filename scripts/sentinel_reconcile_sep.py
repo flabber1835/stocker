@@ -34,7 +34,11 @@ def main(argv=None) -> int:
     try:
         sharadar.validate_date_range(args.through, args.through)
         sharadar.validate_config()
-    except (TypeError, ValueError) as exc:
+        # Refuse before opening PostgreSQL/holding its corpus lock. A missing
+        # production credential is a source configuration error, not an ingest
+        # or reconciliation lifecycle event.
+        sharadar._api_key()
+    except (sharadar.MissingApiKey, TypeError, ValueError) as exc:
         print(f"REFUSED: invalid Sharadar reconciliation configuration: {exc}",
               file=sys.stderr)
         return 2
