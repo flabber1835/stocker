@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -188,8 +187,8 @@ def test_incomplete_2xx_is_unknown_not_acknowledged():
     assert outcome.broker_order_id == "order-1"
 
 
-def test_429_that_actually_landed_resolves_by_same_key_without_second_post():
-    exact = full_order()
+def test_429_that_actually_landed_is_adopted_without_second_post():
+    exact = full_order(status="filled", filled="2")
     broker, http = adapter(
         post=Response(status_code=429, text="rate limited"),
         routes={"/v2/orders:by_client_order_id": exact})
@@ -198,17 +197,12 @@ def test_429_that_actually_landed_resolves_by_same_key_without_second_post():
     command = Command(
         identity=identity, instrument=INSTRUMENT, side=Side.BUY,
         quantity=Decimal(2), state=S.SEND_PENDING)
-    # Exact lookup payload must carry the actual durable client key.
     exact["client_order_id"] = command.client_key
 
-    uncertain = run(recovery.dispatch(broker, command))
-    assert uncertain.state is S.UNKNOWN
-    observation = BrokerObservation(
-        observed_at=datetime.now(UTC), orders=(), positions=(),
-        completeness=Completeness.COMPLETE)
-    resolved = run(recovery.resolve_unknown(broker, uncertain, observation))
+    result = run(recovery.dispatch(broker, command))
 
-    assert resolved.state is S.ACKNOWLEDGED
+    assert result.state is S.ACKNOWLEDGED
+    assert result.broker_order_id == "order-1"
     assert len([call for call in http.calls if call[0] == "POST"]) == 1
 
 
@@ -378,7 +372,6 @@ def test_cash_activity_restart_overlap_is_idempotent_and_pnl_classified():
     assert first.balance_total == second.balance_total == Decimal(90)
     assert len(conn.cash_flows) == 2
     assert broker.calls[1][0] == first_through - broker_cash.ACTIVITY_OVERLAP
-    # The deposit is external capital; the fee remains strategy economics.
     assert cashflow.net_external(
         conn, date(2026, 8, 18), date(2026, 8, 18)) == Decimal(100)
 
