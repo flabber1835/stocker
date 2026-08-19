@@ -31,6 +31,25 @@ class _Run:
         self.finished.append((status, error))
 
 
+class _FrontierCursor:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
+
+    def execute(self, *_args, **_kwargs):
+        return None
+
+    def fetchone(self):
+        return (dt.date(2020, 1, 2),)
+
+
+class _FrontierConn:
+    def cursor(self):
+        return _FrontierCursor()
+
+
 def _pub(run_id):
     return publication.Publication(
         version=12, previous_version=11, run_id=run_id,
@@ -119,7 +138,7 @@ def test_sep_mutation_cursor_moves_only_after_bounded_replay_publication(monkeyp
         maintenance, "_stable_rows", lambda fetch, table, params: rows)
     monkeypatch.setattr(
         maintenance, "_validate_sep_mutation_rows",
-        lambda conn, current, *, lo, hi: ["2020-01-02"])
+        lambda conn, current, *, lo, hi, published_through: ["2020-01-02"])
     monkeypatch.setattr(
         renormalize, "correction_windows",
         lambda dates: [("2019-12-31", "2020-01-03")])
@@ -143,7 +162,7 @@ def test_sep_mutation_cursor_moves_only_after_bounded_replay_publication(monkeyp
             publication_version=kwargs["publication_version"]))
 
     maintenance.reconcile_sep_mutations(
-        object(), fetch=object(), through="2026-08-18")
+        _FrontierConn(), fetch=object(), through="2026-08-18")
 
     assert events == [
         ("replay", "sep_mutations-run"),
