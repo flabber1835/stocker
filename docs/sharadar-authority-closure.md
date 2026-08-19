@@ -130,19 +130,25 @@ bt-data image:
 python -m app.volume_domain_migration
 ```
 
-It owns the normal corpus writer lock, resumes only its own interrupted migration,
-force-replays the complete stored SEP date range, refreshes configured benchmark
-prices, proves every row has the new semantic marker, and only then publishes a
-new READY data UUID. An old row absent from current source is not deleted or
-blindly grandfathered; it remains a blocker requiring investigation.
+It owns the normal corpus writer lock and resumes **only its own** interrupted
+`VOLUME_DOMAIN_MIGRATION:v1` PUBLISHING generation. It force-replays the complete
+stored SEP date range, refreshes configured benchmark prices, then explicitly
+proves there are zero rows whose `volume_domain_version` differs from
+`sharadar-raw-volume-v1`. Only after that residual proof succeeds does it publish
+a new READY data UUID.
+
+An old row absent from current source is neither deleted nor grandfathered. It
+stays in the partial unknown-domain index and blocks both migration completion
+and bt-engine certification until the source/key disagreement is investigated.
 
 The existing `POST /jobs/backfill-prices` endpoint remains the underlying force
 replay primitive, but the migration command is the supported upgrade because it
-also refreshes benchmark rows, verifies zero unmarked residuals, handles restart
-state, and publishes READY only after the complete proof succeeds.
+also refreshes benchmark rows, proves zero residual legacy semantics, handles
+restart state, and publishes READY only after the complete proof succeeds.
 
-`bt-engine` also waits for bt-data health, closing the startup race where an
-engine could otherwise begin reading before the semantic schema guard existed.
+`bt-engine` starts only after bt-data health establishes the semantic schema,
+and its READY generation read independently performs the unknown-domain probe in
+the same corpus snapshot used to identify the generation.
 
 ## Final authority shape
 
