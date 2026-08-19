@@ -40,6 +40,11 @@ def _actions_reconciliation_source(fetch):
     return sharadar.fetch_table if fetch is snapshot_source.fetch_table else fetch
 
 
+def _recent_reconciliation_source(fetch):
+    """Production uses Exporter authority; injected sources remain injected."""
+    return None if fetch is snapshot_source.fetch_table else fetch
+
+
 def _validate_source_before_run(fetch) -> None:
     sharadar.validate_config()
     if fetch is snapshot_source.fetch_table:
@@ -107,12 +112,13 @@ def _require_failed_owner_cleared(conn, *, context: str) -> None:
             f"{candidate.run_id}/{candidate.kind}; refusing to open another run")
 
 
-def _prove_recent_frontier(conn) -> None:
+def _prove_recent_frontier(conn, *, fetch) -> None:
     frontier = _impl.feed_store.latest_visible_session(conn)
     if frontier is None:
         raise sep_reconciliation.SepReconciliationStateInvalid(
             "published corpus has no SEP frontier for recent complete proof")
-    recent_reconciliation.reconcile_recent(conn, through=frontier)
+    recent_reconciliation.reconcile_recent(
+        conn, through=frontier, fetch=_recent_reconciliation_source(fetch))
 
 
 def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
@@ -153,7 +159,7 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
         maintenance.reconcile_actions_if_due(
             conn, fetch=_actions_reconciliation_source(fetch),
             through=seed_to, force=True)
-        _prove_recent_frontier(conn)
+        _prove_recent_frontier(conn, fetch=fetch)
         return progress
 
 
@@ -237,5 +243,5 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
         maintenance.reconcile_actions_if_due(
             conn, fetch=_actions_reconciliation_source(fetch),
             through=today_date.isoformat())
-        _prove_recent_frontier(conn)
+        _prove_recent_frontier(conn, fetch=fetch)
         return progress
