@@ -111,10 +111,11 @@ quantity, while new rows contain raw-compatible volume. Numeric values cannot
 identify which semantic epoch produced an existing row.
 
 The schema therefore adds a nullable `volume_domain_version` with **no default**
-and one singleton `bt_price_volume_domain_state`. A populated database that
-predates this contract starts `proven=false`; a genuinely empty database starts
-`proven=true` because every future price row is necessarily behind the installed
-write trigger.
+and one singleton `bt_price_volume_domain_state`. **Every database starts
+`proven=false`, including a fresh empty one.** That is intentional: bt-data's
+runtime bootstrap applies DDL statement-by-statement, so a later failure creating
+the write trigger cannot leave an earlier `proven=true` authority row behind.
+Only the explicit migration command may establish the semantic verdict.
 
 Only the post-fix bt-data process may stamp a price row:
 
@@ -143,10 +144,15 @@ python -m app.volume_domain_migration
 ```
 
 It owns the normal corpus writer lock and resumes **only its own** interrupted
-`VOLUME_DOMAIN_MIGRATION:v1` PUBLISHING generation. It force-replays the complete
-stored SEP date range and refreshes configured benchmark prices. Then, once per
-migration, it performs the expensive acceptance scan and proves there are zero
-rows whose `volume_domain_version` differs from `sharadar-raw-volume-v1`.
+`VOLUME_DOMAIN_MIGRATION:v1` PUBLISHING generation. It first verifies that the
+entire semantic schema, including the trigger, installed successfully. For a
+populated corpus it then force-replays the complete stored SEP date range and
+refreshes configured benchmark prices. For an empty corpus the proof is trivial,
+but still explicit through the same command.
+
+For a populated corpus, once per migration, the command performs the expensive
+acceptance scan and proves there are zero rows whose `volume_domain_version`
+differs from `sharadar-raw-volume-v1`.
 
 Only after that residual proof succeeds does the migration stage
 `bt_price_volume_domain_state.proven=true`; the semantic verdict and new READY
