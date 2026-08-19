@@ -67,14 +67,27 @@ def sep_row(ticker, date, close=50.0, raw=100.0, open_=49.0):
             "lastupdated": date}
 
 
-def fetcher(sep_rows, action_rows=(), ticker_rows=None, sfp_rows=()):
+CONTROL_ACTION = {
+    "ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
+    "action": "listed", "value": None, "contraticker": None,
+}
+
+
+def fetcher(sep_rows, action_rows=None, ticker_rows=None, sfp_rows=()):
     """An injected fetch that records which windows were requested.
 
     TICKERS defaults to one open-ended listing per symbol seen in `sep_rows`, so
     identity resolves 1:1 and these tests stay about ORCHESTRATION. Resolution
     itself is covered in test_feed_universe.py.
+
+    The real complete Sharadar ACTIONS table is globally non-empty. Most tests
+    here have no action relevant to their securities, so an unrelated historical
+    control row keeps the synthetic *source* realistic without changing the
+    economic assertions under test.
     """
     calls = []
+    if action_rows is None:
+        action_rows = (CONTROL_ACTION,)
     if ticker_rows is None:
         ticker_rows = [{"ticker": t, "permaticker": f"P-{t}"}
                        for t in sorted({r["ticker"] for r in sep_rows})]
@@ -245,11 +258,13 @@ class TestDaily:
         sfp = [{"ticker": "SPY", "date": session,
                 "closeadj": 400.0 + i}
                for i, session in enumerate(spy_sessions)]
-        fetch = fetcher([], sfp_rows=sfp, ticker_rows=[
-            {"ticker": "AAA", "permaticker": "P-AAA",
-             "firstpricedate": "2000-01-03", "lastpricedate": None,
-             "relatedtickers": "AAA",
-             "category": "Domestic Common Stock"}])
+        fetch = fetcher(
+            [sep_row("AAA", frontier, close=100.0, raw=100.0, open_=99.0)],
+            sfp_rows=sfp, ticker_rows=[
+                {"ticker": "AAA", "permaticker": "P-AAA",
+                 "firstpricedate": "2000-01-03", "lastpricedate": None,
+                 "relatedtickers": "AAA",
+                 "category": "Domestic Common Stock"}])
 
         ingest.seed(conn, date_from=spy_sessions[0], date_to=frontier,
                     fetch=fetch)
