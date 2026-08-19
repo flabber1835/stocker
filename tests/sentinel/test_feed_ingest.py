@@ -297,8 +297,12 @@ class TestDaily:
                         " WHERE last_written_run_id=%s",
                         (publication.current(conn).run_id,))
             assert cur.fetchone()[0] == 41
+            # ACTIONS reconciliation is an independent maintenance operation and
+            # legitimately has its own successful run. This orchestration test
+            # owns only the seed and daily run counts.
             cur.execute("SELECT kind, COUNT(*) FROM feed_ingest_runs"
-                        " WHERE status='success' GROUP BY kind ORDER BY kind")
+                        " WHERE status='success' AND kind IN ('daily','seed')"
+                        " GROUP BY kind ORDER BY kind")
             assert cur.fetchall() == [("daily", 2), ("seed", 1)]
 
         result = readiness.check_readiness(conn, today=frontier)
