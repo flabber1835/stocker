@@ -179,16 +179,14 @@ def observe_sfp(rows: Iterable[Mapping]) -> authority.SourceObservation:
 
 
 def _sep_ticker_rows(rows: Iterable[Mapping]) -> list[Mapping]:
-    # Real vendor rows carry ``table``. Test fixtures written before that source
-    # partition was made explicit often omit it; those rows represent SEP
-    # metadata by construction.
+    # Source partition is itself authority. If ``table`` disappears, no row is
+    # silently assumed to be SEP; the validator below refuses the snapshot.
     return [row for row in rows
-            if not str(row.get("table") or "").strip()
-            or str(row.get("table")).upper() == "SEP"]
+            if str(row.get("table") or "").strip().upper() == "SEP"]
 
 
 def assert_tickers_metadata(rows: Iterable[Mapping]) -> list[Mapping]:
-    """Require the non-sparse SEP metadata domains on a real TICKERS snapshot.
+    """Require the non-sparse SEP metadata domains on a TICKERS snapshot.
 
     ``relatedtickers`` is deliberately not covered: blank means that the issuer
     has no known siblings and is valid evidence. A small NULL sector tail is
@@ -198,13 +196,8 @@ def assert_tickers_metadata(rows: Iterable[Mapping]) -> list[Mapping]:
     relevant = _sep_ticker_rows(rows)
     if not relevant:
         raise TickerMetadataIncomplete(
-            "Sharadar TICKERS exposed no SEP-relevant rows")
-
-    # Legacy unit fixtures omit the source partition and many unused columns.
-    # The production API always carries ``table``; only that shape is suitable
-    # for a vendor-domain coverage claim.
-    if not any("table" in row for row in rows):
-        return relevant
+            "Sharadar TICKERS exposed no table=SEP rows; source partition "
+            "authority is missing or incomplete")
 
     total = len(relevant)
     for field, label in (
