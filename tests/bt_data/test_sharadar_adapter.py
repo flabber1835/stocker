@@ -16,7 +16,8 @@ from app.sharadar_adapter import (  # noqa: E402
 
 def test_sep_maps_closeadj_to_adjusted_close():
     row = {"ticker": "AAPL", "date": "2023-01-03", "open": 130, "high": 131,
-           "low": 129, "close": 130.5, "closeadj": 129.8, "volume": 1000000}
+           "low": 129, "close": 130.5, "closeadj": 129.8,
+           "closeunadj": 130.5, "volume": 1000000}
     m = map_sep_row(row)
     assert m["ticker"] == "AAPL"
     assert m["date"] == "2023-01-03"
