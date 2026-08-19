@@ -17,6 +17,7 @@ getting them wrong is silent:
 SEP.close        SPLIT-adjusted, DIVIDEND-unadjusted   -> the SIGNAL domain
 SEP.closeunadj   the actual as-traded price            -> MARKING + EXECUTION
 SEP.open         SPLIT-adjusted, like close            -> scaled to as-traded
+SEP.volume       SPLIT-adjusted                         -> scaled to RAW liquidity domain
 SEP.closeadj     split AND dividend adjusted           -> READ BY NOTHING
 ```
 
@@ -31,6 +32,11 @@ arrived at, and it is repeated here rather than assumed.
 one domain and marks the resulting position in another. The as-traded open is
 reconstructed by applying the same ratio the close carries.
 
+**SEP.volume is split-adjusted too.** Wealth Core's liquidity math uses the
+as-traded close, so the source volume is converted at this boundary to the same
+raw share domain. Mixing `closeunadj` with vendor-reported adjusted volume makes
+dollar liquidity move mechanically at every split.
+
 This module is a deliberate re-implementation, not an import: the canonical
 loader lives in `services/backtester/app/wealth_core_replay.py`, and Sentinel may
 not import a retired Stocker service. `tests/sentinel/test_feed_domains.py`
@@ -43,6 +49,7 @@ from dataclasses import dataclass, field
 from typing import Iterable, Iterator, Mapping, Optional
 
 from stock_strategy_shared.wealth_core.feed import VendorBar
+from stock_strategy_shared.wealth_core.sharadar_domains import raw_compatible_volume
 
 #: The SEP columns this package reads, and the domain each one serves. Declared
 #: as data so a test can assert the set, rather than as prose a reader has to
@@ -51,7 +58,7 @@ SEP_DOMAIN_MAP = {
     "close": "signal (split-adjusted, dividend-unadjusted)",
     "closeunadj": "raw / as-traded (marking and execution)",
     "open": "split-adjusted open, scaled to as-traded",
-    "volume": "eligibility",
+    "volume": "split-adjusted source, scaled to raw liquidity domain",
 }
 
 #: Never read. Present so the prohibition is greppable and testable.
@@ -361,7 +368,8 @@ def normalise_sep_rows(
         sid = resolve_identity(ticker, session) if resolve_identity else ticker
         close = _f(r.get("close"))
         raw = _f(r.get("closeunadj") if "closeunadj" in r else r.get("close_unadjusted"))
-        volume = _positive(r.get("volume"))
+        reported_volume = _positive(r.get("volume"))
+        volume = raw_compatible_volume(close, raw, reported_volume)
         if sid is None:
             rep.dropped_no_identity += 1
             rep.dropped_no_identity_by_session[session] = (
@@ -475,14 +483,18 @@ def normalise_sep_rows(
             ticker=ticker,
             raw_close=raw,
             raw_open=raw_open,
+            # Canonical RAW-compatible shares. The source's split-adjusted
+            # volume was consumed above; from here onward price and volume are
+            # deliberately in the same as-traded domain.
             volume=volume,
             split_ratio=ratio,
             dividend_per_share=float(
                 (dividends or {}).get((ticker, session), 0.0) or 0.0),
             # DERIVED, never defaulted. `VendorBar.tradeable` defaults to True,
             # so omitting it here declared every bar fillable — including a
-            # session on which nobody traded the security.
-            tradeable=bool(raw and volume),
+            # session on which nobody traded the security. Source tradeability
+            # is based on the actual Sharadar print before domain conversion.
+            tradeable=bool(raw and reported_volume and volume),
         ))
 
 
