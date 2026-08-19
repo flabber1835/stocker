@@ -65,8 +65,13 @@ def sep(ticker, date, close=50.0, raw=50.0):
             "open": 49.0, "volume": 1_000_000, "lastupdated": date}
 
 
+# This harmless non-economic source row is deliberately inside the first 2021
+# seed.  The subsequent full 1900..through reconciliation therefore observes
+# the SAME complete action identity and records only its cursor instead of
+# creating a second publication.  Later 2022 seeds still see it in the complete
+# source read, preserving one-ingest/one-version semantics in this suite.
 CONTROL_ACTION = {
-    "ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
+    "ticker": "__SOURCE_HEALTH__", "date": "2021-06-01",
     "action": "listed", "value": None, "contraticker": None,
 }
 
