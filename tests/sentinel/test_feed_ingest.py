@@ -231,12 +231,16 @@ class TestDaily:
             ingest.daily(conn, fetch=fetcher([]))
 
     def test_a_mostly_empty_raw_domain_REFUSES_on_the_daily_path(self, conn):
+        prior = sep_row("AAA", "2024-01-15")
         ingest.seed(conn, date_from="2024-01-01", date_to="2024-01-31",
-                    fetch=fetcher([sep_row("AAA", "2024-01-15")]))
+                    fetch=fetcher([prior]))
         blank = [dict(sep_row("BBB", "2024-02-01"), closeunadj=None)
                  for _ in range(20)]
+        # The injected vendor is a complete source, not merely the fresh delta:
+        # reconciliation must still be able to prove the already-published AAA
+        # row before the daily path rejects the deliberately broken BBB domain.
         with pytest.raises(Exception, match="closeunadj"):
-            ingest.daily(conn, fetch=fetcher(blank), today="2024-02-01",
+            ingest.daily(conn, fetch=fetcher([prior, *blank]), today="2024-02-01",
                          resolve_identity=lambda t, s: t)
 
     def test_legacy_equities_with_empty_spy_are_repaired_from_bounded_sfp(
@@ -259,8 +263,12 @@ class TestDaily:
         sfp = [{"ticker": "SPY", "date": session,
                 "closeadj": 400.0 + i}
                for i, session in enumerate(spy_sessions)]
+        equity_rows = [
+            sep_row("AAA", session, close=100.0, raw=100.0, open_=99.0)
+            for session in equity_sessions
+        ]
         fetch = fetcher(
-            [sep_row("AAA", frontier, close=100.0, raw=100.0, open_=99.0)],
+            equity_rows,
             sfp_rows=sfp, ticker_rows=[
                 {"ticker": "AAA", "permaticker": "P-AAA",
                  "firstpricedate": "2000-01-03", "lastpricedate": None,
