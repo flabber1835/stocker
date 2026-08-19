@@ -38,6 +38,7 @@ Contract: docs/sentinel-execution-contract.md §9.
 """
 from __future__ import annotations
 
+import datetime as dt
 import sys
 from pathlib import Path
 
@@ -49,7 +50,8 @@ sys.path.insert(0, str(ROOT / "shared"))
 
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
-from sentinel.feed import domains, ingest, repair, sharadar  # noqa: E402
+from sentinel.feed import (domains, ingest, maintenance, publication, repair,
+                           sharadar, universe)  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
 
 
@@ -63,11 +65,15 @@ from sentinel.feed import store as S  # noqa: E402
 # ---------------------------------------------------------------------------
 PRE = {"close": 50.0, "closeunadj": 100.0}      # factor 2
 POST = {"close": 50.0, "closeunadj": 50.0}      # factor 1  => ratio 2.0
+CONTROL_ACTION = {
+    "ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
+    "action": "listed", "value": None, "contraticker": None,
+}
 
 
 def sep(ticker, date, domain, open_=49.0, volume=1_000_000):
     return {"ticker": ticker, "date": date, "open": open_, "volume": volume,
-            **domain}
+            "lastupdated": date, **domain}
 
 
 def normalise(rows, **kw):
@@ -205,7 +211,8 @@ def pg():
 def conn(pg):
     c = S.connect(pg.sync_dsn)
     with c.cursor() as cur:
-        for t in ("sentinel_anomaly_observation_events",
+        for t in ("sentinel_processed_sessions",
+                  "sentinel_anomaly_observation_events",
                   "sentinel_bar_split_repairs", "sentinel_corpus_publications",
                   "sentinel_action_generation_events",
                   "sentinel_action_observations", "sentinel_action_generations",
@@ -219,14 +226,16 @@ def conn(pg):
 
 
 def put_bar(conn, sid, session, ticker, close, raw, ratio=1.0):
+    raw_open = round(49.0 * (raw / close), 6)
+    stored_volume = domains.raw_compatible_volume(close, raw, 1_000_000)
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_bars (security_id, session, ticker,"
-            " close_signal, close_unadjusted, split_ratio)"
-            " VALUES (%s,%s,%s,%s,%s,%s)"
+            " close_signal, close_unadjusted, open_unadjusted, volume, split_ratio)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)"
             " ON CONFLICT (security_id, session) DO UPDATE SET"
             " split_ratio = EXCLUDED.split_ratio",
-            (sid, session, ticker, close, raw, ratio))
+            (sid, session, ticker, close, raw, raw_open, stored_volume, ratio))
     conn.commit()
 
 
@@ -238,7 +247,6 @@ def ratio_of(conn, sid, session) -> float:
 
 
 def effective_ratio_of(conn, sid, session) -> float:
-    from sentinel.feed import publication
     with conn.cursor() as cur:
         cur.execute(
             "SELECT " + publication.effective_split_ratio("b") +
@@ -310,32 +318,69 @@ class TestTheDailyOverlapNoLongerCorrupts:
         put_bar(conn, "P-AAA", "2021-01-08", "AAA", 50.0, 100.0)
         put_bar(conn, "P-AAA", "2021-01-11", "AAA", 50.0, 50.0, ratio=2.0)
         put_bar(conn, "P-AAA", "2021-01-20", "AAA", 50.0, 50.0)
+        universe.write_universe(
+            conn,
+            [{"permaticker": "P-AAA", "ticker": "AAA",
+              "firstpricedate": "2021-01-08", "lastpricedate": "2021-01-20"}],
+            "2021-01-20")
+        published = publication.publish(
+            conn, window_start="2021-01-08", window_end="2021-01-20")
+        maintenance.establish_sep_cursor_after_complete_reconciliation(
+            conn, through=dt.date.fromisoformat("2021-01-20"),
+            publication_version=published.version)
 
-        # A daily run whose 14-day overlap reopens 2021-01-11 as its FIRST
-        # session — the exact configuration that used to write 1.0 over the 2.0.
-        rows = [sep("AAA", "2021-01-11", POST), sep("AAA", "2021-01-20", POST)]
-        ingest.daily(conn, fetch=_fetch(rows), today="2021-01-20",
-                     overlap_days=14)
+        # The rotating #185 proof must see the complete published partition,
+        # while the ordinary 14-day fetch remains intentionally sparse so
+        # 2021-01-11 is still the first AAA row in that overlap stream.
+        overlap_rows = [
+            sep("AAA", "2021-01-11", POST),
+            sep("AAA", "2021-01-20", POST),
+        ]
+        reconciliation_rows = [
+            sep("AAA", "2021-01-08", PRE),
+            *overlap_rows,
+        ]
+        ingest.daily(
+            conn,
+            fetch=_fetch(
+                overlap_rows, reconciliation_rows=reconciliation_rows),
+            today="2021-01-20", overlap_days=14)
 
         assert ratio_of(conn, "P-AAA", "2021-01-11") == 2.0, (
             "the daily overlap exists to REPAIR restated bars; it must never be "
             "the thing that breaks them")
 
 
-def _fetch(sep_rows, action_rows=()):
+def _fetch(sep_rows, action_rows=None, reconciliation_rows=None):
+    if action_rows is None:
+        action_rows = (CONTROL_ACTION,)
     ticker_rows = [{"ticker": t, "permaticker": f"P-{t}"}
                    for t in sorted({r["ticker"] for r in sep_rows})]
 
     def fetch(table, params=None, **kw):
+        params = dict(params or {})
         if table == sharadar.TICKERS:
             return list(ticker_rows)
-        lo = (params or {}).get("date.gte", "0000-00-00")
-        hi = (params or {}).get("date.lte", "9999-99-99")
+        lo = params.get("date.gte", "0000-00-00")
+        hi = params.get("date.lte", "9999-99-99")
         if table == sharadar.ACTIONS:
             return [r for r in action_rows if lo <= r["date"] <= hi]
         if table == sharadar.SFP:
             return []
-        return [r for r in sep_rows if lo <= r["date"] <= hi]
+        source_rows = sep_rows
+        # In this end-to-end regression the full rotating proof asks for the
+        # exact published lower bound 2021-01-08.  Ordinary daily starts fourteen
+        # calendar days behind the 1/20 frontier, at 2021-01-06.  Distinguishing
+        # those source contracts keeps the full-source proof complete without
+        # erasing the sparse-overlap seam that this test is specifically about.
+        if reconciliation_rows is not None and lo == "2021-01-08":
+            source_rows = reconciliation_rows
+        if "lastupdated.gte" in params or "lastupdated.lte" in params:
+            update_lo = params.get("lastupdated.gte", "0000-00-00")
+            update_hi = params.get("lastupdated.lte", "9999-99-99")
+            return [r for r in source_rows
+                    if update_lo <= r.get("lastupdated", "") <= update_hi]
+        return [r for r in source_rows if lo <= r["date"] <= hi]
     return fetch
 
 
@@ -417,8 +462,6 @@ class TestRepair:
             "published repair can lower the effective ratio"
 
     def test_an_unpublished_repair_candidate_is_invisible(self, conn):
-        from sentinel.feed import publication
-
         put_bar(conn, "P-AAA", "2021-01-11", "AAA", 50.0, 50.0, ratio=1.0)
         run = S.IngestRun(conn, "repair").progress.run_id
         with conn.cursor() as cur:
@@ -434,8 +477,6 @@ class TestRepair:
 
     def test_a_publication_failure_rolls_back_the_repair_generation(
             self, conn, monkeypatch):
-        from sentinel.feed import publication
-
         put_bar(conn, "P-AAA", "2021-01-08", "AAA", 50.0, 100.0)
         put_bar(conn, "P-AAA", "2021-01-11", "AAA", 50.0, 50.0, ratio=1.0)
         S.write_actions(conn, [{"ticker": "AAA", "date": "2021-01-11",

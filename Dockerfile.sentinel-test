@@ -81,12 +81,13 @@ COPY tests/ /work/tests/
 # `services` package in the runtime image.
 COPY services/backtester/ /work/services/backtester/
 COPY tools/ /work/tools/
-# The formal evidence suites import these two actual-invocation producers.
+# The formal evidence suites import these actual-invocation producers.
 # Keep the rest of scripts/ inspection-only under /work/repo: copying the whole
 # directory onto PYTHONPATH would make unrelated operator scripts executable in
 # the certification lens and blur the runtime/inspection boundary.
 COPY scripts/sentinel_forward_run.py /work/scripts/sentinel_forward_run.py
 COPY scripts/sentinel_test_run.py /work/scripts/sentinel_test_run.py
+COPY scripts/sentinel_reconcile_sep.py /work/scripts/sentinel_reconcile_sep.py
 COPY scripts/sentinel-measure.sh /work/scripts/sentinel-measure.sh
 COPY scripts/ /work/repo/scripts/
 COPY tools/ /work/repo/tools/

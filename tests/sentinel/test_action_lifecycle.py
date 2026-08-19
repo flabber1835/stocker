@@ -1,6 +1,7 @@
 """PostgreSQL falsifiers for complete ACTIONS snapshots and split removal."""
 from __future__ import annotations
 
+import datetime as dt
 import sys
 from pathlib import Path
 
@@ -13,7 +14,7 @@ sys.path.insert(0, str(ROOT / "shared"))
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
 from sentinel.core import terminal  # noqa: E402
-from sentinel.feed import actions, calendar, ingest, publication as P  # noqa: E402
+from sentinel.feed import actions, calendar, ingest, maintenance, publication as P  # noqa: E402
 from sentinel.feed import readiness  # noqa: E402
 from sentinel.feed import rejection_audit as RA  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
@@ -23,6 +24,10 @@ from stock_strategy_shared.wealth_core.feed import VendorBar  # noqa: E402
 EVENT, PRIOR, END = "2024-06-03", "2024-05-31", "2024-06-03"
 EMPTY_BOOK = {"held_tickers": (), "pending_terminal_tickers": ()}
 FAILED_PRODUCTION_RUN = "7a0e20f4-9a51-4737-8fd6-ecbfadf39075"
+CONTROL_ACTION = {
+    "ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
+    "action": "listed", "value": None, "contraticker": None,
+}
 
 
 @pytest.fixture(scope="module")
@@ -43,6 +48,7 @@ def conn(pg):
     c = S.connect(pg.sync_dsn)
     with c.cursor() as cur:
         for table in (
+                "sentinel_processed_sessions",
                 "sentinel_anomaly_observation_events",
                 "sentinel_action_generation_events",
                 "sentinel_action_observations", "sentinel_action_generations",
@@ -54,15 +60,30 @@ def conn(pg):
             cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
     c.commit()
     S.ensure_schema(c)
+    universe.write_universe(
+        c,
+        [{"permaticker": "SEC-AAA", "ticker": "AAA",
+          "firstpricedate": "2020-01-01", "lastpricedate": None}],
+        "2026-08-15")
     yield c
     c.close()
 
 
 def _bar(session, ratio=1.0, close=50.0):
-    return VendorBar(
+    from sentinel.feed import domains
+
+    vendor = VendorBar(
         session=session, security_id="SEC-AAA", ticker="AAA",
         raw_close=close, raw_open=close, volume=1_000_000,
         split_ratio=ratio, dividend_per_share=0.0)
+    return domains.NormalisedBar(close_signal=close, vendor=vendor)
+
+
+def _establish_sep_cursor(conn, through: str):
+    published = P.require_current(conn)
+    return maintenance.establish_sep_cursor_after_complete_reconciliation(
+        conn, through=dt.date.fromisoformat(through),
+        publication_version=published.version)
 
 
 def _publish_old_split(conn):
@@ -81,18 +102,20 @@ def _publish_old_split(conn):
         run.finish("success")
         P.publish(conn, run_id=run.progress.run_id,
                   window_start=PRIOR, window_end=END)
+    _establish_sep_cursor(conn, END)
     return run.progress.run_id
 
 
 def _corrective_fetch(table, params=None):
     from sentinel.feed import sharadar
 
+    params = dict(params or {})
     if table == sharadar.TICKERS:
         return [{"permaticker": "SEC-AAA", "ticker": "AAA",
                  "firstpricedate": "2020-01-01",
                  "lastpricedate": EVENT, "category": "Domestic"}]
     if table == sharadar.ACTIONS:
-        return []
+        return [CONTROL_ACTION] if params.get("date.gte") == "1900-01-01" else []
     if table == sharadar.SFP:
         return [{"ticker": "SPY", "date": EVENT, "closeadj": 500.0}]
     if table == sharadar.SEP:
@@ -101,9 +124,11 @@ def _corrective_fetch(table, params=None):
         # fallback that caused the reviewed false resolution.
         return [
             {"ticker": "AAA", "date": PRIOR, "close": 50.0,
-             "closeunadj": 50.0, "open": 50.0, "volume": 1_000_000},
+             "closeunadj": 50.0, "open": 50.0, "volume": 1_000_000,
+             "lastupdated": PRIOR},
             {"ticker": "AAA", "date": EVENT, "close": 51.0,
-             "closeunadj": 51.0, "open": 51.0, "volume": 1_000_000},
+             "closeunadj": 51.0, "open": 51.0, "volume": 1_000_000,
+             "lastupdated": EVENT},
         ]
     raise AssertionError(table)
 
@@ -236,7 +261,8 @@ class TestUnpublishedAndFailedCorrections:
                 " reject_action_publication()")
         conn.commit()
 
-        ingest.daily(conn, fetch=_corrective_fetch, today=END)
+        with pytest.raises(Exception, match="test publication rejection"):
+            ingest.daily(conn, fetch=_corrective_fetch, today=END)
         assert [(r["ticker"], r["action"]) for r in actions.active_rows(
             conn, start=PRIOR, end=END)] == [("AAA", "split")]
         with conn.cursor() as cur:
@@ -485,6 +511,7 @@ def test_failed_13216_row_daily_candidate_is_retired_by_later_daily_retry(conn):
         "2026-08-13")
     P.publish(conn, run_id=None, window_start="2026-08-13", window_end="2026-08-13")
     P.publish(conn, run_id=None, window_start="2026-08-13", window_end="2026-08-13")
+    _establish_sep_cursor(conn, "2026-08-14")
     with conn.cursor() as cur:
         cur.execute("INSERT INTO feed_ingest_runs(run_id,kind,status,date_from,date_to,"
                     "chunks_total,chunks_done,rows_written,error_message) VALUES"
@@ -510,6 +537,7 @@ def test_failed_13216_row_daily_candidate_is_retired_by_later_daily_retry(conn):
 
     def corrected_fetch(table, params=None):
         from sentinel.feed import sharadar
+        params = dict(params or {})
         if table == sharadar.TICKERS:
             return tickers
         if table == sharadar.ACTIONS:
@@ -524,12 +552,21 @@ def test_failed_13216_row_daily_candidate_is_retired_by_later_daily_retry(conn):
                     for i, day in enumerate(calendar.sessions_in_range(
                         params["date.gte"], params["date.lte"]))]
         if table == sharadar.SEP:
-            return [
+            rows = [
                 {"ticker": "AAA", "date": "2026-08-13", "close": 50,
-                 "closeunadj": 50, "open": 50, "volume": 1_000_000},
+                 "closeunadj": 50, "open": 50, "volume": 1_000_000,
+                 "lastupdated": "2026-08-13"},
                 {"ticker": "AAA", "date": "2026-08-14", "close": 51,
-                 "closeunadj": 51, "open": 51, "volume": 1_000_000},
+                 "closeunadj": 51, "open": 51, "volume": 1_000_000,
+                 "lastupdated": "2026-08-14"},
             ]
+            if "lastupdated.gte" in params or "lastupdated.lte" in params:
+                lo = params.get("lastupdated.gte", "0000-00-00")
+                hi = params.get("lastupdated.lte", "9999-99-99")
+                return [r for r in rows if lo <= r["lastupdated"] <= hi]
+            lo = params.get("date.gte", "0000-00-00")
+            hi = params.get("date.lte", "9999-99-99")
+            return [r for r in rows if lo <= r["date"] <= hi]
         raise AssertionError(table)
 
     ingest.daily(conn, fetch=corrected_fetch, today="2026-08-15")
@@ -558,23 +595,34 @@ def test_failed_13216_row_daily_candidate_is_retired_by_later_daily_retry(conn):
             " WHERE snapshot_date='2026-08-13'"
             "   AND last_written_run_id IS NULL")
         assert cur.fetchone()[0] == 1, "published history was preserved"
+        # Historical maintenance can complete after the daily retry, so the
+        # newest successful run overall is not necessarily the daily operation
+        # this assertion owns.
         cur.execute(
             "SELECT date_to FROM feed_ingest_runs"
-            " WHERE status='success' ORDER BY completed_at DESC LIMIT 1")
+            " WHERE status='success' AND kind='daily'"
+            " ORDER BY completed_at DESC LIMIT 1")
         assert str(cur.fetchone()[0]) == "2026-08-15"
         cur.execute("SELECT COUNT(*) FROM sentinel_action_generation_events e"
                     " JOIN LATERAL (SELECT state FROM sentinel_action_generation_events"
                     " x WHERE x.generation_run_id=e.generation_run_id ORDER BY event_id"
                     " DESC LIMIT 1) latest ON TRUE WHERE latest.state='PENDING'")
         assert cur.fetchone()[0] == 0
-    publication = P.require_current(conn)
-    assert publication.evidence["retired_failed_universe_candidates"] == [{
+        # The daily publication owns the retirement evidence. Later maintenance
+        # publications may legitimately become current without copying it.
+        cur.execute(
+            "SELECT p.evidence FROM sentinel_corpus_publications p"
+            " JOIN feed_ingest_runs r ON r.run_id=p.run_id"
+            " WHERE r.kind='daily' ORDER BY p.version DESC LIMIT 1")
+        daily_evidence = cur.fetchone()[0]
+    assert daily_evidence["retired_failed_universe_candidates"] == [{
         "run_id": FAILED_PRODUCTION_RUN, "rows": 13216}]
 
 
 def test_later_daily_retry_rewrites_failed_bar_and_spy_owners(conn):
     S.write_bars(conn, [_bar("2026-08-13")])
     P.publish(conn, window_start="2026-08-13", window_end="2026-08-13")
+    _establish_sep_cursor(conn, "2026-08-13")
     failed = S.IngestRun(
         conn, "daily", date_from="2026-07-30", date_to="2026-08-14")
     with S.corpus_write_lock(conn):
@@ -589,24 +637,34 @@ def test_later_daily_retry_rewrites_failed_bar_and_spy_owners(conn):
 
     def corrected_fetch(table, params=None):
         from sentinel.feed import sharadar
+        params = dict(params or {})
         if table == sharadar.TICKERS:
             return [{"permaticker": "SEC-AAA", "ticker": "AAA",
                      "firstpricedate": "2020-01-01",
                      "lastpricedate": "2026-08-14"}]
         if table == sharadar.ACTIONS:
-            return []
+            return [CONTROL_ACTION] if params.get("date.gte") == "1900-01-01" else []
         if table == sharadar.SFP:
             return [{"ticker": "SPY", "date": day,
                      "closeadj": 600.0 + i}
                     for i, day in enumerate(calendar.sessions_in_range(
                         params["date.gte"], params["date.lte"]))]
         if table == sharadar.SEP:
-            return [
+            rows = [
                 {"ticker": "AAA", "date": "2026-08-13", "close": 50,
-                 "closeunadj": 50, "open": 50, "volume": 1_000_000},
+                 "closeunadj": 50, "open": 50, "volume": 1_000_000,
+                 "lastupdated": "2026-08-13"},
                 {"ticker": "AAA", "date": "2026-08-14", "close": 52,
-                 "closeunadj": 52, "open": 52, "volume": 1_000_000},
+                 "closeunadj": 52, "open": 52, "volume": 1_000_000,
+                 "lastupdated": "2026-08-14"},
             ]
+            if "lastupdated.gte" in params or "lastupdated.lte" in params:
+                lo = params.get("lastupdated.gte", "0000-00-00")
+                hi = params.get("lastupdated.lte", "9999-99-99")
+                return [r for r in rows if lo <= r["lastupdated"] <= hi]
+            lo = params.get("date.gte", "0000-00-00")
+            hi = params.get("date.lte", "9999-99-99")
+            return [r for r in rows if lo <= r["date"] <= hi]
         raise AssertionError(table)
 
     ingest.daily(conn, fetch=corrected_fetch, today="2026-08-15")

@@ -15,13 +15,13 @@ SEP rows + ACTIONS
    |
    +-- sentinel:  normalise_sep_rows -> write_bars -> loader.load_window
    |
-   +-- canonical: wealth_core_replay.load_bars
+   +-- canonical: bt-data map_sep_row -> wealth_core_replay.load_bars
 ```
 
 The SQL is deliberately not what is compared — the canonical loader is driven
-through a stand-in cursor. The mapping is the thing: which domain each price is
-in, whether the ratio was inverted, where the dividend came from, and whether the
-bar is tradeable.
+through a stand-in cursor. The mapping is the thing: which domain each price and
+volume is in, whether the ratio was inverted, where the dividend came from, and
+whether the bar is tradeable.
 
 WHY THIS TEST EXISTS NOW. Before review #4 it could not have passed and could not
 have been written honestly: Sentinel's ingest never passed ACTIONS to its
@@ -45,6 +45,9 @@ from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 from sentinel.core import loader  # noqa: E402
 from sentinel.feed import domains  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
+from stock_strategy_shared.wealth_core.sharadar_domains import (  # noqa: E402
+    raw_compatible_volume,
+)
 
 SESSIONS = ["2024-06-03", "2024-06-04", "2024-06-05", "2024-06-06"]
 START, END = SESSIONS[0], SESSIONS[-1]
@@ -113,10 +116,19 @@ def sep_rows():
 
 
 def bt_rows():
-    """The same rows in the canonical loader's column names."""
-    return [{"date": r["date"], "ticker": r["ticker"], "open": r["open"],
-             "close": r["close"], "close_unadjusted": r["closeunadj"],
-             "volume": r["volume"]} for r in sep_rows()]
+    """The same rows after bt-data's SEP provider-boundary mapping.
+
+    `bt_prices.volume` is canonical raw-compatible shares, not the vendor's
+    split-adjusted SEP field. Keeping that transformation explicit here makes
+    this stand-in cursor model what the real backtester database stores.
+    """
+    return [
+        {"date": r["date"], "ticker": r["ticker"], "open": r["open"],
+         "close": r["close"], "close_unadjusted": r["closeunadj"],
+         "volume": raw_compatible_volume(
+             r["close"], r["closeunadj"], r["volume"])}
+        for r in sep_rows()
+    ]
 
 
 SPLITS = {("BBB", "2024-06-05"): 1.5}
@@ -202,6 +214,14 @@ class TestTheValuesThatArePlausibleWhenWrong:
         k = ("2024-06-05", "P:BBB")
         assert by_key(sentinel_bars(conn))[k].split_ratio == pytest.approx(1.5)
         assert by_key(canonical_bars())[k].split_ratio == pytest.approx(1.5)
+
+    def test_split_affected_liquidity_is_in_the_same_domain_on_BOTH_sides(self, conn):
+        k = ("2024-06-03", "P:BBB")
+        mine, theirs = by_key(sentinel_bars(conn)), by_key(canonical_bars())
+        # close=100, raw=150, reported adjusted volume=2m -> raw volume=1.333m.
+        assert mine[k].volume == pytest.approx(2_000_000 * 100 / 150)
+        assert mine[k].volume == pytest.approx(theirs[k].volume)
+        assert mine[k].raw_close * mine[k].volume == pytest.approx(200_000_000)
 
     def test_the_dividend_lands_on_the_same_session_on_BOTH_sides(self, conn):
         mine, theirs = by_key(sentinel_bars(conn)), by_key(canonical_bars())

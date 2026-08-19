@@ -22,6 +22,12 @@ momentum on every dividend payer; feeding it to the mark sizes every 4%
 admission off the wrong equity. It is not read by this module at all, which is
 the only reliable way not to read it by accident.
 
+ACTIONS dividend values are stated on Sharadar's split-adjusted share basis.
+The Wealth Core ledger owns historical as-traded share quantities, so every
+positive dividend is converted by `close_unadjusted / close` on its effective
+session before it enters `VendorBar`. Passing ACTIONS.value through unchanged
+would underpay distributions that predate later splits.
+
 WHY THIS REFUSES RATHER THAN DEGRADES. `close_unadjusted` was added to
 `bt_prices` only recently and is NULL for every row written before the SEP stage
 was re-backfilled. The tempting fallback — mark the book with `close`, since it
@@ -54,6 +60,7 @@ from stock_strategy_shared.wealth_core.feed import (
     VendorBar,
 )
 from stock_strategy_shared.wealth_core.run import RunResult, TerminalEvent, run_sessions
+from stock_strategy_shared.wealth_core.sharadar_domains import raw_dividend_per_share
 from stock_strategy_shared.wealth_core.terminal import TerminalKind, TerminalTerms
 
 log = logging.getLogger(__name__)
@@ -328,7 +335,7 @@ TERMINAL_ACTION_SIDES: dict[str, ActionSide] = {
     "regulatorydelisting": ActionSide.TARGET,
     "voluntarydelisting": ActionSide.TARGET,
     "acquisitionof": ActionSide.ACQUIRER,        # NOT terminal for this security
-    "mergerfrom": ActionSide.ACQUIRER,           # NOT terminal for this security
+    "mergerfrom": ActionSide.ACQUIRER,            # NOT terminal for this security
 }
 
 #: The names that END this security's holding.
@@ -421,13 +428,12 @@ def split_ratios_from_actions(rows: Iterable[dict],
 def dividends_from_actions(rows: Iterable[dict],
                            sessions_sorted: Sequence[str]
                            ) -> dict[tuple[str, str], float]:
-    """(ticker, session) -> cash dividend per share, on the EX-DATE.
+    """(ticker, session) -> split-adjusted dividend value on the EX-DATE.
 
-    The date on an ACTIONS dividend row is the ex-date, which is the date that
-    matters for entitlement — a holder on the ex-date is owed the money. The
-    PAYMENT date is not in ACTIONS at all (the table is date/action/ticker/
-    name/value/contraticker/contraname), which is why the settlement lag is a
-    named convention on the config rather than a per-dividend fact.
+    ACTIONS identifies the distribution and states its amount on Sharadar's
+    split-adjusted share basis. `load_bars` performs the separate price-domain
+    conversion to the historical raw/as-traded share basis because only the SEP
+    row supplies the cumulative `close_unadjusted / close` factor.
 
     Multiple distributions on one ticker and session are SUMMED rather than
     overwritten: an ordinary and a special dividend can share an ex-date, and
@@ -971,12 +977,16 @@ def load_bars(conn, start: str, end: str,
               dividends: dict[tuple[str, str], float] | None = None,
               identity: "IdentityResolver | None" = None
               ) -> dict[str, list[VendorBar]]:
-    """Rows -> VendorBars, with the split ratio recovered per ticker.
+    """Rows -> VendorBars, with split and dividend domains made canonical.
 
     Note `raw_open`: SEP's `open` is SPLIT-ADJUSTED like its `close`, so the
     as-traded open is reconstructed by scaling it with the same ratio the close
     carries. Passing `open` straight through would fill orders in one domain and
     mark the resulting position in another.
+
+    ACTIONS dividends are also stated on the split-adjusted share basis. This
+    loader converts them to raw historical dollars per as-traded share using the
+    current row's `close_unadjusted / close` factor before the ledger sees them.
 
     When `authoritative_splits` is supplied, ACTIONS identifies the event and
     the unsnapped price-domain ratio selects direct versus reciprocal
@@ -1028,6 +1038,17 @@ def load_bars(conn, start: str, end: str,
         raw_open = (round(adj_open * raw / close, 6)
                     if (adj_open and raw and close) else None)
 
+        reported_dividend = float(
+            (dividends or {}).get((tkr, session), 0.0) or 0.0)
+        dividend = raw_dividend_per_share(close, raw, reported_dividend)
+        if dividend is None:
+            raise RawPriceDomainUnavailable(
+                f"cannot convert positive Sharadar dividend for {tkr} on "
+                f"{session} into the raw share domain: SEP.close={close!r}, "
+                f"SEP.closeunadj={raw!r}, ACTIONS.value={reported_dividend!r}. "
+                "The canonical replay will not apply a split-adjusted per-share "
+                "amount to an as-traded share count without both price domains.")
+
         out.setdefault(session, []).append(VendorBar(
             # PERMANENT identity, per-session LABEL. That split is the whole
             # of item 7: everything path-dependent keys on the first, and the
@@ -1035,13 +1056,9 @@ def load_bars(conn, start: str, end: str,
             session=session, security_id=sid, ticker=tkr,
             raw_close=raw, raw_open=raw_open, volume=_f(r["volume"]),
             split_ratio=ratio,
-            # From SHARADAR/ACTIONS, never from a price. SEP carries no dividend
-            # column, and the one thing that must NOT happen is deriving the
-            # distribution from closeadj: that series is already total-return,
-            # so folding it back into a cash event double-counts every
-            # distribution — once in the price and once in the ledger. 0.0 means
-            # "no distribution", which is a different statement from "unknown".
-            dividend_per_share=(dividends or {}).get((tkr, session), 0.0),
+            # Converted exactly once from ACTIONS' split-adjusted share basis to
+            # the historical raw/as-traded share basis used by the ledger.
+            dividend_per_share=dividend,
             tradeable=bool(raw and _f(r["volume"])),
             unresolved_corporate_action=False))
     if source_rows and not any(out.values()):
@@ -1183,7 +1200,9 @@ DERIVED_SPLIT_CAVEATS: tuple[str, ...] = (
 # Added when ACTIONS drove the run.
 ACTIONS_CAVEATS: tuple[str, ...] = (
     "dividends are applied from SHARADAR/ACTIONS on the EX-DATE as a receivable "
-    "and settle after `dividend_settlement_lag_sessions`. ACTIONS carries no "
+    "after converting ACTIONS.value from Sharadar's split-adjusted share basis "
+    "to the historical raw/as-traded basis using SEP.closeunadj / SEP.close; "
+    "they settle after `dividend_settlement_lag_sessions`. ACTIONS carries no "
     "PAYMENT date, so that lag is an adopted convention in the config hash, not "
     "an observed fact — the default of 1 is the smallest lag that stops a "
     "dividend funding an admission on its own ex-date.",

@@ -33,7 +33,14 @@ class _Response:
             raise _HttpStatusError(self, self._secret)
 
     def json(self):
-        return {"datatable": {"columns": [], "data": []},
+        # HTTP 200 is not enough anymore: the strict #185 source boundary also
+        # requires a valid table schema. Use the union of all consumed fields so
+        # the same fake can serve SEP/SFP/TICKERS/ACTIONS while returning a
+        # legitimate empty TERMINAL page.
+        names = sorted(set().union(*sharadar._REQUIRED_COLUMNS.values()))
+        return {"datatable": {
+                    "columns": [{"name": name} for name in names],
+                    "data": []},
                 "meta": {"next_cursor_id": None}}
 
 

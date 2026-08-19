@@ -68,6 +68,7 @@ def conn(pg):
                   "sentinel_action_generation_events",
                   "sentinel_action_observations", "sentinel_action_generations",
                   "sentinel_actions", "sentinel_universe",
+                  "sentinel_processed_sessions",
                   "feed_ingest_runs", "sentinel_ingest_rejections"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     c.commit()
@@ -88,6 +89,7 @@ def vendor(*, actions=(), split_at=None, ratio=1.0):
     days = sess()
 
     def fetch(table, params=None, **kw):
+        params = dict(params or {})
         if table == sharadar.SEP:
             out = []
             for d in days:
@@ -96,10 +98,15 @@ def vendor(*, actions=(), split_at=None, ratio=1.0):
                 adj = 100.0 / ratio            # adjusted is post-split throughout
                 out.append({"date": d, "ticker": "AAA", "close": adj,
                             "closeunadj": raw, "open": raw * 0.99,
-                            "volume": 1e6})
+                            "volume": 1e6, "lastupdated": d})
             return out
         if table == sharadar.ACTIONS:
-            return list(actions)
+            rows = list(actions)
+            if not rows and params.get("date.gte") == "1900-01-01":
+                return [{"ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
+                         "action": "listed", "value": None,
+                         "contraticker": None}]
+            return rows
         if table == sharadar.SFP:
             return []
         if table == sharadar.TICKERS:

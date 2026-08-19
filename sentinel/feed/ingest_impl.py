@@ -236,13 +236,20 @@ def _resolution_tombstones(conn, run, *, lo: str, hi: str, report,
                 (str(t).upper(), str(s))
                 for t, s in report.split_no_event_evidence}:
             continue
+        # A proved 2.0 -> 1.0 correction is deliberately NOT allowed to rewrite
+        # the base row through the ordinary bar upsert: its non-downgrade rule
+        # treats 1.0 as potentially "no evidence".  Here we have stronger
+        # evidence — a complete ACTIONS generation says the split disappeared
+        # and SEP independently derives a real no-event from a predecessor — so
+        # attach the append-only repair to the currently VISIBLE bar instead of
+        # requiring that bar to have been restamped by this candidate run.
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT b.security_id,"
                 f" {publication.effective_split_ratio('b')}"
-                " FROM sentinel_bars b WHERE b.last_written_run_id=%s"
-                "   AND UPPER(b.ticker)=%s AND b.session=%s",
-                (run.progress.run_id, ticker, session))
+                " FROM sentinel_bars b WHERE UPPER(b.ticker)=%s"
+                "   AND b.session=%s AND " + publication.visible_predicate("b"),
+                (ticker, session))
             bar_rows = cur.fetchall()
         if len(bar_rows) != 1:
             continue

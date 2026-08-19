@@ -48,7 +48,8 @@ def pg():
 def conn(pg):
     c = S.connect(pg.sync_dsn)
     with c.cursor() as cur:
-        for t in ("sentinel_action_generation_events",
+        for t in ("sentinel_processed_sessions",
+                  "sentinel_action_generation_events",
                   "sentinel_action_observations", "sentinel_action_generations",
                   "sentinel_bars", "sentinel_spy_total_return",
                   "sentinel_actions", "sentinel_universe",
@@ -62,31 +63,51 @@ def conn(pg):
 
 def sep_row(ticker, date, close=50.0, raw=100.0, open_=49.0):
     return {"ticker": ticker, "date": date, "close": close,
-            "closeunadj": raw, "open": open_, "volume": 1_000_000}
+            "closeunadj": raw, "open": open_, "volume": 1_000_000,
+            "lastupdated": date}
 
 
-def fetcher(sep_rows, action_rows=(), ticker_rows=None, sfp_rows=()):
+CONTROL_ACTION = {
+    "ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
+    "action": "listed", "value": None, "contraticker": None,
+}
+
+
+def fetcher(sep_rows, action_rows=None, ticker_rows=None, sfp_rows=()):
     """An injected fetch that records which windows were requested.
 
     TICKERS defaults to one open-ended listing per symbol seen in `sep_rows`, so
     identity resolves 1:1 and these tests stay about ORCHESTRATION. Resolution
     itself is covered in test_feed_universe.py.
+
+    The real complete Sharadar ACTIONS table is globally non-empty. Most tests
+    here have no action relevant to their securities, so an unrelated historical
+    control row keeps the synthetic *source* realistic without changing the
+    economic assertions under test.
     """
     calls = []
+    if action_rows is None:
+        action_rows = (CONTROL_ACTION,)
     if ticker_rows is None:
         ticker_rows = [{"ticker": t, "permaticker": f"P-{t}"}
                        for t in sorted({r["ticker"] for r in sep_rows})]
 
     def fetch(table, params=None, **kw):
-        calls.append((table, dict(params or {})))
+        params = dict(params or {})
+        calls.append((table, params))
         if table == sharadar.TICKERS:
             return list(ticker_rows)
-        lo = (params or {}).get("date.gte", "0000-00-00")
-        hi = (params or {}).get("date.lte", "9999-99-99")
+        lo = params.get("date.gte", "0000-00-00")
+        hi = params.get("date.lte", "9999-99-99")
         if table == sharadar.ACTIONS:
             return [r for r in action_rows if lo <= r["date"] <= hi]
         if table == sharadar.SFP:
             return [r for r in sfp_rows if lo <= r["date"] <= hi]
+        if "lastupdated.gte" in params or "lastupdated.lte" in params:
+            update_lo = params.get("lastupdated.gte", "0000-00-00")
+            update_hi = params.get("lastupdated.lte", "9999-99-99")
+            return [r for r in sep_rows
+                    if update_lo <= r.get("lastupdated", "") <= update_hi]
         return [r for r in sep_rows if lo <= r["date"] <= hi]
 
     fetch.calls = calls
@@ -119,7 +140,8 @@ class TestSeed:
 
         watcher = S.connect(pg.sync_dsn)
         try:
-            r = S.run_status(watcher)[0]
+            r = next(row for row in S.run_status(watcher)
+                     if str(row["run_id"]) == str(p.run_id))
             assert r["status"] == "success"
             assert r["chunks_done"] == 6
             assert r["rows_written"] == 3 + 2   # bars + two TICKERS listings
@@ -195,7 +217,7 @@ class TestDaily:
         ingest.daily(conn, fetch=f, today="2024-02-01")
 
         requested_from = [c for c in f.calls
-                          if c[0] == sharadar.SEP][0][1]["date.gte"]
+                          if c[0] == sharadar.SEP and "date.gte" in c[1]][0][1]["date.gte"]
         assert requested_from < "2024-01-15", "the daily window did not overlap"
         with conn.cursor() as cur:
             cur.execute("SELECT close_unadjusted FROM sentinel_bars"
@@ -209,12 +231,16 @@ class TestDaily:
             ingest.daily(conn, fetch=fetcher([]))
 
     def test_a_mostly_empty_raw_domain_REFUSES_on_the_daily_path(self, conn):
+        prior = sep_row("AAA", "2024-01-15")
         ingest.seed(conn, date_from="2024-01-01", date_to="2024-01-31",
-                    fetch=fetcher([sep_row("AAA", "2024-01-15")]))
+                    fetch=fetcher([prior]))
         blank = [dict(sep_row("BBB", "2024-02-01"), closeunadj=None)
                  for _ in range(20)]
+        # The injected vendor is a complete source, not merely the fresh delta:
+        # reconciliation must still be able to prove the already-published AAA
+        # row before the daily path rejects the deliberately broken BBB domain.
         with pytest.raises(Exception, match="closeunadj"):
-            ingest.daily(conn, fetch=fetcher(blank), today="2024-02-01",
+            ingest.daily(conn, fetch=fetcher([prior, *blank]), today="2024-02-01",
                          resolve_identity=lambda t, s: t)
 
     def test_legacy_equities_with_empty_spy_are_repaired_from_bounded_sfp(
@@ -237,11 +263,17 @@ class TestDaily:
         sfp = [{"ticker": "SPY", "date": session,
                 "closeadj": 400.0 + i}
                for i, session in enumerate(spy_sessions)]
-        fetch = fetcher([], sfp_rows=sfp, ticker_rows=[
-            {"ticker": "AAA", "permaticker": "P-AAA",
-             "firstpricedate": "2000-01-03", "lastpricedate": None,
-             "relatedtickers": "AAA",
-             "category": "Domestic Common Stock"}])
+        equity_rows = [
+            sep_row("AAA", session, close=100.0, raw=100.0, open_=99.0)
+            for session in equity_sessions
+        ]
+        fetch = fetcher(
+            equity_rows,
+            sfp_rows=sfp, ticker_rows=[
+                {"ticker": "AAA", "permaticker": "P-AAA",
+                 "firstpricedate": "2000-01-03", "lastpricedate": None,
+                 "relatedtickers": "AAA",
+                 "category": "Domestic Common Stock"}])
 
         ingest.seed(conn, date_from=spy_sessions[0], date_to=frontier,
                     fetch=fetch)
@@ -265,8 +297,12 @@ class TestDaily:
                         " WHERE last_written_run_id=%s",
                         (publication.current(conn).run_id,))
             assert cur.fetchone()[0] == 41
+            # ACTIONS reconciliation is an independent maintenance operation and
+            # legitimately has its own successful run. This orchestration test
+            # owns only the seed and daily run counts.
             cur.execute("SELECT kind, COUNT(*) FROM feed_ingest_runs"
-                        " WHERE status='success' GROUP BY kind ORDER BY kind")
+                        " WHERE status='success' AND kind IN ('daily','seed')"
+                        " GROUP BY kind ORDER BY kind")
             assert cur.fetchall() == [("daily", 2), ("seed", 1)]
 
         result = readiness.check_readiness(conn, today=frontier)
@@ -290,9 +326,10 @@ class TestRetryConstantsHaveNotDrifted:
 
     @pytest.mark.parametrize("attempt,status,retry_after", [
         (0, 429, None), (1, 429, None), (0, 429, "300"), (0, 429, "Wed, 21 Oct"),
-        (0, 500, None), (2, 503, None), (5, None, None), (14, 429, None),
+        (0, 500, None), (2, 503, None), (5, None, None),
     ])
-    def test_it_matches_bt_data(self, attempt, status, retry_after):
+    def test_it_matches_bt_data_inside_the_synchronous_wait_envelope(
+            self, attempt, status, retry_after):
         assert sharadar.retry_delay(attempt, status, retry_after) == \
             self._canonical()(attempt, status, retry_after)
 
@@ -300,8 +337,9 @@ class TestRetryConstantsHaveNotDrifted:
         assert sharadar.retry_delay(0, 429, None) >= 60.0
         assert sharadar.retry_delay(0, 500, None) < 10.0
 
-    def test_the_429_wait_is_CAPPED(self):
-        assert sharadar.retry_delay(99, 429, None) == sharadar.RATE_LIMIT_BACKOFF_CAP
+    def test_a_429_beyond_the_local_wait_ceiling_is_DEFERRED_not_shortened(self):
+        with pytest.raises(sharadar.SharadarRetryDeferred):
+            sharadar.retry_delay(99, 429, None)
 
     def test_a_missing_api_key_REFUSES_rather_than_loading_nothing(self, monkeypatch):
         """An unauthenticated fetch returns an EMPTY table, which is
@@ -365,8 +403,18 @@ class _Http:
 
 
 def _page(next_cursor):
-    return {"datatable": {"columns": [{"name": "ticker"}], "data": [["AAA"]]},
-            "meta": {"next_cursor_id": next_cursor}}
+    columns = [
+        "ticker", "date", "open", "close", "closeunadj", "volume",
+        "lastupdated",
+    ]
+    return {
+        "datatable": {
+            "columns": [{"name": name} for name in columns],
+            "data": [["AAA", "2024-01-02", 99.0, 100.0, 100.0,
+                      1_000_000, "2024-01-02"]],
+        },
+        "meta": {"next_cursor_id": next_cursor},
+    }
 
 
 class TestPaginationMustProgress:

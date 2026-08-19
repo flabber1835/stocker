@@ -51,6 +51,7 @@ def conn(pg):
         cur.execute("DROP VIEW IF EXISTS sentinel_active_ingest_rejections CASCADE")
         cur.execute("DROP VIEW IF EXISTS sentinel_active_actions CASCADE")
         for table in (
+            "sentinel_processed_sessions",
             "sentinel_anomaly_observation_events",
             "sentinel_action_generation_events",
             "sentinel_action_observations",
@@ -77,7 +78,8 @@ def conn(pg):
 
 def sep_row(ticker: str, date: str, *, raw: float = 100.0) -> dict:
     return {"ticker": ticker, "date": date, "close": raw,
-            "closeunadj": raw, "open": raw, "volume": 1_000_000}
+            "closeunadj": raw, "open": raw, "volume": 1_000_000,
+            "lastupdated": date}
 
 
 def fetcher(sep_rows):
@@ -85,12 +87,24 @@ def fetcher(sep_rows):
                for t in sorted({r["ticker"] for r in sep_rows})]
 
     def fetch(table, params=None, **_kw):
+        params = dict(params or {})
         if table == sharadar.TICKERS:
             return list(tickers)
-        if table in (sharadar.ACTIONS, sharadar.SFP):
+        if table == sharadar.ACTIONS:
+            if params.get("date.gte") == "1900-01-01":
+                return [{"ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
+                         "action": "listed", "value": None,
+                         "contraticker": None}]
             return []
-        lo = (params or {}).get("date.gte", "0000-00-00")
-        hi = (params or {}).get("date.lte", "9999-99-99")
+        if table == sharadar.SFP:
+            return []
+        if "lastupdated.gte" in params or "lastupdated.lte" in params:
+            lo = params.get("lastupdated.gte", "0000-00-00")
+            hi = params.get("lastupdated.lte", "9999-99-99")
+            return [r for r in sep_rows
+                    if lo <= r.get("lastupdated", "") <= hi]
+        lo = params.get("date.gte", "0000-00-00")
+        hi = params.get("date.lte", "9999-99-99")
         return [r for r in sep_rows if lo <= r["date"] <= hi]
 
     return fetch
@@ -106,6 +120,17 @@ def publish_run(conn, run_id: str, start="2024-01-01", end="2024-12-31") -> int:
         version = int(cur.fetchone()[0])
     conn.commit()
     return version
+
+
+def latest_daily(conn):
+    return next(row for row in S.run_status(conn) if row["kind"] == "daily")
+
+
+def assert_run_unpublished(conn, run_id) -> None:
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM sentinel_corpus_publications WHERE run_id=%s",
+                    (str(run_id),))
+        assert cur.fetchone()[0] == 0
 
 
 class TestCurrentSessionIdentityCoverage:
@@ -146,27 +171,27 @@ class TestCurrentSessionIdentityCoverage:
 class TestDailyPublicationBoundary:
     def test_catastrophic_identity_loss_marks_the_run_failed_and_does_not_publish(
             self, conn):
+        baseline = sep_row("AAA", "2024-01-15")
         ingest.seed(
             conn, date_from="2024-01-01", date_to="2024-01-31",
-            fetch=fetcher([sep_row("AAA", "2024-01-15")]))
+            fetch=fetcher([baseline]))
         before = publication.current(conn)
         assert before is not None
 
         fresh = [sep_row(f"T{i:03d}", "2024-02-01") for i in range(100)]
         with pytest.raises(D.IdentityDomainUnavailable):
             ingest.daily(
-                conn, fetch=fetcher(fresh), today="2024-02-01",
+                conn, fetch=fetcher([baseline, *fresh]), today="2024-02-01",
                 resolve_identity=lambda ticker, _session:
-                    f"P-{ticker}" if int(ticker[1:]) < 5 else None)
+                    "P-AAA" if ticker == "AAA" else
+                    (f"P-{ticker}" if int(ticker[1:]) < 5 else None))
 
         after = publication.current(conn)
         assert after is not None
-        assert after.version == before.version
-        assert after.run_id == before.run_id
-
-        latest = S.run_status(conn, 1)[0]
+        latest = latest_daily(conn)
         assert latest["status"] == "failed"
         assert "IdentityDomainUnavailable" in (latest["error_message"] or "")
+        assert_run_unpublished(conn, latest["run_id"])
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT COUNT(*),COUNT(DISTINCT last_written_run_id)"
@@ -181,27 +206,31 @@ class TestDailyPublicationBoundary:
             assert cur.fetchone()[0] == 0
 
     def test_saturday_catch_up_validates_friday_not_wall_clock_saturday(self, conn):
+        baseline = sep_row("AAA", "2024-02-01")
         ingest.seed(
             conn, date_from="2024-01-01", date_to="2024-02-01",
-            fetch=fetcher([sep_row("AAA", "2024-02-01")]))
+            fetch=fetcher([baseline]))
         before = publication.current(conn)
         assert before is not None
 
         friday = [sep_row(f"T{i:03d}", "2024-02-02") for i in range(100)]
+        source = [baseline, *friday]
 
         def resolve(ticker, _session):
+            if ticker == "AAA":
+                return "P-AAA"
             return f"P-{ticker}" if int(ticker[1:]) < 5 else None
 
         with pytest.raises(D.IdentityDomainUnavailable, match="2024-02-02"):
             ingest.daily(
-                conn, fetch=fetcher(friday), today="2024-02-03",
+                conn, fetch=fetcher(source), today="2024-02-03",
                 resolve_identity=resolve)
 
         after = publication.current(conn)
         assert after is not None
-        assert after.version == before.version
-        assert after.run_id == before.run_id
-        assert S.run_status(conn, 1)[0]["status"] == "failed"
+        first_failed = latest_daily(conn)
+        assert first_failed["status"] == "failed"
+        assert_run_unpublished(conn, first_failed["run_id"])
 
         # The failed candidate physically wrote the five identities it could
         # resolve, so MAX(session) has advanced even though publication has not.
@@ -211,14 +240,14 @@ class TestDailyPublicationBoundary:
         assert S.latest_visible_session(conn) == "2024-02-01"
         with pytest.raises(D.IdentityDomainUnavailable, match="2024-02-02"):
             ingest.daily(
-                conn, fetch=fetcher(friday), today="2024-02-03",
+                conn, fetch=fetcher(source), today="2024-02-03",
                 resolve_identity=resolve)
 
         after_retry = publication.current(conn)
         assert after_retry is not None
-        assert after_retry.version == before.version
-        assert after_retry.run_id == before.run_id
-        assert S.run_status(conn, 1)[0]["status"] == "failed"
+        retry_failed = latest_daily(conn)
+        assert retry_failed["status"] == "failed"
+        assert_run_unpublished(conn, retry_failed["run_id"])
 
     @pytest.mark.parametrize("today", ["2024-02-18", "2024-02-19"])
     def test_weekend_or_holiday_without_new_SEP_session_is_not_identity_failure(
@@ -236,14 +265,18 @@ class TestDailyPublicationBoundary:
 
         after = publication.current(conn)
         assert after is not None
-        assert after.version == before.version + 1
-        assert S.run_status(conn, 1)[0]["status"] == "success"
+        # Historical maintenance may legitimately publish its own generation
+        # around the daily run. This test is about identity semantics, not an
+        # assumption that a daily invocation creates exactly one version.
+        assert after.version > before.version
+        assert latest_daily(conn)["status"] == "success"
 
     def test_intermediate_new_session_collapse_cannot_hide_behind_healthy_latest(
             self, conn):
+        baseline = sep_row("AAA", "2024-01-31")
         ingest.seed(
             conn, date_from="2024-01-01", date_to="2024-01-31",
-            fetch=fetcher([sep_row("AAA", "2024-01-31")]))
+            fetch=fetcher([baseline]))
         before = publication.current(conn)
         assert before is not None
 
@@ -254,19 +287,22 @@ class TestDailyPublicationBoundary:
         ]
 
         def resolve(ticker, session):
+            if ticker == "AAA":
+                return "P-AAA"
             if session == "2024-02-01" and int(ticker[1:]) >= 5:
                 return None
             return f"P-{ticker}"
 
         with pytest.raises(D.IdentityDomainUnavailable, match="2024-02-01"):
             ingest.daily(
-                conn, fetch=fetcher(fresh), today="2024-02-02",
+                conn, fetch=fetcher([baseline, *fresh]), today="2024-02-02",
                 resolve_identity=resolve)
 
         after = publication.current(conn)
         assert after is not None
-        assert after.version == before.version
-        assert after.run_id == before.run_id
+        failed = latest_daily(conn)
+        assert failed["status"] == "failed"
+        assert_run_unpublished(conn, failed["run_id"])
 
 
 class TestRejectionGenerationLifecycle:
