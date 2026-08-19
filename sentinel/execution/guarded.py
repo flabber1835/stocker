@@ -203,13 +203,20 @@ class GuardedExecutionBroker(ExecutionBroker):
     def guard(self) -> ExecutionBrokerGuard:
         return self._guard
 
+    @staticmethod
+    def _has_optional_override(inner: ExecutionBroker, name: str) -> bool:
+        implementation = getattr(type(inner), name, None)
+        base = getattr(ExecutionBroker, name, None)
+        return callable(implementation) and implementation is not base
+
     @property
     def supports_market_clock(self) -> bool:
-        return callable(getattr(self._inner, "market_clock", None))
+        return self._has_optional_override(self._inner, "market_clock")
 
     @property
     def supports_account_cash_activities(self) -> bool:
-        return callable(getattr(self._inner, "account_cash_activities", None))
+        return self._has_optional_override(
+            self._inner, "account_cash_activities")
 
     async def _read(self, operation: BrokerOperation, call):
         try:
