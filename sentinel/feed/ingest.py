@@ -27,20 +27,18 @@ from sentinel.feed import (
     coherence, ingest_impl as _impl, maintenance, recovery, reseed,
     sep_reconciliation, sharadar, snapshot_source)
 
-# Preserve the established module API, including private helpers used by focused
-# regression tests and operational diagnostics. Public entry points are replaced
-# below; implementation functions retain their original module globals.
 for _name in dir(_impl):
     if not _name.startswith("__"):
         globals()[_name] = getattr(_impl, _name)
 
 
-def _validate_source_before_run(fetch) -> None:
-    """Fail production transport/config/credentials before durable ingest state.
+def _authoritative_source(fetch):
+    """Upgrade only the production adapter; injected test/simulation seams stay pure."""
+    return snapshot_source.fetch_table if fetch is sharadar.fetch_table else fetch
 
-    Injected fetch functions are the established test/simulation seam and do not
-    require a real Sharadar credential. The production adapter does.
-    """
+
+def _validate_source_before_run(fetch) -> None:
+    """Fail production transport/config/credentials before durable ingest state."""
     sharadar.validate_config()
     if fetch is snapshot_source.fetch_table:
         snapshot_source.validate_config()
@@ -50,21 +48,12 @@ def _validate_source_before_run(fetch) -> None:
 
 
 def _recover_before_run(conn) -> None:
-    """Converge the ordinary single-candidate restart state."""
     _impl.feed_store.reclaim_orphans(conn)
     recovery.resume_pending_publication(conn)
 
 
 def _recover_before_seed(conn, *, date_from: str,
                          date_to: str) -> recovery.FullReseedPlan:
-    """Use the cheap restart path when provable; otherwise choose full reseed.
-
-    Old code could accumulate two successful-unpublished attempts, or a mixture
-    of failed and successful owners, before #108 recovery ran. No ordering of
-    those in-place generations is authority. ``feed-seed`` is intentionally the
-    supported escape hatch: it retires only unpublished candidates and replaces
-    their entire physical scope from source-stable vendor evidence.
-    """
     _impl.feed_store.reclaim_orphans(conn)
     pending = recovery.pending_validated(conn)
     live = recovery.live_candidates(conn)
@@ -86,15 +75,9 @@ def _recover_before_seed(conn, *, date_from: str,
 
 
 def _finish_publication_or_refuse(conn, progress):
-    """Close the deliberate finish->publish crash window before returning."""
     try:
         return recovery.require_published(conn, progress.run_id)
     except recovery.PublicationRecoveryRefused:
-        # `_impl._publish_version` is intentionally non-fatal for its historical
-        # callers. The authority facade is stricter: while we still own the
-        # writer lock, retry the tiny publication transaction immediately. If it
-        # cannot publish, the exception escapes and the operation is not reported
-        # as successful.
         recovery.resume_pending_publication(conn)
         return recovery.require_published(conn, progress.run_id)
 
@@ -129,9 +112,10 @@ def _require_failed_owner_cleared(conn, *, context: str) -> None:
 
 def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
          date_to: Optional[str] = None,
-         fetch: Callable[..., Iterable[dict]] = snapshot_source.fetch_table,
+         fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
          resolve_identity=None):
     """Complete seed and the supported recovery for ambiguous old candidates."""
+    fetch = _authoritative_source(fetch)
     _validate_source_before_run(fetch)
     with _impl.feed_store.corpus_write_lock(conn):
         resolved_to = date_to or _today()
@@ -141,17 +125,9 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
 
         chunks = sharadar.year_chunks(seed_from, seed_to)
         final_hi = chunks[-1][1]
-
-        # A complete seed is the only cheap point at which every SEP row already
-        # crosses the source boundary. Track the vendor update clock there rather
-        # than guessing an initial CDC watermark from a later 14-day price window.
         tracked = maintenance.LastUpdatedTrackingFetch(fetch)
         guarded = coherence.StableSharadarFetch(
             tracked,
-            # Every historical SEP traversal can be paginated and therefore
-            # every chunk needs two-observation proof. TICKERS/SFP are held open
-            # across the whole seed and corroborated only after the final chunk,
-            # so one source generation brackets the complete cross-table join.
             protect_sep=lambda _params: True,
             corroborate_reference=(
                 lambda params: str(params.get("date.lte") or "") == final_hi),
@@ -164,9 +140,6 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
                 conn, date_from=seed_from, date_to=seed_to,
                 fetch=guarded, resolve_identity=resolve_identity)
         else:
-            # ``resolve_identity`` remains the established normalization test
-            # seam. Source completeness is tied to stable TICKERS rather than to
-            # an optimistic caller resolver.
             progress = _impl._seed_locked(
                 conn, date_from=seed_from, date_to=seed_to,
                 fetch=guarded, resolve_identity=resolve_identity)
@@ -179,19 +152,16 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
         maintenance.establish_sep_cursor_after_seed(
             conn, through=tracked.max_sep_lastupdated,
             publication_version=published.version)
-        # ACTIONS does not have a mutation timestamp. Establish its independent
-        # complete-source checkpoint now so later daily runs can use the cheap
-        # cadence gate rather than assuming the seed's event-date window was a
-        # permanent reconciliation mechanism.
         maintenance.reconcile_actions_if_due(
             conn, fetch=fetch, through=seed_to, force=True)
         return progress
 
 
-def daily(conn, *, fetch: Callable[..., Iterable[dict]] = snapshot_source.fetch_table,
+def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
           resolve_identity=None, overlap_days: int = _impl.DAILY_OVERLAP_DAYS,
           today: Optional[str] = None):
     """Daily source maintenance with independent session and mutation clocks."""
+    fetch = _authoritative_source(fetch)
     _validate_source_before_run(fetch)
     resolved_today = today or _today()
     today_date = _dt.date.fromisoformat(str(resolved_today))
@@ -199,10 +169,6 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = snapshot_source.fetch_
 
     with _impl.feed_store.corpus_write_lock(conn):
         _recover_before_run(conn)
-
-        # The CDC cursor must have been EARNED by a complete seed/reconciliation.
-        # Missing means unknown historical mutation coverage, not permission to
-        # initialize it from today's moving price window.
         if maintenance.load_sep_cursor(conn) is None:
             raise maintenance.MutationCursorUnavailable(
                 "SEP mutation watermark has not been established. Run the "
@@ -210,11 +176,6 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = snapshot_source.fetch_
                 "reconciliation) before daily operation; a 14-day session "
                 "overlap cannot prove old rows current.")
 
-        # There can be at most one failed run that still owns physical rows in
-        # normal operation because the writer lock serializes every feed run and
-        # we refuse to open another until the prior owner is superseded. Which
-        # operation failed matters: opening the wrong kind of retry can itself be
-        # blocked by the old owner and strand recovery forever.
         failed = _single_failed_live_candidate(conn)
         retry_daily_first = False
         if failed is not None:
@@ -255,10 +216,6 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = snapshot_source.fetch_
         if not retry_daily_first:
             maintenance.reconcile_sep_mutations(
                 conn, fetch=fetch, through=yesterday)
-            # This is a proof of the PUBLISHED corpus, not a discovery pass for
-            # the leading edge. Asking the vendor through wall-clock today before
-            # daily ingest would make legitimate new rows look like local
-            # deletions/insertions. New sessions belong to `_daily_locked` below.
             sep_reconciliation.reconcile_next(
                 conn, fetch=fetch, through=published_frontier)
 
@@ -272,9 +229,6 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = snapshot_source.fetch_
 
         if retry_daily_first:
             _require_failed_owner_cleared(conn, context="daily retry")
-            # The retry has just established a new published frontier. Reconcile
-            # exactly that authority, never a wall-clock day the corpus does not
-            # yet contain.
             published_frontier = _impl.feed_store.latest_visible_session(conn)
             sep_reconciliation.reconcile_next(
                 conn, fetch=fetch, through=published_frontier)
