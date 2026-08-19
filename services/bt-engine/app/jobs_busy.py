@@ -52,6 +52,12 @@ JOB_START_LOCK_KEY = 0x4254_4A4F_4253_5441
 #: run the orphan-reclaim UPDATE against the first process's `running` row.
 ENGINE_PROCESS_LEASE_KEY = 0x4254_454E_4749_4E45
 
+#: Exact persisted semantics required by the post-#185 Wealth Core liquidity
+#: contract. Existing bt_prices rows intentionally carry NULL after the schema
+#: migration; the bt-data write trigger stamps this value only when the row is
+#: actually rewritten through the corrected provider boundary.
+PRICE_VOLUME_DOMAIN = "sharadar-raw-volume-v1"
+
 
 class EngineProcessLeaseUnavailable(RuntimeError):
     """Another bt-engine process still owns this certification database."""
@@ -101,6 +107,17 @@ _BUSY_SQL = text(
     f"  SELECT '{WEALTH_CORE_RUN}' AS kind FROM bt_wealth_core_runs"
     "   WHERE status='running'"
     ") AS running LIMIT 1"
+)
+
+# Literal predicate deliberately matches the partial index installed by
+# services/bt-data/sql/volume_domain_guard.sql. Binding the domain as a parameter
+# can prevent PostgreSQL from proving that the partial-index predicate applies,
+# turning a safety gate into a 35M-row scan. The value is a code constant, not
+# user input.
+_UNKNOWN_PRICE_VOLUME_DOMAIN_SQL = text(
+    "SELECT ticker,date FROM bt_prices "
+    f"WHERE volume_domain_version IS DISTINCT FROM '{PRICE_VOLUME_DOMAIN}' "
+    "ORDER BY date,ticker LIMIT 1"
 )
 
 
@@ -159,8 +176,32 @@ async def acquire_corpus_read_lock(conn) -> None:
             "queue behind or overlap a mutation generation")
 
 
+async def _require_price_volume_domain(conn) -> None:
+    """Refuse a READY generation containing even one legacy volume-domain row.
+
+    The certification rig's PostgreSQL bootstrap user is a superuser on existing
+    deployments, so RLS cannot be the authority here: PostgreSQL superusers
+    bypass it. This explicit query executes in the same REPEATABLE READ snapshot
+    and shared corpus lock as the generation read. A partial index contains only
+    unknown/legacy rows, making the empty-set proof cheap after migration.
+    """
+    try:
+        row = (await conn.execute(_UNKNOWN_PRICE_VOLUME_DOMAIN_SQL)).first()
+    except Exception as exc:  # noqa: BLE001 -- missing provenance is not citable
+        raise CorpusGenerationUnavailable(
+            "bt_prices cannot prove the post-#185 volume-domain contract; apply "
+            "the bt-data volume-domain schema migration before rehearsing") from exc
+    if row is not None:
+        ticker, session = row[0], row[1]
+        raise CorpusGenerationUnavailable(
+            "bt_prices contains pre-#185/unknown volume-domain rows "
+            f"(first: {ticker}/{session}). Re-run the complete SEP price stage "
+            "with /jobs/backfill-prices force=true and refresh benchmark prices "
+            "before historical Wealth Core/replay is trusted.")
+
+
 async def load_ready_data_generation(conn) -> DataGeneration:
-    """Read the generation identity through the caller's corpus snapshot."""
+    """Read the generation identity and economic-domain proof in one snapshot."""
     try:
         row = (await conn.execute(text(
             "SELECT version::text, status, source_mode, updated_at, note "
@@ -184,6 +225,7 @@ async def load_ready_data_generation(conn) -> DataGeneration:
         raise CorpusGenerationUnavailable(
             "READY bt_data_version is missing version or source_mode; its "
             "corpus cannot be identified")
+    await _require_price_volume_domain(conn)
     return DataGeneration(
         version=str(version), status="READY", source_mode=str(source_mode),
         updated_at=updated_at, note=str(note) if note is not None else None,
