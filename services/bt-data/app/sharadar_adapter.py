@@ -17,6 +17,7 @@ Contract the pipeline expects (verified against services/pipeline/app/main.py):
 """
 from __future__ import annotations
 
+import math
 from typing import Any, Optional
 
 
@@ -69,6 +70,28 @@ def _level(v: Any) -> Optional[float]:
     return f
 
 
+def _raw_compatible_volume(adjusted_close: Any, raw_close: Any,
+                           adjusted_volume: Any) -> Optional[float]:
+    """Put Sharadar SEP volume in the as-traded share domain.
+
+    SEP `close` and `volume` are split-adjusted while `closeunadj` is raw.
+    Wealth Core multiplies the stored close_unadjusted by stored volume, so the
+    persisted volume must satisfy raw_close * raw_volume == close * SEP.volume.
+    Keeping the conversion at this provider boundary also makes the historical
+    corpus and Sentinel's live ingest carry the same VendorBar semantics.
+    """
+    try:
+        adjusted = float(adjusted_close)
+        raw = float(raw_close)
+        reported = float(adjusted_volume)
+    except (TypeError, ValueError):
+        return None
+    if not all(math.isfinite(v) and v > 0 for v in (adjusted, raw, reported)):
+        return None
+    result = reported * adjusted / raw
+    return result if math.isfinite(result) and result > 0 else None
+
+
 def map_sep_row(row: dict) -> dict:
     """Sharadar SEP daily price row → bt_prices row.
 
@@ -84,21 +107,26 @@ def map_sep_row(row: dict) -> dict:
         closeunadj   the actual as-traded price. The marking and execution
                      domain, and the only one a share count or a cash balance
                      may be computed from.
+        volume       SPLIT-adjusted. It is converted here to raw-compatible
+                     shares because bt_prices liquidity uses close_unadjusted.
 
     `closeunadj` used to be discarded here, which left the corpus with no raw
     price at all — so anything needing one had to reach for `close` and would
     have marked a portfolio in split-adjusted currency without raising.
     """
+    close = _f(row.get("close"))
+    raw_close = _f(row.get("closeunadj"))
+    reported_volume = _f(row.get("volume"))
     return {
         "ticker": row["ticker"],
         "date": row["date"],
         "open": _f(row.get("open")),
         "high": _f(row.get("high")),
         "low": _f(row.get("low")),
-        "close": _f(row.get("close")),
+        "close": close,
         "adjusted_close": _f(row.get("closeadj")),
-        "close_unadjusted": _f(row.get("closeunadj")),
-        "volume": _f(row.get("volume")),
+        "close_unadjusted": raw_close,
+        "volume": _raw_compatible_volume(close, raw_close, reported_volume),
     }
 
 
