@@ -29,12 +29,14 @@ a real backtest, feeding a promotion gate that rewrites the live strategy. Now
 `mode=sharadar` with no key raises at startup. Legacy BT_MOCK_DATA=true is still
 honoured as an explicit request for mock.
 
-The module also binds a database-session application name before ``app.main``
-constructs its asyncpg engine. The bt_prices semantic-epoch trigger accepts the
-post-#185 volume marker only from that application identity. Rolling the bt-data
-application back to code that predates this declaration therefore makes any
-price write invalidate the row's semantic marker instead of silently blessing
-old split-adjusted volume as raw-compatible.
+The module also installs one narrow asyncpg connection wrapper before
+``app.main`` constructs its SQLAlchemy engine.  The wrapper merges the documented
+``server_settings`` connection argument with an immutable post-#185
+``application_name``.  The bt_prices semantic-epoch trigger accepts the new
+volume marker only from that application identity.  Rolling the bt-data
+application back to code that predates this wrapper therefore makes any price
+write invalidate the row's semantic marker instead of silently blessing old
+split-adjusted volume as raw-compatible.
 """
 from __future__ import annotations
 
@@ -42,43 +44,51 @@ import asyncio
 import os
 from datetime import date, timedelta
 from typing import AsyncIterator, Optional
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+import asyncpg
 import httpx
 
 PRICE_WRITER_APPLICATION_NAME = "bt-data-sharadar-raw-volume-v1"
+_CONNECT_PATCH_MARKER = "_bt_data_raw_volume_connect_patch_v1"
 
 
-def _bind_price_writer_application_name() -> None:
-    """Tag DB sessions created by this post-#185 bt-data application build.
+def _install_price_writer_identity() -> None:
+    """Inject the writer identity through asyncpg's supported server_settings.
 
-    asyncpg treats unrecognized PostgreSQL URI query options as server settings,
-    so ``application_name`` becomes a connection setting without changing the
-    engine wiring in ``app.main``. A conflicting explicit application_name is
-    refused rather than overwritten: the DB trigger's provenance token must not
-    be ambiguous.
+    SQLAlchemy parses URL query parameters into direct asyncpg keyword arguments,
+    so putting ``application_name`` in ``BT_DATABASE_URL`` would raise
+    ``TypeError: unexpected keyword argument``.  ``server_settings`` is the
+    driver's documented mechanism for connection-wide PostgreSQL settings and is
+    also what app.main already uses for lock/statement timeouts.
+
+    The patch is process-local and idempotent.  It wraps only the public
+    ``asyncpg.connect`` entry point that SQLAlchemy's asyncpg dialect calls; all
+    existing server settings are preserved and a conflicting application name is
+    refused instead of silently overwritten.
     """
-    raw = os.getenv("BT_DATABASE_URL", "")
-    if not raw:
+    if getattr(asyncpg, _CONNECT_PATCH_MARKER, False):
         return
-    parts = urlsplit(raw)
-    query = parse_qsl(parts.query, keep_blank_values=True)
-    existing = [value for key, value in query if key == "application_name"]
-    if existing:
-        if any(value != PRICE_WRITER_APPLICATION_NAME for value in existing):
+    original = asyncpg.connect
+
+    async def identified_connect(*args, **kwargs):
+        settings = dict(kwargs.get("server_settings") or {})
+        existing = settings.get("application_name")
+        if existing not in (None, PRICE_WRITER_APPLICATION_NAME):
             raise RuntimeError(
-                "BT_DATABASE_URL carries an application_name that conflicts "
-                "with the post-#185 price-volume writer identity")
-        return
-    query.append(("application_name", PRICE_WRITER_APPLICATION_NAME))
-    os.environ["BT_DATABASE_URL"] = urlunsplit(
-        (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+                "asyncpg server_settings.application_name conflicts with the "
+                "post-#185 bt-data price-volume writer identity")
+        settings["application_name"] = PRICE_WRITER_APPLICATION_NAME
+        kwargs["server_settings"] = settings
+        return await original(*args, **kwargs)
+
+    asyncpg.connect = identified_connect
+    setattr(asyncpg, _CONNECT_PATCH_MARKER, True)
 
 
-# app.main imports this module before it reads BT_DATABASE_URL and constructs the
-# SQLAlchemy/asyncpg engine, so every connection in that engine inherits the
-# exact writer identity above. An older binary has no such binding.
-_bind_price_writer_application_name()
+# app.main imports this module before creating its engine. SQLAlchemy's asyncpg
+# adapter resolves asyncpg.connect when opening a DBAPI connection, so every
+# bt-data connection receives the writer identity. An older binary has no patch.
+_install_price_writer_identity()
 
 NDL_BASE = os.getenv("NDL_BASE_URL", "https://data.nasdaq.com/api/v3/datatables/SHARADAR")
 SHARADAR_API_KEY = os.getenv("SHARADAR_API_KEY", "")
