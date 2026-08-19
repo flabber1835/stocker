@@ -97,7 +97,7 @@ At the central 10% SPY exception:
 
 The former broad ~22.9-23.0% plateau is therefore **not reproduced**. The corrected surface separates wealth and drawdown trade-offs rather than providing the previous across-the-board improvement.
 
-The 8% SPY exception, which was the old historical CAGR maximum, is no longer benign: at 30% overlap it produces approximately **21.48% CAGR / -25.82% max drawdown**. This is direct evidence that the old 8-12% stability claim depended materially on the superseded economic path.
+The 8% SPY exception, which was the old historical CAGR maximum, is no longer benign: at 30% overlap under the primary every-upward-transition semantics it produces approximately **21.38% CAGR / -25.82% max drawdown**. This is direct evidence that the old 8-12% stability claim depended materially on the superseded economic path.
 
 ## Recovery-gate semantics sensitivity
 
