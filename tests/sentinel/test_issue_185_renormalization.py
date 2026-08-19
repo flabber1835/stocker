@@ -34,7 +34,8 @@ def test_sep_mutation_validation_refuses_unknown_permanent_identity(monkeypatch)
     with pytest.raises(maintenance.SharadarMutationRefused, match="no permanent identity"):
         maintenance._validate_sep_mutation_rows(
             object(), [row], lo=__import__("datetime").date(2026, 8, 17),
-            hi=__import__("datetime").date(2026, 8, 18))
+            hi=__import__("datetime").date(2026, 8, 18),
+            published_through=__import__("datetime").date(2026, 8, 18))
 
 
 def test_sep_mutation_validation_refuses_missing_new_raw_price(monkeypatch):
@@ -48,7 +49,8 @@ def test_sep_mutation_validation_refuses_missing_new_raw_price(monkeypatch):
     with pytest.raises(maintenance.SharadarMutationRefused, match="no positive raw close"):
         maintenance._validate_sep_mutation_rows(
             object(), [row], lo=__import__("datetime").date(2026, 8, 17),
-            hi=__import__("datetime").date(2026, 8, 18))
+            hi=__import__("datetime").date(2026, 8, 18),
+            published_through=__import__("datetime").date(2026, 8, 18))
 
 
 def test_action_change_dates_replay_only_bar_affecting_actions(monkeypatch):
