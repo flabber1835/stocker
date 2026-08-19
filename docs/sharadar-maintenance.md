@@ -39,6 +39,14 @@ Rules:
 vintage that existed on the historical session and must not be described as a
 historical-as-of timestamp.
 
+Readiness binds this maintenance to the **published decision frontier**, not to
+wall-clock midnight. A Friday-close decision whose SEP mutation cursor covers
+Friday remains valid at Monday's open; Monday's post-close CDC is not an input to
+that frozen plan. Once Monday itself is the published decision frontier, however,
+a cursor still at Friday fails readiness. ACTIONS cadence is measured at the same
+decision frontier so a valid frozen plan does not expire merely while waiting for
+its next-open execution.
+
 ## 3. Complete negative-space and bootstrap reconciliation
 
 An update timestamp cannot reveal a row that disappeared entirely. It also
@@ -104,21 +112,49 @@ interpreted as authoritative removal.
 
 ## Crash/restart rule
 
-Every ordinary `feed-seed` / `feed-daily` rerun converges durable ingest state
-before opening new work:
+Every ordinary `feed-seed` / `feed-daily` rerun first classifies durable ingest
+state under the corpus writer lock:
 
 1. `RUNNING` runs left by a dead process are reclaimed/failed and their pending
    action/anomaly candidates are retired;
 2. exactly one complete `SUCCESS` run lacking a publication is treated as
    validated-pending-publication and its publication is resumed;
-3. more than one such validated candidate is ambiguous and is refused rather
-   than ordered by timestamp/guess;
+3. one failed live candidate is retried by the operation capable of superseding
+   its exact physical rows (`daily`, `sep_mutations`, or `actions_reconcile`);
 4. a run is never reported successful to the caller until its publication row
    exists.
 
-Historical correction runs use the same rule. Their bar batches can commit
-incrementally, but unpublished rows remain invisible and an ACTIONS candidate is
-not activated until the matching corpus publication commits.
+### Legacy multi-candidate recovery
+
+Pre-#185 code could already have accumulated **several** overlapping unpublished
+runs. Their timestamps are not source authority and Sentinel never sorts them and
+publishes a guessed winner. `feed-daily` refuses that ambiguous state and names
+the supported recovery: run a complete `feed-seed`.
+
+`feed-seed` then:
+
+1. identifies every success-unpublished or still-live failed candidate;
+2. widens the replacement range to cover the oldest/newest destructive candidate
+   row;
+3. durably classifies those runs FAILED/ABORTED while leaving published history
+   untouched;
+4. performs the ordinary double-observed seed source contract;
+5. after each SEP year is stable and rewritten, retires only residual old-owner
+   bars in that exact completed window. Because an unchanged source row would
+   already have been re-owned by the new run, a residual is authoritative
+   source absence/non-normalizability, not a guessed deletion;
+6. only after the final cross-table stability proof retires residual old SPY /
+   legacy-ACTIONS candidate rows; TICKERS retirement remains part of the atomic
+   publication transaction;
+7. publishes one coherent replacement generation and re-establishes the CDC /
+   complete-ACTIONS maintenance cursors.
+
+Old candidate rows are deliberately **not** deleted before replacement work
+exists. If the process dies immediately after retirement classification they
+remain coherence blockers. If it dies after a stable year has been replaced,
+the new seed already owns candidate rows and remains a blocker. Thus no crash
+boundary can expose a partially reconstructed old publication as READY, and a
+second `feed-seed` can resume recovery without manual SQL.
 
 This preserves the distinction between **physical rows**, **validated candidate**,
 and **published authority** at every process-death boundary.
