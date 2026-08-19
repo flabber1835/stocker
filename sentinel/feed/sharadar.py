@@ -23,7 +23,10 @@ Two behaviours matter and both are non-obvious:
     throttling.
 
 Non-retryable 4xx (auth, bad request) still fail fast: waiting fifteen minutes to
-re-learn that an API key is wrong helps nobody.
+re-learn that an API key is wrong helps nobody. A syntactically successful HTTP
+response with a malformed datatable envelope also fails immediately. Treating a
+bad provider response as an empty table is more dangerous than an outage because
+it can publish a plausible partial corpus.
 
 Sentinel may not import a retired Stocker service, so `retry_delay` is a
 re-implementation — and `tests/sentinel/test_feed_sharadar.py` pins it against
@@ -45,7 +48,9 @@ from typing import Callable, Iterator, Mapping, Optional
 NDL_BASE = os.getenv("NDL_BASE_URL",
                      "https://data.nasdaq.com/api/v3/datatables/SHARADAR")
 
-FETCH_TIMEOUT_SECS = float(os.getenv("SHARADAR_FETCH_TIMEOUT", "120"))
+# Bound an individual network operation. The page retry loop provides outage
+# tolerance; a two-minute socket timeout only makes each failed attempt hang.
+FETCH_TIMEOUT_SECS = float(os.getenv("SHARADAR_FETCH_TIMEOUT", "30"))
 FETCH_MAX_RETRIES = int(os.getenv("SHARADAR_FETCH_RETRIES", "6"))
 FETCH_BACKOFF_BASE = float(os.getenv("SHARADAR_FETCH_BACKOFF", "2.0"))
 RATE_LIMIT_BACKOFF_CAP = float(os.getenv("SHARADAR_429_BACKOFF_CAP", "900"))
@@ -72,6 +77,10 @@ class PaginationError(RuntimeError):
 
 class SharadarRequestError(RuntimeError):
     """A vendor failure whose rendering is guaranteed not to contain a key."""
+
+
+class SharadarProtocolError(RuntimeError):
+    """HTTP succeeded but the Sharadar datatable response is not trustworthy."""
 
 
 @contextmanager
@@ -128,6 +137,78 @@ def _api_key() -> str:
     return key
 
 
+def _decode_page(resp, table: str, page: int) -> tuple[list[str], list, Optional[str]]:
+    """Validate one successful Sharadar datatable response before yielding it.
+
+    This is deliberately outside `_get_with_retry`: JSON/schema corruption is a
+    protocol failure, not a transport failure, and repeating the same page can
+    turn a deterministic provider defect into a long outage without making the
+    bytes any more trustworthy.
+    """
+    try:
+        payload = resp.json()
+    except Exception as exc:  # noqa: BLE001 - provider decoder types vary
+        raise SharadarProtocolError(
+            f"{table} page {page} returned invalid JSON ({type(exc).__name__})") from None
+    if not isinstance(payload, Mapping):
+        raise SharadarProtocolError(
+            f"{table} page {page} response root is not an object")
+
+    dt = payload.get("datatable")
+    if not isinstance(dt, Mapping):
+        raise SharadarProtocolError(
+            f"{table} page {page} has no valid datatable object")
+    raw_columns = dt.get("columns")
+    raw_rows = dt.get("data")
+    if not isinstance(raw_columns, list) or not raw_columns:
+        raise SharadarProtocolError(
+            f"{table} page {page} has no valid datatable.columns schema")
+    if not isinstance(raw_rows, list):
+        raise SharadarProtocolError(
+            f"{table} page {page} has no valid datatable.data array")
+
+    cols: list[str] = []
+    for index, column in enumerate(raw_columns):
+        if not isinstance(column, Mapping):
+            raise SharadarProtocolError(
+                f"{table} page {page} column {index} is not an object")
+        name = column.get("name")
+        if not isinstance(name, str) or not name:
+            raise SharadarProtocolError(
+                f"{table} page {page} column {index} has no valid name")
+        if name in cols:
+            raise SharadarProtocolError(
+                f"{table} page {page} repeats column {name!r}")
+        cols.append(name)
+
+    for index, row in enumerate(raw_rows):
+        if not isinstance(row, (list, tuple)):
+            raise SharadarProtocolError(
+                f"{table} page {page} row {index} is not an array")
+        if len(row) != len(cols):
+            raise SharadarProtocolError(
+                f"{table} page {page} row {index} has {len(row)} values for "
+                f"{len(cols)} columns")
+
+    meta = payload.get("meta")
+    if meta is None:
+        next_cursor = None
+    elif not isinstance(meta, Mapping):
+        raise SharadarProtocolError(
+            f"{table} page {page} meta is not an object")
+    else:
+        next_cursor = meta.get("next_cursor_id")
+        if next_cursor is not None and not isinstance(next_cursor, (str, int)):
+            raise SharadarProtocolError(
+                f"{table} page {page} next_cursor_id has invalid type "
+                f"{type(next_cursor).__name__}")
+        if next_cursor is not None:
+            next_cursor = str(next_cursor)
+            if not next_cursor:
+                next_cursor = None
+    return cols, raw_rows, next_cursor
+
+
 def fetch_table(table: str, params: Mapping[str, str] | None = None, *,
                 http=None, sleep=time.sleep) -> Iterator[dict]:
     """Yield every row of `table` matching `params`, following the cursor.
@@ -160,15 +241,11 @@ def fetch_table(table: str, params: Mapping[str, str] | None = None, *,
                 q["qopts.cursor_id"] = cursor
             resp = _get_with_retry(client, url, q, http=http, sleep=sleep)
             pages += 1
-            payload = resp.json()
-            dt = payload.get("datatable") or {}
-            cols = [c["name"] for c in (dt.get("columns") or [])]
-            for row in dt.get("data") or []:
+            cols, rows, next_cursor = _decode_page(resp, table, pages)
+            for row in rows:
                 yield dict(zip(cols, row))
-            next_cursor = (payload.get("meta") or {}).get("next_cursor_id")
             if not next_cursor:
                 return
-            next_cursor = str(next_cursor)
             if next_cursor in seen_cursors:
                 raise PaginationError(
                     f"{table} pagination repeated cursor {next_cursor!r} after "
