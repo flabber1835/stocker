@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Callable, Iterable, Optional
 
-from sentinel.feed import cdc_ingest, coherence, ingest_impl as _impl, sharadar
+from sentinel.feed import cdc_ingest, coherence, ingest_impl as _impl, sharadar, source
 
 # Preserve the established module API, including private helpers used by focused
 # regression tests and operational diagnostics. Public entry points are replaced
@@ -17,10 +17,12 @@ for _name in dir(_impl):
     if not _name.startswith("__"):
         globals()[_name] = getattr(_impl, _name)
 
+_PRODUCTION_FETCH = source.NASDAQ_DATA_LINK.fetch_table
+
 
 def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
          date_to: Optional[str] = None,
-         fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
+         fetch: Callable[..., Iterable[dict]] = _PRODUCTION_FETCH,
          resolve_identity=None):
     """Seed only after source stability and session-local completeness proof."""
     with _impl.feed_store.corpus_write_lock(conn):
@@ -44,7 +46,7 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
             fetch=guarded, resolve_identity=resolve_identity)
 
 
-def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
+def daily(conn, *, fetch: Callable[..., Iterable[dict]] = _PRODUCTION_FETCH,
           resolve_identity=None, overlap_days: int = _impl.DAILY_OVERLAP_DAYS,
           today: Optional[str] = None):
     """Daily ingest with stable-source proof, real SEP CDC and convergent retry."""
