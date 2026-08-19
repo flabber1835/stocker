@@ -67,12 +67,20 @@ sector           Sentinel breadth-sector input; sparse values are legitimate
 isdelisted       retained listing-state evidence; terminal authority remains ACTIONS
 ```
 
-The fingerprint covers every TICKERS field Sentinel persists. `category`,
-`relatedtickers`, the listing bounds, permanent identity and `sector` can affect
-current production decisions. `isdelisted` is retained evidence but does not
-replace ACTIONS terminal state. Fields such as `name`, CUSIP, FIGI, company site,
-and SEC filing URL are not persisted into Sentinel's strategy metadata and are
-not authority-bearing.
+Sentinel's strategy universe is explicitly the **`table=SEP` TICKERS partition**.
+The vendor table also contains SF1/SF2/SFP metadata, and the same
+`(permaticker,ticker)` can occur in more than one product with different category
+or classification values. Those non-SEP rows are not strategy authority: they
+are excluded before the TICKERS stability fingerprint reaches the ingest, and
+`write_universe` repeats the partition check defensively so source row order can
+never decide Wealth Core eligibility.
+
+The fingerprint covers every persisted field of the SEP TICKERS partition.
+`category`, `relatedtickers`, the listing bounds, permanent identity and `sector`
+can affect current production decisions. `isdelisted` is retained evidence but
+does not replace ACTIONS terminal state. Fields such as `name`, CUSIP, FIGI,
+company site, and SEC filing URL are not persisted into Sentinel's strategy
+metadata and are not authority-bearing.
 
 `exchange` deserves an explicit note because the shared Wealth Core type supports
 exchange gating. Sentinel's current production loader does **not** populate
