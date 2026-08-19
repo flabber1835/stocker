@@ -189,6 +189,34 @@ def _d(v) -> Optional[str]:
     return s if len(s) == 10 and s[4] == "-" else None
 
 
+def _related_observation(row: Mapping) -> Optional[str]:
+    """Canonical issuer siblings while preserving NULL versus authoritative empty."""
+    if "relatedtickers" in row:
+        raw = row.get("relatedtickers")
+    elif "related_tickers" in row:
+        raw = row.get("related_tickers")
+    else:
+        return None
+    if raw is None:
+        return None
+    return " ".join(parse_related_tickers(raw))
+
+
+def _delisted_observation(row: Mapping) -> Optional[bool]:
+    """Preserve an absent listing-state observation rather than guessing False."""
+    if "isdelisted" in row:
+        raw = row.get("isdelisted")
+    elif "is_delisted" in row:
+        raw = row.get("is_delisted")
+    else:
+        return None
+    if raw is None or (not isinstance(raw, bool) and not str(raw).strip()):
+        return None
+    if isinstance(raw, bool):
+        return raw
+    return str(raw).strip().upper() in ("Y", "TRUE", "1")
+
+
 _UNIVERSE_UPSERT = """
     INSERT INTO sentinel_universe (permaticker, ticker, category, sector,
         related_tickers, first_price_date, last_price_date, is_delisted,
@@ -218,10 +246,13 @@ def write_universe(conn, rows: Sequence[Mapping], snapshot_date: str, *,
 
     `related_tickers` is stored SPACE-JOINED from the parsed tuple, matching how
     bt-data stores it — so the round trip is stable and a reader that splits on
-    whitespace gets back what was parsed.
+    whitespace gets back what was parsed. Source NULL is retained as NULL so a
+    sparse observation carries prior authority forward; source blank is retained
+    as an empty string so a later authoritative removal of issuer siblings can
+    replace a prior non-empty relationship.
 
     A provenance-tracked generation is NOT projected here: it becomes readable
-    only if publication succeeds.  NULL-provenance legacy rows are readable
+    only if publication succeeds. NULL-provenance legacy rows are readable
     immediately under the existing corpus contract, so they are projected in
     this same transaction before the commit.
     """
@@ -233,11 +264,10 @@ def write_universe(conn, rows: Sequence[Mapping], snapshot_date: str, *,
         payload.append((
             str(pt).strip(), str(tk).strip().upper(), r.get("category"),
             r.get("sector"),
-            " ".join(parse_related_tickers(r.get("relatedtickers")
-                                           or r.get("related_tickers"))) or None,
+            _related_observation(r),
             _d(r.get("firstpricedate") or r.get("first_price_date")),
             _d(r.get("lastpricedate") or r.get("last_price_date")),
-            bool(str(r.get("isdelisted") or "").upper() in ("Y", "TRUE", "1")),
+            _delisted_observation(r),
             snapshot_date,
             str(run_id) if run_id else None,
         ))
