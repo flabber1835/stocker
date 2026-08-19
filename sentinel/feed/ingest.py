@@ -13,8 +13,8 @@ adds the properties a transport client cannot provide by itself:
   that can actually supersede their physical rows;
 * SEP's vendor-update clock is maintained independently from market-session
   freshness;
-* a rotating complete SEP key-set proof detects removals a mutation cursor
-  cannot reveal; and
+* recent decision history receives a complete export-backed negative-space proof;
+* a rotating complete SEP key-set proof still audits deep history; and
 * a caller never receives ``success`` for a generation whose rows are still
   unpublished/invisible.
 """
@@ -24,8 +24,8 @@ import datetime as _dt
 from typing import Callable, Iterable, Optional
 
 from sentinel.feed import (
-    coherence, ingest_impl as _impl, maintenance, recovery, reseed,
-    sep_reconciliation, sharadar, snapshot_source)
+    coherence, ingest_impl as _impl, maintenance, recent_reconciliation,
+    recovery, reseed, sep_reconciliation, sharadar, snapshot_source)
 
 for _name in dir(_impl):
     if not _name.startswith("__"):
@@ -33,17 +33,14 @@ for _name in dir(_impl):
 
 
 def _authoritative_source(fetch):
-    """Upgrade only the production adapter; injected test/simulation seams stay pure."""
     return snapshot_source.fetch_table if fetch is sharadar.fetch_table else fetch
 
 
 def _actions_reconciliation_source(fetch):
-    """Let maintenance recognize production and invoke its whole-table export."""
     return sharadar.fetch_table if fetch is snapshot_source.fetch_table else fetch
 
 
 def _validate_source_before_run(fetch) -> None:
-    """Fail production transport/config/credentials before durable ingest state."""
     sharadar.validate_config()
     if fetch is snapshot_source.fetch_table:
         snapshot_source.validate_config()
@@ -64,10 +61,8 @@ def _recover_before_seed(conn, *, date_from: str,
     live = recovery.live_candidates(conn)
     pending_ids = {candidate.run_id for candidate in pending}
     simple_pending = (
-        len(pending) == 1
-        and pending[0].complete
-        and all(candidate.run_id in pending_ids for candidate in live)
-    )
+        len(pending) == 1 and pending[0].complete
+        and all(candidate.run_id in pending_ids for candidate in live))
     if simple_pending:
         recovery.resume_pending_publication(conn)
         return recovery.FullReseedPlan(str(date_from), str(date_to), ())
@@ -98,9 +93,8 @@ def _single_failed_live_candidate(conn):
 
 def _failed_run_end(conn, run_id: str) -> str | None:
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT date_to FROM feed_ingest_runs WHERE run_id=%s",
-            (str(run_id),))
+        cur.execute("SELECT date_to FROM feed_ingest_runs WHERE run_id=%s",
+                    (str(run_id),))
         row = cur.fetchone()
     return None if row is None or row[0] is None else str(row[0])
 
@@ -113,11 +107,18 @@ def _require_failed_owner_cleared(conn, *, context: str) -> None:
             f"{candidate.run_id}/{candidate.kind}; refusing to open another run")
 
 
+def _prove_recent_frontier(conn) -> None:
+    frontier = _impl.feed_store.latest_visible_session(conn)
+    if frontier is None:
+        raise recent_reconciliation.sep_reconciliation.SepReconciliationStateInvalid(
+            "published corpus has no SEP frontier for recent complete proof")
+    recent_reconciliation.reconcile_recent(conn, through=frontier)
+
+
 def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
          date_to: Optional[str] = None,
          fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
          resolve_identity=None):
-    """Complete seed and the supported recovery for ambiguous old candidates."""
     fetch = _authoritative_source(fetch)
     _validate_source_before_run(fetch)
     with _impl.feed_store.corpus_write_lock(conn):
@@ -129,13 +130,10 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
         final_hi = chunks[-1][1]
         tracked = maintenance.LastUpdatedTrackingFetch(fetch)
         guarded = coherence.StableSharadarFetch(
-            tracked,
-            protect_sep=lambda _params: True,
+            tracked, protect_sep=lambda _params: True,
             corroborate_reference=(
                 lambda params: str(params.get("date.lte") or "") == final_hi),
-            after_session=None,
-            seed_mode=True,
-        )
+            after_session=None, seed_mode=True)
         if recovery_plan.retired_run_ids:
             progress = reseed.full_reseed_locked(
                 conn, date_from=seed_from, date_to=seed_to,
@@ -155,13 +153,13 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
         maintenance.reconcile_actions_if_due(
             conn, fetch=_actions_reconciliation_source(fetch),
             through=seed_to, force=True)
+        _prove_recent_frontier(conn)
         return progress
 
 
 def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
           resolve_identity=None, overlap_days: int = _impl.DAILY_OVERLAP_DAYS,
           today: Optional[str] = None):
-    """Daily source maintenance with independent session and mutation clocks."""
     fetch = _authoritative_source(fetch)
     _validate_source_before_run(fetch)
     resolved_today = today or _today()
@@ -194,8 +192,7 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
                             "candidate; refusing to guess retry order")
                     maintenance.reconcile_sep_mutations(
                         conn, fetch=fetch, through=today_date.isoformat())
-                _require_failed_owner_cleared(
-                    conn, context="SEP mutation retry")
+                _require_failed_owner_cleared(conn, context="SEP mutation retry")
             elif failed.kind == "actions_reconcile":
                 retry_through = _failed_run_end(conn, failed.run_id)
                 if retry_through is None:
@@ -235,9 +232,13 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
             sep_reconciliation.reconcile_next(
                 conn, fetch=fetch, through=published_frontier)
 
+        # Complete all mutation-bearing publications first. The recent negative-
+        # space proof is deliberately LAST so its cursor binds the final corpus
+        # version that readiness may consume.
         maintenance.reconcile_sep_mutations(
             conn, fetch=fetch, through=today_date.isoformat())
         maintenance.reconcile_actions_if_due(
             conn, fetch=_actions_reconciliation_source(fetch),
             through=today_date.isoformat())
+        _prove_recent_frontier(conn)
         return progress
