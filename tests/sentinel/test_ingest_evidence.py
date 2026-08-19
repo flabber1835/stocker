@@ -91,12 +91,19 @@ def fake_vendor(*, sep_tickers, actions=(), tickers=()):
     days = sess(30)
 
     def fetch(table, params=None, **kw):
+        params = dict(params or {})
         if table == sharadar.SEP:
             return [{"date": d, "ticker": t, "close": 100.0,
-                     "closeunadj": 100.0, "open": 99.0, "volume": 1e6}
+                     "closeunadj": 100.0, "open": 99.0, "volume": 1e6,
+                     "lastupdated": d}
                     for d in days for t in sep_tickers]
         if table == sharadar.ACTIONS:
-            return list(actions)
+            rows = list(actions)
+            if not rows and params.get("date.gte") == "1900-01-01":
+                return [{"ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
+                         "action": "listed", "value": None,
+                         "contraticker": None}]
+            return rows
         if table == sharadar.TICKERS:
             return list(tickers)
         return []
