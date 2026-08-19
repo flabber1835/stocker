@@ -230,14 +230,20 @@ def _clipped_listing(first, last, corpus_lo: str, corpus_hi: str):
 def assert_candidate_listing_history_safe(conn, *, run_id: str) -> None:
     """Refuse a full TICKERS snapshot that changes identity over published bars.
 
-    `sentinel_bars` is keyed by ``(security_id, session)``.  Updating the current
+    `sentinel_bars` is keyed by ``(security_id, session)``. Updating the current
     TICKERS projection can therefore NOT by itself repair a historical identity
     correction: the old bar key survives even if the candidate resolver would
-    now map that ticker/session elsewhere (or nowhere).  Until a complete source
+    now map that ticker/session elsewhere (or nowhere). Until a complete source
     rebuild can re-key/tombstone those bars atomically, the only financial-grade
     action is to keep the candidate unpublished.
 
-    Ordinary daily movement remains allowed.  Active securities normally extend
+    The same comparison is also a TICKERS negative-space proof. A complete
+    securities-master snapshot may not silently omit a previously published
+    listing pair whose interval overlaps the published SEP corpus. Otherwise a
+    stable partial TICKERS response and a matching stable partial SEP response
+    could corroborate the same truncation and false-green together.
+
+    Ordinary daily movement remains allowed. Active securities normally extend
     ``lastpricedate`` from the published frontier into the new session; clipped
     to the already-published corpus, old and candidate intervals are identical.
     New IPO/listing pairs whose first date is after the frontier likewise do not
@@ -265,23 +271,27 @@ def assert_candidate_listing_history_safe(conn, *, run_id: str) -> None:
             " FROM sentinel_universe u"
             " WHERE u.last_written_run_id=%s"
             " GROUP BY u.permaticker,u.ticker)"
-            " SELECT c.permaticker,c.ticker,"
+            " SELECT COALESCE(c.permaticker,p.permaticker),"
+            "        COALESCE(c.ticker,p.ticker),"
             "        p.permaticker IS NOT NULL AS had_prior,"
+            "        c.permaticker IS NOT NULL AS has_candidate,"
             "        p.first_price_date,p.last_price_date,"
-            "        COALESCE(c.first_price_date,p.first_price_date),"
-            "        COALESCE(c.last_price_date,p.last_price_date)"
-            " FROM candidate c"
-            " LEFT JOIN feed_universe_current p"
+            "        CASE WHEN c.permaticker IS NULL THEN NULL"
+            "             ELSE COALESCE(c.first_price_date,p.first_price_date) END,"
+            "        CASE WHEN c.permaticker IS NULL THEN NULL"
+            "             ELSE COALESCE(c.last_price_date,p.last_price_date) END"
+            " FROM candidate c FULL OUTER JOIN feed_universe_current p"
             "   ON p.permaticker=c.permaticker AND p.ticker=c.ticker",
             (str(run_id),))
         candidates = cur.fetchall()
 
     changed = []
-    for (permaticker, ticker, had_prior, old_first, old_last,
-         new_first, new_last) in candidates:
+    for (permaticker, ticker, had_prior, has_candidate,
+         old_first, old_last, new_first, new_last) in candidates:
         old = (_clipped_listing(old_first, old_last, corpus_lo, corpus_hi)
                if had_prior else None)
-        new = _clipped_listing(new_first, new_last, corpus_lo, corpus_hi)
+        new = (_clipped_listing(new_first, new_last, corpus_lo, corpus_hi)
+               if has_candidate else None)
         if old != new:
             changed.append({
                 "permaticker": str(permaticker), "ticker": str(ticker),
@@ -295,8 +305,8 @@ def assert_candidate_listing_history_safe(conn, *, run_id: str) -> None:
             for item in changed[:8])
         suffix = f" (+{len(changed) - 8} more)" if len(changed) > 8 else ""
         raise HistoricalIdentityMutation(
-            f"stable TICKERS candidate changes {len(changed)} listing interval(s) "
-            f"inside published SEP history {corpus_lo}..{corpus_hi}: "
+            f"stable TICKERS candidate changes or omits {len(changed)} listing "
+            f"interval(s) inside published SEP history {corpus_lo}..{corpus_hi}: "
             f"{shown}{suffix}. Publishing metadata alone would leave old "
             "(security_id,session) bars authoritative under a resolver that no "
             "longer names them. Refusing until a complete identity-aware source "
@@ -317,7 +327,7 @@ _UNIVERSE_UPSERT = """
         is_delisted = EXCLUDED.is_delisted,
         last_written_run_id = EXCLUDED.last_written_run_id
     -- A same-day retry must not destructively rewrite a row an earlier
-    -- publication already names.  A later snapshot_date is a new generation;
+    -- publication already names. A later snapshot_date is a new generation;
     -- an unpublished same-key attempt may be safely replaced by its retry.
     WHERE sentinel_universe.last_written_run_id IS NOT NULL
       AND NOT EXISTS (
