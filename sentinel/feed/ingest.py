@@ -37,6 +37,11 @@ def _authoritative_source(fetch):
     return snapshot_source.fetch_table if fetch is sharadar.fetch_table else fetch
 
 
+def _actions_reconciliation_source(fetch):
+    """Let maintenance recognize production and invoke its whole-table export."""
+    return sharadar.fetch_table if fetch is snapshot_source.fetch_table else fetch
+
+
 def _validate_source_before_run(fetch) -> None:
     """Fail production transport/config/credentials before durable ingest state."""
     sharadar.validate_config()
@@ -58,7 +63,6 @@ def _recover_before_seed(conn, *, date_from: str,
     pending = recovery.pending_validated(conn)
     live = recovery.live_candidates(conn)
     pending_ids = {candidate.run_id for candidate in pending}
-
     simple_pending = (
         len(pending) == 1
         and pending[0].complete
@@ -69,7 +73,6 @@ def _recover_before_seed(conn, *, date_from: str,
         return recovery.FullReseedPlan(str(date_from), str(date_to), ())
     if not pending and not live:
         return recovery.FullReseedPlan(str(date_from), str(date_to), ())
-
     return recovery.prepare_full_reseed(
         conn, date_from=str(date_from), date_to=str(date_to))
 
@@ -122,7 +125,6 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
         recovery_plan = _recover_before_seed(
             conn, date_from=date_from, date_to=resolved_to)
         seed_from, seed_to = recovery_plan.date_from, recovery_plan.date_to
-
         chunks = sharadar.year_chunks(seed_from, seed_to)
         final_hi = chunks[-1][1]
         tracked = maintenance.LastUpdatedTrackingFetch(fetch)
@@ -134,7 +136,6 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
             after_session=None,
             seed_mode=True,
         )
-
         if recovery_plan.retired_run_ids:
             progress = reseed.full_reseed_locked(
                 conn, date_from=seed_from, date_to=seed_to,
@@ -143,7 +144,6 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
             progress = _impl._seed_locked(
                 conn, date_from=seed_from, date_to=seed_to,
                 fetch=guarded, resolve_identity=resolve_identity)
-
         published = _finish_publication_or_refuse(conn, progress)
         if tracked.max_sep_lastupdated is None:
             raise maintenance.MutationCursorUnavailable(
@@ -153,7 +153,8 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
             conn, through=tracked.max_sep_lastupdated,
             publication_version=published.version)
         maintenance.reconcile_actions_if_due(
-            conn, fetch=fetch, through=seed_to, force=True)
+            conn, fetch=_actions_reconciliation_source(fetch),
+            through=seed_to, force=True)
         return progress
 
 
@@ -202,7 +203,8 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
                         f"failed ACTIONS reconciliation {failed.run_id} has no "
                         "durable date_to boundary; refusing an unbounded retry")
                 maintenance.reconcile_actions_if_due(
-                    conn, fetch=fetch, through=retry_through, force=True)
+                    conn, fetch=_actions_reconciliation_source(fetch),
+                    through=retry_through, force=True)
                 _require_failed_owner_cleared(
                     conn, context="ACTIONS reconciliation retry")
             else:
@@ -236,5 +238,6 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
         maintenance.reconcile_sep_mutations(
             conn, fetch=fetch, through=today_date.isoformat())
         maintenance.reconcile_actions_if_due(
-            conn, fetch=fetch, through=today_date.isoformat())
+            conn, fetch=_actions_reconciliation_source(fetch),
+            through=today_date.isoformat())
         return progress
