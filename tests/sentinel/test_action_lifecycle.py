@@ -211,7 +211,7 @@ class TestPublishedActionReconciliation:
         assert splits[("AAA", EVENT)] == 3.0
         assert dividends[("BBB", EVENT)] == 1.0
         terminal_rows = terminal.load_terminal_events(
-            conn, start=EVENT, end=END,
+            conn, start=EVENT, end=EVENT,
             resolve_identity=lambda ticker, session: f"SEC-{ticker}")
         assert any(row.ticker == "CCC" for row in terminal_rows.rows)
 
