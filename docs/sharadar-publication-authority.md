@@ -2,9 +2,9 @@
 
 **Status: design settled for issue #178, 2026-08-18.** This document is the
 source-of-truth for the source-publication boundary implemented by
-`sentinel/feed/authority.py`. It supplements the price-domain and corpus
-publication rules in `docs/sentinel-deployment.md` and
-`docs/sentinel-execution-contract.md`; it does not weaken any of them.
+`sentinel/feed/authority.py` plus `sentinel/feed/coherence.py`. It supplements
+the price-domain and corpus publication rules in `docs/sentinel-deployment.md`
+and `docs/sentinel-execution-contract.md`; it does not weaken any of them.
 
 ## 1. Transport success is not publication authority
 
@@ -33,10 +33,10 @@ every table Sentinel joins.
 
 ## 2. The four Sharadar inputs and their authority fields
 
-The stability fingerprint covers exactly the fields that can change Sentinel or
-Wealth Core behavior, plus the source partition needed to interpret them.
-Formatting-only or display-only vendor fields do not get to create false
-publication churn.
+The stability fingerprint covers every field that can change current Sentinel or
+Wealth Core behavior, plus persisted reference fields whose future consumption
+must not bypass the authority boundary. Formatting-only or display-only vendor
+fields do not get to create false publication churn.
 
 ### SEP
 
@@ -63,21 +63,29 @@ category         certified Wealth Core eligibility input
 relatedtickers   issuer-family grouping input; blank is legitimate evidence
 firstpricedate   listing-window lower bound / history-age provenance
 lastpricedate    listing-window upper bound / ticker-reuse disambiguation
-sector           retained classification metadata; sparse values are legitimate
-isdelisted       retained listing-state metadata
+sector           Sentinel breadth-sector input; sparse values are legitimate
+isdelisted       retained listing-state evidence; terminal authority remains ACTIONS
 ```
 
-The fingerprint covers every TICKERS field Sentinel persists, even where a
-current reader does not yet consume the field, so a later consumer cannot
-silently start depending on bytes the publication boundary never stabilized.
-Fields such as `name`, CUSIP, FIGI, company site, and SEC filing URL are not
-persisted into Sentinel's strategy metadata and are not authority-bearing.
+The fingerprint covers every TICKERS field Sentinel persists. `category`,
+`relatedtickers`, the listing bounds, permanent identity and `sector` can affect
+current production decisions. `isdelisted` is retained evidence but does not
+replace ACTIONS terminal state. Fields such as `name`, CUSIP, FIGI, company site,
+and SEC filing URL are not persisted into Sentinel's strategy metadata and are
+not authority-bearing.
+
+`exchange` deserves an explicit note because the shared Wealth Core type supports
+exchange gating. Sentinel's current production loader does **not** populate
+`SecurityMeta.exchange` and therefore leaves `exchange_authoritative=False`; the
+field cannot change current Sentinel behavior. Enabling authoritative exchange
+filtering later requires adding `exchange` to this source contract and its
+stability tests before the behavior is activated.
 
 Blank `relatedtickers` is not "missing metadata": most securities have no issuer
-siblings. It therefore has no non-null coverage floor. `sector` is also allowed
-to be absent for a small tail. Identity bounds and category, by contrast, are
-expected to be present on effectively the whole SEP-relevant universe and are
-validated as such.
+siblings, so it has no non-null coverage floor. `sector` is also legitimately
+absent for a small tail. Fields that were complete in the retained TICKERS ground
+truth are required exactly; they do not share a generic 99% escape hatch that
+could hide one stale category behind thousands of healthy rows.
 
 A TICKERS snapshot is observed before the price traversal and corroborated only
 after a complete protected SEP observation. This deliberately brackets the
@@ -137,11 +145,11 @@ ineligible later without making the vendor publication incomplete.
 
 The thresholds above were measured before implementation against the retained
 bulk Sharadar SEP/TICKERS files, not chosen from the observed production outage.
-The calibration covered **7,189 exchange sessions from 1998-01-02 through
+The SEP calibration covered **7,189 exchange sessions from 1998-01-02 through
 2026-08-03**. Identity was resolved against the TICKERS `table=SEP` listing
 intervals.
 
-Observed worst session values:
+Observed worst SEP session values:
 
 ```text
 identity resolution                      99.9516%
@@ -153,10 +161,29 @@ local population / 20-neighbour median   94.1289%
 absolute session population                 5,310   (historical minimum)
 ```
 
-The 90% local-population threshold therefore leaves more than four percentage
-points below the worst legitimate contraction in the retained corpus, including
-the 2026-08-03 contraction that motivated the earlier daily-population review.
-The 4,000-row absolute floor is about 25% below the historical minimum. The 99%
+The retained TICKERS bulk snapshot contained 21,939 `table=SEP` rows. Its field
+coverage was:
+
+```text
+permaticker                            100.0000%
+category                               100.0000%
+firstpricedate                         100.0000%
+lastpricedate                          100.0000%
+isdelisted                             100.0000%
+ticker                                  99.9954%   (one blank row)
+sector                                  99.4120%
+relatedtickers                          58.1749%   (blank is legitimate semantics)
+```
+
+Accordingly, the exact fields above are required at 100%, ticker at 99.99%, and
+sector at 99%. `relatedtickers` is fingerprinted but has no non-null floor.
+This is the deliberate distinction between sparse semantics and a partial source
+publication.
+
+The 90% local-population threshold leaves more than four percentage points below
+the worst legitimate contraction in the retained corpus, including the
+2026-08-03 contraction that motivated the earlier daily-population review. The
+4,000-row absolute floor is about 25% below the historical minimum. The 99%
 identity/raw floors are materially below observed legitimate sparsity while still
 rejecting a page-scale or cross-section-scale collapse. The 98% volume floor is
 below the 98.766% historical low rather than incorrectly treating the known
