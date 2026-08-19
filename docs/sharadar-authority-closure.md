@@ -110,18 +110,30 @@ A pre-#185 `bt_prices.volume` column contains the old split-adjusted source
 quantity, while new rows contain raw-compatible volume. Numeric values cannot
 identify which semantic epoch produced an existing row.
 
-The schema therefore adds a nullable `volume_domain_version` with **no default**.
-Only post-fix price writes are trigger-stamped:
+The schema therefore adds a nullable `volume_domain_version` with **no default**
+and one singleton `bt_price_volume_domain_state`. A populated database that
+predates this contract starts `proven=false`; a genuinely empty database starts
+`proven=true` because every future price row is necessarily behind the installed
+write trigger.
+
+Only the post-fix bt-data process may stamp a price row:
 
 ```text
 sharadar-raw-volume-v1
 ```
 
-A partial index contains every unmarked/unknown row. The bt-engine's READY
-generation gate checks that index before its first price query and refuses the
-corpus if even one old row remains. This is an explicit gate rather than row-level
-security because the existing backtest PostgreSQL bootstrap role is a superuser
-and could bypass RLS.
+The process injects `application_name=bt-data-sharadar-raw-volume-v1` through
+asyncpg's `server_settings` connection argument. The trigger accepts that exact
+writer identity. A rolled-back/undeclared bt-data binary clears the row marker
+and invalidates the semantic singleton **in the same transaction as its first
+price write**. Thus old application code cannot silently keep a prior financial-
+grade verdict after changing the corpus.
+
+The bt-engine READY-generation gate checks the singleton in O(1) time before its
+first price read. This is explicit rather than row-level security because the
+existing backtest PostgreSQL bootstrap role is a superuser and can bypass RLS.
+It also avoids building a lifetime-sized index over ~35M legacy rows merely to
+say the old corpus is unproven.
 
 The supported one-time repair is the resumable command inside the post-fix
 bt-data image:
@@ -132,23 +144,28 @@ python -m app.volume_domain_migration
 
 It owns the normal corpus writer lock and resumes **only its own** interrupted
 `VOLUME_DOMAIN_MIGRATION:v1` PUBLISHING generation. It force-replays the complete
-stored SEP date range, refreshes configured benchmark prices, then explicitly
-proves there are zero rows whose `volume_domain_version` differs from
-`sharadar-raw-volume-v1`. Only after that residual proof succeeds does it publish
-a new READY data UUID.
+stored SEP date range and refreshes configured benchmark prices. Then, once per
+migration, it performs the expensive acceptance scan and proves there are zero
+rows whose `volume_domain_version` differs from `sharadar-raw-volume-v1`.
+
+Only after that residual proof succeeds does the migration stage
+`bt_price_volume_domain_state.proven=true`; the semantic verdict and new READY
+data UUID commit together through the same publication transaction. A crash
+before that commit leaves the previous unproven state intact and the migration
+resumable.
 
 An old row absent from current source is neither deleted nor grandfathered. It
-stays in the partial unknown-domain index and blocks both migration completion
-and bt-engine certification until the source/key disagreement is investigated.
+remains unmarked and blocks migration completion until the source/key
+disagreement is investigated.
 
 The existing `POST /jobs/backfill-prices` endpoint remains the underlying force
 replay primitive, but the migration command is the supported upgrade because it
 also refreshes benchmark rows, proves zero residual legacy semantics, handles
 restart state, and publishes READY only after the complete proof succeeds.
 
-`bt-engine` starts only after bt-data health establishes the semantic schema,
-and its READY generation read independently performs the unknown-domain probe in
-the same corpus snapshot used to identify the generation.
+`bt-engine` starts only after bt-data health establishes the semantic schema, and
+its READY generation read independently requires the proven singleton in the same
+corpus snapshot used to identify the generation.
 
 ## Final authority shape
 
