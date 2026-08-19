@@ -8,7 +8,9 @@ adds the properties a transport client cannot provide by itself:
 * a failed physical frontier may never shorten the next retry below the
   published authority frontier;
 * SEP's vendor-update clock is maintained independently from market-session
-  freshness; and
+  freshness;
+* a rotating complete SEP key-set proof detects removals a mutation cursor
+  cannot reveal; and
 * a caller never receives ``success`` for a generation whose rows are still
   unpublished/invisible.
 """
@@ -18,7 +20,8 @@ import datetime as _dt
 from typing import Callable, Iterable, Optional
 
 from sentinel.feed import (
-    coherence, ingest_impl as _impl, maintenance, recovery, sharadar)
+    coherence, ingest_impl as _impl, maintenance, recovery,
+    sep_reconciliation, sharadar)
 
 # Preserve the established module API, including private helpers used by focused
 # regression tests and operational diagnostics. Public entry points are replaced
@@ -129,6 +132,15 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
         maintenance.reconcile_sep_mutations(
             conn, fetch=fetch,
             through=(today_date - _dt.timedelta(days=1)).isoformat())
+
+        # `lastupdated` cannot reveal a row that disappeared from the provider.
+        # Reconcile one complete stable historical year BEFORE today's frontier
+        # is allowed to publish. If key-set drift is found, this call raises and
+        # the still-stale visible frontier remains the durable readiness fence.
+        # The cursor does not advance on failure, so restart checks the same year
+        # again rather than allowing a one-shot warning to disappear.
+        sep_reconciliation.reconcile_next(
+            conn, fetch=fetch, through=resolved_today)
 
         # The PUBLISHED frontier is the authority boundary. Rows from a failed,
         # unpublished candidate do not excuse a retry from proving that session.
