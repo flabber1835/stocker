@@ -51,6 +51,7 @@ def conn(pg):
         cur.execute("DROP VIEW IF EXISTS sentinel_active_ingest_rejections CASCADE")
         cur.execute("DROP VIEW IF EXISTS sentinel_active_actions CASCADE")
         for table in (
+            "sentinel_processed_sessions",
             "sentinel_anomaly_observation_events",
             "sentinel_action_generation_events",
             "sentinel_action_observations",
@@ -77,7 +78,8 @@ def conn(pg):
 
 def sep_row(ticker: str, date: str, *, raw: float = 100.0) -> dict:
     return {"ticker": ticker, "date": date, "close": raw,
-            "closeunadj": raw, "open": raw, "volume": 1_000_000}
+            "closeunadj": raw, "open": raw, "volume": 1_000_000,
+            "lastupdated": date}
 
 
 def fetcher(sep_rows):
@@ -85,12 +87,24 @@ def fetcher(sep_rows):
                for t in sorted({r["ticker"] for r in sep_rows})]
 
     def fetch(table, params=None, **_kw):
+        params = dict(params or {})
         if table == sharadar.TICKERS:
             return list(tickers)
-        if table in (sharadar.ACTIONS, sharadar.SFP):
+        if table == sharadar.ACTIONS:
+            if params.get("date.gte") == "1900-01-01":
+                return [{"ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
+                         "action": "listed", "value": None,
+                         "contraticker": None}]
             return []
-        lo = (params or {}).get("date.gte", "0000-00-00")
-        hi = (params or {}).get("date.lte", "9999-99-99")
+        if table == sharadar.SFP:
+            return []
+        if "lastupdated.gte" in params or "lastupdated.lte" in params:
+            lo = params.get("lastupdated.gte", "0000-00-00")
+            hi = params.get("lastupdated.lte", "9999-99-99")
+            return [r for r in sep_rows
+                    if lo <= r.get("lastupdated", "") <= hi]
+        lo = params.get("date.gte", "0000-00-00")
+        hi = params.get("date.lte", "9999-99-99")
         return [r for r in sep_rows if lo <= r["date"] <= hi]
 
     return fetch
