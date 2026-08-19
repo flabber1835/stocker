@@ -32,6 +32,17 @@ for _name in dir(_impl):
         globals()[_name] = getattr(_impl, _name)
 
 
+def _validate_source_before_run(fetch) -> None:
+    """Fail production transport/config/credentials before durable ingest state.
+
+    Injected fetch functions are the established test/simulation seam and do not
+    require a real Sharadar credential. The production adapter does.
+    """
+    sharadar.validate_config()
+    if fetch is sharadar.fetch_table:
+        sharadar._api_key()
+
+
 def _recover_before_run(conn) -> None:
     """Converge every durable pre-run crash state while holding writer authority.
 
@@ -65,7 +76,7 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
          fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
          resolve_identity=None):
     """Seed, publish, then establish the mutation cursor the complete seed earned."""
-    sharadar.validate_config()
+    _validate_source_before_run(fetch)
     with _impl.feed_store.corpus_write_lock(conn):
         # This is the supported restart path for all #108 boundaries: an
         # interrupted pre-validation run is failed/retired; a fully validated
@@ -122,7 +133,7 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
           resolve_identity=None, overlap_days: int = _impl.DAILY_OVERLAP_DAYS,
           today: Optional[str] = None):
     """Daily source maintenance with independent session and mutation clocks."""
-    sharadar.validate_config()
+    _validate_source_before_run(fetch)
     resolved_today = today or _today()
     today_date = _dt.date.fromisoformat(str(resolved_today))
 
