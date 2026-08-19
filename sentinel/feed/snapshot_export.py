@@ -1,18 +1,18 @@
 """Vendor-backed complete-table snapshots for negative-space authority.
 
 Nasdaq Data Link's ordinary Tables API is cursor-paginated and exposes no
-immutable generation token for a traversal.  Repeating a traversal proves that
+immutable generation token for a traversal. Repeating a traversal proves that
 the observed content stopped changing; it cannot prove a stable partial result
 contains every row.
 
 The official Tables *Exporter* has a stronger contract for the narrow cases
 where absence/removal is itself economic authority: ``qopts.export=true``
 generates the entire requested table as one zipped CSV and reports both
-``file.data_snapshot_time`` and ``datatable.last_refreshed_time``.  Sentinel
-accepts only a ``fresh`` file whose snapshot creation began at or after the
-vendor's latest table refresh.
+``file.data_snapshot_time`` and ``datatable.last_refreshed_time`` once the file
+is fresh. Sentinel accepts only a ``fresh`` file whose snapshot creation began at
+or after the vendor's latest table refresh.
 
-This module is deliberately separate from the normal Sharadar transport.  A
+This module is deliberately separate from the normal Sharadar transport. A
 large export is too expensive for every ordinary data read; it is used for
 periodic complete ACTIONS reconciliation, where one omitted split/dividend/
 terminal row is more dangerous than the extra I/O.
@@ -26,7 +26,7 @@ import os
 import time
 import zipfile
 from datetime import datetime, timezone
-from typing import Callable, Mapping
+from typing import Callable
 from urllib.parse import urlparse
 
 from sentinel.feed import sharadar
@@ -54,7 +54,8 @@ def _aware_iso(value, *, field: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def _decode_export_status(payload) -> tuple[str, str | None, datetime, datetime]:
+def _decode_export_status(
+        payload) -> tuple[str, str | None, datetime | None, datetime | None]:
     if not isinstance(payload, dict):
         raise SharadarSnapshotExportError(
             "Sharadar export status root is not an object")
@@ -63,10 +64,9 @@ def _decode_export_status(payload) -> tuple[str, str | None, datetime, datetime]
         raise SharadarSnapshotExportError(
             "Sharadar export status lacks datatable_bulk_download")
     file_info = root.get("file")
-    table_info = root.get("datatable")
-    if not isinstance(file_info, dict) or not isinstance(table_info, dict):
+    if not isinstance(file_info, dict):
         raise SharadarSnapshotExportError(
-            "Sharadar export status lacks file/datatable evidence")
+            "Sharadar export status lacks file evidence")
     status = str(file_info.get("status") or "").strip().lower()
     if status not in {"fresh", "creating", "regenerating"}:
         raise SharadarSnapshotExportError(
@@ -74,6 +74,17 @@ def _decode_export_status(payload) -> tuple[str, str | None, datetime, datetime]
     link = file_info.get("link")
     if link is not None:
         link = str(link).strip() or None
+
+    # Nasdaq may omit final snapshot metadata while an export job is still being
+    # generated. Those intermediate states grant no authority; simply poll. The
+    # timestamps become mandatory only for the `fresh` file we would consume.
+    if status != "fresh":
+        return status, link, None, None
+
+    table_info = root.get("datatable")
+    if not isinstance(table_info, dict):
+        raise SharadarSnapshotExportError(
+            "Sharadar fresh export status lacks datatable evidence")
     snapshot = _aware_iso(
         file_info.get("data_snapshot_time"), field="data_snapshot_time")
     refreshed = _aware_iso(
@@ -200,6 +211,7 @@ def fetch_complete_actions(
                 if link is None:
                     raise SharadarSnapshotExportError(
                         "Sharadar fresh export supplied no download link")
+                assert snapshot is not None and refreshed is not None
                 if snapshot < refreshed:
                     raise SharadarSnapshotExportError(
                         "Sharadar export claims fresh but its data snapshot began "
