@@ -12,6 +12,11 @@ written by the replacement seed. Then residual old-owner rows in that completed
 window are authoritative absences and may be removed. This also prevents hidden
 failed rows from becoming predecessor evidence for the next seed year.
 
+ACTIONS has its own complete source contract from 1900 through the reseed end.
+That range is deliberately independent of the SEP/SFP market-data range: a very
+old corporate action must be reconciled without forcing Wealth Core price-history
+validation into decades the retained market corpus does not model.
+
 If the process dies after any retirement, the replacement seed already owns
 candidate rows and coherence stays blocked. A restart therefore cannot mistake a
 partially reconstructed old publication for READY.
@@ -20,7 +25,7 @@ from __future__ import annotations
 
 from typing import Callable, Iterable
 
-from sentinel.feed import domains, recovery, sharadar, universe
+from sentinel.feed import domains, maintenance, recovery, sharadar, universe
 from sentinel.feed import store as feed_store
 
 
@@ -32,10 +37,12 @@ def full_reseed_locked(
 
     Caller must hold ``corpus_write_lock`` and must already have called
     :func:`recovery.prepare_full_reseed`, which classifies the old candidates
-    FAILED/ABORTED and widens the range to cover every destructive candidate row.
-    ``fetch`` is the same seed-mode stable source facade used by ordinary seed.
+    FAILED/ABORTED and widens the MARKET-DATA range to cover every destructive
+    SEP/SFP candidate row. ``fetch`` is the same seed-mode stable source facade
+    used by ordinary seed. ACTIONS independently uses the complete
+    ``1900-01-01..date_to`` contract.
     """
-    from sentinel.feed import calendar, ingest_impl
+    from sentinel.feed import ingest_impl
 
     feed_store._assert_corpus_locked(conn)
     chunks = sharadar.year_chunks(date_from, date_to)
@@ -48,8 +55,8 @@ def full_reseed_locked(
         run.progress.rows_written += universe.write_universe(
             conn, rows, date_to, run_id=run.progress.run_id)
 
+    action_start = maintenance.ACTIONS_FULL_WINDOW_START
     with run.chunk("actions"):
-        action_start, _ = calendar.action_date_window(date_from, date_to)
         action_source_rows = list(fetch(
             sharadar.ACTIONS, sharadar.date_params(action_start, date_to)))
         run.progress.rows_written += feed_store.write_actions(
@@ -79,7 +86,7 @@ def full_reseed_locked(
                 authoritative_splits=splits,
                 dividends=divs,
                 # prepare_full_reseed widened `date_from` to the earliest old
-                # destructive candidate. After every preceding year we delete
+                # MARKET candidate. After every preceding year we delete
                 # residual old-owner bars, so this physical predecessor lookup
                 # cannot cross into hidden legacy candidate evidence.
                 prior_observations=feed_store.previous_observations(conn, lo),
@@ -101,15 +108,19 @@ def full_reseed_locked(
                 conn, run_id=run.progress.run_id, start=lo, end=hi)
 
             if final_chunk:
-                # StableSharadarFetch brackets TICKERS/ACTIONS/SFP through this
-                # final SEP traversal. Only now may complete-source recovery
-                # retire residual destructive rows from those other families.
+                # StableSharadarFetch brackets TICKERS, complete ACTIONS and SFP
+                # through this final SEP traversal. Only now may recovery retire
+                # residual destructive rows from those other families. Each
+                # family is checked against the exact source range that replaced
+                # it: market history for SEP/SFP, 1900->through for ACTIONS.
                 recovery.assert_full_reseed_covered_live_rows(
                     conn, run_id=run.progress.run_id,
-                    start=date_from, end=date_to)
+                    market_start=date_from, actions_start=action_start,
+                    end=date_to)
                 recovery.retire_failed_nonbar_rows_after_full_seed(
                     conn, run_id=run.progress.run_id,
-                    start=date_from, end=date_to)
+                    market_start=date_from, actions_start=action_start,
+                    end=date_to)
 
     run.finish("success")
     ingest_impl._publish_version(conn, run, date_from, date_to)
