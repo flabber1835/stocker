@@ -112,14 +112,19 @@ date, action, ticker, name, value, contraticker, contraname
 No coarser economic key is substituted at the source boundary. Normalization and
 economic coalescing happen after source identity is preserved.
 
-For a **daily** ingest there is one protected SEP window, so TICKERS, ACTIONS and
-SFP are all corroborated across that window. A **multi-year seed** is different:
-each yearly SEP chunk receives its own two-complete-observation stability proof,
-but the first TICKERS, ACTIONS and SFP observations remain pending until the
-**final** SEP chunk has completed its first observation. Only then are all three
-reference sources corroborated. This brackets the full seed cross-table join
-rather than proving ACTIONS after year one and then allowing later SEP years to
-arrive under a different vendor action generation.
+For a **daily** ingest there is one protected SEP window. Sentinel takes the
+first TICKERS/ACTIONS/SFP observations, performs **both** complete SEP traversals
+and proves their fingerprints agree, then takes the second TICKERS/ACTIONS/SFP
+observations before any protected SEP row is replayed. Thus the reference
+sources bracket the exact SEP snapshot that can reach the ingest.
+
+A **multi-year seed** is different only in duration: each yearly SEP chunk gets
+its own two-complete-observation stability proof, while the first TICKERS,
+ACTIONS and SFP observations remain pending across all years. After the final
+SEP chunk has completed both agreeing traversals, all three reference sources
+are corroborated. Only then can the final chunk replay. This brackets the full
+seed cross-table join rather than proving ACTIONS after year one and then
+allowing later SEP years to arrive under a different vendor action generation.
 
 ### SFP / SPY regime
 
