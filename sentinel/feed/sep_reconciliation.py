@@ -225,7 +225,7 @@ def _source_fingerprint(conn, *, fetch, start: str, end: str) -> _PartitionProof
                     max_updated = observed
             yield row
 
-    scratch = f"reconcile-{uuid.uuid4()}"
+    scratch = str(uuid.uuid4())
     chunk = f"sep-value-key-{start}-{end}"
     staging.stage(conn, tracking_rows(), run_id=scratch, chunk=chunk)
     try:
