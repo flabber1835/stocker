@@ -321,18 +321,29 @@ class TestTheDailyOverlapNoLongerCorrupts:
             conn, through=dt.date.fromisoformat("2021-01-20"),
             publication_version=published.version)
 
-        # A daily run whose 14-day overlap reopens 2021-01-11 as its FIRST
-        # session — the exact configuration that used to write 1.0 over the 2.0.
-        rows = [sep("AAA", "2021-01-11", POST), sep("AAA", "2021-01-20", POST)]
-        ingest.daily(conn, fetch=_fetch(rows), today="2021-01-20",
-                     overlap_days=14)
+        # The rotating #185 proof must see the complete published partition,
+        # while the ordinary 14-day fetch remains intentionally sparse so
+        # 2021-01-11 is still the first AAA row in that overlap stream.
+        overlap_rows = [
+            sep("AAA", "2021-01-11", POST),
+            sep("AAA", "2021-01-20", POST),
+        ]
+        reconciliation_rows = [
+            sep("AAA", "2021-01-08", PRE),
+            *overlap_rows,
+        ]
+        ingest.daily(
+            conn,
+            fetch=_fetch(
+                overlap_rows, reconciliation_rows=reconciliation_rows),
+            today="2021-01-20", overlap_days=14)
 
         assert ratio_of(conn, "P-AAA", "2021-01-11") == 2.0, (
             "the daily overlap exists to REPAIR restated bars; it must never be "
             "the thing that breaks them")
 
 
-def _fetch(sep_rows, action_rows=None):
+def _fetch(sep_rows, action_rows=None, reconciliation_rows=None):
     if action_rows is None:
         action_rows = (CONTROL_ACTION,)
     ticker_rows = [{"ticker": t, "permaticker": f"P-{t}"}
@@ -348,12 +359,20 @@ def _fetch(sep_rows, action_rows=None):
             return [r for r in action_rows if lo <= r["date"] <= hi]
         if table == sharadar.SFP:
             return []
+        source_rows = sep_rows
+        # In this end-to-end regression the full rotating proof asks for the
+        # exact published lower bound 2021-01-08.  Ordinary daily starts fourteen
+        # calendar days behind the 1/20 frontier, at 2021-01-06.  Distinguishing
+        # those source contracts keeps the full-source proof complete without
+        # erasing the sparse-overlap seam that this test is specifically about.
+        if reconciliation_rows is not None and lo == "2021-01-08":
+            source_rows = reconciliation_rows
         if "lastupdated.gte" in params or "lastupdated.lte" in params:
             update_lo = params.get("lastupdated.gte", "0000-00-00")
             update_hi = params.get("lastupdated.lte", "9999-99-99")
-            return [r for r in sep_rows
+            return [r for r in source_rows
                     if update_lo <= r.get("lastupdated", "") <= update_hi]
-        return [r for r in sep_rows if lo <= r["date"] <= hi]
+        return [r for r in source_rows if lo <= r["date"] <= hi]
     return fetch
 
 
