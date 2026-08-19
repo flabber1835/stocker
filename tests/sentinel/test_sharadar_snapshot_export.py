@@ -25,16 +25,22 @@ class _Response:
             raise exc
 
 
-def _zip_actions(rows: list[list[str]]) -> bytes:
+def _zip_csv(name: str, header: str, rows: list[list[str]]) -> bytes:
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
-        body = (
-            "date,action,ticker,name,value,contraticker,contraname\n"
-            + "\n".join(",".join(row) for row in rows)
-            + "\n"
-        )
-        archive.writestr("SHARADAR_ACTIONS.csv", body)
+        body = header + "\n" + "\n".join(",".join(row) for row in rows) + "\n"
+        archive.writestr(name, body)
     return out.getvalue()
+
+
+def _zip_actions(rows: list[list[str]]) -> bytes:
+    return _zip_csv(
+        "SHARADAR_ACTIONS.csv",
+        "date,action,ticker,name,value,contraticker,contraname", rows)
+
+
+def _zip_tickers(rows: list[list[str]]) -> bytes:
+    return _zip_csv("SHARADAR_TICKERS.csv", "table,permaticker,ticker", rows)
 
 
 class _Client:
@@ -100,8 +106,13 @@ def test_complete_actions_accepts_fresh_snapshot_after_latest_refresh(monkeypatc
     assert rows[0]["contraticker"] is None
     assert evidence["authority"] == "nasdaq-data-link-table-export/v1"
     assert evidence["source_rows"] == 2
-    # Credential-bearing download URL is transport-only and never retained.
     assert "link" not in evidence
+
+
+def test_official_utc_timestamp_spelling_is_accepted():
+    assert snapshot_export._aware_iso(
+        "2026-08-19 22:00:00 UTC", field="snapshot").isoformat() == \
+        "2026-08-19T22:00:00+00:00"
 
 
 def test_complete_actions_waits_for_vendor_generated_fresh_file(monkeypatch):
@@ -163,3 +174,31 @@ def test_non_https_export_link_is_refused_without_rendering_secret(monkeypatch):
             through="2026-08-19", http=http, sleep=lambda _n: None,
             max_polls=1)
     assert "do-not-print" not in str(caught.value)
+
+
+def test_complete_ticker_export_returns_only_sep_identity_keys(monkeypatch):
+    monkeypatch.setenv("SHARADAR_API_KEY", "unit-test-key")
+    http = _Http([
+        _Response(payload=_status()),
+        _Response(content=_zip_tickers([
+            ["SEP", "P1", "AAA"],
+            ["SEP", "P2", "BBB"],
+            ["SF1", "P1", "AAA"],
+        ])),
+    ])
+    keys, evidence = snapshot_export.fetch_complete_ticker_keys(
+        http=http, sleep=lambda _n: None, max_polls=1)
+    assert keys == {("P1", "AAA"), ("P2", "BBB")}
+    assert evidence["sep_identity_keys"] == 2
+
+
+def test_paginated_ticker_keyset_must_exactly_match_fresh_export():
+    rows = [
+        {"table": "SEP", "permaticker": "P1", "ticker": "AAA"},
+    ]
+    with pytest.raises(snapshot_export.SharadarSnapshotExportError,
+                       match="missing_from_pages"):
+        snapshot_export.assert_complete_ticker_keys(
+            rows, {("P1", "AAA"), ("P2", "BBB")})
+
+    snapshot_export.assert_complete_ticker_keys(rows, {("P1", "AAA")})
