@@ -32,6 +32,7 @@ _SINGLETON_REFUSAL_TESTS = {
     "test_schema_check_never_repairs_a_deleted_control_singleton",
 }
 _FEED_RUNTIME_SCHEMA_CONTRACT_PREFIX = "test_issue_165_feed_schema"
+_SYNTHETIC_FEED_ORCHESTRATION_MODULE = "test_feed_ingest"
 
 
 def _legacy_feed_fixture_install(conn) -> None:
@@ -78,6 +79,21 @@ def _runtime_schema_test_double_compat(request, monkeypatch):
     if not module_name.startswith(_FEED_RUNTIME_SCHEMA_CONTRACT_PREFIX):
         monkeypatch.setattr(
             feed_store, "ensure_schema", _legacy_feed_fixture_install)
+
+    if module_name == _SYNTHETIC_FEED_ORCHESTRATION_MODULE:
+        # test_feed_ingest intentionally uses one/two-row vendor fixtures to test
+        # orchestration, resume, and retry behavior. Those fixtures can never
+        # satisfy issue #178's calibrated full-source completeness contract.
+        # Keep that compatibility entirely test-side; the issue-specific suite
+        # exercises the real validators and production imports none of this file.
+        from sentinel.feed import coherence
+
+        monkeypatch.setattr(
+            coherence, "assert_seed_history",
+            lambda _sessions, *, date_from, date_to: None)
+        monkeypatch.setattr(
+            coherence, "assert_tickers_metadata",
+            lambda rows: list(rows))
 
     if request.node.name in _SINGLETON_REFUSAL_TESTS:
         # These tests pre-date the stronger explicit-migration final check.
