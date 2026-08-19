@@ -8,6 +8,8 @@ adds the properties a transport client cannot provide by itself:
 * a validated-success candidate left by a crash must publish before another run;
 * a failed physical frontier may never shorten the next retry below the
   published authority frontier;
+* failed daily vs historical-maintenance candidates are retried in the order
+  that can actually supersede their physical rows;
 * SEP's vendor-update clock is maintained independently from market-session
   freshness;
 * a rotating complete SEP key-set proof detects removals a mutation cursor
@@ -69,6 +71,33 @@ def _finish_publication_or_refuse(conn, progress):
         # reported as successful.
         recovery.resume_pending_publication(conn)
         return recovery.require_published(conn, progress.run_id)
+
+
+def _single_failed_live_candidate(conn):
+    candidates = recovery.failed_live_candidates(conn)
+    if len(candidates) > 1:
+        raise recovery.PublicationRecoveryRefused(
+            f"{len(candidates)} failed unpublished candidates still own live "
+            f"rows: {[(c.run_id, c.kind) for c in candidates]}. Their coverage "
+            "ordering is ambiguous; refusing to create a third candidate.")
+    return candidates[0] if candidates else None
+
+
+def _failed_run_end(conn, run_id: str) -> str | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT date_to FROM feed_ingest_runs WHERE run_id=%s",
+            (str(run_id),))
+        row = cur.fetchone()
+    return None if row is None or row[0] is None else str(row[0])
+
+
+def _require_failed_owner_cleared(conn, *, context: str) -> None:
+    candidate = _single_failed_live_candidate(conn)
+    if candidate is not None:
+        raise recovery.PublicationRecoveryRefused(
+            f"{context} did not supersede failed live candidate "
+            f"{candidate.run_id}/{candidate.kind}; refusing to open another run")
 
 
 def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
@@ -136,6 +165,7 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
     _validate_source_before_run(fetch)
     resolved_today = today or _today()
     today_date = _dt.date.fromisoformat(str(resolved_today))
+    yesterday = (today_date - _dt.timedelta(days=1)).isoformat()
 
     with _impl.feed_store.corpus_write_lock(conn):
         _recover_before_run(conn)
@@ -149,22 +179,72 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
                 "complete source-stable feed seed/reconciliation before daily "
                 "operation; a 14-day session overlap cannot prove old rows current.")
 
-        # First converge any correction interval that was left un-published by a
-        # prior crash. Stopping at yesterday avoids asking historical CDC to
-        # interpret a genuinely new ticker/session before today's TICKERS/full
-        # daily publication has made its identity available.
-        maintenance.reconcile_sep_mutations(
-            conn, fetch=fetch,
-            through=(today_date - _dt.timedelta(days=1)).isoformat())
+        # There can be at most one failed run that still owns physical rows in
+        # normal operation because the writer lock serializes every feed run and
+        # we refuse to open another until the prior owner is superseded. Which
+        # operation failed matters: opening the wrong kind of retry can itself be
+        # blocked by the old owner and strand recovery forever.
+        failed = _single_failed_live_candidate(conn)
+        retry_daily_first = False
+        if failed is not None:
+            if failed.kind == "daily":
+                # Its recent TICKERS/SEP/SFP keys can only be superseded by a
+                # complete daily retry. Historical maintenance is deferred until
+                # after that publication; the writer lock prevents any reader
+                # from consuming the intermediate state and readiness remains
+                # fenced until the mutation cursor catches the new frontier.
+                retry_daily_first = True
+            elif failed.kind == "sep_mutations":
+                # Normal pre-daily maintenance covers through yesterday. A
+                # same-day retry can instead be recovering the post-daily CDC
+                # phase; if yesterday is a no-op and the failed owner remains,
+                # today's TICKERS generation is already published, so replaying
+                # through today is safe and is the only operation that can take
+                # ownership of those historical bar keys.
+                maintenance.reconcile_sep_mutations(
+                    conn, fetch=fetch, through=yesterday)
+                still_failed = _single_failed_live_candidate(conn)
+                if still_failed is not None:
+                    if (still_failed.run_id != failed.run_id
+                            or still_failed.kind != "sep_mutations"):
+                        raise recovery.PublicationRecoveryRefused(
+                            "SEP mutation recovery exposed a different failed "
+                            "candidate; refusing to guess retry order")
+                    maintenance.reconcile_sep_mutations(
+                        conn, fetch=fetch, through=today_date.isoformat())
+                _require_failed_owner_cleared(
+                    conn, context="SEP mutation retry")
+            elif failed.kind == "actions_reconcile":
+                retry_through = _failed_run_end(conn, failed.run_id)
+                if retry_through is None:
+                    raise recovery.PublicationRecoveryRefused(
+                        f"failed ACTIONS reconciliation {failed.run_id} has no "
+                        "durable date_to boundary; refusing an unbounded retry")
+                maintenance.reconcile_actions_if_due(
+                    conn, fetch=fetch, through=retry_through, force=True)
+                _require_failed_owner_cleared(
+                    conn, context="ACTIONS reconciliation retry")
+            else:
+                raise recovery.PublicationRecoveryRefused(
+                    f"failed live candidate {failed.run_id} has kind "
+                    f"{failed.kind!r}; daily operation does not know which "
+                    "complete source contract can safely supersede it")
 
-        # `lastupdated` cannot reveal a row that disappeared from the provider.
-        # Reconcile one complete stable historical year BEFORE today's frontier
-        # is allowed to publish. If key-set drift is found, this call raises and
-        # the still-stale visible frontier remains the durable readiness fence.
-        # The cursor does not advance on failure, so restart checks the same year
-        # again rather than allowing a one-shot warning to disappear.
-        sep_reconciliation.reconcile_next(
-            conn, fetch=fetch, through=resolved_today)
+        if not retry_daily_first:
+            # First converge any correction interval that was left un-published
+            # by a prior crash. Stopping at yesterday avoids asking historical
+            # CDC to interpret a genuinely new ticker/session before today's
+            # TICKERS/full daily publication has made its identity available.
+            maintenance.reconcile_sep_mutations(
+                conn, fetch=fetch, through=yesterday)
+
+            # `lastupdated` cannot reveal a row that disappeared from the
+            # provider. Reconcile one complete stable historical year BEFORE
+            # today's frontier is allowed to publish. If key-set/value drift is
+            # found, the still-stale visible frontier remains the durable
+            # readiness fence.
+            sep_reconciliation.reconcile_next(
+                conn, fetch=fetch, through=resolved_today)
 
         # The PUBLISHED frontier is the authority boundary. Rows from a failed,
         # unpublished candidate do not excuse a retry from proving that session.
@@ -181,6 +261,16 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
             conn, fetch=guarded, resolve_identity=resolve_identity,
             overlap_days=effective_overlap, today=resolved_today)
         _finish_publication_or_refuse(conn, progress)
+
+        if retry_daily_first:
+            # The ordinary retry has now taken ownership of the failed daily
+            # generation. Run the deletion/value-drift proof before advancing
+            # the CDC cursor. If it refuses, the cursor is still behind the newly
+            # published frontier, so readiness remains fail-closed after the
+            # writer lock is released.
+            _require_failed_owner_cleared(conn, context="daily retry")
+            sep_reconciliation.reconcile_next(
+                conn, fetch=fetch, through=resolved_today)
 
         # Now today's TICKERS/session generation is published, so a correction
         # whose vendor-update date is today can safely resolve any just-arrived
