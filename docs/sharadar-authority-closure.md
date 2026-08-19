@@ -136,6 +136,11 @@ prices, proves every row has the new semantic marker, and only then publishes a
 new READY data UUID. An old row absent from current source is not deleted or
 blindly grandfathered; it remains a blocker requiring investigation.
 
+The existing `POST /jobs/backfill-prices` endpoint remains the underlying force
+replay primitive, but the migration command is the supported upgrade because it
+also refreshes benchmark rows, verifies zero unmarked residuals, handles restart
+state, and publishes READY only after the complete proof succeeds.
+
 `bt-engine` also waits for bt-data health, closing the startup race where an
 engine could otherwise begin reading before the semantic schema guard existed.
 
