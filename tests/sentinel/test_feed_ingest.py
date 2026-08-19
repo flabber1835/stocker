@@ -48,7 +48,8 @@ def pg():
 def conn(pg):
     c = S.connect(pg.sync_dsn)
     with c.cursor() as cur:
-        for t in ("sentinel_action_generation_events",
+        for t in ("sentinel_processed_sessions",
+                  "sentinel_action_generation_events",
                   "sentinel_action_observations", "sentinel_action_generations",
                   "sentinel_bars", "sentinel_spy_total_return",
                   "sentinel_actions", "sentinel_universe",
@@ -62,7 +63,8 @@ def conn(pg):
 
 def sep_row(ticker, date, close=50.0, raw=100.0, open_=49.0):
     return {"ticker": ticker, "date": date, "close": close,
-            "closeunadj": raw, "open": open_, "volume": 1_000_000}
+            "closeunadj": raw, "open": open_, "volume": 1_000_000,
+            "lastupdated": date}
 
 
 def fetcher(sep_rows, action_rows=(), ticker_rows=None, sfp_rows=()):
@@ -78,15 +80,21 @@ def fetcher(sep_rows, action_rows=(), ticker_rows=None, sfp_rows=()):
                        for t in sorted({r["ticker"] for r in sep_rows})]
 
     def fetch(table, params=None, **kw):
-        calls.append((table, dict(params or {})))
+        params = dict(params or {})
+        calls.append((table, params))
         if table == sharadar.TICKERS:
             return list(ticker_rows)
-        lo = (params or {}).get("date.gte", "0000-00-00")
-        hi = (params or {}).get("date.lte", "9999-99-99")
+        lo = params.get("date.gte", "0000-00-00")
+        hi = params.get("date.lte", "9999-99-99")
         if table == sharadar.ACTIONS:
             return [r for r in action_rows if lo <= r["date"] <= hi]
         if table == sharadar.SFP:
             return [r for r in sfp_rows if lo <= r["date"] <= hi]
+        if "lastupdated.gte" in params or "lastupdated.lte" in params:
+            update_lo = params.get("lastupdated.gte", "0000-00-00")
+            update_hi = params.get("lastupdated.lte", "9999-99-99")
+            return [r for r in sep_rows
+                    if update_lo <= r.get("lastupdated", "") <= update_hi]
         return [r for r in sep_rows if lo <= r["date"] <= hi]
 
     fetch.calls = calls
@@ -195,7 +203,7 @@ class TestDaily:
         ingest.daily(conn, fetch=f, today="2024-02-01")
 
         requested_from = [c for c in f.calls
-                          if c[0] == sharadar.SEP][0][1]["date.gte"]
+                          if c[0] == sharadar.SEP and "date.gte" in c[1]][0][1]["date.gte"]
         assert requested_from < "2024-01-15", "the daily window did not overlap"
         with conn.cursor() as cur:
             cur.execute("SELECT close_unadjusted FROM sentinel_bars"
@@ -290,9 +298,10 @@ class TestRetryConstantsHaveNotDrifted:
 
     @pytest.mark.parametrize("attempt,status,retry_after", [
         (0, 429, None), (1, 429, None), (0, 429, "300"), (0, 429, "Wed, 21 Oct"),
-        (0, 500, None), (2, 503, None), (5, None, None), (14, 429, None),
+        (0, 500, None), (2, 503, None), (5, None, None),
     ])
-    def test_it_matches_bt_data(self, attempt, status, retry_after):
+    def test_it_matches_bt_data_inside_the_synchronous_wait_envelope(
+            self, attempt, status, retry_after):
         assert sharadar.retry_delay(attempt, status, retry_after) == \
             self._canonical()(attempt, status, retry_after)
 
@@ -300,8 +309,9 @@ class TestRetryConstantsHaveNotDrifted:
         assert sharadar.retry_delay(0, 429, None) >= 60.0
         assert sharadar.retry_delay(0, 500, None) < 10.0
 
-    def test_the_429_wait_is_CAPPED(self):
-        assert sharadar.retry_delay(99, 429, None) == sharadar.RATE_LIMIT_BACKOFF_CAP
+    def test_a_429_beyond_the_local_wait_ceiling_is_DEFERRED_not_shortened(self):
+        with pytest.raises(sharadar.SharadarRetryDeferred):
+            sharadar.retry_delay(99, 429, None)
 
     def test_a_missing_api_key_REFUSES_rather_than_loading_nothing(self, monkeypatch):
         """An unauthenticated fetch returns an EMPTY table, which is
@@ -365,8 +375,18 @@ class _Http:
 
 
 def _page(next_cursor):
-    return {"datatable": {"columns": [{"name": "ticker"}], "data": [["AAA"]]},
-            "meta": {"next_cursor_id": next_cursor}}
+    columns = [
+        "ticker", "date", "open", "close", "closeunadj", "volume",
+        "lastupdated",
+    ]
+    return {
+        "datatable": {
+            "columns": [{"name": name} for name in columns],
+            "data": [["AAA", "2024-01-02", 99.0, 100.0, 100.0,
+                      1_000_000, "2024-01-02"]],
+        },
+        "meta": {"next_cursor_id": next_cursor},
+    }
 
 
 class TestPaginationMustProgress:
