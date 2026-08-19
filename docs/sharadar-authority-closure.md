@@ -124,11 +124,11 @@ sharadar-raw-volume-v1
 ```
 
 The process injects `application_name=bt-data-sharadar-raw-volume-v1` through
-asyncpg's `server_settings` connection argument. The trigger accepts that exact
-writer identity. A rolled-back/undeclared bt-data binary clears the row marker
-and invalidates the semantic singleton **in the same transaction as its first
-price write**. Thus old application code cannot silently keep a prior financial-
-grade verdict after changing the corpus.
+asyncpg's documented `server_settings` connection argument. The trigger accepts
+that exact writer identity. A rolled-back/undeclared bt-data binary clears the
+row marker and invalidates the semantic singleton **in the same transaction as
+its first price write**. Thus old application code cannot silently keep a prior
+financial-grade verdict after changing the corpus.
 
 The bt-engine READY-generation gate checks the singleton in O(1) time before its
 first price read. This is explicit rather than row-level security because the
