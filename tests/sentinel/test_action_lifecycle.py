@@ -211,7 +211,7 @@ class TestPublishedActionReconciliation:
         assert splits[("AAA", EVENT)] == 3.0
         assert dividends[("BBB", EVENT)] == 1.0
         terminal_rows = terminal.load_terminal_events(
-            conn, start=EVENT, end=EVENT,
+            conn, start=EVENT, end=END,
             resolve_identity=lambda ticker, session: f"SEC-{ticker}")
         assert any(row.ticker == "CCC" for row in terminal_rows.rows)
 
@@ -608,8 +608,14 @@ def test_failed_13216_row_daily_candidate_is_retired_by_later_daily_retry(conn):
                     " x WHERE x.generation_run_id=e.generation_run_id ORDER BY event_id"
                     " DESC LIMIT 1) latest ON TRUE WHERE latest.state='PENDING'")
         assert cur.fetchone()[0] == 0
-    publication = P.require_current(conn)
-    assert publication.evidence["retired_failed_universe_candidates"] == [{
+        # The daily publication owns the retirement evidence. Later maintenance
+        # publications may legitimately become current without copying it.
+        cur.execute(
+            "SELECT p.evidence FROM sentinel_corpus_publications p"
+            " JOIN feed_ingest_runs r ON r.run_id=p.run_id"
+            " WHERE r.kind='daily' ORDER BY p.version DESC LIMIT 1")
+        daily_evidence = cur.fetchone()[0]
+    assert daily_evidence["retired_failed_universe_candidates"] == [{
         "run_id": FAILED_PRODUCTION_RUN, "rows": 13216}]
 
 
