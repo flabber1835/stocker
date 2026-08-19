@@ -1,9 +1,9 @@
 """Financial-grade public facade for the retained canonical Wealth Core replay.
 
-The implementation bytes live in :mod:`app.wealth_core_replay_impl`. This thin
-facade exists so an upgraded code image cannot silently reinterpret a pre-#185
-``bt_prices.volume`` column as raw/as-traded shares merely because the numeric
-column name stayed the same.
+The implementation bytes live beside this module as
+:mod:`wealth_core_replay_impl`. This thin facade exists so an upgraded code image
+cannot silently reinterpret a pre-#185 ``bt_prices.volume`` column as
+raw/as-traded shares merely because the numeric column name stayed the same.
 
 The bt-data schema stamps ``volume_domain_version='sharadar-raw-volume-v1'`` only
 when a price row is actually rewritten through the corrected provider boundary.
@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from sqlalchemy import text
 
-from app import wealth_core_replay_impl as _impl
+from . import wealth_core_replay_impl as _impl
 
 PRICE_VOLUME_DOMAIN = "sharadar-raw-volume-v1"
 
