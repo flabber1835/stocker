@@ -14,11 +14,13 @@
 --
 -- The singleton is the RUNTIME gate. Do not build an index over every legacy row:
 -- before migration that index would contain the entire ~35M-row price corpus and
--- make schema bootstrap itself the expensive operation. A legacy deployment is
--- born `proven=false`; a fresh empty database is born `proven=true`. The supported
--- migration force-replays the complete stored SEP range + benchmark prices,
--- performs one explicit full residual scan of volume_domain_version, then sets
--- `proven=true` in the SAME transaction that publishes the new READY data UUID.
+-- make schema bootstrap itself the expensive operation. EVERY database starts
+-- `proven=false`, including a fresh empty one. That is intentional: the runtime
+-- bootstrap executes DDL statement-by-statement, so a later trigger-creation
+-- failure must never leave a previously inserted `proven=true` row behind. Only
+-- the explicit migration command, after checking that every required schema
+-- statement succeeded, may establish `proven=true` in the same transaction that
+-- publishes the new READY data UUID.
 --
 -- Do NOT use row-level security for this safety property. The compose database
 -- role is the PostgreSQL bootstrap role (`POSTGRES_USER=btuser`) and is therefore
@@ -35,17 +37,14 @@ CREATE TABLE IF NOT EXISTS bt_price_volume_domain_state (
     note            TEXT
 );
 
--- On a truly fresh DB there is no legacy semantic ambiguity: every future price
--- row must pass through the installed trigger. Existing populated databases start
--- unproven and cannot be grandfathered by merely installing the schema.
+-- Installing new code is not evidence that either old rows or future write
+-- semantics are correct. The explicit migration is the sole authority transition
+-- from false to true; an empty corpus is cheap to prove there.
 INSERT INTO bt_price_volume_domain_state
     (id, domain_version, proven, proven_at, note)
-SELECT 1, 'sharadar-raw-volume-v1',
-       NOT EXISTS (SELECT 1 FROM bt_prices),
-       CASE WHEN NOT EXISTS (SELECT 1 FROM bt_prices) THEN NOW() ELSE NULL END,
-       CASE WHEN NOT EXISTS (SELECT 1 FROM bt_prices)
-            THEN 'fresh empty corpus under post-#185 schema'
-            ELSE 'legacy populated corpus requires volume-domain migration' END
+VALUES
+    (1, 'sharadar-raw-volume-v1', FALSE, NULL,
+     'volume-domain authority not yet established; run explicit migration')
 ON CONFLICT (id) DO NOTHING;
 
 CREATE OR REPLACE FUNCTION bt_stamp_price_volume_domain() RETURNS trigger LANGUAGE plpgsql AS $$ DECLARE writer_name TEXT; BEGIN writer_name := current_setting('application_name', true); IF writer_name = 'bt-data-sharadar-raw-volume-v1' THEN NEW.volume_domain_version := 'sharadar-raw-volume-v1'; ELSE NEW.volume_domain_version := NULL; UPDATE bt_price_volume_domain_state SET proven=FALSE, proven_at=NULL, invalidated_at=NOW(), note='price write from undeclared/pre-#185 writer: ' || COALESCE(writer_name,'<unset>') WHERE id=1; END IF; RETURN NEW; END $$;
