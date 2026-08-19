@@ -41,7 +41,7 @@ from sentinel.core.production import (
     load_published_session,
     warm_session_state,
 )
-from sentinel.execution import executor, journal
+from sentinel.execution import broker_cash, executor, journal
 from sentinel.execution import reconcile as reconciliation
 from sentinel.execution.authority_gate import (
     build_fresh_execution_guard,
@@ -493,18 +493,41 @@ def _recovery_account_identity_or_refuse(
             f"expected {expected_account}")
 
 
-def _cash_authority_or_refuse(conn, *, plan: ExecutionPlan, deployment,
-                              account: BrokerAccountSnapshot,
-                              observation: BrokerObservation) -> None:
-    """Reconcile the immutable cash baseline to this plan's durable fills.
+async def _broker_cash_state_or_refuse(
+        conn, *, broker: ExecutionBroker, binding,
+        through: datetime) -> broker_cash.CashActivityState | None:
+    """Ingest one complete broker-cash interval under the caller's writer lock."""
+    if not getattr(broker, "supports_account_cash_activities", False):
+        return None
+    try:
+        return await broker_cash.ingest_account_cash(
+            conn, broker_adapter=broker, broker=binding.broker,
+            account_id=binding.broker_account_id, through=through)
+    except BrokerAuthorityRefused:
+        raise
+    except broker_cash.BrokerCashAuthorityRefused as exc:
+        raise PaperActivationRefused(
+            f"broker cash authority is inconsistent: {exc}") from exc
+    except Exception as exc:                                  # noqa: BLE001
+        raise PaperRetryableRefused(
+            "broker cash activity evidence is temporarily unavailable: "
+            f"{type(exc).__name__}: {exc}") from exc
 
-    Equity moves when holdings are marked and is therefore not an overnight
-    cash-flow witness. Cash moves only when money or a fill crosses the account.
-    Initial plan adoption forbids pre-existing working orders, so every later
-    fill under the plan has a complete durable command and a persisted
-    broker-observed average price with which to explain that movement.
+
+def _cash_authority_or_refuse(
+        conn, *, plan: ExecutionPlan, deployment,
+        account: BrokerAccountSnapshot, observation: BrokerObservation,
+        activity_state: broker_cash.CashActivityState | None = None,
+        permit_new_activity: bool = False) -> None:
+    """Reconcile immutable plan cash to fills plus durable broker activities.
+
+    The account balance is never its own explanation.  Native Account Activity
+    rows explain cash movement; the immutable plan records which cumulative
+    activity total already existed when it was sized.  A later recognized cash
+    event may authorize the *next* decision to use the fresh balance, but never
+    rewrites a same-session plan or an execution already in flight.
     """
-    expected = plan.account_cash
+    expected_without_activity = plan.account_cash
     for command in journal.load_commands(
             conn, deployment, plan_id=plan.plan_id):
         if command.filled_quantity == 0:
@@ -515,16 +538,48 @@ def _cash_authority_or_refuse(conn, *, plan: ExecutionPlan, deployment,
                 f"{command.client_key}: its durable broker fill has no "
                 "average price")
         notional = command.filled_quantity * command.filled_average_price
-        expected += notional if command.side.value == "SELL" else -notional
+        expected_without_activity += (
+            notional if command.side.value == "SELL" else -notional)
+
+    activity_delta = Decimal(0)
+    if activity_state is not None:
+        if (activity_state.broker != plan.broker
+                or activity_state.account_id != plan.broker_account_id):
+            raise PaperActivationRefused(
+                "broker cash activity state belongs to another account")
+        baseline = broker_cash.load_plan_baseline(
+            conn, plan_id=plan.plan_id)
+        if baseline is None:
+            # Upgrade bridge: an old plan can acquire a baseline only when the
+            # old cash equation still balances exactly. If cash already moved,
+            # we cannot know which retained activity preceded that plan and
+            # which followed it, so guessing is forbidden.
+            if abs(account.cash - expected_without_activity) > Decimal("1.00"):
+                raise PaperActivationRefused(
+                    f"plan {plan.plan_id} predates broker cash baselines and "
+                    "fresh cash no longer matches its durable fills. The "
+                    "activity history cannot be safely partitioned around that "
+                    "old plan; resolve the cash explicitly and prepare a fresh "
+                    "decision")
+            baseline = broker_cash.record_plan_baseline(
+                conn, plan_id=plan.plan_id,
+                decision_session=plan.decision_session,
+                activity_state=activity_state)
+        activity_delta = activity_state.balance_total - baseline.balance_total
+
+    expected = expected_without_activity + activity_delta
     if abs(account.cash - expected) > Decimal("1.00"):
         raise PaperActivationRefused(
             f"fresh account cash {account.cash} is not explained by plan "
-            f"baseline {plan.account_cash} and durable fills (expected "
-            f"{expected}). This activation gateway cannot re-project an "
-            "adopted plan for a same-session cash flow: leave the plan "
-            "unexecuted, resolve and record the flow separately, and prepare "
-            "from the next closed decision session. Cash movement is never "
+            f"baseline {plan.account_cash}, durable fills and broker-native "
+            f"cash activities (expected {expected}). Cash movement is never "
             "inferred")
+    if activity_delta != 0 and not permit_new_activity:
+        raise PaperActivationRefused(
+            f"broker-native cash activity changed by {activity_delta} after "
+            f"plan {plan.plan_id} was prepared. The event is durably explained, "
+            "but this immutable plan will not be re-sized in place; prepare the "
+            "next closed decision session")
 
 
 def _load_marks_and_tickers(conn, state: SessionState, session: str
@@ -927,9 +982,13 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     rec, purpose="paper preparation restart")
                 account = await broker.account_snapshot()
                 _account_or_refuse(account, binding, expected_account)
+                activity_state = await _broker_cash_state_or_refuse(
+                    conn, broker=broker, binding=binding,
+                    through=observation_time)
                 _cash_authority_or_refuse(
                     conn, plan=existing_plan, deployment=binding.identity,
-                    account=account, observation=observation)
+                    account=account, observation=observation,
+                    activity_state=activity_state)
                 # Repairs any legacy save/supersede crash shape without
                 # changing plan economics; identical adoption is idempotent.
                 journal.adopt_current_plan(conn, existing_plan)
@@ -948,6 +1007,15 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             observation = _clean_or_refuse(rec, purpose="paper preparation")
             account = await broker.account_snapshot()
             _account_or_refuse(account, binding, expected_account)
+            activity_state = await _broker_cash_state_or_refuse(
+                conn, broker=broker, binding=binding,
+                through=observation_time)
+            if existing_plan is not None:
+                _cash_authority_or_refuse(
+                    conn, plan=existing_plan, deployment=binding.identity,
+                    account=account, observation=observation,
+                    activity_state=activity_state,
+                    permit_new_activity=True)
             if any(order.is_working for order in observation.orders):
                 raise PaperActivationRefused(
                     "initial plan adoption requires no working broker order; "
@@ -1018,6 +1086,15 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 raise PaperActivationRefused(
                     "preparation did not leave exactly its plan current")
             _assert_deterministic_plan_id(latest)
+            if activity_state is not None:
+                try:
+                    broker_cash.record_plan_baseline(
+                        conn, plan_id=latest.plan_id,
+                        decision_session=latest.decision_session,
+                        activity_state=activity_state)
+                except broker_cash.BrokerCashAuthorityRefused as exc:
+                    raise PaperActivationRefused(
+                        f"cannot establish immutable plan cash baseline: {exc}") from exc
             return PreparationResult(
                 plan=latest, sessions_replayed=caught.sessions_replayed,
                 warmup_sessions=warmed, state_fingerprint=final_state.state_hash,
@@ -1316,6 +1393,8 @@ async def _execute_current_paper_plan(
 
             account = await broker.account_snapshot()
             _account_or_refuse(account, binding, confirmed_account)
+            activity_state = await _broker_cash_state_or_refuse(
+                conn, broker=broker, binding=binding, through=clock())
             actions = _action_lookup(conn, state, today)
             target_actions = _target_action_lookup(conn, plan, today)
             _refuse_target_changing_actions(state, plan, target_actions)
@@ -1326,7 +1405,8 @@ async def _execute_current_paper_plan(
                 preflight, purpose="paper execution")
             _cash_authority_or_refuse(
                 conn, plan=plan, deployment=binding.identity,
-                account=account, observation=observation)
+                account=account, observation=observation,
+                activity_state=activity_state)
             instruments = await _instrument_map(
                 conn, broker, state, plan, observation)
 
@@ -1334,10 +1414,12 @@ async def _execute_current_paper_plan(
                 fresh_account = await broker.account_snapshot()
                 _account_or_refuse(
                     fresh_account, binding, confirmed_account)
+                fresh_activity_state = await _broker_cash_state_or_refuse(
+                    conn, broker=broker, binding=binding, through=clock())
                 _cash_authority_or_refuse(
                     conn, plan=plan, deployment=binding.identity,
-                    account=fresh_account,
-                    observation=fresh_observation)
+                    account=fresh_account, observation=fresh_observation,
+                    activity_state=fresh_activity_state)
 
             session = await executor.execute_session(
                 broker=broker, conn=conn, deployment=binding.identity,
@@ -1429,6 +1511,8 @@ async def recover_automated_paper_cycle(
         account = await broker.account_snapshot()
         _recovery_account_identity_or_refuse(
             account, binding, grant.broker_account_id)
+        await _broker_cash_state_or_refuse(
+            conn, broker=broker, binding=binding, through=clock())
         raw = catchup.resume_state(conn)
         state = SessionState.from_dict(raw) if raw is not None else None
         actions = (_action_lookup(conn, state, clock().date())
