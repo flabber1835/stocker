@@ -248,12 +248,12 @@ class StableSharadarFetch:
     The first ACTIONS traversal is allowed to enter the candidate run so price
     normalisation can cross-check splits exactly as before, but it is not local
     authority: those observations remain invisible until the run publishes. By
-    default the second complete ACTIONS observation is delayed until after the
-    first protected SEP traversal. A multi-chunk caller may defer that second
-    observation to a later protected traversal so ACTIONS brackets the whole
-    source join. If the key/content set moved, the run fails before the
-    corroborating protected SEP row can be replayed and before publication can
-    make the candidate ACTIONS lifecycle visible.
+    default the second complete ACTIONS observation is taken after both agreeing
+    protected SEP traversals and before any protected row is replayed. A
+    multi-chunk caller may defer that second observation to a later protected
+    traversal so ACTIONS brackets the whole source join. If the key/content set
+    moved, the run fails before replay and before publication can make the
+    candidate ACTIONS lifecycle visible.
 
     SEP itself is not materialised in RAM: its second observation is spooled to
     a temporary file, validated in full, and only then replayed to the ingest.
@@ -308,12 +308,9 @@ class StableSharadarFetch:
         import pickle
         import tempfile
 
-        # This complete first SEP traversal separates the source observations in
-        # time. Daily corroborates ACTIONS here; a multi-year seed may keep that
-        # first ACTIONS observation pending until its designated final chunk.
+        # A complete first observation is followed by the complete candidate
+        # traversal that will be replayed only if every source proof succeeds.
         first = observe_sep(self._fetch(table, params, **kwargs))
-        if self._corroborate_actions(params or {}):
-            self._require_actions_stable()
 
         spool = tempfile.TemporaryFile(mode="w+b")
         fingerprint = _CommutativeFingerprint()
@@ -330,6 +327,10 @@ class StableSharadarFetch:
                 table="SEP", rows=fingerprint.rows,
                 digest=fingerprint.digest(), sessions=sessions)
             require_stable("SEP", first, second)
+            # Reference data brackets BOTH complete SEP traversals. This is
+            # deliberately after SEP stability and still before spool replay.
+            if self._corroborate_actions(params or {}):
+                self._require_actions_stable()
             assert_frontier_domains(second, after_session=self._after_session)
             spool.seek(0)
         except Exception:
