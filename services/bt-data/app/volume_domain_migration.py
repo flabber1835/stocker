@@ -1,19 +1,18 @@
 """One-time, resumable migration of a pre-#185 ``bt_prices`` corpus.
 
 The schema guard deliberately leaves every pre-existing row without a
-``volume_domain_version`` marker.  That makes legacy data unreadable in READY
-state, but the repair must itself remain reachable: the old corpus can be tens of
-millions of rows and a network/process failure halfway through a full re-fetch is
-ordinary operational reality.
+``volume_domain_version`` marker. That makes the legacy corpus ineligible for
+certification, but the repair must itself remain reachable: the old corpus can be
+tens of millions of rows and a network/process failure halfway through a full
+re-fetch is ordinary operational reality.
 
 Run inside the post-fix bt-data image:
 
     python -m app.volume_domain_migration
 
 The command owns the same PostgreSQL corpus advisory lock as normal bt-data
-writers.  It may resume only its own interrupted PUBLISHING generation; no other
-unknown PUBLISHING state is guessed or repaired.  While PUBLISHING, RLS permits
-the writer to read legacy rows.  The command then:
+writers. It may resume only its own interrupted PUBLISHING generation; no other
+unknown PUBLISHING state is guessed or repaired. The command then:
 
 1. force-replays the complete stored date range from SEP, ignoring old chunk
    completion markers;
@@ -21,8 +20,8 @@ the writer to read legacy rows.  The command then:
 3. proves **every** remaining row carries the post-fix semantic marker; and
 4. only then publishes a new READY corpus UUID.
 
-A row absent from current source is not deleted or grandfathered.  It remains
-unmarked and the migration refuses with a ticker/date sample.  That is current-
+A row absent from current source is not deleted or grandfathered. It remains
+unmarked and the migration refuses with a ticker/date sample. That is current-
 source disagreement requiring inspection, not permission to bless the old
 mixed-domain value.
 """
@@ -91,10 +90,11 @@ async def _reserve_migration():
                 f"corpus source mode is {row.source_mode!r}, configured writer "
                 f"mode is {mode!r}; implicit mode mixing is refused")
 
-        # Make the legacy-row RLS exception visible to this transaction before
-        # asking whether the corpus is populated.  If legacy deployments never
-        # bound source_mode, roll this state change back rather than inventing
-        # provenance merely to make the volume repair reachable.
+        # Enter PUBLISHING before any rewrite. Readers acquire the matching
+        # shared advisory corpus lock and require READY, so a partial migration
+        # cannot become citable. If a legacy deployment never bound source_mode,
+        # roll this state change back rather than inventing provenance merely to
+        # make the economic-domain repair reachable.
         await conn.execute(text(
             "UPDATE bt_data_version SET status='PUBLISHING', updated_at=NOW(), "
             "note=:note WHERE id=1"),
