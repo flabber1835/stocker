@@ -38,15 +38,19 @@ about what the vendor's documentation permits.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Optional, Sequence
 from urllib.parse import quote
 
+from sentinel.execution.broker_cash import (
+    BrokerCashActivity, BrokerCashActivityBatch, RECOGNIZED_ACTIVITY_TYPES)
 from sentinel.execution.contract import (
     BrokerAccountIdentity, BrokerAccountSnapshot, BrokerCapabilities, BrokerFill,
     BrokerInstrument, BrokerObservation, BrokerOrder, BrokerPosition, CommandOutcome,
     Completeness, ExecutionBroker, Side)
+from sentinel.execution.guarded import BrokerAuthorityRefused
 from sentinel.execution.states import CommandState as S
 
 log = logging.getLogger(__name__)
@@ -54,6 +58,11 @@ log = logging.getLogger(__name__)
 #: Orders per page, and how many pages before we admit we stopped looking.
 PAGE_SIZE = 500
 MAX_PAGES = 20
+
+#: Account Activities has a smaller documented page ceiling.  The cap is a
+#: memory/latency bound, never permission to call a partial walk complete.
+ACTIVITY_PAGE_SIZE = 100
+MAX_ACTIVITY_PAGES = 20
 
 #: Alpaca's order vocabulary -> ours. The mapping lives in ONE place so a new
 #: broker cannot re-introduce the `partial_fill` / `partially_filled`
@@ -131,6 +140,10 @@ class UnmappedBrokerStatus(RuntimeError):
     working" would let a filled or rejected order sit in the journal as live,
     and the two guesses fail in opposite directions.
     """
+
+
+class AlpacaCredentialsRefused(BrokerAuthorityRefused):
+    """Alpaca rejected the credentials/authority, not the order economics."""
 
 
 def map_status(raw: str) -> S:
@@ -230,6 +243,14 @@ def _dec(value, default: Optional[Decimal] = None) -> Optional[Decimal]:
         return default
 
 
+@dataclass(frozen=True)
+class AlpacaMarketClock:
+    timestamp: datetime
+    is_open: bool
+    next_open: datetime
+    next_close: datetime
+
+
 class AlpacaExecutionBroker(ExecutionBroker):
     """`ExecutionBroker` over Alpaca's REST API."""
 
@@ -293,6 +314,9 @@ class AlpacaExecutionBroker(ExecutionBroker):
         async with self._httpx.AsyncClient(timeout=20.0) as client:
             resp = await client.get(f"{self.base_url}{path}",
                                     headers=self._headers(), params=params or {})
+            if resp.status_code in (401, 403):
+                raise AlpacaCredentialsRefused(
+                    f"Alpaca read authority refused with HTTP {resp.status_code}")
             resp.raise_for_status()
             return resp.json()
 
@@ -362,6 +386,117 @@ class AlpacaExecutionBroker(ExecutionBroker):
                 f"security {instrument.security_id!r}, not requested "
                 f"{security_id!r}")
         return instrument
+
+    # -- broker corroboration / account activities -------------------------
+    async def market_clock(self) -> AlpacaMarketClock:
+        payload = await self._get("/v2/clock")
+        if not isinstance(payload, dict):
+            raise MalformedBrokerPayload("market clock payload must be an object")
+        is_open = _required_bool(payload, "is_open", where="market clock")
+        return AlpacaMarketClock(
+            timestamp=_required_aware_ts(
+                payload.get("timestamp"), where="market clock timestamp"),
+            is_open=is_open,
+            next_open=_required_aware_ts(
+                payload.get("next_open"), where="market clock next_open"),
+            next_close=_required_aware_ts(
+                payload.get("next_close"), where="market clock next_close"))
+
+    async def account_cash_activities(
+            self, *, after: datetime,
+            through: datetime) -> BrokerCashActivityBatch:
+        """Read recognized non-fill cash activities to a proven upper bound.
+
+        Pagination is by Alpaca's native activity id.  We collect the complete
+        interval before the durable layer writes anything, so a failed middle
+        page cannot leave a cursor ahead of retained evidence.
+        """
+        floor = _required_aware_ts(after, where="cash activity lower boundary")
+        upper = _required_aware_ts(through, where="cash activity upper boundary")
+        if floor > upper:
+            raise MalformedBrokerPayload(
+                "cash activity lower boundary is later than upper boundary")
+        activities: list[BrokerCashActivity] = []
+        seen_ids: set[str] = set()
+        page_token: Optional[str] = None
+        last_id: Optional[str] = None
+        for _page in range(MAX_ACTIVITY_PAGES):
+            params = {
+                "activity_types": ",".join(sorted(RECOGNIZED_ACTIVITY_TYPES)),
+                "after": floor.isoformat(),
+                "until": upper.isoformat(),
+                "direction": "asc",
+                "page_size": ACTIVITY_PAGE_SIZE,
+            }
+            if page_token:
+                params["page_token"] = page_token
+            page = await self._get("/v2/account/activities", params)
+            if not isinstance(page, list):
+                raise MalformedBrokerPayload(
+                    "account-activities response must be an array")
+            if len(page) > ACTIVITY_PAGE_SIZE:
+                raise MalformedBrokerPayload(
+                    f"account-activities page contains {len(page)} rows for "
+                    f"limit {ACTIVITY_PAGE_SIZE}")
+            if not page:
+                return BrokerCashActivityBatch(
+                    activities=tuple(activities), processed_through=upper,
+                    completeness=Completeness.COMPLETE,
+                    last_activity_id=last_id)
+            page_ids: list[str] = []
+            for item in page:
+                if not isinstance(item, dict):
+                    raise MalformedBrokerPayload(
+                        "account-activities page contains a non-object row")
+                activity_id = str(item.get("id") or "").strip()
+                if not activity_id:
+                    raise MalformedBrokerPayload(
+                        "account activity row has no native activity id")
+                if activity_id in seen_ids:
+                    raise MalformedBrokerPayload(
+                        f"account-activities pagination repeated native id "
+                        f"{activity_id}")
+                activity_type = str(item.get("activity_type") or "").upper()
+                if activity_type not in RECOGNIZED_ACTIVITY_TYPES:
+                    raise MalformedBrokerPayload(
+                        f"account activity {activity_id} returned unexpected "
+                        f"type {activity_type!r}")
+                raw_date = str(item.get("date") or "")[:10]
+                try:
+                    activity_date = date.fromisoformat(raw_date)
+                except ValueError:
+                    raise MalformedBrokerPayload(
+                        f"account activity {activity_id} has invalid date "
+                        f"{item.get('date')!r}") from None
+                amount = _required_dec(
+                    item.get("net_amount"),
+                    where=f"account activity {activity_id} net_amount",
+                    allow_negative=True)
+                seen_ids.add(activity_id)
+                page_ids.append(activity_id)
+                last_id = activity_id
+                activities.append(BrokerCashActivity(
+                    activity_id=activity_id, activity_type=activity_type,
+                    activity_date=activity_date, net_amount=amount, raw=item))
+            if len(page) < ACTIVITY_PAGE_SIZE:
+                return BrokerCashActivityBatch(
+                    activities=tuple(activities), processed_through=upper,
+                    completeness=Completeness.COMPLETE,
+                    last_activity_id=last_id)
+            next_token = page_ids[-1]
+            if not next_token or next_token == page_token:
+                return BrokerCashActivityBatch(
+                    activities=tuple(activities), processed_through=upper,
+                    completeness=Completeness.TRUNCATED,
+                    last_activity_id=last_id)
+            page_token = next_token
+        log.warning(
+            "sentinel: account-activity recovery hit the %d-page cap; "
+            "reporting TRUNCATED", MAX_ACTIVITY_PAGES)
+        return BrokerCashActivityBatch(
+            activities=tuple(activities), processed_through=upper,
+            completeness=Completeness.TRUNCATED,
+            last_activity_id=last_id)
 
     # -- observation --------------------------------------------------------
     async def observe(self) -> BrokerObservation:
@@ -645,6 +780,66 @@ class AlpacaExecutionBroker(ExecutionBroker):
         return self._to_order(payload) if payload else None
 
     # -- writes -------------------------------------------------------------
+    def _validate_submit_response(
+            self, payload, *, client_key: str,
+            instrument: BrokerInstrument, side: Side,
+            quantity: Decimal) -> BrokerOrder:
+        """A 2xx may acknowledge only the exact economics Sentinel sent."""
+        if not isinstance(payload, dict):
+            raise MalformedBrokerPayload(
+                "successful submit response must be an order object")
+        order = self._to_order(payload)
+        if not order.broker_order_id:
+            raise MalformedBrokerPayload(
+                "successful submit response omitted broker order id")
+        if order.client_key != client_key:
+            raise MalformedBrokerPayload(
+                f"successful submit returned client_order_id "
+                f"{order.client_key!r}, expected {client_key!r}")
+        if order.side is not side:
+            raise MalformedBrokerPayload(
+                f"successful submit returned side {order.side.value}, "
+                f"expected {side.value}")
+        if order.quantity != quantity:
+            raise MalformedBrokerPayload(
+                f"successful submit returned quantity {order.quantity}, "
+                f"expected {quantity}")
+        if order.instrument.security_id != instrument.security_id:
+            raise MalformedBrokerPayload(
+                "successful submit returned a different permanent security: "
+                f"{order.instrument.security_id!r} != "
+                f"{instrument.security_id!r}")
+        if order.instrument.symbol != instrument.symbol:
+            raise MalformedBrokerPayload(
+                f"successful submit returned symbol {order.instrument.symbol!r}, "
+                f"expected {instrument.symbol!r}")
+        if instrument.broker_id is not None:
+            if order.instrument.broker_id != instrument.broker_id:
+                raise MalformedBrokerPayload(
+                    "successful submit returned stable asset id "
+                    f"{order.instrument.broker_id!r}, expected "
+                    f"{instrument.broker_id!r}")
+
+        order_type = str(payload.get("type") or "").lower()
+        if order_type != "market":
+            raise MalformedBrokerPayload(
+                f"successful submit returned type {order_type!r}, expected 'market'")
+        alias_type = payload.get("order_type")
+        if alias_type is not None and str(alias_type).lower() != "market":
+            raise MalformedBrokerPayload(
+                f"successful submit returned order_type {alias_type!r}, "
+                "expected 'market'")
+        if str(payload.get("time_in_force") or "").lower() != "day":
+            raise MalformedBrokerPayload(
+                "successful submit did not confirm DAY time-in-force")
+        if str(payload.get("order_class") or "").lower() != "simple":
+            raise MalformedBrokerPayload(
+                "successful submit did not confirm simple order class")
+        if payload.get("extended_hours") is not False:
+            raise MalformedBrokerPayload(
+                "successful submit did not explicitly confirm extended_hours=false")
+        return order
+
     async def submit(self, *, client_key: str, instrument: BrokerInstrument,
                      side: Side, quantity: Decimal) -> CommandOutcome:
         body = {
@@ -654,6 +849,8 @@ class AlpacaExecutionBroker(ExecutionBroker):
             "type": "market",
             "time_in_force": "day",
             "client_order_id": client_key,
+            "order_class": "simple",
+            "extended_hours": False,
         }
         try:
             async with self._httpx.AsyncClient(timeout=20.0) as client:
@@ -668,9 +865,31 @@ class AlpacaExecutionBroker(ExecutionBroker):
 
         if resp.status_code in (200, 201):
             payload = resp.json()
-            return CommandOutcome(state=map_status(str(payload.get("status"))),
-                                  broker_order_id=str(payload.get("id") or ""),
-                                  detail="accepted")
+            order = self._validate_submit_response(
+                payload, client_key=client_key, instrument=instrument,
+                side=side, quantity=quantity)
+            # Receipt and lifecycle are deliberately separate.  A market order
+            # may already be partially or fully filled by the time POST returns;
+            # CommandOutcome cannot carry fill quantity, so returning FILLED
+            # here both violates its type and loses the economics.  Normal
+            # reconciliation immediately establishes the cumulative truth.
+            return CommandOutcome(state=S.ACKNOWLEDGED,
+                                  broker_order_id=order.broker_order_id,
+                                  detail="accepted; lifecycle reconciles separately")
+        if resp.status_code in (401, 403):
+            raise AlpacaCredentialsRefused(
+                f"Alpaca submit authority refused with HTTP {resp.status_code}: "
+                f"{(resp.text or '')[:500]}")
+        if resp.status_code in (408, 429):
+            # 408 and 429 are transport/service conditions, not a broker verdict
+            # that this economic order was rejected.  Even a rate-limited
+            # response is treated as ambiguous: exact-key recovery must run
+            # before the same durable intent can be sent again.
+            retry_after = getattr(resp, "headers", {}).get("Retry-After")
+            suffix = f"; Retry-After={retry_after}" if retry_after else ""
+            return CommandOutcome(
+                state=S.UNKNOWN,
+                detail=f"HTTP {resp.status_code} transport ambiguity{suffix}")
         if resp.status_code == 422:
             # A DUPLICATE client_order_id lands here, and it is a SUCCESS for
             # our purposes: the key is already resting, which is precisely what
