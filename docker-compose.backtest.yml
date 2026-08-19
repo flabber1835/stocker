@@ -72,6 +72,12 @@ services:
     depends_on:
       bt-postgres:
         condition: service_healthy
+      # bt-data owns the semantic/schema migration fence for the shared
+      # backtest corpus. Starting bt-engine before that health proof creates a
+      # narrow race where legacy pre-#185 volume rows can be consumed before the
+      # row-level domain guard exists.
+      bt-data:
+        condition: service_healthy
 
 volumes:
   bt_pgdata:
