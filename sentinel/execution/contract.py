@@ -402,6 +402,29 @@ class ExecutionBroker(abc.ABC):
         raise NotImplementedError(
             "this execution adapter cannot resolve broker instruments")
 
+    async def market_clock(self):
+        """Optional broker-native clock used only as an increase corroborator.
+
+        XNYS remains Sentinel's primary session authority. Adapters that do not
+        implement a native clock remain valid; the guarded membrane distinguishes
+        an inherited stub from a concrete override rather than treating this
+        default as advertised support.
+        """
+        raise NotImplementedError(
+            "this execution adapter does not expose a broker market clock")
+
+    async def account_cash_activities(self, *, after: datetime,
+                                      through: datetime):
+        """Optional broker-native cash activity evidence for balance recovery.
+
+        The durable cash-ingest path requires a concrete adapter override. The
+        default exists so the broker port, guarded wrapper and operation enum stay
+        introspectably complete without making legacy/simulator adapters claim a
+        capability they do not implement.
+        """
+        raise NotImplementedError(
+            "this execution adapter does not expose account cash activities")
+
     @abc.abstractmethod
     async def observe(self) -> BrokerObservation:
         """Orders then positions, with completeness declared."""
