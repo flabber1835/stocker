@@ -158,6 +158,15 @@ def _nonnegative(value) -> bool:
     return math.isfinite(number) and number >= 0
 
 
+def _present(value) -> bool:
+    """True for an observed value, including boolean False."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return True
+    return bool(str(value).strip())
+
+
 def _payload(row: Mapping, fields) -> bytes:
     values = {}
     for field in fields:
@@ -215,7 +224,7 @@ def assert_tickers_metadata(rows: Iterable[Mapping]) -> list[Mapping]:
 
     total = len(relevant)
     for field, label, minimum in TICKERS_METADATA_MINIMUMS:
-        present = sum(bool(str(row.get(field) or "").strip()) for row in relevant)
+        present = sum(_present(row.get(field)) for row in relevant)
         share = present / total
         if share < minimum:
             raise TickerMetadataIncomplete(
@@ -318,12 +327,16 @@ class StableSharadarFetch(authority.StableSharadarFetch):
                     "TICKERS was requested again before corroboration")
             rows = list(self._fetch(table, params, **kwargs))
             relevant = assert_tickers_metadata(rows)
-            self._tickers_first = observe_tickers(rows)
+            # Sentinel's security universe is SEP. Other TICKERS product rows
+            # can share the same (permaticker,ticker) but carry different
+            # strategy metadata; letting them reach write_universe would make
+            # vendor row order decide eligibility.
+            self._tickers_first = observe_tickers(relevant)
             self._tickers_params = dict(params or {})
             self._tickers_kwargs = dict(kwargs)
             self._seed_resolver = universe.IdentityResolver(
                 universe.listings_from_rows(relevant))
-            return rows
+            return relevant
 
         if table == sharadar.SFP:
             if self._sfp_first is not None:
@@ -357,9 +370,9 @@ class StableSharadarFetch(authority.StableSharadarFetch):
             rows = list(self._fetch(
                 sharadar.TICKERS, dict(self._tickers_params or {}),
                 **dict(self._tickers_kwargs or {})))
-            assert_tickers_metadata(rows)
+            relevant = assert_tickers_metadata(rows)
             authority.require_stable(
-                "TICKERS", self._tickers_first, observe_tickers(rows))
+                "TICKERS", self._tickers_first, observe_tickers(relevant))
             self._tickers_first = None
             self._tickers_params = None
             self._tickers_kwargs = None
