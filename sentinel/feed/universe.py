@@ -189,6 +189,34 @@ def _d(v) -> Optional[str]:
     return s if len(s) == 10 and s[4] == "-" else None
 
 
+def _related_observation(row: Mapping) -> Optional[str]:
+    """Canonical issuer siblings while preserving NULL versus authoritative empty."""
+    if "relatedtickers" in row:
+        raw = row.get("relatedtickers")
+    elif "related_tickers" in row:
+        raw = row.get("related_tickers")
+    else:
+        return None
+    if raw is None:
+        return None
+    return " ".join(parse_related_tickers(raw))
+
+
+def _delisted_observation(row: Mapping) -> Optional[bool]:
+    """Preserve an absent listing-state observation rather than guessing False."""
+    if "isdelisted" in row:
+        raw = row.get("isdelisted")
+    elif "is_delisted" in row:
+        raw = row.get("is_delisted")
+    else:
+        return None
+    if raw is None or (not isinstance(raw, bool) and not str(raw).strip()):
+        return None
+    if isinstance(raw, bool):
+        return raw
+    return str(raw).strip().upper() in ("Y", "TRUE", "1")
+
+
 _UNIVERSE_UPSERT = """
     INSERT INTO sentinel_universe (permaticker, ticker, category, sector,
         related_tickers, first_price_date, last_price_date, is_delisted,
@@ -214,30 +242,40 @@ _UNIVERSE_UPSERT = """
 
 def write_universe(conn, rows: Sequence[Mapping], snapshot_date: str, *,
                    run_id=None) -> int:
-    """Store a TICKERS snapshot.
+    """Store the SEP partition of a TICKERS snapshot.
+
+    Production coherence already returns only `table=SEP`; this writer repeats
+    the partition boundary so a future/bypass caller cannot let SF1/SF2/SFP
+    metadata sharing the same identity overwrite strategy authority. Legacy test
+    and migration rows without a `table` field remain accepted.
 
     `related_tickers` is stored SPACE-JOINED from the parsed tuple, matching how
     bt-data stores it — so the round trip is stable and a reader that splits on
-    whitespace gets back what was parsed.
+    whitespace gets back what was parsed. Source NULL is retained as NULL so a
+    sparse observation carries prior authority forward; source blank is retained
+    as an empty string so a later authoritative removal of issuer siblings can
+    replace a prior non-empty relationship.
 
     A provenance-tracked generation is NOT projected here: it becomes readable
-    only if publication succeeds.  NULL-provenance legacy rows are readable
+    only if publication succeeds. NULL-provenance legacy rows are readable
     immediately under the existing corpus contract, so they are projected in
     this same transaction before the commit.
     """
     payload = []
     for r in rows:
+        source_table = str(r.get("table") or "").strip().upper()
+        if source_table and source_table != "SEP":
+            continue
         pt, tk = r.get("permaticker"), r.get("ticker")
         if not pt or not tk:
             continue
         payload.append((
             str(pt).strip(), str(tk).strip().upper(), r.get("category"),
             r.get("sector"),
-            " ".join(parse_related_tickers(r.get("relatedtickers")
-                                           or r.get("related_tickers"))) or None,
+            _related_observation(r),
             _d(r.get("firstpricedate") or r.get("first_price_date")),
             _d(r.get("lastpricedate") or r.get("last_price_date")),
-            bool(str(r.get("isdelisted") or "").upper() in ("Y", "TRUE", "1")),
+            _delisted_observation(r),
             snapshot_date,
             str(run_id) if run_id else None,
         ))
@@ -257,13 +295,15 @@ def load_resolver(conn, *, include_run_id=None) -> IdentityResolver:
     """Build the resolver without aggregating retained snapshot history.
 
     `feed_universe_current` already carries one row per historical
-    (permaticker,ticker) pairing with the MIN(first)/MAX(last) envelope preserved
-    at publication.  Routine construction therefore scales with identity count,
-    not the number of dated TICKERS snapshots retained.
+    (permaticker,ticker) pairing with the latest authoritative non-null listing
+    bounds. Routine construction therefore scales with identity count, not the
+    number of dated TICKERS snapshots retained.
 
     During ingest, `include_run_id` adds exactly ONE unpublished candidate to the
-    published projection.  Grouping that bounded union preserves sparse-snapshot
-    backfills while preventing an ingest from scanning every prior snapshot.
+    published projection. Newer candidate bounds take precedence, including a
+    correction that NARROWS an interval; a null candidate value carries the
+    prior non-null bound. This must match the projection that will become
+    authoritative if the same run publishes.
     """
     with conn.cursor() as cur:
         if include_run_id is None:
@@ -274,16 +314,26 @@ def load_resolver(conn, *, include_run_id=None) -> IdentityResolver:
         else:
             cur.execute(
                 "WITH bounded AS ("
-                " SELECT permaticker,ticker,first_price_date,last_price_date"
+                " SELECT permaticker,ticker,first_price_date,last_price_date,"
+                "        snapshot_date,0 AS candidate"
                 " FROM feed_universe_current"
                 " UNION ALL"
-                " SELECT permaticker,ticker,first_price_date,last_price_date"
+                " SELECT permaticker,ticker,first_price_date,last_price_date,"
+                "        snapshot_date,1 AS candidate"
                 " FROM sentinel_universe"
                 " WHERE last_written_run_id=%s"
-                "   AND permaticker IS NOT NULL AND ticker IS NOT NULL)"
-                " SELECT permaticker,ticker,MIN(first_price_date),"
-                " MAX(last_price_date) FROM bounded"
-                " GROUP BY permaticker,ticker ORDER BY permaticker,ticker",
+                "   AND permaticker IS NOT NULL AND ticker IS NOT NULL),"
+                " collapsed AS ("
+                " SELECT permaticker,ticker,"
+                "   (ARRAY_REMOVE(ARRAY_AGG(first_price_date"
+                "      ORDER BY snapshot_date DESC,candidate DESC),NULL))[1]"
+                "      AS first_price_date,"
+                "   (ARRAY_REMOVE(ARRAY_AGG(last_price_date"
+                "      ORDER BY snapshot_date DESC,candidate DESC),NULL))[1]"
+                "      AS last_price_date"
+                " FROM bounded GROUP BY permaticker,ticker)"
+                " SELECT permaticker,ticker,first_price_date,last_price_date"
+                " FROM collapsed ORDER BY permaticker,ticker",
                 (str(include_run_id),))
         rows = cur.fetchall()
     return IdentityResolver(

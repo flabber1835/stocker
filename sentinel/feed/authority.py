@@ -6,7 +6,7 @@ Sentinel requires two complete observations with the same order-independent
 content fingerprint before source absence is allowed to become local authority.
 
 The price-domain checks here are deliberately about the *frontier session*, not
-about strategy eligibility and not about historical density.  A healthy 126-day
+about strategy eligibility and not about historical density. A healthy 126-day
 history must never dilute a broken current decision day into a PASS.
 """
 from __future__ import annotations
@@ -45,7 +45,7 @@ class DomainCounts:
         signal = _positive(row.get("close"))
         raw = _positive(row.get("closeunadj"))
         open_ = _positive(row.get("open"))
-        # Zero volume is an observed liquidity fact, not a missing domain.  The
+        # Zero volume is an observed liquidity fact, not a missing domain. The
         # strategy may reject the security later; publication completeness must
         # stay independent of portfolio eligibility.
         volume = _nonnegative(row.get("volume"))
@@ -53,7 +53,7 @@ class DomainCounts:
             rows=self.rows + 1,
             signal_close=self.signal_close + int(signal),
             raw_close=self.raw_close + int(raw),
-            # The as-traded open is reconstructed from all three values.  An
+            # The as-traded open is reconstructed from all three values. An
             # adjusted open alone is not an executable price domain.
             raw_open=self.raw_open + int(open_ and signal and raw),
             volume=self.volume + int(volume),
@@ -73,7 +73,7 @@ class _CommutativeFingerprint:
 
     Cursor pagination has no ordering contract, so hashing rows in arrival order
     would reject two identical snapshots merely because the API returned a page
-    differently.  Two domain-separated SHA-256 row hashes are accumulated modulo
+    differently. Two domain-separated SHA-256 row hashes are accumulated modulo
     2**256, then bound together with the exact row count. Duplicate multiplicity
     is therefore evidence too, while memory stays constant for multi-million-row
     SEP windows.
@@ -142,7 +142,7 @@ def _nonnegative(value) -> bool:
 
 def _sep_payload(row: Mapping) -> bytes:
     # Deliberately excludes SEP.closeadj: Sentinel reads none of that forbidden
-    # total-return domain.  Completeness/key-set evidence and every domain that
+    # total-return domain. Completeness/key-set evidence and every domain that
     # can affect today's decision are included.
     payload = {
         "date": _canonical(row.get("date")),
@@ -202,9 +202,9 @@ def assert_frontier_domains(
 ) -> None:
     """Prove each newly exposed decision session has its critical SEP domains.
 
-    `after_session` is the pre-ingest *published* frontier on daily runs.  Every
+    `after_session` is the pre-ingest *published* frontier on daily runs. Every
     vendor session newer than it is checked independently, so several missed
-    days cannot hide one another.  A seed has no prior authority boundary and
+    days cannot hide one another. A seed has no prior authority boundary and
     checks its newest observed session.
     """
     if observation.table != "SEP":
@@ -247,20 +247,24 @@ class StableSharadarFetch:
 
     The first ACTIONS traversal is allowed to enter the candidate run so price
     normalisation can cross-check splits exactly as before, but it is not local
-    authority: those observations remain invisible until the run publishes.  A
-    second complete ACTIONS observation is deliberately delayed until after the
-    first protected SEP traversal.  If the key/content set moved, the run fails
-    before any protected SEP row can be replayed and before publication can make
-    the candidate ACTIONS lifecycle visible.
+    authority: those observations remain invisible until the run publishes. By
+    default the second complete ACTIONS observation is taken after both agreeing
+    protected SEP traversals and before any protected row is replayed. A
+    multi-chunk caller may defer that second observation to a later protected
+    traversal so ACTIONS brackets the whole source join. If the key/content set
+    moved, the run fails before replay and before publication can make the
+    candidate ACTIONS lifecycle visible.
 
     SEP itself is not materialised in RAM: its second observation is spooled to
     a temporary file, validated in full, and only then replayed to the ingest.
     This preserves the bounded-memory property of the existing bulk path.
     """
 
-    def __init__(self, fetch, *, protect_sep=None, after_session: str | None = None):
+    def __init__(self, fetch, *, protect_sep=None, corroborate_actions=None,
+                 after_session: str | None = None):
         self._fetch = fetch
         self._protect_sep = protect_sep or (lambda _params: True)
+        self._corroborate_actions = corroborate_actions or self._protect_sep
         self._after_session = after_session
         self._actions_first: SourceObservation | None = None
         self._actions_params: dict | None = None
@@ -304,11 +308,9 @@ class StableSharadarFetch:
         import pickle
         import tempfile
 
-        # This complete first SEP traversal separates the two ACTIONS snapshots
-        # in time and preserves the long-standing TICKERS -> ACTIONS -> SFP -> SEP
-        # orchestration. It is evidence only; no row is returned to the ingest.
+        # A complete first observation is followed by the complete candidate
+        # traversal that will be replayed only if every source proof succeeds.
         first = observe_sep(self._fetch(table, params, **kwargs))
-        self._require_actions_stable()
 
         spool = tempfile.TemporaryFile(mode="w+b")
         fingerprint = _CommutativeFingerprint()
@@ -325,6 +327,10 @@ class StableSharadarFetch:
                 table="SEP", rows=fingerprint.rows,
                 digest=fingerprint.digest(), sessions=sessions)
             require_stable("SEP", first, second)
+            # Reference data brackets BOTH complete SEP traversals. This is
+            # deliberately after SEP stability and still before spool replay.
+            if self._corroborate_actions(params or {}):
+                self._require_actions_stable()
             assert_frontier_domains(second, after_session=self._after_session)
             spool.seek(0)
         except Exception:

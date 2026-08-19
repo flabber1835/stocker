@@ -145,7 +145,9 @@ class TestSeed:
                 return [{"ticker": "AAA", "permaticker": "P-AAA"}]
             if table == sharadar.SEP:
                 boom["n"] += 1
-                if boom["n"] == 2:
+                # Each chunk now needs two complete observations before it can
+                # publish. Fail on the next chunk so the first remains committed.
+                if boom["n"] == 3:
                     raise RuntimeError("connection reset")
             if table == sharadar.SFP:
                 return []

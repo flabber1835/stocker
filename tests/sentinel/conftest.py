@@ -32,6 +32,7 @@ _SINGLETON_REFUSAL_TESTS = {
     "test_schema_check_never_repairs_a_deleted_control_singleton",
 }
 _FEED_RUNTIME_SCHEMA_CONTRACT_PREFIX = "test_issue_165_feed_schema"
+_ISSUE_178_SOURCE_AUTHORITY_PREFIX = "test_issue_178_"
 
 
 def _legacy_feed_fixture_install(conn) -> None:
@@ -78,6 +79,50 @@ def _runtime_schema_test_double_compat(request, monkeypatch):
     if not module_name.startswith(_FEED_RUNTIME_SCHEMA_CONTRACT_PREFIX):
         monkeypatch.setattr(
             feed_store, "ensure_schema", _legacy_feed_fixture_install)
+
+    if not module_name.startswith(_ISSUE_178_SOURCE_AUTHORITY_PREFIX):
+        # Issue #178 makes the production source contract deliberately stricter:
+        # real TICKERS authority must identify its Sharadar product explicitly,
+        # and historical SEP chunks must satisfy calibrated full-source floors.
+        # A large body of older unit tests intentionally models neither thing:
+        # their injected vendors use one/few rows and pre-date the TICKERS
+        # ``table`` field because they exercise action reconciliation, corpus
+        # publication, memory behavior, retry semantics, etc.
+        #
+        # Keep compatibility at the TEST seam and make it input-sensitive. A
+        # legacy TICKERS fixture is synthetic only when every returned row omits
+        # the product field; tag those rows as synthetic SEP so the new defensive
+        # universe writer sees the same intended product. Any fixture that names
+        # a product is real source-contract evidence and still runs the complete
+        # validator. Likewise, only sub-calibration synthetic seed populations
+        # bypass historical completeness. The issue-178 falsifier modules are
+        # excluded from this shim entirely.
+        from sentinel.feed import coherence
+
+        real_assert_tickers_metadata = coherence.assert_tickers_metadata
+        real_assert_seed_history = coherence.assert_seed_history
+
+        def legacy_synthetic_tickers(rows):
+            materialized = list(rows)
+            if materialized and all("table" not in row for row in materialized):
+                return [dict(row, table="SEP") for row in materialized]
+            if not materialized:
+                return materialized
+            return real_assert_tickers_metadata(materialized)
+
+        def legacy_synthetic_seed(sessions, *, date_from, date_to):
+            if not sessions:
+                return None
+            if max(counts.rows for counts in sessions.values()) < \
+                    coherence.MIN_SEED_SESSION_ROWS:
+                return None
+            return real_assert_seed_history(
+                sessions, date_from=date_from, date_to=date_to)
+
+        monkeypatch.setattr(
+            coherence, "assert_tickers_metadata", legacy_synthetic_tickers)
+        monkeypatch.setattr(
+            coherence, "assert_seed_history", legacy_synthetic_seed)
 
     if request.node.name in _SINGLETON_REFUSAL_TESTS:
         # These tests pre-date the stronger explicit-migration final check.

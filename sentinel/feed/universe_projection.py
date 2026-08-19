@@ -7,16 +7,17 @@ relation for questions whose complexity should be "how many identities exist
 now?". Daily full snapshots make those questions scale with corpus age.
 
 `feed_universe_current` is a DERIVED read model, one row per
-(permaticker,ticker) pairing. It retains the complete listing-window envelope
-needed to resolve old sessions, while keeping current resolver/meta/readiness
-work bounded by identity cardinality rather than snapshot cardinality. The
-`feed_` name is deliberate: this is rebuildable feed infrastructure, not a new
+(permaticker,ticker) pairing. It retains the latest non-null authoritative
+listing bounds and labels while keeping current resolver/meta/readiness work
+bounded by identity cardinality rather than snapshot cardinality. The `feed_`
+name is deliberate: this is rebuildable feed infrastructure, not a new
 behavioral/authority-bearing `sentinel_*` relation.
 
 Sparse vendor rows require field-level chronology. A later snapshot can omit a
-label that an older one knew, so the projection stores the snapshot date of each
-latest non-null label. That lets callers preserve the old exact "latest non-null
-across history" semantics even when one permaticker has multiple ticker pairs.
+value that an older one knew, so null means "no new observation", not "erase the
+old value". Listing bounds follow the same latest-non-null rule as labels: they
+are reference-data observations, not monotonic counters. A correction may move
+`firstpricedate` later or `lastpricedate` earlier.
 
 Publication is the authority boundary. A provenance-tracked candidate is merged
 here in the SAME transaction that publishes its run; an unpublished snapshot can
@@ -56,7 +57,8 @@ DDL = [
     # One explicit-migration scan converts an existing append-only deployment
     # into the bounded read model. Runtime never rebuilds this from history.
     # Re-running the migration is deterministic and repairs the projection from
-    # published/legacy evidence rather than trusting a stale derived row.
+    # published/legacy evidence rather than trusting a stale derived row. Every
+    # field, including listing bounds, is the latest non-null observation.
     """INSERT INTO feed_universe_current
           (permaticker,ticker,category,category_snapshot_date,
            sector,sector_snapshot_date,
@@ -73,7 +75,10 @@ DDL = [
           (ARRAY_REMOVE(ARRAY_AGG(u.related_tickers
                                   ORDER BY u.snapshot_date DESC), NULL))[1],
           MAX(u.snapshot_date) FILTER (WHERE u.related_tickers IS NOT NULL),
-          MIN(u.first_price_date),MAX(u.last_price_date),
+          (ARRAY_REMOVE(ARRAY_AGG(u.first_price_date
+                                  ORDER BY u.snapshot_date DESC), NULL))[1],
+          (ARRAY_REMOVE(ARRAY_AGG(u.last_price_date
+                                  ORDER BY u.snapshot_date DESC), NULL))[1],
           (ARRAY_REMOVE(ARRAY_AGG(u.is_delisted ORDER BY u.snapshot_date DESC),
                         NULL))[1],
           MAX(u.snapshot_date) FILTER (WHERE u.is_delisted IS NOT NULL),
@@ -118,9 +123,19 @@ def _newer_date(observed: str) -> str:
         ELSE feed_universe_current.{observed} END"""
 
 
+def _newer_bound(value: str) -> str:
+    """Latest non-null listing bound; later authority may narrow the interval."""
+    return f"""CASE
+        WHEN EXCLUDED.{value} IS NULL THEN feed_universe_current.{value}
+        WHEN EXCLUDED.snapshot_date >= feed_universe_current.snapshot_date
+          THEN EXCLUDED.{value}
+        ELSE feed_universe_current.{value} END"""
+
+
 # Candidate aggregation is over ONE ingest generation, never over retained
-# history. The conflict merge preserves latest non-null labels with their actual
-# observation dates while expanding the historical listing envelope.
+# history. The conflict merge preserves latest non-null fields. Listing bounds
+# deliberately REPLACE older non-null values when the candidate snapshot is
+# newer; LEAST/GREATEST would make a vendor correction unable to narrow.
 _PROJECT_RUN = f"""
     INSERT INTO feed_universe_current
       (permaticker,ticker,category,category_snapshot_date,
@@ -136,7 +151,10 @@ _PROJECT_RUN = f"""
       (ARRAY_REMOVE(ARRAY_AGG(u.related_tickers ORDER BY u.snapshot_date DESC),
                     NULL))[1],
       MAX(u.snapshot_date) FILTER (WHERE u.related_tickers IS NOT NULL),
-      MIN(u.first_price_date),MAX(u.last_price_date),
+      (ARRAY_REMOVE(ARRAY_AGG(u.first_price_date ORDER BY u.snapshot_date DESC),
+                    NULL))[1],
+      (ARRAY_REMOVE(ARRAY_AGG(u.last_price_date ORDER BY u.snapshot_date DESC),
+                    NULL))[1],
       (ARRAY_REMOVE(ARRAY_AGG(u.is_delisted ORDER BY u.snapshot_date DESC),NULL))[1],
       MAX(u.snapshot_date) FILTER (WHERE u.is_delisted IS NOT NULL),
       MAX(u.snapshot_date)
@@ -151,20 +169,8 @@ _PROJECT_RUN = f"""
       sector_snapshot_date={_newer_date('sector_snapshot_date')},
       related_tickers={_newer_value('related_tickers', 'related_tickers_snapshot_date')},
       related_tickers_snapshot_date={_newer_date('related_tickers_snapshot_date')},
-      first_price_date=CASE
-        WHEN feed_universe_current.first_price_date IS NULL
-          THEN EXCLUDED.first_price_date
-        WHEN EXCLUDED.first_price_date IS NULL
-          THEN feed_universe_current.first_price_date
-        ELSE LEAST(feed_universe_current.first_price_date,
-                   EXCLUDED.first_price_date) END,
-      last_price_date=CASE
-        WHEN feed_universe_current.last_price_date IS NULL
-          THEN EXCLUDED.last_price_date
-        WHEN EXCLUDED.last_price_date IS NULL
-          THEN feed_universe_current.last_price_date
-        ELSE GREATEST(feed_universe_current.last_price_date,
-                      EXCLUDED.last_price_date) END,
+      first_price_date={_newer_bound('first_price_date')},
+      last_price_date={_newer_bound('last_price_date')},
       is_delisted={_newer_value('is_delisted', 'is_delisted_snapshot_date')},
       is_delisted_snapshot_date={_newer_date('is_delisted_snapshot_date')},
       snapshot_date=GREATEST(feed_universe_current.snapshot_date,
