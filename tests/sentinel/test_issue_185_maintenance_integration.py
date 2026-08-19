@@ -1,8 +1,9 @@
 """Integration seams for #185 historical SEP/ACTIONS maintenance.
 
 These are deliberately small state-machine tests: they prove that correction
-replay uses the same run identity as the candidate source change and that the
-mutation cursor moves only after publication returns.
+replay uses the same run identity as the candidate source change, that ACTIONS
+acquisition is bounded to the exact authority window, and that the mutation
+cursor moves only after publication returns.
 """
 from __future__ import annotations
 
@@ -39,6 +40,7 @@ def _pub(run_id):
 def test_actions_split_correction_replays_against_candidate_before_publication(
         monkeypatch):
     events = []
+    action_params = []
     rows = [{
         "ticker": "AAA", "date": "2020-01-02", "action": "split",
         "name": None, "value": 2.0, "contraticker": None, "contraname": None,
@@ -46,8 +48,12 @@ def test_actions_split_correction_replays_against_candidate_before_publication(
     monkeypatch.setattr(store, "_assert_corpus_locked", lambda conn: None)
     monkeypatch.setattr(store, "IngestRun", _Run)
     monkeypatch.setattr(maintenance, "load_actions_cursor", lambda conn: None)
-    monkeypatch.setattr(
-        maintenance, "_stable_rows", lambda fetch, table, params: rows)
+
+    def stable_rows(fetch, table, params):
+        action_params.append(dict(params))
+        return rows
+
+    monkeypatch.setattr(maintenance, "_stable_rows", stable_rows)
     monkeypatch.setattr(
         maintenance, "_active_action_rows",
         lambda conn: {"old-row-id": dict(rows[0], value=1.5)})
@@ -85,6 +91,10 @@ def test_actions_split_correction_replays_against_candidate_before_publication(
     maintenance.reconcile_actions_if_due(
         object(), fetch=object(), through="2026-08-18", force=True)
 
+    assert action_params == [{
+        "date.gte": maintenance.ACTIONS_FULL_WINDOW_START,
+        "date.lte": "2026-08-18",
+    }]
     assert events == [
         ("actions", "actions_reconcile-run"),
         ("replay", "actions_reconcile-run", "actions_reconcile-run"),
