@@ -59,6 +59,8 @@ class BrokerOperation(str, Enum):
     IDENTIFY_ACCOUNT = "identify_account"
     ACCOUNT_SNAPSHOT = "account_snapshot"
     RESOLVE_INSTRUMENT = "resolve_instrument"
+    MARKET_CLOCK = "market_clock"
+    ACCOUNT_CASH_ACTIVITIES = "account_cash_activities"
     OBSERVE = "observe"
     OBSERVE_WITH_TERMINAL_RECOVERY = "observe_with_terminal_recovery"
     FIND_BY_CLIENT_KEY = "find_by_client_key"
@@ -249,6 +251,20 @@ class GuardedExecutionBroker(ExecutionBroker):
                 security_id=security_id, symbol=symbol)
 
         return await self._read(BrokerOperation.RESOLVE_INSTRUMENT, read)
+
+    async def market_clock(self):
+        async def read():
+            return await self._inner.market_clock()
+
+        return await self._read(BrokerOperation.MARKET_CLOCK, read)
+
+    async def account_cash_activities(self, *, after: datetime,
+                                      through: datetime):
+        async def read():
+            return await self._inner.account_cash_activities(
+                after=after, through=through)
+
+        return await self._read(BrokerOperation.ACCOUNT_CASH_ACTIVITIES, read)
 
     async def observe(self) -> BrokerObservation:
         return await self._read(BrokerOperation.OBSERVE, self._inner.observe)
