@@ -595,9 +595,13 @@ def test_failed_13216_row_daily_candidate_is_retired_by_later_daily_retry(conn):
             " WHERE snapshot_date='2026-08-13'"
             "   AND last_written_run_id IS NULL")
         assert cur.fetchone()[0] == 1, "published history was preserved"
+        # Historical maintenance can complete after the daily retry, so the
+        # newest successful run overall is not necessarily the daily operation
+        # this assertion owns.
         cur.execute(
             "SELECT date_to FROM feed_ingest_runs"
-            " WHERE status='success' ORDER BY completed_at DESC LIMIT 1")
+            " WHERE status='success' AND kind='daily'"
+            " ORDER BY completed_at DESC LIMIT 1")
         assert str(cur.fetchone()[0]) == "2026-08-15"
         cur.execute("SELECT COUNT(*) FROM sentinel_action_generation_events e"
                     " JOIN LATERAL (SELECT state FROM sentinel_action_generation_events"
