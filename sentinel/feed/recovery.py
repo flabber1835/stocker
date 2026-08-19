@@ -116,11 +116,7 @@ def live_candidates(conn) -> list[LiveCandidate]:
 
 
 def failed_live_candidates(conn) -> list[FailedLiveCandidate]:
-    """Return failed runs that still own rows blocking a future publication.
-
-    After ordinary startup recovery every live unpublished owner must be FAILED.
-    Any other status means the caller is using the wrong recovery transition.
-    """
+    """Return failed runs that still own rows blocking a future publication."""
     out: list[FailedLiveCandidate] = []
     for candidate in live_candidates(conn):
         if candidate.status != "failed":
@@ -154,7 +150,7 @@ def require_published(conn, run_id: str):
     if row is None:
         raise PublicationRecoveryRefused(
             f"validated ingest {run_id} has no corpus publication; refusing to "
-            "report a successful daily generation whose rows remain invisible")
+            "report a successful generation whose rows remain invisible")
     evidence = row[5] if isinstance(row[5], dict) else __import__("json").loads(
         row[5] or "{}")
     return publication.Publication(
@@ -167,14 +163,7 @@ def require_published(conn, run_id: str):
 
 
 def resume_pending_publication(conn):
-    """Publish one validated candidate left by a process death, if present.
-
-    More than one validated-unpublished run is intentionally not ordered here:
-    in-place candidates may overlap and a timestamp is not source authority. A
-    caller performing a complete source-stable seed can instead invoke
-    :func:`prepare_full_reseed`, which retires the entire non-authoritative set
-    only because the replacement fetch will cover it completely.
-    """
+    """Publish one validated candidate left by a process death, if present."""
     from sentinel.feed import publication
     from sentinel.feed.store import _assert_corpus_locked
 
@@ -194,8 +183,7 @@ def resume_pending_publication(conn):
             f"ingest {candidate.run_id} says success but only completed "
             f"{candidate.chunks_done}/{candidate.chunks_total} chunks; this is "
             "an impossible durable state and cannot be auto-published")
-
-    published = publication.publish(
+    return publication.publish(
         conn, run_id=candidate.run_id,
         window_start=candidate.date_from,
         window_end=candidate.date_to,
@@ -206,24 +194,25 @@ def resume_pending_publication(conn):
             "chunks": candidate.chunks_done,
             "recovered_pending_publication": True,
         })
-    return published
 
 
 def _candidate_session_bounds(conn, run_ids: tuple[str, ...]
                               ) -> tuple[str | None, str | None]:
-    """Physical date bounds a complete reseed must cover to replace candidates."""
+    """Market-data range the replacement SEP/SFP seed must cover.
+
+    Legacy ACTIONS may legitimately reach much farther back than the retained SEP
+    research corpus. Its *maximum* can widen the through-date, but its minimum
+    must not drag price validation to 1900. ACTIONS is replaced under its own
+    complete 1900->through source contract by the full-reseed path.
+    """
     if not run_ids:
         return None, None
     lows: list[str] = []
     highs: list[str] = []
-    for table, column in (
-        ("sentinel_bars", "session"),
-        ("sentinel_spy_total_return", "session"),
-        ("sentinel_actions", "session"),
-    ):
+    for table in ("sentinel_bars", "sentinel_spy_total_return"):
         with conn.cursor() as cur:
             cur.execute(
-                f"SELECT MIN({column}),MAX({column}) FROM {table}"
+                f"SELECT MIN(session),MAX(session) FROM {table}"
                 " WHERE last_written_run_id=ANY(%s::uuid[])",
                 (list(run_ids),))
             lo, hi = cur.fetchone()
@@ -231,23 +220,23 @@ def _candidate_session_bounds(conn, run_ids: tuple[str, ...]
             lows.append(str(lo))
         if hi is not None:
             highs.append(str(hi))
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT MAX(session) FROM sentinel_actions"
+            " WHERE last_written_run_id=ANY(%s::uuid[])",
+            (list(run_ids),))
+        action_hi = cur.fetchone()[0]
+    if action_hi is not None:
+        highs.append(str(action_hi))
     return (min(lows) if lows else None, max(highs) if highs else None)
 
 
 def prepare_full_reseed(conn, *, date_from: str, date_to: str) -> FullReseedPlan:
     """Retire ambiguous *unpublished* candidates before a complete stable reseed.
 
-    This is the supported upgrade/recovery path for a database that accumulated
-    several candidates before #108 recovery existed. It never publishes any of
-    them. SUCCESS merely meant validation completed; with several overlapping
-    in-place generations, no local timestamp proves which bytes form one coherent
-    snapshot. A complete source-stable refetch is stronger evidence, so those
-    candidates may be durably classified FAILED/ABORTED and superseded by it.
-
-    The returned range is widened to cover every destructive candidate row. Rows
-    are *not deleted here*: until the replacement seed has written a stable chunk,
-    they remain coherence blockers, so a crash between retirement and reseed
-    cannot accidentally make the damaged previous publication look READY.
+    Rows are not deleted here. Until replacement work exists they remain
+    coherence blockers, so a crash between retirement classification and the new
+    seed cannot accidentally expose a partially damaged previous publication.
     """
     from sentinel.feed import actions as action_store
     from sentinel.feed import anomalies as anomaly_store
@@ -289,12 +278,9 @@ def prepare_full_reseed(conn, *, date_from: str, date_to: str) -> FullReseedPlan
 
     reason = (
         "FULL_RESEED_RECOVERY: ambiguous legacy unpublished candidate retired; "
-        f"complete source-stable replacement range {lo}..{hi}")
+        f"complete source-stable market replacement range {lo}..{hi}")
     placeholders = ",".join(["%s"] * len(run_ids))
     with conn.cursor() as cur:
-        # Published history is excluded again in SQL even though the candidate
-        # enumeration already did so. The second proof makes this mutation safe
-        # against a future refactor of the enumerator.
         cur.execute(
             "UPDATE feed_ingest_runs r SET status='failed',"
             " completed_at=COALESCE(completed_at,NOW()), updated_at=NOW(),"
@@ -314,19 +300,7 @@ def prepare_full_reseed(conn, *, date_from: str, date_to: str) -> FullReseedPlan
 
 def retire_failed_bars_in_stable_seed_window(
         conn, *, run_id: str, start: str, end: str) -> int:
-    """Remove residual old candidate bars only after this source window is stable.
-
-    A row from the current source is already owned by ``run_id`` because the bar
-    upsert deliberately takes ownership from an unpublished predecessor even when
-    values are identical. Anything still owned by an older FAILED run after the
-    complete stable window was replayed is therefore a row the current source no
-    longer contains (or no longer normalizes safely). Deleting it is an observed
-    absence, not a guessed repair.
-
-    This helper is called after each successful seed year. The new seed already
-    owns thousands of candidate bars at that point, so coherence remains blocked
-    if the process dies after this delete and before final publication.
-    """
+    """Remove residual old bars only after this SEP source window is stable."""
     from sentinel.feed.store import _assert_corpus_locked
 
     _assert_corpus_locked(conn)
@@ -347,21 +321,23 @@ def retire_failed_bars_in_stable_seed_window(
 
 
 def retire_failed_nonbar_rows_after_full_seed(
-        conn, *, run_id: str, start: str, end: str) -> dict[str, int]:
-    """Retire residual destructive SPY/legacy-ACTIONS rows covered by full seed.
+        conn, *, run_id: str, market_start: str, actions_start: str,
+        end: str) -> dict[str, int]:
+    """Retire residual destructive SPY/legacy-ACTIONS rows after stable source.
 
-    TICKERS candidates are retired transactionally by publication itself.
-    ACTIONS observations/anomalies were classified ABORTED before the reseed and
-    remain immutable history. Failed split-repair generations are ignored by the
-    effective overlay. The only remaining destructive families are therefore the
-    dedicated SPY table and pre-generation legacy ACTIONS rows.
+    SPY shares the market-data seed range. Legacy ACTIONS is covered by the
+    independent complete ``actions_start..end`` fetch, so very old corporate
+    actions never force SEP price validation into decades it does not model.
     """
     from sentinel.feed.store import _assert_corpus_locked
 
     _assert_corpus_locked(conn)
     writer = str(run_id)
     counts: dict[str, int] = {}
-    for table in ("sentinel_spy_total_return", "sentinel_actions"):
+    for table, start in (
+        ("sentinel_spy_total_return", market_start),
+        ("sentinel_actions", actions_start),
+    ):
         with conn.cursor() as cur:
             cur.execute(
                 f"DELETE FROM {table} t USING feed_ingest_runs r"
@@ -378,10 +354,15 @@ def retire_failed_nonbar_rows_after_full_seed(
 
 
 def assert_full_reseed_covered_live_rows(
-        conn, *, run_id: str, start: str, end: str) -> None:
-    """Refuse publication if an older live candidate lies outside reseed scope."""
+        conn, *, run_id: str, market_start: str, actions_start: str,
+        end: str) -> None:
+    """Refuse if an older live destructive row lies outside replacement scope."""
     writer = str(run_id)
-    for table in ("sentinel_bars", "sentinel_spy_total_return", "sentinel_actions"):
+    for table, start in (
+        ("sentinel_bars", market_start),
+        ("sentinel_spy_total_return", market_start),
+        ("sentinel_actions", actions_start),
+    ):
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT COUNT(*),MIN(t.session),MAX(t.session) FROM {table} t"
