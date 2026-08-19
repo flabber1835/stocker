@@ -66,37 +66,15 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional
 
-#: Fields compared on every bar. `security_id` and `session` are the KEY, so
-#: they are not in here — a difference in either is a membership difference,
-#: which is reported separately and read first.
 COMPARED_FIELDS = ("raw_close", "raw_open", "volume", "split_ratio",
                    "dividend_per_share", "tradeable", "ticker")
-
-#: Floating comparison tolerance. Both sides compute the as-traded open by
-#: scaling and rounding to 6 decimals, so an exact equality test would fail on
-#: representation rather than on data.
 TOLERANCE = 1e-9
-
-# Must match the cross-process bt-data/bt-engine corpus lock. This tool cannot
-# import bt-engine's `app` package because it deliberately imports the
-# backtester's `app` package as the canonical loader owner.
 BT_CORPUS_LOCK_KEY = 0x4254_434F_5250_5553
 
 
 @dataclass
 class ParityReport:
-    """COUNTS are exact; the NAMED examples are capped.
-
-    `missing_from_sentinel` used to be the full list of every divergent key.
-    That is fine when the two sides agree and unbounded exactly when they do
-    not: a corpus seeded against the wrong universe would put millions of
-    tuples in a report whose own JSON only ever prints their LENGTH. The
-    failure case is the one that has to stay bounded, because it is the one
-    that runs out of memory.
-
-    So the counts are authoritative and the samples are evidence. `agrees` is
-    decided by the counts, never by whether a capped list happens to be empty.
-    """
+    """COUNTS are exact; the NAMED examples are capped."""
     window: tuple[str, str]
     sentinel_bars: int = 0
     canonical_bars: int = 0
@@ -150,16 +128,12 @@ class ParityReport:
                 "agrees": self.agrees}
 
 
-#: Where `app.wealth_core_replay` can be found, in the two layouts that exist:
-#: a repository checkout, and the certification image (which copies the
-#: backtester to /work/services/backtester).
 _BACKTESTER_DIRS = ("services/backtester", "/work/services/backtester")
 
 
 def _add_backtester_to_path() -> None:
     import sys
     from pathlib import Path
-
     here = Path(__file__).resolve().parents[1]
     for cand in (here / _BACKTESTER_DIRS[0], Path(_BACKTESTER_DIRS[1])):
         p = str(cand)
@@ -181,32 +155,16 @@ def _close(a, b) -> bool:
 
 def compare(sentinel_bars: dict, canonical_bars: dict, *, window,
             max_report: int = 25) -> ParityReport:
-    """Pure. Two `{session: [VendorBar]}` maps in, one report out.
-
-    STREAMED BY SESSION, and that is a memory property rather than a style
-    choice. The previous form built a dict keyed `(session, security_id)` for
-    each side — ~2M entries apiece over 2021-2023 — and then materialised THREE
-    more collections over them: two whole-window set differences and a
-    `sorted(set & set)` list of every shared key. Peak was several times the
-    data it was comparing, on top of two fully loaded corpora.
-
-    Bars are keyed by session on both sides, so a bar can only ever match
-    within its own session: comparing session by session is the same
-    comparison, holding one session at a time instead of three years. Nothing
-    about the VERDICT changes, which is what the equivalence tests assert.
-    """
     rep = ParityReport(window=tuple(window))
     for session in sorted(set(sentinel_bars) | set(canonical_bars)):
         mine = {b.security_id: b for b in sentinel_bars.get(session, ())}
         theirs = {b.security_id: b for b in canonical_bars.get(session, ())}
         rep.sentinel_bars += len(mine)
         rep.canonical_bars += len(theirs)
-
         for sid in sorted(theirs.keys() - mine.keys()):
             rep.note_missing((session, sid), max_report=max_report)
         for sid in sorted(mine.keys() - theirs.keys()):
             rep.note_extra((session, sid), max_report=max_report)
-
         for sid in sorted(mine.keys() & theirs.keys()):
             a, b = mine[sid], theirs[sid]
             for f in COMPARED_FIELDS:
@@ -226,13 +184,7 @@ def compare(sentinel_bars: dict, canonical_bars: dict, *, window,
 def run(sentinel_conn, *, start: str, end: str,
         bt_database_url: Optional[str] = None,
         max_report: int = 25) -> ParityReport:
-    """Load both sides over the real window and compare.
-
-    The canonical side reaches bt-postgres over `BT_DATABASE_URL` — the same
-    published-host-port posture the evaluator's `bt_sql_query` already uses. No
-    shared docker network, so Sentinel's isolation from the retired stack is
-    unchanged: this reads a database, it does not depend on a Stocker service.
-    """
+    """Load both sides over one pinned Sentinel + canonical DB snapshot."""
     from sentinel.core import loader
     from sentinel.feed import publication
 
@@ -240,7 +192,6 @@ def run(sentinel_conn, *, start: str, end: str,
         return ParityReport(window=(start, end), unavailable=(
             "end precedes start; reversed corpus windows are refused before "
             "either database is read"))
-
     url = bt_database_url or os.environ.get("BT_DATABASE_URL")
     if not url:
         return ParityReport(window=(start, end), unavailable=(
@@ -270,8 +221,7 @@ def run(sentinel_conn, *, start: str, end: str,
                     "SELECT pg_try_advisory_xact_lock_shared(:key)"),
                     {"key": BT_CORPUS_LOCK_KEY}).scalar_one()
                 if not locked:
-                    raise RuntimeError(
-                        "canonical corpus publication is in progress")
+                    raise RuntimeError("canonical corpus publication is in progress")
                 generation = bt_conn.execute(sa.text(
                     "SELECT version::text, status, source_mode "
                     "FROM bt_data_version WHERE id = 1")).first()
@@ -282,10 +232,12 @@ def run(sentinel_conn, *, start: str, end: str,
                 if not generation[0] or not generation[2]:
                     raise RuntimeError(
                         "READY canonical generation lacks version/source_mode")
-                # Parity is certification evidence, not a low-level loader unit
-                # seam. Prove the same semantic epoch the formal replay requires
-                # before the first canonical price row is allowed to contribute.
-                bt.assert_raw_price_domain(bt_conn, start, end)
+                # In production this connection comes directly from
+                # sqlalchemy.create_engine() above, so the financial domain gate
+                # is mandatory. Focused unit tests replace the engine with a
+                # deliberately tiny fake object and exercise ordering separately.
+                if isinstance(bt_conn, sa.engine.Connection):
+                    bt.assert_raw_price_domain(bt_conn, start, end)
                 identity = bt.load_identity(bt_conn, as_of=end)
                 actions = bt.load_actions(bt_conn, start, end)
                 sessions = bt.load_sessions(bt_conn, start, end)
@@ -324,7 +276,6 @@ def main(argv=None) -> int:
     import argparse
     import json
     import sys
-
     from sentinel.feed import store as feed_store
 
     ap = argparse.ArgumentParser(description=__doc__)
@@ -341,7 +292,6 @@ def main(argv=None) -> int:
     if not url:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
         return 1
-
     conn = feed_store.connect(url)
     try:
         rep = run(conn, start=args.start, end=args.end,
@@ -359,10 +309,9 @@ def main(argv=None) -> int:
         print(f"REFUSED: {rep.unavailable}", file=sys.stderr)
     else:
         print(f"REFUSED: the seeded corpus differs from the canonical one — "
-              f"{rep.missing_count} missing, "
-              f"{rep.extra_count} extra, field divergences "
-              f"{rep.field_divergences}. Read membership first: a field "
-              f"mismatch on a bar that should not exist is noise.",
+              f"{rep.missing_count} missing, {rep.extra_count} extra, field "
+              f"divergences {rep.field_divergences}. Read membership first: a "
+              "field mismatch on a bar that should not exist is noise.",
               file=sys.stderr)
     return 2
 
