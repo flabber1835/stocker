@@ -46,7 +46,8 @@ def pg():
 def conn(pg):
     c = S.connect(pg.sync_dsn)
     with c.cursor() as cur:
-        for t in ("sentinel_anomaly_observation_events",
+        for t in ("sentinel_processed_sessions",
+                  "sentinel_anomaly_observation_events",
                   "sentinel_action_generation_events",
                   "sentinel_action_observations", "sentinel_action_generations",
                   "sentinel_bars", "sentinel_actions", "sentinel_universe",
@@ -61,10 +62,18 @@ def conn(pg):
 
 def sep(ticker, date, close=50.0, raw=50.0):
     return {"ticker": ticker, "date": date, "close": close, "closeunadj": raw,
-            "open": 49.0, "volume": 1_000_000}
+            "open": 49.0, "volume": 1_000_000, "lastupdated": date}
 
 
-def fetcher(sep_rows, action_rows=()):
+CONTROL_ACTION = {
+    "ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
+    "action": "listed", "value": None, "contraticker": None,
+}
+
+
+def fetcher(sep_rows, action_rows=None):
+    if action_rows is None:
+        action_rows = (CONTROL_ACTION,)
     tickers = [{"ticker": t, "permaticker": f"P-{t}"}
                for t in sorted({r["ticker"] for r in sep_rows})]
 
@@ -161,17 +170,11 @@ class TestPinning:
 
     def test_an_ingest_that_cannot_publish_still_KEEPS_ITS_DATA(self, conn,
                                                                 monkeypatch):
-        """A corpus that loaded correctly but could not be published is still a
-        correct corpus; failing the ingest would discard hours over a
-        bookkeeping row. The absence is visible as a stale data_version.
+        """A failed publication must not be reported as a successful ingest.
 
-        THE SETUP CHANGED, THE PROPERTY DID NOT. This used to run the ingest
-        while a reader held the pin, because back then a pin only blocked
-        PUBLICATION. That is no longer possible and must not be — a pin now
-        blocks the WRITE too, or the rows a reader is describing as v41 get
-        rewritten underneath it (see test_corpus_snapshot_stability.py). So the
-        publication is made to fail directly, which is the fault this test was
-        always about.
+        The physical rows are still retained for recovery, but the previous
+        published generation remains the only authority until publication can
+        be resumed successfully.
         """
         P.publish(conn)
 
@@ -179,8 +182,9 @@ class TestPinning:
             raise RuntimeError("the database blipped during publish")
         monkeypatch.setattr(P, "publish", refuse)
 
-        ingest.seed(conn, date_from="2021-01-01", date_to="2021-12-31",
-                    fetch=fetcher([sep("AAA", "2021-06-01")]))
+        with pytest.raises(RuntimeError, match="database blipped during publish"):
+            ingest.seed(conn, date_from="2021-01-01", date_to="2021-12-31",
+                        fetch=fetcher([sep("AAA", "2021-06-01")]))
 
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM sentinel_bars")
