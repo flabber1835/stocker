@@ -110,7 +110,7 @@ def _require_failed_owner_cleared(conn, *, context: str) -> None:
 def _prove_recent_frontier(conn) -> None:
     frontier = _impl.feed_store.latest_visible_session(conn)
     if frontier is None:
-        raise recent_reconciliation.sep_reconciliation.SepReconciliationStateInvalid(
+        raise sep_reconciliation.SepReconciliationStateInvalid(
             "published corpus has no SEP frontier for recent complete proof")
     recent_reconciliation.reconcile_recent(conn, through=frontier)
 
@@ -232,9 +232,6 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
             sep_reconciliation.reconcile_next(
                 conn, fetch=fetch, through=published_frontier)
 
-        # Complete all mutation-bearing publications first. The recent negative-
-        # space proof is deliberately LAST so its cursor binds the final corpus
-        # version that readiness may consume.
         maintenance.reconcile_sep_mutations(
             conn, fetch=fetch, through=today_date.isoformat())
         maintenance.reconcile_actions_if_due(
