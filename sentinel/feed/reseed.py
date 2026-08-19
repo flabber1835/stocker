@@ -15,7 +15,9 @@ failed rows from becoming predecessor evidence for the next seed year.
 ACTIONS has its own complete source contract from 1900 through the reseed end.
 That range is deliberately independent of the SEP/SFP market-data range: a very
 old corporate action must be reconciled without forcing Wealth Core price-history
-validation into decades the retained market corpus does not model.
+validation into decades the retained market corpus does not model. A stable
+empty/materially collapsed ACTIONS response is still refused: two observations
+prove repeatability, not that a mass removal is economically credible.
 
 If the process dies after any retirement, the replacement seed already owns
 candidate rows and coherence stays blocked. A restart therefore cannot mistake a
@@ -25,7 +27,8 @@ from __future__ import annotations
 
 from typing import Callable, Iterable
 
-from sentinel.feed import domains, maintenance, recovery, sharadar, universe
+from sentinel.feed import (
+    action_source, domains, maintenance, recovery, sharadar, universe)
 from sentinel.feed import store as feed_store
 
 
@@ -59,6 +62,19 @@ def full_reseed_locked(
     with run.chunk("actions"):
         action_source_rows = list(fetch(
             sharadar.ACTIONS, sharadar.date_params(action_start, date_to)))
+        if not action_source_rows:
+            raise maintenance.SharadarMutationRefused(
+                "complete Sharadar ACTIONS full-reseed returned zero rows; "
+                "refusing to turn a suspicious empty source into mass removals")
+        prior_active = maintenance._active_action_rows(conn)
+        distinct_actions = action_source.distinct_rows(action_source_rows)
+        if (prior_active
+                and len(distinct_actions) < int(len(prior_active) * 0.90)):
+            raise maintenance.SharadarMutationRefused(
+                f"complete ACTIONS full-reseed shrank from "
+                f"{len(prior_active):,} active rows to "
+                f"{len(distinct_actions):,}; refusing mass-removal authority "
+                "without inspection")
         run.progress.rows_written += feed_store.write_actions(
             conn, action_source_rows, run_id=run.progress.run_id,
             window_start=action_start, window_end=date_to)
