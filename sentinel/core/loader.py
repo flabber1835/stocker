@@ -12,12 +12,20 @@ sentinel_universe  -> SecurityMeta, incl. related tickers for issuer grouping
 sentinel_actions   -> terminal events, via sentinel/core/terminal.py
 ```
 
-## Two things this deliberately does NOT do
+## Three things this deliberately does NOT do
 
 **It does not re-derive the signal close.** The engine builds its signal series
 from raw closes and split ratios inside `Feed`. `close_signal` is stored so a
 future ingest can recover a split at a window boundary, not so a loader can
 substitute its own series — two sources for one domain is how they drift.
+
+**It does not pass Sharadar's reported volume straight through.** SEP `close` and
+`volume` share a split-adjusted basis while `closeunadj` is the as-traded price.
+Wealth Core computes liquidity from raw price x volume, so the adapter converts
+the reported volume onto the raw-price basis with the shared
+`raw_compatible_volume` function. This keeps turnover equal to
+`SEP.close * SEP.volume` across forward and reverse splits, including legacy
+corpus rows that already store the vendor-reported volume.
 
 **It does not map corporate actions itself.** That mapping encodes the vendor's
 action vocabulary, the `value`-is-a-deal-size-in-millions rule and the
@@ -31,6 +39,7 @@ from dataclasses import dataclass
 from typing import Mapping, Optional, Sequence
 
 from stock_strategy_shared.wealth_core.feed import SecurityMeta, VendorBar
+from stock_strategy_shared.wealth_core.liquidity import raw_compatible_volume
 
 from sentinel.feed.universe import parse_related_tickers
 
@@ -83,7 +92,7 @@ def load_window(conn, *, start: str, end: str) -> CorpusWindow:
     from sentinel.feed.publication import effective_split_ratio, visible_predicate
     from sentinel.feed.store import streaming_cursor
 
-    sql = ("SELECT session, security_id, ticker, close_unadjusted,"
+    sql = ("SELECT session, security_id, ticker, close_signal, close_unadjusted,"
            " open_unadjusted, volume,"
            f" {effective_split_ratio('b')} AS split_ratio, dividend_per_share"
            " FROM sentinel_bars b WHERE session BETWEEN %s AND %s"
@@ -92,21 +101,22 @@ def load_window(conn, *, start: str, end: str) -> CorpusWindow:
 
     bars_by_session: dict[str, list[VendorBar]] = {}
     with streaming_cursor(conn, sql, (start, end)) as cur:
-        for (session, sid, ticker, raw_close, raw_open, volume, ratio,
-             div) in cur:
-            close, vol = _f(raw_close), _f(volume)
+        for (session, sid, ticker, signal_close, raw_close, raw_open,
+             reported_volume, ratio, div) in cur:
+            close = _f(raw_close)
+            # THIS IS THE #185 ECONOMIC BOUNDARY. `sentinel_bars.volume` retains
+            # Sharadar's reported split-adjusted volume. Wealth Core's
+            # VendorBar carries the volume compatible with its RAW/as-traded
+            # close so raw_close * volume equals SEP.close * SEP.volume.
+            vol = raw_compatible_volume(signal_close, raw_close, reported_volume)
             bars_by_session.setdefault(str(session), []).append(VendorBar(
                 session=str(session), security_id=str(sid), ticker=str(ticker),
                 raw_close=close, raw_open=_f(raw_open), volume=vol,
                 split_ratio=float(ratio or 1.0),
                 dividend_per_share=float(div or 0.0),
-                # DERIVED here rather than stored, from the same two values the
-                # canonical loader derives it from. `VendorBar.tradeable`
-                # defaults to True, so omitting it declared every bar in the
-                # corpus fillable — a session on which nobody traded the
-                # security included. Derived rather than persisted because a
-                # stored flag can drift from the values it summarises, and there
-                # is nothing it could add.
+                # Positive split-compatible volume is equivalent to positive
+                # reported activity. Missing price-domain evidence cannot be
+                # treated as tradeable merely because a volume number exists.
                 tradeable=bool(close and vol)))
 
     return CorpusWindow(sessions=sorted(bars_by_session),
