@@ -80,7 +80,28 @@ class LastUpdatedTrackingFetch:
         return replay()
 
 
+def _ensure_cursor_table(conn) -> None:
+    """Install the durable source-cursor table before the first cursor access.
+
+    #185 introduced maintenance cursors after the original Sentinel schema was
+    already widely deployed.  The first implementation referenced the table but
+    never created it, so a clean database and every upgraded appliance failed on
+    the first seed/daily/readiness cursor read with UndefinedTable.  Keep the
+    migration colocated with the cursor authority so no caller can observe a
+    half-installed contract.  CREATE IF NOT EXISTS is idempotent and remains in
+    the caller's transaction; the surrounding operation decides when it commits.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS sentinel_processed_sessions ("
+            " cursor_name TEXT PRIMARY KEY,"
+            " session DATE NOT NULL,"
+            " state JSONB NOT NULL,"
+            " updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())")
+
+
 def _read_cursor(conn, name: str, kind: str) -> Optional[SourceCursor]:
+    _ensure_cursor_table(conn)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT session,state FROM sentinel_processed_sessions"
