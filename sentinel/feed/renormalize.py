@@ -1,20 +1,18 @@
 """Bounded historical SEP re-normalization through the ordinary ingest membrane.
 
-A historical correction cannot safely update one stored bar in isolation.  The
+A historical correction cannot safely update one stored bar in isolation. The
 split ratio on session ``t`` is inferred from ``t-1 -> t`` and changing ``t`` can
-also change the inference on ``t+1``.  ACTIONS corrections have the same shape:
+also change the inference on ``t+1``. ACTIONS corrections have the same shape:
 a changed split/dividend row must update the persisted bar economics that Wealth
 Core consumes, not only the action table.
 
 This module deliberately reuses the production normalizer, action maps, staging
-sort, evidence persistence and bar upsert.  It only decides *which bounded
-windows* need replay.  For every affected effective date it includes the prior,
-effective and following exchange sessions, then merges overlapping windows.
+sort, evidence persistence and bar upsert. It only decides *which bounded
+windows* need replay. For every affected effective date it includes the prior,
+effective and following XNYS sessions, then merges overlapping windows.
 """
 from __future__ import annotations
 
-import bisect
-import datetime as dt
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -36,24 +34,19 @@ class RenormalizedWindow:
 
 def _window_for_date(day: str) -> tuple[str, str]:
     """Prior/effective/following XNYS sessions around a source event date."""
-    target = dt.date.fromisoformat(str(day))
-    lo = (target - dt.timedelta(days=10)).isoformat()
-    hi = (target + dt.timedelta(days=10)).isoformat()
-    sessions = list(calendar.sessions_in_range(lo, hi))
-    if not sessions:
+    try:
+        effective = calendar.session_on_or_after(str(day))
+        prior = calendar.previous_sessions(effective, 2)
+        following = calendar.next_session(effective)
+    except Exception as exc:  # calendar/date errors become one typed boundary
         raise HistoricalRenormalizationRefused(
-            f"no exchange sessions around historical correction date {day}")
-    labels = [str(session) for session in sessions]
-    pos = bisect.bisect_left(labels, target.isoformat())
-    if pos >= len(labels):
-        raise HistoricalRenormalizationRefused(
-            f"no exchange session on/after historical correction date {day}")
-    # ACTIONS dates can be weekends/holidays and snap to the first session on or
-    # after the source date. SEP dates are already sessions, so pos names itself.
-    event = pos
-    start = labels[max(0, event - 1)]
-    end = labels[min(len(labels) - 1, event + 1)]
-    return start, end
+            f"cannot map historical correction date {day!r} to XNYS sessions: "
+            f"{exc}") from exc
+    # At the calendar's absolute lower bound there may be no predecessor. In
+    # that one case replay begins on the effective session; everywhere else the
+    # prior observation is mandatory because it establishes the split boundary.
+    start = prior[-2] if len(prior) >= 2 else effective
+    return start, following
 
 
 def correction_windows(dates: Iterable[str]) -> list[tuple[str, str]]:
@@ -65,9 +58,8 @@ def correction_windows(dates: Iterable[str]) -> list[tuple[str, str]]:
     for start, end in raw:
         if not merged or start > merged[-1][1]:
             merged.append([start, end])
-        else:
-            if end > merged[-1][1]:
-                merged[-1][1] = end
+        elif end > merged[-1][1]:
+            merged[-1][1] = end
     return [(start, end) for start, end in merged]
 
 
@@ -87,7 +79,7 @@ def renormalize(
     """Replay bounded affected windows into ``run`` using canonical ingest logic.
 
     ``include_action_run_id`` lets an ACTIONS reconciliation normalize prices
-    against the *candidate* action generation before publication.  The same run
+    against the *candidate* action generation before publication. The same run
     id stamps both bar changes and action observations, so one corpus publication
     activates the coherent result atomically.
     """
