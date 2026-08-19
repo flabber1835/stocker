@@ -140,7 +140,8 @@ class TestSeed:
 
         watcher = S.connect(pg.sync_dsn)
         try:
-            r = S.run_status(watcher)[0]
+            r = next(row for row in S.run_status(watcher)
+                     if row["run_id"] == p.run_id)
             assert r["status"] == "success"
             assert r["chunks_done"] == 6
             assert r["rows_written"] == 3 + 2   # bars + two TICKERS listings
