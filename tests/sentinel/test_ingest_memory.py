@@ -133,9 +133,14 @@ def sep_rows(n_sessions: int, start_ordinal: int = 738000, tracked: bool = False
 def a_fetch(n_sessions: int, tracked: bool = False):
     """Stands in for `sharadar.fetch_table`, one table at a time."""
     def fetch(table, params=None, **kw):
+        params = dict(params or {})
         if table == sharadar.SEP:
             return sep_rows(n_sessions, tracked=tracked)
-        return iter(())            # no ACTIONS, no TICKERS: both are bounded
+        if table == sharadar.ACTIONS and params.get("date.gte") == "1900-01-01":
+            return iter([{"ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
+                          "action": "listed", "value": None,
+                          "contraticker": None}])
+        return iter(())            # no relevant ACTIONS/TICKERS; both are bounded
     return fetch
 
 
@@ -159,7 +164,8 @@ def conn(pg):
         # Child first: dropping sentinel_bars CASCADE while leaving the repair
         # table would remove only its FK. CREATE TABLE IF NOT EXISTS would then
         # keep that constraint-free child for the next parameterized test.
-        for t in ("sentinel_anomaly_observation_events",
+        for t in ("sentinel_processed_sessions",
+                  "sentinel_anomaly_observation_events",
                   "sentinel_action_generation_events",
                   "sentinel_action_observations", "sentinel_action_generations",
                   "sentinel_bar_split_repairs", "sentinel_bars",
@@ -242,6 +248,11 @@ class TestTheOrderingSURVIVES:
         import random
 
         def shuffled_fetch(table, params=None, **kw):
+            params = dict(params or {})
+            if table == sharadar.ACTIONS and params.get("date.gte") == "1900-01-01":
+                return iter([{"ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
+                              "action": "listed", "value": None,
+                              "contraticker": None}])
             if table != sharadar.SEP:
                 return iter(())
             rows = list(sep_rows(12))
