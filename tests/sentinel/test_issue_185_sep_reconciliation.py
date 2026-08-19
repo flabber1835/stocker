@@ -116,3 +116,55 @@ def test_reconcile_next_saves_only_successful_complete_proof(monkeypatch):
     assert recon.reconcile_next(
         object(), fetch=object(), through="2026-08-18") == [result]
     assert saved == [(result, dt.date(2026, 8, 18))]
+
+
+def test_complete_launch_sweep_visits_every_published_year_partition(monkeypatch):
+    monkeypatch.setattr(store, "_assert_corpus_locked", lambda conn: None)
+    monkeypatch.setattr(
+        recon, "_visible_bounds",
+        lambda conn: (dt.date(2024, 3, 4), dt.date(2026, 8, 18)))
+    calls = []
+
+    def check(conn, *, fetch, year, start, end):
+        calls.append((year, start, end))
+        return recon.ReconciliationResult(
+            year=year, start=start, end=end, rows=year,
+            digest=(f"{year:04d}" * 16)[:64], publication_version=11)
+
+    monkeypatch.setattr(recon, "reconcile_year", check)
+    monkeypatch.setattr(recon, "_save_result", lambda *a, **k: None)
+    results = recon.reconcile_all(
+        object(), fetch=object(), through="2026-08-18")
+    assert calls == [
+        (2024, "2024-03-04", "2024-12-31"),
+        (2025, "2025-01-01", "2025-12-31"),
+        (2026, "2026-01-01", "2026-08-18"),
+    ]
+    assert [r.year for r in results] == [2024, 2025, 2026]
+
+
+def test_complete_launch_sweep_stops_at_first_bad_year_and_claims_no_later_year(
+        monkeypatch):
+    monkeypatch.setattr(store, "_assert_corpus_locked", lambda conn: None)
+    monkeypatch.setattr(
+        recon, "_visible_bounds",
+        lambda conn: (dt.date(2024, 1, 2), dt.date(2026, 8, 18)))
+    checked = []
+    saved = []
+
+    def check(conn, *, fetch, year, start, end):
+        checked.append(year)
+        if year == 2025:
+            raise recon.SepKeysetDrift("2025 drift")
+        return recon.ReconciliationResult(
+            year=year, start=start, end=end, rows=1,
+            digest="b" * 64, publication_version=12)
+
+    monkeypatch.setattr(recon, "reconcile_year", check)
+    monkeypatch.setattr(
+        recon, "_save_result",
+        lambda conn, result, *, checked_on: saved.append(result.year))
+    with pytest.raises(recon.SepKeysetDrift, match="2025 drift"):
+        recon.reconcile_all(object(), fetch=object(), through="2026-08-18")
+    assert checked == [2024, 2025]
+    assert saved == [2024]
