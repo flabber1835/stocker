@@ -25,7 +25,7 @@ from typing import Callable, Iterable, Optional
 
 from sentinel.feed import (
     coherence, ingest_impl as _impl, maintenance, recovery, reseed,
-    sep_reconciliation, sharadar)
+    sep_reconciliation, sharadar, snapshot_source)
 
 # Preserve the established module API, including private helpers used by focused
 # regression tests and operational diagnostics. Public entry points are replaced
@@ -42,7 +42,10 @@ def _validate_source_before_run(fetch) -> None:
     require a real Sharadar credential. The production adapter does.
     """
     sharadar.validate_config()
-    if fetch is sharadar.fetch_table:
+    if fetch is snapshot_source.fetch_table:
+        snapshot_source.validate_config()
+        sharadar._api_key()
+    elif fetch is sharadar.fetch_table:
         sharadar._api_key()
 
 
@@ -126,7 +129,7 @@ def _require_failed_owner_cleared(conn, *, context: str) -> None:
 
 def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
          date_to: Optional[str] = None,
-         fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
+         fetch: Callable[..., Iterable[dict]] = snapshot_source.fetch_table,
          resolve_identity=None):
     """Complete seed and the supported recovery for ambiguous old candidates."""
     _validate_source_before_run(fetch)
@@ -185,7 +188,7 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
         return progress
 
 
-def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
+def daily(conn, *, fetch: Callable[..., Iterable[dict]] = snapshot_source.fetch_table,
           resolve_identity=None, overlap_days: int = _impl.DAILY_OVERLAP_DAYS,
           today: Optional[str] = None):
     """Daily source maintenance with independent session and mutation clocks."""
