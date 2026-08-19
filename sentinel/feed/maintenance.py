@@ -12,10 +12,15 @@ patched into one bar: they are replayed through the ordinary normalizer over a
 bounded prior/effective/following-session window so split orientation,
 dividends, rejections and anomaly evidence remain coherent.
 
-ACTIONS has no documented mutation timestamp, so it is periodically observed in
-full twice.  Changed split/dividend source rows trigger the same bounded SEP
-re-normalization against the *candidate* ACTIONS generation before one atomic
-corpus publication activates both.
+ACTIONS has no documented mutation timestamp.  Ordinary daily pagination is
+useful for additions but cannot prove negative space: two identical partial
+traversals are stable, not necessarily complete.  Production complete
+reconciliation therefore uses Nasdaq Data Link's whole-table Exporter snapshot,
+whose ``fresh`` state carries a vendor ``data_snapshot_time`` and table
+``last_refreshed_time``.  The reconciliation cursor is earned every decision day
+only after that stronger source boundary succeeds.  Changed split/dividend rows
+then trigger bounded SEP re-normalization against the candidate ACTIONS
+generation before one atomic corpus publication activates both.
 """
 from __future__ import annotations
 
@@ -29,11 +34,18 @@ from typing import Iterable, Mapping, Optional
 
 from sentinel.core.terminal import DIVIDEND_ACTIONS, SPLIT_ACTIONS
 from sentinel.feed import (
-    action_source, authority, publication, renormalize, sharadar, store, universe)
+    action_source, authority, publication, renormalize, sharadar,
+    snapshot_export, store, universe)
 
 SEP_CURSOR_NAME = "sharadar-sep-lastupdated:v1"
-ACTIONS_CURSOR_NAME = "sharadar-actions-reconcile:v1"
-ACTIONS_RECONCILE_DAYS = int(os.getenv("SHARADAR_ACTIONS_RECONCILE_DAYS", "7"))
+# New name on purpose: a pre-fix v1 cursor was earned by two paginated reads and
+# must not authorize operation after this stronger negative-space contract lands.
+ACTIONS_CURSOR_NAME = "sharadar-actions-export-reconcile:v2"
+ACTIONS_CURSOR_KIND = "sharadar-actions-export-reconcile/v2"
+# Full ACTIONS authority must cover the decision frontier itself.  A 7-day
+# cadence allowed a same-day omitted dividend/terminal action to coexist with a
+# READY frontier.  One vendor export per decision day is intentionally stronger.
+ACTIONS_RECONCILE_DAYS = int(os.getenv("SHARADAR_ACTIONS_RECONCILE_DAYS", "1"))
 ACTIONS_FULL_WINDOW_START = "1900-01-01"
 
 
@@ -153,8 +165,7 @@ def load_sep_cursor(conn) -> Optional[SourceCursor]:
 
 
 def load_actions_cursor(conn) -> Optional[SourceCursor]:
-    return _read_cursor(conn, ACTIONS_CURSOR_NAME,
-                        "sharadar-actions-reconcile/v1")
+    return _read_cursor(conn, ACTIONS_CURSOR_NAME, ACTIONS_CURSOR_KIND)
 
 
 def _write_cursor(conn, *, name: str, kind: str, through: dt.date,
@@ -424,10 +435,30 @@ def _action_change_dates(conn, rows: Iterable[Mapping]) -> list[str]:
     return sorted(dates)
 
 
+def _validate_action_snapshot_window(rows: Iterable[Mapping], *, hi: dt.date) -> None:
+    for row in rows:
+        value = str(row.get("date") or "")
+        try:
+            observed = dt.date.fromisoformat(value)
+        except ValueError as exc:
+            raise SharadarMutationRefused(
+                f"complete ACTIONS snapshot has invalid date {value!r}") from exc
+        if observed < dt.date.fromisoformat(ACTIONS_FULL_WINDOW_START) or observed > hi:
+            raise SharadarMutationRefused(
+                f"complete ACTIONS snapshot row {row.get('ticker')}/{value} lies "
+                f"outside claimed authority window "
+                f"{ACTIONS_FULL_WINDOW_START}..{hi.isoformat()}")
+
+
 def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
                              through: str, force: bool = False
                              ) -> Optional[SourceCursor]:
-    """Reconcile complete ACTIONS and replay affected split/dividend bar windows."""
+    """Reconcile complete ACTIONS and replay affected split/dividend bar windows.
+
+    Production removal/negative-space authority comes from Nasdaq's whole-table
+    Exporter snapshot. Injected test/simulation fetches retain the deterministic
+    two-complete-observation seam so unit tests never require network access.
+    """
     store._assert_corpus_locked(conn)
     if ACTIONS_RECONCILE_DAYS < 1:
         raise ValueError("SHARADAR_ACTIONS_RECONCILE_DAYS must be >= 1")
@@ -437,33 +468,37 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
             and (hi - prior_cursor.processed_through).days < ACTIONS_RECONCILE_DAYS):
         return prior_cursor
 
-    # The source request and the local generation name the exact same complete
-    # authority window. An unbounded table read could include a future-dated
-    # scheduled action and then fail only when write_actions notices it lies
-    # outside the claimed generation; worse, a future protocol change could make
-    # those scopes diverge silently. Bound acquisition itself to 1900..through.
     params = sharadar.date_params(ACTIONS_FULL_WINDOW_START, hi.isoformat())
-    rows = _stable_rows(fetch, sharadar.ACTIONS, params)
+    if fetch is sharadar.fetch_table:
+        rows, source_evidence = snapshot_export.fetch_complete_actions(
+            through=hi.isoformat())
+    else:
+        rows = _stable_rows(fetch, sharadar.ACTIONS, params)
+        source_evidence = {
+            "authority": "injected-double-observation/v1",
+            "source_rows": len(rows),
+        }
+    _validate_action_snapshot_window(rows, hi=hi)
     if not rows:
         raise SharadarMutationRefused(
             "complete Sharadar ACTIONS reconciliation returned zero rows; "
             "refusing to turn a suspicious empty source into mass removals")
+
+    distinct = action_source.distinct_rows(rows)
     prior_active = _active_action_rows(conn)
-    if prior_active and len(action_source.distinct_rows(rows)) < int(len(prior_active) * 0.90):
+    if prior_active and len(distinct) < int(len(prior_active) * 0.90):
         raise SharadarMutationRefused(
             f"complete ACTIONS source shrank from {len(prior_active):,} active "
-            f"rows to {len(action_source.distinct_rows(rows)):,}; refusing "
-            "mass-removal authority without inspection")
+            f"rows to {len(distinct):,}; refusing mass-removal authority "
+            "without inspection")
     dates = _action_change_dates(conn, rows)
 
-    current_ids = {
-        identity for identity, _payload, _row in action_source.distinct_rows(rows)}
+    current_ids = {identity for identity, _payload, _row in distinct}
     if current_ids == set(prior_active):
         current = publication.require_current(conn)
         return _write_cursor(
-            conn, name=ACTIONS_CURSOR_NAME,
-            kind="sharadar-actions-reconcile/v1", through=hi,
-            publication_version=current.version)
+            conn, name=ACTIONS_CURSOR_NAME, kind=ACTIONS_CURSOR_KIND,
+            through=hi, publication_version=current.version)
 
     windows = renormalize.correction_windows(dates)
     run = store.IngestRun(
@@ -485,13 +520,14 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
         window_start=ACTIONS_FULL_WINDOW_START, window_end=hi.isoformat(),
         evidence={
             "kind": "actions_reconcile",
+            "source_authority": source_evidence,
             "source_rows": len(rows),
             "changed_source_rows": len(set(prior_active).symmetric_difference(current_ids)),
             "affected_bar_dates": len(set(dates)),
             "replay_windows": [list(w) for w in windows],
         })
     return _write_cursor(
-        conn, name=ACTIONS_CURSOR_NAME, kind="sharadar-actions-reconcile/v1",
+        conn, name=ACTIONS_CURSOR_NAME, kind=ACTIONS_CURSOR_KIND,
         through=hi, publication_version=published.version)
 
 
