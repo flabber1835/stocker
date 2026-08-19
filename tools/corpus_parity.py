@@ -77,7 +77,7 @@ COMPARED_FIELDS = ("raw_close", "raw_open", "volume", "split_ratio",
 #: representation rather than on data.
 TOLERANCE = 1e-9
 
-# Must match the cross-process bt-data/bt-engine corpus lock.  This tool cannot
+# Must match the cross-process bt-data/bt-engine corpus lock. This tool cannot
 # import bt-engine's `app` package because it deliberately imports the
 # backtester's `app` package as the canonical loader owner.
 BT_CORPUS_LOCK_KEY = 0x4254_434F_5250_5553
@@ -142,9 +142,6 @@ class ParityReport:
                 "canonical_source_mode": self.canonical_source_mode,
                 "missing_from_sentinel": self.missing_count,
                 "extra_in_sentinel": self.extra_count,
-                # The capped SAMPLES, named so nobody reads them as the whole
-                # set. Without these a membership failure reports a number and
-                # no way to start looking.
                 "missing_sample": [list(k) for k in self.missing_from_sentinel],
                 "extra_sample": [list(k) for k in self.extra_in_sentinel],
                 "field_divergences": self.field_divergences,
@@ -250,11 +247,6 @@ def run(sentinel_conn, *, start: str, end: str,
             "BT_DATABASE_URL is unset, so the canonical Sharadar corpus could "
             "not be read. This is NOT a pass: the comparison did not happen."))
 
-    # `app` is a top-level package INSIDE services/backtester, so that
-    # directory has to be on the path in its own right — being under /work is
-    # not enough. Inserted here as well as set in the image's PYTHONPATH,
-    # because a tool that only works under one specific container's environment
-    # is a tool that fails the first time anyone runs it anywhere else.
     _add_backtester_to_path()
     try:
         import sqlalchemy as sa                              # noqa: PLC0415
@@ -290,6 +282,10 @@ def run(sentinel_conn, *, start: str, end: str,
                 if not generation[0] or not generation[2]:
                     raise RuntimeError(
                         "READY canonical generation lacks version/source_mode")
+                # Parity is certification evidence, not a low-level loader unit
+                # seam. Prove the same semantic epoch the formal replay requires
+                # before the first canonical price row is allowed to contribute.
+                bt.assert_raw_price_domain(bt_conn, start, end)
                 identity = bt.load_identity(bt_conn, as_of=end)
                 actions = bt.load_actions(bt_conn, start, end)
                 sessions = bt.load_sessions(bt_conn, start, end)
@@ -298,16 +294,17 @@ def run(sentinel_conn, *, start: str, end: str,
                 canonical = bt.load_bars(bt_conn, start, end,
                                          authoritative_splits=splits,
                                          dividends=divs, identity=identity)
-    except (bt.IdentityAuthorityUnavailable,
+    except (bt.RawPriceDomainUnavailable,
+            bt.IdentityAuthorityUnavailable,
             bt.CanonicalBarsUnavailable) as exc:
-        # This is not a membership comparison. Turning a collapsed canonical
-        # loader into millions of ordinary "extra Sentinel" rows hides the one
-        # actionable fact and can exhaust the report process before it says it.
+        kind = ("price_volume_domain" if isinstance(
+                    exc, bt.RawPriceDomainUnavailable)
+                else "identity_authority")
         return ParityReport(
             window=(start, end),
             sentinel_bars=sum(len(v) for v in mine.bars_by_session.values()),
-            canonical_loader_failure="identity_authority",
-            unavailable=f"canonical identity/canonical-loader failure: {exc}",
+            canonical_loader_failure=kind,
+            unavailable=f"canonical {kind} failure: {exc}",
             sentinel_data_version=sentinel_publication.version,
             canonical_data_version=str(generation[0]),
             canonical_source_mode=str(generation[2]))
