@@ -27,7 +27,7 @@ import json
 import math
 import os
 from dataclasses import dataclass
-from typing import Callable, Iterable, Mapping, Optional
+from typing import Iterable, Mapping, Optional
 
 from stock_strategy_shared.wealth_core.feed import VendorBar
 
@@ -143,6 +143,11 @@ def _write_cursor(conn, *, name: str, kind: str, through: dt.date,
                   publication_version: int) -> SourceCursor:
     # The publication must already exist. A crash after publication but before
     # this tiny cursor commit is safe: the next run replays the overlap.
+    prior = _read_cursor(conn, name, kind)
+    if prior is not None and through < prior.processed_through:
+        raise SharadarMutationRefused(
+            f"source cursor {name} cannot move backward from "
+            f"{prior.processed_through} to {through}")
     with conn.cursor() as cur:
         cur.execute(
             "SELECT 1 FROM sentinel_corpus_publications WHERE version=%s",
@@ -236,13 +241,23 @@ def _positive(value) -> Optional[float]:
 
 
 def _existing_bar_authority(conn, sid: str, session: str):
+    """Physical row plus whether its current owner is already published.
+
+    The physical read is deliberate. A failed candidate overwrites a bar in
+    place and makes it invisible by changing ``last_written_run_id``. On retry,
+    that row still carries useful split/dividend continuity and, crucially, must
+    be RECLAIMED by the new run even when its economics already equal the vendor
+    replay. Filtering to visible rows here would mistake a retry for a new key.
+    """
     expr = publication.effective_split_ratio("b")
     with conn.cursor() as cur:
         cur.execute(
             "SELECT b.close_signal,b.close_unadjusted,b.open_unadjusted,b.volume,"
-            f" {expr} AS split_ratio,b.dividend_per_share"
-            " FROM sentinel_bars b WHERE b.security_id=%s AND b.session=%s"
-            f" AND {publication.visible_predicate('b')}",
+            f" {expr} AS split_ratio,b.dividend_per_share,b.last_written_run_id,"
+            " (b.last_written_run_id IS NULL OR EXISTS ("
+            "   SELECT 1 FROM sentinel_corpus_publications p"
+            "   WHERE p.run_id=b.last_written_run_id)) AS owner_published"
+            " FROM sentinel_bars b WHERE b.security_id=%s AND b.session=%s",
             (str(sid), str(session)))
         return cur.fetchone()
 
@@ -277,15 +292,20 @@ def _mutation_bar(conn, row: Mapping, resolver) -> Optional[NormalisedBar]:
     split_ratio = float(existing[4] or 1.0)
     dividend = float(existing[5] or 0.0)
 
-    # Skip byte-economic no-ops. Vendor ``lastupdated`` can advance for fields
-    # Sentinel does not consume; those still prove the cursor interval complete
-    # but must not churn corpus ownership/versioned rows.
     old = (existing[0], existing[1], existing[2], existing[3])
     new = (signal, raw, raw_open, reported_volume)
-    if all((a is None and b is None) or
-           (a is not None and b is not None and float(a) == float(b))
-           for a, b in zip(old, new)):
+    same_economics = all(
+        (a is None and b is None) or
+        (a is not None and b is not None and float(a) == float(b))
+        for a, b in zip(old, new))
+    if same_economics and bool(existing[7]):
+        # Vendor ``lastupdated`` can advance for fields Sentinel does not consume.
+        # If the row's owner is already published, no corpus churn is required.
         return None
+    # If owner_published is false, DO return the otherwise-identical bar. The
+    # store upsert has an explicit ownership clause that claims an unchanged key
+    # from an older unpublished run; skipping it here would permanently strand
+    # that candidate and defeat crash convergence.
 
     return NormalisedBar(
         close_signal=signal,
@@ -366,6 +386,8 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
                              ) -> Optional[SourceCursor]:
     """Periodically reconcile the complete ACTIONS key/content set."""
     store._assert_corpus_locked(conn)
+    if ACTIONS_RECONCILE_DAYS < 1:
+        raise ValueError("SHARADAR_ACTIONS_RECONCILE_DAYS must be >= 1")
     hi = dt.date.fromisoformat(str(through))
     prior = load_actions_cursor(conn)
     if (not force and prior is not None
