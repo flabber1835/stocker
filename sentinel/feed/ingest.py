@@ -202,9 +202,10 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
         # initialize it from today's moving price window.
         if maintenance.load_sep_cursor(conn) is None:
             raise maintenance.MutationCursorUnavailable(
-                "SEP mutation watermark has not been established. Run one "
-                "complete source-stable feed seed/reconciliation before daily "
-                "operation; a 14-day session overlap cannot prove old rows current.")
+                "SEP mutation watermark has not been established. Run the "
+                "supported complete `feed-seed` (or a complete source-stable "
+                "reconciliation) before daily operation; a 14-day session "
+                "overlap cannot prove old rows current.")
 
         # There can be at most one failed run that still owns physical rows in
         # normal operation because the writer lock serializes every feed run and
