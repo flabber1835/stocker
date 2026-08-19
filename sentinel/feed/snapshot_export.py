@@ -12,10 +12,11 @@ generates the entire requested table as one zipped CSV and reports both
 is fresh. Sentinel accepts only a ``fresh`` file whose snapshot creation began at
 or after the vendor's latest table refresh.
 
-This module is deliberately separate from the normal Sharadar transport. A
-large export is too expensive for every ordinary data read; it is used for
-periodic complete ACTIONS reconciliation, where one omitted split/dividend/
-terminal row is more dangerous than the extra I/O.
+ACTIONS consumes that complete file directly because blank nullable fields do
+not carry distinct economic semantics there. TICKERS deliberately does not:
+``relatedtickers`` NULL versus observed blank has distinct carry/clear meaning in
+Sentinel. For TICKERS the ordinary strict paginated response remains the value
+authority while the export supplies an independent complete *key-set witness*.
 """
 from __future__ import annotations
 
@@ -26,7 +27,7 @@ import os
 import time
 import zipfile
 from datetime import datetime, timezone
-from typing import Callable
+from typing import Callable, Iterable, Mapping
 from urllib.parse import urlparse
 
 from sentinel.feed import sharadar
@@ -39,13 +40,27 @@ class SharadarSnapshotExportError(sharadar.SharadarRequestError):
     """The provider could not prove a complete, current export snapshot."""
 
 
+def validate_config() -> None:
+    sharadar.validate_config()
+    if isinstance(EXPORT_MAX_POLLS, bool) or not isinstance(EXPORT_MAX_POLLS, int) \
+            or EXPORT_MAX_POLLS < 1:
+        raise ValueError("SHARADAR_EXPORT_MAX_POLLS must be an integer >= 1")
+    if not math.isfinite(EXPORT_POLL_SECONDS) or EXPORT_POLL_SECONDS < 0:
+        raise ValueError("SHARADAR_EXPORT_POLL_SECONDS must be finite and >= 0")
+
+
 def _aware_iso(value, *, field: str) -> datetime:
     text = str(value or "").strip()
     if not text:
         raise SharadarSnapshotExportError(
             f"Sharadar export omitted required {field}")
+    # Official examples use both ISO-Z and a literal UTC suffix.
+    if text.endswith(" UTC"):
+        text = text[:-4] + "+00:00"
+    elif text.endswith("Z"):
+        text = text[:-1] + "+00:00"
     try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(text)
     except ValueError as exc:
         raise SharadarSnapshotExportError(
             f"Sharadar export returned invalid {field}") from exc
@@ -75,9 +90,9 @@ def _decode_export_status(
     if link is not None:
         link = str(link).strip() or None
 
-    # Nasdaq may omit final snapshot metadata while an export job is still being
-    # generated. Those intermediate states grant no authority; simply poll. The
-    # timestamps become mandatory only for the `fresh` file we would consume.
+    # Intermediate jobs grant no authority. Some provider responses omit final
+    # timestamps while the file is still being generated, so require them only
+    # for the fresh artifact Sentinel might consume.
     if status != "fresh":
         return status, link, None, None
 
@@ -160,70 +175,65 @@ def _csv_rows(blob: bytes, *, required: set[str]) -> list[dict]:
                 if None in row:
                     raise SharadarSnapshotExportError(
                         "Sharadar export CSV contains a row wider than its header")
+                # CSV cannot preserve a source distinction between NULL and
+                # observed blank. Callers that care about that distinction use
+                # this export only as a key-set witness, never as field authority.
                 rows.append({key: (None if value == "" else value)
                              for key, value in row.items()})
             return rows
 
 
-def fetch_complete_actions(
-        *, through: str, http=None, sleep: Callable[[float], None] = time.sleep,
+def _fetch_complete(
+        table: str, *, params: Mapping[str, str] | None, required: set[str],
+        http=None, sleep: Callable[[float], None] = time.sleep,
         now: Callable[[], datetime] | None = None,
         poll_seconds: float | None = None,
         max_polls: int | None = None) -> tuple[list[dict], dict]:
-    """Return one vendor-generated complete ACTIONS snapshot through ``through``.
-
-    The returned evidence is safe to persist in the corpus publication record;
-    it contains timestamps/counts only, never the signed download URL or API key.
-    """
-    sharadar.validate_config()
-    if EXPORT_MAX_POLLS < 1 or not math.isfinite(EXPORT_POLL_SECONDS) \
-            or EXPORT_POLL_SECONDS < 0:
-        raise ValueError(
-            "SHARADAR_EXPORT_MAX_POLLS must be >=1 and poll seconds finite >=0")
+    validate_config()
     polls = EXPORT_MAX_POLLS if max_polls is None else int(max_polls)
     delay = EXPORT_POLL_SECONDS if poll_seconds is None else float(poll_seconds)
     if polls < 1 or not math.isfinite(delay) or delay < 0:
         raise ValueError("invalid Sharadar export polling configuration")
+    if table not in {sharadar.ACTIONS, sharadar.TICKERS}:
+        raise ValueError("complete export authority is defined only for ACTIONS/TICKERS")
 
     if http is None:
         import httpx  # noqa: PLC0415
         http = httpx
     key = sharadar._api_key()
-    url = f"{sharadar.NDL_BASE}/{sharadar.ACTIONS}.json"
-    params: dict[str, object] = {
+    url = f"{sharadar.NDL_BASE}/{table}.json"
+    query: dict[str, object] = {
         "api_key": key,
+        **sharadar._validated_params(params),
         "qopts.export": "true",
-        "date.gte": "1900-01-01",
-        "date.lte": str(through),
     }
 
     with http.Client(timeout=sharadar.FETCH_TIMEOUT_SECS) as client:
         for poll in range(1, polls + 1):
             response = sharadar._get_with_retry(
-                client, url, params, http=http, sleep=sleep, now=now)
+                client, url, query, http=http, sleep=sleep, now=now)
             try:
                 payload = response.json()
             except Exception as exc:
                 raise SharadarSnapshotExportError(
-                    "Sharadar export status HTTP 200 body is not valid JSON") from exc
+                    f"Sharadar {table} export status HTTP 200 body is not valid JSON"
+                ) from exc
             status, link, snapshot, refreshed = _decode_export_status(payload)
             if status == "fresh":
                 if link is None:
                     raise SharadarSnapshotExportError(
-                        "Sharadar fresh export supplied no download link")
+                        f"Sharadar fresh {table} export supplied no download link")
                 assert snapshot is not None and refreshed is not None
                 if snapshot < refreshed:
                     raise SharadarSnapshotExportError(
-                        "Sharadar export claims fresh but its data snapshot began "
-                        "before the table's last refresh")
+                        f"Sharadar {table} export claims fresh but its data snapshot "
+                        "began before the table's last refresh")
                 blob = _safe_download(
                     client, link, http=http, sleep=sleep, now=now)
-                rows = _csv_rows(blob, required={
-                    "date", "action", "ticker", "name", "value",
-                    "contraticker", "contraname",
-                })
+                rows = _csv_rows(blob, required=required)
                 return rows, {
                     "authority": "nasdaq-data-link-table-export/v1",
+                    "table": table,
                     "file_status": status,
                     "data_snapshot_time": snapshot.isoformat(),
                     "last_refreshed_time": refreshed.isoformat(),
@@ -232,9 +242,83 @@ def fetch_complete_actions(
             if poll < polls:
                 sleep(delay)
     raise SharadarSnapshotExportError(
-        f"Sharadar ACTIONS export did not become fresh after {polls} poll(s)")
+        f"Sharadar {table} export did not become fresh after {polls} poll(s)")
+
+
+def fetch_complete_actions(
+        *, through: str, http=None, sleep: Callable[[float], None] = time.sleep,
+        now: Callable[[], datetime] | None = None,
+        poll_seconds: float | None = None,
+        max_polls: int | None = None) -> tuple[list[dict], dict]:
+    """Return one vendor-generated complete ACTIONS snapshot through ``through``."""
+    return _fetch_complete(
+        sharadar.ACTIONS,
+        params={"date.gte": "1900-01-01", "date.lte": str(through)},
+        required={
+            "date", "action", "ticker", "name", "value",
+            "contraticker", "contraname",
+        },
+        http=http, sleep=sleep, now=now,
+        poll_seconds=poll_seconds, max_polls=max_polls)
+
+
+def fetch_complete_ticker_keys(
+        *, http=None, sleep: Callable[[float], None] = time.sleep,
+        now: Callable[[], datetime] | None = None,
+        poll_seconds: float | None = None,
+        max_polls: int | None = None) -> tuple[set[tuple[str, str]], dict]:
+    """Return complete ``table=SEP`` `(permaticker,ticker)` key authority.
+
+    Only row identity is consumed from the export. Strategy metadata continues to
+    come from the strict paginated TICKERS response, preserving NULL-vs-blank
+    semantics for fields such as `relatedtickers`.
+    """
+    rows, evidence = _fetch_complete(
+        sharadar.TICKERS, params=None,
+        required={"table", "permaticker", "ticker"},
+        http=http, sleep=sleep, now=now,
+        poll_seconds=poll_seconds, max_polls=max_polls)
+    keys: set[tuple[str, str]] = set()
+    for row in rows:
+        if str(row.get("table") or "").strip().upper() != "SEP":
+            continue
+        permaticker = str(row.get("permaticker") or "").strip()
+        ticker = str(row.get("ticker") or "").strip().upper()
+        if not permaticker or not ticker:
+            continue
+        keys.add((permaticker, ticker))
+    if not keys:
+        raise SharadarSnapshotExportError(
+            "Sharadar TICKERS export contains no usable table=SEP identity keys")
+    evidence = dict(evidence)
+    evidence["sep_identity_keys"] = len(keys)
+    return keys, evidence
+
+
+def assert_complete_ticker_keys(paged_rows: Iterable[Mapping], export_keys) -> None:
+    """Prove paginated TICKERS did not omit/add a SEP identity relative to export."""
+    paged = {
+        (str(row.get("permaticker") or "").strip(),
+         str(row.get("ticker") or "").strip().upper())
+        for row in paged_rows
+        if str(row.get("table") or "").strip().upper() == "SEP"
+        and str(row.get("permaticker") or "").strip()
+        and str(row.get("ticker") or "").strip()
+    }
+    exported = set(export_keys)
+    if paged == exported:
+        return
+    missing = sorted(exported - paged)
+    extra = sorted(paged - exported)
+    raise SharadarSnapshotExportError(
+        "Sharadar paginated TICKERS key set disagrees with the vendor fresh "
+        f"whole-table export: paged={len(paged):,}, export={len(exported):,}, "
+        f"missing_from_pages={missing[:8]}, extra_in_pages={extra[:8]}. "
+        "Refusing common-mode partial TICKERS/SEP authority.")
 
 
 __all__ = [
-    "SharadarSnapshotExportError", "fetch_complete_actions",
+    "EXPORT_MAX_POLLS", "EXPORT_POLL_SECONDS", "SharadarSnapshotExportError",
+    "assert_complete_ticker_keys", "fetch_complete_actions",
+    "fetch_complete_ticker_keys", "validate_config",
 ]
