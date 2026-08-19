@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from types import SimpleNamespace
 
-from sentinel.feed import ingest, recovery, reseed
+from sentinel.feed import ingest, maintenance, recovery, reseed
 
 
 def _pending(run_id: str):
@@ -155,9 +154,11 @@ class _Run:
         assert status == "success"
 
 
-def test_full_reseed_retires_each_old_bar_window_before_next_predecessor(
+def test_full_reseed_uses_complete_actions_scope_and_retires_bars_before_next_predecessor(
         monkeypatch):
     events = []
+    action_requests = []
+    final_scopes = []
     monkeypatch.setattr(reseed.feed_store, "_assert_corpus_locked", lambda conn: None)
     monkeypatch.setattr(reseed.feed_store, "IngestRun", _Run)
     monkeypatch.setattr(
@@ -189,8 +190,9 @@ def test_full_reseed_retires_each_old_bar_window_before_next_predecessor(
     monkeypatch.setattr(reseed.feed_store, "previous_observations", previous)
 
     def write_bars(conn, bars, **kwargs):
-        events.append(("write", tuple(bars)))
-        return len(tuple(bars))
+        materialized = tuple(bars)
+        events.append(("write", materialized))
+        return len(materialized)
 
     monkeypatch.setattr(reseed.feed_store, "write_bars", write_bars)
 
@@ -200,17 +202,29 @@ def test_full_reseed_retires_each_old_bar_window_before_next_predecessor(
 
     monkeypatch.setattr(
         recovery, "retire_failed_bars_in_stable_seed_window", retire)
+
+    def covered(conn, **kwargs):
+        final_scopes.append(("covered", kwargs))
+        events.append("covered")
+
     monkeypatch.setattr(
-        recovery, "assert_full_reseed_covered_live_rows",
-        lambda conn, **kwargs: events.append("covered"))
+        recovery, "assert_full_reseed_covered_live_rows", covered)
+
+    def retire_nonbar(conn, **kwargs):
+        final_scopes.append(("retired", kwargs))
+        events.append("retire-nonbar")
+        return {}
+
     monkeypatch.setattr(
-        recovery, "retire_failed_nonbar_rows_after_full_seed",
-        lambda conn, **kwargs: events.append("retire-nonbar") or {})
+        recovery, "retire_failed_nonbar_rows_after_full_seed", retire_nonbar)
     monkeypatch.setattr(
         "sentinel.feed.ingest_impl._publish_version",
         lambda *a, **k: events.append("publish"))
 
     def fetch(table, params=None):
+        if table == reseed.sharadar.ACTIONS:
+            action_requests.append(dict(params or {}))
+            return []
         if table == reseed.sharadar.SEP:
             return [params["date.gte"]]
         return []
@@ -219,7 +233,19 @@ def test_full_reseed_retires_each_old_bar_window_before_next_predecessor(
         object(), date_from="2025-12-31", date_to="2026-01-02",
         fetch=fetch, resolve_identity=lambda ticker, session: ticker)
 
+    assert action_requests == [{
+        "date.gte": maintenance.ACTIONS_FULL_WINDOW_START,
+        "date.lte": "2026-01-02",
+    }]
     first_retire = events.index(("retire", "2025-12-31", "2025-12-31"))
     second_previous = events.index(("previous", "2026-01-01"))
     assert first_retire < second_previous
+    expected_scope = {
+        "run_id": "new-seed",
+        "market_start": "2025-12-31",
+        "actions_start": maintenance.ACTIONS_FULL_WINDOW_START,
+        "end": "2026-01-02",
+    }
+    assert final_scopes == [
+        ("covered", expected_scope), ("retired", expected_scope)]
     assert events[-3:] == ["covered", "retire-nonbar", "publish"]
