@@ -8,6 +8,8 @@ GUARD = (ROOT / "services" / "bt-data" / "sql" /
 DOCKERFILE = (ROOT / "services" / "bt-data" / "Dockerfile").read_text()
 MIGRATION = (ROOT / "services" / "bt-data" / "app" /
              "volume_domain_migration.py").read_text()
+CLIENT = (ROOT / "services" / "bt-data" / "app" /
+          "sharadar_client.py").read_text()
 ENGINE_GATE = (ROOT / "services" / "bt-engine" / "app" /
                "jobs_busy.py").read_text()
 
@@ -24,10 +26,23 @@ def test_existing_rows_are_not_blindly_grandfathered_into_new_volume_semantics()
     assert "sharadar-raw-volume-v1" not in column_stmt
 
 
-def test_only_post_fix_price_writes_are_stamped():
+def test_only_declared_post_fix_writer_can_stamp_rows():
     assert "bt_stamp_price_volume_domain" in GUARD
     assert "BEFORE INSERT OR UPDATE OF volume, close, close_unadjusted" in GUARD
-    assert "NEW.volume_domain_version := 'sharadar-raw-volume-v1'" in GUARD
+    assert "current_setting('application_name', true)" in GUARD
+    assert "writer_name = 'bt-data-sharadar-raw-volume-v1'" in GUARD
+    assert "ELSE NEW.volume_domain_version := NULL" in GUARD
+
+    # The new binary injects application_name via asyncpg's documented
+    # server_settings argument. It must NOT append it to BT_DATABASE_URL:
+    # SQLAlchemy converts URL query keys into direct asyncpg kwargs and
+    # application_name is not a connect() keyword.
+    assert "PRICE_WRITER_APPLICATION_NAME = \"bt-data-sharadar-raw-volume-v1\"" in CLIENT
+    assert "kwargs.get(\"server_settings\")" in CLIENT
+    assert "settings[\"application_name\"] = PRICE_WRITER_APPLICATION_NAME" in CLIENT
+    assert "kwargs[\"server_settings\"] = settings" in CLIENT
+    assert "urlsplit" not in CLIENT
+    assert "application_name=" not in CLIENT
 
 
 def test_unknown_domain_rows_have_a_bounded_certification_probe():
