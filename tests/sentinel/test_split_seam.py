@@ -38,6 +38,7 @@ Contract: docs/sentinel-execution-contract.md §9.
 """
 from __future__ import annotations
 
+import datetime as dt
 import sys
 from pathlib import Path
 
@@ -49,7 +50,7 @@ sys.path.insert(0, str(ROOT / "shared"))
 
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
-from sentinel.feed import domains, ingest, repair, sharadar  # noqa: E402
+from sentinel.feed import domains, ingest, maintenance, publication, repair, sharadar  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
 
 
@@ -63,11 +64,15 @@ from sentinel.feed import store as S  # noqa: E402
 # ---------------------------------------------------------------------------
 PRE = {"close": 50.0, "closeunadj": 100.0}      # factor 2
 POST = {"close": 50.0, "closeunadj": 50.0}      # factor 1  => ratio 2.0
+CONTROL_ACTION = {
+    "ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
+    "action": "listed", "value": None, "contraticker": None,
+}
 
 
 def sep(ticker, date, domain, open_=49.0, volume=1_000_000):
     return {"ticker": ticker, "date": date, "open": open_, "volume": volume,
-            **domain}
+            "lastupdated": date, **domain}
 
 
 def normalise(rows, **kw):
@@ -205,7 +210,8 @@ def pg():
 def conn(pg):
     c = S.connect(pg.sync_dsn)
     with c.cursor() as cur:
-        for t in ("sentinel_anomaly_observation_events",
+        for t in ("sentinel_processed_sessions",
+                  "sentinel_anomaly_observation_events",
                   "sentinel_bar_split_repairs", "sentinel_corpus_publications",
                   "sentinel_action_generation_events",
                   "sentinel_action_observations", "sentinel_action_generations",
@@ -238,7 +244,6 @@ def ratio_of(conn, sid, session) -> float:
 
 
 def effective_ratio_of(conn, sid, session) -> float:
-    from sentinel.feed import publication
     with conn.cursor() as cur:
         cur.execute(
             "SELECT " + publication.effective_split_ratio("b") +
@@ -310,6 +315,11 @@ class TestTheDailyOverlapNoLongerCorrupts:
         put_bar(conn, "P-AAA", "2021-01-08", "AAA", 50.0, 100.0)
         put_bar(conn, "P-AAA", "2021-01-11", "AAA", 50.0, 50.0, ratio=2.0)
         put_bar(conn, "P-AAA", "2021-01-20", "AAA", 50.0, 50.0)
+        published = publication.publish(
+            conn, window_start="2021-01-08", window_end="2021-01-20")
+        maintenance.establish_sep_cursor_after_complete_reconciliation(
+            conn, through=dt.date.fromisoformat("2021-01-20"),
+            publication_version=published.version)
 
         # A daily run whose 14-day overlap reopens 2021-01-11 as its FIRST
         # session — the exact configuration that used to write 1.0 over the 2.0.
@@ -322,19 +332,27 @@ class TestTheDailyOverlapNoLongerCorrupts:
             "the thing that breaks them")
 
 
-def _fetch(sep_rows, action_rows=()):
+def _fetch(sep_rows, action_rows=None):
+    if action_rows is None:
+        action_rows = (CONTROL_ACTION,)
     ticker_rows = [{"ticker": t, "permaticker": f"P-{t}"}
                    for t in sorted({r["ticker"] for r in sep_rows})]
 
     def fetch(table, params=None, **kw):
+        params = dict(params or {})
         if table == sharadar.TICKERS:
             return list(ticker_rows)
-        lo = (params or {}).get("date.gte", "0000-00-00")
-        hi = (params or {}).get("date.lte", "9999-99-99")
+        lo = params.get("date.gte", "0000-00-00")
+        hi = params.get("date.lte", "9999-99-99")
         if table == sharadar.ACTIONS:
             return [r for r in action_rows if lo <= r["date"] <= hi]
         if table == sharadar.SFP:
             return []
+        if "lastupdated.gte" in params or "lastupdated.lte" in params:
+            update_lo = params.get("lastupdated.gte", "0000-00-00")
+            update_hi = params.get("lastupdated.lte", "9999-99-99")
+            return [r for r in sep_rows
+                    if update_lo <= r.get("lastupdated", "") <= update_hi]
         return [r for r in sep_rows if lo <= r["date"] <= hi]
     return fetch
 
@@ -417,8 +435,6 @@ class TestRepair:
             "published repair can lower the effective ratio"
 
     def test_an_unpublished_repair_candidate_is_invisible(self, conn):
-        from sentinel.feed import publication
-
         put_bar(conn, "P-AAA", "2021-01-11", "AAA", 50.0, 50.0, ratio=1.0)
         run = S.IngestRun(conn, "repair").progress.run_id
         with conn.cursor() as cur:
@@ -434,8 +450,6 @@ class TestRepair:
 
     def test_a_publication_failure_rolls_back_the_repair_generation(
             self, conn, monkeypatch):
-        from sentinel.feed import publication
-
         put_bar(conn, "P-AAA", "2021-01-08", "AAA", 50.0, 100.0)
         put_bar(conn, "P-AAA", "2021-01-11", "AAA", 50.0, 50.0, ratio=1.0)
         S.write_actions(conn, [{"ticker": "AAA", "date": "2021-01-11",
