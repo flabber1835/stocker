@@ -202,7 +202,8 @@ class _OneResponseHttp:
         def __exit__(self, *_args):
             return None
 
-        def get(self, _url, _params):
+        def get(self, _url, params):
+            assert "api_key" in params
             return _BadJsonResponse()
 
 
