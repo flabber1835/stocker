@@ -28,6 +28,13 @@ substituted a synthetic corpus — and every downstream number stayed shaped lik
 a real backtest, feeding a promotion gate that rewrites the live strategy. Now
 `mode=sharadar` with no key raises at startup. Legacy BT_MOCK_DATA=true is still
 honoured as an explicit request for mock.
+
+The module also binds a database-session application name before ``app.main``
+constructs its asyncpg engine. The bt_prices semantic-epoch trigger accepts the
+post-#185 volume marker only from that application identity. Rolling the bt-data
+application back to code that predates this declaration therefore makes any
+price write invalidate the row's semantic marker instead of silently blessing
+old split-adjusted volume as raw-compatible.
 """
 from __future__ import annotations
 
@@ -35,8 +42,43 @@ import asyncio
 import os
 from datetime import date, timedelta
 from typing import AsyncIterator, Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
+
+PRICE_WRITER_APPLICATION_NAME = "bt-data-sharadar-raw-volume-v1"
+
+
+def _bind_price_writer_application_name() -> None:
+    """Tag DB sessions created by this post-#185 bt-data application build.
+
+    asyncpg treats unrecognized PostgreSQL URI query options as server settings,
+    so ``application_name`` becomes a connection setting without changing the
+    engine wiring in ``app.main``. A conflicting explicit application_name is
+    refused rather than overwritten: the DB trigger's provenance token must not
+    be ambiguous.
+    """
+    raw = os.getenv("BT_DATABASE_URL", "")
+    if not raw:
+        return
+    parts = urlsplit(raw)
+    query = parse_qsl(parts.query, keep_blank_values=True)
+    existing = [value for key, value in query if key == "application_name"]
+    if existing:
+        if any(value != PRICE_WRITER_APPLICATION_NAME for value in existing):
+            raise RuntimeError(
+                "BT_DATABASE_URL carries an application_name that conflicts "
+                "with the post-#185 price-volume writer identity")
+        return
+    query.append(("application_name", PRICE_WRITER_APPLICATION_NAME))
+    os.environ["BT_DATABASE_URL"] = urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+# app.main imports this module before it reads BT_DATABASE_URL and constructs the
+# SQLAlchemy/asyncpg engine, so every connection in that engine inherits the
+# exact writer identity above. An older binary has no such binding.
+_bind_price_writer_application_name()
 
 NDL_BASE = os.getenv("NDL_BASE_URL", "https://data.nasdaq.com/api/v3/datatables/SHARADAR")
 SHARADAR_API_KEY = os.getenv("SHARADAR_API_KEY", "")
@@ -91,7 +133,6 @@ async def _get_with_retry(client: httpx.AsyncClient, url: str, params: dict) -> 
         try:
             resp = await client.get(url, params=params)
             if resp.status_code in _RETRYABLE_STATUS:
-                # synthesise a retryable error so the same backoff path applies
                 raise httpx.HTTPStatusError(
                     f"retryable HTTP {resp.status_code}",
                     request=resp.request, response=resp)
@@ -100,11 +141,11 @@ async def _get_with_retry(client: httpx.AsyncClient, url: str, params: dict) -> 
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code if exc.response is not None else None
             if status not in _RETRYABLE_STATUS:
-                raise  # 400/401/403/404 etc. — real error, don't retry
+                raise
             retry_after = exc.response.headers.get("Retry-After") if exc.response is not None else None
             last_exc = exc
         except (httpx.TimeoutException, httpx.TransportError) as exc:
-            last_exc = exc  # connection reset / read timeout / DNS blip
+            last_exc = exc
         if attempt < FETCH_MAX_RETRIES - 1:
             delay = _retry_delay(attempt, status, retry_after)
             print(f"[bt-data] transient fetch failure "
@@ -207,7 +248,7 @@ async def fetch_table(
                 yield dict(zip(cols, raw))
             cursor = (payload.get("meta") or {}).get("next_cursor_id")
             pages += 1
-            if pages % 25 == 0:   # heartbeat: fetch progress is visible in logs
+            if pages % 25 == 0:
                 print(f"[bt-data] {table} fetch: {pages} pages "
                       f"({params or {}})", flush=True)
             if cursor:
@@ -235,14 +276,13 @@ _MOCK_DAYS = 400
 async def _mock_rows(table: str, params: dict) -> AsyncIterator[dict]:
     if table == "SEP":
         base = {"AAA": 100.0, "BBB": 50.0, "CCC": 200.0, "SPY": 400.0}
-        drift = {"AAA": 0.05, "BBB": 0.02, "CCC": -0.01, "SPY": 0.03}  # %/day-ish
+        drift = {"AAA": 0.05, "BBB": 0.02, "CCC": -0.01, "SPY": 0.03}
         for t in _MOCK_TICKERS:
             px = base[t]
             for i in range(_MOCK_DAYS):
                 d = _MOCK_START + timedelta(days=i)
-                if d.weekday() >= 5:  # skip weekends
+                if d.weekday() >= 5:
                     continue
-                # deterministic wiggle
                 px = px * (1 + drift[t] / 100.0) + ((i % 7) - 3) * 0.01
                 yield {
                     "ticker": t, "date": d.isoformat(),
@@ -252,7 +292,6 @@ async def _mock_rows(table: str, params: dict) -> AsyncIterator[dict]:
                     "volume": 1_000_000 + (i % 5) * 50_000,
                 }
     elif table == "SFP":
-        # Fund prices (ETFs) — mock SPY so the benchmark path is exercisable.
         px = 400.0
         for i in range(_MOCK_DAYS):
             d = _MOCK_START + timedelta(days=i)
@@ -274,10 +313,6 @@ async def _mock_rows(table: str, params: dict) -> AsyncIterator[dict]:
                     "de": 0.5 + q * 0.05, "revenue": 1000 + q * 50, "eps": 2.0 + q * 0.1,
                 }
     elif table == "ACTIONS":
-        # One of every shape the replay has to distinguish, including the two
-        # that must NOT become a write-off. `value` is deliberately absent on
-        # the delisting: that is the ordinary vendor case, and a mock that
-        # always supplies terms would never exercise the blocking path.
         yield {"date": "2022-03-01", "action": "split", "ticker": "AAA",
                "name": "Alpha Co", "value": 2.0}
         yield {"date": "2022-04-01", "action": "dividend", "ticker": "AAA",
