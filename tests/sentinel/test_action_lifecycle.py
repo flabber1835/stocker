@@ -60,6 +60,11 @@ def conn(pg):
             cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
     c.commit()
     S.ensure_schema(c)
+    universe.write_universe(
+        c,
+        [{"permaticker": "SEC-AAA", "ticker": "AAA",
+          "firstpricedate": "2020-01-01", "lastpricedate": None}],
+        "2026-08-15")
     yield c
     c.close()
 
