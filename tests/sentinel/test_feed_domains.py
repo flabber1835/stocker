@@ -42,6 +42,9 @@ CLOSEADJ_PERMITTED = (
     # what makes the ingest drop the column. Naming it is not reading it.
     "sentinel/feed/domains.py",
     # Narrow transport/persistence path into the dedicated SPY-only table.
+    # sharadar.py names the field only to validate the SFP wire schema; it never
+    # exposes it to the security-bar domain.
+    "sentinel/feed/sharadar.py",
     "sentinel/feed/staging.py",
     "sentinel/feed/store.py",
     "sentinel/feed/schema.py",
@@ -133,6 +136,7 @@ class TestTheForbiddenColumn:
         assert CLOSEADJ_PERMITTED == (
             "sentinel/regime/spy.py",
             "sentinel/feed/domains.py",
+            "sentinel/feed/sharadar.py",
             "sentinel/feed/staging.py",
             "sentinel/feed/store.py",
             "sentinel/feed/schema.py",
