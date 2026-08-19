@@ -1,78 +1,23 @@
-"""The chunk sort, moved out of the interpreter and into the database.
+"""Bounded-memory SEP staging and source-key reconciliation.
 
-## What this replaces
+The vendor does not promise row order, while split inference requires deterministic
+(session,ticker) order. PostgreSQL is therefore the external sorter. The table is
+UNLOGGED scratch: durable authority lives only in published corpus tables.
 
-```python
-def _sorted_sep(rows):
-    return sorted(rows, key=lambda r: (str(r["date"]), str(r["ticker"])))
-```
-
-`normalise_sep_rows` refuses an out-of-order stream, and it is right to: the
-split ratio is recovered from the previous observation of the same security, so
-unordered rows produce ratios against the wrong bar — silently, permanently, in
-the stored share counts. The vendor's HTTP API cursor-pages and promises no
-order, so the ordering has to be imposed somewhere.
-
-`sorted()` imposed it by keeping the entire chunk alive at once. A chunk is a
-calendar year of the whole universe: ~10,000 securities x ~252 sessions is ~2.5M
-vendor dicts, and dicts of that shape run 400-700 bytes each in CPython. That is
-1-2 GB for the list alone, against the 2g container ceiling in
-`docker-compose.sentinel.yml`, before a single bar is normalised.
-
-The old docstring said the sort was done "at the call site that can afford it —
-one chunk is a year, not a corpus". Both halves are true and the conclusion does
-not follow: a universe-scale year is exactly what could not be afforded.
-
-## Why a table rather than a smaller sort
-
-There is no in-process arrangement that fixes this. A merge sort over spill
-files is a database, written badly, in the trading process. Chunking finer
-changes the constant and not the shape, and it cannot go below a session without
-breaking the very ordering the sort exists to produce.
-
-PostgreSQL already sorts with bounded memory: above `work_mem` it switches to an
-external merge and spills to disk. The database is open, it is the thing that
-will hold the result anyway, and its sorter has the property the interpreter's
-does not.
-
-## UNLOGGED, and what that means when it crashes
-
-The table is scratch. Every row in it is a verbatim copy of something the vendor
-will serve again, so the recovery for losing it is to re-fetch the chunk — which
-is what a resumed ingest does regardless. WAL-logging 2.5M scratch rows a night
-to protect data that is cheaper to re-acquire than to replay is the wrong trade,
-and after an unclean shutdown PostgreSQL truncates unlogged tables, which is the
-correct disposition for a partial chunk rather than a hazard.
-
-Nothing durable is ever read from here. `sentinel_bars` is the corpus.
-
-## Keyed on the run, not just the chunk
-
-A crashed ingest leaves rows behind — `feed_ingest_runs` has a reclaim path
-because that happens. If the next run read them as its own it would splice two
-fetches into one ordered stream and derive ratios across the seam. So reads are
-scoped to `(run_id, chunk)`, and `stage` clears that scope before writing: a
-resumed chunk re-fetches, and appending would present every row twice, with the
-second copy deriving a 1.0 "no split" against the first.
+Full-year reconciliation also uses the staged source keys as the current vendor
+key set. Comparing them with the *published* local source projection (accepted
+bars plus active ingest rejections) detects upstream removals without keeping a
+multi-million-key Python set in memory. Additions are safe to continue through
+normal ingest. Removals are detected before any row from that reconciliation
+chunk is written; deleting an old published bar in place would violate corpus
+pinning/version semantics, so the caller fails closed instead.
 """
 from __future__ import annotations
 
 from typing import Iterable, Iterator, Optional
 
-#: The vendor fields carried across. Anything not here arrives as None on the
-#: far side, and None is a plausible value for every one of them — so this set
-#: is asserted against what `domains.normalise_sep_rows` actually reads, in
-#: tests/sentinel/test_ingest_memory.py. Add a key to the normaliser without a
-#: column here and that test fails rather than a corpus degrading.
-#:
-#: `closeadj` is carried only into the dedicated SPY regime table. Wealth Core
-#: still never receives it. `high`, `low` and `lastupdated` are read by nothing.
 CARRIED = frozenset({"ticker", "date", "open", "close", "closeunadj",
                      "closeadj", "volume"})
-
-#: Same size as `store.WRITE_BATCH`, and for the same reason: the point of
-#: staging is that no stage holds more than a batch, so the buffer here must be
-#: bounded exactly like the one on the way out.
 STAGE_BATCH = 5000
 
 _INSERT = """
@@ -83,14 +28,8 @@ _INSERT = """
 
 
 def stage(conn, rows: Iterable[dict], *, run_id: str, chunk: str) -> int:
-    """Stream vendor rows into scratch. Returns how many were written.
-
-    STREAMED, in batches, and that is the whole point — `rows` is consumed one
-    at a time and never materialised. A `list(rows)` anywhere in this function
-    would reintroduce exactly the resident chunk it exists to remove.
-    """
+    """Stream vendor rows into scratch; never materialise a universe-year."""
     clear(conn, run_id=run_id, chunk=chunk)
-
     buf: list = []
     written = 0
 
@@ -117,27 +56,12 @@ def stage(conn, rows: Iterable[dict], *, run_id: str, chunk: str) -> int:
 
 def staged(conn, *, run_id: str, chunk: str,
            batch: int = STAGE_BATCH) -> Iterator[dict]:
-    """Read the chunk back in (session, ticker) order, streaming.
-
-    A SERVER-SIDE cursor over an ORDER BY. PostgreSQL performs the sort with
-    bounded memory — an external merge above `work_mem` — and hands the result
-    back in batches, so neither side holds the chunk.
-
-    Dicts shaped like the vendor's, so `normalise_sep_rows` cannot tell the
-    difference and needs no second input path. `closeunadj` rather than
-    `close_unadjusted`: the normaliser accepts both spellings, the vendor sends
-    the first, and staging speaks the vendor's dialect so the two callers do not
-    diverge into two code paths through the same function.
-    """
+    """Read the chunk back ordered by (session,ticker), streaming."""
     from sentinel.feed.store import streaming_cursor
 
     sql = ("SELECT session, ticker, open, close, closeunadj, closeadj, volume"
            " FROM sentinel_sep_staging WHERE run_id = %s AND chunk = %s"
            " ORDER BY session, ticker")
-    # WITHHOLD, and it is not optional here. The consumer of this generator is
-    # `write_bars`, which commits every 5,000 bars — and a COMMIT destroys an
-    # ordinary portal, so the reader's own downstream closes the cursor partway
-    # through the chunk. See `store.streaming_cursor`.
     with streaming_cursor(conn, sql, (run_id, chunk), batch=batch,
                           withhold=True) as cur:
         for session, ticker, op, close, raw, closeadj, volume in cur:
@@ -147,14 +71,79 @@ def staged(conn, *, run_id: str, chunk: str,
                    "volume": _f(volume)}
 
 
-def clear(conn, *, run_id: str, chunk: Optional[str] = None) -> int:
-    """Drop a chunk's scratch — or a whole run's when `chunk` is None.
+def source_key_diff(conn, *, run_id: str, chunk: str,
+                    window_start: str, window_end: str,
+                    sample_limit: int = 20) -> dict:
+    """Compare one COMPLETE staged SEP window with prior published source keys.
 
-    Scratch that is never deleted is a second corpus, unversioned, growing by a
-    universe-year every night. Called after every chunk succeeds AND before
-    every chunk is written, so neither a crash nor a resume can leave rows that
-    a later read would treat as its own.
+    ``prior`` includes both rows that normalised into ``sentinel_bars`` and raw
+    source rows intentionally refused by the normaliser. This is the important
+    distinction from comparing only the strategy corpus: a NO_IDENTITY source
+    row is still a vendor key and its later disappearance is still a source
+    removal.
+
+    Candidate rows from this run are not authority and are excluded by the same
+    publication predicate readers use. Call this immediately after staging and
+    before writing the reconciliation chunk.
     """
+    if str(window_start) > str(window_end):
+        raise ValueError(f"reversed SEP reconciliation window: "
+                         f"{window_start} > {window_end}")
+    limit = max(1, int(sample_limit))
+    from sentinel.feed import publication
+
+    visible = publication.visible_predicate("b")
+    common = (
+        "WITH source_keys AS ("
+        " SELECT DISTINCT session,UPPER(ticker) AS ticker"
+        " FROM sentinel_sep_staging"
+        " WHERE run_id=%s AND chunk=%s), prior_keys AS ("
+        " SELECT b.session,UPPER(b.ticker) AS ticker FROM sentinel_bars b"
+        " WHERE b.session BETWEEN %s AND %s AND " + visible +
+        " UNION SELECT r.session,UPPER(r.ticker) AS ticker"
+        " FROM sentinel_active_ingest_rejections r"
+        " WHERE r.session BETWEEN %s AND %s), additions AS ("
+        " SELECT s.session,s.ticker FROM source_keys s"
+        " LEFT JOIN prior_keys p USING (session,ticker)"
+        " WHERE p.session IS NULL), removals AS ("
+        " SELECT p.session,p.ticker FROM prior_keys p"
+        " LEFT JOIN source_keys s USING (session,ticker)"
+        " WHERE s.session IS NULL) ")
+    params = (str(run_id), str(chunk), str(window_start), str(window_end),
+              str(window_start), str(window_end))
+    with conn.cursor() as cur:
+        cur.execute(common +
+                    "SELECT (SELECT COUNT(*) FROM source_keys),"
+                    " (SELECT COUNT(*) FROM prior_keys),"
+                    " (SELECT COUNT(*) FROM additions),"
+                    " (SELECT COUNT(*) FROM removals)", params)
+        source_rows, prior_rows, additions, removals = map(int, cur.fetchone())
+        cur.execute(common +
+                    "SELECT session,ticker FROM removals"
+                    " ORDER BY session,ticker LIMIT %s", params + (limit,))
+        removal_sample = [
+            {"session": str(session), "ticker": str(ticker)}
+            for session, ticker in cur.fetchall()
+        ]
+        cur.execute(common +
+                    "SELECT session,ticker FROM additions"
+                    " ORDER BY session,ticker LIMIT %s", params + (limit,))
+        addition_sample = [
+            {"session": str(session), "ticker": str(ticker)}
+            for session, ticker in cur.fetchall()
+        ]
+    return {
+        "source_keys": source_rows,
+        "prior_published_keys": prior_rows,
+        "additions": additions,
+        "removals": removals,
+        "addition_sample": addition_sample,
+        "removal_sample": removal_sample,
+    }
+
+
+def clear(conn, *, run_id: str, chunk: Optional[str] = None) -> int:
+    """Drop one scratch scope; a resumed chunk always re-fetches from source."""
     with conn.cursor() as cur:
         if chunk is None:
             cur.execute("DELETE FROM sentinel_sep_staging WHERE run_id = %s",
@@ -174,7 +163,8 @@ def _f(v) -> Optional[float]:
         f = float(v)
     except (TypeError, ValueError):
         return None
-    return f if f == f else None                      # NaN is absence
+    return f if f == f else None
 
 
-__all__ = ["CARRIED", "STAGE_BATCH", "clear", "stage", "staged"]
+__all__ = ["CARRIED", "STAGE_BATCH", "clear", "source_key_diff", "stage",
+           "staged"]
