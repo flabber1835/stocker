@@ -162,11 +162,13 @@ def _payload(row: Mapping, fields) -> bytes:
     values = {}
     for field in fields:
         if field == "relatedtickers":
-            # Wealth Core issuer grouping tokenises and sorts this field. A
-            # whitespace/comma formatting change with identical members is not
-            # a behavioral generation change.
-            values[field] = list(universe.parse_related_tickers(
-                row.get("relatedtickers")))
+            # Formatting and token order are not behavioral, but NULL versus an
+            # observed empty set is: NULL carries prior authority while blank
+            # clears old issuer siblings. Preserve that distinction in the
+            # source-generation fingerprint.
+            raw = row.get("relatedtickers")
+            values[field] = (None if raw is None else list(
+                universe.parse_related_tickers(raw)))
         else:
             values[field] = _canonical(row.get(field))
     return json.dumps(values, sort_keys=True, separators=(",", ":")).encode(
