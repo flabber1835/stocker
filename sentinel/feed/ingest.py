@@ -248,13 +248,17 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
                     "complete source contract can safely supersede it. Run the "
                     "supported complete `feed-seed` recovery.")
 
+        published_frontier = _impl.feed_store.latest_visible_session(conn)
         if not retry_daily_first:
             maintenance.reconcile_sep_mutations(
                 conn, fetch=fetch, through=yesterday)
+            # This is a proof of the PUBLISHED corpus, not a discovery pass for
+            # the leading edge. Asking the vendor through wall-clock today before
+            # daily ingest would make legitimate new rows look like local
+            # deletions/insertions. New sessions belong to `_daily_locked` below.
             sep_reconciliation.reconcile_next(
-                conn, fetch=fetch, through=resolved_today)
+                conn, fetch=fetch, through=published_frontier)
 
-        published_frontier = _impl.feed_store.latest_visible_session(conn)
         guarded = coherence.StableSharadarFetch(
             fetch, after_session=published_frontier)
         effective_overlap = recovery.extended_overlap_days(conn, overlap_days)
@@ -265,8 +269,12 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
 
         if retry_daily_first:
             _require_failed_owner_cleared(conn, context="daily retry")
+            # The retry has just established a new published frontier. Reconcile
+            # exactly that authority, never a wall-clock day the corpus does not
+            # yet contain.
+            published_frontier = _impl.feed_store.latest_visible_session(conn)
             sep_reconciliation.reconcile_next(
-                conn, fetch=fetch, through=resolved_today)
+                conn, fetch=fetch, through=published_frontier)
 
         maintenance.reconcile_sep_mutations(
             conn, fetch=fetch, through=today_date.isoformat())
