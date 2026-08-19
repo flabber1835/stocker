@@ -23,8 +23,12 @@ from app.wealth_core_replay import (  # noqa: E402
     split_ratio_from_domains,
 )
 
+# Runtime imports go through the financial-grade facade above. Source-level
+# strategy/domain guards deliberately inspect the retained implementation bytes:
+# the facade adds one semantic-epoch database check and does not own the replay
+# algorithm those guards are designed to constrain.
 MODULE = pathlib.Path(__file__).resolve().parents[2] / \
-    "services" / "backtester" / "app" / "wealth_core_replay.py"
+    "services" / "backtester" / "app" / "wealth_core_replay_impl.py"
 
 
 class FakeConn:
@@ -290,3 +294,8 @@ class TestTheBenchmarkIsSeparate:
     def test_the_image_carries_it(self):
         df = (MODULE.parents[2] / "bt-engine" / "Dockerfile").read_text()
         assert "services/backtester/app/wealth_core_benchmark.py ./app/live/" in df
+
+    def test_the_image_carries_both_replay_facade_and_retained_implementation(self):
+        df = (MODULE.parents[2] / "bt-engine" / "Dockerfile").read_text()
+        assert "services/backtester/app/wealth_core_replay.py ./app/live/" in df
+        assert "services/backtester/app/wealth_core_replay_impl.py ./app/live/" in df
