@@ -87,6 +87,15 @@ absent for a small tail. Fields that were complete in the retained TICKERS groun
 truth are required exactly; they do not share a generic 99% escape hatch that
 could hide one stale category behind thousands of healthy rows.
 
+For sparse fields, **NULL and empty are different authority states**. A true NULL
+means the current snapshot made no observation and the prior published non-null
+value may carry forward. An observed blank `relatedtickers` means the vendor is
+authoritatively reporting an empty issuer-sibling set; Sentinel persists it as an
+empty string so it can clear an older relationship. The stability fingerprint
+also distinguishes NULL from blank. `isdelisted` similarly preserves NULL rather
+than guessing `False`; real TICKERS snapshots are still held to their calibrated
+coverage floor before publication.
+
 A TICKERS snapshot is observed before the price traversal and corroborated only
 after a complete protected SEP observation. This deliberately brackets the
 cross-table join. A generation that changes listing bounds or strategy metadata
