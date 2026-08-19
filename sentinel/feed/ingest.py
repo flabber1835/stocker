@@ -40,8 +40,11 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
                 lambda params: str(params.get("date.lte") or "") == final_hi),
             after_session=None,
             seed_mode=True,
-            seed_resolve_identity=resolve_identity,
         )
+        # ``resolve_identity`` remains the established normalization test seam.
+        # Source completeness above is intentionally tied only to the stable
+        # TICKERS snapshot, so a caller cannot make a partial identity domain
+        # look complete by supplying an optimistic resolver callback.
         return _impl._seed_locked(
             conn, date_from=date_from, date_to=resolved_to,
             fetch=guarded, resolve_identity=resolve_identity)
