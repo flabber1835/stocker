@@ -96,7 +96,10 @@ version in place.
 
 ACTIONS has no equivalent documented mutation cursor. Sentinel performs a
 complete two-observation ACTIONS reconciliation every
-`SHARADAR_ACTIONS_RECONCILE_DAYS` days (default: 7). Full canonical source-row
+`SHARADAR_ACTIONS_RECONCILE_DAYS` days (default: 7). Acquisition itself is
+bounded to the same explicit `1900-01-01..through` window that the resulting
+candidate/publication claims; a future-dated row outside that authority boundary
+is never pulled into an otherwise narrower generation. Full canonical source-row
 identity detects additions, removals and corrections.
 
 The existing PRESENT/REMOVED candidate-generation machinery remains authoritative.
@@ -108,7 +111,9 @@ together. Terminal-only ACTIONS changes need no price re-normalization but still
 remain candidate state until publication.
 
 A suspicious empty source or material mass shrink is refused rather than
-interpreted as authoritative removal.
+interpreted as authoritative removal. The same rule applies during legacy full
+reseed: repeatability of an empty/collapsed source is not enough to authorize a
+mass deletion.
 
 ## Crash/restart rule
 
@@ -134,8 +139,11 @@ the supported recovery: run a complete `feed-seed`.
 `feed-seed` then:
 
 1. identifies every success-unpublished or still-live failed candidate;
-2. widens the replacement range to cover the oldest/newest destructive candidate
-   row;
+2. widens the **market-data** replacement range to cover the oldest/newest
+   candidate-owned SEP/SPY row; ACTIONS is independently covered by the complete
+   `1900-01-01..through` action contract, so a very old action cannot drag SEP
+   price-history validation into decades the retained market corpus does not
+   model;
 3. durably classifies those runs FAILED/ABORTED while leaving published history
    untouched;
 4. performs the ordinary double-observed seed source contract;
@@ -144,8 +152,8 @@ the supported recovery: run a complete `feed-seed`.
    already have been re-owned by the new run, a residual is authoritative
    source absence/non-normalizability, not a guessed deletion;
 6. only after the final cross-table stability proof retires residual old SPY /
-   legacy-ACTIONS candidate rows; TICKERS retirement remains part of the atomic
-   publication transaction;
+   legacy-ACTIONS candidate rows against their respective replacement scopes;
+   TICKERS retirement remains part of the atomic publication transaction;
 7. publishes one coherent replacement generation and re-establishes the CDC /
    complete-ACTIONS maintenance cursors.
 
