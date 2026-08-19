@@ -24,14 +24,17 @@ def test_existing_rows_are_not_blindly_grandfathered_into_new_volume_semantics()
         if "ADD COLUMN IF NOT EXISTS volume_domain_version" in line)
     assert "DEFAULT" not in column_stmt.upper()
     assert "sharadar-raw-volume-v1" not in column_stmt
+    assert "bt_price_volume_domain_state" in GUARD
+    assert "legacy populated corpus requires volume-domain migration" in GUARD
 
 
-def test_only_declared_post_fix_writer_can_stamp_rows():
+def test_only_declared_post_fix_writer_can_stamp_rows_and_old_writer_invalidates():
     assert "bt_stamp_price_volume_domain" in GUARD
     assert "BEFORE INSERT OR UPDATE OF volume, close, close_unadjusted" in GUARD
     assert "current_setting('application_name', true)" in GUARD
     assert "writer_name = 'bt-data-sharadar-raw-volume-v1'" in GUARD
     assert "ELSE NEW.volume_domain_version := NULL" in GUARD
+    assert "UPDATE bt_price_volume_domain_state SET proven=FALSE" in GUARD
 
     # The new binary injects application_name via asyncpg's documented
     # server_settings argument. It must NOT append it to BT_DATABASE_URL:
@@ -45,10 +48,10 @@ def test_only_declared_post_fix_writer_can_stamp_rows():
     assert "application_name=" not in CLIENT
 
 
-def test_unknown_domain_rows_have_a_bounded_certification_probe():
-    assert "idx_bt_prices_unknown_volume_domain" in GUARD
-    assert "WHERE volume_domain_version IS DISTINCT FROM 'sharadar-raw-volume-v1'" in GUARD
-    assert "ORDER BY date,ticker LIMIT 1" in ENGINE_GATE
+def test_runtime_gate_is_o1_singleton_not_lifetime_sized_legacy_index():
+    assert "idx_bt_prices_unknown_volume_domain" not in GUARD
+    assert "SELECT domain_version,proven,note FROM bt_price_volume_domain_state" in ENGINE_GATE
+    assert "await _require_price_volume_domain(conn)" in ENGINE_GATE
 
 
 def test_certification_gate_is_explicit_not_row_level_security():
@@ -58,8 +61,7 @@ def test_certification_gate_is_explicit_not_row_level_security():
     # generation check in bt-engine, not a table policy.
     assert "ROW LEVEL SECURITY" not in GUARD
     assert "_require_price_volume_domain" in ENGINE_GATE
-    assert "await _require_price_volume_domain(conn)" in ENGINE_GATE
-    assert "pre-#185/unknown volume-domain rows" in ENGINE_GATE
+    assert "not proven for this READY corpus" in ENGINE_GATE
 
 
 def test_supported_migration_rewrites_prices_and_benchmarks_before_ready():
@@ -69,9 +71,12 @@ def test_supported_migration_rewrites_prices_and_benchmarks_before_ready():
     assert "_run_price_stage(date_from, date_to, None, force=True)" in MIGRATION
     assert "_load_benchmarks(date_from, date_to)" in MIGRATION
     verify = MIGRATION.index("_remaining_unmarked()")
-    publish = MIGRATION.index("_publish_ready(", verify)
-    assert verify < publish
+    stage = MIGRATION.index("_stage_domain_proven", verify)
+    publish = MIGRATION.index("_publish_ready(", stage)
+    assert verify < stage < publish
     assert "volume_domain_version IS DISTINCT FROM :version" in MIGRATION
+    assert "proven=TRUE" in MIGRATION
+    assert "Commits both the semantic singleton and new READY data UUID together" in MIGRATION
 
 
 def test_interrupted_volume_migration_is_explicitly_resumable_only_by_itself():
