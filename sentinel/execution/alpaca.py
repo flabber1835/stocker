@@ -39,12 +39,9 @@ _STATUS = {
     "accepted_for_bidding": S.ACKNOWLEDGED,
     "held": S.ACKNOWLEDGED,
     "suspended": S.ACKNOWLEDGED,
-    # Still capable of producing a trade, so these remain blocking.
     "stopped": S.ACKNOWLEDGED,
     "calculated": S.ACKNOWLEDGED,
     "done_for_day": S.ACKNOWLEDGED,
-    # Sentinel never replaces orders.  These are anomalous external changes,
-    # but releasing the security would be more dangerous than blocking it.
     "pending_replace": S.ACKNOWLEDGED,
     "replaced": S.ACKNOWLEDGED,
     "partially_filled": S.PARTIALLY_FILLED,
@@ -74,6 +71,27 @@ class IncompleteBrokerPayload(MalformedBrokerPayload):
 
 class AlpacaCredentialsRefused(BrokerAuthorityRefused):
     """Alpaca rejected credentials/authority rather than order economics."""
+
+
+@dataclass(frozen=True)
+class RetryableCommandOutcome(CommandOutcome):
+    """UNKNOWN submit outcome that explicitly permits a guarded same-key retry.
+
+    This is deliberately structured state rather than a magic string in
+    ``detail``.  The generic recovery layer may branch on the field while the
+    human detail remains non-authoritative.
+    """
+
+    retry_after_seconds: Decimal = Decimal("1")
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.state is not S.UNKNOWN:
+            raise ValueError("retryable submit outcome must remain UNKNOWN")
+        if (not isinstance(self.retry_after_seconds, Decimal)
+                or not self.retry_after_seconds.is_finite()
+                or self.retry_after_seconds < 0):
+            raise ValueError("retry_after_seconds must be a finite non-negative Decimal")
 
 
 def is_anomalous_status(raw: str) -> bool:
@@ -130,6 +148,19 @@ def _dec(value, default: Optional[Decimal] = None) -> Optional[Decimal]:
         return Decimal(str(value))
     except (InvalidOperation, ValueError):
         return default
+
+
+def _retry_after_seconds(resp) -> Decimal:
+    raw = getattr(resp, "headers", {}).get("Retry-After")
+    if raw in (None, ""):
+        return Decimal("1")
+    try:
+        value = Decimal(str(raw))
+    except (InvalidOperation, ValueError):
+        return Decimal("1")
+    if not value.is_finite() or value < 0:
+        return Decimal("1")
+    return value
 
 
 @dataclass(frozen=True)
@@ -275,7 +306,6 @@ class AlpacaExecutionBroker(ExecutionBroker):
         if floor > upper:
             raise MalformedBrokerPayload(
                 "cash activity lower boundary is later than upper boundary")
-
         activities: list[BrokerCashActivity] = []
         seen_ids: set[str] = set()
         page_token: Optional[str] = None
@@ -303,7 +333,6 @@ class AlpacaExecutionBroker(ExecutionBroker):
                     activities=tuple(activities), processed_through=upper,
                     completeness=Completeness.COMPLETE,
                     last_activity_id=last_id)
-
             page_ids: list[str] = []
             for item in page:
                 if not isinstance(item, dict):
@@ -340,7 +369,6 @@ class AlpacaExecutionBroker(ExecutionBroker):
                 activities.append(BrokerCashActivity(
                     activity_id=activity_id, activity_type=activity_type,
                     activity_date=activity_date, net_amount=amount, raw=item))
-
             if len(page) < ACTIVITY_PAGE_SIZE:
                 return BrokerCashActivityBatch(
                     activities=tuple(activities), processed_through=upper,
@@ -353,7 +381,6 @@ class AlpacaExecutionBroker(ExecutionBroker):
                     completeness=Completeness.TRUNCATED,
                     last_activity_id=last_id)
             page_token = next_token
-
         log.warning(
             "sentinel: account-activity recovery hit the %d-page cap; "
             "reporting TRUNCATED", MAX_ACTIVITY_PAGES)
@@ -391,9 +418,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
             terminal_a, complete_terminal_a = await self._list_closed_orders(
                 floor=terminal_floor, through=recovery_through)
         orders, merged_a = _merge_order_sets(opened, terminal_a)
-
         positions = await self._list_positions()
-
         reopened, complete_open_b = await self._list_open_orders()
         terminal_b: list[BrokerOrder] = []
         complete_terminal_b = True
@@ -401,7 +426,6 @@ class AlpacaExecutionBroker(ExecutionBroker):
             terminal_b, complete_terminal_b = await self._list_closed_orders(
                 floor=terminal_floor, through=recovery_through)
         recheck, merged_b = _merge_order_sets(reopened, terminal_b)
-
         completeness = Completeness.COMPLETE
         if not (complete_open_a and complete_open_b
                 and complete_terminal_a and complete_terminal_b):
@@ -468,7 +492,6 @@ class AlpacaExecutionBroker(ExecutionBroker):
             raise MalformedBrokerPayload(
                 "terminal recovery floor is later than its captured upper "
                 "boundary")
-
         out: list[BrokerOrder] = []
         seen_ids: set[str] = set()
         before_order_id: Optional[str] = None
@@ -488,7 +511,6 @@ class AlpacaExecutionBroker(ExecutionBroker):
                     f"{PAGE_SIZE}")
             if not page:
                 return out, True
-
             page_ids: list[str] = []
             oldest: Optional[datetime] = None
             for item in page:
@@ -517,17 +539,14 @@ class AlpacaExecutionBroker(ExecutionBroker):
                 oldest = submitted
                 if floor <= submitted <= through:
                     out.append(self._to_order(item))
-
             if len(page) < PAGE_SIZE:
                 return out, True
-            # Equality is deliberately NOT enough; ties can span a page.
             if oldest is not None and oldest < floor:
                 return out, True
             next_cursor = page_ids[-1]
             if not next_cursor or next_cursor == before_order_id:
                 return out, False
             before_order_id = next_cursor
-
         log.warning(
             "sentinel: closed-order recovery hit the %d-page cap before "
             "crossing %s; reporting TRUNCATED",
@@ -555,8 +574,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
                     "positions response repeats permanent security "
                     f"{instrument.security_id}")
             seen_security_ids.add(instrument.security_id)
-            out.append(BrokerPosition(
-                instrument=instrument, quantity=qty))
+            out.append(BrokerPosition(instrument=instrument, quantity=qty))
         return out
 
     def _instrument(self, symbol: str, asset_id=None, *, as_of=None
@@ -620,12 +638,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
             self, payload, *, client_key: str,
             instrument: BrokerInstrument, side: Side,
             quantity: Decimal) -> BrokerOrder:
-        """A 2xx may acknowledge only the exact economics Sentinel sent.
-
-        Missing response fields leave acknowledgement UNKNOWN.  Fields that are
-        present but disagree with the durable request are contradictory broker
-        evidence and fail closed rather than being normalized away.
-        """
+        """A 2xx may acknowledge only the exact economics Sentinel sent."""
         if not isinstance(payload, dict):
             raise IncompleteBrokerPayload(
                 "successful submit response must be an order object")
@@ -642,7 +655,6 @@ class AlpacaExecutionBroker(ExecutionBroker):
             raise IncompleteBrokerPayload(
                 "successful submit response omitted acknowledgement fields: "
                 + ", ".join(missing))
-
         order = self._to_order(payload)
         if not order.broker_order_id:
             raise IncompleteBrokerPayload(
@@ -717,7 +729,12 @@ class AlpacaExecutionBroker(ExecutionBroker):
                 state=S.UNKNOWN, detail=f"{type(exc).__name__}: {exc}")
 
         if resp.status_code in (200, 201):
-            payload = resp.json()
+            try:
+                payload = resp.json()
+            except Exception as exc:  # noqa: BLE001
+                return CommandOutcome(
+                    state=S.UNKNOWN,
+                    detail=f"2xx response body unreadable: {type(exc).__name__}: {exc}")
             try:
                 order = self._validate_submit_response(
                     payload, client_key=client_key, instrument=instrument,
@@ -730,9 +747,6 @@ class AlpacaExecutionBroker(ExecutionBroker):
                     state=S.UNKNOWN,
                     broker_order_id=broker_order_id or None,
                     detail=f"incomplete 2xx acknowledgement: {exc}")
-            # A fast market order can already be partial/filled when POST
-            # returns. Receipt is ACKNOWLEDGED; cumulative fill truth is learned
-            # by the normal reconciliation path, which can retain the quantity.
             return CommandOutcome(
                 state=S.ACKNOWLEDGED,
                 broker_order_id=order.broker_order_id,
@@ -741,12 +755,16 @@ class AlpacaExecutionBroker(ExecutionBroker):
             raise AlpacaCredentialsRefused(
                 f"Alpaca submit authority refused with HTTP {resp.status_code}: "
                 f"{(resp.text or '')[:500]}")
-        if resp.status_code in (408, 429):
-            retry_after = getattr(resp, "headers", {}).get("Retry-After")
-            suffix = f"; Retry-After={retry_after}" if retry_after else ""
-            return CommandOutcome(
+        if resp.status_code == 429:
+            retry_after = _retry_after_seconds(resp)
+            return RetryableCommandOutcome(
                 state=S.UNKNOWN,
-                detail=f"HTTP {resp.status_code} transport ambiguity{suffix}")
+                retry_after_seconds=retry_after,
+                detail=(f"HTTP 429 rate limit; same-key retry eligible after "
+                        f"{retry_after}s"))
+        if resp.status_code == 408:
+            return CommandOutcome(
+                state=S.UNKNOWN, detail="HTTP 408 transport ambiguity")
         if resp.status_code == 422:
             text = (resp.text or "")[:500]
             if "client_order_id" in text or "duplicate" in text.lower():
