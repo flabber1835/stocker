@@ -6,6 +6,8 @@ ROOT = Path(__file__).resolve().parents[2]
 GUARD = (ROOT / "services" / "bt-data" / "sql" /
          "volume_domain_guard.sql").read_text()
 DOCKERFILE = (ROOT / "services" / "bt-data" / "Dockerfile").read_text()
+MIGRATION = (ROOT / "services" / "bt-data" / "app" /
+             "volume_domain_migration.py").read_text()
 ENGINE_GATE = (ROOT / "services" / "bt-engine" / "app" /
                "jobs_busy.py").read_text()
 
@@ -43,3 +45,23 @@ def test_certification_gate_is_explicit_not_row_level_security():
     assert "_require_price_volume_domain" in ENGINE_GATE
     assert "await _require_price_volume_domain(conn)" in ENGINE_GATE
     assert "pre-#185/unknown volume-domain rows" in ENGINE_GATE
+
+
+def test_supported_migration_rewrites_prices_and_benchmarks_before_ready():
+    # Old backfill_chunk markers describe the old economic contract and must not
+    # skip a single year. SFP benchmark rows live in bt_prices too, so SEP alone
+    # cannot earn the complete-domain proof.
+    assert "_run_price_stage(date_from, date_to, None, force=True)" in MIGRATION
+    assert "_load_benchmarks(date_from, date_to)" in MIGRATION
+    verify = MIGRATION.index("_remaining_unmarked()")
+    publish = MIGRATION.index("_publish_ready(", verify)
+    assert verify < publish
+    assert "volume_domain_version IS DISTINCT FROM :version" in MIGRATION
+
+
+def test_interrupted_volume_migration_is_explicitly_resumable_only_by_itself():
+    assert "NOTE_PREFIX = \"VOLUME_DOMAIN_MIGRATION:v1\"" in MIGRATION
+    assert "if row.status == \"PUBLISHING\"" in MIGRATION
+    assert "startswith(NOTE_PREFIX)" in MIGRATION
+    assert "PUBLISHING for a different operation" in MIGRATION
+    assert "Do not delete/grandfather" in MIGRATION
