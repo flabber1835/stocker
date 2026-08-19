@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
+import pytest
+
 from sentinel.feed import ingest, maintenance, recovery, reseed
 
 
@@ -154,8 +156,7 @@ class _Run:
         assert status == "success"
 
 
-def test_full_reseed_uses_complete_actions_scope_and_retires_bars_before_next_predecessor(
-        monkeypatch):
+def _full_reseed_fixture(monkeypatch, *, actions_rows):
     events = []
     action_requests = []
     final_scopes = []
@@ -170,6 +171,8 @@ def test_full_reseed_uses_complete_actions_scope_and_retires_bars_before_next_pr
     monkeypatch.setattr(reseed.feed_store, "write_actions", lambda *a, **k: 1)
     monkeypatch.setattr(
         reseed.feed_store, "write_spy_total_return", lambda *a, **k: 1)
+    monkeypatch.setattr(
+        maintenance, "_active_action_rows", lambda conn: {})
     monkeypatch.setattr(
         "sentinel.feed.ingest_impl._action_maps",
         lambda *a, **k: ({}, {}, [], []))
@@ -224,10 +227,22 @@ def test_full_reseed_uses_complete_actions_scope_and_retires_bars_before_next_pr
     def fetch(table, params=None):
         if table == reseed.sharadar.ACTIONS:
             action_requests.append(dict(params or {}))
-            return []
+            return list(actions_rows)
         if table == reseed.sharadar.SEP:
             return [params["date.gte"]]
         return []
+
+    return events, action_requests, final_scopes, fetch
+
+
+def test_full_reseed_uses_complete_actions_scope_and_retires_bars_before_next_predecessor(
+        monkeypatch):
+    action = {
+        "ticker": "AAA", "date": "2025-01-02", "action": "dividend",
+        "name": None, "value": 1.0, "contraticker": None, "contraname": None,
+    }
+    events, action_requests, final_scopes, fetch = _full_reseed_fixture(
+        monkeypatch, actions_rows=[action])
 
     reseed.full_reseed_locked(
         object(), date_from="2025-12-31", date_to="2026-01-02",
@@ -249,3 +264,19 @@ def test_full_reseed_uses_complete_actions_scope_and_retires_bars_before_next_pr
     assert final_scopes == [
         ("covered", expected_scope), ("retired", expected_scope)]
     assert events[-3:] == ["covered", "retire-nonbar", "publish"]
+
+
+def test_full_reseed_refuses_stably_empty_actions_before_any_bar_retirement(
+        monkeypatch):
+    events, _requests, _scopes, fetch = _full_reseed_fixture(
+        monkeypatch, actions_rows=[])
+
+    with pytest.raises(maintenance.SharadarMutationRefused,
+                       match="zero rows"):
+        reseed.full_reseed_locked(
+            object(), date_from="2025-12-31", date_to="2026-01-02",
+            fetch=fetch, resolve_identity=lambda ticker, session: ticker)
+
+    assert not any(isinstance(event, tuple) and event[0] == "retire"
+                   for event in events)
+    assert "publish" not in events
