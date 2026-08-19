@@ -289,7 +289,7 @@ class StableSharadarFetch(authority.StableSharadarFetch):
     def __init__(self, fetch, *, protect_sep=None,
                  corroborate_reference=None,
                  after_session: str | None = None,
-                 seed_mode: bool = False, seed_resolve_identity=None):
+                 seed_mode: bool = False):
         super().__init__(
             fetch, protect_sep=protect_sep, after_session=after_session)
         # A seed stabilizes every SEP chunk but keeps the reference-table first
@@ -297,7 +297,6 @@ class StableSharadarFetch(authority.StableSharadarFetch):
         # predicate for both jobs.
         self._corroborate_reference = corroborate_reference or self._protect_sep
         self._seed_mode = bool(seed_mode)
-        self._seed_resolve_identity = seed_resolve_identity
         self._seed_resolver = None
         self._tickers_first = None
         self._tickers_params = None
@@ -376,13 +375,10 @@ class StableSharadarFetch(authority.StableSharadarFetch):
         if not date_from or not date_to:
             raise SeedHistoryIncomplete(
                 "seed SEP validation requires explicit date.gte/date.lte")
-
-        resolver = self._seed_resolve_identity
-        if resolver is None:
-            if self._seed_resolver is None:
-                raise SeedHistoryIncomplete(
-                    "seed SEP identity validation has no stable TICKERS resolver")
-            resolver = self._seed_resolver.resolve
+        if self._seed_resolver is None:
+            raise SeedHistoryIncomplete(
+                "seed SEP identity validation has no stable TICKERS resolver")
+        resolver = self._seed_resolver.resolve
 
         spool = tempfile.TemporaryFile(mode="w+b")
         sessions: dict[str, SeedSessionCounts] = {}
