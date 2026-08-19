@@ -1,6 +1,6 @@
 """Financial-grade public facade for the retained canonical Wealth Core replay.
 
-The implementation bytes live in :mod:`app.wealth_core_replay_impl`.  This thin
+The implementation bytes live in :mod:`app.wealth_core_replay_impl`. This thin
 facade exists so an upgraded code image cannot silently reinterpret a pre-#185
 ``bt_prices.volume`` column as raw/as-traded shares merely because the numeric
 column name stayed the same.
@@ -24,7 +24,7 @@ from app import wealth_core_replay_impl as _impl
 PRICE_VOLUME_DOMAIN = "sharadar-raw-volume-v1"
 
 # Preserve the existing fixture/query discriminator ``COUNT(close_unadjusted)``
-# while adding the semantic epoch count.  Real SQLAlchemy mappings always expose
+# while adding the semantic epoch count. Real SQLAlchemy mappings always expose
 # n_legacy; small unit-test fake rows written before this guard may omit the new
 # additive field and therefore default it to zero without weakening production.
 _COVERAGE_WITH_VOLUME_DOMAIN_SQL = text("""
@@ -88,12 +88,18 @@ def assert_raw_price_domain(conn, start: str, end: str) -> float:
 # semantic boundary without modifying the retained implementation bytes.
 _impl.assert_raw_price_domain = assert_raw_price_domain
 
-# Re-export the established public surface. __all__ itself is retained below so
-# callers and source-layout tests see the same API names.
-for _name in _impl.__all__:
-    globals()[_name] = getattr(_impl, _name)
+# Compatibility matters beyond __all__: existing tests/diagnostics import
+# constants such as MIN_RAW_CLOSE_COVERAGE and some focused regressions inspect
+# private SQL helpers. The old module exposed every imported/defined module
+# attribute naturally, so mirror that surface rather than narrowing it as an
+# accidental side effect of adding this facade. The patched assertion is already
+# installed on _impl, so this copy retains the new gate.
+for _name in dir(_impl):
+    if not _name.startswith("__"):
+        globals()[_name] = getattr(_impl, _name)
 
-# The re-export loop imports the patched function from _impl, so this name still
-# points at the facade's implementation.
+# These two names belong to the facade, not the retained implementation.
+globals()["PRICE_VOLUME_DOMAIN"] = PRICE_VOLUME_DOMAIN
+globals()["_COVERAGE_WITH_VOLUME_DOMAIN_SQL"] = _COVERAGE_WITH_VOLUME_DOMAIN_SQL
 assert_raw_price_domain = _impl.assert_raw_price_domain
 __all__ = list(_impl.__all__)
