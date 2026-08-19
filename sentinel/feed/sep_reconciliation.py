@@ -5,12 +5,18 @@ record disappeared entirely.  A financial-grade current-source membrane needs
 an independent complete-source check for that negative space.
 
 A full 28-year double traversal every evening is unnecessary and operationally
-hostile.  Instead this module reconciles exactly one calendar-year partition per
-normal maintenance run.  Each partition is observed twice through the existing
-Sharadar stability membrane, normalized through the SAME identity/raw-price
-path as ingest, and compared to the published local key set.  The rotation
-covers the complete stored history approximately once per month at one year per
-trading day; ``SHARADAR_SEP_RECONCILE_YEARS_PER_RUN`` can increase that rate.
+hostile.  Instead normal maintenance reconciles one calendar-year partition per
+run.  Each partition is observed twice through the existing Sharadar stability
+membrane, normalized through the SAME identity/raw-price path as ingest, and
+compared to the published local key set.  The rotation covers the complete
+stored history approximately once per month at one year per trading day;
+``SHARADAR_SEP_RECONCILE_YEARS_PER_RUN`` can increase that rate.
+
+``reconcile_all`` is the stronger launch/certification gate: it walks every
+published historical partition in one invocation.  That is intentionally not
+part of nightly operation; it exists so a new deployment or paper-observation
+period need not wait a month to learn that an old vendor deletion/key drift was
+already present before day one.
 
 The check is DETECT-AND-REFUSE, not repair-by-guessing.  A missing or new
 normalized key means the current corpus and current vendor source disagree about
@@ -226,6 +232,40 @@ def _save_result(conn, result: ReconciliationResult, *, checked_on: dt.date) -> 
     conn.commit()
 
 
+def _bounded_years(lo: dt.date, hi: dt.date, checked_on: dt.date):
+    """Yield every published year partition, clipped to the source day."""
+    effective_hi = min(hi, checked_on)
+    if lo > effective_hi:
+        return
+    for year in range(lo.year, effective_hi.year + 1):
+        start = max(lo, dt.date(year, 1, 1))
+        end = min(effective_hi, dt.date(year, 12, 31))
+        if start <= end:
+            yield year, start, end
+
+
+def reconcile_all(conn, *, fetch=sharadar.fetch_table,
+                  through: str) -> list[ReconciliationResult]:
+    """Prove every currently published SEP year partition against stable source.
+
+    Intended for launch/certification, not nightly automation. Results are saved
+    incrementally only AFTER each partition passes. If year N fails, no later
+    year is claimed checked and the normal rotation resumes at N on the next
+    maintenance run.
+    """
+    store._assert_corpus_locked(conn)
+    checked_on = dt.date.fromisoformat(str(through))
+    lo, hi = _visible_bounds(conn)
+    results: list[ReconciliationResult] = []
+    for year, start, end in _bounded_years(lo, hi, checked_on):
+        result = reconcile_year(
+            conn, fetch=fetch, year=year,
+            start=start.isoformat(), end=end.isoformat())
+        _save_result(conn, result, checked_on=checked_on)
+        results.append(result)
+    return results
+
+
 def reconcile_next(conn, *, fetch=sharadar.fetch_table,
                    through: str) -> list[ReconciliationResult]:
     """Advance the rolling complete-key-set proof by configured year partitions."""
@@ -250,6 +290,6 @@ def reconcile_next(conn, *, fetch=sharadar.fetch_table,
 
 __all__ = [
     "CURSOR_NAME", "ReconciliationResult", "SepKeysetDrift",
-    "SepReconciliationStateInvalid", "YEARS_PER_RUN", "reconcile_next",
-    "reconcile_year",
+    "SepReconciliationStateInvalid", "YEARS_PER_RUN", "reconcile_all",
+    "reconcile_next", "reconcile_year",
 ]
