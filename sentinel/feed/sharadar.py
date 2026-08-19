@@ -40,14 +40,25 @@ SFP = "SFP"
 ACTIONS = "ACTIONS"
 TICKERS = "TICKERS"
 
-# Minimal columns consumed by Sentinel.  A page may contain more columns, but
-# silently losing one of these turns a malformed 200 into plausible market data.
+# Columns that establish the source domains Sentinel actually consumes.  A page
+# may contain more, but silently losing any of these turns a malformed HTTP 200
+# into plausible market/reference data.  Requiring the full consumed ACTIONS
+# and TICKERS shapes is intentional: a missing nullable field is protocol loss,
+# not the same thing as that field being present with a NULL value.
 _REQUIRED_COLUMNS = {
-    SEP: frozenset({"ticker", "date", "open", "close", "closeunadj",
-                    "volume", "lastupdated"}),
-    SFP: frozenset({"ticker", "date", "close"}),
-    ACTIONS: frozenset({"ticker", "date", "action", "value"}),
-    TICKERS: frozenset({"ticker", "permaticker", "table"}),
+    SEP: frozenset({
+        "ticker", "date", "open", "close", "closeunadj", "volume",
+        "lastupdated",
+    }),
+    SFP: frozenset({"ticker", "date", "closeadj"}),
+    ACTIONS: frozenset({
+        "date", "action", "ticker", "name", "value", "contraticker",
+        "contraname",
+    }),
+    TICKERS: frozenset({
+        "table", "permaticker", "ticker", "category", "relatedtickers",
+        "firstpricedate", "lastpricedate", "sector", "isdelisted", "exchange",
+    }),
 }
 _RESERVED_PARAMS = frozenset({"api_key", "qopts.cursor_id"})
 _MAX_CURSOR_LENGTH = 4096
@@ -280,6 +291,10 @@ def _fetch_ndl_table(table: str, params: Mapping[str, str] | None = None, *,
                      http=None, sleep=time.sleep,
                      now: Callable[[], datetime] | None = None) -> Iterator[dict]:
     validate_config()
+    if table not in _REQUIRED_COLUMNS:
+        raise ValueError(
+            f"unsupported Sharadar table {table!r}; provider boundary permits "
+            f"only {sorted(_REQUIRED_COLUMNS)}")
     supplied = _validated_params(params)
     key = _api_key()
     if http is None:
@@ -305,7 +320,7 @@ def _fetch_ndl_table(table: str, params: Mapping[str, str] | None = None, *,
             pages += 1
             try:
                 payload = resp.json()
-            except Exception as exc:      # a malformed 200 is a protocol failure
+            except Exception as exc:
                 raise SharadarProtocolError(
                     f"{table}: HTTP 200 body is not valid JSON ({type(exc).__name__})") \
                     from None
