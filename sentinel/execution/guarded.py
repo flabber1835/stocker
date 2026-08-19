@@ -203,6 +203,14 @@ class GuardedExecutionBroker(ExecutionBroker):
     def guard(self) -> ExecutionBrokerGuard:
         return self._guard
 
+    @property
+    def supports_market_clock(self) -> bool:
+        return callable(getattr(self._inner, "market_clock", None))
+
+    @property
+    def supports_account_cash_activities(self) -> bool:
+        return callable(getattr(self._inner, "account_cash_activities", None))
+
     async def _read(self, operation: BrokerOperation, call):
         try:
             await self._guard.before_read(self._grant, operation)
@@ -253,6 +261,9 @@ class GuardedExecutionBroker(ExecutionBroker):
         return await self._read(BrokerOperation.RESOLVE_INSTRUMENT, read)
 
     async def market_clock(self):
+        if not self.supports_market_clock:
+            raise AttributeError("execution broker does not expose a market clock")
+
         async def read():
             return await self._inner.market_clock()
 
@@ -260,6 +271,10 @@ class GuardedExecutionBroker(ExecutionBroker):
 
     async def account_cash_activities(self, *, after: datetime,
                                       through: datetime):
+        if not self.supports_account_cash_activities:
+            raise AttributeError(
+                "execution broker does not expose account cash activities")
+
         async def read():
             return await self._inner.account_cash_activities(
                 after=after, through=through)
@@ -296,6 +311,28 @@ class GuardedExecutionBroker(ExecutionBroker):
             raise PreTransportAuthorityRefused(
                 "preparation grant is read-only; submit refused before "
                 "transport")
+
+        # XNYS remains the outer execution authority.  For increases, the
+        # production Alpaca adapter contributes one final independent witness:
+        # its market clock.  This is intentionally BEFORE the mutation-authority
+        # callback so that callback can still return immediately into POST with
+        # no intervening await.  A clock failure is known-before-transport and
+        # therefore must never be translated to UNKNOWN.
+        if side is Side.BUY and self.supports_market_clock:
+            try:
+                clock = await self.market_clock()
+            except BrokerAuthorityRefused as exc:
+                raise PreTransportAuthorityRefused(
+                    f"broker clock authority unavailable before increase: {exc}") from exc
+            except Exception as exc:                          # noqa: BLE001
+                raise PreTransportAuthorityRefused(
+                    "broker clock unavailable before increase: "
+                    f"{type(exc).__name__}: {exc}") from exc
+            if getattr(clock, "is_open", None) is not True:
+                raise PreTransportAuthorityRefused(
+                    "broker clock reports market closed; increase refused "
+                    "before transport")
+
         await self._authorize_mutation(BrokerOperation.SUBMIT)
         return await self._inner.submit(
             client_key=client_key, instrument=instrument,
