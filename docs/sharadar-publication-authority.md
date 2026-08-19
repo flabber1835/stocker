@@ -1,140 +1,198 @@
 # Sharadar publication authority
 
-**Status: design settled for issue #178, 2026-08-18.** This document is the
-source-of-truth for the source-publication boundary implemented by
-`sentinel/feed/authority.py` plus `sentinel/feed/coherence.py`. It supplements
-the price-domain and corpus publication rules in `docs/sentinel-deployment.md`
-and `docs/sentinel-execution-contract.md`; it does not weaken any of them.
+**Status: financial-grade source-authority follow-up to #177/#178/#186,
+2026-08-19.** This document is the source-of-truth for the source-publication
+boundary implemented by `sentinel/feed/authority.py`,
+`sentinel/feed/coherence.py`, `sentinel/feed/snapshot_source.py`, and
+`sentinel/feed/snapshot_export.py`. It supplements the price-domain and local
+corpus-publication rules; it does not weaken any of them.
 
-## 1. Transport success is not publication authority
+## 1. Stability is not completeness
 
 A successful Nasdaq Data Link Tables traversal proves only that the HTTP
-requests completed. The documented Tables API pagination contract says to follow
-`qopts.cursor_id` / `next_cursor_id` until there is no next cursor. The public
-Tables documentation does **not** expose a generation identifier, snapshot token,
-or isolation guarantee binding all cursor pages to one immutable table image.
-Bulk export metadata has snapshot timestamps; cursor pagination does not expose
-an equivalent authority token.
+requests completed. Cursor pagination exposes no immutable generation token or
+snapshot-isolation identifier binding all pages. Repeating a complete traversal
+and obtaining the same multiplicity-sensitive content fingerprint is therefore
+valuable **stability evidence**, but two identical partial traversals are still
+partial.
 
-Sentinel therefore does not infer snapshot consistency from pagination. For
-every source table whose rows can change a published corpus generation it takes
-two complete observations and requires an order-independent, multiplicity-
-sensitive content fingerprint to agree before publication may succeed.
+The official Tables Exporter provides a stronger negative-space witness for the
+small set of tables where an omitted row is itself economically authoritative.
+With `qopts.export=true`, Nasdaq generates the requested table/filter as one
+zipped CSV. The status response exposes:
 
-Official documentation consulted for this decision:
+```text
+file.status              Fresh / Creating / Regenerating
+file.data_snapshot_time  when file creation began
+datatable.last_refreshed_time
+                         when the table was last updated
+```
+
+Sentinel accepts an export as current only when `status == Fresh` and
+`data_snapshot_time >= last_refreshed_time`. A credential-bearing download link
+is transport-only and is never persisted or rendered in an exception.
+
+Official documentation consulted:
 
 - `https://docs.data.nasdaq.com/docs/in-depth-usage-1`
 - `https://docs.data.nasdaq.com/v1.0/docs/parameters-1`
+- Nasdaq's public `data-link-python` client (`export_table`)
 
-The check is application-level on purpose. If Nasdaq later documents and exposes
-an immutable generation token, replacing the double-observation rule requires a
-separate design change and a falsifier proving the token covers every page and
-every table Sentinel joins.
+The Exporter is deliberately not used for every value read. JSON pagination
+preserves nullable-field semantics that CSV cannot, and SEP is too large to
+export every evening. The authority model therefore combines independent
+witnesses rather than pretending one transport shape is ideal for every table.
 
-## 2. The four Sharadar inputs and their authority fields
+## 2. SEP authority
 
-The stability fingerprint covers every field that can change current Sentinel or
-Wealth Core behavior, plus persisted reference fields whose future consumption
-must not bypass the authority boundary. Formatting-only or display-only vendor
-fields do not get to create false publication churn.
-
-### SEP
+Strategy-bearing SEP fields are:
 
 ```text
 date             session identity
-ticker           symbol used for permanent-identity resolution
+ticker           permanent-identity lookup label
 close            split-adjusted, dividend-unadjusted signal domain
 closeunadj       as-traded close / marking domain
-open             split-adjusted open used to reconstruct the as-traded open
-volume           ADV/liquidity domain
+open             adjusted open used to reconstruct as-traded open
+volume           Sharadar split-adjusted source volume; normalized at boundary
+lastupdated      current-source mutation clock
 ```
 
-`closeadj` is deliberately excluded from security-level SEP authority because
-Wealth Core is forbidden to consume the total-return domain. The separately
-scoped SPY regime path is SFP, below.
+`closeadj` is deliberately excluded from security-level Wealth Core authority;
+SPY's total-return series is separately scoped through SFP.
 
-### TICKERS
+### Daily negative-space proof
+
+The #177 two-observation SEP fingerprint remains mandatory, but it is no longer
+allowed to prove population completeness by itself. For every newly exposed
+session, Sentinel takes the **same stable table=SEP TICKERS listing intervals**
+and asks which ticker identities are supposed to be priced on that date. SEP
+must contain at least **99.9%** of those expected keys.
+
+This is not yesterday-population comparison and it is not portfolio
+investability. A legitimate mass delisting contracts TICKERS and SEP together
+and passes. A stable 80%-95% partial SEP publication does not.
+
+Retained 2026 calibration through 2026-08-03:
 
 ```text
-table            identifies which Sharadar product row the metadata describes
-permaticker      permanent security identity
-ticker           session-facing symbol / ticker-reuse boundary
-category         certified Wealth Core eligibility input
-relatedtickers   issuer-family grouping input; blank is legitimate evidence
-firstpricedate   listing-window lower bound / history-age provenance
-lastpricedate    listing-window upper bound / ticker-reuse disambiguation
-sector           Sentinel breadth-sector input; sparse values are legitimate
-isdelisted       retained listing-state evidence; terminal authority remains ACTIONS
+sessions measured                                      146
+2026-07-31 SEP population                            6,256
+2026-08-03 SEP population                            5,924
+TICKERS-predicted 2026-08-03 population             5,924
+worst legitimate expected-key coverage       6,223 / 6,226
+                                             = 99.9518%
+implemented daily floor                               99.9%
 ```
 
-Sentinel's strategy universe is explicitly the **`table=SEP` TICKERS partition**.
-The vendor table also contains SF1/SF2/SFP metadata, and the same
-`(permaticker,ticker)` can occur in more than one product with different category
-or classification values. Those non-SEP rows are not strategy authority: they
-are excluded before the TICKERS stability fingerprint reaches the ingest, and
-`write_universe` repeats the partition check defensively so source row order can
-never decide Wealth Core eligibility.
+The three-name worst tail leaves deliberate room for observed source sparsity
+without turning an incomplete page-scale response into authority.
 
-The fingerprint covers every persisted field of the SEP TICKERS partition.
-`category`, `relatedtickers`, the listing bounds, permanent identity and `sector`
-can affect current production decisions. `isdelisted` is retained evidence but
-does not replace ACTIONS terminal state. Fields such as `name`, CUSIP, FIGI,
-company site, and SEC filing URL are not persisted into Sentinel's strategy
-metadata and are not authority-bearing.
+Frontier-session signal close, raw close, reconstructable raw open, and volume
+are still checked independently. A healthy 126-session history cannot dilute a
+broken current decision session into PASS.
 
-`exchange` deserves an explicit note because the shared Wealth Core type supports
-exchange gating. Sentinel's current production loader does **not** populate
-`SecurityMeta.exchange` and therefore leaves `exchange_authoritative=False`; the
-field cannot change current Sentinel behavior. Enabling authoritative exchange
-filtering later requires adding `exchange` to this source contract and its
-stability tests before the behavior is activated.
+## 3. TICKERS authority
 
-Blank `relatedtickers` is not "missing metadata": most securities have no issuer
-siblings, so it has no non-null coverage floor. `sector` is also legitimately
-absent for a small tail. Fields that were complete in the retained TICKERS ground
-truth are required exactly; they do not share a generic 99% escape hatch that
-could hide one stale category behind thousands of healthy rows.
+Sentinel's strategy universe is explicitly the `table=SEP` TICKERS partition.
+Authority-bearing fields are:
 
-For sparse fields, **NULL and empty are different authority states**. A true NULL
-means the current snapshot made no observation and the prior published non-null
-value may carry forward. An observed blank `relatedtickers` means the vendor is
-authoritatively reporting an empty issuer-sibling set; Sentinel persists it as an
-empty string so it can clear an older relationship. The stability fingerprint
-also distinguishes NULL from blank. `isdelisted` similarly preserves NULL rather
-than guessing `False`; real TICKERS snapshots are still held to their calibrated
-coverage floor before publication.
+```text
+table
+permaticker
+ticker
+category
+relatedtickers
+firstpricedate
+lastpricedate
+sector
+isdelisted
+```
 
-A TICKERS snapshot is observed before the price traversal and corroborated only
-after a complete protected SEP observation. This deliberately brackets the
-cross-table join. A generation that changes listing bounds or strategy metadata
-while SEP is being read is refused rather than publishing a mixture.
+`exchange` remains non-authoritative in current Sentinel behavior; enabling
+exchange gating later requires adding it to the behavioral contract first.
 
-### ACTIONS
+### Values: paginated JSON
 
-The complete canonical seven-field ACTIONS source identity is authority:
+TICKERS metadata values remain sourced from the strict paginated JSON response.
+That preserves a critical distinction:
+
+- a real NULL means no new observation and may carry a prior non-null sparse
+  field forward;
+- an observed blank `relatedtickers` is authoritative evidence that the sibling
+  set is empty and may clear a prior relationship.
+
+Two complete TICKERS observations bracket the protected SEP read and must have
+the same behavioral fingerprint.
+
+### Keys: independent whole-table export
+
+Every production TICKERS traversal additionally compares its complete
+`(permaticker, ticker)` set for `table=SEP` with a fresh whole-table Exporter
+snapshot. The key sets must match exactly. This prevents paginated TICKERS and
+paginated SEP from common-mode false-greening on the same stable truncation.
+
+### Historical identity corrections
+
+`sentinel_bars` is keyed by `(security_id, session)`. Updating only
+`feed_universe_current` cannot safely apply a later TICKERS correction that
+changes an already-published listing interval: the old bar key may remain
+visible under a resolver that no longer names it.
+
+Therefore a complete TICKERS candidate is allowed to:
+
+- extend an active listing only **beyond** the published frontier; and
+- introduce a genuinely new listing whose first session is beyond that frontier.
+
+It is refused before publication if it would, inside already-published SEP
+history:
+
+- narrow or widen a prior listing interval;
+- introduce a new `(permaticker,ticker)` pair; or
+- omit a previously published pair whose interval overlaps published history.
+
+This is intentionally fail-closed rather than repair-by-guessing. A real vendor
+historical identity correction requires a complete identity-aware rebuild that
+can re-key/tombstone the affected bars atomically. Until that repair exists, the
+previous published corpus remains readable and new operation stays fenced.
+
+## 4. ACTIONS authority
+
+The complete canonical seven-field source row is authority:
 
 ```text
 date, action, ticker, name, value, contraticker, contraname
 ```
 
-No coarser economic key is substituted at the source boundary. Normalization and
-economic coalescing happen after source identity is preserved.
+No coarser `(ticker,date,action)` key replaces source identity. Exact semantic
+repeats are idempotent; distinct sibling rows remain distinct.
 
-For a **daily** ingest there is one protected SEP window. Sentinel takes the
-first TICKERS/ACTIONS/SFP observations, performs **both** complete SEP traversals
-and proves their fingerprints agree, then takes the second TICKERS/ACTIONS/SFP
-observations before any protected SEP row is replayed. Thus the reference
-sources bracket the exact SEP snapshot that can reach the ingest.
+Ordinary daily ACTIONS pagination still participates in the TICKERS/ACTIONS/SFP
+bracket around SEP so new splits/dividends can normalize the candidate prices.
+It **does not** earn negative-space/removal authority.
 
-A **multi-year seed** is different only in duration: each yearly SEP chunk gets
-its own two-complete-observation stability proof, while the first TICKERS,
-ACTIONS and SFP observations remain pending across all years. After the final
-SEP chunk has completed both agreeing traversals, all three reference sources
-are corroborated. Only then can the final chunk replay. This brackets the full
-seed cross-table join rather than proving ACTIONS after year one and then
-allowing later SEP years to arrive under a different vendor action generation.
+Complete ACTIONS reconciliation now uses a fresh filtered Tables Exporter
+snapshot for `1900-01-01..decision_frontier`. A new v2 cursor is deliberately
+separate from the pre-fix double-pagination cursor so an upgraded database must
+earn the stronger authority before readiness can pass.
 
-### SFP / SPY regime
+The default reconciliation cadence is one decision day. The cursor must cover
+the published decision frontier itself. This does not invalidate a Friday-close
+plan at Monday open: its frozen decision frontier is still Friday. Once Monday's
+close becomes the published decision frontier, Monday-complete ACTIONS authority
+is required.
+
+A changed split/dividend source row is written as candidate ACTIONS state and its
+prior/effective/following SEP window is re-normalized against that candidate.
+One corpus publication activates both the corporate-action generation and the
+corrected bar economics. Terminal-only changes require no price rewrite but
+remain candidate state until publication.
+
+A suspicious zero-row export or material mass shrink still refuses rather than
+turning an upstream outage into mass authoritative removals.
+
+## 5. SFP / SPY regime authority
+
+SFP authority for the current Sentinel regime path is intentionally narrow:
 
 ```text
 date
@@ -142,15 +200,14 @@ ticker
 closeadj
 ```
 
-This is the one named total-return path required by the frozen Sentinel regime
-rule. Its first observation is also bracketed across protected SEP before it is
-accepted as one publication generation.
+SFP is observed before protected SEP and corroborated after it. Readiness
+requires the exact expected 41-session SPY total-return tail; a generic healthy
+price population cannot substitute for the benchmark evidence.
 
-## 3. Historical seed completeness is stricter than daily anomaly readiness
+## 6. Historical seed completeness
 
-A one-time seed creates the foundation later daily generations inherit. It may
-not publish merely because aggregate rows look plausible. Every seed SEP chunk
-is checked session-by-session before its rows are allowed into the ingest:
+A one-time seed creates the foundation later daily generations inherit. Every
+SEP year chunk is checked session-by-session before replay:
 
 ```text
 expected exchange session present                 required
@@ -163,117 +220,43 @@ reconstructable raw open                          >= 99%
 volume field present                              >= 98%
 ```
 
-The population tests have two jobs. Exchange-session continuity catches a whole
-missing session. The absolute floor catches a uniformly truncated traversal that
-a relative test cannot see. The local-median rule catches a session-local page
-loss without assuming the market has a constant number of listed securities.
+The retained 1998-01-02 through 2026-08-03 calibration found worst legitimate
+values of 99.9516% identity resolution, 99.9829% raw-close coverage, 98.7660%
+volume-field coverage, 94.1289% local population/median, and 5,310 rows at the
+historical absolute minimum. The thresholds are below measured legitimate
+sparsity; they are not derived from the production incident.
 
-These are source-completeness guards, not investability rules. Zero volume is an
-observed liquidity fact and counts as a present volume field; a security may be
-ineligible later without making the vendor publication incomplete.
+The retained TICKERS snapshot contained 21,939 `table=SEP` rows. `permaticker`,
+`category`, both listing bounds, and `isdelisted` were complete; ticker coverage
+was 99.9954% and sector 99.4120%. `relatedtickers` is legitimately sparse and is
+fingerprinted by semantic value rather than subjected to a non-null floor.
 
-## 4. Calibration against the retained Sharadar ground truth
+## 7. Refusal and retry semantics
 
-The thresholds above were measured before implementation against the retained
-bulk Sharadar SEP/TICKERS files, not chosen from the observed production outage.
-The SEP calibration covered **7,189 exchange sessions from 1998-01-02 through
-2026-08-03**. Identity was resolved against the TICKERS `table=SEP` listing
-intervals.
+Source instability, Exporter incompleteness, TICKERS key disagreement,
+SEP/TICKERS population disagreement, historical identity mutation, seed
+incompleteness, and frontier-domain incompleteness are **data-authority
+refusals**.
 
-Observed worst SEP session values:
+- No failed candidate publishes.
+- Readers continue seeing the prior published generation.
+- Active automation remains/re-enters `RETRY_WAIT` for refresh.
+- A deployed-but-fenced runtime remains disabled/killed with
+  `DATA_NOT_READY`; data becoming ready cannot release broker authority by
+  itself.
+- Durable signed authority, schema, account identity, or configuration
+  contradictions remain a separate nonretryable class.
 
-```text
-identity resolution                      99.9516%
-raw close                                99.9829%
-signal close                            100.0000%
-reconstructable raw open                100.0000%
-volume field present                     98.7660%
-local population / 20-neighbour median   94.1289%
-absolute session population                 5,310   (historical minimum)
-```
-
-The retained TICKERS bulk snapshot contained 21,939 `table=SEP` rows. Its field
-coverage was:
+## 8. Invariants retained
 
 ```text
-permaticker                            100.0000%
-category                               100.0000%
-firstpricedate                         100.0000%
-lastpricedate                          100.0000%
-isdelisted                             100.0000%
-ticker                                  99.9954%   (one blank row)
-sector                                  99.4120%
-relatedtickers                          58.1749%   (blank is legitimate semantics)
-```
-
-Accordingly, the exact fields above are required at 100%, ticker at 99.99%, and
-sector at 99%. `relatedtickers` is fingerprinted but has no non-null floor.
-This is the deliberate distinction between sparse semantics and a partial source
-publication.
-
-The 90% local-population threshold leaves more than four percentage points below
-the worst legitimate contraction in the retained corpus, including the
-2026-08-03 contraction that motivated the earlier daily-population review. The
-4,000-row absolute floor is about 25% below the historical minimum. The 99%
-identity/raw floors are materially below observed legitimate sparsity while still
-rejecting a page-scale or cross-section-scale collapse. The 98% volume floor is
-below the 98.766% historical low rather than incorrectly treating the known
-2024/2025 zero/missing-volume tail as corruption.
-
-A future clean corpus that violates one of these bounds is a reason to inspect
-and deliberately recalibrate the contract, not a reason for runtime code to
-silently lower the threshold.
-
-## 5. TICKERS listing-window corrections may narrow
-
-Sentinel must not assume `firstpricedate` can only move earlier or
-`lastpricedate` can only move later. The vendor fields are reference-data
-observations, not monotonic counters, and no immutable vendor guarantee was found
-that corrections can only widen an interval.
-
-Raw dated TICKERS snapshots remain append-only evidence. The derived
-`feed_universe_current` projection carries the **latest non-null observed bound**
-for each `(permaticker, ticker)` pair. A later authoritative snapshot may move
-`firstpricedate` later or `lastpricedate` earlier. Null in a later sparse
-snapshot means "no new observation" and carries the previous non-null value; it
-does not erase a bound. Candidate identity resolution uses the same precedence
-before publication, so the ingest validates bars against the exact interval it
-would publish.
-
-This replaces the old `MIN(firstpricedate)` / `MAX(lastpricedate)` envelope,
-which made every historical widening permanent and could assign a reused ticker
-to a security outside the vendor's corrected listing interval.
-
-## 6. Refusal and retry semantics
-
-`VendorPublicationUnstable`, seed completeness refusal, frontier-domain
-incompleteness, and permanent-identity coverage refusal are **data-authority
-refusals**. They are not evidence of corrupt durable Sentinel authority.
-
-- No candidate generation publishes after one of these refusals.
-- Readers continue to see the prior published generation under the existing
-  visibility/pinning rules.
-- Active automation records the refresh failure in `RETRY_WAIT` and retries the
-  `REFRESH` phase.
-- A deployed-but-fenced runtime records `AUTOMATION_FENCED_DATA_NOT_READY`, stays
-  disabled with the kill switch engaged, and retries its data wake. Data becoming
-  ready never releases broker authority by itself.
-- Nonretryable automation refusal remains reserved for signed authority,
-  configuration, schema, account identity, or other durable-integrity failures.
-
-This is the #160 state split applied to source stabilization: **deployed** and
-**operationally ready** are independent facts.
-
-## 7. Invariants this design does not change
-
-The source checks add a gate before publication. They do not alter the existing
-transactional authority chain:
-
-```text
-candidate rows remain invisible until corpus publication
+transport success != source authority
+stability != negative-space completeness
+candidate rows remain invisible until publication
 publication remains atomic
-published readers remain pinned against in-place writes
-unresolvable permanent identity is still refused, never ticker-guessed
-execution still requires the full readiness + signed-authority gates
-raw source evidence is retained; corrections happen through a new generation
+published readers remain pinned against destructive movement
+permanent identity is never guessed from ticker
+corporate-action sibling source rows are not collapsed at acquisition
+historical source corrections happen through a new generation, never in-place
+execution still requires full readiness + signed execution authority
 ```
