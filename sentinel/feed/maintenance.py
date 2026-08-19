@@ -264,7 +264,8 @@ def _positive(value) -> bool:
 
 
 def _validate_sep_mutation_rows(conn, rows: Iterable[Mapping], *,
-                                lo: dt.date, hi: dt.date) -> list[str]:
+                                lo: dt.date, hi: dt.date,
+                                published_through: dt.date) -> list[str]:
     resolver = universe.load_resolver(conn).resolve
     dates: list[str] = []
     for row in rows:
@@ -285,6 +286,13 @@ def _validate_sep_mutation_rows(conn, rows: Iterable[Mapping], *,
         if not ticker:
             raise SharadarMutationRefused(
                 f"SEP mutation row on {session} has no ticker")
+        # CDC owns historical rows already inside published market authority.
+        # A row beyond that frontier is a new-session observation and belongs to
+        # the ordinary daily path, which refreshes TICKERS before resolving it.
+        # Trying to resolve it here against yesterday's local universe can block
+        # the ingest that would establish its permanent identity.
+        if session_date > published_through:
+            continue
         if resolver(ticker, session) is None:
             raise SharadarMutationRefused(
                 f"SEP mutation {ticker}/{session} has no permanent identity; "
@@ -318,7 +326,19 @@ def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
     params = {"lastupdated.gte": lo.isoformat(),
               "lastupdated.lte": hi.isoformat()}
     rows = _stable_rows(fetch, sharadar.SEP, params)
-    dates = _validate_sep_mutation_rows(conn, rows, lo=lo, hi=hi)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT MAX(b.session) FROM sentinel_bars b WHERE "
+            + publication.visible_predicate("b"))
+        frontier_row = cur.fetchone()
+    if not frontier_row or frontier_row[0] is None:
+        raise SharadarMutationRefused(
+            "published corpus has no SEP session frontier for mutation CDC")
+    published_through = (
+        frontier_row[0] if isinstance(frontier_row[0], dt.date)
+        else dt.date.fromisoformat(str(frontier_row[0])))
+    dates = _validate_sep_mutation_rows(
+        conn, rows, lo=lo, hi=hi, published_through=published_through)
 
     if not dates:
         current = publication.require_current(conn)
