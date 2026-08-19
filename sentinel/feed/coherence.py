@@ -1,7 +1,7 @@
 """Sharadar cross-table coherence and historical-seed authority.
 
 Issue #177 established that a successful table traversal is not publication
-proof.  This module adds the remaining source contracts without changing that
+proof. This module adds the remaining source contracts without changing that
 boundary: TICKERS and SFP are corroborated across protected SEP, and historical
 seed chunks are validated session-by-session before any row can reach the
 candidate ingest.
@@ -150,7 +150,7 @@ def _payload(row: Mapping, fields) -> bytes:
     values = {}
     for field in fields:
         if field == "relatedtickers":
-            # Wealth Core issuer grouping tokenises and sorts this field.  A
+            # Wealth Core issuer grouping tokenises and sorts this field. A
             # whitespace/comma formatting change with identical members is not
             # a behavioral generation change.
             values[field] = list(universe.parse_related_tickers(
@@ -179,9 +179,9 @@ def observe_sfp(rows: Iterable[Mapping]) -> authority.SourceObservation:
 
 
 def _sep_ticker_rows(rows: Iterable[Mapping]) -> list[Mapping]:
-    # Real vendor rows carry ``table``.  Test fixtures written before that
-    # source partition was made explicit often omit it; those rows represent
-    # SEP metadata by construction.
+    # Real vendor rows carry ``table``. Test fixtures written before that source
+    # partition was made explicit often omit it; those rows represent SEP
+    # metadata by construction.
     return [row for row in rows
             if not str(row.get("table") or "").strip()
             or str(row.get("table")).upper() == "SEP"]
@@ -191,7 +191,7 @@ def assert_tickers_metadata(rows: Iterable[Mapping]) -> list[Mapping]:
     """Require the non-sparse SEP metadata domains on a real TICKERS snapshot.
 
     ``relatedtickers`` is deliberately not covered: blank means that the issuer
-    has no known siblings and is valid evidence.  A small NULL sector tail is
+    has no known siblings and is valid evidence. A small NULL sector tail is
     also legitimate, hence its separate 99% calibrated floor.
     """
     rows = list(rows)
@@ -293,10 +293,16 @@ def assert_seed_history(sessions: Mapping[str, SeedSessionCounts], *,
 class StableSharadarFetch(authority.StableSharadarFetch):
     """Issue-177 stability plus TICKERS/SFP bracketing and seed validation."""
 
-    def __init__(self, fetch, *, protect_sep=None, after_session: str | None = None,
+    def __init__(self, fetch, *, protect_sep=None,
+                 corroborate_reference=None,
+                 after_session: str | None = None,
                  seed_mode: bool = False, seed_resolve_identity=None):
         super().__init__(
             fetch, protect_sep=protect_sep, after_session=after_session)
+        # A seed stabilizes every SEP chunk but keeps the reference-table first
+        # observation pending until the final chunk. Daily uses the same
+        # predicate for both jobs.
+        self._corroborate_reference = corroborate_reference or self._protect_sep
         self._seed_mode = bool(seed_mode)
         self._seed_resolve_identity = seed_resolve_identity
         self._seed_resolver = None
@@ -332,11 +338,13 @@ class StableSharadarFetch(authority.StableSharadarFetch):
             self._sfp_kwargs = dict(kwargs)
             return rows
 
+        params = params or {}
         rows = super().__call__(table, params, **kwargs)
         if table != sharadar.SEP:
             return rows
 
-        if self._protect_sep(params or {}):
+        if (self._protect_sep(params)
+                and self._corroborate_reference(params)):
             # ``super`` has already completed both protected SEP traversals and
             # the delayed ACTIONS corroboration. TICKERS/SFP must now still be
             # byte-for-behavior identical to the observations that preceded SEP.
@@ -344,7 +352,7 @@ class StableSharadarFetch(authority.StableSharadarFetch):
 
         if not self._seed_mode:
             return rows
-        return self._validated_seed_replay(rows, params or {})
+        return self._validated_seed_replay(rows, params)
 
     def _require_reference_sources_stable(self) -> None:
         from sentinel.feed import sharadar
