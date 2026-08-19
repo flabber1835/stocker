@@ -123,6 +123,30 @@ For additional context, 2022 improves modestly under corrected liquidity in this
 replay: calendar return changes from -11.16% to -9.09% and calendar max drawdown
 from -14.22% to -12.30%.
 
+## Direct architecture controls on the corrected shadow
+
+As a partial champion-selection check, the same corrected Wealth Core shadow was
+run through the current Sentinel 1.1 controller, its immediate Sentinel 1.0
+parent, and no controller at all. Parent NAV is reconstructed with the same
+next-open allocation-change accounting and BIL sleeve as Sentinel 1.1.
+
+| Corrected architecture | 20y CAGR | Max DD | Sharpe | Ending multiple |
+|---|---:|---:|---:|---:|
+| Sentinel 1.1 current | **20.2884%** | **-39.9295%** | **1.0565** | **40.2258x** |
+| Sentinel 1.0 parent | 20.2367% | -39.9295% | 1.0464 | 39.8817x |
+| Wealth Core shadow | 18.3971% | -42.9168% | 0.9168 | 29.2991x |
+
+So the corrected current strategy remains ahead of both its direct parent and
+unprotected Wealth Core on CAGR and Sharpe in this independent replay. The 1.1
+increment over its parent is small, consistent with the prior research finding
+that the recovery ramp is mainly a tail-shaping rule rather than independently
+proven return alpha.
+
+This three-path check is **not** the full retained eight-architecture CSCV
+selection process. It narrows the risk that the correction trivially dethroned
+1.1 in favor of its parent or plain Wealth Core, but the full finalist rerun is
+still required before making the stronger champion claim.
+
 ## Interpretation / certification consequence
 
 The prior ~22.09% 20-year CAGR is not valid evidence for the corrected Sharadar
@@ -131,10 +155,10 @@ worse historical maximum drawdown. Expected hashes must therefore not be blindly
 repinned.
 
 This evidence does **not** establish that a different strategy should replace
-the current champion. It deliberately changes no strategy rule and reruns no
-multi-variant selection process. Champion status remains a separate acceptance
-item: rerun the same selection procedure that originally chose the Wealth Core
-champion on corrected liquidity before #185 is closed.
+the current champion. It deliberately changes no strategy rule. The direct
+three-path check above still favors Sentinel 1.1, but champion status remains a
+separate acceptance item: rerun the same complete selection procedure that
+originally chose the strategy on corrected liquidity before #185 is closed.
 
 The repository's authoritative full-retention before/after rehearsal comparator
 remains the final parity/certification gate. If that result disagrees materially
