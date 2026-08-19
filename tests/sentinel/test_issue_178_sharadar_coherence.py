@@ -6,8 +6,14 @@ window corrections cannot silently become published authority.
 """
 from __future__ import annotations
 
+import asyncio
+from datetime import date
+from types import SimpleNamespace
+
 import pytest
 
+from sentinel import automation_runtime
+from sentinel.automation.model import AutomationConfig
 from sentinel.automation.service import AutomationService
 from sentinel.feed import authority, coherence, publication, sharadar, store, universe
 from tests.support.postgres import _EphemeralPostgres
@@ -193,6 +199,57 @@ class TestRetrySemantics:
     ])
     def test_source_stabilization_refusals_retry_instead_of_latching(self, exc):
         assert not AutomationService._nonretryable(exc)
+
+    def test_fenced_data_path_keeps_source_refusal_deployed_and_retryable(
+            self, monkeypatch):
+        """The #160 deployed/fenced path turns lag into DATA_NOT_READY, not BLOCKED."""
+        runtime = object.__new__(automation_runtime.ProductionAutomation)
+        runtime.automation_config = AutomationConfig()
+        runtime._fenced_data_next_wake = None
+        runtime._fenced_data_poll_seconds = 300
+
+        class Conn:
+            rollbacks = 0
+
+            def rollback(self):
+                self.rollbacks += 1
+
+        conn = Conn()
+        alerts = []
+        monkeypatch.setattr(
+            automation_runtime.schedule, "for_clock",
+            lambda _now, _config: SimpleNamespace(
+                decision_session=date(2026, 8, 18)))
+        monkeypatch.setattr(
+            automation_runtime.feed_store, "require_feed_schema",
+            lambda _conn: None)
+        monkeypatch.setattr(
+            automation_runtime.schema, "require_runtime_schema",
+            lambda _conn: None)
+        monkeypatch.setattr(
+            automation_runtime.feed_store, "latest_visible_session",
+            lambda _conn: "2026-08-17")
+
+        def refuse(_conn, *, today):
+            assert today == "2026-08-18"
+            raise coherence.TickerMetadataIncomplete(
+                "TICKERS source publication still partial")
+
+        monkeypatch.setattr(automation_runtime.ingest, "daily", refuse)
+        monkeypatch.setattr(
+            automation_runtime.outbox, "enqueue",
+            lambda _conn, **kwargs: alerts.append(kwargs))
+
+        wake = asyncio.run(runtime._fenced_data_wake(conn))
+
+        assert wake == runtime._fenced_data_next_wake
+        assert conn.rollbacks == 1
+        assert len(alerts) == 1
+        assert alerts[0]["event_type"] == "AUTOMATION_FENCED_DATA_NOT_READY"
+        assert alerts[0]["severity"] == "WARN"
+        assert alerts[0]["payload"]["state"] == "DEPLOYED_FENCED"
+        assert alerts[0]["payload"]["readiness"] == "DATA_NOT_READY"
+        assert "TickerMetadataIncomplete" in alerts[0]["payload"]["detail"]
 
 
 @pytest.fixture(scope="module")
