@@ -1,23 +1,21 @@
 """Current-source reconciliation beyond the moving market-session window.
 
-Two vendor clocks are intentionally separate:
+Two clocks are independent:
 
-``SESSION FRONTIER``
-    discovers newly closed trading dates.
+``SESSION FRONTIER`` discovers new market dates.
+``MUTATION WATERMARK`` discovers old SEP rows Sharadar changed later.
 
-``MUTATION WATERMARK``
-    discovers rows from old sessions that Sharadar changed later. SEP exposes
-    this as a date-valued ``lastupdated`` field.
+SEP exposes the latter as date-valued ``lastupdated``.  The durable cursor
+re-reads the complete preceding update date and advances only after the
+corresponding local corpus generation is published.  Historical changes are not
+patched into one bar: they are replayed through the ordinary normalizer over a
+bounded prior/effective/following-session window so split orientation,
+dividends, rejections and anomaly evidence remain coherent.
 
-A price-date overlap cannot substitute for the second clock. The watermark here
-is durable, overlaps the complete previous vendor-update date, and advances only
-after the corresponding candidate corpus generation has been published. A crash
-may therefore replay work, but it cannot skip it.
-
-ACTIONS has no equivalent documented mutation clock. It is periodically fetched
-in full twice and reconciled through the existing PRESENT/REMOVED generation
-model. Absence becomes authority only when the two complete source observations
-agree.
+ACTIONS has no documented mutation timestamp, so it is periodically observed in
+full twice.  Changed split/dividend source rows trigger the same bounded SEP
+re-normalization against the *candidate* ACTIONS generation before one atomic
+corpus publication activates both.
 """
 from __future__ import annotations
 
@@ -29,10 +27,9 @@ import os
 from dataclasses import dataclass
 from typing import Iterable, Mapping, Optional
 
-from stock_strategy_shared.wealth_core.feed import VendorBar
-
-from sentinel.feed import authority, publication, sharadar, store, universe
-from sentinel.feed.domains import NormalisedBar
+from sentinel.core.terminal import DIVIDEND_ACTIONS, SPLIT_ACTIONS
+from sentinel.feed import (
+    action_source, authority, publication, renormalize, sharadar, store, universe)
 
 SEP_CURSOR_NAME = "sharadar-sep-lastupdated:v1"
 ACTIONS_CURSOR_NAME = "sharadar-actions-reconcile:v1"
@@ -41,7 +38,7 @@ ACTIONS_FULL_WINDOW_START = "1900-01-01"
 
 
 class MutationCursorUnavailable(RuntimeError):
-    """No complete source scan has established where incremental CDC may begin."""
+    """No complete source proof has established where incremental CDC may begin."""
 
 
 class SharadarMutationRefused(RuntimeError):
@@ -56,7 +53,7 @@ class SourceCursor:
 
 
 class LastUpdatedTrackingFetch:
-    """Transparent fetch wrapper used by a complete seed to earn the CDC cursor."""
+    """Transparent fetch wrapper used by a complete seed to earn CDC bootstrap."""
 
     def __init__(self, fetch):
         self._fetch = fetch
@@ -100,8 +97,8 @@ def _read_cursor(conn, name: str, kind: str) -> Optional[SourceCursor]:
         except (TypeError, ValueError) as exc:
             raise SharadarMutationRefused(
                 f"source cursor {name} is not valid JSON") from exc
-    expected = {"kind", "processed_through", "publication_version"}
-    if not isinstance(state, dict) or set(state) != expected or state.get("kind") != kind:
+    required = {"kind", "processed_through", "publication_version"}
+    if not isinstance(state, dict) or set(state) != required or state.get("kind") != kind:
         raise SharadarMutationRefused(
             f"source cursor {name} has an unknown durable state shape")
     try:
@@ -110,7 +107,8 @@ def _read_cursor(conn, name: str, kind: str) -> Optional[SourceCursor]:
     except (TypeError, ValueError) as exc:
         raise SharadarMutationRefused(
             f"source cursor {name} has invalid date/version evidence") from exc
-    row_date = row[0] if isinstance(row[0], dt.date) else dt.date.fromisoformat(str(row[0]))
+    row_date = (row[0] if isinstance(row[0], dt.date)
+                else dt.date.fromisoformat(str(row[0])))
     if row_date != through:
         raise SharadarMutationRefused(
             f"source cursor {name} row date disagrees with its state")
@@ -124,8 +122,7 @@ def _read_cursor(conn, name: str, kind: str) -> Optional[SourceCursor]:
     current = publication.require_current(conn)
     if version > current.version:
         raise SharadarMutationRefused(
-            f"source cursor {name} is ahead of current publication "
-            f"v{current.version}")
+            f"source cursor {name} is ahead of current publication v{current.version}")
     return SourceCursor(kind=kind, processed_through=through,
                         publication_version=version)
 
@@ -141,8 +138,6 @@ def load_actions_cursor(conn) -> Optional[SourceCursor]:
 
 def _write_cursor(conn, *, name: str, kind: str, through: dt.date,
                   publication_version: int) -> SourceCursor:
-    # The publication must already exist. A crash after publication but before
-    # this tiny cursor commit is safe: the next run replays the overlap.
     prior = _read_cursor(conn, name, kind)
     if prior is not None and through < prior.processed_through:
         raise SharadarMutationRefused(
@@ -174,7 +169,14 @@ def _write_cursor(conn, *, name: str, kind: str, through: dt.date,
 
 def establish_sep_cursor_after_seed(conn, *, through: dt.date,
                                     publication_version: int) -> SourceCursor:
-    """A complete, source-stable seed is the authority that earns CDC bootstrap."""
+    return _write_cursor(
+        conn, name=SEP_CURSOR_NAME, kind="sharadar-sep-lastupdated/v1",
+        through=through, publication_version=publication_version)
+
+
+def establish_sep_cursor_after_complete_reconciliation(
+        conn, *, through: dt.date, publication_version: int) -> SourceCursor:
+    """Bootstrap CDC only after a full current-source value/key proof."""
     return _write_cursor(
         conn, name=SEP_CURSOR_NAME, kind="sharadar-sep-lastupdated/v1",
         through=through, publication_version=publication_version)
@@ -195,7 +197,7 @@ def _canonical(value):
 
 
 def _mutation_digest(rows: Iterable[Mapping]) -> tuple[int, str]:
-    """Order-independent, multiplicity-sensitive CDC-set fingerprint."""
+    """Order-independent, multiplicity-sensitive strategy-field fingerprint."""
     mask = (1 << 256) - 1
     count = a = b = 0
     fields = ("date", "ticker", "open", "close", "closeunadj", "volume",
@@ -232,105 +234,62 @@ def _stable_rows(fetch, table: str, params: Mapping[str, str]) -> list[dict]:
     return second
 
 
-def _positive(value) -> Optional[float]:
+def _positive(value) -> bool:
     try:
         number = float(value)
     except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) and number > 0 else None
+        return False
+    return math.isfinite(number) and number > 0
 
 
-def _existing_bar_authority(conn, sid: str, session: str):
-    """Physical row plus whether its current owner is already published.
-
-    The physical read is deliberate. A failed candidate overwrites a bar in
-    place and makes it invisible by changing ``last_written_run_id``. On retry,
-    that row still carries useful split/dividend continuity and, crucially, must
-    be RECLAIMED by the new run even when its economics already equal the vendor
-    replay. Filtering to visible rows here would mistake a retry for a new key.
-    """
-    expr = publication.effective_split_ratio("b")
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT b.close_signal,b.close_unadjusted,b.open_unadjusted,b.volume,"
-            f" {expr} AS split_ratio,b.dividend_per_share,b.last_written_run_id,"
-            " (b.last_written_run_id IS NULL OR EXISTS ("
-            "   SELECT 1 FROM sentinel_corpus_publications p"
-            "   WHERE p.run_id=b.last_written_run_id)) AS owner_published"
-            " FROM sentinel_bars b WHERE b.security_id=%s AND b.session=%s",
-            (str(sid), str(session)))
-        return cur.fetchone()
-
-
-def _mutation_bar(conn, row: Mapping, resolver) -> Optional[NormalisedBar]:
-    session = str(row.get("date") or "")
-    ticker = str(row.get("ticker") or "")
-    if not session or not ticker:
-        raise SharadarMutationRefused("SEP mutation row has no ticker/session")
-    sid = resolver(ticker, session)
-    if sid is None:
-        raise SharadarMutationRefused(
-            f"SEP mutation {ticker}/{session} has no permanent identity; "
-            "refusing to overwrite historical evidence by ticker guess")
-    existing = _existing_bar_authority(conn, str(sid), session)
-    if existing is None:
-        raise SharadarMutationRefused(
-            f"SEP mutation introduces previously unseen key {ticker}/{session}; "
-            "lastupdated CDC cannot prove a deletion/insertion key-set change. "
-            "Run the complete SEP reconciliation before publishing it.")
-
-    signal = _positive(row.get("close"))
-    raw = _positive(row.get("closeunadj"))
-    if signal is None or raw is None:
-        raise SharadarMutationRefused(
-            f"SEP mutation {ticker}/{session} removes a required price domain; "
-            "refusing to preserve the stale prior value or invent a replacement")
-    reported_volume = _positive(row.get("volume"))
-    adjusted_open = _positive(row.get("open"))
-    raw_open = (round(adjusted_open * raw / signal, 6)
-                if adjusted_open is not None else None)
-    split_ratio = float(existing[4] or 1.0)
-    dividend = float(existing[5] or 0.0)
-
-    old = (existing[0], existing[1], existing[2], existing[3])
-    new = (signal, raw, raw_open, reported_volume)
-    same_economics = all(
-        (a is None and b is None) or
-        (a is not None and b is not None and float(a) == float(b))
-        for a, b in zip(old, new))
-    if same_economics and bool(existing[7]):
-        # Vendor ``lastupdated`` can advance for fields Sentinel does not consume.
-        # If the row's owner is already published, no corpus churn is required.
-        return None
-    # If owner_published is false, DO return the otherwise-identical bar. The
-    # store upsert has an explicit ownership clause that claims an unchanged key
-    # from an older unpublished run; skipping it here would permanently strand
-    # that candidate and defeat crash convergence.
-
-    return NormalisedBar(
-        close_signal=signal,
-        vendor=VendorBar(
-            session=session, security_id=str(sid), ticker=ticker,
-            raw_close=raw, raw_open=raw_open, volume=reported_volume,
-            split_ratio=split_ratio, dividend_per_share=dividend,
-            tradeable=bool(raw and reported_volume)))
+def _validate_sep_mutation_rows(conn, rows: Iterable[Mapping], *,
+                                lo: dt.date, hi: dt.date) -> list[str]:
+    resolver = universe.load_resolver(conn).resolve
+    dates: list[str] = []
+    for row in rows:
+        ticker = str(row.get("ticker") or "")
+        session = str(row.get("date") or "")
+        updated_raw = row.get("lastupdated")
+        try:
+            updated = dt.date.fromisoformat(str(updated_raw))
+            session_date = dt.date.fromisoformat(session)
+        except (TypeError, ValueError) as exc:
+            raise SharadarMutationRefused(
+                f"SEP mutation row {ticker!r}/{session!r} has invalid date "
+                f"or lastupdated {updated_raw!r}") from exc
+        if not lo <= updated <= hi:
+            raise SharadarMutationRefused(
+                f"SEP mutation row {ticker}/{session} lies outside requested "
+                f"lastupdated interval {lo}..{hi}")
+        if not ticker:
+            raise SharadarMutationRefused(
+                f"SEP mutation row on {session} has no ticker")
+        if resolver(ticker, session) is None:
+            raise SharadarMutationRefused(
+                f"SEP mutation {ticker}/{session} has no permanent identity; "
+                "refusing to advance the mutation watermark past it")
+        # The canonical normalizer drops a row with no raw close. That is safe on
+        # ordinary source ingest but NOT on a mutation cursor: dropping the new
+        # observation and advancing the watermark would leave the old stored bar
+        # silently authoritative forever.
+        if not _positive(row.get("closeunadj")):
+            raise SharadarMutationRefused(
+                f"SEP mutation {ticker}/{session} has no positive raw close; "
+                "refusing to preserve stale local economics while advancing CDC")
+        dates.append(session_date.isoformat())
+    return dates
 
 
 def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
                             through: str) -> Optional[SourceCursor]:
-    """Apply all SEP rows updated since the durable vendor-update cursor.
-
-    ``through`` is an ISO vendor-update date. The prior date is re-read in full;
-    because Sharadar's ``lastupdated`` is date-valued, this captures every row
-    sharing the boundary value without inventing an intra-day ordering.
-    """
+    """Apply every SEP mutation through the normal bounded ingest normalizer."""
     store._assert_corpus_locked(conn)
     cursor = load_sep_cursor(conn)
     if cursor is None:
         raise MutationCursorUnavailable(
-            "SEP lastupdated cursor is absent. A complete source-stable seed (or "
-            "complete SEP reconciliation) must establish the initial watermark; "
-            "advancing it from a 14-day price window would skip older corrections.")
+            "SEP lastupdated cursor is absent. A complete source-stable seed or "
+            "complete value/key reconciliation must establish the initial "
+            "watermark; a moving price-date window cannot prove old rows current.")
     hi = dt.date.fromisoformat(str(through))
     if hi <= cursor.processed_through:
         return cursor
@@ -338,87 +297,152 @@ def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
     params = {"lastupdated.gte": lo.isoformat(),
               "lastupdated.lte": hi.isoformat()}
     rows = _stable_rows(fetch, sharadar.SEP, params)
-    for row in rows:
-        value = row.get("lastupdated")
-        try:
-            updated = dt.date.fromisoformat(str(value))
-        except (TypeError, ValueError) as exc:
-            raise SharadarMutationRefused(
-                f"SEP mutation row has invalid lastupdated {value!r}") from exc
-        if not lo <= updated <= hi:
-            raise SharadarMutationRefused(
-                f"SEP mutation row {row.get('ticker')}/{row.get('date')} lies "
-                f"outside requested lastupdated interval {lo}..{hi}")
+    dates = _validate_sep_mutation_rows(conn, rows, lo=lo, hi=hi)
 
-    resolver = universe.load_resolver(conn).resolve
-    changed: list[NormalisedBar] = []
-    for row in sorted(rows, key=lambda r: (str(r.get("date") or ""),
-                                           str(r.get("ticker") or ""))):
-        bar = _mutation_bar(conn, row, resolver)
-        if bar is not None:
-            changed.append(bar)
+    if not dates:
+        current = publication.require_current(conn)
+        return _write_cursor(
+            conn, name=SEP_CURSOR_NAME, kind="sharadar-sep-lastupdated/v1",
+            through=hi, publication_version=current.version)
 
-    sessions = [b.vendor.session for b in changed]
+    windows = renormalize.correction_windows(dates)
     run = store.IngestRun(
-        conn, "sep_mutations",
-        date_from=min(sessions) if sessions else lo.isoformat(),
-        date_to=max(sessions) if sessions else hi.isoformat(), chunks_total=1)
-    with run.chunk("lastupdated"):
-        run.progress.rows_written += store.write_bars(
-            conn, changed, run_id=run.progress.run_id, require_lock=True)
+        conn, "sep_mutations", date_from=windows[0][0], date_to=windows[-1][1],
+        chunks_total=len(windows))
+    try:
+        replayed = renormalize.renormalize(
+            conn, fetch=fetch, run=run, dates=dates,
+            chunk_prefix="lastupdated")
+    except BaseException:
+        # ``run.chunk`` records failures that occur inside a chunk. A failure
+        # constructing the first window before entering it still needs a durable
+        # failed terminal state rather than an orphan RUNNING row.
+        if run.progress.chunks_done == 0:
+            run.finish("failed", "historical SEP mutation re-normalization failed")
+        raise
     run.finish("success")
     published = publication.publish(
         conn, run_id=run.progress.run_id,
-        window_start=min(sessions) if sessions else lo.isoformat(),
-        window_end=max(sessions) if sessions else hi.isoformat(),
+        window_start=windows[0][0], window_end=windows[-1][1],
         evidence={
             "kind": "sep_mutations",
             "lastupdated_window": [lo.isoformat(), hi.isoformat()],
-            "source_rows": len(rows), "changed_rows": len(changed),
+            "source_rows": len(rows),
+            "affected_source_dates": len(set(dates)),
+            "replay_windows": [
+                {"start": item.start, "end": item.end,
+                 "source_rows": item.source_rows,
+                 "bars_written": item.bars_written,
+                 "rows_dropped": item.rows_dropped}
+                for item in replayed],
         })
     return _write_cursor(
         conn, name=SEP_CURSOR_NAME, kind="sharadar-sep-lastupdated/v1",
         through=hi, publication_version=published.version)
 
 
+def _active_action_rows(conn) -> dict[str, dict]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT source_row_id,ticker,session,action,name,value,contraticker,"
+            " contraname FROM sentinel_active_actions")
+        rows = cur.fetchall()
+    out: dict[str, dict] = {}
+    for identity, ticker, session, action, name, value, contra, contra_name in rows:
+        out[str(identity)] = {
+            "ticker": ticker, "date": str(session), "action": action,
+            "name": name, "value": value, "contraticker": contra,
+            "contraname": contra_name,
+        }
+    return out
+
+
+def _bar_affecting_action(row: Mapping) -> bool:
+    action = str(row.get("action") or "").lower()
+    return action in SPLIT_ACTIONS or action in DIVIDEND_ACTIONS
+
+
+def _action_change_dates(conn, rows: Iterable[Mapping]) -> list[str]:
+    prior = _active_action_rows(conn)
+    current = {
+        identity: dict(row)
+        for identity, _payload, row in action_source.distinct_rows(rows)
+    }
+    changed = set(prior).symmetric_difference(current)
+    dates: set[str] = set()
+    for identity in changed:
+        row = current.get(identity) or prior.get(identity)
+        if row is not None and _bar_affecting_action(row):
+            value = str(row.get("date") or "")
+            try:
+                dt.date.fromisoformat(value)
+            except ValueError as exc:
+                raise SharadarMutationRefused(
+                    f"changed ACTIONS row has invalid date {value!r}") from exc
+            dates.add(value)
+    return sorted(dates)
+
+
 def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
                              through: str, force: bool = False
                              ) -> Optional[SourceCursor]:
-    """Periodically reconcile the complete ACTIONS key/content set."""
+    """Reconcile complete ACTIONS and replay affected split/dividend bar windows."""
     store._assert_corpus_locked(conn)
     if ACTIONS_RECONCILE_DAYS < 1:
         raise ValueError("SHARADAR_ACTIONS_RECONCILE_DAYS must be >= 1")
     hi = dt.date.fromisoformat(str(through))
-    prior = load_actions_cursor(conn)
-    if (not force and prior is not None
-            and (hi - prior.processed_through).days < ACTIONS_RECONCILE_DAYS):
-        return prior
+    prior_cursor = load_actions_cursor(conn)
+    if (not force and prior_cursor is not None
+            and (hi - prior_cursor.processed_through).days < ACTIONS_RECONCILE_DAYS):
+        return prior_cursor
+
     rows = _stable_rows(fetch, sharadar.ACTIONS, {})
     if not rows:
         raise SharadarMutationRefused(
             "complete Sharadar ACTIONS reconciliation returned zero rows; "
             "refusing to turn a suspicious empty source into mass removals")
-
-    with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM sentinel_active_actions")
-        active_rows = int(cur.fetchone()[0])
-    if active_rows and len(rows) < int(active_rows * 0.90):
+    prior_active = _active_action_rows(conn)
+    if prior_active and len(action_source.distinct_rows(rows)) < int(len(prior_active) * 0.90):
         raise SharadarMutationRefused(
-            f"complete ACTIONS source shrank from {active_rows:,} active rows to "
-            f"{len(rows):,}; refusing mass-removal authority without inspection")
+            f"complete ACTIONS source shrank from {len(prior_active):,} active "
+            f"rows to {len(action_source.distinct_rows(rows)):,}; refusing "
+            "mass-removal authority without inspection")
+    dates = _action_change_dates(conn, rows)
 
+    current_ids = {
+        identity for identity, _payload, _row in action_source.distinct_rows(rows)}
+    if current_ids == set(prior_active):
+        current = publication.require_current(conn)
+        return _write_cursor(
+            conn, name=ACTIONS_CURSOR_NAME,
+            kind="sharadar-actions-reconcile/v1", through=hi,
+            publication_version=current.version)
+
+    windows = renormalize.correction_windows(dates)
     run = store.IngestRun(
         conn, "actions_reconcile",
-        date_from=ACTIONS_FULL_WINDOW_START, date_to=hi.isoformat(), chunks_total=1)
+        date_from=ACTIONS_FULL_WINDOW_START, date_to=hi.isoformat(),
+        chunks_total=1 + len(windows))
     with run.chunk("actions_full"):
         run.progress.rows_written += store.write_actions(
             conn, rows, run_id=run.progress.run_id,
             window_start=ACTIONS_FULL_WINDOW_START, window_end=hi.isoformat())
+    if dates:
+        renormalize.renormalize(
+            conn, fetch=fetch, run=run, dates=dates,
+            include_action_run_id=run.progress.run_id,
+            chunk_prefix="actions")
     run.finish("success")
     published = publication.publish(
         conn, run_id=run.progress.run_id,
         window_start=ACTIONS_FULL_WINDOW_START, window_end=hi.isoformat(),
-        evidence={"kind": "actions_reconcile", "source_rows": len(rows)})
+        evidence={
+            "kind": "actions_reconcile",
+            "source_rows": len(rows),
+            "changed_source_rows": len(set(prior_active).symmetric_difference(current_ids)),
+            "affected_bar_dates": len(set(dates)),
+            "replay_windows": [list(w) for w in windows],
+        })
     return _write_cursor(
         conn, name=ACTIONS_CURSOR_NAME, kind="sharadar-actions-reconcile/v1",
         through=hi, publication_version=published.version)
@@ -427,6 +451,7 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
 __all__ = [
     "ACTIONS_RECONCILE_DAYS", "LastUpdatedTrackingFetch",
     "MutationCursorUnavailable", "SEP_CURSOR_NAME", "SharadarMutationRefused",
-    "SourceCursor", "establish_sep_cursor_after_seed", "load_actions_cursor",
-    "load_sep_cursor", "reconcile_actions_if_due", "reconcile_sep_mutations",
+    "SourceCursor", "establish_sep_cursor_after_complete_reconciliation",
+    "establish_sep_cursor_after_seed", "load_actions_cursor", "load_sep_cursor",
+    "reconcile_actions_if_due", "reconcile_sep_mutations",
 ]
