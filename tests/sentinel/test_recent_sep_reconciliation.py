@@ -17,6 +17,7 @@ def _cursor(day="2026-08-19", version=7):
 def test_recent_reconciliation_splits_cross_year_window_without_gaps(monkeypatch):
     sessions = ["2025-12-30", "2025-12-31", "2026-01-02"]
     monkeypatch.setattr(R, "REQUIRED_CLOSES", len(sessions))
+    monkeypatch.setattr(R.store, "_assert_corpus_locked", lambda conn: None)
     monkeypatch.setattr(R.calendar, "previous_sessions",
                         lambda through, count: list(sessions))
     calls = []
@@ -80,3 +81,14 @@ def test_readiness_accepts_exact_frontier_and_publication_proof():
             frontier_day=dt.date(2026, 8, 19))
     assert result.ready
     assert result.checks[0].status == readiness._impl.PASS
+
+
+def test_daily_proves_recent_complete_source_after_all_mutation_publications():
+    import inspect
+    from sentinel.feed import ingest
+
+    src = inspect.getsource(ingest.daily)
+    last_sep = src.rindex("maintenance.reconcile_sep_mutations")
+    last_actions = src.rindex("maintenance.reconcile_actions_if_due")
+    recent = src.rindex("_prove_recent_frontier")
+    assert last_sep < last_actions < recent
