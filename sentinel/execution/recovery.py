@@ -30,7 +30,8 @@ from typing import Tuple
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
     BrokerObservation, CommandOutcome, ExecutionBroker)
-from sentinel.execution.guarded import PreTransportAuthorityRefused
+from sentinel.execution.guarded import (
+    BrokerAuthorityRefused, PreTransportAuthorityRefused)
 from sentinel.execution.states import CommandState, CommandState as S
 
 
@@ -47,6 +48,10 @@ async def dispatch(broker: ExecutionBroker, command: Command) -> Command:
     line in the layer, so it lives here once rather than at each call site: the
     order may be resting at the broker right now, and any other reading licences
     a retry that opens a second position.
+
+    Typed broker authority/configuration failures are different. They are a
+    positive operational diagnosis, not an economic order verdict, so they
+    remain typed and visible instead of being flattened into UNKNOWN.
     """
     if command.state is not S.SEND_PENDING:
         raise ValueError(
@@ -58,10 +63,14 @@ async def dispatch(broker: ExecutionBroker, command: Command) -> Command:
             side=command.side, quantity=command.quantity)
     except PreTransportAuthorityRefused:
         # The guard refused immediately before transport, so the broker was
-        # never called.  UNKNOWN means a request may have landed; assigning it
-        # here would turn a known non-submit into false uncertainty.  The
-        # caller already persisted SEND_PENDING, which restart reconciliation
-        # knows how to resolve without inventing a replacement identity.
+        # never called. UNKNOWN means a request may have landed; assigning it
+        # here would turn a known non-submit into false uncertainty. The
+        # already-durable SEND_PENDING row remains recoverable after restart.
+        raise
+    except BrokerAuthorityRefused:
+        # Broker credentials/account authority can be refused BY the transport
+        # (for example Alpaca 401/403). That is not an order rejection and not a
+        # network ambiguity; surface it so orchestration can stop and alert.
         raise
     except Exception as exc:                                  # noqa: BLE001
         return command.transition(
