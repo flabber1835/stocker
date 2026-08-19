@@ -31,10 +31,13 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
         final_hi = chunks[-1][1]
         guarded = coherence.StableSharadarFetch(
             fetch,
-            # Historical chunks are checked session-by-session from one complete
-            # traversal. The newest generation is additionally observed twice,
-            # which is where a concurrent vendor publication can still move.
-            protect_sep=lambda params: str(params.get("date.lte") or "") == final_hi,
+            # Every historical SEP traversal can be paginated and therefore
+            # every chunk needs two-observation proof. TICKERS/SFP are held open
+            # across the whole seed and corroborated only after the final chunk,
+            # so one source generation brackets the complete cross-table join.
+            protect_sep=lambda _params: True,
+            corroborate_reference=(
+                lambda params: str(params.get("date.lte") or "") == final_hi),
             after_session=None,
             seed_mode=True,
             seed_resolve_identity=resolve_identity,
