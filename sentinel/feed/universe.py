@@ -257,13 +257,15 @@ def load_resolver(conn, *, include_run_id=None) -> IdentityResolver:
     """Build the resolver without aggregating retained snapshot history.
 
     `feed_universe_current` already carries one row per historical
-    (permaticker,ticker) pairing with the MIN(first)/MAX(last) envelope preserved
-    at publication.  Routine construction therefore scales with identity count,
-    not the number of dated TICKERS snapshots retained.
+    (permaticker,ticker) pairing with the latest authoritative non-null listing
+    bounds. Routine construction therefore scales with identity count, not the
+    number of dated TICKERS snapshots retained.
 
     During ingest, `include_run_id` adds exactly ONE unpublished candidate to the
-    published projection.  Grouping that bounded union preserves sparse-snapshot
-    backfills while preventing an ingest from scanning every prior snapshot.
+    published projection. Newer candidate bounds take precedence, including a
+    correction that NARROWS an interval; a null candidate value carries the
+    prior non-null bound. This must match the projection that will become
+    authoritative if the same run publishes.
     """
     with conn.cursor() as cur:
         if include_run_id is None:
@@ -274,16 +276,26 @@ def load_resolver(conn, *, include_run_id=None) -> IdentityResolver:
         else:
             cur.execute(
                 "WITH bounded AS ("
-                " SELECT permaticker,ticker,first_price_date,last_price_date"
+                " SELECT permaticker,ticker,first_price_date,last_price_date,"
+                "        snapshot_date,0 AS candidate"
                 " FROM feed_universe_current"
                 " UNION ALL"
-                " SELECT permaticker,ticker,first_price_date,last_price_date"
+                " SELECT permaticker,ticker,first_price_date,last_price_date,"
+                "        snapshot_date,1 AS candidate"
                 " FROM sentinel_universe"
                 " WHERE last_written_run_id=%s"
-                "   AND permaticker IS NOT NULL AND ticker IS NOT NULL)"
-                " SELECT permaticker,ticker,MIN(first_price_date),"
-                " MAX(last_price_date) FROM bounded"
-                " GROUP BY permaticker,ticker ORDER BY permaticker,ticker",
+                "   AND permaticker IS NOT NULL AND ticker IS NOT NULL),"
+                " collapsed AS ("
+                " SELECT permaticker,ticker,"
+                "   (ARRAY_REMOVE(ARRAY_AGG(first_price_date"
+                "      ORDER BY snapshot_date DESC,candidate DESC),NULL))[1]"
+                "      AS first_price_date,"
+                "   (ARRAY_REMOVE(ARRAY_AGG(last_price_date"
+                "      ORDER BY snapshot_date DESC,candidate DESC),NULL))[1]"
+                "      AS last_price_date"
+                " FROM bounded GROUP BY permaticker,ticker)"
+                " SELECT permaticker,ticker,first_price_date,last_price_date"
+                " FROM collapsed ORDER BY permaticker,ticker",
                 (str(include_run_id),))
         rows = cur.fetchall()
     return IdentityResolver(
