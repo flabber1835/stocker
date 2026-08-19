@@ -9,4 +9,8 @@ RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
     -r requirements.lock
 COPY services/bt-data/app/ ./app/
 COPY services/bt-data/sql/ ./sql/
+# Keep the historical init file stable while making the post-#185 semantic epoch
+# part of the exact runtime schema bootstrap. Existing rows remain deliberately
+# unmarked; only post-fix price writes earn the raw-volume marker.
+RUN cat ./sql/volume_domain_guard.sql >> ./sql/init_bt.sql
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
