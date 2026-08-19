@@ -59,6 +59,8 @@ class BrokerOperation(str, Enum):
     IDENTIFY_ACCOUNT = "identify_account"
     ACCOUNT_SNAPSHOT = "account_snapshot"
     RESOLVE_INSTRUMENT = "resolve_instrument"
+    MARKET_CLOCK = "market_clock"
+    ACCOUNT_CASH_ACTIVITIES = "account_cash_activities"
     OBSERVE = "observe"
     OBSERVE_WITH_TERMINAL_RECOVERY = "observe_with_terminal_recovery"
     FIND_BY_CLIENT_KEY = "find_by_client_key"
@@ -201,6 +203,21 @@ class GuardedExecutionBroker(ExecutionBroker):
     def guard(self) -> ExecutionBrokerGuard:
         return self._guard
 
+    @staticmethod
+    def _has_optional_override(inner: ExecutionBroker, name: str) -> bool:
+        implementation = getattr(type(inner), name, None)
+        base = getattr(ExecutionBroker, name, None)
+        return callable(implementation) and implementation is not base
+
+    @property
+    def supports_market_clock(self) -> bool:
+        return self._has_optional_override(self._inner, "market_clock")
+
+    @property
+    def supports_account_cash_activities(self) -> bool:
+        return self._has_optional_override(
+            self._inner, "account_cash_activities")
+
     async def _read(self, operation: BrokerOperation, call):
         try:
             await self._guard.before_read(self._grant, operation)
@@ -250,6 +267,27 @@ class GuardedExecutionBroker(ExecutionBroker):
 
         return await self._read(BrokerOperation.RESOLVE_INSTRUMENT, read)
 
+    async def market_clock(self):
+        if not self.supports_market_clock:
+            raise AttributeError("execution broker does not expose a market clock")
+
+        async def read():
+            return await self._inner.market_clock()
+
+        return await self._read(BrokerOperation.MARKET_CLOCK, read)
+
+    async def account_cash_activities(self, *, after: datetime,
+                                      through: datetime):
+        if not self.supports_account_cash_activities:
+            raise AttributeError(
+                "execution broker does not expose account cash activities")
+
+        async def read():
+            return await self._inner.account_cash_activities(
+                after=after, through=through)
+
+        return await self._read(BrokerOperation.ACCOUNT_CASH_ACTIVITIES, read)
+
     async def observe(self) -> BrokerObservation:
         return await self._read(BrokerOperation.OBSERVE, self._inner.observe)
 
@@ -280,6 +318,28 @@ class GuardedExecutionBroker(ExecutionBroker):
             raise PreTransportAuthorityRefused(
                 "preparation grant is read-only; submit refused before "
                 "transport")
+
+        # XNYS remains the outer execution authority.  For increases, the
+        # production Alpaca adapter contributes one final independent witness:
+        # its market clock.  This is intentionally BEFORE the mutation-authority
+        # callback so that callback can still return immediately into POST with
+        # no intervening await.  A clock failure is known-before-transport and
+        # therefore must never be translated to UNKNOWN.
+        if side is Side.BUY and self.supports_market_clock:
+            try:
+                clock = await self.market_clock()
+            except BrokerAuthorityRefused as exc:
+                raise PreTransportAuthorityRefused(
+                    f"broker clock authority unavailable before increase: {exc}") from exc
+            except Exception as exc:                          # noqa: BLE001
+                raise PreTransportAuthorityRefused(
+                    "broker clock unavailable before increase: "
+                    f"{type(exc).__name__}: {exc}") from exc
+            if getattr(clock, "is_open", None) is not True:
+                raise PreTransportAuthorityRefused(
+                    "broker clock reports market closed; increase refused "
+                    "before transport")
+
         await self._authorize_mutation(BrokerOperation.SUBMIT)
         return await self._inner.submit(
             client_key=client_key, instrument=instrument,

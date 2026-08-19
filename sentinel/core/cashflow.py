@@ -24,6 +24,13 @@ CSD/CSW — and what cannot be attributed stays `UNEXPLAINED`. That is the same
 rule the execution layer applies to a broker outcome it cannot resolve: an
 uncertain result is UNKNOWN, never a confident wrong one.
 
+Broker-native cash evidence has one extra distinction. A dividend, fee or
+interest payment moves account cash and therefore belongs in the durable cash
+evidence, but it is strategy economics rather than external capital. Issue #183
+reserves a versioned broker flow-id/detail encoding for those rows; only rows
+classified EXTERNAL participate in `net_external`. Operator-declared flows keep
+their historical meaning: they are external capital.
+
 ## What a flow is not
 
 ```text
@@ -83,6 +90,17 @@ class CashFlow:
     @property
     def is_deposit(self) -> bool:
         return self.amount > 0
+
+    @property
+    def is_external(self) -> bool:
+        """Whether this cash movement is investor capital rather than P&L.
+
+        Broker rows use a reserved encoding validated by the broker-cash layer.
+        Everything else is an operator declaration and retains the pre-#183
+        external-capital semantics.
+        """
+        from sentinel.execution.broker_cash import broker_flow_is_external
+        return broker_flow_is_external(self.flow_id, self.detail)
 
     def to_dict(self) -> dict:
         return {"flow_id": self.flow_id, "session": self.session.isoformat(),
@@ -164,8 +182,9 @@ def flows_between(conn, start, end) -> list:
 
 
 def net_external(conn, start, end) -> Decimal:
-    """Signed sum of declared flows in the window. Deposits less withdrawals."""
-    return sum((f.amount for f in flows_between(conn, start, end)), Decimal(0))
+    """Signed investor-capital flow. Internal broker cash remains strategy P&L."""
+    return sum((f.amount for f in flows_between(conn, start, end)
+                if f.is_external), Decimal(0))
 
 
 def strategy_pl(conn, *, start, end, opening_nav: Decimal,
