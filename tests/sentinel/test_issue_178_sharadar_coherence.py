@@ -113,6 +113,12 @@ class TestTickersAuthority:
             guarded(sharadar.SEP, {
                 "date.gte": "2026-08-14", "date.lte": "2026-08-14"})
 
+    def test_null_and_empty_related_tickers_are_distinct_authority_states(self):
+        sparse = coherence.observe_tickers([_ticker_row(relatedtickers=None)])
+        empty = coherence.observe_tickers([_ticker_row(relatedtickers="")])
+        with pytest.raises(authority.VendorPublicationUnstable):
+            authority.require_stable("TICKERS", sparse, empty)
+
     def test_cursor_reordering_is_harmless_but_page_omission_is_not(self):
         rows = [_ticker_row("AAA", "P-AAA"),
                 _ticker_row("BBB", "P-BBB")]
@@ -280,14 +286,15 @@ def conn(pg):
 
 class TestListingWindowCorrections:
     @staticmethod
-    def _publish_universe(conn, *, snapshot, first, last):
+    def _publish_universe(conn, *, snapshot, first=None, last=None,
+                          relatedtickers=None):
         run = store.IngestRun(conn, "daily")
         run_id = run.progress.run_id
-        universe.write_universe(
-            conn,
-            [{"ticker": "ABC", "permaticker": "P1",
-              "firstpricedate": first, "lastpricedate": last}],
-            snapshot, run_id=run_id)
+        row = {"ticker": "ABC", "permaticker": "P1",
+               "firstpricedate": first, "lastpricedate": last}
+        if relatedtickers is not None:
+            row["relatedtickers"] = relatedtickers
+        universe.write_universe(conn, [row], snapshot, run_id=run_id)
         run.finish("success")
         publication.publish(conn, run_id=run_id)
         return run_id
@@ -324,3 +331,37 @@ class TestListingWindowCorrections:
         assert published.resolve("ABC", "2005-01-03") is None
         assert published.resolve("ABC", "2015-01-05") == "P1"
         assert published.resolve("ABC", "2024-01-03") is None
+
+    def test_authoritative_empty_related_tickers_clears_but_null_carries(self,
+                                                                          conn):
+        self._publish_universe(
+            conn, snapshot="2026-08-01", relatedtickers="BBB CCC")
+        with conn.cursor() as cur:
+            cur.execute("SELECT related_tickers FROM feed_universe_current")
+            assert cur.fetchone()[0] == "BBB CCC"
+
+        # Blank is observed evidence: no issuer siblings now. It must be able to
+        # clear the old relationship rather than collapsing to SQL NULL.
+        run = store.IngestRun(conn, "daily")
+        universe.write_universe(
+            conn,
+            [{"ticker": "ABC", "permaticker": "P1", "relatedtickers": ""}],
+            "2026-08-02", run_id=run.progress.run_id)
+        run.finish("success")
+        publication.publish(conn, run_id=run.progress.run_id)
+        with conn.cursor() as cur:
+            cur.execute("SELECT related_tickers FROM feed_universe_current")
+            assert cur.fetchone()[0] == ""
+
+        # True sparse/null observation carries the last known authoritative
+        # empty set forward; it does not resurrect the old relationship.
+        run = store.IngestRun(conn, "daily")
+        universe.write_universe(
+            conn,
+            [{"ticker": "ABC", "permaticker": "P1", "relatedtickers": None}],
+            "2026-08-03", run_id=run.progress.run_id)
+        run.finish("success")
+        publication.publish(conn, run_id=run.progress.run_id)
+        with conn.cursor() as cur:
+            cur.execute("SELECT related_tickers FROM feed_universe_current")
+            assert cur.fetchone()[0] == ""
