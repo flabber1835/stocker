@@ -26,7 +26,17 @@ within floating-point tolerance. Non-split rows (`adjusted_close == raw_close`) 
 
 The canonical `VendorBar.volume`, `sentinel_bars.volume`, and newly ingested `bt_prices.volume` domain is raw/as-traded-compatible shares, because Wealth Core liquidity is expressed as `raw_close * volume`. Sharadar's reported split-adjusted volume is used only at the source boundary to derive this canonical value and to establish that a market print existed.
 
-A corpus created with the previous volume semantics is not migrated by interpretation. Sentinel must be completely re-seeded with the corrected build, and the historical bt-data price stage must be re-backfilled before its liquidity/backtest results are trusted.
+Sharadar ACTIONS dividend `value` is also stated on the vendor's current split-adjusted share basis. Wealth Core's durable holdings and dividend ledger own the number of shares that actually existed on the historical ex-date. Therefore a positive ACTIONS dividend must cross the same split-domain boundary on its effective SEP row:
+
+```
+raw_dividend_per_share = ACTIONS.value * closeunadj / close
+```
+
+The cash-entitlement invariant is that a later split may change the historical share count and the vendor's stated per-share amount, but it must not change the dollars owed to the holder. Example: an AAPL ACTIONS value of `0.1175` on a row where `closeunadj / close == 4` is `$0.47` per then-outstanding historical share. The same rule spans multiple later splits; a factor of 28 maps `0.1175` to `$3.29`.
+
+A positive dividend with no usable adjusted/raw price pair fails closed rather than guessing a share basis. Zero remains the explicit no-distribution value. The conversion happens exactly once at the SEP-to-`VendorBar` boundary in both Sentinel ingest and the canonical backtester. The engine's established same-session order remains split first, dividend second, so post-split shares receive the post-split per-share amount without double adjustment.
+
+A corpus created with the previous volume or dividend semantics is not migrated by interpretation. Sentinel must be completely re-seeded with the corrected build, and the historical bt-data price stage must be re-backfilled before its liquidity/backtest results are trusted. Historical performance evidence that applied ACTIONS dividend values directly to raw historical share counts is superseded and must be rerun before it is used as a financial claim.
 
 ## Corrections and mutation state
 
