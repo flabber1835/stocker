@@ -38,8 +38,37 @@ def test_recent_reconciliation_splits_cross_year_window_without_gaps(monkeypatch
         (2025, "2025-12-30", "2025-12-31"),
         (2026, "2026-01-01", "2026-01-02"),
     ]
+    assert all(fetch is R._export_fetch for _, _, _, fetch in calls)
     assert result["through"] == dt.date(2026, 1, 2)
     assert result["publication_version"] == 11
+
+
+def test_recent_reconciliation_preserves_an_explicit_injected_source(monkeypatch):
+    sessions = ["2026-01-02"]
+    monkeypatch.setattr(R, "REQUIRED_CLOSES", 1)
+    monkeypatch.setattr(R.store, "_assert_corpus_locked", lambda conn: None)
+    monkeypatch.setattr(R.calendar, "previous_sessions",
+                        lambda through, count: list(sessions))
+    injected = lambda table, params=None, **kwargs: []
+    seen = []
+    monkeypatch.setattr(
+        R.sep_reconciliation, "reconcile_year",
+        lambda conn, *, fetch, year, start, end: seen.append(fetch))
+    monkeypatch.setattr(R.publication, "require_current",
+                        lambda conn: SimpleNamespace(version=11))
+    monkeypatch.setattr(R.maintenance, "_write_cursor",
+                        lambda conn, **kwargs: kwargs)
+
+    R.reconcile_recent(object(), through="2026-01-02", fetch=injected)
+    assert seen == [injected]
+
+
+def test_ingest_recent_source_selects_export_only_for_production_wrapper():
+    from sentinel.feed import ingest, snapshot_source
+
+    injected = lambda table, params=None, **kwargs: []
+    assert ingest._recent_reconciliation_source(snapshot_source.fetch_table) is None
+    assert ingest._recent_reconciliation_source(injected) is injected
 
 
 def test_readiness_refuses_missing_recent_complete_proof():
