@@ -18,14 +18,18 @@ def test_runtime_schema_bootstrap_installs_the_semantic_epoch_guard():
     assert "cat ./sql/volume_domain_guard.sql >> ./sql/init_bt.sql" in DOCKERFILE
 
 
-def test_existing_rows_are_not_blindly_grandfathered_into_new_volume_semantics():
+def test_no_database_is_grandfathered_into_new_volume_semantics():
     column_stmt = next(
         line for line in GUARD.splitlines()
         if "ADD COLUMN IF NOT EXISTS volume_domain_version" in line)
     assert "DEFAULT" not in column_stmt.upper()
     assert "sharadar-raw-volume-v1" not in column_stmt
     assert "bt_price_volume_domain_state" in GUARD
-    assert "legacy populated corpus requires volume-domain migration" in GUARD
+    # Even a fresh DB starts false: schema bootstrap is statement-by-statement,
+    # so a later trigger DDL failure must not leave true authority behind.
+    assert "'sharadar-raw-volume-v1', FALSE, NULL" in GUARD
+    assert "volume-domain authority not yet established" in GUARD
+    assert "NOT EXISTS (SELECT 1 FROM bt_prices)" not in GUARD
 
 
 def test_only_declared_post_fix_writer_can_stamp_rows_and_old_writer_invalidates():
@@ -77,6 +81,13 @@ def test_supported_migration_rewrites_prices_and_benchmarks_before_ready():
     assert "volume_domain_version IS DISTINCT FROM :version" in MIGRATION
     assert "proven=TRUE" in MIGRATION
     assert "Commits both the semantic singleton and new READY data UUID together" in MIGRATION
+
+
+def test_empty_database_also_requires_explicit_migration_transition():
+    empty = MIGRATION.index("if rows == 0:")
+    stage = MIGRATION.index("_stage_domain_proven", empty)
+    publish = MIGRATION.index("_publish_ready", stage)
+    assert empty < stage < publish
 
 
 def test_interrupted_volume_migration_is_explicitly_resumable_only_by_itself():
