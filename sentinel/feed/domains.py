@@ -37,6 +37,13 @@ as-traded close, so the source volume is converted at this boundary to the same
 raw share domain. Mixing `closeunadj` with vendor-reported adjusted volume makes
 dollar liquidity move mechanically at every split.
 
+**ACTIONS dividends use the split-adjusted share basis too.** Wealth Core owns
+historical as-traded share quantities, so a positive ACTIONS dividend is
+converted on its effective SEP row by `closeunadj / close` before it reaches the
+ledger. Passing the vendor amount through unchanged underpays every dividend
+that predates a later split and makes same-day split/dividend entitlement depend
+on the wrong share count.
+
 This module is a deliberate re-implementation, not an import: the canonical
 loader lives in `services/backtester/app/wealth_core_replay.py`, and Sentinel may
 not import a retired Stocker service. `tests/sentinel/test_feed_domains.py`
@@ -49,7 +56,10 @@ from dataclasses import dataclass, field
 from typing import Iterable, Iterator, Mapping, Optional
 
 from stock_strategy_shared.wealth_core.feed import VendorBar
-from stock_strategy_shared.wealth_core.sharadar_domains import raw_compatible_volume
+from stock_strategy_shared.wealth_core.sharadar_domains import (
+    raw_compatible_volume,
+    raw_dividend_per_share,
+)
 
 #: The SEP columns this package reads, and the domain each one serves. Declared
 #: as data so a test can assert the set, rather than as prose a reader has to
@@ -125,9 +135,9 @@ def unsnapped_split_ratio(
     This exists because the snap DESTROYS the cross-check it is supposed to
     feed. A genuine 3:2 shows a domain ratio near 1.5; snapping sends it to 1.0
     or 2.0, and at 1.48 it lands on 1.0 — which is the "no split" value, so the
-    derived side records nothing at all and a stated 1.5 has nothing to
-    disagree with. The corpus still takes the authoritative 1.5 and is correct,
-    but "a material disagreement fails loudly" quietly stopped being true.
+    derived side records nothing and a stated 1.5 has nothing to disagree with.
+    The corpus still takes the authoritative 1.5 and is correct, but "a material
+    disagreement fails loudly" quietly stopped being true.
 
     The snap is right for the FALLBACK — a share count has to be reconcilable —
     and wrong for the COMPARISON, which is asking whether two sources describe
@@ -475,6 +485,17 @@ def normalise_sep_rows(
         if op_adj is not None and close is not None and close > 0:
             raw_open = round(op_adj * (raw / close), 6)
 
+        reported_dividend = float(
+            (dividends or {}).get((ticker, session), 0.0) or 0.0)
+        dividend = raw_dividend_per_share(close, raw, reported_dividend)
+        if dividend is None:
+            raise RawPriceDomainUnavailable(
+                f"cannot convert positive Sharadar dividend for {ticker} on "
+                f"{session} into the raw share domain: SEP.close={close!r}, "
+                f"SEP.closeunadj={raw!r}, ACTIONS.value={reported_dividend!r}. "
+                "A dividend amount on the split-adjusted share basis cannot be "
+                "applied to an as-traded share count without both price domains.")
+
         rep.bars += 1
         yield NormalisedBar(close_signal=close,
             close_total_return=_f(r.get("closeadj")), vendor=VendorBar(
@@ -488,8 +509,9 @@ def normalise_sep_rows(
             # deliberately in the same as-traded domain.
             volume=volume,
             split_ratio=ratio,
-            dividend_per_share=float(
-                (dividends or {}).get((ticker, session), 0.0) or 0.0),
+            # ACTIONS values are in Sharadar's split-adjusted per-share domain;
+            # the ledger owns historical raw shares. Convert exactly once here.
+            dividend_per_share=dividend,
             # DERIVED, never defaulted. `VendorBar.tradeable` defaults to True,
             # so omitting it here declared every bar fillable — including a
             # session on which nobody traded the security. Source tradeability
