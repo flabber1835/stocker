@@ -37,8 +37,20 @@ TICKERS_AUTHORITY_FIELDS = (
 )
 SFP_AUTHORITY_FIELDS = ("date", "ticker", "closeadj")
 
-MIN_TICKERS_CORE_COVERAGE = 0.99
-MIN_TICKERS_SECTOR_COVERAGE = 0.99
+# Calibrated from the retained TICKERS table=SEP bulk snapshot. Fields that were
+# complete in ground truth are exact rather than sharing a generic 99% escape
+# hatch: one missing category can change eligibility for exactly one priced
+# security and must not be hidden by 21k healthy rows. Ticker has one known
+# blank row in the retained source; sector has a legitimate sparse tail.
+TICKERS_METADATA_MINIMUMS = (
+    ("permaticker", "permanent identity", 1.0),
+    ("ticker", "ticker", 0.9999),
+    ("category", "category", 1.0),
+    ("firstpricedate", "firstpricedate", 1.0),
+    ("lastpricedate", "lastpricedate", 1.0),
+    ("isdelisted", "isdelisted", 1.0),
+    ("sector", "sector", 0.99),
+)
 MIN_SEED_IDENTITY_COVERAGE = 0.99
 MIN_SEED_SIGNAL_COVERAGE = 0.99
 MIN_SEED_RAW_CLOSE_COVERAGE = 0.99
@@ -186,11 +198,11 @@ def _sep_ticker_rows(rows: Iterable[Mapping]) -> list[Mapping]:
 
 
 def assert_tickers_metadata(rows: Iterable[Mapping]) -> list[Mapping]:
-    """Require the non-sparse SEP metadata domains on a TICKERS snapshot.
+    """Require calibrated SEP metadata domains on a TICKERS snapshot.
 
-    ``relatedtickers`` is deliberately not covered: blank means that the issuer
-    has no known siblings and is valid evidence. A small NULL sector tail is
-    also legitimate, hence its separate 99% calibrated floor.
+    ``relatedtickers`` has no non-null floor: blank is affirmative evidence that
+    no siblings are known. Exact ground-truth fields are required exactly;
+    ticker and sector retain only their measured legitimate sparse tails.
     """
     rows = list(rows)
     relevant = _sep_ticker_rows(rows)
@@ -200,30 +212,14 @@ def assert_tickers_metadata(rows: Iterable[Mapping]) -> list[Mapping]:
             "authority is missing or incomplete")
 
     total = len(relevant)
-    for field, label in (
-        ("permaticker", "permanent identity"),
-        ("ticker", "ticker"),
-        ("category", "category"),
-        ("firstpricedate", "firstpricedate"),
-        ("lastpricedate", "lastpricedate"),
-        ("isdelisted", "isdelisted"),
-    ):
+    for field, label, minimum in TICKERS_METADATA_MINIMUMS:
         present = sum(bool(str(row.get(field) or "").strip()) for row in relevant)
         share = present / total
-        if share < MIN_TICKERS_CORE_COVERAGE:
+        if share < minimum:
             raise TickerMetadataIncomplete(
                 f"Sharadar TICKERS SEP {label} is present on "
-                f"{present:,}/{total:,} rows ({share:.1%}); source authority "
-                f"requires at least {MIN_TICKERS_CORE_COVERAGE:.0%}")
-
-    sector_present = sum(
-        bool(str(row.get("sector") or "").strip()) for row in relevant)
-    sector_share = sector_present / total
-    if sector_share < MIN_TICKERS_SECTOR_COVERAGE:
-        raise TickerMetadataIncomplete(
-            f"Sharadar TICKERS SEP sector is present on "
-            f"{sector_present:,}/{total:,} rows ({sector_share:.1%}); source "
-            f"authority requires at least {MIN_TICKERS_SECTOR_COVERAGE:.0%}")
+                f"{present:,}/{total:,} rows ({share:.4%}); source authority "
+                f"requires at least {minimum:.2%}")
     return relevant
 
 
