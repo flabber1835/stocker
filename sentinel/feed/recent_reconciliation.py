@@ -6,10 +6,12 @@ decision depends directly on its trailing close/liquidity window and must not wa
 weeks for that year to rotate back into inspection.
 
 This module therefore proves the exact required Wealth Core close window after
-all daily SEP/ACTIONS mutation work has finished. Source acquisition uses a
+all daily SEP/ACTIONS mutation work has finished. Production acquisition uses a
 fresh Nasdaq whole-file export, then the existing canonical reconciliation path
 normalizes it against permanent identity and compares exact keys and persisted
-strategy values with the current published corpus.
+strategy values with the current published corpus. Injected test/simulation
+sources remain injected and are subjected to the existing two-observation source
+stability proof rather than unexpectedly reaching the production network.
 
 The dedicated cursor is deliberately separate from the long-history rotation.
 Readiness requires it to cover the published decision frontier, so a deletion or
@@ -55,9 +57,15 @@ def _year_windows(start: str, end: str):
             yield year, first.isoformat(), last.isoformat()
 
 
-def reconcile_recent(conn, *, through: str):
-    """Prove the complete current Wealth Core history window against source."""
+def reconcile_recent(conn, *, through: str, fetch=None):
+    """Prove the complete current Wealth Core history window against source.
+
+    ``fetch=None`` is the production contract and uses the fresh whole-export
+    membrane. An explicit injected fetch stays deterministic/offline; the normal
+    reconciliation layer still observes it twice before trusting its content.
+    """
     store._assert_corpus_locked(conn)
+    source_fetch = _export_fetch if fetch is None else fetch
     sessions = calendar.previous_sessions(str(through), REQUIRED_CLOSES)
     if len(sessions) < REQUIRED_CLOSES:
         raise sep_reconciliation.SepReconciliationStateInvalid(
@@ -68,10 +76,9 @@ def reconcile_recent(conn, *, through: str):
         raise sep_reconciliation.SepReconciliationStateInvalid(
             f"recent SEP proof frontier {end} disagrees with requested {through}")
 
-    results = []
     for year, lo, hi in _year_windows(start, end):
-        results.append(sep_reconciliation.reconcile_year(
-            conn, fetch=_export_fetch, year=year, start=lo, end=hi))
+        sep_reconciliation.reconcile_year(
+            conn, fetch=source_fetch, year=year, start=lo, end=hi)
 
     current = publication.require_current(conn)
     return maintenance._write_cursor(
