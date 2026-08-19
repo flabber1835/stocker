@@ -24,12 +24,16 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
          date_to: Optional[str] = None,
          fetch: Callable[..., Iterable[dict]] = _PRODUCTION_FETCH,
          resolve_identity=None):
-    """Seed only after source stability and session-local completeness proof."""
+    """Seed only after source stability and session-local completeness proof.
+
+    A crashed seed is recovered by a COMPLETE seed retry rather than by trying
+    to publish an older pre-#185 candidate. That is intentionally more work and
+    a simpler authority proof: every price year, TICKERS, ACTIONS and SPY is
+    rewritten by the current stable source snapshot before the new generation
+    can publish. It also makes the first migration to the corrected volume
+    domain self-contained instead of depending on legacy publication evidence.
+    """
     with _impl.feed_store.corpus_write_lock(conn):
-        # A process can die after durable validation but before publication. Try
-        # that exact candidate first; if it is no longer self-contained the new
-        # seed below is the complete superseding generation.
-        cdc_ingest.resume_validated_publication(conn)
         resolved_to = date_to or _today()
         chunks = sharadar.year_chunks(date_from, resolved_to)
         final_hi = chunks[-1][1]
@@ -51,6 +55,9 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = _PRODUCTION_FETCH,
           today: Optional[str] = None):
     """Daily ingest with stable-source proof, real SEP CDC and convergent retry."""
     with _impl.feed_store.corpus_write_lock(conn):
+        # Daily candidates are bounded and may be exactly publishable after a
+        # crash between durable validation and publication. If not, daily_locked
+        # starts from the published frontier and completely supersedes them.
         cdc_ingest.resume_validated_publication(conn)
         published_frontier = _impl.feed_store.latest_visible_session(conn)
         guarded = coherence.StableSharadarFetch(
