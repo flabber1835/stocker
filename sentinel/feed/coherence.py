@@ -158,26 +158,15 @@ def _nonnegative(value) -> bool:
     return math.isfinite(number) and number >= 0
 
 
-def _present(value) -> bool:
-    """True for an observed value, including boolean False."""
-    if value is None:
-        return False
-    if isinstance(value, bool):
-        return True
-    return bool(str(value).strip())
-
-
 def _payload(row: Mapping, fields) -> bytes:
     values = {}
     for field in fields:
         if field == "relatedtickers":
-            # NULL means the field was not observed and may be carried forward;
-            # blank means the vendor affirmatively reports no related tickers.
-            # Those states have different strategy semantics and must not share
-            # one fingerprint even though both parse to an empty tuple.
-            raw = row.get("relatedtickers")
-            values[field] = (None if raw is None else
-                             list(universe.parse_related_tickers(raw)))
+            # Wealth Core issuer grouping tokenises and sorts this field. A
+            # whitespace/comma formatting change with identical members is not
+            # a behavioral generation change.
+            values[field] = list(universe.parse_related_tickers(
+                row.get("relatedtickers")))
         else:
             values[field] = _canonical(row.get(field))
     return json.dumps(values, sort_keys=True, separators=(",", ":")).encode(
@@ -224,7 +213,7 @@ def assert_tickers_metadata(rows: Iterable[Mapping]) -> list[Mapping]:
 
     total = len(relevant)
     for field, label, minimum in TICKERS_METADATA_MINIMUMS:
-        present = sum(_present(row.get(field)) for row in relevant)
+        present = sum(bool(str(row.get(field) or "").strip()) for row in relevant)
         share = present / total
         if share < minimum:
             raise TickerMetadataIncomplete(
@@ -297,12 +286,18 @@ class StableSharadarFetch(authority.StableSharadarFetch):
                  corroborate_reference=None,
                  after_session: str | None = None,
                  seed_mode: bool = False):
+        # Daily has one protected window, so all source corroboration happens
+        # there. A seed passes an explicit final-chunk predicate: every SEP year
+        # is stable on its own while TICKERS/ACTIONS/SFP remain bracketed across
+        # the full multi-year join.
+        reference = corroborate_reference
+        if reference is None:
+            reference = protect_sep or (lambda _params: True)
         super().__init__(
-            fetch, protect_sep=protect_sep, after_session=after_session)
-        # A seed stabilizes every SEP chunk but keeps the reference-table first
-        # observation pending until the final chunk. Daily uses the same
-        # predicate for both jobs.
-        self._corroborate_reference = corroborate_reference or self._protect_sep
+            fetch, protect_sep=protect_sep,
+            corroborate_actions=reference,
+            after_session=after_session)
+        self._corroborate_reference = reference
         self._seed_mode = bool(seed_mode)
         self._seed_resolver = None
         self._tickers_first = None
