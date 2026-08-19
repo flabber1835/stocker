@@ -70,10 +70,13 @@ def conn(pg):
 
 
 def _bar(session, ratio=1.0, close=50.0):
-    return VendorBar(
+    from sentinel.feed import domains
+
+    vendor = VendorBar(
         session=session, security_id="SEC-AAA", ticker="AAA",
         raw_close=close, raw_open=close, volume=1_000_000,
         split_ratio=ratio, dividend_per_share=0.0)
+    return domains.NormalisedBar(close_signal=close, vendor=vendor)
 
 
 def _establish_sep_cursor(conn, through: str):
