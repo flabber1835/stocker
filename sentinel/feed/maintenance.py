@@ -396,7 +396,13 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
             and (hi - prior_cursor.processed_through).days < ACTIONS_RECONCILE_DAYS):
         return prior_cursor
 
-    rows = _stable_rows(fetch, sharadar.ACTIONS, {})
+    # The source request and the local generation name the exact same complete
+    # authority window. An unbounded table read could include a future-dated
+    # scheduled action and then fail only when write_actions notices it lies
+    # outside the claimed generation; worse, a future protocol change could make
+    # those scopes diverge silently. Bound acquisition itself to 1900..through.
+    params = sharadar.date_params(ACTIONS_FULL_WINDOW_START, hi.isoformat())
+    rows = _stable_rows(fetch, sharadar.ACTIONS, params)
     if not rows:
         raise SharadarMutationRefused(
             "complete Sharadar ACTIONS reconciliation returned zero rows; "
