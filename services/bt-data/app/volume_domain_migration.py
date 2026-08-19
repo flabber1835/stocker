@@ -1,10 +1,11 @@
 """One-time, resumable migration of a pre-#185 ``bt_prices`` corpus.
 
 The schema guard deliberately leaves every pre-existing row without a
-``volume_domain_version`` marker. That makes the legacy corpus ineligible for
-certification, but the repair must itself remain reachable: the old corpus can be
-tens of millions of rows and a network/process failure halfway through a full
-re-fetch is ordinary operational reality.
+``volume_domain_version`` marker and initializes the corpus semantic singleton as
+unproven. That makes the legacy corpus ineligible for certification, but the
+repair must itself remain reachable: the old corpus can be tens of millions of
+rows and a network/process failure halfway through a full re-fetch is ordinary
+operational reality.
 
 Run inside the post-fix bt-data image:
 
@@ -18,7 +19,8 @@ unknown PUBLISHING state is guessed or repaired. The command then:
    completion markers;
 2. refreshes the configured SFP benchmark tickers, which share ``bt_prices``;
 3. proves **every** remaining row carries the post-fix semantic marker; and
-4. only then publishes a new READY corpus UUID.
+4. in the same transaction, marks the semantic singleton proven and publishes a
+   new READY corpus UUID.
 
 A row absent from current source is not deleted or grandfathered. It remains
 unmarked and the migration refuses with a ticker/date sample. That is current-
@@ -90,11 +92,6 @@ async def _reserve_migration():
                 f"corpus source mode is {row.source_mode!r}, configured writer "
                 f"mode is {mode!r}; implicit mode mixing is refused")
 
-        # Enter PUBLISHING before any rewrite. Readers acquire the matching
-        # shared advisory corpus lock and require READY, so a partial migration
-        # cannot become citable. If a legacy deployment never bound source_mode,
-        # roll this state change back rather than inventing provenance merely to
-        # make the economic-domain repair reachable.
         await conn.execute(text(
             "UPDATE bt_data_version SET status='PUBLISHING', updated_at=NOW(), "
             "note=:note WHERE id=1"),
@@ -132,6 +129,10 @@ async def _bounds_and_count() -> tuple[str | None, str | None, int]:
 
 
 async def _remaining_unmarked() -> tuple[int, list[tuple[str, str]]]:
+    # Intentionally one full scan. The migration already performs the expensive
+    # full replay; runtime certification does NOT repeat this scan and does not
+    # build a 35M-entry pre-migration index. This is the acceptance proof that
+    # authorizes the O(1) singleton used afterwards.
     async with bt.engine.connect() as conn:
         count = int((await conn.execute(text(
             "SELECT COUNT(*) FROM bt_prices "
@@ -145,7 +146,20 @@ async def _remaining_unmarked() -> tuple[int, list[tuple[str, str]]]:
     return count, [(str(row[0]), str(row[1])) for row in rows]
 
 
+async def _stage_domain_proven(conn, *, note: str) -> None:
+    """Stage semantic authority; `_publish_ready` commits it atomically."""
+    result = await conn.execute(text(
+        "UPDATE bt_price_volume_domain_state SET "
+        "domain_version=:version, proven=TRUE, proven_at=NOW(), "
+        "invalidated_at=NULL, note=:note WHERE id=1"),
+        {"version": DOMAIN_VERSION, "note": note[:500]})
+    if result.rowcount != 1:
+        raise VolumeDomainMigrationRefused(
+            "lost bt_price_volume_domain_state singleton during migration")
+
+
 async def _mark_incomplete(conn, exc: Exception) -> None:
+    # Roll back any staged `proven=true` together with any uncommitted READY work.
     if conn.in_transaction():
         await conn.rollback()
     await conn.execute(text(
@@ -170,8 +184,9 @@ async def migrate() -> MigrationResult:
     try:
         date_from, date_to, rows = await _bounds_and_count()
         if rows == 0:
-            await bt._publish_ready(
-                reservation, f"{NOTE_PREFIX}: empty corpus; no rows to migrate")
+            note = f"{NOTE_PREFIX}: empty corpus; no rows to migrate"
+            await _stage_domain_proven(reservation, note=note)
+            await bt._publish_ready(reservation, note)
             return MigrationResult(None, None, 0, 0)
         assert date_from is not None and date_to is not None
 
@@ -190,9 +205,10 @@ async def migrate() -> MigrationResult:
                 "those symbols in BT_BENCHMARK_TICKERS and rerun this same "
                 "migration command; otherwise investigate source key drift.")
 
-        await bt._publish_ready(
-            reservation,
-            f"{NOTE_PREFIX}: complete {date_from}..{date_to}; rows={rows}")
+        note = f"{NOTE_PREFIX}: complete {date_from}..{date_to}; rows={rows}"
+        await _stage_domain_proven(reservation, note=note)
+        # Commits both the semantic singleton and new READY data UUID together.
+        await bt._publish_ready(reservation, note)
         return MigrationResult(date_from, date_to, rows, benchmark_rows)
     except Exception as exc:
         await _mark_incomplete(reservation, exc)
