@@ -77,6 +77,27 @@ def _runtime_schema_test_double_compat(request, monkeypatch):
             ROOT / "services" / "backtester" / "app" /
             "wealth_core_replay_impl.py")
 
+    # The legacy readiness fixture predates the dedicated recent-export cursor.
+    # Its purpose is to construct a corpus that is healthy except for the one
+    # domain a test deliberately damages, so complete its synthetic authority
+    # bundle with the new cursor. Tests dedicated to the recent-source gate live
+    # in test_issue_185_readiness.py and are not touched here.
+    if module_name == "test_readiness":
+        original_load = request.module.load
+
+        def load_with_recent_authority(conn, *args, **kwargs):
+            result = original_load(conn, *args, **kwargs)
+            from sentinel.feed import recent_reconciliation as recent
+
+            published = request.module.P.require_current(conn)
+            request.module.M._write_cursor(
+                conn, name=recent.CURSOR_NAME, kind=recent.CURSOR_KIND,
+                through=request.module.dt.date.fromisoformat(request.module.TODAY),
+                publication_version=published.version)
+            return result
+
+        monkeypatch.setattr(request.module, "load", load_with_recent_authority)
+
     if module_name in _LEGACY_SCHEMA_DOUBLE_MODULES:
         # Resolve ensure_schema at call time: the legacy tests install their
         # own no-I/O/refusal stub after this autouse fixture has been created.
