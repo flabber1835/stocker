@@ -131,12 +131,12 @@ def test_pull_request_ci_proves_it_is_testing_the_synthetic_merge():
 
 def test_ci_compiles_python_and_syntax_checks_every_tracked_shell_script():
     workflow = _read(".github/workflows/sentinel-safety.yml")
-    assert workflow.count("-m compileall -q -f") == 3
+    assert workflow.count("-m compileall -q -f") == 4
     assert "python -m compileall -q -f scripts" in workflow
     for path in ("/app/sentinel", "/usr/local/lib/python3.12/site-packages/stock_strategy_shared",
                  "/work/tests/sentinel", "/work/tools", "/work/repo/scripts",
                  "/app/app", "/shared/stock_strategy_shared",
-                 "/work/tests/bt_engine"):
+                 "/work/tests/bt_engine", "/work/tests/bt_data"):
         assert path in workflow
     assert "mapfile -d '' shell_scripts < <(git ls-files -z -- '*.sh')" \
         in workflow
@@ -225,16 +225,19 @@ def test_pull_requests_execute_cold_boot_and_bt_data_in_pinned_images():
     lens = _read("services/bt-data/Dockerfile.test")
 
     assert "tests/backtester/test_cold_boot_identity.py" in workflow
+    assert "tests/backtester/test_wealth_core_replay.py" in workflow
+    assert "tests/backtester/test_price_volume_domain_gate.py" in workflow
     assert "-f services/bt-data/Dockerfile -t stocker-bt-data:ci" in workflow
     assert "-f services/bt-data/Dockerfile.test" in workflow
     assert "stocker-bt-data-test:ci" in workflow
     for path in (
             "tests/bt_data/test_sharadar_adapter.py",
             "tests/bt_data/test_schema_bootstrap.py",
-            "tests/bt_data/test_sf1_coverage.py"):
+            "tests/bt_data/test_sf1_coverage.py",
+            "tests/bt_data/test_issue_185_volume_domain_migration.py"):
         assert path in workflow
-    assert "/tmp/cold-boot-focused.txt /tmp/bt-data-focused.txt" in workflow
-    assert "merge-critical cold-boot tests skipped" in workflow
+    assert "/tmp/backtester-focused.txt /tmp/bt-data-focused.txt" in workflow
+    assert "merge-critical data/replay tests skipped" in workflow
 
     assert "ARG BT_DATA_IMAGE=" in lens
     assert "FROM ${BT_DATA_IMAGE}" in lens
