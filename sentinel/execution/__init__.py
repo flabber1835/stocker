@@ -33,13 +33,16 @@ Nothing here imports a Stocker service, and nothing here decides WHAT to hold.
 from sentinel.execution.alpaca_remediation import install as _install_alpaca_remediation
 from sentinel.execution.alpaca_remediation_final import install as _install_final
 from sentinel.execution.alpaca_remediation_integrity import install as _install_integrity
+from sentinel.execution.alpaca_remediation_restart_fence import install as _install_restart_fence
 from sentinel.execution.alpaca_remediation_compat import install as _install_compat
 
 _install_alpaca_remediation()
 _install_final()
 _install_integrity()
+_install_restart_fence()
 _install_compat()
 del _install_alpaca_remediation
 del _install_final
 del _install_integrity
+del _install_restart_fence
 del _install_compat
