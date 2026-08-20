@@ -113,6 +113,13 @@ def _require_failed_owner_cleared(conn, *, context: str) -> None:
 
 
 def _prove_recent_frontier(conn, *, fetch) -> None:
+    # Only the production source membrane has an independent whole-export
+    # negative-space witness. An injected test/replay fetch can be stable and
+    # deterministic, but repetition cannot prove that a missing SEP row was
+    # truly absent from Sharadar. Do not mint an export-backed readiness cursor
+    # from that weaker source contract.
+    if fetch is not snapshot_source.fetch_table:
+        return
     frontier = _impl.feed_store.latest_visible_session(conn)
     if frontier is None:
         raise sep_reconciliation.SepReconciliationStateInvalid(
