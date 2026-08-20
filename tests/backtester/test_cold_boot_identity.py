@@ -40,8 +40,9 @@ def engine(pg):
     engine = sa.create_engine(
         pg.sync_dsn.replace("postgresql://", "postgresql+psycopg://"))
     with engine.begin() as conn:
-        conn.execute(sa.text("DROP TABLE IF EXISTS bt_actions, bt_prices, "
-                             "bt_universe, bt_data_version CASCADE"))
+        conn.execute(sa.text("DROP TABLE IF EXISTS bt_price_volume_domain_state, "
+                             "bt_actions, bt_prices, bt_universe, "
+                             "bt_data_version CASCADE"))
         conn.execute(sa.text("""
             CREATE TABLE bt_universe (
                 snapshot_date date NOT NULL,
@@ -77,8 +78,23 @@ def engine(pg):
                 status text, source_mode text
             )
         """))
+        conn.execute(sa.text("""
+            CREATE TABLE bt_price_volume_domain_state (
+                id integer PRIMARY KEY,
+                domain_version text NOT NULL,
+                proven boolean NOT NULL,
+                note text
+            )
+        """))
         conn.execute(sa.text("INSERT INTO bt_data_version VALUES "
                              "(1, 'cold-boot', 'READY', 'sharadar')"))
+        conn.execute(sa.text("""
+            INSERT INTO bt_price_volume_domain_state
+                (id, domain_version, proven, note)
+            VALUES
+                (1, 'sharadar-raw-volume-v1', TRUE,
+                 'cold-boot identity fixture')
+        """))
     try:
         yield engine
     finally:
