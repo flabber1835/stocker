@@ -50,9 +50,9 @@ class AutomationConfig(_FrozenModel):
     """Versioned scheduling and safety policy included in activation identity.
 
     Timing concepts that have distinct safety/economic meanings intentionally
-    have distinct fields.  In particular, retry backoff, callback liveness,
+    have distinct fields. In particular, retry backoff, callback liveness,
     schedule delay, maximum fresh-execution lateness, and clock trust are not
-    aliases for one another.  Every field participates in ``fingerprint`` and
+    aliases for one another. Every field participates in ``fingerprint`` and
     therefore cannot change under an already-activated signed configuration.
     """
 
