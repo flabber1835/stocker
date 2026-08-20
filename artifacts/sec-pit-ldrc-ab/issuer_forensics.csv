@@ -1,0 +1,4 @@
+date,ticker,legacy_assignment,pit_assignment,pit_reason,legacy_conflict_with,pit_conflict_with,candidate_rank,r21,economic_effect
+2025-04-01,FOXA,FOX|FOXA|FOXAV|FOXBV,P:111125,No prior SEC Form 3/4/5 issuer observation for FOXA; PR208 falls back to point-in-time permaticker identity,FOX,,8,-0.021216903384183805,none: candidate still fails r21 >= 0 admission condition
+2025-04-08,FOXA,FOX|FOXA|FOXAV|FOXBV,P:111125,No prior SEC Form 3/4/5 issuer observation for FOXA; PR208 falls back to point-in-time permaticker identity,FOX,,9,-0.1232446415373244,none: candidate still fails r21 >= 0 admission condition
+2025-12-22,GOOGL,GOOG|GOOGL|GOOGM|GOOGN,CIK:0001652044,SEC filing strictly before decision date confirms Alphabet CIK,GOOG,GOOG,3,0.0702366557263776,none: both authorities block GOOGL as same issuer as held GOOG
