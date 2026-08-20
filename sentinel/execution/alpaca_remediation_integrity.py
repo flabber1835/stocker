@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal
 
 _INSTALLED = False
@@ -38,10 +38,9 @@ def install() -> None:
     if _INSTALLED:
         return
 
-    from sentinel.execution import alpaca, broker_cash, journal
+    from sentinel.execution import alpaca, broker_cash, executor, journal
     from sentinel.execution.identity import is_sentinel_key
     from sentinel.execution.states import CommandState, TERMINAL
-    from sentinel.execution import alpaca_remediation_final as final
 
     if getattr(alpaca, "_ACCOUNTING_INTEGRITY_INSTALLED", False):
         _INSTALLED = True
@@ -311,10 +310,16 @@ def install() -> None:
     # one could bless a database that was restored before this feature landed.
     # Require one explicit takeover acknowledgement instead. Fresh databases
     # with no backup marker history may initialize normally.
+    #
+    # This is enforced at executor entry, not merely exposed as a diagnostic:
+    # the final remediation's executor wrapper already owns ordinary timeline
+    # changes and post-takeover DAY-order expiry; this outer wrapper covers the
+    # one upgrade shape that exists before an incarnation anchor can exist.
     # ------------------------------------------------------------------
-    original_restore_reason = final.restore_increase_fence_reason
+    original_restore_reason = alpaca.restore_increase_fence_reason
+    current_execute_session = executor.execute_session
 
-    def restore_reason_with_upgrade_fence(conn, deployment, today):
+    def upgrade_restore_reason(conn) -> str:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT state FROM sentinel_processed_sessions"
@@ -340,9 +345,33 @@ def install() -> None:
                 "incarnation anchor. One explicit adopt-restored-account "
                 "takeover is required before exposure increases; this prevents "
                 "an already-restored database from silently self-certifying")
-        return original_restore_reason(conn, deployment, today)
+        return ""
 
-    final.restore_increase_fence_reason = restore_reason_with_upgrade_fence
+    def restore_reason_with_upgrade_fence(conn, deployment, today):
+        return (upgrade_restore_reason(conn)
+                or original_restore_reason(conn, deployment, today))
+
+    async def execute_session_with_upgrade_fence(*args, **kwargs):
+        if args:
+            # ``execute_session`` is intentionally keyword-only. Refuse an
+            # unexpected calling convention rather than silently skipping the
+            # restore fence.
+            raise TypeError("execute_session restore fence requires keyword arguments")
+        conn = kwargs["conn"]
+        reason = upgrade_restore_reason(conn)
+        if reason:
+            original_increase_authority = kwargs.get("increase_authority")
+
+            async def fenced_increase_authority(observation):
+                if original_increase_authority is not None:
+                    await original_increase_authority(observation)
+                raise alpaca.RestoreGradeIncreaseDeferred(reason)
+
+            kwargs = dict(kwargs)
+            kwargs["increase_authority"] = fenced_increase_authority
+        return await current_execute_session(**kwargs)
+
+    executor.execute_session = execute_session_with_upgrade_fence
     alpaca.restore_increase_fence_reason = restore_reason_with_upgrade_fence
 
     alpaca._ACCOUNTING_INTEGRITY_INSTALLED = True
