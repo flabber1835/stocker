@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 
+from sentinel.execution import commands as C
 from sentinel.execution.executor import _execution_universe
 from sentinel.execution.contract import (
     BrokerInstrument, BrokerObservation, BrokerOrder, Completeness, Side)
@@ -20,3 +21,8 @@ def test_executor_universe_includes_working_order_only_security():
         orders=(order,), positions=(), completeness=Completeness.COMPLETE)
 
     assert _execution_universe({}, observation) == {"ORDER-ONLY"}
+
+    delta = C.compute_delta(
+        security_id="ORDER-ONLY", desired=Decimal(0), observation=observation)
+    assert delta.remaining == Decimal("-7")
+    assert delta.conflicting_orders == (order,)
