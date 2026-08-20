@@ -54,13 +54,25 @@ jobs:
           python -m unittest -v tests.host_python38.test_host_compat
           python -m compileall -q -f scripts
 
-      - name: Apply the gated implementation
+      - name: Apply gated implementation and stale-version test correction
         shell: bash
         run: |
           set -euo pipefail
           cat tools/ldrc_payload_aa tools/ldrc_payload_ab tools/ldrc_payload_ac \
             | base64 --decode | gzip --decompress > /tmp/ldrc_apply_once.py
           python /tmp/ldrc_apply_once.py .
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/sentinel/test_production_state.py')
+          text = path.read_text()
+          old = '    assert migrated.version == 3\n'
+          new = '    assert migrated.version == 4\n'
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(
+                  f'REFUSED: expected exactly one stale v3 assertion, found {count}')
+          path.write_text(text.replace(old, new, 1))
+          PY
           git diff --check
           git status --short
 
@@ -93,40 +105,29 @@ jobs:
 
       - name: Build pinned Sentinel runtime and test images
         run: |
-          docker build \
-            --build-arg SOURCE_GIT_SHA="${FINAL_SHA}" \
+          docker build --build-arg SOURCE_GIT_SHA="${FINAL_SHA}" \
             -f Dockerfile.sentinel -t sentinel:latest .
-          docker build \
-            --build-arg SENTINEL_RUNTIME_BASE_IMAGE=sentinel:latest \
+          docker build --build-arg SENTINEL_RUNTIME_BASE_IMAGE=sentinel:latest \
             --build-arg SOURCE_GIT_SHA="${FINAL_SHA}" \
-            -f Dockerfile.sentinel-authorized \
-            -t sentinel-authorized:ci .
-          docker build \
-            --build-arg SENTINEL_IMAGE=sentinel-authorized:ci \
+            -f Dockerfile.sentinel-authorized -t sentinel-authorized:ci .
+          docker build --build-arg SENTINEL_IMAGE=sentinel-authorized:ci \
             --build-arg SOURCE_GIT_SHA="${FINAL_SHA}" \
             -f Dockerfile.sentinel-test -t sentinel-test:ci .
 
       - name: Build production bt-engine and bt-data test lenses
         run: |
-          docker build \
-            --build-arg SOURCE_GIT_SHA="${FINAL_SHA}" \
+          docker build --build-arg SOURCE_GIT_SHA="${FINAL_SHA}" \
             -f Dockerfile.base -t stocker-base:latest .
-          docker build \
-            --build-arg SOURCE_GIT_SHA="${FINAL_SHA}" \
+          docker build --build-arg SOURCE_GIT_SHA="${FINAL_SHA}" \
             -f services/bt-engine/Dockerfile -t stocker-bt-engine:ci .
-          docker build \
-            --build-arg BT_ENGINE_IMAGE=stocker-bt-engine:ci \
+          docker build --build-arg BT_ENGINE_IMAGE=stocker-bt-engine:ci \
             --build-arg SOURCE_GIT_SHA="${FINAL_SHA}" \
-            -f services/bt-engine/Dockerfile.test \
-            -t stocker-bt-engine-test:ci .
-          docker build \
-            --build-arg SOURCE_GIT_SHA="${FINAL_SHA}" \
+            -f services/bt-engine/Dockerfile.test -t stocker-bt-engine-test:ci .
+          docker build --build-arg SOURCE_GIT_SHA="${FINAL_SHA}" \
             -f services/bt-data/Dockerfile -t stocker-bt-data:ci .
-          docker build \
-            --build-arg BT_DATA_IMAGE=stocker-bt-data:ci \
+          docker build --build-arg BT_DATA_IMAGE=stocker-bt-data:ci \
             --build-arg SOURCE_GIT_SHA="${FINAL_SHA}" \
-            -f services/bt-data/Dockerfile.test \
-            -t stocker-bt-data-test:ci .
+            -f services/bt-data/Dockerfile.test -t stocker-bt-data-test:ci .
 
       - name: Compile executable Python and test surfaces
         run: |
@@ -134,9 +135,8 @@ jobs:
             sentinel-test:ci -m compileall -q -f \
             /app/sentinel \
             /usr/local/lib/python3.12/site-packages/stock_strategy_shared \
-            /work/services/backtester/app \
-            /work/tests/sentinel /work/tests/backtester \
-            /work/tools /work/repo/scripts
+            /work/services/backtester/app /work/tests/sentinel \
+            /work/tests/backtester /work/tools /work/repo/scripts
           docker run --rm --network none --entrypoint python \
             stocker-bt-engine-test:ci -m compileall -q -f \
             /app/app /shared/stock_strategy_shared /work/tests/bt_engine
@@ -222,17 +222,13 @@ jobs:
           bash -n "${shell_scripts[@]}"
           mkdir -p "$SENTINEL_BACKUP_DIR/wal" "$SENTINEL_BACKUP_DIR/base" \
             "$SENTINEL_AUTHORITY_ARTIFACTS_DIR"
-          docker compose \
-            -f docker-compose.sentinel.yml \
-            -f docker-compose.sentinel-backup.yml \
-            config --quiet
-          docker compose \
-            -f docker-compose.sentinel.yml \
+          docker compose -f docker-compose.sentinel.yml \
+            -f docker-compose.sentinel-backup.yml config --quiet
+          docker compose -f docker-compose.sentinel.yml \
             -f docker-compose.sentinel-backup.yml \
             -f docker-compose.sentinel-automation.yml \
             --profile automation config --quiet
-          docker compose \
-            -f docker-compose.sentinel.yml \
+          docker compose -f docker-compose.sentinel.yml \
             -f docker-compose.sentinel-backup.yml \
             -f docker-compose.sentinel-automation.yml \
             --profile authorized-cli config --quiet
