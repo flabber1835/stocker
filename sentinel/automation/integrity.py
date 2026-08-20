@@ -72,6 +72,18 @@ _MUTABLE_EVENT_FIELDS = (
     "diagnostic",
 )
 
+# adopt_cycle currently persists these row changes but its immutable event does
+# not serialize their values.  After an adoption we therefore stop claiming
+# value-level proof for them until a later ordinary transition explicitly
+# carries the field again.  State/fence/edge/attempt/completion proof remains
+# mandatory, and no row is ever repaired from event data.
+_ADOPTION_UNCARRIED_FIELDS = {
+    "last_clean_reconciliation_id",
+    "next_wake_at",
+    "failure_code",
+    "failure_detail",
+}
+
 
 def database_now(conn) -> datetime:
     """Return PostgreSQL wall time without leaving a read transaction open."""
@@ -192,6 +204,8 @@ def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
                 if to_state not in allowed:
                     raise AutomationRefused(
                         "automation cycle contains an illegal adoption edge")
+                for field in _ADOPTION_UNCARRIED_FIELDS:
+                    reconstructed.pop(field, None)
             elif to_state not in _ALLOWED_TRANSITIONS.get(from_state, set()):
                 raise AutomationRefused(
                     f"automation cycle contains illegal edge "
