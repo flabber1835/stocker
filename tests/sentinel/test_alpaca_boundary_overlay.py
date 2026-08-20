@@ -461,9 +461,14 @@ def test_watermark_cannot_advance_before_recovered_order_is_durable(conn):
 
 
 def test_physical_db_incarnation_change_requires_takeover_before_rerisk(conn):
+    # Keep this independent of the runner's wall clock.  On an XNYS session,
+    # CI starts PostgreSQL during that session and the separate postmaster DAY-
+    # order fence correctly fires before this test can exercise the physical-DB
+    # incarnation fence it is meant to isolate.
+    completed_session = date(2026, 8, 19)
     # First read establishes the current physical-DB anchor.
     assert restore_increase_fence_reason(
-        conn, DEPLOYMENT, date.today()) == ""
+        conn, DEPLOYMENT, completed_session) == ""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT state FROM sentinel_processed_sessions"
@@ -482,5 +487,5 @@ def test_physical_db_incarnation_change_requires_takeover_before_rerisk(conn):
         )
     conn.commit()
 
-    reason = restore_increase_fence_reason(conn, DEPLOYMENT, date.today())
+    reason = restore_increase_fence_reason(conn, DEPLOYMENT, completed_session)
     assert "adopt-restored-account" in reason

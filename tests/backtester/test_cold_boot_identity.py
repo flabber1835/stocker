@@ -41,7 +41,8 @@ def engine(pg):
         pg.sync_dsn.replace("postgresql://", "postgresql+psycopg://"))
     with engine.begin() as conn:
         conn.execute(sa.text("DROP TABLE IF EXISTS bt_price_volume_domain_state, "
-                             "bt_actions, bt_prices, bt_universe, "
+                             "bt_actions_source_state, bt_actions, "
+                             "bt_prices, bt_universe, "
                              "bt_data_version CASCADE"))
         conn.execute(sa.text("""
             CREATE TABLE bt_universe (
@@ -68,9 +69,21 @@ def engine(pg):
         """))
         conn.execute(sa.text("""
             CREATE TABLE bt_actions (
-                ticker text, date date, action text,
-                value double precision, contraticker text
+                source_row_id text, ticker text, date date, action text,
+                name text, value double precision, contraticker text,
+                contraname text
             )
+        """))
+        conn.execute(sa.text("""
+            CREATE TABLE bt_actions_source_state (
+                id integer PRIMARY KEY, schema_version text, status text,
+                date_min date, date_max date
+            )
+        """))
+        conn.execute(sa.text("""
+            INSERT INTO bt_actions_source_state VALUES
+                (1, 'complete-source-row-v1', 'READY',
+                 '1900-01-01', '2026-08-14')
         """))
         conn.execute(sa.text("""
             CREATE TABLE bt_data_version (

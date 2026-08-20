@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app import main as bt_main
 from app.main import CORPUS_LOCK_KEY
+from app.sharadar_adapter import map_actions_row
 from tests.support.postgres import _EphemeralPostgres
 
 
@@ -171,6 +172,94 @@ def test_narrow_sf1_context_reads_four_prior_quarters(pg, monkeypatch):
                 date(2023, 12, 31), date(2024, 3, 31),
             ]
             assert [float(r["_revenue"]) for r in rows] == [20, 30, 40, 50]
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_actions_full_row_rebuild_is_lossless_idempotent_and_atomic(
+        pg, monkeypatch):
+    async def run() -> None:
+        engine = create_async_engine(pg.async_dsn)
+        monkeypatch.setattr(bt_main, "engine", engine)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(
+                    "DROP TABLE IF EXISTS bt_actions, bt_actions_source_state"))
+                await conn.execute(text("""
+                    CREATE TABLE bt_actions (
+                        source_row_id TEXT NOT NULL UNIQUE,
+                        source_payload JSONB NOT NULL,
+                        ticker TEXT NOT NULL, date DATE NOT NULL,
+                        action TEXT NOT NULL CHECK (action <> 'explode'),
+                        name TEXT, value NUMERIC(20,6), contraticker TEXT,
+                        contraname TEXT)
+                """))
+                await conn.execute(text("""
+                    CREATE TABLE bt_actions_source_state (
+                        id INTEGER PRIMARY KEY, schema_version TEXT NOT NULL,
+                        status TEXT NOT NULL, date_min DATE, date_max DATE,
+                        source_rows BIGINT NOT NULL DEFAULT 0,
+                        distinct_rows BIGINT NOT NULL DEFAULT 0,
+                        collision_groups BIGINT NOT NULL DEFAULT 0,
+                        rebuilt_at TIMESTAMPTZ, note TEXT)
+                """))
+                await conn.execute(text("""
+                    INSERT INTO bt_actions_source_state
+                        (id,schema_version,status)
+                    VALUES (1,'complete-source-row-v1','NEEDS_REBUILD')
+                """))
+
+            base = {"date": "2022-05-02", "action": "split",
+                    "ticker": "AAA", "name": "base", "value": "1.00",
+                    "contraticker": None, "contraname": None}
+            delivery = [
+                map_actions_row(base),
+                map_actions_row({**base, "value": 1}),  # exact semantic repeat
+                map_actions_row({**base, "value": 2}),
+                map_actions_row({**base, "contraticker": "BBB"}),
+                map_actions_row({**base, "contraname": "Buyer"}),
+                map_actions_row({**base, "name": "different"}),
+            ]
+            report = await bt_main._replace_actions(
+                delivery, "1900-01-01", "2026-08-20")
+            assert report == {
+                "source_rows": 6, "distinct_rows": 5,
+                "exact_repeat_rows": 1, "collision_groups": 1,
+                "persisted_window": 5, "persisted_total": 5,
+                "stored_collision_groups": 1, "rebuild": True,
+            }
+
+            async with engine.connect() as conn:
+                first = list((await conn.execute(text(
+                    "SELECT source_row_id FROM bt_actions "
+                    "ORDER BY source_row_id"))).scalars())
+                state = (await conn.execute(text(
+                    "SELECT status, distinct_rows, collision_groups "
+                    "FROM bt_actions_source_state WHERE id=1"))).one()
+            assert len(first) == 5
+            assert tuple(state) == ("READY", 5, 1)
+
+            replay = await bt_main._replace_actions(
+                list(reversed(delivery)), "1900-01-01", "2026-08-20")
+            assert replay["rebuild"] is False
+            async with engine.connect() as conn:
+                second = list((await conn.execute(text(
+                    "SELECT source_row_id FROM bt_actions "
+                    "ORDER BY source_row_id"))).scalars())
+            assert second == first
+
+            bad = map_actions_row({**base, "action": "explode"})
+            with pytest.raises(Exception, match="bt_actions.*check|CheckViolation"):
+                await bt_main._replace_actions(
+                    [bad], "1900-01-01", "2026-08-20")
+            async with engine.connect() as conn:
+                after_failure = list((await conn.execute(text(
+                    "SELECT source_row_id FROM bt_actions "
+                    "ORDER BY source_row_id"))).scalars())
+            assert after_failure == first, (
+                "failed window replacement committed its delete or partial insert")
         finally:
             await engine.dispose()
 

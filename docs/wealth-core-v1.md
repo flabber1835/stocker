@@ -391,6 +391,31 @@ order, an unrecorded bypass, and a "dry run" that submitted orders.
 
 ## Authoritative corporate actions (SHARADAR/ACTIONS)
 
+### Source-row grain and rebuild authority
+
+The backtest corpus stores ACTIONS at the complete seven-field Sharadar source
+grain: `date`, `action`, `ticker`, `name`, `value`, `contraticker`, and
+`contraname`. Its durable key is a SHA-256 over the canonical complete row,
+with semantic numeric spelling and a distinction between NULL and the empty
+string. `(ticker,date,action)` is an economic grouping key only; it is not and
+must never again become a storage uniqueness key.
+
+An existing table created under the coarse key is unprovable because rows were
+already discarded before storage. Schema migration therefore invalidates its
+ACTIONS authority and requires a complete `1900-01-01..through` rebuild. The
+replacement is one database transaction inside the corpus PUBLISHING
+generation: delete the covered source window, insert every distinct complete
+row, verify persisted cardinality, and mark ACTIONS READY together. A failure
+rolls the replacement back and leaves the corpus generation unreadable.
+
+Exact semantic redeliveries collapse by `source_row_id`; distinct siblings
+coexist. Readers order by that identity. Dividends sum every distinct usable
+source row deterministically. More than one distinct split row at one effective
+ticker/session is unresolved ambiguity, never first-row, last-row, or product
+semantics. Terminal rows continue through the shared deterministic coalescer,
+using source identity as provenance and refusing equally rich conflicting
+economics.
+
 The backtester used to derive everything it knew about corporate actions from
 the price series itself. That was the right call while ACTIONS was un-ingested —
 a derived ratio beats no split handling — but it cannot support a certified

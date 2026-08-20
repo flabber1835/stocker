@@ -136,12 +136,93 @@ def test_compute_growth_negative_base_uses_abs():
 # ── ACTIONS (the authoritative corporate-action stream) ─────────────────────
 
 def test_actions_maps_the_seven_columns():
-    m = map_actions_row({"date": "2022-05-02", "action": "Merger",
-                         "ticker": "bbb", "name": "Beta Inc", "value": 54.0,
-                         "contraticker": "aaa", "contraname": "Alpha Co"})
-    assert m == {"ticker": "BBB", "date": "2022-05-02", "action": "merger",
-                 "name": "Beta Inc", "value": 54.0,
-                 "contraticker": "AAA", "contraname": "Alpha Co"}
+    source = {"date": "2022-05-02", "action": "Merger",
+              "ticker": "bbb", "name": "Beta Inc", "value": 54.0,
+              "contraticker": "aaa", "contraname": "Alpha Co"}
+    m = map_actions_row(source)
+    assert m["source_payload"] == {
+        "date": "2022-05-02", "action": "Merger", "ticker": "bbb",
+        "name": "Beta Inc", "value": "54", "contraticker": "aaa",
+        "contraname": "Alpha Co"}
+    assert len(m["source_row_id"]) == 64
+    assert {k: v for k, v in m.items() if not k.startswith("source_")} == {
+        "ticker": "BBB", "date": "2022-05-02", "action": "merger",
+        "name": "Beta Inc", "value": 54.0,
+        "contraticker": "AAA", "contraname": "Alpha Co"}
+
+
+def test_actions_identity_is_numeric_semantic_and_null_exact():
+    base = {"date": "2022-05-02", "action": "split", "ticker": "AAA",
+            "name": None, "value": "1.00", "contraticker": None,
+            "contraname": None}
+    numeric_repeat = map_actions_row({**base, "value": 1})
+    assert map_actions_row(base)["source_row_id"] == numeric_repeat["source_row_id"]
+
+    empty_is_distinct = map_actions_row({**base, "contraname": ""})
+    assert empty_is_distinct["source_row_id"] != numeric_repeat["source_row_id"]
+    assert empty_is_distinct["source_payload"]["contraname"] == ""
+
+
+def test_bt_data_identity_matches_the_production_known_vector():
+    from app.action_source import source_row_id
+    row = {"date": "2022-05-02", "action": "split", "ticker": "AAA",
+           "name": None, "value": "1.00", "contraticker": None,
+           "contraname": ""}
+    assert source_row_id(row) == (
+        "9fc123fcef76f02b0c5e93e54868c3d8625bdae923c0bbe7c5d26b6f0a794fcf")
+
+
+def test_action_preparation_collapses_only_exact_semantic_repeats():
+    from app.main import prepare_action_rows
+    base = {"date": "2022-05-02", "action": "split", "ticker": "AAA",
+            "name": None, "value": "1.00", "contraticker": None,
+            "contraname": None}
+    delivery = [
+        map_actions_row(base),
+        map_actions_row({**base, "value": 1}),
+        map_actions_row({**base, "value": 2}),
+        map_actions_row({**base, "contraticker": "BBB"}),
+        map_actions_row({**base, "contraname": "Buyer"}),
+        map_actions_row({**base, "name": "different"}),
+    ]
+    forward, report = prepare_action_rows(delivery)
+    reverse, reverse_report = prepare_action_rows(list(reversed(delivery)))
+    assert [row["source_row_id"] for row in forward] == [
+        row["source_row_id"] for row in reverse]
+    assert report == reverse_report == {
+        "source_rows": 6, "distinct_rows": 5,
+        "exact_repeat_rows": 1, "collision_groups": 1}
+
+
+def test_action_preparation_refuses_a_hash_collision():
+    import pytest
+    from app.main import prepare_action_rows
+    first = map_actions_row({"date": "2022-05-02", "action": "split",
+                             "ticker": "AAA", "value": 2})
+    forged = {**first, "source_payload": {**first["source_payload"],
+                                           "name": "different"}}
+    with pytest.raises(ValueError, match="source identity collision"):
+        prepare_action_rows([first, forged])
+
+
+def test_legacy_actions_rebuild_range_is_refused_before_publication(monkeypatch):
+    import asyncio
+    import pytest
+    from fastapi import BackgroundTasks, HTTPException
+    from app import main as bt_main
+
+    async def needs_rebuild():
+        return "NEEDS_REBUILD"
+
+    async def must_not_schedule(*_args, **_kwargs):
+        raise AssertionError("invalid range entered corpus PUBLISHING")
+
+    monkeypatch.setattr(bt_main, "_actions_source_status", needs_rebuild)
+    monkeypatch.setattr(bt_main, "_schedule_mutation", must_not_schedule)
+    with pytest.raises(HTTPException, match="complete rebuild") as exc:
+        asyncio.run(bt_main.start_actions_backfill(
+            BackgroundTasks(), "1998-01-01", "2026-08-20"))
+    assert exc.value.status_code == 409
 
 
 def test_actions_NEVER_COERCES_A_MISSING_VALUE_TO_ZERO():

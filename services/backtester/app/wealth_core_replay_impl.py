@@ -39,6 +39,7 @@ So a missing raw close is an ERROR with a named remedy, not a substitution.
 from __future__ import annotations
 
 import logging
+import math
 import os
 from dataclasses import dataclass
 from enum import Enum
@@ -89,6 +90,10 @@ class CorporateActionsUnavailable(RuntimeError):
     reported as such — a certified run turns the flag on so the fallback becomes
     an error with a named remedy rather than a quiet downgrade.
     """
+
+
+class CorporateActionsAmbiguous(CorporateActionsUnavailable):
+    """Distinct ACTIONS siblings do not define one safe economic operation."""
 
 
 class IdentityAuthorityUnavailable(RuntimeError):
@@ -287,10 +292,19 @@ def unsnapped_split_ratio(prev_close: float | None, prev_raw: float | None,
 # silently mis-state a book, so they are testable without a Sharadar corpus.
 
 _ACTIONS_SQL = text("""
-    SELECT ticker, date, action, value, contraticker
+    SELECT source_row_id, ticker, date, action, name, value,
+           contraticker, contraname
       FROM bt_actions
      WHERE date BETWEEN :start AND :end
-     ORDER BY date, ticker, action
+     ORDER BY date, ticker, action, source_row_id
+""")
+
+_ACTIONS_AUTHORITY_SQL = text("""
+    SELECT schema_version, status, date_min, date_max,
+           date_min <= CAST(:start AS date) AS covers_start,
+           date_max >= CAST(:end AS date) AS covers_end
+      FROM bt_actions_source_state
+     WHERE id = 1
 """)
 
 # ── The vendor's ACTUAL vocabulary, transcribed (2026-08-08) ────────────────
@@ -411,17 +425,28 @@ def split_ratios_from_actions(rows: Iterable[dict],
     the adjustment factor FALLS through a forward split, so `before/after` is
     the share ratio there and `after/before` would halve a position on a 2:1.
     """
-    out: dict[tuple[str, str], float] = {}
+    grouped: dict[tuple[str, str], list[dict]] = {}
     for r in rows:
         if (r.get("action") or "").lower() not in SPLIT_ACTIONS:
-            continue
-        v = r.get("value")
-        if v is None or float(v) <= 0:
             continue
         session = snap_to_session(str(r["date"]), sessions_sorted)
         if session is None:
             continue
-        out[(r["ticker"], session)] = float(v)
+        grouped.setdefault((r["ticker"], session), []).append(r)
+
+    out: dict[tuple[str, str], float] = {}
+    for key in sorted(grouped):
+        siblings = grouped[key]
+        if len(siblings) > 1:
+            identities = sorted(str(row.get("source_row_id") or "<unknown>")
+                                for row in siblings)
+            raise CorporateActionsAmbiguous(
+                "ambiguous split ACTIONS multiplicity for "
+                f"{key[0]} on {key[1]}: {', '.join(identities)}")
+        v = siblings[0].get("value")
+        if v is None or float(v) <= 0:
+            continue
+        out[key] = float(v)
     return out
 
 
@@ -437,10 +462,10 @@ def dividends_from_actions(rows: Iterable[dict],
 
     Multiple distributions on one ticker and session are SUMMED rather than
     overwritten: an ordinary and a special dividend can share an ex-date, and
-    keeping only the last row read would silently drop one. The ingest's
-    (ticker, date, action) key is what makes them separate rows to sum.
+    keeping only the last row read would silently drop one. Complete source-row
+    identity is what preserves every distinct row that must be summed.
     """
-    out: dict[tuple[str, str], float] = {}
+    grouped: dict[tuple[str, str], list[float]] = {}
     for r in rows:
         if (r.get("action") or "").lower() not in DIVIDEND_ACTIONS:
             continue
@@ -455,8 +480,10 @@ def dividends_from_actions(rows: Iterable[dict],
         if session is None:
             continue
         key = (r["ticker"], session)
-        out[key] = out.get(key, 0.0) + float(v)
-    return out
+        grouped.setdefault(key, []).append(float(v))
+    # math.fsum over a sorted multiset makes the result independent of source
+    # delivery/query order while retaining every distinct stored source row.
+    return {key: math.fsum(sorted(grouped[key])) for key in sorted(grouped)}
 
 
 def unusable_dividend_rows(rows: Iterable[dict]) -> int:
@@ -635,7 +662,7 @@ def terminal_events_from_actions(rows: Iterable[dict],
         if unresolved is not None:
             unresolved[key] = unresolved.get(key, 0) + 1
 
-    out: list[TerminalTerms] = []
+    candidates: list[TerminalCandidate] = []
     for r in rows:
         if (r.get("action") or "").lower() not in TERMINAL_ACTIONS:
             continue
@@ -678,7 +705,10 @@ def terminal_events_from_actions(rows: Iterable[dict],
             delivered_security_id=delivered_sid,
             delivered_issuer_id=delivered_issuer)
         if t is not None:
-            out.append(t)
+            candidates.append(TerminalCandidate(
+                terms=t,
+                source_key=str(r.get("source_row_id") or t.reference or ""),
+                payload=r))
 
     # ONE EVENT PER (security, session). Sharadar states a single termination
     # across SEVERAL rows: measured, every one of the 12,253 tickers carrying an
@@ -694,8 +724,7 @@ def terminal_events_from_actions(rows: Iterable[dict],
     # is precisely the identity the old vocabulary was discarding, so preferring
     # the bare row would reintroduce the loss under a new mechanism.
     coalesced: list[TerminalTerms] = []
-    outcomes = coalesce_terminal_terms(
-        TerminalCandidate(terms=t, source_key=t.reference or "") for t in out)
+    outcomes = coalesce_terminal_terms(candidates)
     for outcome in outcomes:
         if outcome.conflicting:
             for _candidate in outcome.conflicting:
@@ -759,6 +788,33 @@ def reconcile_split(derived: float, authoritative: float | None,
 def load_actions(conn, start: str, end: str) -> list[dict]:
     return [dict(r) for r in
             conn.execute(_ACTIONS_SQL, {"start": start, "end": end}).mappings()]
+
+
+def assert_actions_source_authority(conn, start, end) -> None:
+    """Refuse legacy, incomplete, or range-insufficient ACTIONS storage."""
+    try:
+        state = conn.execute(
+            _ACTIONS_AUTHORITY_SQL,
+            {"start": str(start), "end": str(end)}).mappings().first()
+    except Exception as exc:
+        raise CorporateActionsUnavailable(
+            "bt_actions complete-row authority is unavailable; deploy the "
+            "current bt-data schema and run a complete ACTIONS rebuild from "
+            "1900-01-01") from exc
+    if state is None:
+        raise CorporateActionsUnavailable(
+            "bt_actions_source_state has no authority row; run a complete "
+            "ACTIONS rebuild from 1900-01-01")
+    if (state["schema_version"] != "complete-source-row-v1"
+            or state["status"] != "READY"
+            or state["covers_start"] is not True
+            or state["covers_end"] is not True):
+        raise CorporateActionsUnavailable(
+            "bt_actions complete-row authority does not cover the requested "
+            f"window {start}..{end}: schema={state['schema_version']!r}, "
+            f"status={state['status']!r}, coverage="
+            f"{state['date_min']}..{state['date_max']}. Run a complete ACTIONS "
+            "rebuild from 1900-01-01 through the requested end.")
 
 
 def actions_after_session(rows: Iterable[dict],
@@ -1263,6 +1319,7 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
 
     # ── the authoritative corporate-action stream ────────────────────────────
     sessions_sorted = sessions_index(sessions)
+    assert_actions_source_authority(conn, req.start_date, req.end_date)
     action_rows = load_actions(conn, req.start_date, req.end_date)
     use_actions = bool(action_rows)
     if not use_actions and REQUIRE_ACTIONS:
@@ -1349,13 +1406,15 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
 
 
 __all__ = ["ACTIONS_CAVEATS", "CAVEATS", "DERIVED_SPLIT_CAVEATS",
-           "CorporateActionsUnavailable", "REQUIRE_ACTIONS", "SPLIT_ACTIONS",
+           "CorporateActionsAmbiguous", "CorporateActionsUnavailable",
+           "REQUIRE_ACTIONS", "SPLIT_ACTIONS",
            "TERMINAL_ACTIONS", "DIVIDEND_ACTIONS", "dividends_from_actions",
            "CanonicalBarsUnavailable", "DecisionMetadataUnavailable",
            "IdentityAuthorityUnavailable",
            "IdentityResolver", "IdentityUnresolvable", "SECURITY_ID_PREFIX",
            "permanent_id", "load_identity",
-           "unusable_dividend_rows", "load_actions", "actions_after_session",
+           "unusable_dividend_rows", "load_actions",
+           "assert_actions_source_authority", "actions_after_session",
            "actions_effective_in_sessions",
            "load_sessions",
            "reconcile_split", "unsnapped_split_ratio",

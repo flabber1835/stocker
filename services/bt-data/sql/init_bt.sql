@@ -283,23 +283,63 @@ CREATE INDEX IF NOT EXISTS idx_bt_universe_snapshot_ticker
 -- table may be interpreted as a zero — see docs/wealth-core-v1.md, "a delisting
 -- is NOT a write-off". Absence of terms BLOCKS; only a stated zero writes off.
 --
--- No natural primary key: a ticker can legitimately carry two actions of
--- different kinds on one date (a merger closing and the delisting that follows
--- it), and a re-fetch must not duplicate them. (ticker, date, action) is the
--- key, which collapses the pathological case of the same action twice on a day
--- while keeping the legitimate one.
+-- SOURCE grain is the complete seven-field vendor row. Sharadar legitimately
+-- emits distinct siblings with the same (ticker,date,action), so that tuple is
+-- an economic grouping key and NEVER storage uniqueness. source_row_id is the
+-- SHA-256 of canonical source_payload: numeric spelling is semantic while NULL
+-- remains distinct from an empty string.
 CREATE TABLE IF NOT EXISTS bt_actions (
+    source_row_id   TEXT         NOT NULL,
+    source_payload  JSONB        NOT NULL,
     ticker          VARCHAR(20)  NOT NULL,
     date            DATE         NOT NULL,
     action          TEXT         NOT NULL,
     name            TEXT,
     value           NUMERIC(20,6),
     contraticker    VARCHAR(20),
-    contraname      TEXT,
-    PRIMARY KEY (ticker, date, action)
+    contraname      TEXT
 );
+-- Existing databases created under the lossy key pick up nullable columns
+-- first. The guarded migration below discards their unprovable rows before the
+-- columns become NOT NULL; siblings already collapsed by the old key cannot be
+-- reconstructed by SQL.
+ALTER TABLE bt_actions ADD COLUMN IF NOT EXISTS source_row_id TEXT;
+ALTER TABLE bt_actions ADD COLUMN IF NOT EXISTS source_payload JSONB;
+
+CREATE TABLE IF NOT EXISTS bt_actions_source_state (
+    id               INTEGER     PRIMARY KEY CHECK (id = 1),
+    schema_version   TEXT        NOT NULL,
+    status           TEXT        NOT NULL CHECK (status IN ('NEEDS_REBUILD','READY')),
+    date_min         DATE,
+    date_max         DATE,
+    source_rows      BIGINT      NOT NULL DEFAULT 0,
+    distinct_rows    BIGINT      NOT NULL DEFAULT 0,
+    collision_groups BIGINT      NOT NULL DEFAULT 0,
+    rebuilt_at       TIMESTAMPTZ,
+    note             TEXT
+);
+INSERT INTO bt_actions_source_state
+    (id, schema_version, status, note)
+VALUES
+    (1, 'complete-source-row-v1', 'NEEDS_REBUILD',
+     'complete ACTIONS rebuild from 1900-01-01 required')
+ON CONFLICT (id) DO NOTHING;
+
+-- If any row lacks complete identity, the table came from the lossy schema (or
+-- an interrupted manual migration). Empty it and keep authority explicitly
+-- NEEDS_REBUILD. This statement is one unit because _ensure_schema applies each
+-- semicolon-delimited statement in its own transaction.
+DO $$ BEGIN IF EXISTS (SELECT 1 FROM bt_actions WHERE source_row_id IS NULL OR source_payload IS NULL) THEN TRUNCATE bt_actions; UPDATE bt_actions_source_state SET schema_version='complete-source-row-v1', status='NEEDS_REBUILD', date_min=NULL, date_max=NULL, source_rows=0, distinct_rows=0, collision_groups=0, rebuilt_at=NULL, note='legacy coarse-key ACTIONS rows invalidated; complete rebuild required' WHERE id=1; END IF; END $$;
+
+ALTER TABLE bt_actions DROP CONSTRAINT IF EXISTS bt_actions_pkey;
+ALTER TABLE bt_actions ALTER COLUMN source_row_id SET NOT NULL;
+ALTER TABLE bt_actions ALTER COLUMN source_payload SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bt_actions_source_row
+    ON bt_actions(source_row_id);
 CREATE INDEX IF NOT EXISTS idx_bt_actions_date   ON bt_actions(date);
 CREATE INDEX IF NOT EXISTS idx_bt_actions_action ON bt_actions(action, date);
+CREATE INDEX IF NOT EXISTS idx_bt_actions_economic_key
+    ON bt_actions(ticker, date, action, source_row_id);
 
 -- Bookkeeping for the fetch jobs (backfill + incremental top-up).
 CREATE TABLE IF NOT EXISTS bt_data_runs (

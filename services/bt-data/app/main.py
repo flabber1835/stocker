@@ -16,6 +16,7 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import uuid
 from contextlib import asynccontextmanager
@@ -52,6 +53,7 @@ LOCK_TIMEOUT_MS = os.getenv("BT_DB_LOCK_TIMEOUT_MS", "60000")          # 60s
 STATEMENT_TIMEOUT_MS = os.getenv("BT_DB_STATEMENT_TIMEOUT_MS", "600000")  # 10 min
 IDLE_TX_TIMEOUT_MS = os.getenv("BT_DB_IDLE_TX_TIMEOUT_MS", "120000")   # 2 min
 CORPUS_LOCK_KEY = 0x4254_434F_5250_5553
+ACTIONS_FULL_WINDOW_START = "1900-01-01"
 
 engine = create_async_engine(
     BT_DATABASE_URL, pool_pre_ping=True, pool_size=3, max_overflow=5,
@@ -130,6 +132,16 @@ async def _assert_required_schema() -> None:
             "IS NOT NULL"))).scalar_one()
         if not vintage_index:
             raise RuntimeError("required bt_earnings vintage index is missing")
+        await conn.execute(text(
+            "SELECT source_row_id, source_payload FROM bt_actions LIMIT 0"))
+        action_index = (await conn.execute(text(
+            "SELECT to_regclass('public.uq_bt_actions_source_row') "
+            "IS NOT NULL"))).scalar_one()
+        if not action_index:
+            raise RuntimeError("required bt_actions source-row index is missing")
+        await conn.execute(text(
+            "SELECT schema_version, status, date_min, date_max "
+            "FROM bt_actions_source_state WHERE id=1"))
 
 
 @asynccontextmanager
@@ -217,15 +229,34 @@ async def health():
             f"({_CORPUS_POPULATED_SQL}) AS populated "
             "FROM bt_data_version "
             "WHERE id=1"))).one()
+        actions = (await conn.execute(text(
+            "SELECT schema_version, status, date_min, date_max "
+            "FROM bt_actions_source_state WHERE id=1"))).one()
     if row.status != "READY":
         raise HTTPException(status_code=503,
                             detail=f"corpus is {row.status}, not READY")
     if row.populated and row.source_mode is None:
         raise HTTPException(status_code=503,
                             detail="populated corpus has no bound source_mode")
+    if row.populated and actions.status != "READY":
+        raise HTTPException(
+            status_code=503,
+            detail="populated corpus has no current complete-row ACTIONS "
+                   "authority; run a complete /jobs/backfill-actions rebuild "
+                   f"from {ACTIONS_FULL_WINDOW_START}")
     return {"status": "ok", "service": "bt-data", "mock": is_mock(),
             "data_mode": data_mode(), "data_version": row.version,
-            "corpus_source_mode": row.source_mode}
+            "corpus_source_mode": row.source_mode,
+            "actions_status": actions.status,
+            "actions_date_min": actions.date_min,
+            "actions_date_max": actions.date_max}
+
+
+async def _actions_source_status() -> str:
+    async with engine.connect() as conn:
+        return str((await conn.execute(text(
+            "SELECT status FROM bt_actions_source_state WHERE id=1"
+        ))).scalar_one())
 
 
 # ── Fetch-run bookkeeping ──────────────────────────────────────────────────────
@@ -616,22 +647,108 @@ def coerce_action_dates(rows: list[dict]) -> list[dict]:
     return rows
 
 
-async def _upsert_actions(rows: list[dict]) -> int:
-    if not rows:
-        return 0
-    coerce_action_dates(rows)
+def prepare_action_rows(rows: list[dict]) -> tuple[list[dict], dict]:
+    """Deduplicate exact source repeats, retain siblings, and profile the set."""
+    found: dict[str, dict] = {}
+    groups: dict[tuple[str, object, str], set[str]] = {}
+    for source in rows:
+        row = dict(source)
+        identity = str(row["source_row_id"])
+        payload = row["source_payload"]
+        prior = found.get(identity)
+        if prior is not None:
+            if prior["source_payload"] != payload:
+                raise ValueError("ACTIONS source identity collision")
+            continue
+        found[identity] = row
+        key = (str(row["ticker"]), row["date"], str(row["action"]))
+        groups.setdefault(key, set()).add(identity)
+    distinct = [found[identity] for identity in sorted(found)]
+    return distinct, {
+        "source_rows": len(rows),
+        "distinct_rows": len(distinct),
+        "exact_repeat_rows": len(rows) - len(distinct),
+        "collision_groups": sum(len(ids) > 1 for ids in groups.values()),
+    }
+
+
+async def _replace_actions(rows: list[dict], date_from: str,
+                           date_to: str) -> dict:
+    """Atomically replace one complete fetched ACTIONS window.
+
+    A legacy corpus must first rebuild from 1900-01-01. Once READY, top-up may
+    reconcile an overlap window, including vendor removals, without replacing
+    older history. The delete, insert, cardinality verification, and authority
+    update are one transaction; an insertion failure restores the prior set.
+    """
+    distinct, report = prepare_action_rows(rows)
+    coerce_action_dates(distinct)
+    for row in distinct:
+        row["source_payload"] = json.dumps(
+            row["source_payload"], sort_keys=True, separators=(",", ":"),
+            ensure_ascii=False)
+    start, end = _d(date_from), _d(date_to)
     async with engine.begin() as conn:
+        state = (await conn.execute(text(
+            "SELECT status, date_min, date_max FROM bt_actions_source_state "
+            "WHERE id=1 FOR UPDATE"))).one()
+        rebuilding = state.status != "READY"
+        if rebuilding and date_from != ACTIONS_FULL_WINDOW_START:
+            raise ValueError(
+                "legacy/incomplete bt_actions authority requires a complete "
+                f"rebuild beginning {ACTIONS_FULL_WINDOW_START}, not {date_from}")
+        if rebuilding and not distinct:
+            raise ValueError(
+                "complete Sharadar ACTIONS rebuild returned zero usable rows")
+        if rebuilding:
+            await conn.execute(text("DELETE FROM bt_actions"))
+        else:
+            await conn.execute(text(
+                "DELETE FROM bt_actions WHERE date BETWEEN :start AND :end"),
+                {"start": start, "end": end})
+        if distinct:
+            await conn.execute(text(
+                "INSERT INTO bt_actions (source_row_id, source_payload, ticker, "
+                "  date, action, name, value, contraticker, contraname) "
+                "VALUES (:source_row_id, CAST(:source_payload AS jsonb), :ticker, "
+                "  :date, :action, :name, :value, :contraticker, :contraname)"
+            ), distinct)
+        persisted_window = (await conn.execute(text(
+            "SELECT count(*) FROM bt_actions WHERE date BETWEEN :start AND :end"),
+            {"start": start, "end": end})).scalar_one()
+        if persisted_window != len(distinct):
+            raise RuntimeError(
+                "ACTIONS replacement cardinality mismatch: "
+                f"distinct={len(distinct)} persisted={persisted_window}")
+        persisted_total = (await conn.execute(text(
+            "SELECT count(*) FROM bt_actions"))).scalar_one()
+        collision_groups = (await conn.execute(text(
+            "SELECT count(*) FROM (SELECT 1 FROM bt_actions "
+            "GROUP BY ticker,date,action HAVING count(*) > 1) groups"))).scalar_one()
+        coverage_min = start if rebuilding or state.date_min is None else min(
+            start, state.date_min)
+        coverage_max = end if rebuilding or state.date_max is None else max(
+            end, state.date_max)
         await conn.execute(text(
-            "INSERT INTO bt_actions (ticker, date, action, name, value, "
-            "  contraticker, contraname) "
-            "VALUES (:ticker, :date, :action, :name, :value, "
-            "  :contraticker, :contraname) "
-            "ON CONFLICT (ticker, date, action) DO UPDATE SET "
-            "  name=EXCLUDED.name, value=EXCLUDED.value, "
-            "  contraticker=EXCLUDED.contraticker, "
-            "  contraname=EXCLUDED.contraname"
-        ), rows)
-    return len(rows)
+            "UPDATE bt_actions_source_state SET "
+            "schema_version='complete-source-row-v1', status='READY', "
+            "date_min=:date_min, date_max=:date_max, "
+            "source_rows=:source_rows, distinct_rows=:distinct_rows, "
+            "collision_groups=:collision_groups, rebuilt_at=NOW(), note=:note "
+            "WHERE id=1"), {
+                "date_min": coverage_min, "date_max": coverage_max,
+                "source_rows": (report["source_rows"] if rebuilding
+                                else persisted_total),
+                "distinct_rows": persisted_total,
+                "collision_groups": collision_groups,
+                "note": ("complete rebuild" if rebuilding
+                         else f"window reconciliation {date_from}..{date_to}"),
+            })
+    report.update({"persisted_window": persisted_window,
+                   "persisted_total": persisted_total,
+                   "stored_collision_groups": collision_groups,
+                   "rebuild": rebuilding})
+    return report
 
 
 async def _load_actions(date_from: str, date_to: str,
@@ -659,11 +776,15 @@ async def _load_actions(date_from: str, date_to: str,
                 rows.append(m)
             else:
                 skipped += 1
-        total = await _upsert_actions(rows)
-        await _close_run(rid, "success", total, date_from, date_to,
-                         err=f"skipped_unusable={skipped}" if skipped else None)
-        print(f"[bt-data] ACTIONS: {total} rows ({skipped} unusable skipped)",
-              flush=True)
+        report = await _replace_actions(rows, date_from, date_to)
+        total = report["persisted_window"]
+        detail = (f"source={report['source_rows']} distinct={report['distinct_rows']} "
+                  f"repeats={report['exact_repeat_rows']} "
+                  f"collision_groups={report['collision_groups']} "
+                  f"skipped_unusable={skipped}")
+        await _close_run(rid, "success", total, date_from, date_to, err=detail)
+        print(f"[bt-data] ACTIONS: {detail}; stored_total="
+              f"{report['persisted_total']}", flush=True)
         return total
     except Exception as exc:
         await _close_run(rid, "failed", err=repr(exc)[:1500])
@@ -994,7 +1115,13 @@ async def _run_backfill(date_from: str, date_to: str, tickers: Optional[str],
     # AFTER prices, because a reader that has actions but no prices would see
     # events on securities it cannot value; the reverse degrades to today's
     # derived-split behaviour, which is a documented and tested fallback.
-    await _load_actions(date_from, date_to, job_type)
+    # A coarse-key legacy ACTIONS store cannot be upgraded in place: the rows it
+    # discarded are unknowable. A full corpus build therefore establishes
+    # complete-row authority from the source's beginning, independent of the
+    # requested SEP start. Once established, top-up reconciles only its overlap.
+    action_from = (date_from if job_type == "topup"
+                   else ACTIONS_FULL_WINDOW_START)
+    await _load_actions(action_from, date_to, job_type)
 
     # Universe snapshot (TICKERS, as-of date_to). One snapshot for the backfill end;
     # the engine treats it as the listed set (delisted names still in bt_prices).
@@ -1112,6 +1239,12 @@ async def start_topup(background_tasks: BackgroundTasks):
     restatement overlap) through today. Refused (409) while the DB is empty —
     topup extends a backfill, it cannot substitute for one; run /jobs/backfill
     first. bt-scheduler fires this nightly."""
+    if await _actions_source_status() != "READY":
+        raise HTTPException(
+            status_code=409,
+            detail="bt_actions requires its complete source-row rebuild before "
+                   "incremental top-up; run /jobs/backfill-actions with "
+                   f"date_from={ACTIONS_FULL_WINDOW_START}")
     frontier_sql, frontier_params = _equity_frontier_sql()
     async with engine.connect() as conn:
         max_date = (await conn.execute(
@@ -1194,13 +1327,19 @@ async def start_actions_backfill(background_tasks: BackgroundTasks,
     consumes is going to grow (dividends and ticker changes are already
     sequenced).
 
-    IDEMPOTENT. ON CONFLICT (ticker, date, action) DO UPDATE, so a re-fetch
-    corrects terms in place and never duplicates an event. bt_prices is never
-    touched. Safe to re-run and safe to interrupt — though note the stage
-    commits ONCE at the end, so an interruption leaves the table as it was
-    rather than half-written.
+    A legacy/incomplete store requires date_from=1900-01-01. The fetched window
+    is replaced atomically by complete-row identity: exact semantic repeats
+    collapse, distinct same-key siblings coexist, and vendor removals in the
+    covered window are reflected. bt_prices is never touched. A failed insert
+    rolls the replacement back; the outer corpus generation stays unreadable.
     """
     _validated_range(date_from, date_to)
+    if (await _actions_source_status() != "READY"
+            and date_from != ACTIONS_FULL_WINDOW_START):
+        raise HTTPException(
+            status_code=409,
+            detail="legacy/incomplete bt_actions requires a complete rebuild "
+                   f"with date_from={ACTIONS_FULL_WINDOW_START}")
     if _job_active:
         return {"status": "already_running",
                 "detail": "a backfill/topup is already in progress — not spawning another"}
