@@ -279,6 +279,8 @@ class SecIssuerResolver:
                 evidence=resolved,
             )
 
+        if permaticker is None:
+            raise ValueError("permaticker is required for PIT issuer fallback")
         fallback = str(permaticker).strip()
         if not fallback:
             raise ValueError("permaticker is required for PIT issuer fallback")
