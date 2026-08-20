@@ -8,12 +8,13 @@ from __future__ import annotations
 import asyncio
 import inspect
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Mapping, TypeAlias
 
 from pydantic import ValidationError
 
-from sentinel.automation import schedule, store
+from sentinel.automation import integrity, schedule, store
 from sentinel.automation.model import (
     AutomationConfig,
     AutomationRefused,
@@ -108,6 +109,44 @@ class AutomationService:
             self.config.retry_base_seconds * (2 ** max(0, attempts - 1)))
         return now + timedelta(seconds=delay)
 
+    def _latest_new_execution_at(self, cycle: CycleRecord) -> datetime:
+        """Last instant where new transport preserves certified next-open intent.
+
+        Maximum lateness is a distinct activation-fingerprinted policy field; it
+        is not inferred from the intended execution delay or retry cadence.
+        """
+        return min(
+            cycle.execution_close_at,
+            cycle.execute_at + timedelta(
+                seconds=self.config.maximum_execution_lateness_seconds))
+
+    def _execution_is_fresh(self, *, now: datetime, cycle: CycleRecord) -> bool:
+        return (
+            cycle.execute_at <= now
+            <= self._latest_new_execution_at(cycle)
+            and now < cycle.execution_close_at
+        )
+
+    def _execution_expired(self, *, now: datetime, cycle: CycleRecord) -> bool:
+        return (
+            now > self._latest_new_execution_at(cycle)
+            or now >= cycle.execution_close_at
+        )
+
+    def _assert_clock_skew(self, *, now: datetime, conn_factory) -> None:
+        """Bind host scheduling time to fresh PostgreSQL wall time."""
+        clock_conn = conn_factory()
+        try:
+            database_now = _utc(integrity.database_now(clock_conn))
+        finally:
+            clock_conn.close()
+        limit = float(self.config.maximum_clock_skew_seconds)
+        skew = abs((now - database_now).total_seconds())
+        if skew > limit:
+            raise AutomationRefused(
+                "host/database clock skew exceeds automation safety limit: "
+                f"{skew:.3f}s > {limit:.3f}s")
+
     @staticmethod
     def _nonretryable(exc: BaseException) -> bool:
         """Typed authority/integrity refusals latch instead of spinning."""
@@ -132,6 +171,7 @@ class AutomationService:
             self, conn, *, now: datetime, cycle: CycleRecord, permit,
             control, heartbeat_conn_factory=None) -> TickResult:
         """Resolve one fenced obligation without ever executing its old plan."""
+        integrity.validate_cycle_lineage(conn, cycle)
         if not store.cycle_transport_capable(cycle):
             adopted = store.adopt_cycle(
                 conn, permit=permit, cycle_id=cycle.cycle_id,
@@ -173,28 +213,48 @@ class AutomationService:
             heartbeat_conn_factory=heartbeat_conn_factory)
 
     async def _invoke(
-            self, callback, context: CycleContext, *, permit,
+            self, callback, context: CycleContext, *, permit, phase: str,
             heartbeat_conn_factory=None):
-        """Invoke with a separate connection/thread renewing the leader lease.
+        """Invoke with a bounded, independently renewed leadership lease.
 
-        A thread is intentional: a synchronous canonical callback must not
-        starve the heartbeat merely because it occupies the event-loop thread.
-        A heartbeat failure is re-raised at the callback boundary; the guarded
-        broker independently rechecks the same fence before every mutation.
+        Callback liveness is controlled by the dedicated fingerprinted
+        ``callback_deadline_seconds`` policy. Retry backoff remains independent.
         """
+        deadline_seconds = self.config.callback_deadline_seconds
+        deadline = time.monotonic() + deadline_seconds
         if heartbeat_conn_factory is None:
-            return await _resolve(callback(context))
+            result = await _resolve(callback(context))
+            if time.monotonic() > deadline:
+                raise StaleLeaderRefused(
+                    f"{phase} callback exceeded bounded runtime "
+                    f"{deadline_seconds}s")
+            return result
 
         stopped = threading.Event()
+        deadline_hit = threading.Event()
         heartbeat_errors: list[BaseException] = []
 
         def heartbeat() -> None:
-            while not stopped.wait(self.config.heartbeat_seconds):
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    deadline_hit.set()
+                    return
+                if stopped.wait(min(self.config.heartbeat_seconds, remaining)):
+                    return
+                if time.monotonic() >= deadline:
+                    deadline_hit.set()
+                    return
                 heartbeat_conn = heartbeat_conn_factory()
                 try:
                     store.heartbeat_lease(
                         heartbeat_conn, permit=permit,
                         lease_seconds=self.config.lease_seconds)
+                    store.register_instance(
+                        heartbeat_conn,
+                        instance_id=self.holder_id,
+                        state=f"{phase}_CALLBACK",
+                        next_wake_at=None)
                 except BaseException as exc:                    # noqa: BLE001
                     heartbeat_errors.append(exc)
                     return
@@ -210,6 +270,10 @@ class AutomationService:
         finally:
             stopped.set()
             worker.join(timeout=self.config.heartbeat_seconds + 1)
+        if deadline_hit.is_set() or time.monotonic() > deadline:
+            raise StaleLeaderRefused(
+                f"{phase} callback exceeded bounded runtime "
+                f"{deadline_seconds}s")
         if heartbeat_errors:
             raise heartbeat_errors[0]
         return result
@@ -220,7 +284,7 @@ class AutomationService:
         """Advance at most one callback boundary.
 
         Disabled and killed states return before lease acquisition and before
-        either injected callable.  The caller may continue alert delivery;
+        either injected callable. The caller may continue alert delivery;
         alerts intentionally do not depend on trading authority.
         """
         now = _utc(now)
@@ -250,8 +314,6 @@ class AutomationService:
                     expected_config_sha256=str(expected_config),
                     actual_config_sha256=self.config.fingerprint)
             except StaleLeaderRefused:
-                # A concurrent operator control transition won the row lock.
-                # Do not overwrite it; the next tick evaluates the new policy.
                 return TickResult(
                     action=TickAction.INERT,
                     reason="automation control changed during config fencing")
@@ -260,6 +322,10 @@ class AutomationService:
                 reason=(
                     "automation configuration differs from activation; "
                     f"generation {killed.generation} is durably killed"))
+
+        if heartbeat_conn_factory is not None:
+            self._assert_clock_skew(
+                now=now, conn_factory=heartbeat_conn_factory)
 
         permit = store.acquire_lease(
             conn, holder_id=self.holder_id,
@@ -279,6 +345,7 @@ class AutomationService:
         blocked = store.blocked_cycle_for_generation(
             conn, control_generation=control.generation)
         if blocked is not None:
+            integrity.validate_cycle_lineage(conn, blocked)
             return TickResult(
                 action=TickAction.BLOCKED, cycle=blocked, permit=permit,
                 reason=(
@@ -286,6 +353,9 @@ class AutomationService:
                     "an explicit operator deactivate/reactivate boundary is "
                     "required before a later session can proceed"))
         prior = store.latest_cycle(conn)
+        conn.rollback()
+        if prior is not None:
+            integrity.validate_cycle_lineage(conn, prior)
         if (prior is not None
                 and prior.decision_session < obligation.decision_session
                 and not prior.state.terminal):
@@ -296,9 +366,6 @@ class AutomationService:
                 if (recovery.cycle is None
                         or recovery.cycle.state is not CycleState.SUCCEEDED):
                     return recovery
-                # One callback boundary per tick. The following tick may now
-                # refresh the newest publication, but never before durable
-                # clean reconciliation of the inherited unresolved cycle.
                 return recovery
 
             pre_transport = {
@@ -330,14 +397,11 @@ class AutomationService:
                         "an older cycle has unresolved execution or remains "
                         "inside its execution window; recovery precedes catch-up"))
 
-        # A process may die after the executor durably completes but before the
-        # cycle transition commits. A newer current plan may then coexist with
-        # an older unresolved cycle, so "latest by session" is insufficient.
-        # Recover the oldest command-capable nonterminal obligation first.
         unresolved = store.oldest_unresolved_transport_cycle(
             conn, before_session=obligation.decision_session)
         conn.rollback()
         if unresolved is not None:
+            integrity.validate_cycle_lineage(conn, unresolved)
             phase = str(unresolved.diagnostic.get("retry_phase", ""))
             if (unresolved.state in {
                     CycleState.EXECUTING, CycleState.RECONCILING}
@@ -349,6 +413,8 @@ class AutomationService:
 
         latest = store.latest_cycle(conn)
         conn.rollback()
+        if latest is not None:
+            integrity.validate_cycle_lineage(conn, latest)
         if (latest is not None and latest.state.terminal
                 and latest.control_generation != control.generation
                 and latest.decision_session == obligation.decision_session):
@@ -360,6 +426,7 @@ class AutomationService:
 
         cycle = store.create_cycle(
             conn, permit=permit, spec=self._spec(control, obligation))
+        integrity.validate_cycle_lineage(conn, cycle)
         if cycle.state.terminal:
             return TickResult(
                 action=TickAction.WAITING, cycle=cycle, permit=permit,
@@ -367,8 +434,6 @@ class AutomationService:
 
         if (store.cycle_transport_capable(cycle)
                 and cycle.last_fence_token != permit.fence_token):
-            # A new fencing token may observe the old worker, but it may not
-            # resume that worker's mutation-capable path.
             return await self._run_recover(
                 conn, now=now, cycle=cycle, permit=permit,
                 heartbeat_conn_factory=heartbeat_conn_factory)
@@ -394,7 +459,11 @@ class AutomationService:
                     conn, now=now, cycle=cycle, permit=permit,
                     heartbeat_conn_factory=heartbeat_conn_factory)
             elif retry_phase == "EXECUTE":
-                if now >= cycle.execution_close_at:
+                if now < cycle.execute_at:
+                    return TickResult(
+                        action=TickAction.WAITING, cycle=cycle, permit=permit,
+                        reason="effective-session execution wake has not arrived")
+                if self._execution_expired(now=now, cycle=cycle):
                     return await self._run_recover(
                         conn, now=now, cycle=cycle, permit=permit,
                         heartbeat_conn_factory=heartbeat_conn_factory)
@@ -413,10 +482,6 @@ class AutomationService:
                 return TickResult(
                     action=TickAction.WAITING, cycle=cycle, permit=permit,
                     reason="publication-delay preparation wake has not arrived")
-            # Even when there is no older nonterminal automation cycle, the
-            # command journal may contain work created manually or restored
-            # across process/database recovery. The injected read-only check
-            # must prove it clean before a new corpus publication begins.
             return await self._run_preflight_recover(
                 conn, now=now, cycle=cycle, permit=permit,
                 heartbeat_conn_factory=heartbeat_conn_factory)
@@ -439,19 +504,26 @@ class AutomationService:
                 next_wake_at=cycle.execute_at)
 
         if cycle.state is CycleState.WAITING_OPEN:
-            if now >= cycle.execution_close_at:
-                cycle = store.transition_cycle(
-                    conn, permit=permit, cycle_id=cycle.cycle_id,
-                    to_state=CycleState.SUPERSEDED,
-                    failure_code="MISSED_EXECUTION_WINDOW",
-                    failure_detail="the plan was not executed before session close")
-                return TickResult(
-                    action=TickAction.SUPERSEDED, cycle=cycle, permit=permit,
-                    reason="execution window closed without transport")
             if now < cycle.execute_at:
                 return TickResult(
                     action=TickAction.WAITING, cycle=cycle, permit=permit,
                     reason="effective-session execution wake has not arrived")
+            if self._execution_expired(now=now, cycle=cycle):
+                failure_code = (
+                    "MISSED_EXECUTION_WINDOW"
+                    if now >= cycle.execution_close_at
+                    else "MAX_EXECUTION_LATENESS_EXCEEDED")
+                cycle = store.transition_cycle(
+                    conn, permit=permit, cycle_id=cycle.cycle_id,
+                    to_state=CycleState.SUPERSEDED,
+                    next_wake_at=None,
+                    failure_code=failure_code,
+                    failure_detail=(
+                        "the certified fresh-execution window expired before "
+                        "new transport was initiated"))
+                return TickResult(
+                    action=TickAction.SUPERSEDED, cycle=cycle, permit=permit,
+                    reason="fresh execution window expired without transport")
             cycle = store.transition_cycle(
                 conn, permit=permit, cycle_id=cycle.cycle_id,
                 to_state=CycleState.EXECUTING, increment_attempt=True,
@@ -463,15 +535,17 @@ class AutomationService:
                 heartbeat_conn_factory=heartbeat_conn_factory)
 
         if cycle.state is CycleState.EXECUTING:
+            integrity.validate_cycle_lineage(conn, cycle)
             if cycle.last_fence_token != permit.fence_token:
-                # A takeover never resumes an old worker's execution path.
-                # Stamp the new fence and enter read-only reconciliation.
                 cycle = store.adopt_cycle(
                     conn, permit=permit, cycle_id=cycle.cycle_id)
                 return await self._run_recover(
                     conn, now=now, cycle=cycle, permit=permit,
                     heartbeat_conn_factory=heartbeat_conn_factory)
-            if now >= cycle.execution_close_at:
+            if now < cycle.execute_at:
+                raise AutomationRefused(
+                    "EXECUTING cycle reached executor before immutable execute_at")
+            if self._execution_expired(now=now, cycle=cycle):
                 return await self._run_recover(
                     conn, now=now, cycle=cycle, permit=permit,
                     heartbeat_conn_factory=heartbeat_conn_factory)
@@ -491,7 +565,7 @@ class AutomationService:
             permit = store.require_leader(conn, permit)
             raw = await self._invoke(
                 self.refresh, CycleContext(cycle=cycle, permit=permit),
-                permit=permit,
+                permit=permit, phase="REFRESH",
                 heartbeat_conn_factory=heartbeat_conn_factory)
             result = (raw if isinstance(raw, RefreshResult)
                       else RefreshResult.model_validate(raw))
@@ -540,7 +614,7 @@ class AutomationService:
             permit = store.require_leader(conn, permit)
             raw = await self._invoke(
                 self.recover, CycleContext(cycle=cycle, permit=permit),
-                permit=permit,
+                permit=permit, phase="PREFLIGHT_RECOVER",
                 heartbeat_conn_factory=heartbeat_conn_factory)
             result = (raw if isinstance(raw, ExecuteResult)
                       else ExecuteResult.model_validate(raw))
@@ -631,7 +705,7 @@ class AutomationService:
             permit = store.require_leader(conn, permit)
             raw = await self._invoke(
                 self.recover, CycleContext(cycle=cycle, permit=permit),
-                permit=permit,
+                permit=permit, phase="RECOVER",
                 heartbeat_conn_factory=heartbeat_conn_factory)
             result = (raw if isinstance(raw, ExecuteResult)
                       else ExecuteResult.model_validate(raw))
@@ -654,8 +728,6 @@ class AutomationService:
                     reason=str(exc))
             if (cycle.control_generation == permit.control_generation
                     and cycle.state is CycleState.RETRY_WAIT):
-                # Stay RETRY_WAIT is deliberately not a state transition; move
-                # through RECONCILING so the retry/event remains auditable.
                 cycle = store.transition_cycle(
                     conn, permit=permit, cycle_id=cycle.cycle_id,
                     to_state=CycleState.RECONCILING)
@@ -720,6 +792,24 @@ class AutomationService:
                 return TickResult(
                     action=TickAction.BLOCKED, cycle=cycle, permit=permit,
                     reason=cycle.failure_detail)
+            if not self._execution_is_fresh(now=now, cycle=cycle):
+                if cycle.state is CycleState.EXECUTING:
+                    cycle = store.transition_cycle(
+                        conn, permit=permit, cycle_id=cycle.cycle_id,
+                        to_state=CycleState.RECONCILING)
+                cycle = store.transition_cycle(
+                    conn, permit=permit, cycle_id=cycle.cycle_id,
+                    to_state=CycleState.SUPERSEDED, next_wake_at=None,
+                    last_clean_reconciliation_id=
+                        result.last_clean_reconciliation_id,
+                    failure_code="MAX_EXECUTION_LATENESS_EXCEEDED",
+                    failure_detail=(
+                        "clean recovery completed outside the certified fresh-"
+                        "execution window; stale economics cannot be executed"),
+                    diagnostic=result.diagnostic)
+                return TickResult(
+                    action=TickAction.SUPERSEDED, cycle=cycle, permit=permit,
+                    reason=cycle.failure_detail)
             cycle = store.transition_cycle(
                 conn, permit=permit, cycle_id=cycle.cycle_id,
                 to_state=CycleState.RETRY_WAIT, next_wake_at=now,
@@ -751,7 +841,7 @@ class AutomationService:
             permit = store.require_leader(conn, permit)
             raw = await self._invoke(
                 self.prepare, CycleContext(cycle=cycle, permit=permit),
-                permit=permit,
+                permit=permit, phase="PREPARE",
                 heartbeat_conn_factory=heartbeat_conn_factory)
             result = (raw if isinstance(raw, PrepareResult)
                       else PrepareResult.model_validate(raw))
@@ -807,7 +897,6 @@ class AutomationService:
         except StaleLeaderRefused:
             raise
         except Exception as exc:                                  # noqa: BLE001
-            # Authority/fence loss cannot authorize another durable write.
             store.require_leader(conn, permit)
             if self._nonretryable(exc):
                 cycle = store.transition_cycle(
@@ -833,11 +922,19 @@ class AutomationService:
     async def _run_execute(
             self, conn, *, now: datetime, cycle: CycleRecord,
             permit, heartbeat_conn_factory=None) -> TickResult:
+        integrity.validate_cycle_lineage(conn, cycle)
+        if now < cycle.execute_at:
+            raise AutomationRefused(
+                "EXECUTE callback refused before immutable execute_at")
+        if self._execution_expired(now=now, cycle=cycle):
+            return await self._run_recover(
+                conn, now=now, cycle=cycle, permit=permit,
+                heartbeat_conn_factory=heartbeat_conn_factory)
         try:
             permit = store.require_leader(conn, permit)
             raw = await self._invoke(
                 self.execute, CycleContext(cycle=cycle, permit=permit),
-                permit=permit,
+                permit=permit, phase="EXECUTE",
                 heartbeat_conn_factory=heartbeat_conn_factory)
             result = (raw if isinstance(raw, ExecuteResult)
                       else ExecuteResult.model_validate(raw))
@@ -916,14 +1013,7 @@ class AutomationService:
             control_wake: Callable[[Any], Awaitable[datetime | None]
                                    | datetime | None] | None = None,
             max_ticks: int | None = None) -> int:
-        """Persistent bounded-loop primitive with restart-safe wake recompute.
-
-        ``stop`` and ``max_ticks`` make the same loop deterministic in tests.
-        A production wrapper can run it indefinitely. Heartbeats are renewed on
-        every tick via lease reacquisition, and the sleep is capped by both
-        heartbeat and control-poll intervals. Alert/control hooks may request an
-        earlier wake but receive no broker object.
-        """
+        """Persistent bounded-loop primitive with restart-safe wake recompute."""
         ticks = 0
         while not stop.is_set() and (max_ticks is None or ticks < max_ticks):
             conn = conn_factory()
@@ -968,6 +1058,7 @@ class AutomationService:
                             result.cycle.next_wake_at,
                             result.cycle.prepare_at,
                             result.cycle.execute_at,
+                            self._latest_new_execution_at(result.cycle),
                             result.cycle.execution_close_at):
                         if instant is not None and instant > now:
                             wake_candidates.append(instant)

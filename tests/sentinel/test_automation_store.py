@@ -149,9 +149,12 @@ def test_health_never_reports_revoked_cached_authority_as_ready(conn) -> None:
         conn, verdict="PASS", detail="fresh signature check",
         holder_id=permit.holder_id, fence_token=permit.fence_token,
         control_generation=permit.control_generation)
+    store.register_instance(
+        conn, instance_id=permit.holder_id, state="WAITING", next_wake_at=None)
 
     ready = read_health(conn)
     assert ready.authority_lifecycle_current is True
+    assert ready.service_heartbeat_fresh is True
     assert ready.operational_ready is True
 
     with conn.cursor() as cur:
@@ -272,7 +275,6 @@ def test_postgres_time_lease_takeover_fences_the_old_worker(conn, pg) -> None:
             store.acquire_lease(
                 competitor, holder_id="worker-b", lease_seconds=30)
 
-        # Expiry is forced with the database clock, independent of host time.
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE sentinel_automation_lease"
@@ -463,8 +465,6 @@ def test_config_mismatch_atomically_kills_clears_authority_and_fences_leader(
         cur.execute(
             "SELECT holder_id,control_generation,expires_at"
             " FROM sentinel_automation_lease WHERE id=1")
-        # An invalidated lease carries no authority generation. The new
-        # generation is durable on control and must be acquired afresh.
         assert cur.fetchone() == (None, None, None)
         cur.execute(
             "SELECT action,actor,detail FROM sentinel_automation_events"

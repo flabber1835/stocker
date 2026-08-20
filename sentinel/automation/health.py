@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict
 
@@ -52,6 +52,10 @@ class AutomationHealth(BaseModel):
     unacknowledged_alerts: int = 0
     last_instance_id: str | None = None
     last_instance_heartbeat_at: datetime | None = None
+    service_heartbeat_fresh: bool = False
+    scheduler_overdue: bool = False
+    database_now: datetime | None = None
+    host_database_clock_skew_seconds: float | None = None
     reason: str | None = None
 
 
@@ -59,7 +63,9 @@ def read_health(conn) -> AutomationHealth:
     """Read policy and service state without constructing any broker client.
 
     Correctly disabled or killed is supervisor-healthy but not operationally
-    ready.  A missing singleton is both uninstalled and unhealthy.
+    ready.  A missing singleton is both uninstalled and unhealthy.  Operational
+    readiness additionally requires evidence that the current scheduler process
+    is alive and progressing; a valid authority + lease alone is insufficient.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -85,7 +91,7 @@ def read_health(conn) -> AutomationHealth:
             "SELECT holder_id,fence_token,heartbeat_at,expires_at,"
             " (holder_id IS NOT NULL"
             "  AND control_generation=%s"
-            "  AND expires_at > clock_timestamp())"
+            "  AND expires_at > clock_timestamp()),clock_timestamp()"
             " FROM sentinel_automation_lease WHERE id=1",
             (control.generation,))
         lease = cur.fetchone()
@@ -101,8 +107,12 @@ def read_health(conn) -> AutomationHealth:
         cur.execute(
             "SELECT cycle_id,state,next_wake_at,failure_code,failure_detail,"
             " last_clean_reconciliation_id"
-            " FROM sentinel_automation_cycles"
-            " ORDER BY decision_session DESC,created_at DESC LIMIT 1")
+            " FROM sentinel_automation_cycles c"
+            " WHERE c.control_generation=%s OR EXISTS ("
+            " SELECT 1 FROM sentinel_automation_cycle_events e"
+            " WHERE e.cycle_id=c.cycle_id AND e.control_generation=%s)"
+            " ORDER BY decision_session DESC,created_at DESC LIMIT 1",
+            (control.generation, control.generation))
         cycle = cur.fetchone()
         cur.execute(
             "SELECT"
@@ -136,7 +146,7 @@ def read_health(conn) -> AutomationHealth:
         authority_row = cur.fetchone()
     conn.rollback()
 
-    holder, token, heartbeat, expires, active = lease
+    holder, token, heartbeat, expires, active, database_now = lease
     authority_current = bool(
         authority_row is not None and authority_row[0] is not None
         and authority_row[1])
@@ -146,6 +156,28 @@ def read_health(conn) -> AutomationHealth:
             claims = json.loads(claims or "{}")
         except (TypeError, json.JSONDecodeError):
             claims = {}
+
+    # A healthy leader updates both lease and service-instance heartbeat.  Use
+    # the lease's own DB-time renewal horizon as the staleness allowance so no
+    # host clock participates in this readiness verdict.
+    lease_window_seconds = (
+        max(1.0, (expires - heartbeat).total_seconds())
+        if heartbeat is not None and expires is not None else 1.0)
+    service_heartbeat_fresh = bool(
+        active and instance is not None and holder is not None
+        and instance[0] == holder and instance[1] is not None
+        and 0 <= (database_now - instance[1]).total_seconds()
+        <= lease_window_seconds)
+    terminal_states = {
+        "SUCCEEDED", "MISSED_STATE_ONLY", "SUPERSEDED", "BLOCKED"}
+    scheduler_overdue = bool(
+        cycle is not None and cycle[1] not in terminal_states
+        and cycle[2] is not None
+        and (database_now - cycle[2]).total_seconds() > lease_window_seconds)
+    blocked = bool(cycle is not None and cycle[1] == "BLOCKED")
+    host_database_clock_skew_seconds = abs(
+        (datetime.now(timezone.utc) - database_now).total_seconds())
+
     if not control.enabled:
         policy = "DISABLED"
     elif control.kill_switch_engaged:
@@ -156,6 +188,12 @@ def read_health(conn) -> AutomationHealth:
         policy = "AUTHORITY_UNVERIFIED"
     elif not authority_current:
         policy = "AUTHORITY_INVALID"
+    elif blocked:
+        policy = "BLOCKED"
+    elif active and not service_heartbeat_fresh:
+        policy = "SCHEDULER_STALLED"
+    elif scheduler_overdue:
+        policy = "SCHEDULER_OVERDUE"
     elif active:
         policy = "LEADER_ACTIVE"
     else:
@@ -166,7 +204,8 @@ def read_health(conn) -> AutomationHealth:
         operational_ready=(
             control.enabled and not control.kill_switch_engaged
             and control.authority_verdict == "PASS" and authority_current
-            and bool(active)),
+            and bool(active) and service_heartbeat_fresh
+            and not blocked and not scheduler_overdue),
         policy_state=policy,
         enabled=control.enabled,
         kill_switch_engaged=control.kill_switch_engaged,
@@ -208,6 +247,10 @@ def read_health(conn) -> AutomationHealth:
         unacknowledged_alerts=unacknowledged,
         last_instance_id=instance[0] if instance else None,
         last_instance_heartbeat_at=instance[1] if instance else None,
+        service_heartbeat_fresh=service_heartbeat_fresh,
+        scheduler_overdue=scheduler_overdue,
+        database_now=database_now,
+        host_database_clock_skew_seconds=host_database_clock_skew_seconds,
     )
 
 

@@ -55,9 +55,12 @@ def conn(pg):
 
 
 def config() -> AutomationConfig:
+    # This module drives deterministic 2026 historical clocks through run().
+    # Clock-skew enforcement itself is covered separately by the #201 tests.
     return AutomationConfig(
         publication_delay_seconds=0,
         execution_delay_seconds=60,
+        maximum_clock_skew_seconds=1_000_000,
         lease_seconds=30,
         heartbeat_seconds=5,
         retry_base_seconds=5,
