@@ -1604,7 +1604,8 @@ def test_explicit_simulated_migration_then_prepare_and_restart_to_target(
 
     prepared = _prepare(conn, broker)
     durable_state = catchup.resume_state(conn)
-    assert prepared.plan.target_basket[AAA.security_id] == D("10")
+    assert prepared.plan.account_nav == D("3500")
+    assert prepared.plan.target_basket[AAA.security_id] == D("35")
     assert journal.latest_plan(conn).plan_id == prepared.plan.plan_id
     assert _mutations(broker) == [f"submit:{legacy_key}"]
 
@@ -1635,7 +1636,7 @@ def test_explicit_simulated_migration_then_prepare_and_restart_to_target(
         assert third.session.submitted == ()
         assert len(commands) == 1
         assert commands[0].state is CommandState.FILLED
-        assert commands[0].filled_quantity == D("10")
+        assert commands[0].filled_quantity == D("35")
     finally:
         restarted.close()
 
@@ -1644,4 +1645,4 @@ def test_explicit_simulated_migration_then_prepare_and_restart_to_target(
     assert broker.calls.index(f"submit:{legacy_key}") \
         < broker.calls.index(f"submit:{key}")
     held = asyncio.run(broker.observe()).positions_by_security()
-    assert held == {AAA.security_id: D("10")}
+    assert held == {AAA.security_id: D("35")}

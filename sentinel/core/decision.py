@@ -267,8 +267,8 @@ def _decision_close_nav(
     valuation rather than substituted with broker M2M. That makes this NAV a
     conservative known-value basis in the long-only book. The unpriced-share
     logic below may still reduce such a name, but cannot use missing evidence to
-    increase it. This is the required asymmetry: no mark may block a buy, never a
-    required trim.
+    increase it. This is the required asymmetry: a missing mark may block an
+    increase, never a required trim.
     """
 
     cash = _decimal(account_snapshot.cash, label="broker account cash")
