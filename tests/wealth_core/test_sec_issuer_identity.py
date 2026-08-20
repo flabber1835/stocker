@@ -118,6 +118,8 @@ def test_goog_googl_share_dated_sec_cik_without_future_classes():
         [
             ev("GOOG", alphabet_cik, "2025-04-01", "goog-2025"),
             ev("GOOGL", alphabet_cik, "2025-04-01", "googl-2025"),
+            # Preferred classes did not begin pricing until June 2026.  Their
+            # later evidence must not be needed to establish the 2025 family.
             ev("GOOGM", alphabet_cik, "2026-06-03", "googm-2026"),
             ev("GOOGN", alphabet_cik, "2026-06-03", "googn-2026"),
         ]
@@ -158,3 +160,37 @@ def test_csv_loader_requires_provenance_columns(tmp_path):
 
     with pytest.raises(ValueError, match="missing required columns"):
         SecIssuerResolver.from_csv(path)
+
+
+def test_csv_loader_accepts_reconstruction_observations_schema(tmp_path):
+    path = tmp_path / "observations.csv"
+    path.write_text(
+        "filing_date,issuer_cik,issuer_name,issuer_trading_symbol,"
+        "accession_number,document_type,archive,submission_member,row_number\n"
+        "2025-01-06,1652044,Alphabet Inc.,GOOGL,0001,4,"
+        "2025q1_form345.zip,SUBMISSION.tsv,17\n",
+        encoding="utf-8",
+    )
+
+    resolver = SecIssuerResolver.from_csv(path)
+    assert resolver.resolve("GOOGL", "2025-01-06") is None
+    resolved = resolver.resolve("GOOGL", "2025-01-07")
+    assert resolved is not None
+    assert resolved.issuer_key == "CIK:0001652044"
+    assert resolved.source_member == "SUBMISSION.tsv"
+    assert resolved.source_row == 17
+
+
+def test_csv_loader_keeps_legacy_provenance_aliases(tmp_path):
+    path = tmp_path / "legacy.csv"
+    path.write_text(
+        "filing_date,issuer_cik,issuer_trading_symbol,accession_number,"
+        "document_type,archive,source_member,source_row\n"
+        "2025-01-06,123,ABC,a,4,fixture.zip,SUBMISSION.tsv,3\n",
+        encoding="utf-8",
+    )
+
+    resolved = SecIssuerResolver.from_csv(path).resolve("ABC", "2025-01-07")
+    assert resolved is not None
+    assert resolved.source_member == "SUBMISSION.tsv"
+    assert resolved.source_row == 3
