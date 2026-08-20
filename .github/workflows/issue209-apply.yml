@@ -1,0 +1,43 @@
+name: Apply issue 209 patch
+
+on:
+  push:
+    branches:
+      - fix/issue-209-financial-grade-trial
+    paths:
+      - tools/issue209-apply.patch
+      - .github/workflows/issue209-apply.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          ref: fix/issue-209-financial-grade-trial
+
+      - name: Apply and syntax-check patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check tools/issue209-apply.patch
+          git apply tools/issue209-apply.patch
+          git diff --check
+          python -m compileall -q sentinel/paper.py tests/sentinel/test_paper_activation.py
+
+      - name: Commit patched sources and remove bootstrap files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- sentinel/paper.py tests/sentinel/test_paper_activation.py
+          git rm -- tools/issue209-apply.patch .github/workflows/issue209-apply.yml
+          git commit -m 'Fix predecessor state integrity for issue 209'
+          git push origin HEAD:fix/issue-209-financial-grade-trial
