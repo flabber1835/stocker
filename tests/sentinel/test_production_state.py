@@ -1,6 +1,7 @@
 from copy import deepcopy
 from contextlib import contextmanager
 import json
+import pytest
 from types import SimpleNamespace
 
 from stock_strategy_shared.wealth_core.adapter import PendingOrder
@@ -195,6 +196,27 @@ def test_lifetime_peak_outside_rolling_history_controls_drawdown():
     after = _advance(before, _published(), config)
     assert after.last_evidence["observation"]["shadow_drawdown"] == -0.5
     assert after.shadow_peak_nav == 200_000
+
+
+def test_version_three_migrates_without_activating_concordance():
+    _, before = _fresh()
+    raw = before.to_dict()
+    raw["version"] = 3
+    raw.pop("recent_leadership", None)
+    raw.pop("ldrc", None)
+    restored = SessionState.from_dict(raw)
+    assert restored.version == 4
+    assert restored.recent_leadership is None
+    assert restored.ldrc is None
+
+
+def test_concordance_identity_requires_both_durable_states():
+    _, before = _fresh()
+    raw = before.to_dict()
+    raw["strategy_identity"]["allocation_overlay"] = (
+        "sentinel-concordance-simplified-ldrc")
+    with pytest.raises(ValueError, match="requires durable witness"):
+        SessionState.from_dict(raw)
 
 
 def test_version_one_is_explicitly_refused():
@@ -708,7 +730,7 @@ def test_version_two_envelope_migrates_by_pruning_only_redundant_history():
 
     migrated = SessionState.from_dict(legacy)
     plan_evidence = migrated.last_evidence["wealth_core"]
-    assert migrated.version == 3
+    assert migrated.version == 4
     assert migrated.feed == current.feed
     assert "dormant" not in migrated.feed["series"]
     assert "dormant" not in migrated.last_known
