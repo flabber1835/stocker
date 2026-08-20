@@ -1,7 +1,7 @@
 # Simplified Sentinel Concordance LD-RC — recovered authoritative semantics
 
-**Status:** retained strategy source; not live activation authority.  
-**Recovery date:** 2026-08-19.  
+**Status:** retained strategy source; not live activation authority.
+**Recovery date:** 2026-08-19.
 **Reason for this document:** the original corrected research harness was ephemeral. The implementation was reconstructed from the original experiment lineage and accepted only after reproducing multiple retained historical fingerprints exactly.
 
 ## What was recovered
