@@ -1,6 +1,6 @@
 """Fail-closed integrity and clock helpers for Stage-4 automation.
 
-The helpers in this module are deliberately read-only.  Durable disagreement is
+The helpers in this module are deliberately read-only. Durable disagreement is
 corruption evidence: nothing here repairs cycle rows or event history.
 """
 from __future__ import annotations
@@ -73,9 +73,9 @@ _MUTABLE_EVENT_FIELDS = (
 )
 
 # adopt_cycle currently persists these row changes but its immutable event does
-# not serialize their values.  After an adoption we therefore stop claiming
+# not serialize their values. After an adoption we therefore stop claiming
 # value-level proof for them until a later ordinary transition explicitly
-# carries the field again.  State/fence/edge/attempt/completion proof remains
+# carries the field again. State/fence/edge/attempt/completion proof remains
 # mandatory, and no row is ever repaired from event data.
 _ADOPTION_UNCARRIED_FIELDS = {
     "last_clean_reconciliation_id",
@@ -120,9 +120,9 @@ def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
     """Require the materialized cycle to be explained by immutable events.
 
     Validation includes deterministic identity, genesis, legal/continuous edges,
-    final state/fence, attempt count, completion semantics, and mutable fields
-    explicitly carried by transition events.  Adoption events are the only
-    allowed exception to ordinary same-generation edges.
+    control-generation/fence lineage, attempt count, completion semantics, and
+    mutable fields explicitly carried by transition events. Adoption events are
+    the only allowed exception to ordinary same-generation edges.
     """
     expected_id = CycleSpec(
         decision_session=cycle.decision_session,
@@ -180,20 +180,38 @@ def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
     attempts = 0
     final_fence = None
 
-    for index, (_seq, raw_from, raw_to, _generation, fence, raw_detail) in enumerate(events):
+    for index, (_seq, raw_from, raw_to, raw_generation, fence,
+                raw_detail) in enumerate(events):
         detail = _as_detail(raw_detail)
         from_state = CycleState(raw_from) if raw_from is not None else None
         to_state = CycleState(raw_to)
+        generation = int(raw_generation)
+
+        if fence is None or int(fence) < 1:
+            raise AutomationRefused(
+                "automation cycle event contains an invalid fencing token")
 
         if index == 0:
             if from_state is not None or to_state is not CycleState.DISCOVERED:
                 raise AutomationRefused(
                     "automation cycle genesis is not NULL -> DISCOVERED")
+            if generation != cycle.control_generation:
+                raise AutomationRefused(
+                    "automation cycle genesis generation disagrees with row identity")
         else:
             if from_state is not previous:
                 raise AutomationRefused(
                     "automation cycle event lineage is discontinuous")
             if detail.get("adoption"):
+                if generation < cycle.control_generation:
+                    raise AutomationRefused(
+                        "automation adoption event predates originating generation")
+                if detail.get("originating_control_generation") != cycle.control_generation:
+                    raise AutomationRefused(
+                        "automation adoption event has wrong originating generation")
+                if detail.get("previous_fence_token") != final_fence:
+                    raise AutomationRefused(
+                        "automation adoption event has wrong predecessor fence")
                 allowed = {
                     from_state,
                     CycleState.SUCCEEDED,
@@ -206,10 +224,14 @@ def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
                         "automation cycle contains an illegal adoption edge")
                 for field in _ADOPTION_UNCARRIED_FIELDS:
                     reconstructed.pop(field, None)
-            elif to_state not in _ALLOWED_TRANSITIONS.get(from_state, set()):
-                raise AutomationRefused(
-                    f"automation cycle contains illegal edge "
-                    f"{from_state.value} -> {to_state.value}")
+            else:
+                if generation != cycle.control_generation:
+                    raise AutomationRefused(
+                        "ordinary cycle event escaped its originating generation")
+                if to_state not in _ALLOWED_TRANSITIONS.get(from_state, set()):
+                    raise AutomationRefused(
+                        f"automation cycle contains illegal edge "
+                        f"{from_state.value} -> {to_state.value}")
 
         if detail.get("increment_attempt") is True:
             attempts += 1
@@ -217,7 +239,7 @@ def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
             if field in detail:
                 reconstructed[field] = detail[field]
         previous = to_state
-        final_fence = fence
+        final_fence = int(fence)
 
     if previous is not cycle.state:
         raise AutomationRefused(
