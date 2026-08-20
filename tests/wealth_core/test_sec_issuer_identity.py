@@ -194,3 +194,9 @@ def test_csv_loader_keeps_legacy_provenance_aliases(tmp_path):
     assert resolved is not None
     assert resolved.source_member == "SUBMISSION.tsv"
     assert resolved.source_row == 3
+
+
+def test_unresolved_without_permaticker_fails_closed():
+    resolver = SecIssuerResolver([])
+    with pytest.raises(ValueError, match="permaticker is required"):
+        resolver.issuer_key_for("ABC", "2025-01-02", permaticker=None)
