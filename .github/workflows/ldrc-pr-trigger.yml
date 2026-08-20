@@ -54,7 +54,7 @@ jobs:
           python -m unittest -v tests.host_python38.test_host_compat
           python -m compileall -q -f scripts
 
-      - name: Apply gated implementation and stale-version test correction
+      - name: Apply gated implementation and v4 migration test corrections
         shell: bash
         run: |
           set -euo pipefail
@@ -63,15 +63,26 @@ jobs:
           python /tmp/ldrc_apply_once.py .
           python - <<'PY'
           from pathlib import Path
-          path = Path('tests/sentinel/test_production_state.py')
-          text = path.read_text()
+
+          production = Path('tests/sentinel/test_production_state.py')
+          text = production.read_text()
           old = '    assert migrated.version == 3\n'
           new = '    assert migrated.version == 4\n'
           count = text.count(old)
           if count != 1:
               raise SystemExit(
-                  f'REFUSED: expected exactly one stale v3 assertion, found {count}')
-          path.write_text(text.replace(old, new, 1))
+                  f'REFUSED: expected exactly one stale production v3 assertion, found {count}')
+          production.write_text(text.replace(old, new, 1))
+
+          activation = Path('tests/sentinel/test_paper_activation.py')
+          text = activation.read_text()
+          old = 'version == 3'
+          new = 'version == 4'
+          count = text.count(old)
+          if count != 4:
+              raise SystemExit(
+                  f'REFUSED: expected exactly four stale paper v3 assertions, found {count}')
+          activation.write_text(text.replace(old, new))
           PY
           git diff --check
           git status --short
@@ -97,7 +108,8 @@ jobs:
             tests/sentinel/test_ldrc_authoritative.py \
             tests/sentinel/test_concordance_witness.py \
             tests/sentinel/test_production_state.py \
-            tests/sentinel/test_production_decision.py
+            tests/sentinel/test_production_decision.py \
+            tests/sentinel/test_paper_activation.py
           git diff --cached --check
           git commit -m "Implement gated Sentinel Concordance LD-RC"
           echo "FINAL_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
@@ -153,6 +165,7 @@ jobs:
             tests/sentinel/test_production_state.py \
             tests/sentinel/test_production_decision.py \
             tests/sentinel/test_production_controller_semantics.py \
+            tests/sentinel/test_paper_activation.py \
             tests/sentinel/test_catchup.py \
             tests/sentinel/test_catchup_atomicity.py \
             -q -ra 2>&1 | tee /tmp/ldrc-focused.txt
