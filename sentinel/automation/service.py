@@ -112,7 +112,7 @@ class AutomationService:
     def _latest_new_execution_at(self, cycle: CycleRecord) -> datetime:
         """Last instant where new transport preserves certified next-open intent.
 
-        The tolerance deliberately reuses ``execution_delay_seconds``.  That
+        The tolerance deliberately reuses ``execution_delay_seconds``. That
         value is already included in the activated config fingerprint, so the
         maximum lateness cannot be widened without crossing the existing signed
         configuration/activation boundary.
@@ -139,7 +139,7 @@ class AutomationService:
         """Bind host scheduling time to fresh PostgreSQL wall time.
 
         Five seconds is the hard ceiling; a tighter activated heartbeat setting
-        tightens it further.  DB unavailability therefore refuses scheduling
+        tightens it further. DB unavailability therefore refuses scheduling
         authority before lease acquisition or any callback/broker boundary.
         """
         clock_conn = conn_factory()
@@ -225,9 +225,9 @@ class AutomationService:
         """Invoke with a bounded, independently renewed leadership lease.
 
         A synchronous canonical callback may occupy the event-loop thread, so
-        heartbeat stays in a separate thread.  Unlike the old implementation,
+        heartbeat stays in a separate thread. Unlike the old implementation,
         renewal stops after ``retry_max_seconds`` (already activation-fingerprinted).
-        A wedged worker therefore becomes fenceable.  If it eventually wakes,
+        A wedged worker therefore becomes fenceable. If it eventually wakes,
         the deadline result is discarded and the fresh database fence checks at
         callback/broker boundaries prevent stale mutation.
         """
@@ -260,6 +260,15 @@ class AutomationService:
                     store.heartbeat_lease(
                         heartbeat_conn, permit=permit,
                         lease_seconds=self.config.lease_seconds)
+                    # Health must distinguish a live long-running callback from
+                    # a scheduler whose service loop has actually stalled. The
+                    # same bounded watchdog therefore advances the service
+                    # heartbeat while (and only while) it renews leadership.
+                    store.register_instance(
+                        heartbeat_conn,
+                        instance_id=self.holder_id,
+                        state=f"{phase}_CALLBACK",
+                        next_wake_at=None)
                 except BaseException as exc:                    # noqa: BLE001
                     heartbeat_errors.append(exc)
                     return
@@ -289,7 +298,7 @@ class AutomationService:
         """Advance at most one callback boundary.
 
         Disabled and killed states return before lease acquisition and before
-        either injected callable.  The caller may continue alert delivery;
+        either injected callable. The caller may continue alert delivery;
         alerts intentionally do not depend on trading authority.
         """
         now = _utc(now)
@@ -560,7 +569,7 @@ class AutomationService:
                 heartbeat_conn_factory=heartbeat_conn_factory)
 
         if cycle.state is CycleState.EXECUTING:
-            # Row state is never sufficient authority.  Re-prove the event
+            # Row state is never sufficient authority. Re-prove the event
             # lineage and the immutable timing immediately before executor use.
             integrity.validate_cycle_lineage(conn, cycle)
             if cycle.last_fence_token != permit.fence_token:
@@ -826,6 +835,13 @@ class AutomationService:
                     action=TickAction.BLOCKED, cycle=cycle, permit=permit,
                     reason=cycle.failure_detail)
             if not self._execution_is_fresh(now=now, cycle=cycle):
+                # EXECUTING means transport may have begun. Never jump directly
+                # from that ambiguity to SUPERSEDED; make the read-only
+                # reconciliation boundary durable first.
+                if cycle.state is CycleState.EXECUTING:
+                    cycle = store.transition_cycle(
+                        conn, permit=permit, cycle_id=cycle.cycle_id,
+                        to_state=CycleState.RECONCILING)
                 cycle = store.transition_cycle(
                     conn, permit=permit, cycle_id=cycle.cycle_id,
                     to_state=CycleState.SUPERSEDED, next_wake_at=None,
