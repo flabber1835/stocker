@@ -1,0 +1,311 @@
+from __future__ import annotations
+
+import asyncio
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+from sentinel import schema
+from sentinel.automation import store
+from sentinel.automation.model import (
+    AutomationConfig,
+    AutomationRefused,
+    ControlBinding,
+    CycleState,
+    StaleLeaderRefused,
+    TickAction,
+)
+from sentinel.automation.service import AutomationService
+from sentinel.feed import store as feed_store
+from tests.support.postgres import _EphemeralPostgres
+
+
+UTC = timezone.utc
+AFTER_WEDNESDAY_CLOSE = datetime(2026, 8, 12, 20, 1, tzinfo=UTC)
+THURSDAY_BEFORE_EXECUTE = datetime(2026, 8, 13, 13, 30, 30, tzinfo=UTC)
+THURSDAY_EXECUTE = datetime(2026, 8, 13, 13, 31, tzinfo=UTC)
+
+
+@pytest.fixture(scope="module")
+def pg():
+    try:
+        server = _EphemeralPostgres()
+        server.start()
+    except Exception as exc:                                  # noqa: BLE001
+        pytest.skip(f"ephemeral Postgres unavailable: {exc}")
+    try:
+        yield server
+    finally:
+        server.stop()
+
+
+@pytest.fixture()
+def conn(pg):
+    connection = feed_store.connect(pg.sync_dsn)
+    with connection.cursor() as cur:
+        cur.execute("SELECT tablename FROM pg_tables WHERE schemaname='public'")
+        for (table,) in cur.fetchall():
+            cur.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE')
+    connection.commit()
+    schema.ensure_schema(connection)
+    yield connection
+    connection.close()
+
+
+def config(**changes) -> AutomationConfig:
+    base = AutomationConfig(
+        publication_delay_seconds=0,
+        execution_delay_seconds=60,
+        lease_seconds=30,
+        heartbeat_seconds=5,
+        retry_base_seconds=5,
+        retry_max_seconds=30,
+    )
+    return base.model_copy(update=changes)
+
+
+def binding(cfg: AutomationConfig) -> ControlBinding:
+    return ControlBinding(
+        deployment_id="sentinel-a",
+        broker="alpaca-paper",
+        broker_account_id="paper-account-1",
+        takeover_epoch=1,
+        certificate_sha256="d" * 64,
+        rollout_mode="PINNED_1_00",
+        rollout_version=1,
+        config_sha256=cfg.fingerprint,
+    )
+
+
+def enable(conn, cfg: AutomationConfig) -> None:
+    expected = binding(cfg)
+    store.activate(conn, binding=expected, actor="operator", reason="issue-201")
+    store.release_kill(
+        conn, expected_binding=expected, actor="operator", reason="issue-201")
+
+
+def refresh_result(context):
+    return {
+        "already_published": False,
+        "data_version": f"publication-{context.cycle.decision_session}",
+        "publication_fingerprint": "p" * 64,
+    }
+
+
+def prepare_result(context):
+    return {
+        "plan_id": f"plan-{context.cycle.decision_session}",
+        "data_version": f"publication-{context.cycle.decision_session}",
+        "publication_fingerprint": "p" * 64,
+        "state_fingerprint": "s" * 64,
+        "plan_fingerprint": "f" * 64,
+    }
+
+
+def execution_success(context):
+    return {
+        "disposition": "SUCCEEDED",
+        "last_clean_reconciliation_id":
+            f"reconciliation-{context.cycle.effective_session}",
+    }
+
+
+def recovery_success(context):
+    return execution_success(context)
+
+
+def service_for(
+        cfg: AutomationConfig, *, execute=execution_success,
+        recover=recovery_success) -> AutomationService:
+    return AutomationService(
+        config=cfg,
+        holder_id="worker-a",
+        refresh=refresh_result,
+        prepare=prepare_result,
+        recover=recover,
+        execute=execute,
+    )
+
+
+async def prepared_waiting(
+        conn, cfg: AutomationConfig, *, execute=execution_success):
+    enable(conn, cfg)
+    service = service_for(cfg, execute=execute)
+    assert (await service.tick(
+        conn, now=AFTER_WEDNESDAY_CLOSE)).action is TickAction.RECOVERED
+    assert (await service.tick(
+        conn, now=AFTER_WEDNESDAY_CLOSE)).action is TickAction.REFRESHED
+    assert (await service.tick(
+        conn, now=AFTER_WEDNESDAY_CLOSE)).action is TickAction.PREPARED
+    waiting = await service.tick(conn, now=THURSDAY_BEFORE_EXECUTE)
+    assert waiting.action is TickAction.WAITING
+    assert waiting.cycle is not None
+    assert waiting.cycle.state is CycleState.WAITING_OPEN
+    assert waiting.permit is not None
+    return service, waiting
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "offset,expected_action,expected_execute_calls",
+    [
+        (0, TickAction.EXECUTED, 1),
+        (30, TickAction.EXECUTED, 1),
+        (61, TickAction.SUPERSEDED, 0),
+    ],
+)
+async def test_new_transport_is_bounded_around_execute_at(
+        conn, offset, expected_action, expected_execute_calls) -> None:
+    calls = []
+    cfg = config()
+
+    def execute(context):
+        calls.append(context.cycle.cycle_id)
+        return execution_success(context)
+
+    service, _ = await prepared_waiting(conn, cfg, execute=execute)
+    result = await service.tick(
+        conn, now=THURSDAY_EXECUTE + timedelta(seconds=offset))
+
+    assert result.action is expected_action
+    assert len(calls) == expected_execute_calls
+    if offset > cfg.execution_delay_seconds:
+        assert result.cycle is not None
+        assert result.cycle.state is CycleState.SUPERSEDED
+        assert result.cycle.failure_code == "MAX_EXECUTION_LATENESS_EXCEEDED"
+
+
+@pytest.mark.asyncio
+async def test_execute_retry_cannot_bypass_immutable_execute_at(conn) -> None:
+    calls = []
+    cfg = config()
+
+    def execute(context):
+        calls.append(context.cycle.cycle_id)
+        return execution_success(context)
+
+    service, waiting = await prepared_waiting(conn, cfg, execute=execute)
+    executing = store.transition_cycle(
+        conn,
+        permit=waiting.permit,
+        cycle_id=waiting.cycle.cycle_id,
+        to_state=CycleState.EXECUTING,
+        increment_attempt=True,
+        next_wake_at=None,
+    )
+    retry = store.transition_cycle(
+        conn,
+        permit=waiting.permit,
+        cycle_id=executing.cycle_id,
+        to_state=CycleState.RETRY_WAIT,
+        next_wake_at=THURSDAY_BEFORE_EXECUTE,
+        diagnostic={"retry_phase": "EXECUTE"},
+    )
+
+    result = await service.tick(conn, now=THURSDAY_BEFORE_EXECUTE)
+
+    assert result.action is TickAction.WAITING
+    assert result.cycle is not None
+    assert result.cycle.cycle_id == retry.cycle_id
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_sql_promoted_executing_row_is_refused_before_callback(conn) -> None:
+    calls = []
+    cfg = config()
+
+    def execute(context):
+        calls.append(context.cycle.cycle_id)
+        return execution_success(context)
+
+    service, waiting = await prepared_waiting(conn, cfg, execute=execute)
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE sentinel_automation_cycles SET state='EXECUTING' "
+            "WHERE cycle_id=%s",
+            (waiting.cycle.cycle_id,),
+        )
+    conn.commit()
+
+    with pytest.raises(AutomationRefused, match="event"):
+        await service.tick(conn, now=THURSDAY_BEFORE_EXECUTE)
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_late_recovery_can_reconcile_but_cannot_reopen_transport(conn) -> None:
+    cfg = config()
+    service, waiting = await prepared_waiting(conn, cfg)
+    executing = store.transition_cycle(
+        conn,
+        permit=waiting.permit,
+        cycle_id=waiting.cycle.cycle_id,
+        to_state=CycleState.EXECUTING,
+        increment_attempt=True,
+        next_wake_at=None,
+    )
+    store.transition_cycle(
+        conn,
+        permit=waiting.permit,
+        cycle_id=executing.cycle_id,
+        to_state=CycleState.RETRY_WAIT,
+        next_wake_at=THURSDAY_EXECUTE + timedelta(seconds=61),
+        diagnostic={"retry_phase": "EXECUTE"},
+    )
+
+    recovery_calls = []
+
+    def ready(context):
+        recovery_calls.append(context.cycle.cycle_id)
+        return {
+            "disposition": "READY_TO_EXECUTE",
+            "last_clean_reconciliation_id": "clean-after-outage",
+        }
+
+    replacement = service_for(cfg, recover=ready)
+    result = await replacement.tick(
+        conn, now=THURSDAY_EXECUTE + timedelta(seconds=61))
+
+    assert recovery_calls
+    assert result.action is TickAction.SUPERSEDED
+    assert result.cycle is not None
+    assert result.cycle.failure_code == "MAX_EXECUTION_LATENESS_EXCEEDED"
+
+
+@pytest.mark.asyncio
+async def test_production_tick_refuses_material_host_database_clock_skew(
+        conn, pg) -> None:
+    cfg = config()
+    enable(conn, cfg)
+    with conn.cursor() as cur:
+        cur.execute("SELECT clock_timestamp()")
+        database_now = cur.fetchone()[0]
+    conn.rollback()
+    service = service_for(cfg)
+
+    with pytest.raises(AutomationRefused, match="clock skew"):
+        await service.tick(
+            conn,
+            now=database_now + timedelta(minutes=5),
+            heartbeat_conn_factory=lambda: feed_store.connect(pg.sync_dsn),
+        )
+
+
+@pytest.mark.asyncio
+async def test_callback_result_is_refused_after_bounded_runtime() -> None:
+    cfg = config(retry_base_seconds=1, retry_max_seconds=1)
+    service = service_for(cfg)
+
+    async def slow(_context):
+        await asyncio.sleep(1.05)
+        return "late"
+
+    with pytest.raises(StaleLeaderRefused, match="bounded runtime"):
+        await service._invoke(  # noqa: SLF001 - explicit watchdog contract test
+            slow,
+            object(),
+            permit=object(),
+            phase="PREPARE",
+            heartbeat_conn_factory=None,
+        )
