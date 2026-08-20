@@ -5,6 +5,7 @@ on:
     paths:
       - 'sec-filings/**'
       - 'tools/sec_pit_reconstruct.py'
+      - 'tools/sec_pit_ldrc_replay.py'
       - 'shared/**'
       - 'services/**'
       - 'sentinel/**'
@@ -12,6 +13,7 @@ on:
       - 'docs/sentinel-reference-implementation/**'
       - 'docs/sentinel-concordance-ldrc-spec.md'
       - 'docs/sentinel-concordance-simplification-pass.md'
+      - 'docs/sentinel-concordance-ldrc-authoritative-spec.md'
       - '.github/workflows/sec-pit-replay-evidence.yml'
   workflow_dispatch:
 
@@ -40,6 +42,7 @@ jobs:
             docs/sentinel-reference-implementation
             docs/sentinel-concordance-ldrc-spec.md
             docs/sentinel-concordance-simplification-pass.md
+            docs/sentinel-concordance-ldrc-authoritative-spec.md
             Makefile
 
       - name: Set up Python 3.12
@@ -104,11 +107,11 @@ jobs:
           git rev-parse HEAD > /tmp/pr208-replay-inputs/source_sha.txt
           tar -czf /tmp/pr208-replay-inputs/pr208-replay-source.tar.gz \
             .github config services shared sentinel tests tools docs Makefile
-          sha256sum /tmp/pr208-replay-inputs/observations.csv \
-                    /tmp/pr208-replay-inputs/symbol_cik_evidence.csv \
-                    /tmp/pr208-replay-inputs/coverage.json \
-                    /tmp/pr208-replay-inputs/pr208-replay-source.tar.gz \
-            > /tmp/pr208-replay-inputs/SHA256SUMS
+          (
+            cd /tmp/pr208-replay-inputs
+            sha256sum observations.csv symbol_cik_evidence.csv coverage.json \
+                      pr208-replay-source.tar.gz > SHA256SUMS
+          )
 
       - name: Upload portable replay inputs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
