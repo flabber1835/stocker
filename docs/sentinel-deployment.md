@@ -1658,6 +1658,16 @@ or request URLs.  A certification that wants a corpus-wide historical CAGR
 claim must run that diagnostic on an authorized sanitized export; collapsed
 legacy storage is not evidence of absence.
 
+The backtest store now follows the same complete-row identity law. A legacy
+``bt_actions`` table is emptied and marked ``NEEDS_REBUILD`` during schema
+migration because no database migration can recover siblings that its old key
+discarded. Only a complete ACTIONS fetch beginning at ``1900-01-01`` may
+establish READY authority. That fetch replaces the covered rows, verifies the
+distinct count, updates its coverage/cardinality state, and participates in the
+existing corpus PUBLISHING transaction. Incremental overlap reconciliation is
+permitted only after that complete rebuild. Backtest readiness refuses a
+populated corpus whose ACTIONS authority is not READY.
+
 If enabling the Wealth Core / Sentinel path requires changing a protected
 `execution_model`, do it deliberately and record:
 

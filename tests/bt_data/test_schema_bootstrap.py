@@ -80,6 +80,20 @@ class TestEveryAlterFollowsItsCreate:
             "the as-traded price column must be added with IF NOT EXISTS so an "
             "existing bt-postgres picks it up on startup")
 
+    def test_actions_uniqueness_is_complete_source_identity_only(self):
+        body = _strip_comments(SQL)
+        assert "uq_bt_actions_source_row" in body
+        assert "ON bt_actions(source_row_id)" in body
+        assert "PRIMARY KEY (ticker, date, action)" not in body
+        assert "ON bt_actions(ticker, date, action)" not in body
+
+    def test_legacy_actions_are_invalidated_and_require_rebuild(self):
+        body = _strip_comments(SQL)
+        assert "TRUNCATE bt_actions" in body
+        assert "NEEDS_REBUILD" in body
+        assert "bt_actions_source_state" in body
+        assert "source_payload JSONB" in body
+
 
 class TestOneBadStatementCannotRevertTheOthers:
 

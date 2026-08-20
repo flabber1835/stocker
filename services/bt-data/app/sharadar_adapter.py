@@ -20,6 +20,8 @@ from __future__ import annotations
 import math
 from typing import Any, Optional
 
+from app.action_source import canonical_payload, source_row_id
+
 
 # Values beyond this magnitude are data artifacts, not real figures, and are
 # dropped (→ None) rather than stored: a penny stock that reverse-split into
@@ -309,6 +311,11 @@ def map_actions_row(row: dict) -> Optional[dict]:
     loss, which in a 4%-of-equity strategy permanently shrinks every position
     opened afterwards. Zero is a TERM; absence is not.
     """
+    # Identity is computed from the COMPLETE RECEIVED row before consumer
+    # normalization. In particular, source NULL and source "" stay distinct
+    # even though the economic columns below normalize both to SQL NULL.
+    payload = canonical_payload(row)
+    identity = source_row_id(row)
     ticker = (row.get("ticker") or "").strip().upper()
     action = (row.get("action") or "").strip().lower()
     date = _date_or_none(row.get("date"))
@@ -318,6 +325,8 @@ def map_actions_row(row: dict) -> Optional[dict]:
         return None
     contra = (row.get("contraticker") or "").strip().upper() or None
     return {
+        "source_row_id": identity,
+        "source_payload": payload,
         "ticker": ticker,
         "date": date,
         "action": action,

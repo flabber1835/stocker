@@ -264,6 +264,14 @@ would faithfully reproduce every one of these defects on fresh data. **Fix the
 reader before rebuilding the corpus** — otherwise the rebuilt corpus is
 certified while carrying them invisibly.
 
+**2026-08-20 correction:** that row count described the lossy backtest schema,
+not the Sharadar source. The retained ACTIONS export contains 672,423 distinct
+complete rows but only 669,801 distinct `(ticker,date,action)` keys: 2,622 rows
+were unrepresentable across 1,594 collision groups. The reader findings below
+remain historical evidence, but the old `bt_actions` cardinality is not corpus
+soundness evidence. Current schema invalidates it and requires a complete-row
+rebuild before readiness.
+
 ### The security that exposed it
 
 ```text

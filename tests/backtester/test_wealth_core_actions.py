@@ -23,6 +23,8 @@ import pytest
 
 from app.wealth_core_replay import (  # noqa: E402
     ACTIONS_CAVEATS,
+    CorporateActionsAmbiguous,
+    CorporateActionsUnavailable,
     DERIVED_SPLIT_CAVEATS,
     DIVIDEND_ACTIONS,
     SPLIT_ACTIONS,
@@ -30,6 +32,8 @@ from app.wealth_core_replay import (  # noqa: E402
     TERMINAL_ACTION_SIDES,
     ActionSide,
     actions_effective_in_sessions,
+    assert_actions_source_authority,
+    dividends_from_actions,
     reconcile_split,
     sessions_index,
     snap_to_session,
@@ -152,6 +156,67 @@ class TestAuthoritativeSplits:
         rows = [action(action="dividend", value=0.5),
                 action(action="mergerto", value=54.0)]
         assert split_ratios_from_actions(rows, SESSIONS) == {}
+
+    def test_distinct_same_key_split_siblings_refuse_in_every_order(self):
+        rows = [
+            action(action="split", value=2.0, source_row_id="a" * 64),
+            action(action="split", value=3.0, source_row_id="b" * 64),
+        ]
+        for ordered in (rows, list(reversed(rows))):
+            with pytest.raises(CorporateActionsAmbiguous,
+                               match="ambiguous split ACTIONS multiplicity"):
+                split_ratios_from_actions(ordered, SESSIONS)
+
+
+class TestAuthoritativeDividends:
+
+    def test_distinct_same_key_rows_are_all_summed_order_independently(self):
+        rows = [
+            action(action="dividend", value=0.1, source_row_id="a" * 64),
+            action(action="dividend", value=0.2, source_row_id="b" * 64),
+            action(action="dividend", value=0.3, source_row_id="c" * 64),
+        ]
+        expected = {("AAA", "2022-03-02"): pytest.approx(0.6)}
+        assert dividends_from_actions(rows, SESSIONS) == expected
+        assert dividends_from_actions(list(reversed(rows)), SESSIONS) == expected
+
+
+class TestActionsAuthority:
+
+    class _Result:
+        def __init__(self, row):
+            self.row = row
+
+        def mappings(self):
+            return self
+
+        def first(self):
+            return self.row
+
+    class _Conn:
+        def __init__(self, row):
+            self.row = row
+
+        def execute(self, *_args, **_kwargs):
+            return TestActionsAuthority._Result(self.row)
+
+    def test_complete_identity_and_coverage_are_both_required(self):
+        ready = {"schema_version": "complete-source-row-v1", "status": "READY",
+                 "date_min": "1900-01-01", "date_max": "2026-08-20",
+                 "covers_start": True, "covers_end": True}
+        assert assert_actions_source_authority(
+            self._Conn(ready), "2000-01-01", "2026-08-20") is None
+
+        for changed in (
+                {"status": "NEEDS_REBUILD"},
+                {"schema_version": "coarse-key-v0"},
+                {"covers_start": False},
+                {"covers_end": False}):
+            with pytest.raises(CorporateActionsUnavailable,
+                               match="complete-row authority"):
+                assert_actions_source_authority(
+                    self._Conn({**ready, **changed}),
+                    "2000-01-01", "2026-08-20")
 
 
 # ── reconciliation: price evidence orients ACTIONS; ambiguity is suppressed ─

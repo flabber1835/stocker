@@ -7,6 +7,14 @@ docs/wealth-core-test-rewrite.md (which narrates how the suite got here) because
 a certification record has to be readable as a claim about the SYSTEM, not about
 the work.
 
+**ACTIONS correction 2026-08-20:** the prior 664,039-row backfill is no longer
+authoritative. Its `(ticker,date,action)` key could represent only 669,801 of
+672,423 distinct rows in the retained current export, losing 2,622 rows across
+1,594 collision groups. The current schema invalidates legacy `bt_actions` and
+requires a complete source-row rebuild from 1900-01-01. Every DONE statement
+below about the old ACTIONS backfill is historical until that rebuild publishes
+READY complete-row authority.
+
 Every suite in the repository passes at `ae2db54` when the test runner has the
 dependencies the suites import. The earlier "three suites fail on this branch AND
 on its parent" line was WRONG and is retracted — see "Suite failures that were
@@ -449,8 +457,9 @@ DONE   2  every shared/ consumer rebuilt; deploy steps 6-10 all PASSED —
           (SUPERSEDED — the C1/C2 wiring re-pinned it to 5c1af5731f79c702;
           re-run this after a forced stocker-base rebuild),
           identical on all 7 layers (backtester / pipeline / windtunnel)
-DONE   3  bt_actions backfilled: 664,039 rows, 1998-01-01..2026-12-31, 4m29s.
-          Every run from here reports split_source: actions, not derived.
+STALE  3  bt_actions was backfilled: 664,039 rows, 1998-01-01..2026-12-31,
+          4m29s. Its coarse uniqueness key was lossy; complete-row rebuild is
+          required before split_source: actions is authoritative.
 DONE   4  exact raw-close scan COMPLETED (not degraded): coverage 99.7649%
           (36,684,527 / 36,770,974). Gaps are per-TICKER vendor gaps in 43
           non-common-stock instruments, NOT a truncated backfill.
@@ -1070,7 +1079,7 @@ fire during a grace, one step before the hash would have moved.
 | end-to-end chain rehearsal | implemented | bt-engine `POST /wealth-core/jobs/run` mode `chain_rehearsal` |
 | deployed-image parity | **proven 2026-08-06, now STALE** | all three images emitted golden `a09b12a87d1ecc97`, identical on 7 layers, INSIDE the containers. The C1/C2 wiring re-pinned the golden to `5c1af5731f79c702`, so this must be RE-PROVEN after a forced base rebuild; until then the deployed images disagree with the code |
 | exact SEP raw-close verification | **proven 2026-08-06** | `exact=1` COMPLETED: 99.7649% (36,684,527/36,770,974); gaps are per-ticker vendor gaps in 43 non-common-stock instruments |
-| authoritative ACTIONS ingested | **done 2026-08-06** | `bt_actions` 664,039 rows, 1998-01-01..2026-12-31 |
+| authoritative ACTIONS ingested | **stale — rebuild required 2026-08-20** | legacy `bt_actions` was lossy; rebuild complete source-row authority from 1900-01-01 |
 | authoritative ACTIONS / data parity | **pending** | needs a run whose `provenance.split_source == "actions"` — step 7 |
 | a dated replay is a backtest FROM its start date | **fixed 2026-08-07** | pre-start warm-up in `_load_corpus`/`_split_warmup`, threaded to all three modes and to BOTH the chain and bulk feeds; tests/bt_engine/test_wealth_core_warmup.py (19). The first 2021-2023 rehearsal is VOID — it ran unwarmed |
 | exact Sharadar control (baseline_replay) | **RUNNABLE; NAS EVIDENCE OUTSTANDING** | `python -m tools.wealth_core_expected_hashes` now emits the complete provenance-bound seven-hash artifact from one locked read-only Sharadar snapshot. The producer and request handoff are locally falsified, but the authoritative NAS producer + `baseline_replay` run has not been performed. That run proves IMAGE/ENVIRONMENT parity, NOT independent implementation — one loader, COPYed; see step 5 |
@@ -1191,14 +1200,15 @@ two stacks share no docker network by design).
    `scripts/deploy-all.sh` if in any doubt — slower, and certain.
    `scripts/deploy-all.sh --verify` checks without changing anything.
 
-3. **[DONE — 664,039 rows, 1998-01-01..2026-12-31]** **Backfill ACTIONS.** Until `bt_actions` is populated every run reports
-   `split_source: derived` and is NOT certified-reproducible.
+3. **[STALE — COMPLETE-ROW REBUILD REQUIRED]** **Backfill ACTIONS.** A legacy
+   populated table is no longer sufficient; its authority state must be READY
+   and cover the entire requested causal window.
 
    ```bash
    # date_from / date_to are REQUIRED query params; cover the whole period the
    # certification runs will replay, or the uncovered span silently falls back
    # to derived splits.
-   curl -sX POST "localhost:8030/jobs/backfill-actions?date_from=1998-01-01&date_to=2026-12-31"
+   curl -sX POST "localhost:8030/jobs/backfill-actions?date_from=1900-01-01&date_to=2026-12-31"
    ```
 
    A certified run must additionally set `WEALTH_CORE_REQUIRE_ACTIONS`, which
@@ -1442,4 +1452,3 @@ tests/simulation      9      tests/ui             0 (4 skipped)
 
 The four lanes that matter for Wealth Core parity, all green AFTER the wiring:
 `wealth_core` 550, `parity` 45, `bt_engine` 397 (wind tunnel), `backtester` 170.
-

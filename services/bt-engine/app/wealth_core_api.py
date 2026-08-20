@@ -544,7 +544,7 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
         ACTIONS_CAVEATS, CAVEATS, DERIVED_SPLIT_CAVEATS, REQUIRE_ACTIONS,
         CorporateActionsUnavailable, RawPriceDomainUnavailable,
         actions_after_session, actions_effective_in_sessions,
-        assert_raw_price_domain,
+        assert_actions_source_authority, assert_raw_price_domain,
         dividends_from_actions, load_actions,
         load_bars, load_identity, load_meta_timeline, load_sessions,
         sessions_index, require_usable_bars, require_usable_decision_bars,
@@ -638,6 +638,7 @@ async def _load_corpus(req: WealthCoreJobRequest) -> dict:
             # boundary. The cutoff is EXCLUSIVE so a weekend/holiday event
             # between prior and first retained session correctly maps forward.
             full_idx = sessions_index([*warmup_sessions, *sessions])
+            assert_actions_source_authority(conn, warmup_from, end)
             source_action_rows = load_actions(conn, warmup_from, end)
             actions_first_retained_session = warmup_sessions[0]
             action_rows = actions_after_session(
