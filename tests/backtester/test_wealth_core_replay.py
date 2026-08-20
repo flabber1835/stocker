@@ -8,6 +8,7 @@ complete backtest of something else.
 from __future__ import annotations
 
 import ast
+import os
 import pathlib
 
 import pytest
@@ -23,8 +24,15 @@ from app.wealth_core_replay import (  # noqa: E402
     split_ratio_from_domains,
 )
 
+# Runtime imports go through the financial-grade facade above. Source-level
+# strategy/domain guards deliberately inspect the retained implementation bytes:
+# the facade adds one semantic-epoch database check and does not own the replay
+# algorithm those guards are designed to constrain.
 MODULE = pathlib.Path(__file__).resolve().parents[2] / \
-    "services" / "backtester" / "app" / "wealth_core_replay.py"
+    "services" / "backtester" / "app" / "wealth_core_replay_impl.py"
+REPO_ROOT = pathlib.Path(os.environ.get(
+    "SENTINEL_REPO_ROOT", str(pathlib.Path(__file__).resolve().parents[2])))
+BT_ENGINE_DOCKERFILE = REPO_ROOT / "services" / "bt-engine" / "Dockerfile"
 
 
 class FakeConn:
@@ -56,29 +64,41 @@ class _Result:
         return iter(self.rows)
 
 
+def raw_domain_conn(n: int, n_raw: int) -> FakeConn:
+    """Prove the unrelated post-#185 volume epoch, then test raw-close coverage."""
+    return FakeConn({
+        "bt_price_volume_domain_state": [{
+            "domain_version": "sharadar-raw-volume-v1",
+            "proven": True,
+            "note": "focused raw-close coverage fixture",
+        }],
+        "COUNT(close_unadjusted)": [{"n": n, "n_raw": n_raw}],
+    })
+
+
 # ── the refusal ─────────────────────────────────────────────────────────────
 
 class TestItRefusesWithoutTheAsTradedDomain:
 
     def test_an_unbackfilled_corpus_is_refused_not_approximated(self):
-        conn = FakeConn({"COUNT(close_unadjusted)": [{"n": 1000, "n_raw": 0}]})
+        conn = raw_domain_conn(1000, 0)
         with pytest.raises(RawPriceDomainUnavailable) as e:
             assert_raw_price_domain(conn, "2020-01-01", "2021-01-01")
         assert "closeunadj" in str(e.value), "the error must name the remedy"
 
     def test_a_partly_backfilled_corpus_is_also_refused(self):
-        conn = FakeConn({"COUNT(close_unadjusted)": [{"n": 1000, "n_raw": 500}]})
+        conn = raw_domain_conn(1000, 500)
         with pytest.raises(RawPriceDomainUnavailable):
             assert_raw_price_domain(conn, "2020-01-01", "2021-01-01")
 
     def test_ordinary_vendor_gaps_are_tolerated(self):
         """A handful of missing prints is what "no print, no fill" is for. Only
         a corpus that is mostly NULL is a deployment state."""
-        conn = FakeConn({"COUNT(close_unadjusted)": [{"n": 1000, "n_raw": 995}]})
+        conn = raw_domain_conn(1000, 995)
         assert assert_raw_price_domain(conn, "a", "b") == pytest.approx(0.995)
 
     def test_an_empty_range_is_refused_rather_than_run_as_zero_sessions(self):
-        conn = FakeConn({"COUNT(close_unadjusted)": [{"n": 0, "n_raw": 0}]})
+        conn = raw_domain_conn(0, 0)
         with pytest.raises(RawPriceDomainUnavailable):
             assert_raw_price_domain(conn, "a", "b")
 
@@ -273,7 +293,6 @@ class TestTheBenchmarkIsSeparate:
     def test_it_reads_NOTHING_but_the_benchmark(self):
         """It must not become a second corpus reader. The strategy's tables and
         price domains belong to the loader alone."""
-        import ast
         tree = ast.parse(self.BENCH.read_text())
         sql = [n.value for n in ast.walk(tree)
                if isinstance(n, ast.Constant) and isinstance(n.value, str)
@@ -288,5 +307,10 @@ class TestTheBenchmarkIsSeparate:
                 "bt_prices read is a corpus loader by another name")
 
     def test_the_image_carries_it(self):
-        df = (MODULE.parents[2] / "bt-engine" / "Dockerfile").read_text()
+        df = BT_ENGINE_DOCKERFILE.read_text()
         assert "services/backtester/app/wealth_core_benchmark.py ./app/live/" in df
+
+    def test_the_image_carries_both_replay_facade_and_retained_implementation(self):
+        df = BT_ENGINE_DOCKERFILE.read_text()
+        assert "services/backtester/app/wealth_core_replay.py ./app/live/" in df
+        assert "services/backtester/app/wealth_core_replay_impl.py ./app/live/" in df

@@ -153,7 +153,7 @@ class TestTheCorpusIsReadThroughTheOwNER:
         # is reverted.
         assert "load_sessions(conn, warmup_from, end)" in src
         owner = (REPO / "services" / "backtester" / "app" /
-                 "wealth_core_replay.py").read_text()
+                 "wealth_core_replay_impl.py").read_text()
         assert "def load_sessions(" in owner
         assert "load_sessions(conn, req.start_date, req.end_date)" in owner, (
             "the owner must USE its own loader, or the two callers can still "
@@ -511,7 +511,10 @@ class TestTheCorpusSnapshotIsIdentifiedAndStable:
         async def execute(self, stmt, params=None):
             if self.error:
                 raise self.error
-            return TestTheCorpusSnapshotIsIdentifiedAndStable._Result(self.row)
+            sql = str(stmt)
+            row = (("sharadar-raw-volume-v1", True, None)
+                   if "bt_price_volume_domain_state" in sql else self.row)
+            return TestTheCorpusSnapshotIsIdentifiedAndStable._Result(row)
 
     def test_every_loader_query_runs_in_one_repeatable_read_read_only_snapshot(self):
         body = self.SRC[self.SRC.index("async def _load_corpus"):
@@ -543,7 +546,7 @@ class TestTheCorpusSnapshotIsIdentifiedAndStable:
         assert "load_meta_timeline(conn, sessions=sessions)" in body
         assert "load_identity(conn, as_of=end)" in body
         canonical = (REPO / "services" / "backtester" / "app" /
-                     "wealth_core_replay.py").read_text()
+                     "wealth_core_replay_impl.py").read_text()
         identity_sql = canonical[canonical.index("_IDENTITY_SQL = text"):
                                  canonical.index("def assert_raw_price_domain")]
         assert "snapshot_date <= :as_of" not in identity_sql
@@ -877,7 +880,7 @@ class TestAnEmptyUniverseIsRefusedNotScored:
                         self.SRC.index("def _execute(")]
         assert "load_meta_timeline(conn, sessions=sessions)" in body
         canonical = (REPO / "services" / "backtester" / "app" /
-                     "wealth_core_replay.py").read_text()
+                     "wealth_core_replay_impl.py").read_text()
         assert "if not timeline.security_ids:" in canonical
         assert "DecisionMetadataUnavailable" in canonical
 
@@ -894,7 +897,7 @@ class TestAnEmptyUniverseIsRefusedNotScored:
         one has to say explicitly that 0% is not a finding, because the whole
         failure mode is that it looks like one."""
         canonical = (REPO / "services" / "backtester" / "app" /
-                     "wealth_core_replay.py").read_text()
+                     "wealth_core_replay_impl.py").read_text()
         load = canonical[canonical.index("def load_meta_timeline"):
                          canonical.index("def require_usable_decision_bars")]
         assert "Restore the" in load

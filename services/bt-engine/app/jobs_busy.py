@@ -20,10 +20,11 @@ failure since it was written; only one side of it was enforced.
 Generalises the crash-brake rule in CLAUDE.md: a constraint between two parties
 must be enforced from BOTH ends, not from whichever end was written last.
 
-The same module owns the two database gates that must be identical across
-processes: the short transaction which admits a new run, and the shared corpus
-lock paired with bt-data's exclusive writer lock.  A process-local asyncio lock
-cannot establish either property.
+The same module owns the database gates that must be identical across processes:
+the short transaction which admits a new run, the shared corpus lock paired with
+bt-data's exclusive writer lock, and the economic-domain authority tied to the
+READY corpus generation. A process-local asyncio lock cannot establish any of
+those properties.
 """
 from __future__ import annotations
 
@@ -32,25 +33,22 @@ from dataclasses import dataclass
 from sqlalchemy import text
 
 
-#: Cross-process lock protecting the certification corpus.  bt-data takes this
+#: Cross-process lock protecting the certification corpus. bt-data takes this
 #: key EXCLUSIVE for the complete mutation job; corpus readers take it SHARED
-#: for their transaction.  Keep the literal in sync with bt-data and the corpus
+#: for their transaction. Keep the literal in sync with bt-data and the corpus
 #: parity tool -- PostgreSQL advisory locks are the process boundary here.
 CORPUS_LOCK_KEY = 0x4254_434F_5250_5553
 
-#: Serialises the short "check busy + insert running row" transaction.  The
-#: in-process asyncio lock is acquired by the background task, after the HTTP
-#: request has already returned, so it cannot close the two-request race at the
-#: start boundary.  A transaction-scoped advisory lock does, including across
-#: multiple bt-engine processes.
+#: Serialises the short "check busy + insert running row" transaction.
 JOB_START_LOCK_KEY = 0x4254_4A4F_4253_5441
 
-#: One certification engine process owns one certification database. This is a
-#: SESSION lock, deliberately unlike the transaction gates above: it remains
-#: held for the process lifetime on a dedicated connection. Without it a
-#: second process can start while the first has a live background rehearsal and
-#: run the orphan-reclaim UPDATE against the first process's `running` row.
+#: One certification engine process owns one certification database.
 ENGINE_PROCESS_LEASE_KEY = 0x4254_454E_4749_4E45
+
+#: Exact persisted semantics required by the post-#185 Wealth Core liquidity
+#: contract. Existing populated databases are explicitly unproven on schema
+#: upgrade; only the supported full migration can publish this singleton true.
+PRICE_VOLUME_DOMAIN = "sharadar-raw-volume-v1"
 
 
 class EngineProcessLeaseUnavailable(RuntimeError):
@@ -82,16 +80,11 @@ class DataGeneration:
             "note": self.note,
         }
 
-#: Labelled so a 409 can NAME what is in the way. Diagnosing the collision above
-#: took a cross-reference of three tables against `dmesg` precisely because the
-#: refusal messages said "a sweep is already running" without saying which job
-#: the caller had actually lost to.
+
 BACKTEST_RUN = "backtest run"
 SWEEP = "sweep"
 WEALTH_CORE_RUN = "Wealth Core run"
 
-#: Any ONE running job disqualifies a new one, so `LIMIT 1` after the UNION is
-#: sufficient — this asks "is anything running", not "what is running".
 _BUSY_SQL = text(
     "SELECT kind FROM ("
     f"  SELECT '{BACKTEST_RUN}' AS kind FROM bt_runs WHERE status='running'"
@@ -101,6 +94,11 @@ _BUSY_SQL = text(
     f"  SELECT '{WEALTH_CORE_RUN}' AS kind FROM bt_wealth_core_runs"
     "   WHERE status='running'"
     ") AS running LIMIT 1"
+)
+
+_PRICE_VOLUME_DOMAIN_SQL = text(
+    "SELECT domain_version,proven,note FROM bt_price_volume_domain_state "
+    "WHERE id=1"
 )
 
 
@@ -119,12 +117,7 @@ async def acquire_job_start_gate(conn) -> None:
 
 
 async def acquire_engine_process_lease(conn) -> None:
-    """Claim exclusive process ownership on a dedicated DB connection.
-
-    The caller must keep ``conn`` open for its whole lifespan. A crashed
-    process releases the PostgreSQL session lock automatically; a concurrent
-    healthy process makes this function raise before schema/recovery writes.
-    """
+    """Claim exclusive process ownership on a dedicated DB connection."""
     acquired = (await conn.execute(
         text("SELECT pg_try_advisory_lock(:key)"),
         {"key": ENGINE_PROCESS_LEASE_KEY},
@@ -159,8 +152,36 @@ async def acquire_corpus_read_lock(conn) -> None:
             "queue behind or overlap a mutation generation")
 
 
+async def _require_price_volume_domain(conn) -> None:
+    """Require the O(1) semantic authority belonging to this corpus snapshot.
+
+    A legacy populated database is initialized `proven=false`. The one-time
+    migration force-replays every stored SEP row plus benchmarks and performs an
+    explicit full residual row-marker scan before changing this singleton to
+    true. An old/undeclared bt-data writer invalidates it atomically with its
+    first price write. Runtime certification therefore needs no lifetime-sized
+    index or scan.
+    """
+    try:
+        row = (await conn.execute(_PRICE_VOLUME_DOMAIN_SQL)).first()
+    except Exception as exc:  # noqa: BLE001 -- missing provenance is not citable
+        raise CorpusGenerationUnavailable(
+            "bt-data cannot supply the post-#185 volume-domain authority; apply "
+            "the bt-data semantic schema/migration before rehearsing") from exc
+    if row is None:
+        raise CorpusGenerationUnavailable(
+            "bt_price_volume_domain_state has no singleton authority row")
+    domain, proven, note = row
+    if str(domain) != PRICE_VOLUME_DOMAIN or proven is not True:
+        raise CorpusGenerationUnavailable(
+            "bt_prices volume semantics are not proven for this READY corpus: "
+            f"domain={domain!r}, proven={proven!r}, note={note!r}. Run "
+            "`python -m app.volume_domain_migration` in the post-#185 bt-data "
+            "image before historical Wealth Core/replay is trusted.")
+
+
 async def load_ready_data_generation(conn) -> DataGeneration:
-    """Read the generation identity through the caller's corpus snapshot."""
+    """Read generation identity and economic-domain proof in one snapshot."""
     try:
         row = (await conn.execute(text(
             "SELECT version::text, status, source_mode, updated_at, note "
@@ -184,6 +205,7 @@ async def load_ready_data_generation(conn) -> DataGeneration:
         raise CorpusGenerationUnavailable(
             "READY bt_data_version is missing version or source_mode; its "
             "corpus cannot be identified")
+    await _require_price_volume_domain(conn)
     return DataGeneration(
         version=str(version), status="READY", source_mode=str(source_mode),
         updated_at=updated_at, note=str(note) if note is not None else None,

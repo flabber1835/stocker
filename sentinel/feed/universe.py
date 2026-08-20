@@ -217,6 +217,102 @@ def _delisted_observation(row: Mapping) -> Optional[bool]:
     return str(raw).strip().upper() in ("Y", "TRUE", "1")
 
 
+class HistoricalIdentityMutation(RuntimeError):
+    """A TICKERS correction would reinterpret already-published bar identity."""
+
+
+def _clipped_listing(first, last, corpus_lo: str, corpus_hi: str):
+    lo = max(str(first) if first is not None else corpus_lo, corpus_lo)
+    hi = min(str(last) if last is not None else corpus_hi, corpus_hi)
+    return (lo, hi) if lo <= hi else None
+
+
+def assert_candidate_listing_history_safe(conn, *, run_id: str) -> None:
+    """Refuse a full TICKERS snapshot that changes identity over published bars.
+
+    `sentinel_bars` is keyed by ``(security_id, session)``. Updating the current
+    TICKERS projection can therefore NOT by itself repair a historical identity
+    correction: the old bar key survives even if the candidate resolver would
+    now map that ticker/session elsewhere (or nowhere). Until a complete source
+    rebuild can re-key/tombstone those bars atomically, the only financial-grade
+    action is to keep the candidate unpublished.
+
+    The same comparison is also a TICKERS negative-space proof. A complete
+    securities-master snapshot may not silently omit a previously published
+    listing pair whose interval overlaps the published SEP corpus. Otherwise a
+    stable partial TICKERS response and a matching stable partial SEP response
+    could corroborate the same truncation and false-green together.
+
+    Ordinary daily movement remains allowed. Active securities normally extend
+    ``lastpricedate`` from the published frontier into the new session; clipped
+    to the already-published corpus, old and candidate intervals are identical.
+    New IPO/listing pairs whose first date is after the frontier likewise do not
+    rewrite history.
+    """
+    from sentinel.feed import publication
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT MIN(b.session),MAX(b.session) FROM sentinel_bars b WHERE "
+            + publication.visible_predicate("b"))
+        bounds = cur.fetchone()
+    if not bounds or bounds[0] is None or bounds[1] is None:
+        return
+    corpus_lo, corpus_hi = str(bounds[0]), str(bounds[1])
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "WITH candidate AS ("
+            " SELECT u.permaticker,u.ticker,"
+            "   (ARRAY_REMOVE(ARRAY_AGG(u.first_price_date"
+            "      ORDER BY u.snapshot_date DESC),NULL))[1] AS first_price_date,"
+            "   (ARRAY_REMOVE(ARRAY_AGG(u.last_price_date"
+            "      ORDER BY u.snapshot_date DESC),NULL))[1] AS last_price_date"
+            " FROM sentinel_universe u"
+            " WHERE u.last_written_run_id=%s"
+            " GROUP BY u.permaticker,u.ticker)"
+            " SELECT COALESCE(c.permaticker,p.permaticker),"
+            "        COALESCE(c.ticker,p.ticker),"
+            "        p.permaticker IS NOT NULL AS had_prior,"
+            "        c.permaticker IS NOT NULL AS has_candidate,"
+            "        p.first_price_date,p.last_price_date,"
+            "        CASE WHEN c.permaticker IS NULL THEN NULL"
+            "             ELSE COALESCE(c.first_price_date,p.first_price_date) END,"
+            "        CASE WHEN c.permaticker IS NULL THEN NULL"
+            "             ELSE COALESCE(c.last_price_date,p.last_price_date) END"
+            " FROM candidate c FULL OUTER JOIN feed_universe_current p"
+            "   ON p.permaticker=c.permaticker AND p.ticker=c.ticker",
+            (str(run_id),))
+        candidates = cur.fetchall()
+
+    changed = []
+    for (permaticker, ticker, had_prior, has_candidate,
+         old_first, old_last, new_first, new_last) in candidates:
+        old = (_clipped_listing(old_first, old_last, corpus_lo, corpus_hi)
+               if had_prior else None)
+        new = (_clipped_listing(new_first, new_last, corpus_lo, corpus_hi)
+               if has_candidate else None)
+        if old != new:
+            changed.append({
+                "permaticker": str(permaticker), "ticker": str(ticker),
+                "published": old, "candidate": new,
+            })
+
+    if changed:
+        shown = "; ".join(
+            f"{item['ticker']}/{item['permaticker']} "
+            f"{item['published']}->{item['candidate']}"
+            for item in changed[:8])
+        suffix = f" (+{len(changed) - 8} more)" if len(changed) > 8 else ""
+        raise HistoricalIdentityMutation(
+            f"stable TICKERS candidate changes or omits {len(changed)} listing "
+            f"interval(s) inside published SEP history {corpus_lo}..{corpus_hi}: "
+            f"{shown}{suffix}. Publishing metadata alone would leave old "
+            "(security_id,session) bars authoritative under a resolver that no "
+            "longer names them. Refusing until a complete identity-aware source "
+            "rebuild can re-key/tombstone the affected bars atomically.")
+
+
 _UNIVERSE_UPSERT = """
     INSERT INTO sentinel_universe (permaticker, ticker, category, sector,
         related_tickers, first_price_date, last_price_date, is_delisted,
@@ -231,7 +327,7 @@ _UNIVERSE_UPSERT = """
         is_delisted = EXCLUDED.is_delisted,
         last_written_run_id = EXCLUDED.last_written_run_id
     -- A same-day retry must not destructively rewrite a row an earlier
-    -- publication already names.  A later snapshot_date is a new generation;
+    -- publication already names. A later snapshot_date is a new generation;
     -- an unpublished same-key attempt may be safely replaced by its retry.
     WHERE sentinel_universe.last_written_run_id IS NOT NULL
       AND NOT EXISTS (
@@ -261,8 +357,16 @@ def write_universe(conn, rows: Sequence[Mapping], snapshot_date: str, *,
     immediately under the existing corpus contract, so they are projected in
     this same transaction before the commit.
     """
+    source_rows = list(rows)
+    # Only an explicitly partitioned production TICKERS response is a complete
+    # securities-master authority. Legacy fixtures/imports omit ``table`` and
+    # are intentionally not allowed to make negative-space claims.
+    complete_sep_snapshot = bool(source_rows) and all(
+        str(r.get("table") or "").strip().upper() == "SEP"
+        for r in source_rows)
+
     payload = []
-    for r in rows:
+    for r in source_rows:
         source_table = str(r.get("table") or "").strip().upper()
         if source_table and source_table != "SEP":
             continue
@@ -283,6 +387,8 @@ def write_universe(conn, rows: Sequence[Mapping], snapshot_date: str, *,
         return 0
     with conn.cursor() as cur:
         cur.executemany(_UNIVERSE_UPSERT, payload)
+    if run_id is not None and complete_sep_snapshot:
+        assert_candidate_listing_history_safe(conn, run_id=str(run_id))
     if run_id is None:
         from sentinel.feed.universe_projection import project_legacy_snapshot
 

@@ -1,6 +1,6 @@
 # Sharadar current-source maintenance
 
-Sentinel treats three different notions of progress separately. They must not be
+Sentinel treats distinct notions of source progress separately. They must not be
 collapsed into one cursor.
 
 ## 1. Market-session frontier
@@ -13,6 +13,13 @@ A failed/unpublished ingest may advance the physical `MAX(session)` beyond the
 published frontier. On retry Sentinel expands the overlap by that entire gap so
 candidate-owned leading-edge rows cannot become permanently stranded.
 
+The ordinary production source is additionally guarded by whole-table TICKERS
+key authority: the paginated `table=SEP` `(permaticker,ticker)` set must equal a
+fresh Nasdaq Tables Exporter snapshot. For every newly exposed SEP session, the
+same stable TICKERS listing intervals then provide the expected price-key
+population. This prevents a stable partial TICKERS/SEP publication from becoming
+local authority merely because it repeated twice.
+
 ## 2. SEP mutation watermark
 
 Sharadar SEP exposes `lastupdated`, which is date-valued in the retained source.
@@ -21,148 +28,157 @@ Sentinel stores a separate durable `sharadar-sep-lastupdated:v1` cursor.
 Rules:
 
 - a complete source-stable seed can earn the initial watermark;
-- an upgraded pre-#185 corpus may earn it only after the **complete value + key
-  reconciliation** described below; guessing the cursor from today's maximum
-  `lastupdated` is forbidden;
-- daily maintenance re-reads the complete preceding `lastupdated` date, so rows
-  sharing a boundary date cannot be skipped;
+- an upgraded pre-#185 corpus may earn it only after complete value + key
+  reconciliation; guessing the cursor from today's maximum `lastupdated` is
+  forbidden;
+- daily maintenance re-reads the complete preceding `lastupdated` date;
 - each mutation set is observed twice before it becomes input authority;
-- historical corrections are not patched into one row. Sentinel re-fetches the
-  affected bounded XNYS window and runs the ordinary normalizer over the prior,
-  effective and following sessions so split inference at both boundaries,
-  dividends, rejections and anomaly evidence remain coherent;
+- historical corrections replay prior/effective/following sessions through the
+  ordinary normalizer;
 - the mutation cursor advances only **after** the correction publication exists;
 - a crash after publication but before cursor commit causes replay, never a gap;
 - missing identity or economically incomplete correction data fails closed.
 
 `lastupdated` is current-source reconciliation. It does not recreate the vendor
-vintage that existed on the historical session and must not be described as a
-historical-as-of timestamp.
+vintage that existed on the historical session.
 
-Readiness binds this maintenance to the **published decision frontier**, not to
-wall-clock midnight. A Friday-close decision whose SEP mutation cursor covers
-Friday remains valid at Monday's open; Monday's post-close CDC is not an input to
-that frozen plan. Once Monday itself is the published decision frontier, however,
-a cursor still at Friday fails readiness. ACTIONS cadence is measured at the same
-decision frontier so a valid frozen plan does not expire merely while waiting for
-its next-open execution.
+Readiness binds maintenance to the **published decision frontier**, not to
+wall-clock midnight. A Friday-close decision whose source authority covers Friday
+remains valid at Monday open. Once Monday itself is the published decision
+frontier, Monday-complete maintenance is required.
 
-## 3. Complete negative-space and bootstrap reconciliation
+## 3. Complete SEP negative-space reconciliation
 
 An update timestamp cannot reveal a row that disappeared entirely. It also
-cannot prove that an old local value was already current before a newly installed
+cannot prove an old local value was already current before a newly installed
 cursor begins. Sentinel therefore performs complete source reconciliation in
 addition to CDC.
 
-### SEP
+### Recent decision-history proof
 
-Normal maintenance checks `SHARADAR_SEP_RECONCILE_YEARS_PER_RUN` complete
-calendar-year partitions per `feed-daily` run (default: 1). A partition is read
-twice from Sharadar and normalized through the same permanent-identity/domain
-path as ingest. Two independent commitments are compared with the published
-local corpus:
+The rotating deep-history audit is not allowed to be the only deletion defense
+for today's decision. After the ordinary daily publication, SEP mutation CDC,
+and complete ACTIONS reconciliation have all finished, Sentinel takes a fresh
+Nasdaq whole-file SEP export for the exact Wealth Core `REQUIRED_CLOSES` history
+window and passes it through the existing canonical normalizer/reconciliation
+path.
+
+The proof compares:
 
 1. normalized `(security_id, session, ticker)` membership; and
-2. the exact strategy-critical persisted SEP values: `close_signal`, raw close,
-   raw open and Sharadar-reported volume.
+2. exact persisted strategy values: signal close, raw close, raw open, and
+   normalized raw-compatible volume.
 
-Numeric values are canonicalized so equivalent PostgreSQL NUMERIC/Python-float
-spellings do not produce false drift. A same-key price/open/volume mismatch is
-just as blocking as a missing/deleted key.
+Its independent durable cursor is:
 
-At one partition per trading day, a 1997-present corpus is revisited roughly once
-per month. This avoids a multi-hour full-history traversal every night while
-ensuring deletions, key drift and stale strategy values cannot remain invisible
-indefinitely.
+```text
+sharadar-sep-recent-export-reconcile:v1
+```
 
-For a new deployment, an upgrade from a corpus with no mutation watermark, or
-before starting a measurement/certification period, run the complete sweep:
+The cursor records both the decision frontier and the **exact corpus publication
+version** that was reconciled. Readiness fails if the proof is missing, behind the
+frontier, ahead of the observation clock, or names an older publication. Thus a
+later mutation publication invalidates the prior proof automatically.
+
+The recent proof is intentionally the final source-maintenance step in
+`feed-daily`; it cannot certify an intermediate publication that ACTIONS/CDC then
+changes underneath it.
+
+### Deep-history rotation
+
+Normal maintenance additionally checks
+`SHARADAR_SEP_RECONCILE_YEARS_PER_RUN` complete calendar-year partitions per
+`feed-daily` run (default: 1). A partition is read twice and normalized through
+the same permanent-identity/domain path as ingest. The same key and value
+commitments are compared with the published corpus.
+
+At one rotating historical partition per trading day, a 1997-present corpus is
+revisited roughly once per month. This is a forensic/deep-history detection
+mechanism, not the current-decision deletion defense described above.
+
+Before launch, certification, or any claim that the complete retained history
+matches current vendor truth, run the full sweep:
 
 ```bash
 python scripts/sentinel_reconcile_sep.py --through YYYY-MM-DD
 ```
 
-The command is broker-free and holds the corpus writer lock. It checks **every**
-published partition. Only after all partitions pass may it create/advance the SEP
-mutation cursor to the maximum `lastupdated` actually observed in that fully
-proven source. If any year fails, no CDC bootstrap is earned.
+The command is broker-free and holds the corpus writer lock. Only after all
+partitions pass may an existing corpus earn its initial SEP mutation cursor. A
+disagreement is evidence requiring an explicit complete repair/new publication,
+not permission to mutate an already-published version in place.
 
-The command does **not** delete local rows or rewrite values to match the vendor.
-A disagreement is evidence requiring an explicit complete repair/new publication
-(for example a new complete seed), not permission to mutate an already published
-version in place.
+## 4. ACTIONS
 
-### ACTIONS
+ACTIONS has no documented `lastupdated` equivalent. Two identical paginated
+traversals are insufficient negative-space authority because the same incomplete
+set can repeat.
 
-ACTIONS has no equivalent documented mutation cursor. Sentinel performs a
-complete two-observation ACTIONS reconciliation every
-`SHARADAR_ACTIONS_RECONCILE_DAYS` days (default: 7). Acquisition itself is
-bounded to the same explicit `1900-01-01..through` window that the resulting
-candidate/publication claims; a future-dated row outside that authority boundary
-is never pulled into an otherwise narrower generation. Full canonical source-row
-identity detects additions, removals and corrections.
+Production complete reconciliation therefore uses Nasdaq Data Link's **Tables
+Exporter** for the explicit `1900-01-01..decision_frontier` filter. Sentinel
+accepts only a `Fresh` export whose snapshot generation began at or after the
+latest reported table refresh.
 
-The existing PRESENT/REMOVED candidate-generation machinery remains authoritative.
-When a changed row is a split or dividend, Sentinel first writes the candidate
-ACTIONS generation, then re-normalizes the affected prior/effective/following SEP
-session window **against that candidate action overlay**. A single corpus
-publication activates the action state and corrected bar split/dividend economics
-together. Terminal-only ACTIONS changes need no price re-normalization but still
-remain candidate state until publication.
+The stronger contract deliberately uses a new cursor:
 
-A suspicious empty source or material mass shrink is refused rather than
-interpreted as authoritative removal. The same rule applies during legacy full
-reseed: repeatability of an empty/collapsed source is not enough to authorize a
-mass deletion.
+```text
+sharadar-actions-export-reconcile:v2
+```
 
-## Crash/restart rule
+A pre-fix v1 cursor cannot satisfy v2 readiness. The default cadence is one
+decision day.
+
+The existing PRESENT/REMOVED candidate-generation machinery remains unchanged.
+When a changed row is a split or dividend, Sentinel writes the candidate ACTIONS
+generation then re-normalizes the affected prior/effective/following SEP window
+against that candidate overlay. One publication activates both. Terminal-only
+changes remain candidate state until publication.
+
+A suspicious empty export or material mass shrink is refused rather than
+interpreted as authoritative removal. Credential-bearing download URLs are never
+persisted or rendered in diagnostic evidence.
+
+## 5. TICKERS historical identity corrections
+
+Current TICKERS can legitimately extend a listing into a newly closed session.
+It can also contain later vendor corrections to historical listing bounds. Those
+are different operations.
+
+Because `sentinel_bars` is keyed by `(security_id,session)`, publishing only a
+metadata correction that changes identity inside already-published history would
+leave the old bar key alive. Sentinel therefore refuses a full TICKERS candidate
+when it changes, introduces, or omits a listing interval overlapping published
+SEP history. Forward-only extension/new listings after the frontier remain
+allowed.
+
+A real historical identity correction requires a complete identity-aware rebuild
+that can re-key/tombstone affected bars atomically. Until then, prior authority
+remains visible and operation is fenced rather than guessed.
+
+## 6. Crash/restart rule
 
 Every ordinary `feed-seed` / `feed-daily` rerun first classifies durable ingest
 state under the corpus writer lock:
 
 1. `RUNNING` runs left by a dead process are reclaimed/failed and their pending
    action/anomaly candidates are retired;
-2. exactly one complete `SUCCESS` run lacking a publication is treated as
-   validated-pending-publication and its publication is resumed;
+2. exactly one complete `SUCCESS` run lacking a publication is resumed;
 3. one failed live candidate is retried by the operation capable of superseding
    its exact physical rows (`daily`, `sep_mutations`, or `actions_reconcile`);
-4. a run is never reported successful to the caller until its publication row
-   exists.
+4. a run is never reported successful until its publication exists.
 
 ### Legacy multi-candidate recovery
 
-Pre-#185 code could already have accumulated **several** overlapping unpublished
-runs. Their timestamps are not source authority and Sentinel never sorts them and
-publishes a guessed winner. `feed-daily` refuses that ambiguous state and names
-the supported recovery: run a complete `feed-seed`.
+Pre-#185 code could accumulate several overlapping unpublished runs. Their
+process timestamps are not source authority and Sentinel never sorts them into a
+guessed winner. `feed-daily` refuses that ambiguous state and names the supported
+recovery: a complete `feed-seed`.
 
-`feed-seed` then:
+The reseed widens market-data replacement scope to cover old candidate-owned
+SEP/SPY rows, treats ACTIONS under its independent complete source contract,
+retires only unpublished candidate lifecycle, refetches stable authority, and
+publishes one replacement generation. Published history is never retired by
+recovery.
 
-1. identifies every success-unpublished or still-live failed candidate;
-2. widens the **market-data** replacement range to cover the oldest/newest
-   candidate-owned SEP/SPY row; ACTIONS is independently covered by the complete
-   `1900-01-01..through` action contract, so a very old action cannot drag SEP
-   price-history validation into decades the retained market corpus does not
-   model;
-3. durably classifies those runs FAILED/ABORTED while leaving published history
-   untouched;
-4. performs the ordinary double-observed seed source contract;
-5. after each SEP year is stable and rewritten, retires only residual old-owner
-   bars in that exact completed window. Because an unchanged source row would
-   already have been re-owned by the new run, a residual is authoritative
-   source absence/non-normalizability, not a guessed deletion;
-6. only after the final cross-table stability proof retires residual old SPY /
-   legacy-ACTIONS candidate rows against their respective replacement scopes;
-   TICKERS retirement remains part of the atomic publication transaction;
-7. publishes one coherent replacement generation and re-establishes the CDC /
-   complete-ACTIONS maintenance cursors.
-
-Old candidate rows are deliberately **not** deleted before replacement work
-exists. If the process dies immediately after retirement classification they
-remain coherence blockers. If it dies after a stable year has been replaced,
-the new seed already owns candidate rows and remains a blocker. Thus no crash
-boundary can expose a partially reconstructed old publication as READY, and a
-second `feed-seed` can resume recovery without manual SQL.
-
-This preserves the distinction between **physical rows**, **validated candidate**,
-and **published authority** at every process-death boundary.
+This preserves the distinction between **physical rows**, **validated
+candidate**, and **published authority** at every process-death boundary.

@@ -74,7 +74,7 @@ def _enable(conn):
 
 
 def test_148_readiness_session_scan_is_bounded_and_visibility_preserved():
-    source = inspect.getsource(readiness.check_readiness)
+    source = inspect.getsource(readiness._impl.check_readiness)
     assert "SELECT COUNT(DISTINCT session)" not in source
     assert "session >= %s" in source
     assert "_VISIBLE_BARS" in source

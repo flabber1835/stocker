@@ -33,6 +33,10 @@ _SINGLETON_REFUSAL_TESTS = {
 }
 _FEED_RUNTIME_SCHEMA_CONTRACT_PREFIX = "test_issue_165_feed_schema"
 _ISSUE_178_SOURCE_AUTHORITY_PREFIX = "test_issue_178_"
+_CANONICAL_REPLAY_SOURCE_TEST_MODULES = {
+    "test_feed_domains",
+    "test_terminal",
+}
 
 
 def _legacy_feed_fixture_install(conn) -> None:
@@ -62,6 +66,38 @@ def _runtime_schema_test_double_compat(request, monkeypatch):
     from sentinel.feed import store as feed_store
 
     module_name = request.module.__name__.rsplit(".", 1)[-1]
+
+    # The public backtester module is now deliberately a thin economic-domain
+    # gate; the retained canonical replay bytes moved beside it to
+    # wealth_core_replay_impl.py. Historical drift tests must keep pinning the
+    # implementation that actually defines the duplicated behavior, not mistake
+    # the new facade for a missing canonical definition.
+    if module_name in _CANONICAL_REPLAY_SOURCE_TEST_MODULES:
+        request.module.CANONICAL = (
+            ROOT / "services" / "backtester" / "app" /
+            "wealth_core_replay_impl.py")
+
+    # The legacy readiness fixture predates the dedicated recent-export cursor.
+    # Its purpose is to construct a corpus that is healthy except for the one
+    # domain a test deliberately damages, so complete its synthetic authority
+    # bundle with the new cursor. Tests dedicated to the recent-source gate live
+    # in test_issue_185_readiness.py and are not touched here.
+    if module_name == "test_readiness":
+        original_load = request.module.load
+
+        def load_with_recent_authority(conn, *args, **kwargs):
+            result = original_load(conn, *args, **kwargs)
+            from sentinel.feed import recent_reconciliation as recent
+
+            published = request.module.P.require_current(conn)
+            request.module.M._write_cursor(
+                conn, name=recent.CURSOR_NAME, kind=recent.CURSOR_KIND,
+                through=request.module.dt.date.fromisoformat(request.module.TODAY),
+                publication_version=published.version)
+            return result
+
+        monkeypatch.setattr(request.module, "load", load_with_recent_authority)
+
     if module_name in _LEGACY_SCHEMA_DOUBLE_MODULES:
         # Resolve ensure_schema at call time: the legacy tests install their
         # own no-I/O/refusal stub after this autouse fixture has been created.
@@ -91,12 +127,14 @@ def _runtime_schema_test_double_compat(request, monkeypatch):
         #
         # Keep compatibility at the TEST seam and make it input-sensitive. A
         # legacy TICKERS fixture is synthetic only when every returned row omits
-        # the product field; tag those rows as synthetic SEP so the new defensive
-        # universe writer sees the same intended product. Any fixture that names
-        # a product is real source-contract evidence and still runs the complete
-        # validator. Likewise, only sub-calibration synthetic seed populations
-        # bypass historical completeness. The issue-178 falsifier modules are
-        # excluded from this shim entirely.
+        # the product field. Accept those rows for the metadata tests they were
+        # built to exercise, but deliberately DO NOT add ``table=SEP``: that tag
+        # now carries completeness authority at persistence, and manufacturing it
+        # in a test shim would turn a one-row fake into a false whole-snapshot
+        # negative-space claim. Any fixture that names a product is real source-
+        # contract evidence and still runs the complete validator. Likewise,
+        # only sub-calibration synthetic seed populations bypass historical
+        # completeness. The issue-178 falsifier modules are excluded entirely.
         from sentinel.feed import coherence
 
         real_assert_tickers_metadata = coherence.assert_tickers_metadata
@@ -105,7 +143,7 @@ def _runtime_schema_test_double_compat(request, monkeypatch):
         def legacy_synthetic_tickers(rows):
             materialized = list(rows)
             if materialized and all("table" not in row for row in materialized):
-                return [dict(row, table="SEP") for row in materialized]
+                return materialized
             if not materialized:
                 return materialized
             return real_assert_tickers_metadata(materialized)

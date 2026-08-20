@@ -1,0 +1,98 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+GUARD = (ROOT / "services" / "bt-data" / "sql" /
+         "volume_domain_guard.sql").read_text()
+DOCKERFILE = (ROOT / "services" / "bt-data" / "Dockerfile").read_text()
+MIGRATION = (ROOT / "services" / "bt-data" / "app" /
+             "volume_domain_migration.py").read_text()
+CLIENT = (ROOT / "services" / "bt-data" / "app" /
+          "sharadar_client.py").read_text()
+ENGINE_GATE = (ROOT / "services" / "bt-engine" / "app" /
+               "jobs_busy.py").read_text()
+
+
+def test_runtime_schema_bootstrap_installs_the_semantic_epoch_guard():
+    assert "cat ./sql/volume_domain_guard.sql >> ./sql/init_bt.sql" in DOCKERFILE
+
+
+def test_no_database_is_grandfathered_into_new_volume_semantics():
+    column_stmt = next(
+        line for line in GUARD.splitlines()
+        if "ADD COLUMN IF NOT EXISTS volume_domain_version" in line)
+    assert "DEFAULT" not in column_stmt.upper()
+    assert "sharadar-raw-volume-v1" not in column_stmt
+    assert "bt_price_volume_domain_state" in GUARD
+    # Even a fresh DB starts false: schema bootstrap is statement-by-statement,
+    # so a later trigger DDL failure must not leave true authority behind.
+    assert "'sharadar-raw-volume-v1', FALSE, NULL" in GUARD
+    assert "volume-domain authority not yet established" in GUARD
+    assert "NOT EXISTS (SELECT 1 FROM bt_prices)" not in GUARD
+
+
+def test_only_declared_post_fix_writer_can_stamp_rows_and_old_writer_invalidates():
+    assert "bt_stamp_price_volume_domain" in GUARD
+    assert "BEFORE INSERT OR UPDATE OF volume, close, close_unadjusted" in GUARD
+    assert "current_setting('application_name', true)" in GUARD
+    assert "writer_name = 'bt-data-sharadar-raw-volume-v1'" in GUARD
+    assert "ELSE NEW.volume_domain_version := NULL" in GUARD
+    assert "UPDATE bt_price_volume_domain_state SET proven=FALSE" in GUARD
+
+    # The new binary injects application_name via asyncpg's documented
+    # server_settings argument. It must NOT append it to BT_DATABASE_URL:
+    # SQLAlchemy converts URL query keys into direct asyncpg kwargs and
+    # application_name is not a connect() keyword.
+    assert "PRICE_WRITER_APPLICATION_NAME = \"bt-data-sharadar-raw-volume-v1\"" in CLIENT
+    assert "kwargs.get(\"server_settings\")" in CLIENT
+    assert "settings[\"application_name\"] = PRICE_WRITER_APPLICATION_NAME" in CLIENT
+    assert "kwargs[\"server_settings\"] = settings" in CLIENT
+    assert "urlsplit" not in CLIENT
+    assert "application_name=" not in CLIENT
+
+
+def test_runtime_gate_is_o1_singleton_not_lifetime_sized_legacy_index():
+    assert "idx_bt_prices_unknown_volume_domain" not in GUARD
+    assert "SELECT domain_version,proven,note FROM bt_price_volume_domain_state" in ENGINE_GATE
+    assert "await _require_price_volume_domain(conn)" in ENGINE_GATE
+
+
+def test_certification_gate_is_explicit_not_row_level_security():
+    # docker-compose.backtest.yml uses POSTGRES_USER=btuser; that bootstrap role
+    # is a PostgreSQL superuser and would bypass RLS even under FORCE ROW LEVEL
+    # SECURITY. The financial-safety property therefore has to be an explicit
+    # generation check in bt-engine, not a table policy.
+    assert "ROW LEVEL SECURITY" not in GUARD
+    assert "_require_price_volume_domain" in ENGINE_GATE
+    assert "not proven for this READY corpus" in ENGINE_GATE
+
+
+def test_supported_migration_rewrites_prices_and_benchmarks_before_ready():
+    # Old backfill_chunk markers describe the old economic contract and must not
+    # skip a single year. SFP benchmark rows live in bt_prices too, so SEP alone
+    # cannot earn the complete-domain proof.
+    assert "_run_price_stage(date_from, date_to, None, force=True)" in MIGRATION
+    assert "_load_benchmarks(date_from, date_to)" in MIGRATION
+    verify = MIGRATION.index("_remaining_unmarked()")
+    stage = MIGRATION.index("_stage_domain_proven", verify)
+    publish = MIGRATION.index("_publish_ready(", stage)
+    assert verify < stage < publish
+    assert "volume_domain_version IS DISTINCT FROM :version" in MIGRATION
+    assert "proven=TRUE" in MIGRATION
+    assert "Commits both the semantic singleton and new READY data UUID together" in MIGRATION
+
+
+def test_empty_database_also_requires_explicit_migration_transition():
+    empty = MIGRATION.index("if rows == 0:")
+    stage = MIGRATION.index("_stage_domain_proven", empty)
+    publish = MIGRATION.index("_publish_ready", stage)
+    assert empty < stage < publish
+
+
+def test_interrupted_volume_migration_is_explicitly_resumable_only_by_itself():
+    assert "NOTE_PREFIX = \"VOLUME_DOMAIN_MIGRATION:v1\"" in MIGRATION
+    assert "if row.status == \"PUBLISHING\"" in MIGRATION
+    assert "startswith(NOTE_PREFIX)" in MIGRATION
+    assert "PUBLISHING for a different operation" in MIGRATION
+    assert "Do not delete/grandfather" in MIGRATION

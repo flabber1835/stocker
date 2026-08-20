@@ -2,18 +2,13 @@
 
 The historical readiness implementation remains byte-for-byte in
 :mod:`sentinel.feed.readiness_impl`. This boundary keeps its rolling-window
-checks and adds two facts that a healthy historical window cannot prove:
+checks and adds facts a healthy historical window cannot prove:
 
-* the CURRENT frontier still carries every strategy-critical price domain; and
-* #185's historical-source maintenance had advanced far enough when that
-  decision frontier became authoritative.
-
-The second point is deliberately tied to the **published decision frontier**,
-not blindly to the wall-clock calendar date. A Friday close plan is executed at
-Monday's open; Monday's post-close mutation cycle has not happened yet and is not
-an input to Friday's immutable decision. Conversely, if Monday's own close is
-already the published frontier, a SEP cursor still at Friday is incomplete and
-must not become READY merely because the market-session row exists.
+* the CURRENT frontier still carries every strategy-critical price domain;
+* SEP `lastupdated` maintenance covered the decision frontier;
+* ACTIONS negative space has current whole-export authority; and
+* the exact Wealth Core decision-history window was completely reconciled
+  against an export-backed SEP source after all daily mutations finished.
 """
 from __future__ import annotations
 
@@ -22,7 +17,9 @@ import datetime as _dt
 from sentinel.feed import authority as _authority
 from sentinel.feed import calendar as _cal
 from sentinel.feed import maintenance as _maintenance
+from sentinel.feed import publication as _publication
 from sentinel.feed import readiness_impl as _impl
+from sentinel.feed import recent_reconciliation as _recent
 
 for _name in dir(_impl):
     if not _name.startswith("__"):
@@ -32,7 +29,6 @@ MIN_FRONTIER_DOMAIN_COVERAGE = _authority.MIN_FRONTIER_DOMAIN_COVERAGE
 
 
 def _source_day(value) -> _dt.date:
-    """Calendar date of the exact readiness observation supplied by the caller."""
     text = str(value)
     try:
         return _dt.date.fromisoformat(text[:10])
@@ -47,32 +43,59 @@ def _decision_day(value) -> _dt.date:
         raise ValueError(f"published decision frontier has invalid date {value!r}") from exc
 
 
+def _add_recent_check(conn, result, *, source_day, frontier_day) -> None:
+    name = "SEP recent complete reconciliation"
+    try:
+        recent = _recent.load_cursor(conn)
+        current = _publication.require_current(conn)
+    except Exception as exc:  # noqa: BLE001
+        result.add(name, _impl.FAIL,
+                   f"recent SEP reconciliation state cannot be validated: "
+                   f"{type(exc).__name__}: {exc}")
+        return
+    if recent is None:
+        result.add(
+            name, _impl.FAIL,
+            "no export-backed complete reconciliation covers the current Wealth "
+            "Core decision-history window")
+    elif recent.processed_through > source_day:
+        result.add(
+            name, _impl.FAIL,
+            f"recent SEP proof {recent.processed_through} is ahead of readiness "
+            f"observation date {source_day}")
+    elif recent.processed_through < frontier_day:
+        result.add(
+            name, _impl.FAIL,
+            f"recent complete SEP proof ends {recent.processed_through}, behind "
+            f"decision frontier {frontier_day}; a deletion can bypass lastupdated")
+    elif recent.publication_version != current.version:
+        result.add(
+            name, _impl.FAIL,
+            f"recent SEP proof names corpus v{recent.publication_version} but "
+            f"current publication is v{current.version}; a later mutation has "
+            "not been re-proved against complete source",
+            {"processed_through": recent.processed_through.isoformat(),
+             "proof_publication_version": recent.publication_version,
+             "current_publication_version": current.version})
+    else:
+        result.add(
+            name, _impl.PASS,
+            f"complete export-backed SEP history through {recent.processed_through} "
+            f"matches current corpus v{current.version}",
+            {"processed_through": recent.processed_through.isoformat(),
+             "publication_version": recent.publication_version})
+
+
 def _add_source_maintenance_checks(conn, result, *, today,
                                    required_through) -> None:
-    """Bind READY to maintenance authority for the published decision frontier.
-
-    ``ingest.daily`` necessarily publishes the ordinary four-table session
-    generation before it can reconcile SEP rows whose ``lastupdated`` is that
-    source day: a just-listed ticker needs the newly published TICKERS identity
-    first. ACTIONS full reconciliation is periodic and can likewise run after
-    the ordinary daily publication. If either step fails, the visible frontier
-    can already look current. Readiness must not confuse that intermediate state
-    with a completed source cycle.
-
-    The minimum required SEP watermark is therefore the published decision
-    frontier. A newer watermark is acceptable (for example a weekend
-    reconciliation before Monday execution) as long as it is not impossibly in
-    the future relative to this readiness observation. ACTIONS cadence is judged
-    as of the decision frontier for the same reason: maintenance becoming due
-    after a plan was frozen must not retroactively invalidate that plan at its
-    next-open execution.
-    """
+    """Bind READY to maintenance authority for the published decision frontier."""
     try:
         source_day = _source_day(today)
         frontier_day = _decision_day(required_through)
     except ValueError as exc:
         result.add("SEP mutation watermark", _impl.FAIL, str(exc))
         result.add("ACTIONS complete reconciliation", _impl.FAIL, str(exc))
+        result.add("SEP recent complete reconciliation", _impl.FAIL, str(exc))
         return
     if frontier_day > source_day:
         detail = (
@@ -80,11 +103,12 @@ def _add_source_maintenance_checks(conn, result, *, today,
             f"observation date {source_day}")
         result.add("SEP mutation watermark", _impl.FAIL, detail)
         result.add("ACTIONS complete reconciliation", _impl.FAIL, detail)
+        result.add("SEP recent complete reconciliation", _impl.FAIL, detail)
         return
 
     try:
         sep = _maintenance.load_sep_cursor(conn)
-    except Exception as exc:  # noqa: BLE001 -- corrupt cursor is a readiness FAIL
+    except Exception as exc:  # noqa: BLE001
         result.add(
             "SEP mutation watermark", _impl.FAIL,
             f"SEP mutation cursor cannot be validated: {type(exc).__name__}: {exc}")
@@ -125,7 +149,7 @@ def _add_source_maintenance_checks(conn, result, *, today,
 
     try:
         actions = _maintenance.load_actions_cursor(conn)
-    except Exception as exc:  # noqa: BLE001 -- corrupt cursor is a readiness FAIL
+    except Exception as exc:  # noqa: BLE001
         result.add(
             "ACTIONS complete reconciliation", _impl.FAIL,
             f"ACTIONS reconciliation cursor cannot be validated: "
@@ -134,24 +158,20 @@ def _add_source_maintenance_checks(conn, result, *, today,
         if actions is None:
             result.add(
                 "ACTIONS complete reconciliation", _impl.FAIL,
-                "no complete stable Sharadar ACTIONS reconciliation has been "
-                "recorded")
+                "no complete export-backed Sharadar ACTIONS reconciliation has "
+                "been recorded")
         elif actions.processed_through > source_day:
             result.add(
                 "ACTIONS complete reconciliation", _impl.FAIL,
                 f"ACTIONS reconciliation cursor {actions.processed_through} "
-                f"is ahead of readiness observation date {source_day}",
-                {"processed_through": actions.processed_through.isoformat(),
-                 "required_through": frontier_day.isoformat(),
-                 "source_date": source_day.isoformat(),
-                 "publication_version": actions.publication_version})
+                f"is ahead of readiness observation date {source_day}")
         else:
             age = max(0, (frontier_day - actions.processed_through).days)
             if age >= _maintenance.ACTIONS_RECONCILE_DAYS:
                 result.add(
                     "ACTIONS complete reconciliation", _impl.FAIL,
                     f"complete ACTIONS authority was {age} day(s) old at "
-                    f"decision frontier {frontier_day}; a full stable "
+                    f"decision frontier {frontier_day}; a full export "
                     f"reconciliation is due every "
                     f"{_maintenance.ACTIONS_RECONCILE_DAYS} day(s)",
                     {"processed_through": actions.processed_through.isoformat(),
@@ -169,18 +189,11 @@ def _add_source_maintenance_checks(conn, result, *, today,
                      "age_days": age,
                      "publication_version": actions.publication_version})
 
+    _add_recent_check(
+        conn, result, source_day=source_day, frontier_day=frontier_day)
+
 
 def check_readiness(conn, *, today=None, cfg=None):
-    """Run existing readiness plus frontier-domain and #185 maintenance checks."""
-    # The delegated implementation still owns exactly one bounded session-axis
-    # scan. Keep the invariant visible at this public boundary because the #148
-    # regression guard inspects the callable users actually import:
-    # SELECT DISTINCT session FROM sentinel_bars b
-    # WHERE session >= %s AND _VISIBLE_BARS
-    # No duplicate scan is executed here.
-
-    # Preserve the public operational contract: no-argument readiness asks about
-    # the actual instant now, never exchange-local midnight of today's date.
     today = today or _dt.datetime.now(_dt.timezone.utc).isoformat()
     result = _impl.check_readiness(conn, today=today, cfg=cfg)
     frontier = _impl._q1(
@@ -190,18 +203,8 @@ def check_readiness(conn, *, today=None, cfg=None):
     if frontier is None:
         return result
     frontier = str(frontier)
-
-    # Re-evaluate the exchange freshness fact at the SAME public observation
-    # instant used by delegated readiness. Frontier-domain evidence below is
-    # attached to that authority point rather than to an implicit/date-only
-    # clock, so an operator can tell exactly which decision frontier the domain
-    # proof described. The delegated readiness result remains the status owner;
-    # this value is provenance for the additional frontier checks.
     fresh = _cal.freshness(frontier, now_et=today)
 
-    # One bounded scan proves all four current-session domains. Keep the same
-    # publication visibility predicate as the historical checks: a failed
-    # candidate must not certify itself by contributing physical rows.
     with conn.cursor() as cur:
         cur.execute(
             "SELECT COUNT(*), COUNT(close_signal), COUNT(close_unadjusted),"

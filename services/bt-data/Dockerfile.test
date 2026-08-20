@@ -13,6 +13,10 @@ WORKDIR /work
 COPY pytest.ini /work/pytest.ini
 COPY tests/bt_data/ /work/tests/bt_data/
 COPY services/bt-data/ /work/services/bt-data/
+# Inspection-only dependency for the #185 migration tests. The test reads the
+# bt-engine source to prove migration/startup ordering; it does not import or
+# execute bt-engine code from this lens.
+COPY services/bt-engine/app/jobs_busy.py /work/services/bt-engine/app/jobs_busy.py
 COPY shared/ /work/shared/
 
 ENV PYTHONPATH=/app:/work

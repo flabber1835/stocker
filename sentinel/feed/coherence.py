@@ -51,6 +51,17 @@ TICKERS_METADATA_MINIMUMS = (
     ("isdelisted", "isdelisted", 1.0),
     ("sector", "sector", 0.99),
 )
+
+# DAILY completeness is measured against the SAME stable table=SEP TICKERS
+# listing intervals, not against yesterday's market population.  The retained
+# 2026 SEP/TICKERS ground truth has 146 sessions through 2026-08-03; the worst
+# expected-listing coverage is 6,223/6,226 = 99.9518% (three missing unit
+# securities on 2026-04-06), while the 6,256 -> 5,924 Aug-03 contraction is
+# predicted exactly by lastpricedate.  99.9% therefore leaves measured source
+# sparsity room while making a stable 80-95% partial publication impossible to
+# certify merely because it repeated twice.
+MIN_DAILY_SEP_LISTING_COVERAGE = 0.999
+
 MIN_SEED_IDENTITY_COVERAGE = 0.99
 MIN_SEED_SIGNAL_COVERAGE = 0.99
 MIN_SEED_RAW_CLOSE_COVERAGE = 0.99
@@ -64,6 +75,10 @@ _MASK_256 = (1 << 256) - 1
 
 class TickerMetadataIncomplete(RuntimeError):
     """The SEP-relevant TICKERS metadata domain is materially incomplete."""
+
+
+class SepListingPopulationIncomplete(RuntimeError):
+    """SEP omitted securities the same stable TICKERS authority says are priced."""
 
 
 class SeedHistoryIncomplete(RuntimeError):
@@ -234,6 +249,49 @@ def assert_tickers_metadata(rows: Iterable[Mapping]) -> list[Mapping]:
     return relevant
 
 
+def assert_daily_sep_listing_population(
+        observed: Mapping[str, set[str]],
+        listings: Iterable[universe.Listing], *,
+        minimum: float = MIN_DAILY_SEP_LISTING_COVERAGE) -> None:
+    """Use stable TICKERS listing intervals as positive SEP completeness evidence.
+
+    A repeated partial SEP response is stable but not complete.  The TICKERS
+    securities master gives an independent positive witness: for each newly
+    exposed session, count the unique table=SEP tickers whose authoritative
+    first/last price interval covers that session and require SEP to contain
+    nearly all of them.  This is deliberately NOT yesterday's population ratio;
+    a mass legitimate delisting contracts TICKERS and SEP together and passes.
+    """
+    if not (0 < minimum <= 1):
+        raise ValueError("daily SEP listing coverage minimum must be in (0, 1]")
+    material = tuple(listings)
+    if not material:
+        raise SepListingPopulationIncomplete(
+            "daily SEP has no stable table=SEP TICKERS listing authority")
+    for session in sorted(observed):
+        expected = {
+            item.ticker.upper() for item in material if item.covers(session)
+        }
+        if not expected:
+            raise SepListingPopulationIncomplete(
+                f"Sharadar TICKERS predicts no SEP listings for observed "
+                f"session {session}; source tables disagree on the frontier")
+        got = {str(t).upper() for t in observed[session] if str(t).strip()}
+        present = len(got.intersection(expected))
+        coverage = present / len(expected)
+        if coverage < minimum:
+            missing = sorted(expected.difference(got))
+            sample = ", ".join(missing[:8])
+            suffix = (f" (+{len(missing) - 8} more)" if len(missing) > 8 else "")
+            raise SepListingPopulationIncomplete(
+                f"Sharadar SEP {session} contains {present:,}/{len(expected):,} "
+                f"tickers ({coverage:.3%}) whose same stable TICKERS listing "
+                f"interval says they should be priced; source authority requires "
+                f"at least {minimum:.1%}. Missing: {sample}{suffix}. Two "
+                "identical partial SEP traversals are stability evidence, not "
+                "negative-space completeness.")
+
+
 def assert_seed_history(sessions: Mapping[str, SeedSessionCounts], *,
                         date_from: str, date_to: str) -> None:
     """Validate one full historical SEP chunk before any row is replayed."""
@@ -311,6 +369,7 @@ class StableSharadarFetch(authority.StableSharadarFetch):
         self._corroborate_reference = reference
         self._seed_mode = bool(seed_mode)
         self._seed_resolver = None
+        self._tickers_listings: tuple[universe.Listing, ...] | None = None
         self._tickers_first = None
         self._tickers_params = None
         self._tickers_kwargs = None
@@ -334,8 +393,9 @@ class StableSharadarFetch(authority.StableSharadarFetch):
             self._tickers_first = observe_tickers(relevant)
             self._tickers_params = dict(params or {})
             self._tickers_kwargs = dict(kwargs)
-            self._seed_resolver = universe.IdentityResolver(
-                universe.listings_from_rows(relevant))
+            listings = tuple(universe.listings_from_rows(relevant))
+            self._tickers_listings = listings
+            self._seed_resolver = universe.IdentityResolver(listings)
             return relevant
 
         if table == sharadar.SFP:
@@ -360,7 +420,7 @@ class StableSharadarFetch(authority.StableSharadarFetch):
             self._require_reference_sources_stable()
 
         if not self._seed_mode:
-            return rows
+            return self._validated_daily_listing_replay(rows)
         return self._validated_seed_replay(rows, params)
 
     def _require_reference_sources_stable(self) -> None:
@@ -385,6 +445,48 @@ class StableSharadarFetch(authority.StableSharadarFetch):
             self._sfp_first = None
             self._sfp_params = None
             self._sfp_kwargs = None
+
+    def _validated_daily_listing_replay(self, rows):
+        """Spool protected daily SEP until TICKERS proves its negative space."""
+        # Non-daily callers sometimes use this facade with no pre-existing
+        # frontier. Seed has its own calibrated historical contract below. Only
+        # a daily/new-frontier observation needs this exact current TICKERS
+        # positive-population witness.
+        if self._after_session is None:
+            return rows
+        if self._tickers_listings is None:
+            raise SepListingPopulationIncomplete(
+                "protected daily SEP was observed without a stable table=SEP "
+                "TICKERS snapshot; repetition alone cannot prove completeness")
+
+        spool = tempfile.TemporaryFile(mode="w+b")
+        observed: dict[str, set[str]] = {}
+        try:
+            for row in rows:
+                row = dict(row)
+                session = str(row.get("date") or "")
+                ticker = str(row.get("ticker") or "").strip().upper()
+                if session and session > self._after_session and ticker:
+                    observed.setdefault(session, set()).add(ticker)
+                pickle.dump(row, spool, protocol=pickle.HIGHEST_PROTOCOL)
+            assert_daily_sep_listing_population(
+                observed, self._tickers_listings)
+            spool.seek(0)
+        except Exception:
+            spool.close()
+            raise
+
+        def replay():
+            try:
+                while True:
+                    try:
+                        yield pickle.load(spool)
+                    except EOFError:
+                        return
+            finally:
+                spool.close()
+
+        return replay()
 
     def _validated_seed_replay(self, rows, params):
         date_from = str(params.get("date.gte") or "")

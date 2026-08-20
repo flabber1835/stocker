@@ -72,6 +72,12 @@ services:
     depends_on:
       bt-postgres:
         condition: service_healthy
+      # bt-data owns the semantic/schema migration for the shared backtest
+      # corpus. Starting bt-engine only after bt-data health ensures the
+      # volume-domain marker/index exist before bt-engine's explicit READY
+      # generation gate can evaluate the corpus.
+      bt-data:
+        condition: service_healthy
 
 volumes:
   bt_pgdata:

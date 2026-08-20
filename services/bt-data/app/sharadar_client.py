@@ -28,6 +28,15 @@ substituted a synthetic corpus — and every downstream number stayed shaped lik
 a real backtest, feeding a promotion gate that rewrites the live strategy. Now
 `mode=sharadar` with no key raises at startup. Legacy BT_MOCK_DATA=true is still
 honoured as an explicit request for mock.
+
+The module also installs one narrow asyncpg connection wrapper before
+``app.main`` constructs its SQLAlchemy engine.  The wrapper merges the documented
+``server_settings`` connection argument with an immutable post-#185
+``application_name``.  The bt_prices semantic-epoch trigger accepts the new
+volume marker only from that application identity.  Rolling the bt-data
+application back to code that predates this wrapper therefore makes any price
+write invalidate the row's semantic marker instead of silently blessing old
+split-adjusted volume as raw-compatible.
 """
 from __future__ import annotations
 
@@ -36,7 +45,50 @@ import os
 from datetime import date, timedelta
 from typing import AsyncIterator, Optional
 
+import asyncpg
 import httpx
+
+PRICE_WRITER_APPLICATION_NAME = "bt-data-sharadar-raw-volume-v1"
+_CONNECT_PATCH_MARKER = "_bt_data_raw_volume_connect_patch_v1"
+
+
+def _install_price_writer_identity() -> None:
+    """Inject the writer identity through asyncpg's supported server_settings.
+
+    SQLAlchemy parses URL query parameters into direct asyncpg keyword arguments,
+    so putting ``application_name`` in ``BT_DATABASE_URL`` would raise
+    ``TypeError: unexpected keyword argument``.  ``server_settings`` is the
+    driver's documented mechanism for connection-wide PostgreSQL settings and is
+    also what app.main already uses for lock/statement timeouts.
+
+    The patch is process-local and idempotent.  It wraps only the public
+    ``asyncpg.connect`` entry point that SQLAlchemy's asyncpg dialect calls; all
+    existing server settings are preserved and a conflicting application name is
+    refused instead of silently overwritten.
+    """
+    if getattr(asyncpg, _CONNECT_PATCH_MARKER, False):
+        return
+    original = asyncpg.connect
+
+    async def identified_connect(*args, **kwargs):
+        settings = dict(kwargs.get("server_settings") or {})
+        existing = settings.get("application_name")
+        if existing not in (None, PRICE_WRITER_APPLICATION_NAME):
+            raise RuntimeError(
+                "asyncpg server_settings.application_name conflicts with the "
+                "post-#185 bt-data price-volume writer identity")
+        settings["application_name"] = PRICE_WRITER_APPLICATION_NAME
+        kwargs["server_settings"] = settings
+        return await original(*args, **kwargs)
+
+    asyncpg.connect = identified_connect
+    setattr(asyncpg, _CONNECT_PATCH_MARKER, True)
+
+
+# app.main imports this module before creating its engine. SQLAlchemy's asyncpg
+# adapter resolves asyncpg.connect when opening a DBAPI connection, so every
+# bt-data connection receives the writer identity. An older binary has no patch.
+_install_price_writer_identity()
 
 NDL_BASE = os.getenv("NDL_BASE_URL", "https://data.nasdaq.com/api/v3/datatables/SHARADAR")
 SHARADAR_API_KEY = os.getenv("SHARADAR_API_KEY", "")
@@ -91,7 +143,6 @@ async def _get_with_retry(client: httpx.AsyncClient, url: str, params: dict) -> 
         try:
             resp = await client.get(url, params=params)
             if resp.status_code in _RETRYABLE_STATUS:
-                # synthesise a retryable error so the same backoff path applies
                 raise httpx.HTTPStatusError(
                     f"retryable HTTP {resp.status_code}",
                     request=resp.request, response=resp)
@@ -100,11 +151,11 @@ async def _get_with_retry(client: httpx.AsyncClient, url: str, params: dict) -> 
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code if exc.response is not None else None
             if status not in _RETRYABLE_STATUS:
-                raise  # 400/401/403/404 etc. — real error, don't retry
+                raise
             retry_after = exc.response.headers.get("Retry-After") if exc.response is not None else None
             last_exc = exc
         except (httpx.TimeoutException, httpx.TransportError) as exc:
-            last_exc = exc  # connection reset / read timeout / DNS blip
+            last_exc = exc
         if attempt < FETCH_MAX_RETRIES - 1:
             delay = _retry_delay(attempt, status, retry_after)
             print(f"[bt-data] transient fetch failure "
@@ -207,7 +258,7 @@ async def fetch_table(
                 yield dict(zip(cols, raw))
             cursor = (payload.get("meta") or {}).get("next_cursor_id")
             pages += 1
-            if pages % 25 == 0:   # heartbeat: fetch progress is visible in logs
+            if pages % 25 == 0:
                 print(f"[bt-data] {table} fetch: {pages} pages "
                       f"({params or {}})", flush=True)
             if cursor:
@@ -235,14 +286,13 @@ _MOCK_DAYS = 400
 async def _mock_rows(table: str, params: dict) -> AsyncIterator[dict]:
     if table == "SEP":
         base = {"AAA": 100.0, "BBB": 50.0, "CCC": 200.0, "SPY": 400.0}
-        drift = {"AAA": 0.05, "BBB": 0.02, "CCC": -0.01, "SPY": 0.03}  # %/day-ish
+        drift = {"AAA": 0.05, "BBB": 0.02, "CCC": -0.01, "SPY": 0.03}
         for t in _MOCK_TICKERS:
             px = base[t]
             for i in range(_MOCK_DAYS):
                 d = _MOCK_START + timedelta(days=i)
-                if d.weekday() >= 5:  # skip weekends
+                if d.weekday() >= 5:
                     continue
-                # deterministic wiggle
                 px = px * (1 + drift[t] / 100.0) + ((i % 7) - 3) * 0.01
                 yield {
                     "ticker": t, "date": d.isoformat(),
@@ -252,7 +302,6 @@ async def _mock_rows(table: str, params: dict) -> AsyncIterator[dict]:
                     "volume": 1_000_000 + (i % 5) * 50_000,
                 }
     elif table == "SFP":
-        # Fund prices (ETFs) — mock SPY so the benchmark path is exercisable.
         px = 400.0
         for i in range(_MOCK_DAYS):
             d = _MOCK_START + timedelta(days=i)
@@ -274,10 +323,6 @@ async def _mock_rows(table: str, params: dict) -> AsyncIterator[dict]:
                     "de": 0.5 + q * 0.05, "revenue": 1000 + q * 50, "eps": 2.0 + q * 0.1,
                 }
     elif table == "ACTIONS":
-        # One of every shape the replay has to distinguish, including the two
-        # that must NOT become a write-off. `value` is deliberately absent on
-        # the delisting: that is the ordinary vendor case, and a mock that
-        # always supplies terms would never exercise the blocking path.
         yield {"date": "2022-03-01", "action": "split", "ticker": "AAA",
                "name": "Alpha Co", "value": 2.0}
         yield {"date": "2022-04-01", "action": "dividend", "ticker": "AAA",

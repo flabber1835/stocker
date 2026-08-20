@@ -21,6 +21,7 @@ COPY services/bt-engine/Dockerfile /work/repo/services/bt-engine/Dockerfile
 COPY services/bt-engine/Dockerfile.test /work/repo/services/bt-engine/Dockerfile.test
 COPY services/bt-engine/app/ /work/repo/services/bt-engine/app/
 COPY services/backtester/app/wealth_core_replay.py /work/repo/services/backtester/app/wealth_core_replay.py
+COPY services/backtester/app/wealth_core_replay_impl.py /work/repo/services/backtester/app/wealth_core_replay_impl.py
 
 ENV PYTHONPATH=/app:/work \
     BT_ENGINE_IN_IMAGE=1 \
