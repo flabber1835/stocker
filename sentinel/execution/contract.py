@@ -169,6 +169,8 @@ class BrokerPosition:
 
     def __post_init__(self) -> None:
         _require_decimal("BrokerPosition.quantity", self.quantity)
+        if not self.quantity.is_finite():
+            raise ValueError("BrokerPosition.quantity must be finite")
 
 
 @dataclass(frozen=True)
@@ -294,6 +296,15 @@ class BrokerObservation:
                     f"BrokerObservation maps client key {order.client_key} to "
                     f"multiple broker ids ({prior}, {order.broker_order_id})")
             client_keys[order.client_key] = order.broker_order_id
+
+        position_ids: set[str] = set()
+        for position in self.positions:
+            security_id = position.instrument.security_id
+            if security_id in position_ids:
+                raise ValueError(
+                    f"BrokerObservation repeats permanent position identity "
+                    f"{security_id}")
+            position_ids.add(security_id)
 
     @property
     def is_complete(self) -> bool:
