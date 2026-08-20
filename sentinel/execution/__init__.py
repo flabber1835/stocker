@@ -26,3 +26,12 @@ commands.py   commands, remaining-delta arithmetic, dust, authorisation
 
 Nothing here imports a Stocker service, and nothing here decides WHAT to hold.
 """
+
+# Install the explicit broker-boundary hardening overlay before callers import
+# concrete execution adapters.  The overlay subclasses the reviewed Alpaca and
+# guarded adapters and tightens durable evidence helpers; it does not change
+# portfolio intent or strategy selection.
+from sentinel.execution.alpaca_remediation import install as _install_alpaca_remediation
+
+_install_alpaca_remediation()
+del _install_alpaca_remediation
