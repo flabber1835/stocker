@@ -3,19 +3,29 @@ on:
   push:
     branches: [fix/alpaca-boundary-remediation]
 permissions:
-  contents: read
+  contents: write
 jobs:
   probe:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: fix/alpaca-boundary-remediation
       - name: Inspect authority and recovery surfaces
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== revoke references ==='
-          grep -RniE 'revoke|revoked' sentinel tests/sentinel | head -200 || true
-          echo '=== terminal watermark schema ==='
-          grep -RniE 'terminal_recovery_watermark|sentinel_processed_sessions|sentinel_observations|sentinel_fills' sentinel/execution sentinel/schema.py tests/sentinel | head -250 || true
-          echo '=== writer lock references ==='
-          grep -Rni 'writer_lock' sentinel | head -150 || true
+          {
+            echo '=== revoke references ==='
+            grep -RniE 'revoke|revoked' sentinel tests/sentinel | head -250 || true
+            echo '=== terminal watermark schema ==='
+            grep -RniE 'terminal_recovery_watermark|sentinel_processed_sessions|sentinel_observations|sentinel_fills' sentinel tests/sentinel | head -350 || true
+            echo '=== writer lock references ==='
+            grep -Rni 'writer_lock' sentinel | head -200 || true
+          } > alpaca-remediation-probe.txt
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -- alpaca-remediation-probe.txt
+          git commit -m 'chore: retain Alpaca remediation probe'
+          git push origin HEAD:fix/alpaca-boundary-remediation
