@@ -459,4 +459,4 @@ def test_corpus_parity_classifies_canonical_identity_collapse(
     assert rep.sentinel_data_version == 7
     assert rep.canonical_data_version == "cold-boot"
     assert rep.to_dict()["canonical_loader_failure"] == "identity_authority"
-    assert "canonical-loader failure" in rep.unavailable
+    assert "canonical loader failure" in rep.unavailable
