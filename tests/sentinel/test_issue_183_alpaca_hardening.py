@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -228,33 +229,54 @@ def test_exact_key_recovery_refuses_changed_economics():
         run(recovery.resolve_unknown(Broker(), command, observation))
 
 
-def activity(aid, activity_type, amount):
+def activity(aid, activity_type, amount, *, event_id):
     return {
-        "id": aid, "activity_type": activity_type,
-        "date": "2026-08-18", "net_amount": str(amount)}
+        "account_id": "11111111-1111-1111-1111-111111111111",
+        "at": "2026-08-18T17:00:00Z",
+        "event_id": event_id,
+        "ref_id": aid,
+        "activity_type": activity_type,
+        "status": "executed",
+        "executed_at": "2026-08-18T17:00:00Z",
+        "settle_date": "2026-08-18",
+        "net_amount": str(amount),
+        "previous_id": None,
+        "details": {},
+    }
 
 
-def test_account_activity_pagination_uses_native_page_token(monkeypatch):
-    from sentinel.execution import alpaca as alpaca_module
-    monkeypatch.setattr(alpaca_module, "ACTIVITY_PAGE_SIZE", 2)
+def test_account_activity_sse_keeps_ref_id_and_event_cursor_separate():
     seen = []
+    rows = [
+        activity("a-1", "CSD", "100",
+                 event_id="01J5R000000000000000000001"),
+        activity("a-2", "FEE", "-1",
+                 event_id="01J5R000000000000000000002"),
+    ]
 
-    def pages(params):
+    def events(params):
         seen.append(dict(params))
-        if params.get("page_token") == "a-2":
-            return [activity("a-3", "DIV", "5")]
-        return [activity("a-1", "CSD", "100"),
-                activity("a-2", "FEE", "-1")]
+        return Response(text="".join(
+            "data: " + json.dumps(row, sort_keys=True) + "\n\n"
+            for row in rows))
 
-    broker, _ = adapter(routes={"/v2/account/activities": pages})
+    broker, _ = adapter(routes={
+        "/v2/account": {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "account_number": "PA-1",
+        },
+        "/v2beta1/events/activities": events,
+    })
     lower = datetime(2026, 8, 18, 16, tzinfo=UTC)
     upper = datetime(2026, 8, 18, 18, tzinfo=UTC)
     batch = run(broker.account_cash_activities(after=lower, through=upper))
 
     assert batch.completeness is Completeness.COMPLETE
-    assert [row.activity_id for row in batch.activities] == ["a-1", "a-2", "a-3"]
-    assert seen[1]["page_token"] == "a-2"
-    assert all(call["direction"] == "asc" for call in seen)
+    assert [row.activity_id for row in batch.activities] == ["a-1", "a-2"]
+    assert batch.last_activity_id == "a-2"
+    assert batch.last_event_id == "01J5R000000000000000000002"
+    assert len(seen) == 1
+    assert set(seen[0]) == {"since", "until"}
 
 
 class MemoryConnection:
@@ -348,6 +370,23 @@ class CashActivityBroker:
             last_activity_id=(self.rows[-1].activity_id if self.rows else None))
 
 
+class SseCashActivityBroker:
+    financial_activity_sse = True
+
+    def __init__(self):
+        self.calls = []
+
+    async def account_cash_activities(
+            self, *, after, through, since_event_id=None):
+        self.calls.append((after, through, since_event_id))
+        next_id = ("01J5R000000000000000000002" if since_event_id else
+                   "01J5R000000000000000000001")
+        return broker_cash.BrokerCashActivityBatch(
+            activities=(), processed_through=through,
+            completeness=Completeness.COMPLETE,
+            last_event_id=next_id)
+
+
 def cash_activity(aid, kind, amount):
     return broker_cash.BrokerCashActivity(
         activity_id=aid, activity_type=kind,
@@ -374,6 +413,40 @@ def test_cash_activity_restart_overlap_is_idempotent_and_pnl_classified():
     assert broker.calls[1][0] == first_through - broker_cash.ACTIVITY_OVERLAP
     assert cashflow.net_external(
         conn, date(2026, 8, 18), date(2026, 8, 18)) == Decimal(100)
+
+
+def test_timestamp_cursor_upgrade_replays_binding_then_uses_event_id():
+    conn = MemoryConnection()
+    cursor_name = (
+        f"{broker_cash.ACTIVITY_CURSOR_PREFIX}alpaca:PA-1")
+    old_through = datetime(2026, 8, 18, 18, tzinfo=UTC)
+    conn.cursors[cursor_name] = (old_through.date(), {
+        "kind": "broker-cash-activity/v1",
+        "broker": "alpaca",
+        "account_id": "PA-1",
+        "processed_through": old_through.isoformat(),
+        "last_activity_id": None,
+        "balance_total": "0",
+    })
+    broker = SseCashActivityBroker()
+
+    first = run(broker_cash.ingest_account_cash(
+        conn, broker_adapter=broker, broker="alpaca", account_id="PA-1",
+        through=old_through + timedelta(hours=1)))
+    second = run(broker_cash.ingest_account_cash(
+        conn, broker_adapter=broker, broker="alpaca", account_id="PA-1",
+        through=old_through + timedelta(hours=2)))
+
+    established = conn.binding[2]
+    assert broker.calls[0] == (
+        established, old_through + timedelta(hours=1), None)
+    assert broker.calls[1] == (
+        established, old_through + timedelta(hours=2), first.last_event_id)
+    assert first.last_event_id == "01J5R000000000000000000001"
+    assert second.last_event_id == "01J5R000000000000000000002"
+    stored = json.loads(conn.cursors[cursor_name][1])
+    assert stored["kind"] == "broker-cash-activity/v2"
+    assert stored["last_event_id"] == second.last_event_id
 
 
 def test_replayed_native_activity_id_cannot_change_economics():

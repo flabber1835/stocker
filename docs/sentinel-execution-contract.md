@@ -389,6 +389,21 @@ Carried forward from `sentinel/ownership.py`, which learned it the hard way on
 becomes `CANCELLED` only when a fresh complete observation shows the order gone.
 The API's return value is telemetry.
 
+### 3.5 Emergency authority linearizes at `SEND_PENDING`
+
+An emergency kill or certificate/key revocation is an immediate durable fence;
+it must not wait for the execution writer lock. The local side-effect boundary
+is therefore the committed `PLANNED -> SEND_PENDING` transition, not the first
+network byte. A control transition committed before that durable state prevents
+the command. A command already in `SEND_PENDING` may still cross transport under
+its existing deterministic key and is recovered through the ordinary
+`SEND_PENDING`/`UNKNOWN` rules; all later checks and commands are refused.
+
+This is the only locally enforceable ordering that preserves both a non-blocking
+emergency control and recoverable network effects. A database lock cannot make
+an external HTTP request atomic, and serializing the control behind a broker
+operation would weaken the emergency-control contract.
+
 ---
 
 ## 4. No autonomous broker-native close
@@ -764,6 +779,31 @@ does not cover a third party acting between cycles. Any conclusion that cannot b
 walked back — account is flat, migration complete, an `UNKNOWN` resolved as
 never-landed — requires two consecutive agreeing complete observations separated
 by a reconciliation interval.
+
+### 5.4 Activity SSE has separate economic and replay identities
+
+For Alpaca financial activities, `ref_id` is the durable idempotency key for the
+economic row and `event_id` is the durable replay cursor. `event_id` is persisted
+after a complete batch and supplied as `since_id` on reconnect. Timestamp
+`since`/`until` queries are permitted only to establish a bounded upper event
+cursor or to bootstrap/upgrade from account binding establishment; they never
+authorize gap-free resumption because they filter business time (`at`) rather
+than publication order. A delayed/backfilled event with old business time must
+still be observed at the end of the `event_id` stream.
+
+The cash cursor therefore retains both ids plus the audited
+`processed_through` time. An upgrade from the timestamp-only cursor replays from
+binding establishment and deduplicates by `ref_id` before it earns the first
+event cursor. Trade events filtered out of cash accounting still advance the
+shared Activity SSE event cursor; otherwise an account containing only fills
+would replay the same stream forever.
+
+Terminal fill recovery does not yet own an independent durable event cursor.
+Consequently its bounded recovery read traverses the complete available
+Activity SSE lifetime and deduplicates native fill ids; narrowing that read to
+the terminal timestamp watermark would recreate the same backfill gap. The
+ordinary diagnostic `recent_fills(since)` call may retain its requested time
+filter because it is not completion authority.
 
 ---
 

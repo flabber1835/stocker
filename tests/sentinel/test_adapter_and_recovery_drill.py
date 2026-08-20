@@ -123,6 +123,11 @@ class FakeHttpx:
 
 
 def alpaca(routes, **kw):
+    routes = dict(routes)
+    routes.setdefault("/v2/account", {
+        "id": "11111111-1111-1111-1111-111111111111",
+        "account_number": "PA-PAPER",
+    })
     http = FakeHttpx(routes, **kw)
     broker = AlpacaExecutionBroker(
         api_key="k", secret_key="s", base_url="https://paper-api.alpaca.markets",
@@ -170,8 +175,9 @@ class TestAlpacaObservation:
         broker, http = alpaca({"/v2/orders": [order_payload()],
                                "/v2/positions": []})
         run(broker.observe())
-        assert [c[1] for c in http.calls] == ["/v2/orders", "/v2/positions",
-                                              "/v2/orders"]
+        assert [c[1] for c in http.calls] == [
+            "/v2/account", "/v2/orders", "/v2/positions", "/v2/orders",
+            "/v2/account"]
 
     def test_a_consistent_read_is_COMPLETE(self):
         broker, _ = alpaca({"/v2/orders": [order_payload()],
@@ -486,6 +492,10 @@ class TestAlpacaObservation:
             return "SEC-HISTORICAL-AAA"
 
         http = FakeHttpx({
+            "/v2/account": {
+                "id": "11111111-1111-1111-1111-111111111111",
+                "account_number": "PA-PAPER",
+            },
             "/v2/orders": [order_payload()],
             "/v2/positions": [],
         })
@@ -656,12 +666,13 @@ class TestAlpacaSubmit:
         assert body["client_order_id"] == "sntl-deadbeef"
         assert body["qty"] == "10", "quantity as a STRING, never a float"
 
-    def test_the_symbol_is_translated_at_the_transport_boundary(self):
+    def test_the_durable_asset_id_is_used_at_the_transport_boundary(self):
         broker, http = alpaca({}, post=FakeResponse({"id": "o", "status": "new"}))
         run(broker.submit(client_key="k",
-                          instrument=BrokerInstrument("SEC-BRK-B", "BRK-B"),
+                          instrument=BrokerInstrument(
+                              "SEC-BRK-B", "BRK-B", "asset-brk-b"),
                           side=Side.BUY, quantity=D(1)))
-        assert http.calls[0][2]["symbol"] == "BRK.B"
+        assert http.calls[0][2]["symbol"] == "asset-brk-b"
 
 
 class TestAlpacaCancel:

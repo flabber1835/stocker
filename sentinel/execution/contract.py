@@ -425,13 +425,17 @@ class ExecutionBroker(abc.ABC):
             "this execution adapter does not expose a broker market clock")
 
     async def account_cash_activities(self, *, after: datetime,
-                                      through: datetime):
+                                      through: datetime,
+                                      since_event_id: str | None = None):
         """Optional broker-native cash activity evidence for balance recovery.
 
         The durable cash-ingest path requires a concrete adapter override. The
         default exists so the broker port, guarded wrapper and operation enum stay
         introspectably complete without making legacy/simulator adapters claim a
-        capability they do not implement.
+        capability they do not implement. Activity-SSE adapters use
+        ``since_event_id`` as the gap-free publication cursor; timestamp-only
+        adapters may reject or ignore it because the generic ingest supplies it
+        only to brokers that explicitly advertise ``financial_activity_sse``.
         """
         raise NotImplementedError(
             "this execution adapter does not expose account cash activities")

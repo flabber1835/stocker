@@ -81,12 +81,15 @@ class BrokerCashActivityBatch:
     processed_through: datetime
     completeness: Completeness
     last_activity_id: Optional[str] = None
+    last_event_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.processed_through.tzinfo is None:
             raise ValueError("broker cash activity upper boundary must be timezone-aware")
         if self.last_activity_id is not None and not self.last_activity_id.strip():
             raise ValueError("last_activity_id must be non-empty when present")
+        if self.last_event_id is not None and not self.last_event_id.strip():
+            raise ValueError("last_event_id must be non-empty when present")
 
 
 @dataclass(frozen=True)
@@ -96,6 +99,7 @@ class CashActivityState:
     processed_through: datetime
     last_activity_id: Optional[str]
     balance_total: Decimal
+    last_event_id: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -200,11 +204,20 @@ def load_activity_state(conn, *, broker: str,
     if row is None:
         return None
     state = _read_json_state(row[0], where=f"cash activity cursor {name}")
-    expected = {"kind", "broker", "account_id", "processed_through",
-                "last_activity_id", "balance_total"}
-    if set(state) != expected or state.get("kind") != "broker-cash-activity/v1":
+    v1 = {"kind", "broker", "account_id", "processed_through",
+          "last_activity_id", "balance_total"}
+    v2 = v1 | {"last_event_id"}
+    state_keys = frozenset(state)
+    if (state_keys not in {frozenset(v1), frozenset(v2)}
+            or state.get("kind") not in {
+                "broker-cash-activity/v1", "broker-cash-activity/v2"}):
         raise BrokerCashAuthorityRefused(
             f"cash activity cursor {name} has an unknown state shape")
+    if ((state.get("kind") == "broker-cash-activity/v1" and set(state) != v1)
+            or (state.get("kind") == "broker-cash-activity/v2"
+                and set(state) != v2)):
+        raise BrokerCashAuthorityRefused(
+            f"cash activity cursor {name} mixes incompatible schema fields")
     if state["broker"] != broker or state["account_id"] != account_id:
         raise BrokerCashAuthorityRefused(
             f"cash activity cursor {name} is bound to another account")
@@ -212,13 +225,20 @@ def load_activity_state(conn, *, broker: str,
     if last_id is not None and (not isinstance(last_id, str) or not last_id.strip()):
         raise BrokerCashAuthorityRefused(
             f"cash activity cursor {name} has an invalid native id")
+    last_event_id = state.get("last_event_id")
+    if (last_event_id is not None
+            and (not isinstance(last_event_id, str)
+                 or not last_event_id.strip())):
+        raise BrokerCashAuthorityRefused(
+            f"cash activity cursor {name} has an invalid event cursor")
     return CashActivityState(
         broker=broker, account_id=account_id,
         processed_through=_aware(
             state["processed_through"], where=f"cash activity cursor {name}"),
         last_activity_id=last_id,
         balance_total=_finite_decimal(
-            state["balance_total"], where=f"cash activity cursor {name} total"))
+            state["balance_total"], where=f"cash activity cursor {name} total"),
+        last_event_id=last_event_id)
 
 
 def _binding_established_at(conn, *, broker: str, account_id: str) -> datetime:
@@ -292,13 +312,21 @@ async def ingest_account_cash(
     upper = upper.astimezone(timezone.utc)
     established = _binding_established_at(
         conn, broker=broker, account_id=account_id)
+    financial_sse = (
+        getattr(broker_adapter, "financial_activity_sse", False) is True)
     if prior is not None:
         if upper < prior.processed_through:
             raise BrokerCashAuthorityRefused(
                 "broker cash ingestion clock moved behind its durable cursor")
         if upper == prior.processed_through:
             return prior
-        after = max(established, prior.processed_through - ACTIVITY_OVERLAP)
+        # A v1 cursor is only a business-time boundary. It cannot resume the
+        # Activity SSE without gaps because a backfill is published later with
+        # its old ``at`` value. Replay from binding establishment until the
+        # first durable event_id is earned. Once present, event_id is the sole
+        # resumption authority; ``after`` remains a bounded bootstrap input.
+        after = (established if (financial_sse and prior.last_event_id is None) else
+                 max(established, prior.processed_through - ACTIVITY_OVERLAP))
         running_total = prior.balance_total
     else:
         after = established
@@ -315,8 +343,15 @@ async def ingest_account_cash(
                     "broker cash activity rows exist without their durable "
                     "cursor; restore the complete behavioral state")
 
-    batch = await broker_adapter.account_cash_activities(
-        after=after, through=upper)
+    if financial_sse:
+        # Capturing the bounded upper event_id must cover the whole owned
+        # account interval so a newly published event with old business time is
+        # visible. The follow-up replay is still narrowed by since_event_id.
+        after = established
+    activity_kwargs = {"after": after, "through": upper}
+    if (prior is not None and prior.last_event_id is not None and financial_sse):
+        activity_kwargs["since_event_id"] = prior.last_event_id
+    batch = await broker_adapter.account_cash_activities(**activity_kwargs)
     if not isinstance(batch, BrokerCashActivityBatch):
         raise BrokerCashAuthorityRefused(
             "broker cash adapter returned an untyped activity batch")
@@ -346,15 +381,25 @@ async def ingest_account_cash(
                 "broker cash batch last native id does not match final activity")
         last_id = batch.last_activity_id
 
+    last_event_id = prior.last_event_id if prior else None
+    if batch.last_event_id is not None:
+        if (last_event_id is not None
+                and batch.last_event_id < last_event_id):
+            raise BrokerCashAuthorityRefused(
+                "broker cash activity event cursor regressed")
+        last_event_id = batch.last_event_id
+
     state = CashActivityState(
         broker=broker, account_id=account_id, processed_through=upper,
-        last_activity_id=last_id, balance_total=running_total)
+        last_activity_id=last_id, balance_total=running_total,
+        last_event_id=last_event_id)
     payload = {
-        "kind": "broker-cash-activity/v1",
+        "kind": "broker-cash-activity/v2",
         "broker": broker,
         "account_id": account_id,
         "processed_through": upper.isoformat(),
         "last_activity_id": last_id,
+        "last_event_id": last_event_id,
         "balance_total": str(running_total),
     }
     with conn.cursor() as cur:
