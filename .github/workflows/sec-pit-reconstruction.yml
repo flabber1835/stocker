@@ -1,0 +1,88 @@
+name: SEC PIT reconstruction
+
+on:
+  pull_request:
+    paths:
+      - 'sec-filings/**'
+      - 'tools/sec_pit_reconstruct.py'
+      - 'tests/scripts/test_sec_pit_reconstruct.py'
+      - '.github/workflows/sec-pit-reconstruction.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reconstruct:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Unit-test SEC PIT parser
+        run: python -m unittest discover -s tests/scripts -p 'test_sec_pit_reconstruct.py' -v
+
+      - name: Reconstruct dated SEC issuer observations
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/sec-pit
+          python tools/sec_pit_reconstruct.py \
+            --input-dir sec-filings \
+            --output-dir /tmp/sec-pit \
+            --require-start 2006Q1 \
+            --require-through 2026Q2
+          cat /tmp/sec-pit/SHA256SUMS.txt
+
+      - name: Enforce coverage and provenance invariants
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = Path('/tmp/sec-pit/coverage.json')
+          data = json.loads(p.read_text())
+          assert data['requested_start'] == '2006Q1'
+          assert data['requested_through'] == '2026Q2'
+          assert data['archive_count'] == 82, data['archive_count']
+          assert data['observation_count'] > 0
+          assert data['min_filing_date'] is not None
+          assert data['max_filing_date'] is not None
+          assert len(data['archives']) == 82
+          assert all(x['sha256'] and len(x['sha256']) == 64 for x in data['archives'])
+          assert all(x['rows'] > 0 for x in data['archives'])
+          print(json.dumps({
+              'archives': data['archive_count'],
+              'observations': data['observation_count'],
+              'range': [data['min_filing_date'], data['max_filing_date']],
+              'alphabet_control': data['alphabet_control'],
+          }, indent=2, sort_keys=True))
+          PY
+
+      - name: Publish human-readable evidence summary
+        if: always()
+        run: |
+          if [ -f /tmp/sec-pit/coverage.json ]; then
+            python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          d = json.loads(Path('/tmp/sec-pit/coverage.json').read_text())
+          print('## SEC PIT evidence')
+          print()
+          print(f"- Archives: **{d['archive_count']}** ({d['requested_start']} through {d['requested_through']})")
+          print(f"- Filing observations: **{d['observation_count']:,}**")
+          print(f"- Filing-date range: **{d['min_filing_date']} through {d['max_filing_date']}**")
+          a = d['alphabet_control']
+          print(f"- Alphabet control in Form 3/4/5 source: GOOG={a['GOOG_observations']}, GOOGL={a['GOOGL_observations']}")
+          print()
+          print('This job certifies source parsing/provenance only. It does **not** yet certify the full Concordance replay or July 2026 coverage.')
+          PY
+          fi
