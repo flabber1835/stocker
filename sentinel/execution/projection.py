@@ -228,8 +228,9 @@ def project(*, shadow_weights: Mapping[str, Decimal], exposure: Decimal,
         price_ok = (isinstance(price, Decimal) and price.is_finite()
                     and price > 0)
         if price_ok and defensive_notional > 0:
-            defensive_qty = (defensive_notional / price).to_integral_value(
-                rounding=ROUND_DOWN)
+            defensive_qty = (
+                defensive_notional / price / lot
+            ).to_integral_value(rounding=ROUND_DOWN) * lot
             residual -= defensive_qty * price
         elif defensive_notional > 0:
             unpriced.append(defensive_security)
