@@ -1,0 +1,1 @@
+Trigger the trusted remediation workflow defined on the remediation base branch.
