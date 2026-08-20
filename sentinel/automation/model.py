@@ -47,13 +47,23 @@ class _FrozenModel(BaseModel):
 
 
 class AutomationConfig(_FrozenModel):
-    """Versioned scheduling and retry policy included in activation identity."""
+    """Versioned scheduling and safety policy included in activation identity.
+
+    Timing concepts that have distinct safety/economic meanings intentionally
+    have distinct fields.  In particular, retry backoff, callback liveness,
+    schedule delay, maximum fresh-execution lateness, and clock trust are not
+    aliases for one another.  Every field participates in ``fingerprint`` and
+    therefore cannot change under an already-activated signed configuration.
+    """
 
     schema_version: int = Field(default=1, ge=1)
     publication_delay_seconds: int = Field(default=900, ge=0)
     execution_delay_seconds: int = Field(default=60, ge=0)
+    maximum_execution_lateness_seconds: int = Field(default=60, ge=0)
     lease_seconds: int = Field(default=45, ge=3)
     heartbeat_seconds: int = Field(default=10, ge=1)
+    callback_deadline_seconds: int = Field(default=900, ge=1)
+    maximum_clock_skew_seconds: int = Field(default=5, ge=1)
     control_poll_seconds: int = Field(default=10, ge=1)
     retry_base_seconds: int = Field(default=30, ge=1)
     retry_max_seconds: int = Field(default=900, ge=1)
@@ -67,6 +77,10 @@ class AutomationConfig(_FrozenModel):
         if self.retry_base_seconds > self.retry_max_seconds:
             raise ValueError(
                 "retry_base_seconds must not exceed retry_max_seconds")
+        if self.callback_deadline_seconds < self.heartbeat_seconds:
+            raise ValueError(
+                "callback_deadline_seconds must not be shorter than the "
+                "heartbeat interval")
         return self
 
     @property
