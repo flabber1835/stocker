@@ -1,0 +1,21 @@
+name: Alpaca remediation probe
+on:
+  push:
+    branches: [fix/alpaca-boundary-remediation]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Inspect authority and recovery surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== revoke references ==='
+          grep -RniE 'revoke|revoked' sentinel tests/sentinel | head -200 || true
+          echo '=== terminal watermark schema ==='
+          grep -RniE 'terminal_recovery_watermark|sentinel_processed_sessions|sentinel_observations|sentinel_fills' sentinel/execution sentinel/schema.py tests/sentinel | head -250 || true
+          echo '=== writer lock references ==='
+          grep -Rni 'writer_lock' sentinel | head -150 || true
