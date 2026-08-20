@@ -32,10 +32,10 @@ _REQUIRED_CSV_FIELDS = frozenset(
         "accession_number",
         "document_type",
         "archive",
-        "source_member",
-        "source_row",
     }
 )
+_SOURCE_MEMBER_FIELDS = ("submission_member", "source_member")
+_SOURCE_ROW_FIELDS = ("row_number", "source_row")
 
 
 def _parse_date(value: date | str, *, field: str) -> date:
@@ -77,12 +77,13 @@ class SecIssuerEvidence:
 
     @classmethod
     def from_mapping(cls, row: Mapping[str, object]) -> "SecIssuerEvidence":
+        source_row_raw = row.get("row_number", row.get("source_row", ""))
         try:
-            source_row = int(str(row.get("source_row", "")).strip())
+            source_row = int(str(source_row_raw).strip())
         except ValueError as exc:
-            raise ValueError(f"invalid SEC source_row: {row.get('source_row')!r}") from exc
+            raise ValueError(f"invalid SEC source row: {source_row_raw!r}") from exc
         if source_row < 1:
-            raise ValueError(f"invalid SEC source_row: {source_row!r}")
+            raise ValueError(f"invalid SEC source row: {source_row!r}")
 
         accession = str(row.get("accession_number", "") or "").strip()
         if not accession:
@@ -95,7 +96,9 @@ class SecIssuerEvidence:
             accession_number=accession,
             document_type=str(row.get("document_type", "") or "").strip(),
             archive=str(row.get("archive", "") or "").strip(),
-            source_member=str(row.get("source_member", "") or "").strip(),
+            source_member=str(
+                row.get("submission_member", row.get("source_member", "")) or ""
+            ).strip(),
             source_row=source_row,
         )
 
@@ -161,6 +164,7 @@ class SecIssuerResolver:
     """
 
     def __init__(self, evidence: Iterable[SecIssuerEvidence]) -> None:
+        # Keep only a deterministic witness for duplicate same-CIK observations.
         witnesses: dict[tuple[str, date, str], SecIssuerEvidence] = {}
         ciks_by_ticker_date: dict[tuple[str, date], set[str]] = {}
 
@@ -212,6 +216,10 @@ class SecIssuerResolver:
             reader = csv.DictReader(handle)
             fields = set(reader.fieldnames or ())
             missing = sorted(_REQUIRED_CSV_FIELDS - fields)
+            if not any(name in fields for name in _SOURCE_MEMBER_FIELDS):
+                missing.append("submission_member")
+            if not any(name in fields for name in _SOURCE_ROW_FIELDS):
+                missing.append("row_number")
             if missing:
                 raise ValueError(
                     "SEC observations CSV missing required columns: " + ", ".join(missing)
@@ -239,6 +247,7 @@ class SecIssuerResolver:
         if not dates:
             return None
 
+        # Strictly earlier filing date: same-day filings are not assumed known.
         index = bisect_left(dates, session) - 1
         if index < 0:
             return None
@@ -246,6 +255,7 @@ class SecIssuerResolver:
         if lower_bound is not None and entry.filing_date < lower_bound:
             return None
         if entry.evidence is None:
+            # Latest causal date is ambiguous.  Do not resurrect a stale CIK.
             return None
         return IssuerResolution.from_evidence(entry.evidence)
 
