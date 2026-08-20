@@ -5,6 +5,10 @@ on:
     paths:
       - 'sec-filings/**'
       - 'tools/sec_pit_reconstruct.py'
+      - 'shared/**'
+      - 'services/**'
+      - 'sentinel/**'
+      - 'tests/**'
       - '.github/workflows/sec-pit-replay-evidence.yml'
   workflow_dispatch:
 
@@ -16,14 +20,20 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - name: Check out code without SEC binary blobs
+      - name: Check out replay code without SEC binary blobs
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 1
           filter: blob:none
           sparse-checkout: |
             .github
+            config
+            services
+            shared
+            sentinel
+            tests
             tools
+            Makefile
 
       - name: Set up Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -42,6 +52,10 @@ jobs:
           import urllib.request
 
           sha = os.environ['PIT_SOURCE_SHA']
+          if not sha:
+              # workflow_dispatch does not have pull_request metadata.
+              import subprocess
+              sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           dest = Path('sec-filings')
           dest.mkdir(exist_ok=True)
           names = [f'{year}q{quarter}_form345.zip'
@@ -75,6 +89,27 @@ jobs:
             --output-dir /tmp/sec-pit \
             --require-start 2006Q1 \
             --require-through 2026Q2
+
+      - name: Build portable replay inputs
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/pr208-replay-inputs
+          mkdir -p /tmp/pr208-replay-inputs
+          cp /tmp/sec-pit/symbol_cik_evidence.csv /tmp/pr208-replay-inputs/
+          git rev-parse HEAD > /tmp/pr208-replay-inputs/source_sha.txt
+          tar -czf /tmp/pr208-replay-inputs/pr208-replay-source.tar.gz \
+            .github config services shared sentinel tests tools Makefile
+          sha256sum /tmp/pr208-replay-inputs/symbol_cik_evidence.csv \
+                    /tmp/pr208-replay-inputs/pr208-replay-source.tar.gz \
+            > /tmp/pr208-replay-inputs/SHA256SUMS
+
+      - name: Upload portable replay inputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr208-replay-inputs
+          path: /tmp/pr208-replay-inputs/
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Emit deterministic compressed evidence payload
         run: |
