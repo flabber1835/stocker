@@ -111,6 +111,10 @@ paths bit-identical; the residual execution-cost difference is the 0.29 bp/year
 quantity above.
 
 The P1 correctness defects are independent of this measured P2 residual and are
-fixed in production code: live sizing uses a decision-close-valued broker NAV,
-unpriced Core names can still be reduced, and missing evidence cannot authorize
-an increase.
+fixed in production code: live sizing uses broker cash plus observed positions
+valued with decision-close/canonical stale marks, unpriced Core names can still
+be reduced, and missing evidence cannot authorize an increase. If a held live
+name has no usable close-domain mark at all, that leg is named and excluded from
+the known-value NAV rather than substituted with broker mark-to-market equity;
+this conservative long-only basis may reduce the name but cannot use the missing
+mark to create a new increase.
