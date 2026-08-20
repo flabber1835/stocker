@@ -56,8 +56,11 @@ def config(**changes) -> AutomationConfig:
     base = AutomationConfig(
         publication_delay_seconds=0,
         execution_delay_seconds=60,
+        maximum_execution_lateness_seconds=60,
         lease_seconds=30,
         heartbeat_seconds=5,
+        callback_deadline_seconds=30,
+        maximum_clock_skew_seconds=5,
         retry_base_seconds=5,
         retry_max_seconds=30,
     )
@@ -145,6 +148,21 @@ async def prepared_waiting(
     return service, waiting
 
 
+def test_safety_limits_are_independently_fingerprinted() -> None:
+    base = config()
+    assert base.model_copy(update={
+        "maximum_execution_lateness_seconds": 61}).fingerprint != base.fingerprint
+    assert base.model_copy(update={
+        "callback_deadline_seconds": 31}).fingerprint != base.fingerprint
+    assert base.model_copy(update={
+        "maximum_clock_skew_seconds": 6}).fingerprint != base.fingerprint
+    # Unrelated scheduling/retry fields remain distinct concepts.
+    assert base.maximum_execution_lateness_seconds == 60
+    assert base.execution_delay_seconds == 60
+    assert base.callback_deadline_seconds == 30
+    assert base.retry_max_seconds == 30
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "offset,expected_action,expected_execute_calls",
@@ -169,7 +187,7 @@ async def test_new_transport_is_bounded_around_execute_at(
 
     assert result.action is expected_action
     assert len(calls) == expected_execute_calls
-    if offset > cfg.execution_delay_seconds:
+    if offset > cfg.maximum_execution_lateness_seconds:
         assert result.cycle is not None
         assert result.cycle.state is CycleState.SUPERSEDED
         assert result.cycle.failure_code == "MAX_EXECUTION_LATENESS_EXCEEDED"
@@ -294,7 +312,12 @@ async def test_production_tick_refuses_material_host_database_clock_skew(
 
 @pytest.mark.asyncio
 async def test_callback_result_is_refused_after_bounded_runtime() -> None:
-    cfg = config(retry_base_seconds=1, retry_max_seconds=1)
+    cfg = config(
+        heartbeat_seconds=1,
+        callback_deadline_seconds=1,
+        retry_base_seconds=1,
+        retry_max_seconds=30,
+    )
     service = service_for(cfg)
 
     async def slow(_context):
