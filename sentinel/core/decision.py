@@ -251,15 +251,24 @@ def _shadow_weights(canonical: SessionState, target: ShadowTarget,
     return weights
 
 
-def _decision_close_nav(canonical: SessionState, account_snapshot, observation,
-                        current_marks: Mapping[str, Decimal]) -> Decimal:
-    """Value the live broker book in the same close domain as the shadow.
+def _decision_close_nav(
+        canonical: SessionState, account_snapshot, observation,
+        current_marks: Mapping[str, Decimal],
+        ) -> tuple[Decimal, tuple[str, ...]]:
+    """Value as much of the live broker book as close evidence permits.
 
     Broker-reported equity is a later mark-to-market fact. Mixing it with
     decision-session close weights turns after-hours price movement into a new
     economic decision. Cash is not price-valued, so current broker cash is
-    combined with every observed position valued at the pinned decision mark or
-    the same canonical stale fallback Wealth Core itself carries.
+    combined with observed positions valued at the pinned decision mark or the
+    same canonical stale fallback Wealth Core itself carries.
+
+    A held name with no usable close-domain mark is NAMED and omitted from this
+    valuation rather than substituted with broker M2M. That makes this NAV a
+    conservative known-value basis in the long-only book. The unpriced-share
+    logic below may still reduce such a name, but cannot use missing evidence to
+    increase it. This is the required asymmetry: no mark may block a buy, never a
+    required trim.
     """
 
     cash = _decimal(account_snapshot.cash, label="broker account cash")
@@ -267,6 +276,7 @@ def _decision_close_nav(canonical: SessionState, account_snapshot, observation,
         raise ValueError(f"broker account cash must be finite, got {cash}")
     stale_marks = _canonical_stale_marks(canonical)
     nav = cash
+    unpriced: list[str] = []
     for security_id, quantity in observation.positions_by_security().items():
         quantity = _decimal(
             quantity, label=f"held quantity for {security_id}")
@@ -276,15 +286,14 @@ def _decision_close_nav(canonical: SessionState, account_snapshot, observation,
                 f"{quantity}")
         mark = _decision_mark(security_id, current_marks, stale_marks)
         if mark is None:
-            raise ValueError(
-                f"cannot value live position {security_id!r} on the "
-                "decision-close basis: no pinned or canonical stale mark")
+            unpriced.append(security_id)
+            continue
         nav += quantity * mark
-    if not _positive_finite(nav):
+    if not nav.is_finite() or nav < 0:
         raise ValueError(
-            f"decision-close-valued broker NAV must be positive and finite, "
-            f"got {nav}")
-    return nav
+            f"known decision-close-valued broker NAV must be non-negative and "
+            f"finite, got {nav}")
+    return nav, tuple(sorted(unpriced))
 
 
 def _cap_unpriced_increases(
@@ -394,7 +403,7 @@ def build_execution_plan(
     current_marks = _current_marks(marks)
     target = shadow_target(canonical)
     shadow_equity = _shadow_equity(canonical)
-    nav = _decision_close_nav(
+    nav, nav_unpriced = _decision_close_nav(
         canonical, account_snapshot, observation, current_marks)
     weights = _shadow_weights(canonical, target, current_marks)
 
@@ -402,6 +411,10 @@ def build_execution_plan(
         shadow_weights=weights, exposure=exposure, nav=nav,
         marks=current_marks, defensive_security=defensive_security,
         defensive_weight=defensive_weight)
+    if nav_unpriced:
+        sized = replace(
+            sized,
+            unpriced=tuple(sorted(set(sized.unpriced) | set(nav_unpriced))))
     sized = _cap_unpriced_increases(
         sized, target, observation, shadow_equity=shadow_equity, nav=nav,
         exposure=exposure, defensive_weight=defensive_weight,
