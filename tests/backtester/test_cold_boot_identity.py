@@ -41,7 +41,8 @@ def engine(pg):
         pg.sync_dsn.replace("postgresql://", "postgresql+psycopg://"))
     with engine.begin() as conn:
         conn.execute(sa.text("DROP TABLE IF EXISTS bt_price_volume_domain_state, "
-                             "bt_actions, bt_prices, bt_universe, "
+                             "bt_actions_source_state, bt_actions, "
+                             "bt_prices, bt_universe, "
                              "bt_data_version CASCADE"))
         conn.execute(sa.text("""
             CREATE TABLE bt_universe (
