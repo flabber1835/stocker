@@ -1,0 +1,36 @@
+{
+  "schema": "pr208.sec-pit-issuer-ab-parity/1",
+  "invariant": {
+    "strategy": "full simplified Concordance LD-RC",
+    "damaged_breadth_acceleration_delta5": 0.30,
+    "liquidity_domain": "SEP.close * SEP.volume",
+    "dividend_domain": "ACTIONS.value * SEP.closeunadj / SEP.close",
+    "decision_timing": "close -> next executable open",
+    "defensive_sleeve": "BIL",
+    "one_way_cost": 0.001,
+    "measured_window": "2006-07-31..2026-07-31",
+    "pit_first_causal_session": "2006-01-04"
+  },
+  "control_fingerprint": {
+    "cagr": 0.22630215620600636,
+    "max_drawdown": -0.21695821510142832,
+    "sharpe": 1.2138138710255424,
+    "ending_multiple": 59.15428690967636
+  },
+  "changed_scheduled_buys": 0,
+  "changed_executed_buys": 0,
+  "changed_executed_sells": 0,
+  "a_equals_b": {
+    "daily_tape": true,
+    "ldrc_event_tape": true,
+    "ending_holdings": true
+  },
+  "sha256": {
+    "daily_tape_A": "919c79d52433ff240c1a490c29d11b14f22711ca6eef9276232029ee3f3f7553",
+    "daily_tape_B": "919c79d52433ff240c1a490c29d11b14f22711ca6eef9276232029ee3f3f7553",
+    "ldrc_events_A": "e151f9ea9689d7c78c1318e5ebfe9b97511ba74b05f233ab44e0308121359364",
+    "ldrc_events_B": "e151f9ea9689d7c78c1318e5ebfe9b97511ba74b05f233ab44e0308121359364",
+    "ending_holdings_A": "98a5f36bcc1f7320e49d9f5ff6e0054c38b1c3a163c964714ec6eaa67ffe26ba",
+    "ending_holdings_B": "98a5f36bcc1f7320e49d9f5ff6e0054c38b1c3a163c964714ec6eaa67ffe26ba"
+  }
+}
