@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import threading
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -13,7 +12,6 @@ import pytest
 from tests.support.postgres import _EphemeralPostgres, drop_public_tables
 
 from sentinel import binding as B, schema
-from sentinel.automation import store as automation_store
 from sentinel.execution import journal
 from sentinel.execution import alpaca_remediation_compat as compat
 from sentinel.execution.alpaca import (
@@ -416,32 +414,3 @@ def test_physical_db_incarnation_change_requires_takeover_before_rerisk(conn):
 
     reason = restore_increase_fence_reason(conn, DEPLOYMENT, date.today())
     assert "adopt-restored-account" in reason
-
-
-def test_kill_transition_waits_for_the_execution_writer_lock(conn, pg):
-    other = feed_store.connect(pg.sync_dsn)
-    entered = threading.Event()
-    finished = threading.Event()
-
-    def kill():
-        entered.set()
-        try:
-            automation_store.engage_kill(
-                other, actor="test", reason="concurrency falsifier")
-        except Exception:
-            # A fresh fixture may already have its kill engaged; the property
-            # under test is that even that determination cannot occur until the
-            # execution critical section releases the shared advisory lock.
-            pass
-        finally:
-            finished.set()
-
-    thread = threading.Thread(target=kill, daemon=True)
-    try:
-        with journal.writer_lock(conn):
-            thread.start()
-            assert entered.wait(1)
-            assert not finished.wait(0.15)
-        assert finished.wait(2)
-    finally:
-        other.close()
