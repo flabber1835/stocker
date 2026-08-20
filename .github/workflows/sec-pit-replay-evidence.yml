@@ -20,9 +20,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - name: Check out replay code without SEC binary blobs
+      - name: Check out exact PR head without SEC binary blobs
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
           filter: blob:none
           sparse-checkout: |
@@ -43,7 +44,7 @@ jobs:
 
       - name: Fetch exact committed SEC archives in parallel
         env:
-          PIT_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+          PIT_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           python - <<'PY'
           from concurrent.futures import ThreadPoolExecutor
@@ -52,10 +53,6 @@ jobs:
           import urllib.request
 
           sha = os.environ['PIT_SOURCE_SHA']
-          if not sha:
-              # workflow_dispatch does not have pull_request metadata.
-              import subprocess
-              sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           dest = Path('sec-filings')
           dest.mkdir(exist_ok=True)
           names = [f'{year}q{quarter}_form345.zip'
