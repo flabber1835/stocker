@@ -98,11 +98,15 @@ jobs:
           set -euo pipefail
           rm -rf /tmp/pr208-replay-inputs
           mkdir -p /tmp/pr208-replay-inputs
+          cp /tmp/sec-pit/observations.csv /tmp/pr208-replay-inputs/
           cp /tmp/sec-pit/symbol_cik_evidence.csv /tmp/pr208-replay-inputs/
+          cp /tmp/sec-pit/coverage.json /tmp/pr208-replay-inputs/
           git rev-parse HEAD > /tmp/pr208-replay-inputs/source_sha.txt
           tar -czf /tmp/pr208-replay-inputs/pr208-replay-source.tar.gz \
             .github config services shared sentinel tests tools docs Makefile
-          sha256sum /tmp/pr208-replay-inputs/symbol_cik_evidence.csv \
+          sha256sum /tmp/pr208-replay-inputs/observations.csv \
+                    /tmp/pr208-replay-inputs/symbol_cik_evidence.csv \
+                    /tmp/pr208-replay-inputs/coverage.json \
                     /tmp/pr208-replay-inputs/pr208-replay-source.tar.gz \
             > /tmp/pr208-replay-inputs/SHA256SUMS
 
