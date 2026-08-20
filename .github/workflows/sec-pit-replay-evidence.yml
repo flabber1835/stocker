@@ -9,6 +9,9 @@ on:
       - 'services/**'
       - 'sentinel/**'
       - 'tests/**'
+      - 'docs/sentinel-reference-implementation/**'
+      - 'docs/sentinel-concordance-ldrc-spec.md'
+      - 'docs/sentinel-concordance-simplification-pass.md'
       - '.github/workflows/sec-pit-replay-evidence.yml'
   workflow_dispatch:
 
@@ -34,6 +37,9 @@ jobs:
             sentinel
             tests
             tools
+            docs/sentinel-reference-implementation
+            docs/sentinel-concordance-ldrc-spec.md
+            docs/sentinel-concordance-simplification-pass.md
             Makefile
 
       - name: Set up Python 3.12
@@ -95,7 +101,7 @@ jobs:
           cp /tmp/sec-pit/symbol_cik_evidence.csv /tmp/pr208-replay-inputs/
           git rev-parse HEAD > /tmp/pr208-replay-inputs/source_sha.txt
           tar -czf /tmp/pr208-replay-inputs/pr208-replay-source.tar.gz \
-            .github config services shared sentinel tests tools Makefile
+            .github config services shared sentinel tests tools docs Makefile
           sha256sum /tmp/pr208-replay-inputs/symbol_cik_evidence.csv \
                     /tmp/pr208-replay-inputs/pr208-replay-source.tar.gz \
             > /tmp/pr208-replay-inputs/SHA256SUMS
