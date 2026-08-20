@@ -28,13 +28,16 @@ Nothing here imports a Stocker service, and nothing here decides WHAT to hold.
 """
 
 # Install the explicit broker-boundary hardening before callers import concrete
-# execution adapters. The second layer scopes new invariants to production
-# reconciliation and real instrument-identity adapters so low-level test helpers
-# do not acquire authority they never claimed.
+# execution adapters. The final layer closes the financial-grade review gaps;
+# compatibility is installed last so its low-level test seams capture the final
+# strict production watermark implementation rather than an earlier version.
 from sentinel.execution.alpaca_remediation import install as _install_alpaca_remediation
+from sentinel.execution.alpaca_remediation_final import install as _install_final
 from sentinel.execution.alpaca_remediation_compat import install as _install_compat
 
 _install_alpaca_remediation()
+_install_final()
 _install_compat()
 del _install_alpaca_remediation
+del _install_final
 del _install_compat
