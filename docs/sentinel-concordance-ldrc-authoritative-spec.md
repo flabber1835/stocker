@@ -1,61 +1,27 @@
-# Simplified Sentinel Concordance LD-RC — authoritative strategy semantics
+# Simplified Sentinel Concordance LD-RC — recovered authoritative semantics
 
-**Status:** authoritative source-of-truth semantics for implementation; activation remains disabled pending causal/certification gates.
+**Status:** retained strategy source; not live activation authority.  
+**Recovery date:** 2026-08-19.  
+**Reason for this document:** the original corrected research harness was ephemeral. The implementation was reconstructed from the original experiment lineage and accepted only after reproducing multiple retained historical fingerprints exactly.
 
-## Correction to the earlier mini-spec
+## What was recovered
 
-The historical mini-spec at commit `f29f67951b11150e2ef26147652549a0092dad61` is **incomplete**. It retained the three-signal divergence latch but omitted the separate independent recovery gate that was part of the research architecture producing the ~22.6% / ~-21.7% result.
+The prior PR #199 implementation over-formalized recovery as a durable certificate. That is **not** the research strategy.
 
-That omission is material. The retained research record at commit `2809eef7948ef1a98452dce677ec3f920405cdbe` explicitly defines the architecture as:
+The recovered architecture is:
 
-1. native Sentinel risk-off remains authoritative;
-2. native Sentinel staged recovery may proceed through 55% and 65%;
-3. ordinary restoration to 100% requires independent recent-leadership recovery evidence;
-4. a strategy-specific divergence while fully risk-on can latch a tighter 55% cap;
-5. the same independent recovery evidence clears both protections.
-
-The simplification pass at commit `b0a700cf82ae58af8e3bbdcc91ff053b0341d9e2` simplified **divergence entry**, not the pre-existing full-risk recovery gate.
-
-`sentinel/controller/ldrc.py` is the executable authority for these semantics. Any prose or future port that disagrees with that module and its tests is not the Simplified LD-RC strategy.
-
-## Corrected parent economics
-
-Historical parity must use the corrected research parent:
-
-- liquidity: `SEP.close * SEP.volume` (equivalently raw close times raw-compatible volume);
-- raw marking/execution: `SEP.closeunadj`;
-- historical raw-share dividend cash: `ACTIONS.value * SEP.closeunadj / SEP.close`;
-- same-session split before dividend;
-- hardened fast-crisis damaged-breadth acceleration threshold: 30 percentage points;
-- close decision -> next executable open;
-- BIL defensive sleeve and retained overlay cost convention in research replay.
-
-The corrected+hardened parent falsifier remains approximately 21.3433% CAGR / -24.7500% max drawdown / 1.1047 daily Sharpe over 2006-07-31..2026-07-31.
-
-## Independent recovery authority
-
-A session is independently healthy only when:
+1. Native Sentinel risk-off is authoritative.
+2. Native Sentinel may recover through 55% and 65% normally.
+3. A native transition from 100% to below 100% starts a recovery episode.
+4. The independent recent-leadership witness maintains a **live** healthy-session streak every session:
 
 ```text
-recent_r20 > 0
-AND recent_r40 > 0
+healthy = recent_r20 > 0 AND recent_r40 > 0
+streak = streak + 1 if healthy else 0
 ```
 
-Require seven consecutive sessions, or allow the explicit strong-market escape:
-
-```text
-SPY r20 > 0.11
-```
-
-The `> 0.11` comparison is strict.
-
-Whenever native Sentinel is below 100%, the full-risk gate is armed. Native Sentinel may continue through 55% and 65%, but a later native 100% target is capped at 65% until independent recovery clears the gate.
-
-Missing recovery evidence fails the session and resets the consecutive counter. A retry of an already-applied session must not age the counter again.
-
-## Simplified three-signal divergence latch
-
-While native Sentinel permits exactly 100%:
+5. When native Sentinel later requests 100%, allow it only if the **current** streak is at least 7 or `SPY r20 > 0.11`. Otherwise hold the previous desired exposure. A strong SPY rebound does not clear the episode early while native Sentinel is still defensive.
+6. Separately, while native Sentinel is effectively at 100%, the simplified divergence trigger is:
 
 ```text
 WC drawdown <= -0.10
@@ -63,66 +29,54 @@ AND recent_r20 <= -0.08
 AND SPY r20 >= 0.00
 ```
 
-The boundaries are inclusive. If true:
+This latches a 55% ceiling. The latch clears when the same live seven-session recovery condition is satisfied or `SPY r20 > 0.11`.
+7. Every close-time decision is an intent for the **next executable open**. No same-session application is allowed.
 
-```text
-divergence_latched = true
-full_risk_blocked = true
-recovery_streak = 0
-divergence ceiling = 0.55
-```
+## Recovered recent-leadership witness
 
-The latch persists after the entry conjunction disappears. It clears only under the same independent recovery authority above.
+The witness is a zero-capital opportunity-set sensor.
 
-## Composition
+For each close `t`:
 
-The two protections are separate and intentionally have different ceilings:
+- Start from the same causally available eligible equity population as Wealth Core.
+- Population size: `max(25, ceil(0.10 * eligible_count))`.
+- Established leaders: descending raw 6-to-1 momentum `close[t-21] / close[t-126] - 1`.
+- Recent leaders: same population size, descending latest 21-session price return `close[t] / close[t-21] - 1`.
+- Deterministic tie-break: security identity ascending after score descending.
+- Membership selected at close `t` earns the next close-to-close **price** return `t -> t+1`.
+- The shadow is arithmetic equal-weight.
+- A selected constituent with no valid next-session print keeps its fixed weight and contributes **0%** for that one-session return; it is not dropped and the remainder are not reweighted.
+- No ACTIONS dividend cash is added to the shadow.
+- `recent_r20` and `recent_r40` are exact trading-session returns of the compounded shadow NAV.
 
-```text
-recovery ceiling   = 0.65 while full_risk_blocked else 1.00
-divergence ceiling = 0.55 while divergence_latched else 1.00
+Upstream eligibility must retain corrected Sharadar economics, including liquidity `SEP.close * SEP.volume` and the canonical Wealth Core historical eligibility semantics.
 
-final_allocation = min(
-    native_allocation,
-    recovery_ceiling,
-    divergence_ceiling,
-)
-```
+## Exact reconstruction fingerprints
 
-Consequences:
+The population construction reproduced both retained overlap observations exactly:
 
-- native 0% always remains 0%;
-- native 55% remains 55%;
-- native 65% may proceed during ordinary recovery;
-- an uncertified native 100% target is held at 65%;
-- a divergence-latched native 100% target is held at 55%;
-- LD-RC can never increase native Sentinel exposure.
+- 2008-12-23: `7 / 101 = 6.9306930693%`
+- 2022-01-03: `8 / 96 = 8.3333333333%`
 
-## Durable state
+Using the corrected volume + dividend parent, hardened 30pp native Sentinel sensor, BIL defensive sleeve, 10bp one-way allocation-change cost and **close decision -> next-open application**, the recovered chain reproduces:
 
-Strategy state version 2 contains:
+| Architecture | CAGR | Max DD | Daily Sharpe | Ending multiple |
+|---|---:|---:|---:|---:|
+| Recovery-only recent-leadership persistence | 22.41726% | -22.70931% | 1.173443 | 57.13324x |
+| Full five-condition LD-RC | 22.59459% | -21.69582% | 1.202464 | 58.81154x |
+| **Simplified three-signal LD-RC** | **22.6302156%** | **-21.6958215%** | **1.2138139** | **59.15429x** |
 
-```text
-full_risk_blocked
-divergence_latched
-recovery_streak
-last_session
-```
+These are parity falsifiers, not optimization targets. Future implementations must match the session-by-session witness/state/allocation tape; similar headline CAGR is not sufficient.
 
-The schema is strict. Unknown/missing fields refuse rather than defaulting to a less-protective state. Session advancement is strictly monotonic to prevent crash/retry double-aging.
+## Why the previous PR #199 replay failed
 
-## Research lineage and headline falsifier
+Two reconstruction errors caused the lower ~21.94% result:
 
-The complete research architecture plus simplified divergence entry was reported at approximately:
+1. recovery was modeled as a durable armed/cleared certificate instead of a live current persistence condition evaluated at the 100% re-entry point; and
+2. the close-time LD-RC decision was applied to the same session rather than at the next executable open in the validating replay.
 
-- 20-year CAGR: ~22.62%
-- max drawdown: ~-21.70%
-- daily Sharpe: ~1.214
-
-These numbers are falsifiers, not optimization targets. If a causal replay after #192/#193 changes them, investigate/report the change rather than tuning thresholds back to the old score.
+The recovered source in `sentinel/controller/ldrc.py` and `sentinel/controller/recent_leadership.py` supersedes those semantics.
 
 ## Activation boundary
 
-This source can be merged and retained while disabled. It must not become live/paper allocation authority until the remaining point-in-time causal-data work, exact parent/witness/state-tape parity, restart/catch-up integration, strategy identity rotation, and recertification are complete.
-
-The goal of landing this file now is narrower and important: **the strategy definition itself must never again depend on ephemeral scratch code or an incomplete summary.**
+This recovery fixes source retention. It does **not** remove the remaining point-in-time causality/certification gates in #192/#193, and it does not activate LD-RC in paper/live trading.
