@@ -109,6 +109,10 @@ def full_order(**changes):
     return payload
 
 
+def test_runtime_exports_hardened_adapter():
+    assert AlpacaExecutionBroker.__name__ == "HardenedAlpacaExecutionBroker"
+
+
 def test_empty_order_class_is_accepted_as_simple_order():
     broker, _ = adapter(post=Response(full_order(), 200))
     outcome = run(broker.submit(
