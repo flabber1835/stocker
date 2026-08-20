@@ -57,6 +57,7 @@ from stock_strategy_shared.wealth_core.run import (
     STRATEGY_VERSION,
     run_with_hashes,
 )
+from stock_strategy_shared.wealth_core.signals import DurableScore
 from stock_strategy_shared.wealth_core.state import PortfolioState
 from stock_strategy_shared.wealth_core.terminal import TerminalTerms
 
@@ -118,6 +119,14 @@ class LiveSessionPlan:
     state_after: dict = field(default_factory=dict)
     pending_after: list[dict] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # Ephemeral audit-only seam for Sentinel Concordance. These fields
+    # are deliberately omitted from to_dict(), every Wealth Core hash,
+    # and durable state. Retaining candidate cross-sections across
+    # sessions previously caused an OOM class of failures.
+    leadership_candidates: tuple[DurableScore, ...] = field(
+        default_factory=tuple, repr=False)
+    eligible_universe_count: int = field(default=0, repr=False)
+    signal_closes: dict[str, float] = field(default_factory=dict, repr=False)
 
     def to_dict(self) -> dict:
         return {"execution_model": EXECUTION_MODEL,
@@ -168,13 +177,31 @@ def plan_session(*, session: str,
         feed=feed)
 
     sr = result.sessions[0]
+    decision = sr.decision
+    leadership_candidates = tuple(
+        row for row in (decision.candidates if decision is not None else ())
+        if row.momentum is not None and row.recent is not None)
+    signal_closes = {}
+    for bar in bars:
+        series = feed.series.get(bar.security_id)
+        if (series is None or not series.sessions
+                or series.sessions[-1] != session or not series.signal_closes):
+            continue
+        close = series.signal_closes[-1]
+        if close is not None:
+            signal_closes[bar.security_id] = float(close)
+
     plan = LiveSessionPlan(
         session=session, blocked=sr.blocked,
         resolved_equity=sr.resolved_equity,
         estimated_equity=sr.estimated_equity,
         hashes=hashes.to_dict(),
         state_after=state.to_dict(),
-        pending_after=[p.to_dict() for p in pending])
+        pending_after=[p.to_dict() for p in pending],
+        leadership_candidates=leadership_candidates,
+        eligible_universe_count=(
+            decision.eligible_universe_count if decision is not None else 0),
+        signal_closes=signal_closes)
 
     if sr.blocked:
         # The equity gate. Exits still flow — a position whose value is unknown

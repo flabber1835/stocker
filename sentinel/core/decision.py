@@ -22,6 +22,8 @@ from stock_strategy_shared.wealth_core.state import PortfolioState
 from sentinel import identity
 from sentinel.authority import RolloutMode, RolloutState
 from sentinel.binding import AccountMismatch, AccountNotBound
+from sentinel.controller.concordance import (
+    IDENTITY_OVERLAY_FIELD, is_concordance_identity)
 from sentinel.core.production import SessionState
 from sentinel.execution.commands import committed_quantity
 from sentinel.execution.plan import ExecutionPlan
@@ -89,8 +91,10 @@ def publication_fingerprint(publication) -> str:
     return _canonical_hash(_as_mapping(publication, label="publication"))
 
 
-def runtime_strategy_identity(controller_config) -> dict[str, str]:
-    """Name the controller rule and the Wealth Core bytes actually imported."""
+def runtime_strategy_identity(
+        controller_config, *, concordance: bool = False
+        ) -> dict[str, str]:
+    """Name every source that can change the durable allocation path."""
 
     package_file = getattr(wealth_core_package, "__file__", None)
     package_root = Path(package_file).resolve().parent if package_file else None
@@ -100,11 +104,30 @@ def runtime_strategy_identity(controller_config) -> dict[str, str]:
         raise RuntimeError(
             "the imported Wealth Core source cannot be fingerprinted; refusing "
             "to create an incomplete production strategy identity")
-    return {
+    result = {
         "strategy": str(controller_config.strategy_id),
         "controller_rule_sha256": str(controller_config.digest),
         "wealth_core_source_sha256": str(source_digest),
     }
+    if not concordance:
+        return result
+    from sentinel.controller import ldrc as ldrc_module
+    from sentinel.controller import recent_leadership as leadership_module
+    from sentinel.controller.concordance_parent import (
+        STRATEGY_ID as CONCORDANCE_PARENT_STRATEGY_ID)
+    if controller_config.strategy_id != CONCORDANCE_PARENT_STRATEGY_ID:
+        raise ValueError(
+            "Concordance identity requires the hardened 30pp parent")
+    def module_sha(module) -> str:
+        module_file = Path(module.__file__).resolve()
+        return hashlib.sha256(module_file.read_bytes()).hexdigest()
+    result.update({
+        IDENTITY_OVERLAY_FIELD: ldrc_module.STRATEGY_ID,
+        "allocation_overlay_version": str(ldrc_module.STRATEGY_VERSION),
+        "allocation_overlay_source_sha256": module_sha(ldrc_module),
+        "recent_leadership_source_sha256": module_sha(leadership_module),
+    })
+    return result
 
 
 def _canonical_state(state: SessionState | Mapping) -> SessionState:
@@ -397,6 +420,11 @@ def build_execution_plan(
         raise ValueError("controller target_core_exposure is not finite")
     rollout = rollout_state or RolloutState(
         mode=RolloutMode.PINNED_1_00, version=1)
+    if (is_concordance_identity(canonical.strategy_identity)
+            and rollout.mode is RolloutMode.PINNED_1_00):
+        raise ValueError(
+            "PINNED_1_00 cannot override a Concordance allocation; "
+            "use a separately certified CONTROLLER rollout")
     exposure = (Decimal(1) if rollout.mode is RolloutMode.PINNED_1_00
                 else controller_exposure)
     defensive_weight = Decimal(1) - exposure

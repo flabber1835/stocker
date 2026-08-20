@@ -26,13 +26,22 @@ from stock_strategy_shared.wealth_core.terminal import TerminalTerms
 
 from sentinel.breadth.classifier import Holding, session_breadth
 from sentinel.breadth.returns import lag_return
+from sentinel.controller.concordance import (
+    RecentLeadershipState, advance_recent_leadership,
+    is_concordance_identity, state_from_dict as leadership_state_from_dict,
+    state_to_dict as leadership_state_to_dict)
+from sentinel.controller.concordance_parent import (
+    STRATEGY_ID as CONCORDANCE_PARENT_STRATEGY_ID)
 from sentinel.controller.frozen_rule import ControllerConfig
+from sentinel.controller.ldrc import (
+    LDRCState, ldrc_step, state_from_dict as ldrc_state_from_dict,
+    state_to_dict as ldrc_state_to_dict)
 from sentinel.controller.machine import (
     Controller, Observation, validate_controller_state)
 from sentinel.regime.spy import MIN_CLOSES, dated_spy_regime
 
-ENVELOPE_VERSION = 3
-LEGACY_ENVELOPE_VERSION = 2
+ENVELOPE_VERSION = 4
+LEGACY_ENVELOPE_VERSIONS = frozenset({2, 3})
 FEED_RESTART_SESSIONS = REQUIRED_CLOSES
 REQUIRED_IDENTITY_FIELDS = frozenset({
     "strategy", "controller_rule_sha256", "wealth_core_source_sha256"})
@@ -167,6 +176,26 @@ def _bounded_feed_dict(raw: Mapping,
             "series": compact_series}
 
 
+def _canonical_concordance_state(
+        strategy_identity: Mapping[str, object],
+        recent_leadership: Mapping | None, ldrc: Mapping | None
+        ) -> tuple[dict | None, dict | None]:
+    enabled = is_concordance_identity(strategy_identity)
+    if enabled:
+        if recent_leadership is None or ldrc is None:
+            raise ValueError(
+                "Concordance strategy identity requires durable witness and LD-RC state")
+        return (
+            leadership_state_to_dict(
+                leadership_state_from_dict(recent_leadership)),
+            ldrc_state_to_dict(ldrc_state_from_dict(ldrc)),
+        )
+    if recent_leadership is not None or ldrc is not None:
+        raise ValueError(
+            "Concordance state exists under a non-Concordance strategy identity")
+    return None, None
+
+
 def _bounded_evidence(raw: Mapping | None) -> dict | None:
     """Strip recursive plan state from diagnostic evidence.
 
@@ -201,6 +230,8 @@ class SessionState:
     strategy_identity: dict = field(default_factory=dict)
     last_decision: dict | None = None
     last_evidence: dict | None = None
+    recent_leadership: dict | None = None
+    ldrc: dict | None = None
     version: int = ENVELOPE_VERSION
 
     @classmethod
@@ -210,16 +241,25 @@ class SessionState:
         if missing:
             raise ValueError("strategy identity is incomplete: "
                              + ", ".join(sorted(missing)))
+        concordance = is_concordance_identity(strategy_identity)
         return cls(
             wealth_core=PortfolioState.fresh(starting_cash).to_dict(),
             pending=[], ledger=Ledger().to_dict(), last_known={},
             feed={"session_index": -1, "seen_sessions": {}, "series": {}},
             controller=controller.initial_state(),
             shadow_peak_nav=float(starting_cash),
-            strategy_identity=dict(strategy_identity))
+            strategy_identity=dict(strategy_identity),
+            recent_leadership=(
+                leadership_state_to_dict(RecentLeadershipState())
+                if concordance else None),
+            ldrc=(ldrc_state_to_dict(LDRCState()) if concordance else None))
 
     def to_dict(self) -> dict:
+        recent_leadership, ldrc = _canonical_concordance_state(
+            self.strategy_identity, self.recent_leadership, self.ldrc)
         raw = asdict(self)
+        raw["recent_leadership"] = recent_leadership
+        raw["ldrc"] = ldrc
         protected = _path_dependent_security_ids(
             raw["wealth_core"], raw["pending"])
         raw["feed"] = _bounded_feed_dict(raw["feed"], protected)
@@ -236,9 +276,12 @@ class SessionState:
         if version == 1:
             raise ValueError("production state version 1 cannot be migrated safely: "
                              "lifetime shadow peak and trailing-stop history are absent")
-        if version not in (LEGACY_ENVELOPE_VERSION, ENVELOPE_VERSION):
+        if version not in (*LEGACY_ENVELOPE_VERSIONS, ENVELOPE_VERSION):
             raise ValueError(f"unsupported production state version {raw.get('version')!r}")
         migrated = dict(raw)
+        if version in LEGACY_ENVELOPE_VERSIONS:
+            migrated.setdefault("recent_leadership", None)
+            migrated.setdefault("ldrc", None)
         protected = _path_dependent_security_ids(
             migrated.get("wealth_core") or {}, migrated.get("pending") or [])
         migrated["feed"] = _bounded_feed_dict(
@@ -256,6 +299,8 @@ class SessionState:
         if missing:
             raise ValueError("persisted strategy identity is incomplete: "
                              + ", ".join(sorted(missing)))
+        state.recent_leadership, state.ldrc = _canonical_concordance_state(
+            state.strategy_identity, state.recent_leadership, state.ldrc)
         return state
 
     @property
@@ -544,6 +589,11 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
         raise ValueError("running strategy/controller identity disagrees with configuration")
     if env.strategy_identity != running_identity:
         raise ValueError("persisted strategy/config/source identity differs from running identity")
+    concordance = is_concordance_identity(running_identity)
+    if (concordance
+            and controller_config.strategy_id != CONCORDANCE_PARENT_STRATEGY_ID):
+        raise ValueError(
+            "Concordance overlay requires the versioned hardened 30pp parent")
     if env.last_processed_session and published.session <= env.last_processed_session:
         raise ValueError("production sessions must advance strictly")
     if env.data_version is not None and published.data_version < env.data_version:
@@ -605,13 +655,53 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
         spy_r20=regime.spy_r20, spy_vol_ratio=regime.spy_vol_ratio)
     ob = Observation(**{**asdict(ob), "stops20": len(stops)})
     ctl = Controller(controller_config)
-    controller_state, decision = ctl.step(observation=ob, state=env.controller)
+    controller_state, native_decision = ctl.step(
+        observation=ob, state=env.controller)
+    decision = native_decision.to_dict()
+    recent_leadership_state = env.recent_leadership
+    ldrc_state = env.ldrc
+    concordance_evidence = {}
+    if concordance:
+        witness_before = leadership_state_from_dict(
+            env.recent_leadership or {})
+        witness_after, witness_decision = advance_recent_leadership(
+            session=published.session,
+            candidate_rows=plan.leadership_candidates,
+            eligible_universe_count=plan.eligible_universe_count,
+            signal_closes=plan.signal_closes, state=witness_before)
+        overlay_before = ldrc_state_from_dict(env.ldrc or {})
+        overlay_after, overlay_decision = ldrc_step(
+            session=published.session,
+            native_allocation=native_decision.target_core_exposure,
+            effective_native_allocation=(
+                overlay_before.previous_native_allocation),
+            wc_drawdown=ob.shadow_drawdown,
+            recent_r20=witness_decision.recent_r20,
+            recent_r40=witness_decision.recent_r40,
+            spy_r20=regime.spy_r20, state=overlay_before)
+        if overlay_decision.desired_allocation > native_decision.target_core_exposure + 1e-15:
+            raise AssertionError("Concordance cannot increase native exposure")
+        decision = {
+            **decision,
+            "native_target_core_exposure":
+                native_decision.target_core_exposure,
+            "target_core_exposure": overlay_decision.desired_allocation,
+            "ldrc": asdict(overlay_decision),
+        }
+        recent_leadership_state = leadership_state_to_dict(witness_after)
+        ldrc_state = ldrc_state_to_dict(overlay_after)
+        concordance_evidence = {
+            "native_controller": native_decision.to_dict(),
+            "recent_leadership": asdict(witness_decision),
+            "ldrc": asdict(overlay_decision),
+        }
     evidence = {"observation": asdict(ob), "breadth": {
         "denominator": breadth.denominator, "greens": breadth.greens,
         "ambers": breadth.ambers, "reds": breadth.reds,
         "holdings": [asdict(h) for h in held]},
         "wealth_core": _bounded_evidence(
-            {"wealth_core": plan.to_dict()})["wealth_core"]}
+            {"wealth_core": plan.to_dict()})["wealth_core"],
+        **concordance_evidence}
     wealth_core = state.to_dict()
     pending_state = [p.to_dict() for p in pending]
     protected = _path_dependent_security_ids(wealth_core, pending_state)
@@ -626,7 +716,8 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
         breadth_history=damaged[-6:], last_processed_session=published.session,
         data_version=published.data_version,
         strategy_identity=dict(env.strategy_identity),
-        last_decision=decision.to_dict(), last_evidence=evidence)
+        last_decision=decision, last_evidence=evidence,
+        recent_leadership=recent_leadership_state, ldrc=ldrc_state)
 
 
 def advance_and_persist(conn, session: str, prior: SessionState | Mapping, *,

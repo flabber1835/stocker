@@ -395,3 +395,18 @@ def test_publication_and_runtime_strategy_identity_are_complete():
     assert len(strategy["wealth_core_source_sha256"]) == 64
     assert publication_fingerprint(_publication()) == publication_fingerprint(
         deepcopy(_publication().to_dict()))
+
+def test_concordance_identity_refuses_pinned_one_rollout():
+    state = _state(episodes=[_episode(0, "sec-a", "AAA", 10)])
+    state.strategy_identity["allocation_overlay"] = (
+        "sentinel-concordance-simplified-ldrc")
+    state.recent_leadership = {
+        "version": 1, "selected_recent": [], "selected_close": [],
+        "nav_history": [], "session_history": [], "last_session": None}
+    state.ldrc = {
+        "version": 3, "recovery_episode": False,
+        "divergence_latched": False, "recovery_streak": 0,
+        "previous_native_allocation": 1.0,
+        "previous_desired_allocation": 1.0, "last_session": None}
+    with pytest.raises(ValueError, match="PINNED_1_00 cannot override"):
+        _build(state)
