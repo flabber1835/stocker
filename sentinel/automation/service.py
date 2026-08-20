@@ -112,15 +112,13 @@ class AutomationService:
     def _latest_new_execution_at(self, cycle: CycleRecord) -> datetime:
         """Last instant where new transport preserves certified next-open intent.
 
-        The tolerance deliberately reuses ``execution_delay_seconds``. That
-        value is already included in the activated config fingerprint, so the
-        maximum lateness cannot be widened without crossing the existing signed
-        configuration/activation boundary.
+        Maximum lateness is a distinct activation-fingerprinted policy field; it
+        is not inferred from the intended execution delay or retry cadence.
         """
         return min(
             cycle.execution_close_at,
             cycle.execute_at + timedelta(
-                seconds=self.config.execution_delay_seconds))
+                seconds=self.config.maximum_execution_lateness_seconds))
 
     def _execution_is_fresh(self, *, now: datetime, cycle: CycleRecord) -> bool:
         return (
@@ -136,18 +134,13 @@ class AutomationService:
         )
 
     def _assert_clock_skew(self, *, now: datetime, conn_factory) -> None:
-        """Bind host scheduling time to fresh PostgreSQL wall time.
-
-        Five seconds is the hard ceiling; a tighter activated heartbeat setting
-        tightens it further. DB unavailability therefore refuses scheduling
-        authority before lease acquisition or any callback/broker boundary.
-        """
+        """Bind host scheduling time to fresh PostgreSQL wall time."""
         clock_conn = conn_factory()
         try:
             database_now = _utc(integrity.database_now(clock_conn))
         finally:
             clock_conn.close()
-        limit = min(5.0, float(self.config.heartbeat_seconds))
+        limit = float(self.config.maximum_clock_skew_seconds)
         skew = abs((now - database_now).total_seconds())
         if skew > limit:
             raise AutomationRefused(
@@ -224,20 +217,17 @@ class AutomationService:
             heartbeat_conn_factory=None):
         """Invoke with a bounded, independently renewed leadership lease.
 
-        A synchronous canonical callback may occupy the event-loop thread, so
-        heartbeat stays in a separate thread. Unlike the old implementation,
-        renewal stops after ``retry_max_seconds`` (already activation-fingerprinted).
-        A wedged worker therefore becomes fenceable. If it eventually wakes,
-        the deadline result is discarded and the fresh database fence checks at
-        callback/broker boundaries prevent stale mutation.
+        Callback liveness is controlled by the dedicated fingerprinted
+        ``callback_deadline_seconds`` policy. Retry backoff remains independent.
         """
-        deadline = time.monotonic() + self.config.retry_max_seconds
+        deadline_seconds = self.config.callback_deadline_seconds
+        deadline = time.monotonic() + deadline_seconds
         if heartbeat_conn_factory is None:
             result = await _resolve(callback(context))
             if time.monotonic() > deadline:
                 raise StaleLeaderRefused(
                     f"{phase} callback exceeded bounded runtime "
-                    f"{self.config.retry_max_seconds}s")
+                    f"{deadline_seconds}s")
             return result
 
         stopped = threading.Event()
@@ -260,10 +250,6 @@ class AutomationService:
                     store.heartbeat_lease(
                         heartbeat_conn, permit=permit,
                         lease_seconds=self.config.lease_seconds)
-                    # Health must distinguish a live long-running callback from
-                    # a scheduler whose service loop has actually stalled. The
-                    # same bounded watchdog therefore advances the service
-                    # heartbeat while (and only while) it renews leadership.
                     store.register_instance(
                         heartbeat_conn,
                         instance_id=self.holder_id,
@@ -287,7 +273,7 @@ class AutomationService:
         if deadline_hit.is_set() or time.monotonic() > deadline:
             raise StaleLeaderRefused(
                 f"{phase} callback exceeded bounded runtime "
-                f"{self.config.retry_max_seconds}s")
+                f"{deadline_seconds}s")
         if heartbeat_errors:
             raise heartbeat_errors[0]
         return result
@@ -328,8 +314,6 @@ class AutomationService:
                     expected_config_sha256=str(expected_config),
                     actual_config_sha256=self.config.fingerprint)
             except StaleLeaderRefused:
-                # A concurrent operator control transition won the row lock.
-                # Do not overwrite it; the next tick evaluates the new policy.
                 return TickResult(
                     action=TickAction.INERT,
                     reason="automation control changed during config fencing")
@@ -339,9 +323,6 @@ class AutomationService:
                     "automation configuration differs from activation; "
                     f"generation {killed.generation} is durably killed"))
 
-        # Deterministic unit ticks can intentionally supply historical clocks.
-        # Production run() always supplies a fresh connection factory and must
-        # therefore prove host-vs-DB time before authority-bearing scheduling.
         if heartbeat_conn_factory is not None:
             self._assert_clock_skew(
                 now=now, conn_factory=heartbeat_conn_factory)
@@ -385,9 +366,6 @@ class AutomationService:
                 if (recovery.cycle is None
                         or recovery.cycle.state is not CycleState.SUCCEEDED):
                     return recovery
-                # One callback boundary per tick. The following tick may now
-                # refresh the newest publication, but never before durable
-                # clean reconciliation of the inherited unresolved cycle.
                 return recovery
 
             pre_transport = {
@@ -419,10 +397,6 @@ class AutomationService:
                         "an older cycle has unresolved execution or remains "
                         "inside its execution window; recovery precedes catch-up"))
 
-        # A process may die after the executor durably completes but before the
-        # cycle transition commits. A newer current plan may then coexist with
-        # an older unresolved cycle, so "latest by session" is insufficient.
-        # Recover the oldest command-capable nonterminal obligation first.
         unresolved = store.oldest_unresolved_transport_cycle(
             conn, before_session=obligation.decision_session)
         conn.rollback()
@@ -460,8 +434,6 @@ class AutomationService:
 
         if (store.cycle_transport_capable(cycle)
                 and cycle.last_fence_token != permit.fence_token):
-            # A new fencing token may observe the old worker, but it may not
-            # resume that worker's mutation-capable path.
             return await self._run_recover(
                 conn, now=now, cycle=cycle, permit=permit,
                 heartbeat_conn_factory=heartbeat_conn_factory)
@@ -487,8 +459,6 @@ class AutomationService:
                     conn, now=now, cycle=cycle, permit=permit,
                     heartbeat_conn_factory=heartbeat_conn_factory)
             elif retry_phase == "EXECUTE":
-                # Retry metadata is not authority to bypass the immutable
-                # effective-session execution instant.
                 if now < cycle.execute_at:
                     return TickResult(
                         action=TickAction.WAITING, cycle=cycle, permit=permit,
@@ -512,10 +482,6 @@ class AutomationService:
                 return TickResult(
                     action=TickAction.WAITING, cycle=cycle, permit=permit,
                     reason="publication-delay preparation wake has not arrived")
-            # Even when there is no older nonterminal automation cycle, the
-            # command journal may contain work created manually or restored
-            # across process/database recovery. The injected read-only check
-            # must prove it clean before a new corpus publication begins.
             return await self._run_preflight_recover(
                 conn, now=now, cycle=cycle, permit=permit,
                 heartbeat_conn_factory=heartbeat_conn_factory)
@@ -569,12 +535,8 @@ class AutomationService:
                 heartbeat_conn_factory=heartbeat_conn_factory)
 
         if cycle.state is CycleState.EXECUTING:
-            # Row state is never sufficient authority. Re-prove the event
-            # lineage and the immutable timing immediately before executor use.
             integrity.validate_cycle_lineage(conn, cycle)
             if cycle.last_fence_token != permit.fence_token:
-                # A takeover never resumes an old worker's execution path.
-                # Stamp the new fence and enter read-only reconciliation.
                 cycle = store.adopt_cycle(
                     conn, permit=permit, cycle_id=cycle.cycle_id)
                 return await self._run_recover(
@@ -648,7 +610,6 @@ class AutomationService:
             self, conn, *, now: datetime, cycle: CycleRecord,
             permit, heartbeat_conn_factory=None) -> TickResult:
         """Prove the shared journal clean before any new publication."""
-        integrity.validate_cycle_lineage(conn, cycle)
         try:
             permit = store.require_leader(conn, permit)
             raw = await self._invoke(
@@ -737,7 +698,6 @@ class AutomationService:
             self, conn, *, now: datetime, cycle: CycleRecord,
             permit, heartbeat_conn_factory=None) -> TickResult:
         """Read-only broker recovery; this callback is never the executor."""
-        integrity.validate_cycle_lineage(conn, cycle)
         if cycle.last_fence_token != permit.fence_token:
             cycle = store.adopt_cycle(
                 conn, permit=permit, cycle_id=cycle.cycle_id)
@@ -768,8 +728,6 @@ class AutomationService:
                     reason=str(exc))
             if (cycle.control_generation == permit.control_generation
                     and cycle.state is CycleState.RETRY_WAIT):
-                # Stay RETRY_WAIT is deliberately not a state transition; move
-                # through RECONCILING so the retry/event remains auditable.
                 cycle = store.transition_cycle(
                     conn, permit=permit, cycle_id=cycle.cycle_id,
                     to_state=CycleState.RECONCILING)
@@ -835,9 +793,6 @@ class AutomationService:
                     action=TickAction.BLOCKED, cycle=cycle, permit=permit,
                     reason=cycle.failure_detail)
             if not self._execution_is_fresh(now=now, cycle=cycle):
-                # EXECUTING means transport may have begun. Never jump directly
-                # from that ambiguity to SUPERSEDED; make the read-only
-                # reconciliation boundary durable first.
                 if cycle.state is CycleState.EXECUTING:
                     cycle = store.transition_cycle(
                         conn, permit=permit, cycle_id=cycle.cycle_id,
@@ -942,7 +897,6 @@ class AutomationService:
         except StaleLeaderRefused:
             raise
         except Exception as exc:                                  # noqa: BLE001
-            # Authority/fence loss cannot authorize another durable write.
             store.require_leader(conn, permit)
             if self._nonretryable(exc):
                 cycle = store.transition_cycle(
@@ -968,8 +922,6 @@ class AutomationService:
     async def _run_execute(
             self, conn, *, now: datetime, cycle: CycleRecord,
             permit, heartbeat_conn_factory=None) -> TickResult:
-        # Independent last-line timing/lineage gate: even a syntactically valid
-        # SQL promotion to EXECUTING cannot route into the injected executor.
         integrity.validate_cycle_lineage(conn, cycle)
         if now < cycle.execute_at:
             raise AutomationRefused(
@@ -1061,14 +1013,7 @@ class AutomationService:
             control_wake: Callable[[Any], Awaitable[datetime | None]
                                    | datetime | None] | None = None,
             max_ticks: int | None = None) -> int:
-        """Persistent bounded-loop primitive with restart-safe wake recompute.
-
-        ``stop`` and ``max_ticks`` make the same loop deterministic in tests.
-        A production wrapper can run it indefinitely. Heartbeats are renewed on
-        every tick via lease reacquisition, and the sleep is capped by both
-        heartbeat and control-poll intervals. Alert/control hooks may request an
-        earlier wake but receive no broker object.
-        """
+        """Persistent bounded-loop primitive with restart-safe wake recompute."""
         ticks = 0
         while not stop.is_set() and (max_ticks is None or ticks < max_ticks):
             conn = conn_factory()
