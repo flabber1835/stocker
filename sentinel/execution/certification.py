@@ -64,11 +64,20 @@ REGISTRY: Mapping[str, AdapterCertification] = {
 
     "alpaca": AdapterCertification(
         name="alpaca", certified=True,
-        notes="paper only — sentinel/config.py refuses api.alpaca.markets with "
-              "no override. Certified for: derived client keys, single-order "
-              "cancel, paginated-or-truncated observation, exact-quantity "
-              "exits. NOT certified for fractional quantities or "
-              "market-on-open, and the capability flags say so."),
+        notes=(
+            "paper only — sentinel/config.py refuses api.alpaca.markets with no "
+            "override. Certified for deterministic client keys, single-order "
+            "cancel, DAY market orders addressed by durable Alpaca asset_id, "
+            "account-bound observations, and bounded Activity-SSE financial "
+            "reconciliation with broker-native event identity. Open-order REST "
+            "pagination is NOT certified as a proof that an unknown stale-restore "
+            "order was not omitted; physical PostgreSQL incarnation/takeover "
+            "fencing plus DAY-order expiry supplies that restore boundary. "
+            "Recent fill history is intentionally not advertised as a complete "
+            "accounting ledger because trade corrections/busts are explicit "
+            "refusals. Account REST payload timing is not treated as freshness; "
+            "cash authority is corroborated against the bounded Activity SSE. "
+            "Fractional quantities and market-on-open remain uncertified.")),
 
     "ibkr": AdapterCertification(
         name="ibkr", certified=False,

@@ -17,11 +17,33 @@ A successful 2xx proves receipt, not final lifecycle. The response must first ag
 
 ## 2. Account Activities are durable cash evidence, not a plug
 
-Alpaca cash-affecting Account Activities are read in ascending order, paginated with the broker-native activity id as `page_token`, and bounded by a captured upper timestamp. A partial page walk is unusable and advances no durable cursor.
+Alpaca cash-affecting Account Activities are read from Activity SSE. The two
+native identifiers have deliberately different jobs:
+
+- `ref_id` is the economic idempotency key retained with the cash/fill row;
+- `event_id` is the monotonically increasing publication cursor retained after
+  every complete batch and supplied as `since_id` on replay.
+
+The first read, and an upgrade from the former timestamp-only cursor, performs a
+complete historical scan from account binding establishment. Subsequent bounded
+reads first capture the current upper `event_id`, then replay the closed
+`since_id`/`until_id` interval. A partial walk is unusable and advances no durable
+cursor. A timestamp is retained for audit and clock-rollback detection only; it
+is never resumption authority. This matters because Alpaca's `since`/`until`
+filter the business timestamp (`at`), while a delayed or backfilled activity is
+appended later in `event_id` order and can therefore fall behind an already
+advanced timestamp boundary.
+
+Terminal-order recovery applies the same rule conservatively. Until that path
+has its own durable `event_id`, every bounded terminal recovery scans the full
+available Activity SSE lifetime and deduplicates by native fill `ref_id` rather
+than trusting the terminal timestamp watermark to find late publications.
 
 The existing `sentinel_processed_sessions` table is a keyed durable-cursor store as well as the Wealth Core catch-up row. Issue 183 uses two namespaced cursor families in its `state` JSON rather than introducing an unvalidated authority table:
 
-- one account-activity cursor per bound broker account, retaining `processed_through`, the last native activity id, and the cumulative recognized cash total;
+- one account-activity cursor per bound broker account, retaining
+  `processed_through`, the last processed `event_id`, the last economic
+  `ref_id`, and the cumulative recognized cash total;
 - one plan cash baseline per plan id, retaining the cumulative recognized cash total that existed when that immutable plan was prepared.
 
 Every broker activity is idempotent by its native activity id. Cash events are retained in `sentinel_cash_flows` under reserved broker-native flow ids. Replay of the same id must reproduce the same date, amount and classification; a changed duplicate is corruption, not an upsert.
@@ -48,3 +70,26 @@ For **reductions**, the broker clock is not an additional veto. The local certif
 This change does not claim to close the separately tracked work for full asset-id enforcement (#124), restore-grade open-order completeness (#125), late terminal-history aging (#127), account-bound observations (#128), account-snapshot freshness (#129), fill-activity pagination/native fill identity (#131), terminal-watermark integrity (#146), or mutation-authority TOCTOU (#110).
 
 In particular, issue 183 imports non-fill cash activities. `FILL` remains reconciled from cumulative order state until #131 replaces the fill ledger's current content fingerprint with broker-native fill activity ids.
+
+## 5. Recovery and emergency-authority linearization
+
+The account-bound terminal-recovery completion witness is an Alpaca adapter
+claim. It is required only while reconciliation is operating on the concrete
+Alpaca broker (including a guarded wrapper around it). Broker-independent
+simulators and other adapters retain the generic terminal watermark contract;
+they cannot be required to manufacture Alpaca account/asset provenance.
+
+Emergency kill and revocation remain immediate database operations. The durable
+`PLANNED -> SEND_PENDING` commit is the local side-effect linearization point:
+
+- a kill/revocation committed before `SEND_PENDING` prevents that command from
+  crossing the boundary;
+- a command already committed as `SEND_PENDING` may reach transport even if an
+  emergency transition commits before the network call, but it uses the same
+  deterministic client key and is recovered as `SEND_PENDING`/`UNKNOWN`;
+- every later authority check and every later command is refused.
+
+No local database lock can both make a network send atomic and keep the
+emergency operation non-blocking. Serializing kill behind the execution writer
+would make the control appear immediate while it waited on the very work it is
+intended to fence, so that design is rejected explicitly.

@@ -39,7 +39,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from typing import Mapping, Optional, Sequence
+from typing import Callable, Mapping, Optional, Sequence
 
 from sentinel.execution import commands as C
 from sentinel.execution import journal, reconcile as R, recovery
@@ -224,6 +224,19 @@ def is_execution_window_open(plan: ExecutionPlan, today: date) -> bool:
 #: arriving in this session, and waiting longer converts a deferral into a hang.
 DEFAULT_SETTLE_CYCLES = 6
 
+# Adapter-specific restore fences register here instead of replacing this
+# public function. Keeping ``execute_session`` concrete preserves its audited
+# signature and, more importantly, the source-level proof that plan currency is
+# rechecked inside the writer lock.
+_INCREASE_FENCE_REASONS: list[Callable[..., str]] = []
+
+
+def register_increase_fence_reason(check: Callable[..., str]) -> None:
+    if not callable(check):
+        raise TypeError("increase fence reason must be callable")
+    if check not in _INCREASE_FENCE_REASONS:
+        _INCREASE_FENCE_REASONS.append(check)
+
 
 async def execute_session(*, broker: ExecutionBroker, conn,
                           deployment: DeploymentIdentity, plan: ExecutionPlan,
@@ -311,6 +324,18 @@ async def execute_session(*, broker: ExecutionBroker, conn,
         # true for the duration of the session rather than at an instant before
         # it, because supersession requires the same lock.
         _assert_current_plan(conn, plan)
+        fence_reason = next((reason for reason in (
+            check(conn=conn, deployment=deployment, today=today)
+            for check in _INCREASE_FENCE_REASONS) if reason), "")
+        if fence_reason:
+            prior_increase_authority = increase_authority
+
+            async def adapter_increase_fence(observation):
+                if prior_increase_authority is not None:
+                    await prior_increase_authority(observation)
+                raise RuntimeError(fence_reason)
+
+            increase_authority = adapter_increase_fence
         return await _execute_session_locked(
             broker=broker, conn=conn, deployment=deployment, plan=plan,
             instruments=instruments, today=today, actions=actions,
