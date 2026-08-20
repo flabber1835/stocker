@@ -179,6 +179,22 @@ def _assert_executable(plan: ExecutionPlan) -> None:
             f"order on our behalf.")
 
 
+def _execution_universe(desired: Mapping[str, Decimal], observation) -> set[str]:
+    """Every security whose broker economics can affect exact-delta sizing.
+
+    A working order is economic state even when no position exists yet and the
+    immutable plan never named the security.  Omitting that order-only identity
+    makes the lower execution membrane incomplete: `desired - held - committed`
+    is exact only if every committed security is actually sized.
+    """
+    return (
+        set(desired)
+        | set(observation.positions_by_security())
+        | {order.instrument.security_id
+           for order in observation.orders if order.is_working}
+    )
+
+
 def order_of_operations(deltas: Sequence[C.Delta]) -> tuple:
     """Reductions first, then increases; stable within each group.
 
@@ -358,7 +374,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     #    Sizing incrementally as we go would measure each delta against a book
     #    the previous submission had already changed.
     deltas = []
-    for security_id in sorted(set(desired) | set(observation.positions_by_security())):
+    for security_id in sorted(_execution_universe(desired, observation)):
         deltas.append(C.compute_delta(
             security_id=security_id,
             desired=desired.get(security_id, Decimal(0)),
