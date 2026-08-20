@@ -231,8 +231,15 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
             sep_reconciliation.reconcile_next(
                 conn, fetch=fetch, through=published_frontier)
 
+        # The 99.9% TICKERS-vs-SEP population witness is a source-completeness
+        # assertion, not a generic property of any injected callback. Only the
+        # production snapshot membrane has independently established whole-table
+        # TICKERS authority. Synthetic/replay fetchers still exercise stability,
+        # identity, and ingest semantics, but cannot manufacture that authority.
+        listing_frontier = (
+            published_frontier if fetch is snapshot_source.fetch_table else None)
         guarded = coherence.StableSharadarFetch(
-            fetch, after_session=published_frontier)
+            fetch, after_session=listing_frontier)
         effective_overlap = recovery.extended_overlap_days(conn, overlap_days)
         progress = _impl._daily_locked(
             conn, fetch=guarded, resolve_identity=resolve_identity,
