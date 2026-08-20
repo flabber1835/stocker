@@ -1,0 +1,61 @@
+name: SEC PIT replay evidence
+
+on:
+  pull_request:
+    paths:
+      - 'sec-filings/**'
+      - 'tools/sec_pit_reconstruct.py'
+      - '.github/workflows/sec-pit-replay-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Reconstruct compact issuer evidence
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/sec-pit
+          python tools/sec_pit_reconstruct.py \
+            --input-dir sec-filings \
+            --output-dir /tmp/sec-pit \
+            --require-start 2006Q1 \
+            --require-through 2026Q2
+
+      - name: Emit deterministic compressed evidence payload
+        run: |
+          python - <<'PY'
+          import base64
+          import csv
+          import gzip
+          import hashlib
+          import io
+          from pathlib import Path
+
+          p = Path('/tmp/sec-pit/symbol_cik_evidence.csv')
+          raw = p.read_bytes()
+          rows = sum(1 for _ in csv.DictReader(io.StringIO(raw.decode('utf-8'))))
+          packed = gzip.compress(raw, compresslevel=9, mtime=0)
+          encoded = base64.b64encode(packed).decode('ascii')
+          print(f'SEC_PIT_EVIDENCE_META rows={rows} raw_bytes={len(raw)} gzip_bytes={len(packed)} b64_chars={len(encoded)} sha256={hashlib.sha256(raw).hexdigest()}')
+          print('SEC_PIT_EVIDENCE_B64_BEGIN')
+          chunk = 60000
+          for i in range(0, len(encoded), chunk):
+              print(f'SEC_PIT_CHUNK {i // chunk:05d} {encoded[i:i+chunk]}')
+          print('SEC_PIT_EVIDENCE_B64_END')
+          PY
