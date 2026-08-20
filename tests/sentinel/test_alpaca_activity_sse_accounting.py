@@ -105,6 +105,7 @@ def test_trade_event_is_fill_evidence_not_second_cash_flow():
 
     assert cash.activities == ()
     assert cash.last_activity_id is None
+    assert cash.last_event_id == "01J5R000000000000000000001"
     assert len(fills) == 1
     assert fills[0].activity_id == "22222222-2222-2222-2222-222222222222"
     assert fills[0].quantity == Decimal("2")

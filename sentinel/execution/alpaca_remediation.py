@@ -16,8 +16,8 @@ from __future__ import annotations
 import hashlib
 import json
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
-from datetime import date, datetime, timezone
+from dataclasses import dataclass
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional, Sequence
 from urllib.parse import quote
@@ -41,7 +41,6 @@ def install() -> None:
         BrokerCashActivityBatch,
         RECOGNIZED_ACTIVITY_TYPES,
     )
-    from sentinel.execution.states import CommandState
     from sentinel.automation import store as automation_store
     from sentinel import authority
 
@@ -380,7 +379,12 @@ def install() -> None:
                         "broker clock reports market closed; increase refused "
                         "before transport")
 
-            if self.capabilities.instrument_identity:
+            # Stable asset-id re-resolution is an Alpaca transport invariant,
+            # not a new requirement on every broker that advertises a generic
+            # instrument-identity capability. Simulator and future adapters
+            # retain their own conformance contracts.
+            if (isinstance(self._inner, alpaca.AlpacaExecutionBroker)
+                    and self.capabilities.instrument_identity):
                 if not instrument.broker_id:
                     raise guarded.PreTransportAuthorityRefused(
                         "durable command has no broker-native instrument identity")

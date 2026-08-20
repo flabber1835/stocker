@@ -13,6 +13,7 @@ make an unknown predecessor DAY order harmless before re-risking.
 """
 from __future__ import annotations
 
+
 _INSTALLED = False
 
 
@@ -28,7 +29,6 @@ def install() -> None:
         _INSTALLED = True
         return
 
-    current_execute_session = executor.execute_session
     current_restore_reason = alpaca.restore_increase_fence_reason
 
     def postmaster_day_order_fence_reason(conn, today) -> str:
@@ -63,25 +63,12 @@ def install() -> None:
         return (postmaster_day_order_fence_reason(conn, today)
                 or current_restore_reason(conn, deployment, today))
 
-    async def execute_session_with_postmaster_fence(*args, **kwargs):
-        if args:
-            raise TypeError(
-                "execute_session postmaster fence requires keyword arguments")
-        reason = postmaster_day_order_fence_reason(
-            kwargs["conn"], kwargs["today"])
-        if reason:
-            original_increase_authority = kwargs.get("increase_authority")
+    def execution_postmaster_reason(*, conn, deployment, today):
+        if deployment.broker != "alpaca":
+            return ""
+        return postmaster_day_order_fence_reason(conn, today)
 
-            async def fenced_increase_authority(observation):
-                if original_increase_authority is not None:
-                    await original_increase_authority(observation)
-                raise alpaca.RestoreGradeIncreaseDeferred(reason)
-
-            kwargs = dict(kwargs)
-            kwargs["increase_authority"] = fenced_increase_authority
-        return await current_execute_session(**kwargs)
-
-    executor.execute_session = execute_session_with_postmaster_fence
+    executor.register_increase_fence_reason(execution_postmaster_reason)
     alpaca.restore_increase_fence_reason = combined_restore_reason
     alpaca.postmaster_day_order_fence_reason = postmaster_day_order_fence_reason
     alpaca._POSTMASTER_DAY_FENCE_INSTALLED = True

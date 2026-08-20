@@ -14,12 +14,24 @@ _INSTALLED = False
 _RECONCILING = ContextVar("sentinel_alpaca_remediation_reconciling", default=False)
 
 
+def _is_broker_instance(broker, broker_type: type) -> bool:
+    """Recognize a concrete adapter through any number of guarded wrappers."""
+    seen: set[int] = set()
+    while broker is not None and id(broker) not in seen:
+        seen.add(id(broker))
+        if isinstance(broker, broker_type):
+            return True
+        broker = getattr(broker, "_inner", None)
+    return False
+
+
 def install() -> None:
     global _INSTALLED
     if _INSTALLED:
         return
 
-    from sentinel.execution import journal, reconcile, guarded
+    from sentinel.execution import alpaca, journal, reconcile, guarded
+    from sentinel.execution.contract import ExecutionBroker
 
     strict_checkpoint = journal.terminal_recovery_checkpoint
     strict_floor = journal.terminal_recovery_floor
@@ -76,7 +88,9 @@ def install() -> None:
         return processed
 
     async def contextual_reconcile(*args, **kwargs):
-        token = _RECONCILING.set(True)
+        broker = kwargs.get("broker")
+        strict = _is_broker_instance(broker, alpaca.AlpacaExecutionBroker)
+        token = _RECONCILING.set(strict)
         try:
             return await strict_reconcile(*args, **kwargs)
         finally:
@@ -109,6 +123,16 @@ def install() -> None:
             return await super().submit(**kwargs)
 
     guarded.GuardedExecutionBroker = CapabilityScopedGuardedExecutionBroker
+    # Adapter overlays subclass the guarded membrane to tighten submit. Keep
+    # the protocol methods concrete on the exported class itself so the
+    # introspection guard can still prove that every broker coroutine crosses
+    # this wrapper; inherited-only methods would make that proof disappear.
+    for name, value in ExecutionBroker.__dict__.items():
+        if name.startswith("_") or not callable(value):
+            continue
+        inherited = getattr(CapabilityScopedGuardedExecutionBroker, name, None)
+        if inherited is not None:
+            setattr(CapabilityScopedGuardedExecutionBroker, name, inherited)
     _INSTALLED = True
 
 

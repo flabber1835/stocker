@@ -167,6 +167,18 @@ def test_runtime_exports_final_hardened_adapter():
     assert AlpacaExecutionBroker.financial_activity_sse is True
 
 
+def test_strict_terminal_witness_is_scoped_to_alpaca_even_through_wrappers():
+    broker, _ = adapter()
+
+    class Wrapper:
+        def __init__(self, inner):
+            self._inner = inner
+
+    assert compat._is_broker_instance(broker, AlpacaExecutionBroker)
+    assert compat._is_broker_instance(Wrapper(broker), AlpacaExecutionBroker)
+    assert not compat._is_broker_instance(object(), AlpacaExecutionBroker)
+
+
 def test_empty_order_class_is_accepted_and_post_targets_asset_id():
     broker, http = adapter(post=Response(full_order(), 200))
     outcome = run(broker.submit(
@@ -230,6 +242,42 @@ def test_activity_sse_loss_comment_is_not_complete_history():
             through=datetime(2026, 8, 19, 18, tzinfo=UTC)))
 
 
+def test_activity_sse_resumes_by_event_cursor_through_bounded_upper_id():
+    first = activity_event()
+    second = activity_event(
+        # A late publication may retain old business time. Its newer event_id,
+        # not ``at``, is what makes it visible to replay.
+        at="2026-08-19T16:30:00Z",
+        event_id="01J5R000000000000000000002",
+        ref_id="33333333-3333-3333-3333-333333333333",
+        net_amount="10.00")
+
+    def activities(params):
+        if "since_id" in params:
+            return Response(text=sse(first, second))
+        return Response(text=sse(first, second))
+
+    broker, http = adapter(routes={
+        "/v2beta1/events/activities": activities,
+    })
+    batch = run(broker.account_cash_activities(
+        after=datetime(2026, 8, 19, 16, tzinfo=UTC),
+        through=datetime(2026, 8, 19, 18, tzinfo=UTC),
+        since_event_id=first["event_id"]))
+
+    calls = [call[2] for call in http.calls
+             if call[1] == "/v2beta1/events/activities"]
+    assert len(calls) == 2
+    assert set(calls[0]) == {"since", "until"}
+    assert calls[1] == {
+        "since_id": first["event_id"],
+        "until_id": second["event_id"],
+    }
+    assert batch.last_event_id == second["event_id"]
+    assert [activity.activity_id for activity in batch.activities] == [
+        first["ref_id"], second["ref_id"]]
+
+
 def test_native_fill_activity_ids_preserve_economic_multiplicity():
     common = dict(
         client_key=None,
@@ -241,6 +289,28 @@ def test_native_fill_activity_ids_preserve_economic_multiplicity():
     first = NativeBrokerFill(activity_id="fill-a", **common)
     second = NativeBrokerFill(activity_id="fill-b", **common)
     assert journal.fill_fingerprint(first) != journal.fill_fingerprint(second)
+
+
+def test_terminal_fill_recovery_replays_full_sse_lifetime_for_backfills():
+    late = activity_event(
+        activity_type="TRD",
+        at="2026-08-19T16:00:00Z",
+        executed_at="2026-08-19T16:00:00Z",
+        qty="1",
+        price="100",
+        net_amount="-100",
+        details={"execution_type": "fill", "order_id": "order-late"})
+    broker, http = adapter(routes={
+        "/v2beta1/events/activities": Response(text=sse(late)),
+    })
+    fills = run(broker._recent_fills_bounded(
+        datetime(2026, 8, 19, 17, tzinfo=UTC),
+        datetime(2026, 8, 19, 18, tzinfo=UTC)))
+
+    assert [fill.broker_order_id for fill in fills] == ["order-late"]
+    params = [call[2] for call in http.calls
+              if call[1] == "/v2beta1/events/activities"]
+    assert params[0]["since"] == "2026-02-11T00:00:00+00:00"
 
 
 @pytest.fixture(scope="module")

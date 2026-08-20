@@ -38,7 +38,7 @@ def install() -> None:
     if _INSTALLED:
         return
 
-    from sentinel.execution import alpaca, broker_cash, executor, journal
+    from sentinel.execution import alpaca, executor, journal
     from sentinel.execution.identity import is_sentinel_key
     from sentinel.execution.states import CommandState, TERMINAL
 
@@ -55,9 +55,12 @@ def install() -> None:
     original_cash_activities = broker_cls.account_cash_activities
 
     async def cash_activities_without_trade_double_count(
-            self, *, after, through):
+            self, *, after, through, since_event_id=None):
+        kwargs = {"after": after, "through": through}
+        if since_event_id is not None:
+            kwargs["since_event_id"] = since_event_id
         batch = await original_cash_activities(
-            self, after=after, through=through)
+            self, **kwargs)
         non_trade = tuple(
             activity for activity in batch.activities
             if activity.activity_type != "TRD")
@@ -317,7 +320,6 @@ def install() -> None:
     # one upgrade shape that exists before an incarnation anchor can exist.
     # ------------------------------------------------------------------
     original_restore_reason = alpaca.restore_increase_fence_reason
-    current_execute_session = executor.execute_session
 
     def upgrade_restore_reason(conn) -> str:
         with conn.cursor() as cur:
@@ -351,27 +353,13 @@ def install() -> None:
         return (upgrade_restore_reason(conn)
                 or original_restore_reason(conn, deployment, today))
 
-    async def execute_session_with_upgrade_fence(*args, **kwargs):
-        if args:
-            # ``execute_session`` is intentionally keyword-only. Refuse an
-            # unexpected calling convention rather than silently skipping the
-            # restore fence.
-            raise TypeError("execute_session restore fence requires keyword arguments")
-        conn = kwargs["conn"]
-        reason = upgrade_restore_reason(conn)
-        if reason:
-            original_increase_authority = kwargs.get("increase_authority")
+    def execution_upgrade_reason(*, conn, deployment, today):
+        del today
+        if deployment.broker != "alpaca":
+            return ""
+        return upgrade_restore_reason(conn)
 
-            async def fenced_increase_authority(observation):
-                if original_increase_authority is not None:
-                    await original_increase_authority(observation)
-                raise alpaca.RestoreGradeIncreaseDeferred(reason)
-
-            kwargs = dict(kwargs)
-            kwargs["increase_authority"] = fenced_increase_authority
-        return await current_execute_session(**kwargs)
-
-    executor.execute_session = execute_session_with_upgrade_fence
+    executor.register_increase_fence_reason(execution_upgrade_reason)
     alpaca.restore_increase_fence_reason = restore_reason_with_upgrade_fence
 
     alpaca._ACCOUNTING_INTEGRITY_INSTALLED = True

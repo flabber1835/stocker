@@ -218,6 +218,10 @@ class GuardedExecutionBroker(ExecutionBroker):
         return self._has_optional_override(
             self._inner, "account_cash_activities")
 
+    @property
+    def financial_activity_sse(self) -> bool:
+        return getattr(self._inner, "financial_activity_sse", False) is True
+
     async def _read(self, operation: BrokerOperation, call):
         try:
             await self._guard.before_read(self._grant, operation)
@@ -277,14 +281,17 @@ class GuardedExecutionBroker(ExecutionBroker):
         return await self._read(BrokerOperation.MARKET_CLOCK, read)
 
     async def account_cash_activities(self, *, after: datetime,
-                                      through: datetime):
+                                      through: datetime,
+                                      since_event_id: str | None = None):
         if not self.supports_account_cash_activities:
             raise AttributeError(
                 "execution broker does not expose account cash activities")
 
         async def read():
-            return await self._inner.account_cash_activities(
-                after=after, through=through)
+            kwargs = {"after": after, "through": through}
+            if since_event_id is not None:
+                kwargs["since_event_id"] = since_event_id
+            return await self._inner.account_cash_activities(**kwargs)
 
         return await self._read(BrokerOperation.ACCOUNT_CASH_ACTIVITIES, read)
 

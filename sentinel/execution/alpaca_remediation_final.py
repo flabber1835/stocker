@@ -116,14 +116,12 @@ def install() -> None:
     if _INSTALLED:
         return
 
-    from sentinel import binding as binding_mod
-    from sentinel.automation import store as automation_store
     from sentinel.execution import (
-        alpaca, broker_cash, contract, executor, journal, reconcile)
+        alpaca, broker_cash, contract, executor, journal)
     from sentinel.execution import authority_gate
     from sentinel.execution.guarded import BrokerAuthorityRefused
     from sentinel.execution.identity import is_sentinel_key
-    from sentinel.execution.states import CommandState, RuntimeState
+    from sentinel.execution.states import CommandState
 
     if getattr(alpaca, "_FINAL_BOUNDARY_REMEDIATION_INSTALLED", False):
         _INSTALLED = True
@@ -251,7 +249,8 @@ def install() -> None:
 
         async def _bounded_activity_events(
                 self, *, after: datetime,
-                through: datetime) -> tuple[dict, ...]:
+                through: datetime,
+                since_event_id: Optional[str] = None) -> tuple[dict, ...]:
             floor = alpaca._required_aware_ts(
                 after, where="Activity SSE lower boundary")
             upper = alpaca._required_aware_ts(
@@ -269,63 +268,100 @@ def install() -> None:
             if not account_uuid:
                 raise alpaca.MalformedBrokerPayload(
                     "Alpaca account payload has no UUID for Activity SSE binding")
-            params = {"since": floor.isoformat(), "until": upper.isoformat()}
             headers = dict(self._headers())
             headers["Accept"] = "text/event-stream"
-            try:
-                async with self._httpx.AsyncClient(timeout=60.0) as client:
-                    resp = await client.get(
-                        f"{self.base_url}/v2beta1/events/activities",
-                        headers=headers, params=params)
-            except Exception as exc:                          # noqa: BLE001
-                raise RuntimeError(
-                    f"Activity SSE transport failed: {type(exc).__name__}: {exc}") from exc
-            if resp.status_code in (401, 403):
-                raise alpaca.AlpacaCredentialsRefused(
-                    f"Activity SSE authority refused with HTTP {resp.status_code}")
-            if resp.status_code != 200:
-                raise RuntimeError(
-                    f"Activity SSE returned HTTP {resp.status_code}")
 
-            events = list(_sse_events(
-                resp.text, malformed=alpaca.MalformedBrokerPayload))
-            seen_event: set[str] = set()
-            seen_ref: set[str] = set()
-            prior_event = ""
-            for event in events:
-                event_id = str(event.get("event_id") or "").strip()
-                ref_id = str(event.get("ref_id") or "").strip()
-                event_account = str(event.get("account_id") or "").strip()
-                if not event_id or not ref_id:
-                    raise alpaca.MalformedBrokerPayload(
-                        "Activity SSE event omitted event_id/ref_id")
-                if event_account != account_uuid:
-                    raise alpaca.MalformedBrokerPayload(
-                        "Activity SSE event belongs to another account")
-                if event_id in seen_event:
-                    raise alpaca.MalformedBrokerPayload(
-                        f"Activity SSE repeated event_id {event_id}")
-                if ref_id in seen_ref:
-                    raise alpaca.MalformedBrokerPayload(
-                        f"Activity SSE repeated ref_id {ref_id}")
-                if prior_event and event_id <= prior_event:
-                    raise alpaca.MalformedBrokerPayload(
-                        "Activity SSE event_id order is not strictly monotonic")
-                seen_event.add(event_id)
-                seen_ref.add(ref_id)
-                prior_event = event_id
-                if not isinstance(event.get("details"), dict):
-                    raise alpaca.MalformedBrokerPayload(
-                        f"Activity SSE event {event_id} has no details object")
-            return tuple(events)
+            async def request(params: Mapping[str, str]) -> tuple[dict, ...]:
+                try:
+                    async with self._httpx.AsyncClient(timeout=60.0) as client:
+                        resp = await client.get(
+                            f"{self.base_url}/v2beta1/events/activities",
+                            headers=headers, params=dict(params))
+                except Exception as exc:                      # noqa: BLE001
+                    raise RuntimeError(
+                        "Activity SSE transport failed: "
+                        f"{type(exc).__name__}: {exc}") from exc
+                if resp.status_code in (401, 403):
+                    raise alpaca.AlpacaCredentialsRefused(
+                        "Activity SSE authority refused with HTTP "
+                        f"{resp.status_code}")
+                if resp.status_code != 200:
+                    raise RuntimeError(
+                        f"Activity SSE returned HTTP {resp.status_code}")
+                events = tuple(_sse_events(
+                    resp.text, malformed=alpaca.MalformedBrokerPayload))
+                seen_event: set[str] = set()
+                seen_ref: set[str] = set()
+                prior_event = ""
+                for event in events:
+                    event_id = str(event.get("event_id") or "").strip()
+                    ref_id = str(event.get("ref_id") or "").strip()
+                    event_account = str(event.get("account_id") or "").strip()
+                    if not event_id or not ref_id:
+                        raise alpaca.MalformedBrokerPayload(
+                            "Activity SSE event omitted event_id/ref_id")
+                    if event_account != account_uuid:
+                        raise alpaca.MalformedBrokerPayload(
+                            "Activity SSE event belongs to another account")
+                    if event_id in seen_event:
+                        raise alpaca.MalformedBrokerPayload(
+                            f"Activity SSE repeated event_id {event_id}")
+                    if ref_id in seen_ref:
+                        raise alpaca.MalformedBrokerPayload(
+                            f"Activity SSE repeated ref_id {ref_id}")
+                    if prior_event and event_id <= prior_event:
+                        raise alpaca.MalformedBrokerPayload(
+                            "Activity SSE event_id order is not strictly monotonic")
+                    seen_event.add(event_id)
+                    seen_ref.add(ref_id)
+                    prior_event = event_id
+                    if not isinstance(event.get("details"), dict):
+                        raise alpaca.MalformedBrokerPayload(
+                            f"Activity SSE event {event_id} has no details object")
+                return events
+
+            # Timestamp filters establish only a *bounded snapshot*. They are
+            # not a replay cursor because Alpaca filters business time (`at`),
+            # while delayed/backfilled events append later in event_id order.
+            snapshot = await request({
+                "since": floor.isoformat(), "until": upper.isoformat()})
+            if since_event_id is None:
+                return snapshot
+            cursor = str(since_event_id).strip()
+            if not cursor:
+                raise alpaca.MalformedBrokerPayload(
+                    "Activity SSE since_event_id must be non-empty")
+            if not snapshot:
+                # With no event in the complete owned-account interval there
+                # is no newer upper cursor to replay through.
+                return ()
+            upper_event_id = str(snapshot[-1]["event_id"])
+            if upper_event_id < cursor:
+                raise alpaca.MalformedBrokerPayload(
+                    "Activity SSE bounded upper event_id regressed")
+            if upper_event_id == cursor:
+                return ()
+
+            replay = await request({
+                "since_id": cursor, "until_id": upper_event_id})
+            if not replay or str(replay[-1]["event_id"]) != upper_event_id:
+                raise alpaca.MalformedBrokerPayload(
+                    "Activity SSE cursor replay did not reach its bounded upper id")
+            if str(replay[0]["event_id"]) < cursor:
+                raise alpaca.MalformedBrokerPayload(
+                    "Activity SSE cursor replay crossed behind its durable id")
+            return replay
 
         async def account_cash_activities(
                 self, *, after: datetime,
-                through: datetime) -> broker_cash.BrokerCashActivityBatch:
+                through: datetime,
+                since_event_id: Optional[str] = None
+                ) -> broker_cash.BrokerCashActivityBatch:
             upper = alpaca._required_aware_ts(
                 through, where="cash activity upper boundary")
             events = await self._bounded_activity_events(
-                after=after, through=through)
+                after=after, through=through,
+                since_event_id=since_event_id)
             activities: list[broker_cash.BrokerCashActivity] = []
             last_ref: Optional[str] = None
             for event in events:
@@ -375,14 +411,30 @@ def install() -> None:
                 processed_through=upper,
                 completeness=contract.Completeness.COMPLETE,
                 last_activity_id=last_ref,
+                last_event_id=(str(events[-1]["event_id"])
+                               if events else since_event_id),
             )
 
         async def _recent_fills_bounded(
                 self, since: datetime,
                 through: Optional[datetime]) -> Sequence[contract.BrokerFill]:
             upper = through or datetime.now(timezone.utc)
+            requested_floor = alpaca._required_aware_ts(
+                since, where="fill activity lower boundary")
+            if requested_floor > upper:
+                raise alpaca.MalformedBrokerPayload(
+                    "fill activity lower boundary exceeds upper boundary")
+            # Terminal recovery cannot resume fill publication by business
+            # timestamp: a fill may be backfilled after the durable terminal
+            # watermark with an older ``at``/``executed_at``. Until fill
+            # recovery owns its own durable event_id cursor, a bounded recovery
+            # read deliberately traverses the complete Activity-SSE lifetime.
+            # The unbounded diagnostic method retains its caller's time filter.
+            event_floor = (
+                _ACTIVITY_SSE_AVAILABLE_FROM
+                if through is not None else requested_floor)
             events = await self._bounded_activity_events(
-                after=since, through=upper)
+                after=event_floor, through=upper)
             fills: list[contract.BrokerFill] = []
             for event in events:
                 if str(event.get("activity_type") or "").upper() != "TRD":
@@ -826,30 +878,12 @@ def install() -> None:
                 "executable even if Alpaca open-order enumeration omitted one")
         return ""
 
-    original_execute_session = executor.execute_session
+    def execution_restore_reason(*, conn, deployment, today):
+        if deployment.broker != "alpaca":
+            return ""
+        return restore_increase_fence_reason(conn, deployment, today)
 
-    async def execute_session_with_restore_fence(
-            *, broker, conn, deployment, plan, instruments, today,
-            actions=None, min_increment=Decimal(1),
-            settle_cycles=executor.DEFAULT_SETTLE_CYCLES,
-            increase_authority=None):
-        reason = restore_increase_fence_reason(conn, deployment, today)
-        if reason:
-            original_increase_authority = increase_authority
-
-            async def fenced_increase_authority(observation):
-                if original_increase_authority is not None:
-                    await original_increase_authority(observation)
-                raise RestoreGradeIncreaseDeferred(reason)
-
-            increase_authority = fenced_increase_authority
-        return await original_execute_session(
-            broker=broker, conn=conn, deployment=deployment, plan=plan,
-            instruments=instruments, today=today, actions=actions,
-            min_increment=min_increment, settle_cycles=settle_cycles,
-            increase_authority=increase_authority)
-
-    executor.execute_session = execute_session_with_restore_fence
+    executor.register_increase_fence_reason(execution_restore_reason)
     alpaca.restore_increase_fence_reason = restore_increase_fence_reason
     alpaca.database_incarnation = database_incarnation
     alpaca.ActivityCorrectionRequiresRecovery = ActivityCorrectionRequiresRecovery
