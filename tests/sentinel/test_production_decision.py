@@ -100,12 +100,14 @@ def _binding(account_id="paper-123") -> AccountBinding:
         broker_account_id=account_id, takeover_epoch=3)
 
 
-def _account(account_id="paper-123", equity="10000") -> BrokerAccountSnapshot:
+def _account(account_id="paper-123", equity="10000",
+             cash=None) -> BrokerAccountSnapshot:
+    cash = equity if cash is None else cash
     return BrokerAccountSnapshot(
         identity=BrokerAccountIdentity(
             broker="alpaca", account_id=account_id),
-        equity=Decimal(equity), cash=Decimal("9000"),
-        buying_power=Decimal("9000"), multiplier=Decimal(1))
+        equity=Decimal(equity), cash=Decimal(cash),
+        buying_power=Decimal(cash), multiplier=Decimal(1))
 
 
 def _publication() -> Publication:
@@ -156,6 +158,11 @@ def _build(state: SessionState, *, observation=None, marks=None,
         decision_session=DECISION_SESSION,
         effective_session=EFFECTIVE_SESSION,
         rollout_state=rollout)
+
+
+def _controller_rollout() -> RolloutState:
+    return RolloutState(
+        RolloutMode.CONTROLLER, 4, certificate_sha256="a" * 64)
 
 
 def test_shadow_target_aggregates_episodes_and_signed_pending_entries():
@@ -210,10 +217,8 @@ def test_default_rollout_pins_exposure_to_one_and_keeps_wealth_core_cash():
 
 def test_explicit_controller_rollout_uses_controller_exposure_and_is_stamped():
     state = _state(episodes=[_episode(0, "sec-a", "AAA", 10)])
-    rollout = RolloutState(
-        RolloutMode.CONTROLLER, 4, certificate_sha256="a" * 64)
 
-    result = _build(state, rollout=rollout)
+    result = _build(state, rollout=_controller_rollout())
 
     assert result.plan.target_basket == {
         "sec-a": Decimal("27"), DEFENSIVE_SECURITY_ID: Decimal("50")}
@@ -251,23 +256,64 @@ def test_plan_carries_every_identity_and_has_a_restart_stable_id():
     assert len(first.plan.strategy_fingerprint) == 64
 
 
-def test_unpriced_wanted_core_preserves_held_plus_signed_working_remainder():
+def test_broker_reported_equity_cannot_change_decision_close_target():
     state = _state(
-        episodes=[_episode(0, "sec-a", "AAA", 10)], exposure="1",
-        last_known={"sec-a": 100.0})
+        episodes=[_episode(0, "sec-a", "AAA", 10)], equity="2000")
     observation = _observation(
-        positions=[_position("sec-a", "AAA", "4")],
-        orders=[_working_order(
-            "sec-a", "AAA", side=Side.BUY, quantity="5", filled="2")])
+        positions=[_position("sec-a", "AAA", "10")])
+
+    first = _build(
+        state, observation=observation,
+        account=_account(equity="10000", cash="1000"))
+    moved_after_hours = _build(
+        state, observation=observation,
+        account=_account(equity="12345", cash="1000"))
+
+    assert first.plan.account_nav == Decimal("2000")
+    assert moved_after_hours.plan.account_nav == Decimal("2000")
+    assert moved_after_hours.plan.target_basket == first.plan.target_basket
+    assert moved_after_hours.plan.plan_id == first.plan.plan_id
+
+
+@pytest.mark.parametrize(
+    ("exposure", "held", "orders", "expected"),
+    [
+        ("0", "10", (), "0"),
+        ("0.55", "10", (), "5"),
+        ("0.55", "6", (), "5"),
+        ("0.55", "4", (), "4"),
+        ("0.55", "4", (
+            (Side.BUY, "5", "2"),), "5"),
+        ("0.55", "10", (
+            (Side.SELL, "4", "1"),), "5"),
+    ])
+def test_unpriced_core_caps_at_scaled_share_target_without_blocking_trims(
+        exposure, held, orders, expected):
+    state = _state(
+        episodes=[_episode(0, "sec-a", "AAA", 10)],
+        equity="2000", exposure=exposure, last_known={"sec-a": 100.0})
+    working = [
+        _working_order(
+            "sec-a", "AAA", side=side, quantity=quantity, filled=filled)
+        for side, quantity, filled in orders
+    ]
+    observation = _observation(
+        positions=[_position("sec-a", "AAA", held)], orders=working)
+    # Keep the decision-close live NAV at 2,000 so the unpriced share target is
+    # exactly floor(10 * exposure). The broker M2M equity is deliberately a
+    # different number and has no sizing authority.
+    cash = Decimal("2000") - Decimal(held) * Decimal("100")
 
     result = _build(
         state, observation=observation,
-        marks={DEFENSIVE_SECURITY_ID: "90"})
+        account=_account(equity="9999", cash=str(cash)),
+        marks={DEFENSIVE_SECURITY_ID: "100"},
+        rollout=_controller_rollout())
 
     assert result.plan.unpriced_securities == ("sec-a",)
-    assert result.plan.target_basket["sec-a"] == Decimal("7")
-    assert result.projection.quantities["sec-a"] == Decimal("7")
-    assert result.plan.target_basket[DEFENSIVE_SECURITY_ID] == 0
+    assert result.plan.target_basket.get("sec-a", Decimal(0)) == Decimal(expected)
+    assert result.projection.quantities.get(
+        "sec-a", Decimal(0)) == Decimal(expected)
 
 
 def test_unpriced_wanted_bil_is_preserved_but_dropped_core_remains_zero():
@@ -277,7 +323,8 @@ def test_unpriced_wanted_bil_is_preserved_but_dropped_core_remains_zero():
         signal_session="2026-08-11", reason="EXIT")
     state = _state(
         episodes=[_episode(0, "sec-a", "AAA", 10)], pending=[closing],
-        exposure="0")
+        exposure="0", last_known={
+            "sec-a": 100.0, DEFENSIVE_SECURITY_ID: 90.0})
     observation = _observation(
         positions=[_position("sec-a", "AAA", "10"),
                    _position(DEFENSIVE_SECURITY_ID, "BIL", "8")],
@@ -286,12 +333,25 @@ def test_unpriced_wanted_bil_is_preserved_but_dropped_core_remains_zero():
 
     result = _build(
         state, observation=observation, marks={"sec-a": "100"},
+        account=_account(equity="10000", cash="8280"),
         rollout=RolloutState(
             RolloutMode.CONTROLLER, 2, certificate_sha256="a" * 64))
 
     assert "sec-a" not in result.plan.target_basket
     assert result.plan.target_basket[DEFENSIVE_SECURITY_ID] == Decimal("11")
     assert result.plan.unpriced_securities == (DEFENSIVE_SECURITY_ID,)
+
+
+def test_working_order_only_security_is_given_an_explicit_zero_target():
+    state = _state(episodes=[_episode(0, "sec-a", "AAA", 10)])
+    observation = _observation(
+        orders=[_working_order(
+            "orphan", "OLD", side=Side.SELL, quantity="2")])
+
+    result = _build(state, observation=observation)
+
+    assert result.plan.target_basket["orphan"] == Decimal(0)
+    assert result.target_tickers["orphan"] == "OLD"
 
 
 def test_plan_refuses_unowned_mismatched_or_incomplete_broker_evidence():

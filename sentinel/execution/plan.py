@@ -53,14 +53,17 @@ class ExecutionPlan:
     superseded_by: Optional[str] = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.target_exposure, Decimal):
-            raise TypeError("target_exposure must be Decimal")
-        if not isinstance(self.account_nav, Decimal):
-            raise TypeError("account_nav must be Decimal")
-        if not isinstance(self.account_cash, Decimal):
-            raise TypeError("account_cash must be Decimal")
-        if not isinstance(self.cash_residual, Decimal):
-            raise TypeError("cash_residual must be Decimal")
+        scalars = (
+            ("target_exposure", self.target_exposure),
+            ("account_nav", self.account_nav),
+            ("account_cash", self.account_cash),
+            ("cash_residual", self.cash_residual),
+        )
+        for label, value in scalars:
+            if not isinstance(value, Decimal):
+                raise TypeError(f"{label} must be Decimal")
+            if not value.is_finite():
+                raise ValueError(f"{label} must be finite, got {value}")
         if self.rollout_mode not in {"PINNED_1_00", "CONTROLLER"}:
             raise ValueError(f"unknown rollout_mode {self.rollout_mode!r}")
         if not isinstance(self.rollout_version, int) or self.rollout_version < 1:
@@ -78,6 +81,9 @@ class ExecutionPlan:
                 raise TypeError(
                     f"target_basket[{security_id}] must be Decimal, got "
                     f"{type(qty).__name__}")
+            if not qty.is_finite():
+                raise ValueError(
+                    f"target_basket[{security_id}] must be finite, got {qty}")
 
     @property
     def is_superseded(self) -> bool:

@@ -10,7 +10,7 @@ import hashlib
 import json
 from dataclasses import dataclass, replace
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from pathlib import Path
 from typing import Mapping
 
@@ -129,7 +129,7 @@ def shadow_target(state: SessionState | Mapping) -> ShadowTarget:
     """Aggregate filled episodes and signed canonical pending operations.
 
     A queued close is subtracted because it is already part of Wealth Core's
-    immutable next-open intention.  Broker positions are deliberately absent.
+    immutable next-open intention. Broker positions are deliberately absent.
     """
 
     canonical = _canonical_state(state)
@@ -204,8 +204,7 @@ def _current_marks(marks: Mapping) -> dict[str, Decimal]:
     return converted
 
 
-def _shadow_weights(canonical: SessionState, target: ShadowTarget,
-                    current_marks: Mapping[str, Decimal]) -> dict[str, Decimal]:
+def _shadow_equity(canonical: SessionState) -> Decimal:
     evidence = canonical.last_evidence or {}
     wealth_evidence = evidence.get("wealth_core") or {}
     if "estimated_equity" not in wealth_evidence:
@@ -218,28 +217,99 @@ def _shadow_weights(canonical: SessionState, target: ShadowTarget,
         raise ValueError(
             f"Wealth Core estimated_equity must be positive and finite, got "
             f"{equity}")
+    return equity
 
-    stale_marks = {
-        str(security_id): _decimal(value, label=f"stale mark for {security_id}")
+
+def _canonical_stale_marks(canonical: SessionState) -> dict[str, Decimal]:
+    return {
+        str(security_id): _decimal(
+            value, label=f"stale mark for {security_id}")
         for security_id, value in canonical.last_known.items()
     }
+
+
+def _decision_mark(security_id: str, current_marks: Mapping[str, Decimal],
+                   stale_marks: Mapping[str, Decimal]) -> Decimal | None:
+    current = current_marks.get(security_id)
+    stale = stale_marks.get(security_id)
+    return (current if _positive_finite(current)
+            else stale if _positive_finite(stale) else None)
+
+
+def _shadow_weights(canonical: SessionState, target: ShadowTarget,
+                    current_marks: Mapping[str, Decimal]) -> dict[str, Decimal]:
+    equity = _shadow_equity(canonical)
+    stale_marks = _canonical_stale_marks(canonical)
     weights: dict[str, Decimal] = {}
     for security_id, quantity in target.shares.items():
-        current = current_marks.get(security_id)
-        stale = stale_marks.get(security_id)
-        mark = (current if _positive_finite(current)
-                else stale if _positive_finite(stale) else None)
+        mark = _decision_mark(security_id, current_marks, stale_marks)
         # Keep a zero-weight member when no current or canonical stale mark
-        # exists.  Projection will name it unpriced and the preservation step
-        # below prevents unavailable evidence becoming a liquidation order.
+        # exists. Projection names it unpriced; the share-space cap below can
+        # still authorize a reduction without inventing a price.
         weights[security_id] = (
             quantity * mark / equity if mark is not None else Decimal(0))
     return weights
 
 
-def _preserve_unpriced(projection: Projection, target: ShadowTarget,
-                       observation, defensive_weight: Decimal,
-                       defensive_security: str | None) -> Projection:
+def _decision_close_nav(
+        canonical: SessionState, account_snapshot, observation,
+        current_marks: Mapping[str, Decimal],
+        ) -> tuple[Decimal, tuple[str, ...]]:
+    """Value as much of the live broker book as close evidence permits.
+
+    Broker-reported equity is a later mark-to-market fact. Mixing it with
+    decision-session close weights turns after-hours price movement into a new
+    economic decision. Cash is not price-valued, so current broker cash is
+    combined with observed positions valued at the pinned decision mark or the
+    same canonical stale fallback Wealth Core itself carries.
+
+    A held name with no usable close-domain mark is NAMED and omitted from this
+    valuation rather than substituted with broker M2M. That makes this NAV a
+    conservative known-value basis in the long-only book. The unpriced-share
+    logic below may still reduce such a name, but cannot use missing evidence to
+    increase it. This is the required asymmetry: a missing mark may block an
+    increase, never a required trim.
+    """
+
+    cash = _decimal(account_snapshot.cash, label="broker account cash")
+    if not cash.is_finite():
+        raise ValueError(f"broker account cash must be finite, got {cash}")
+    stale_marks = _canonical_stale_marks(canonical)
+    nav = cash
+    unpriced: list[str] = []
+    for security_id, quantity in observation.positions_by_security().items():
+        quantity = _decimal(
+            quantity, label=f"held quantity for {security_id}")
+        if not quantity.is_finite():
+            raise ValueError(
+                f"held quantity for {security_id!r} must be finite, got "
+                f"{quantity}")
+        mark = _decision_mark(security_id, current_marks, stale_marks)
+        if mark is None:
+            unpriced.append(security_id)
+            continue
+        nav += quantity * mark
+    if not nav.is_finite() or nav < 0:
+        raise ValueError(
+            f"known decision-close-valued broker NAV must be non-negative and "
+            f"finite, got {nav}")
+    return nav, tuple(sorted(unpriced))
+
+
+def _cap_unpriced_increases(
+        projection: Projection, target: ShadowTarget, observation,
+        *, shadow_equity: Decimal, nav: Decimal, exposure: Decimal,
+        defensive_weight: Decimal, defensive_security: str | None,
+        lot: Decimal = Decimal(1)) -> Projection:
+    """Missing price evidence may block an increase, never a required Core trim.
+
+    A Core share target does not need its own price once both book NAVs are in
+    the same decision-close domain: the mark cancels algebraically. Therefore an
+    unpriced Core name can be capped at its exposure-scaled shadow quantity in
+    SHARE space. `min(current committed book, target)` prevents the missing mark
+    from authorizing a buy while still allowing partial or full de-risking.
+    """
+
     positions = observation.positions_by_security()
     quantities = dict(projection.quantities)
     defensive_quantity = projection.defensive_quantity
@@ -248,19 +318,31 @@ def _preserve_unpriced(projection: Projection, target: ShadowTarget,
     if defensive_security is not None and defensive_weight > 0:
         wanted.add(defensive_security)
     for security_id in sorted(set(projection.unpriced) & wanted):
-        held = positions.get(security_id, Decimal(0))
-        held = _decimal(held, label=f"held quantity for {security_id}")
+        held = _decimal(
+            positions.get(security_id, Decimal(0)),
+            label=f"held quantity for {security_id}")
         committed = committed_quantity(
             observation.working_orders_for(security_id))
-        preserved = held + committed
-        if not preserved.is_finite() or preserved < 0:
+        current = held + committed
+        if not current.is_finite() or current < 0:
             raise ValueError(
                 f"unpriced {security_id!r} has invalid held plus committed "
-                f"quantity {preserved}")
+                f"quantity {current}")
+
         if security_id == defensive_security:
-            defensive_quantity = preserved
-        elif preserved > 0:
-            quantities[security_id] = preserved
+            # A defensive target is defined in notional, so without its own
+            # price a partial share target cannot be derived safely. Preserve
+            # the already-committed amount; a zero defensive weight is handled
+            # by `project` directly and therefore still liquidates fully.
+            defensive_quantity = current
+            continue
+
+        scaled = (
+            target.shares[security_id] * exposure * nav / shadow_equity / lot
+        ).to_integral_value(rounding=ROUND_DOWN) * lot
+        desired = min(current, scaled)
+        if desired > 0:
+            quantities[security_id] = desired
         else:
             quantities.pop(security_id, None)
 
@@ -318,22 +400,40 @@ def build_execution_plan(
     exposure = (Decimal(1) if rollout.mode is RolloutMode.PINNED_1_00
                 else controller_exposure)
     defensive_weight = Decimal(1) - exposure
-    nav = _decimal(account_snapshot.equity, label="broker account equity")
     current_marks = _current_marks(marks)
     target = shadow_target(canonical)
+    shadow_equity = _shadow_equity(canonical)
+    nav, nav_unpriced = _decision_close_nav(
+        canonical, account_snapshot, observation, current_marks)
     weights = _shadow_weights(canonical, target, current_marks)
 
     sized = project(
         shadow_weights=weights, exposure=exposure, nav=nav,
         marks=current_marks, defensive_security=defensive_security,
         defensive_weight=defensive_weight)
-    sized = _preserve_unpriced(
-        sized, target, observation, defensive_weight, defensive_security)
+    if nav_unpriced:
+        sized = replace(
+            sized,
+            unpriced=tuple(sorted(set(sized.unpriced) | set(nav_unpriced))))
+    sized = _cap_unpriced_increases(
+        sized, target, observation, shadow_equity=shadow_equity, nav=nav,
+        exposure=exposure, defensive_weight=defensive_weight,
+        defensive_security=defensive_security)
     basket = desired_basket(sized)
+    # A working order is economic state even when the position has not appeared
+    # yet and the fresh target no longer contains the name. Give it an explicit
+    # zero target so exact-delta reconciliation cannot omit it from the universe.
+    for order in observation.orders:
+        if order.is_working:
+            basket.setdefault(order.instrument.security_id, Decimal(0))
 
     target_tickers = {str(security_id): str(ticker)
                       for security_id, ticker in tickers.items()}
     target_tickers.update(target.tickers)
+    for order in observation.orders:
+        if order.is_working:
+            target_tickers.setdefault(
+                order.instrument.security_id, order.instrument.symbol)
     if defensive_security is not None:
         target_tickers.setdefault(
             defensive_security,
@@ -345,6 +445,8 @@ def build_execution_plan(
         if security_id in target_tickers
     }
 
+    account_cash = _decimal(
+        account_snapshot.cash, label="broker account cash")
     plan = ExecutionPlan(
         plan_id="pending",
         decision_session=decision_session,
@@ -361,8 +463,7 @@ def build_execution_plan(
         takeover_epoch=int(binding.takeover_epoch),
         publication_fingerprint=publication_fingerprint(publication),
         account_nav=nav,
-        account_cash=_decimal(
-            account_snapshot.cash, label="broker account cash"),
+        account_cash=account_cash,
         cash_residual=sized.cash_residual,
         unpriced_securities=tuple(sorted(sized.unpriced)),
         defensive_security=defensive_security,

@@ -98,13 +98,20 @@ class Command:
     def __post_init__(self) -> None:
         if not isinstance(self.quantity, Decimal):
             raise TypeError("Command.quantity must be Decimal")
-        if self.quantity <= 0:
+        if not self.quantity.is_finite() or self.quantity <= 0:
             raise ValueError(
-                f"Command.quantity must be positive, got {self.quantity}. "
-                f"Direction is carried by `side`; a signed quantity would give "
-                f"two representations of one intent and let them disagree.")
+                f"Command.quantity must be finite and positive, got "
+                f"{self.quantity}. Direction is carried by `side`; a signed "
+                f"quantity would give two representations of one intent and "
+                f"let them disagree.")
         if not isinstance(self.filled_quantity, Decimal):
             raise TypeError("Command.filled_quantity must be Decimal")
+        if (not self.filled_quantity.is_finite()
+                or self.filled_quantity < 0
+                or self.filled_quantity > self.quantity):
+            raise ValueError(
+                "Command.filled_quantity must be finite and between zero and "
+                "Command.quantity")
         if self.filled_average_price is not None:
             if not isinstance(self.filled_average_price, Decimal):
                 raise TypeError("Command.filled_average_price must be Decimal")
@@ -199,10 +206,27 @@ def compute_delta(*, security_id: str, desired: Decimal,
     """
     if not isinstance(desired, Decimal):
         raise TypeError("desired quantity must be Decimal")
+    if not desired.is_finite():
+        raise ValueError(f"desired quantity must be finite, got {desired}")
+    if not isinstance(min_increment, Decimal):
+        raise TypeError("min_increment must be Decimal")
+    if not min_increment.is_finite() or min_increment <= 0:
+        raise ValueError(
+            f"min_increment must be finite and positive, got {min_increment}")
+
     held = observation.positions_by_security().get(security_id, Decimal(0))
     working = observation.working_orders_for(security_id)
     committed = committed_quantity(working)
+    for label, value in (("held", held), ("committed", committed)):
+        if not isinstance(value, Decimal):
+            raise TypeError(f"{label} quantity must be Decimal")
+        if not value.is_finite():
+            raise ValueError(
+                f"{security_id}: {label} quantity must be finite, got {value}")
     remaining = desired - held - committed
+    if not remaining.is_finite():
+        raise ValueError(
+            f"{security_id}: remaining delta must be finite, got {remaining}")
 
     if remaining == 0:
         classification = DeltaClass.NONE
