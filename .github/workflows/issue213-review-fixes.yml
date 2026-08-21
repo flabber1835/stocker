@@ -6,12 +6,14 @@ on:
       - fix/issue-209-financial-grade-trial
     paths:
       - tools/issue213-review-fixes.py
+      - tools/issue213-review-fixes-v2.py
       - .github/workflows/issue213-review-fixes.yml
   pull_request:
     branches:
       - main
     paths:
       - tools/issue213-review-fixes.py
+      - tools/issue213-review-fixes-v2.py
       - .github/workflows/issue213-review-fixes.yml
 
 permissions:
@@ -30,7 +32,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python tools/issue213-review-fixes.py
+          python tools/issue213-review-fixes-v2.py
           git diff --check
           python -m compileall -q \
             sentinel/authority.py \
@@ -63,7 +65,7 @@ jobs:
             tests/sentinel/test_issue_209_alpaca_asset_id.py \
             tests/sentinel/test_issue209_concordance_differential.py \
             tests/sentinel/test_issue209_asset_identity.py
-          git rm -- tools/issue213-review-fixes.py .github/workflows/issue213-review-fixes.yml
+          git rm -- tools/issue213-review-fixes.py tools/issue213-review-fixes-v2.py .github/workflows/issue213-review-fixes.yml
           git commit -m 'Fix PR 210 review blockers (#213)'
           git pull --rebase origin fix/issue-209-financial-grade-trial
           git push origin HEAD:fix/issue-209-financial-grade-trial
