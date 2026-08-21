@@ -91,6 +91,13 @@ def load(conn, n_sessions=300, *, open_=99.0, volume=1e6, actions=True,
             " VALUES (%s, 100) ON CONFLICT (session) DO UPDATE SET closeadj=100",
             [(session,) for session in
              session_axis[-R.REQUIRED_SPY_SESSIONS:]])
+        cur.executemany(
+            "INSERT INTO sentinel_defensive_bars"
+            " (session,close_signal,close_unadjusted)"
+            " VALUES (%s,91,91) ON CONFLICT (session) DO UPDATE SET"
+            " close_signal=91,close_unadjusted=91",
+            [(session,) for session in
+             session_axis[-R.REQUIRED_SPY_SESSIONS:]])
     conn.commit()
     if universe:
         # Use the real writer: NULL-provenance rows are immediately readable and
@@ -142,6 +149,75 @@ class TestAHealthyCorpus:
         r = R.check_readiness(conn, today=TODAY)
         assert r.ready, [c.detail for c in r.failures]
         assert by_name(r)["continuity"].status == R.PASS
+
+
+class TestSplitSourceAgreement:
+    def test_the_runtime_fence_is_full_history_and_fail_closed(self, monkeypatch):
+        observed = {}
+
+        def active_rows(_conn, *, start, end, kinds):
+            observed.update(start=start, end=end, kinds=kinds)
+            return [{
+                "kind": "SPLIT_DISAGREEMENT",
+                "ticker": "BOUNDARY", "session": "2001-06-01",
+                "publication_version": 47,
+            }]
+
+        monkeypatch.setattr(R._anomalies, "active_rows", active_rows)
+        result = R.Readiness()
+        R._add_split_agreement_check(object(), result, frontier=TODAY)
+
+        assert observed == {
+            "start": "1900-01-01", "end": TODAY,
+            "kinds": (
+                "SPLIT_DISAGREEMENT", "SPLIT_ONLY_DERIVED",
+                "SEAM_SPLIT_UNCORROBORATED",
+                "AMBIGUOUS_SPLIT_MULTIPLICITY",
+            ),
+        }
+        check = by_name(result)["split source agreement"]
+        assert check.status == R.FAIL
+        assert "BOUNDARY" in check.detail
+
+    def test_an_old_active_disagreement_blocks_normal_readiness(self, conn):
+        """A split outside both rolling windows still rebases every later
+        signal.  This fails if the fence is removed or narrowed to 127/252
+        sessions, while every other readiness clause remains healthy.
+        """
+        load(conn, n_sessions=300)
+        event_session = sessions(300)[0]
+        S.write_anomalies(conn, [{
+            "kind": "SPLIT_DISAGREEMENT",
+            "ticker": "BOUNDARY",
+            "session": event_session,
+            "detail": "ACTIONS 2.0 vs price-domain 2.03",
+        }])
+
+        result = R.check_readiness(conn, today=TODAY)
+        check = by_name(result)["split source agreement"]
+        assert check.status == R.FAIL
+        assert "BOUNDARY" in check.detail
+        assert result.ready is False
+
+    @pytest.mark.parametrize("kind", [
+        "SPLIT_ONLY_DERIVED",
+        "SEAM_SPLIT_UNCORROBORATED",
+        "AMBIGUOUS_SPLIT_MULTIPLICITY",
+    ])
+    def test_every_unsafe_split_disposition_blocks_runtime_readiness(
+            self, monkeypatch, kind):
+        monkeypatch.setattr(
+            R._anomalies, "active_rows", lambda *_args, **_kwargs: [{
+                "kind": kind, "ticker": "UNSAFE", "session": "2020-01-02",
+                "publication_version": 48,
+            }])
+        result = R.Readiness()
+
+        R._add_split_agreement_check(object(), result, frontier=TODAY)
+
+        check = by_name(result)["split source agreement"]
+        assert check.status == R.FAIL
+        assert check.value[0]["kind"] == kind
 
 
 class TestWhatARowCountWouldMiss:
@@ -264,6 +340,33 @@ class TestWhatARowCountWouldMiss:
                         (missing,))
         conn.commit()
         c = by_name(R.check_readiness(conn, today=TODAY))["frontier benchmark"]
+        assert c.status == R.FAIL
+        assert missing in c.value["missing"]
+
+    def test_a_missing_frontier_BIL_mark_fails_without_cash_substitution(self, conn):
+        load(conn)
+        frontier = sessions(300)[-1]
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM sentinel_defensive_bars WHERE session=%s",
+                (frontier,))
+        conn.commit()
+
+        c = by_name(R.check_readiness(conn, today=TODAY))["defensive fund marks"]
+        assert c.status == R.FAIL
+        assert c.value["security_id"] == "SENTINEL:BIL"
+        assert frontier in c.value["missing"]
+
+    def test_the_exact_BIL_tail_is_required(self, conn):
+        load(conn)
+        missing = sessions(300)[-10]
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM sentinel_defensive_bars WHERE session=%s",
+                (missing,))
+        conn.commit()
+
+        c = by_name(R.check_readiness(conn, today=TODAY))["defensive fund marks"]
         assert c.status == R.FAIL
         assert missing in c.value["missing"]
 

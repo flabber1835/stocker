@@ -485,6 +485,7 @@ DECLARE
     'sentinel_bar_split_repairs',
     'sentinel_bars',
     'sentinel_spy_total_return',
+    'sentinel_defensive_bars',
     'sentinel_action_generation_events',
     'sentinel_action_observations',
     'sentinel_action_generations',
@@ -739,10 +740,16 @@ if str(c.get("data_version")) != str(parity["sentinel_data_version"]):
         f"identity={c.get('data_version')}")
 if not c.get("corpus_hash"):
     raise SystemExit("the frozen Sentinel corpus has no corpus_hash")
+sentinel_data_version = parity["sentinel_data_version"]
+if (isinstance(sentinel_data_version, bool)
+        or not isinstance(sentinel_data_version, int)
+        or sentinel_data_version < 1):
+    raise SystemExit(
+        "real-window parity sentinel_data_version is not a positive integer")
 m["corpus_hash"] = c["corpus_hash"]
 m["postgres_server_version"] = c.get("postgres_server_version")
 m["parity_generations"] = {
-    "sentinel_data_version": str(parity["sentinel_data_version"]),
+    "sentinel_data_version": sentinel_data_version,
     "canonical_data_version": str(parity["canonical_data_version"]),
     "canonical_source_mode": str(parity["canonical_source_mode"]),
 }

@@ -709,7 +709,7 @@ def validate_evidence(claims: Mapping, index_path: Path) -> None:
     expected_forward["manual_review_required"] = False
     expected_forward["review"] = review
     if (forward is None
-            or forward.get("schema") != "sentinel.production-forward-chain/1"
+            or forward.get("schema") != "sentinel.production-forward-chain/2"
             or forward.get("differential_verdict") != "PASS"
             or forward.get("authority_effect") != "NONE"
             or forward.get("runtime_authority_changed") is not False

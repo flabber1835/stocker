@@ -978,8 +978,8 @@ def _validate_bindings(bindings: Mapping, *, controller_required: bool) -> None:
         forward, {"verdict", "evidence_sha256", "schema", "reference_sha256",
                   "corpus_sha256"}, label="forward-chain binding")
     if (forward["verdict"] != "PASS"
-            or forward["schema"] != "sentinel.production-forward-chain/1"):
-        raise AuthorityRefused("production forward-chain binding is not PASS /1")
+            or forward["schema"] != "sentinel.production-forward-chain/2"):
+        raise AuthorityRefused("production forward-chain binding is not PASS /2")
     for field in ("evidence_sha256", "reference_sha256", "corpus_sha256"):
         _hex(forward[field], label=f"forward-chain {field}")
     if forward["reference_sha256"] != reference["artifact_sha256"]:

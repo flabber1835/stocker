@@ -15,6 +15,16 @@ metadata, and metadata-minimal input. That result is useful forward-observation
 evidence and is not historical certification. The signed observation evidence
 must retain both facts verbatim.
 
+**Concordance addendum (2026-08-21).** The comparison above establishes the
+native Wealth Core target only; it does not authorize backdating the current
+TICKERS snapshot through Concordance's zero-capital recent-leadership witness.
+On a current-only seed, the 252 prior closes prime price features without
+historical decisions, and the witness begins on the first live decision close
+with explicit unavailable r20/r40 evidence.  A historically certified start
+still requires session-effective metadata for every witness close.  The exact
+runtime contract is recorded in
+`sentinel-concordance-production-integration.md`.
+
 The existing Wealth Core, controller, execution-membrane, and durability test
 surfaces remain the certification path for code that can change strategy
 decisions or their implementation. Observation authority neither bypasses nor
@@ -99,7 +109,9 @@ but no submission follows it.
 Observation authority is additional; it replaces none of these gates:
 
 - current corpus coherence/readiness and current XNYS frontier;
-- a 253-session current cold start (252 warmup sessions plus one decision);
+- a 253-session current cold start (252 price-feature warmup sessions plus one
+  live decision; Concordance witness history is prospective unless causal
+  dated metadata exists);
 - verified base backup/WAL status and the independent restore drill;
 - disabled-by-default automation and the durable kill switch;
 - one fenced leader, writer lock, heartbeat, and takeover generation;

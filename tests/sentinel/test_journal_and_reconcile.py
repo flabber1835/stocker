@@ -32,7 +32,12 @@ from tests.support.postgres import (  # noqa: E402
 )
 
 from sentinel import binding as B, schema  # noqa: E402
-from sentinel.execution import journal, recovery, reconcile as R  # noqa: E402
+from sentinel.execution import (  # noqa: E402
+    journal,
+    recovery,
+    reconcile as R,
+    target_reprojection,
+)
 from sentinel.execution.commands import Command  # noqa: E402
 from sentinel.execution.contract import (  # noqa: E402
     BrokerAccountIdentity, BrokerInstrument, BrokerObservation, BrokerOrder,
@@ -802,20 +807,30 @@ class TestTerminalRecoveryCrashBoundaries:
         assert journal.terminal_recovery_checkpoint(conn) == checkpoint
 
 
-def put_bar(conn, security_id, session, ticker):
+def put_bar(conn, security_id, session, ticker, *, split_ratio="1"):
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_bars (security_id, session, ticker,"
-            " close_unadjusted) VALUES (%s,%s,%s,10)"
+            " close_signal,close_unadjusted,split_ratio)"
+            " VALUES (%s,%s,%s,10,10,%s)"
             " ON CONFLICT (security_id, session) DO NOTHING",
-            (security_id, session, ticker))
+            (security_id, session, ticker, split_ratio))
+    conn.commit()
+
+
+def put_defensive_bar(conn, session, *, close_signal, close_unadjusted):
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_defensive_bars"
+            " (session,close_signal,close_unadjusted) VALUES (%s,%s,%s)",
+            (session, close_signal, close_unadjusted))
     conn.commit()
 
 
 class TestCorpusActionLookup:
     def test_it_compounds_splits_over_the_gap(self, conn):
-        put_bar(conn, "SEC-AAA", "2026-08-05", "AAA")
-        put_bar(conn, "SEC-AAA", "2026-08-07", "AAA")
+        put_bar(conn, "SEC-AAA", "2026-08-05", "AAA", split_ratio="2")
+        put_bar(conn, "SEC-AAA", "2026-08-07", "AAA", split_ratio="3")
         feed_store.write_actions(conn, [
             {"ticker": "AAA", "date": "2026-08-05", "action": "split",
              "value": 2.0},
@@ -829,7 +844,7 @@ class TestCorpusActionLookup:
             == pytest.approx(Decimal(3))
 
     def test_distinct_split_siblings_refuse_instead_of_multiplying(self, conn):
-        put_bar(conn, "SEC-AAA", "2026-08-05", "AAA")
+        put_bar(conn, "SEC-AAA", "2026-08-05", "AAA", split_ratio="2")
         run = feed_store.IngestRun(conn, "ambiguous-splits")
         with feed_store.corpus_write_lock(conn):
             feed_store.write_actions(conn, [
@@ -856,6 +871,7 @@ class TestCorpusActionLookup:
         companies. The same rule has to hold on the way out.
         """
         put_bar(conn, "SEC-OLD", "2011-06-01", "XYZ")     # the first company
+        put_bar(conn, "SEC-OLD", "2011-06-02", "XYZ", split_ratio="2")
         put_bar(conn, "SEC-NEW", "2026-08-05", "XYZ")     # inherited the symbol
         feed_store.write_actions(conn, [
             {"ticker": "XYZ", "date": "2011-06-02", "action": "split",
@@ -875,6 +891,8 @@ class TestCorpusActionLookup:
         it, and a dropped split reconciles the book against the wrong share
         count."""
         put_bar(conn, "SEC-AAA", "2026-08-07", "AAA")     # Friday
+        put_bar(conn, "SEC-AAA", "2026-08-10", "AAA",     # effective Monday
+                split_ratio="2")
         feed_store.write_actions(conn, [
             {"ticker": "AAA", "date": "2026-08-08", "action": "split",
              "value": 2.0}])                              # Saturday ex-date
@@ -882,15 +900,199 @@ class TestCorpusActionLookup:
         lookup = R.corpus_action_lookup(conn, start=date(2026, 8, 1),
                                         end=date(2026, 8, 10))
         assert lookup("SEC-AAA") == pytest.approx(Decimal(2))
+        assert lookup("SEC-AAA", date(2026, 8, 9)) == Decimal(2)
+        assert lookup("SEC-AAA", date(2026, 8, 10)) == Decimal(1)
 
     def test_a_REVERSE_split_is_supported(self, conn):
-        put_bar(conn, "SEC-AAA", "2026-08-05", "AAA")
+        put_bar(conn, "SEC-AAA", "2026-08-05", "AAA", split_ratio="0.1")
         feed_store.write_actions(conn, [
-            {"ticker": "AAA", "date": "2026-08-05", "action": "reversesplit",
+            {"ticker": "AAA", "date": "2026-08-05", "action": "split",
              "value": 0.1}])
         lookup = R.corpus_action_lookup(conn, start=date(2026, 8, 1),
                                         end=date(2026, 8, 10))
         assert lookup("SEC-AAA") == pytest.approx(Decimal("0.1"))
+
+    def test_reverse_split_denominator_uses_published_canonical_ratio(self, conn):
+        """ACTIONS 30 can mean 1-for-30; raw multiplication is 900x wrong."""
+        canonical = Decimal(1) / Decimal(30)
+        put_bar(conn, "SEC-AAA", "2026-08-05", "AAA",
+                split_ratio=canonical)
+        feed_store.write_actions(conn, [
+            {"ticker": "AAA", "date": "2026-08-05", "action": "split",
+             "value": 30}])
+
+        lookup = R.corpus_action_lookup(
+            conn, start=date(2026, 8, 1), end=date(2026, 8, 10))
+
+        assert lookup("SEC-AAA") == pytest.approx(canonical)
+        assert lookup("SEC-AAA") != Decimal(30)
+        scalar = lookup.scalar_evidence_for({"SEC-AAA"})[0]
+        assert scalar.value == 30
+        evidence = (scalar.to_dict(),)
+        assert evidence[0]["canonical_multiplier"] != "30"
+
+        projected = target_reprojection.project_target(
+            ExecutionPlan(
+                plan_id="reverse-denominator", decision_session=date(2026, 8, 1),
+                effective_session=date(2026, 8, 10),
+                target_exposure=Decimal(1),
+                target_basket={"SEC-AAA": Decimal(300)}),
+            through_session=date(2026, 8, 10),
+            action_multipliers={"SEC-AAA": lookup("SEC-AAA")},
+            action_evidence=evidence,
+            minimum_quantity_increment=Decimal(1))
+        assert projected.target_basket == {"SEC-AAA": Decimal(10)}
+
+    def test_ADR_ratio_split_uses_the_published_canonical_ratio(self, conn):
+        put_bar(conn, "SEC-AAA", "2026-08-05", "AAA", split_ratio="0.5")
+        feed_store.write_actions(conn, [
+            {"ticker": "AAA", "date": "2026-08-05",
+             "action": "adrratiosplit", "value": 2}])
+
+        lookup = R.corpus_action_lookup(
+            conn, start=date(2026, 8, 1), end=date(2026, 8, 10))
+
+        assert lookup("SEC-AAA") == Decimal("0.5")
+        assert lookup.scalar_evidence_for({"SEC-AAA"})[0].action \
+            == "adrratiosplit"
+
+    def test_published_derived_only_split_ages_book_and_target_without_ACTIONS(
+            self, conn):
+        put_bar(conn, "SEC-AAA", "2026-08-05", "AAA", split_ratio="2")
+
+        lookup = R.corpus_action_lookup(
+            conn, start=date(2026, 8, 1), end=date(2026, 8, 10))
+
+        before = Command(
+            **{**cmd(state=S.FILLED, filled="10").__dict__,
+               "created_at": datetime(2026, 8, 1, tzinfo=timezone.utc)})
+        assert R.expected_book_from_commands(
+            (before,), actions=lookup) == {"SEC-AAA": Decimal(20)}
+        scalar = lookup.scalar_evidence_for({"SEC-AAA"})[0]
+        assert scalar.evidence_kind == "published_equity_bar"
+        projected = target_reprojection.project_target(
+            ExecutionPlan(
+                plan_id="derived-only", decision_session=date(2026, 8, 1),
+                effective_session=date(2026, 8, 10),
+                target_exposure=Decimal(1),
+                target_basket={"SEC-AAA": Decimal(10)}),
+            through_session=date(2026, 8, 10),
+            action_multipliers={"SEC-AAA": lookup("SEC-AAA")},
+            action_evidence=(scalar.to_dict(),),
+            minimum_quantity_increment=Decimal(1))
+        assert projected.target_basket == {"SEC-AAA": Decimal(20)}
+
+    def test_active_split_disagreement_refuses_stale_preserved_bar_ratio(
+            self, conn):
+        put_bar(conn, "SEC-AAA", "2026-08-05", "AAA", split_ratio="2")
+        feed_store.write_actions(conn, [
+            {"ticker": "AAA", "date": "2026-08-05", "action": "split",
+             "value": 3}])
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_corpus_anomalies"
+                " (kind,ticker,session,detail) VALUES"
+                " ('SPLIT_DISAGREEMENT','AAA','2026-08-05','2 versus 3')")
+        conn.commit()
+
+        lookup = R.corpus_action_lookup(
+            conn, start=date(2026, 8, 1), end=date(2026, 8, 10))
+
+        assert lookup("SEC-AAA") == Decimal(1)
+        material = lookup.material_events_for(security_ids={"SEC-AAA"})
+        assert len(material) == 1
+        assert "SPLIT_DISAGREEMENT" in material[0].reason
+
+    def test_execution_uses_published_repair_and_ignores_unpublished_candidate(
+            self, conn):
+        put_bar(conn, "SEC-AAA", "2026-08-05", "AAA", split_ratio="2")
+        feed_store.write_actions(conn, [
+            {"ticker": "AAA", "date": "2026-08-05", "action": "split",
+             "value": 30}])
+        canonical = Decimal(1) / Decimal(30)
+        published = feed_store.IngestRun(conn, "published-execution-repair")
+        with feed_store.corpus_write_lock(conn):
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO sentinel_bar_split_repairs"
+                    " (security_id,session,split_ratio,prior_split_ratio,"
+                    " last_written_run_id) VALUES (%s,%s,%s,2,%s)",
+                    ("SEC-AAA", "2026-08-05", canonical,
+                     published.progress.run_id))
+            conn.commit()
+            published.finish("success")
+            publication.publish(conn, run_id=published.progress.run_id)
+
+        unpublished = feed_store.IngestRun(conn, "unpublished-execution-repair")
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_bar_split_repairs"
+                " (security_id,session,split_ratio,prior_split_ratio,"
+                " last_written_run_id) VALUES (%s,%s,0.5,%s,%s)",
+                ("SEC-AAA", "2026-08-05", canonical,
+                 unpublished.progress.run_id))
+        conn.commit()
+
+        lookup = R.corpus_action_lookup(
+            conn, start=date(2026, 8, 1), end=date(2026, 8, 10))
+
+        assert lookup("SEC-AAA") == pytest.approx(canonical)
+        scalar = lookup.scalar_evidence_for({"SEC-AAA"})[0]
+        assert scalar.publication_run_id == str(published.progress.run_id)
+
+    def test_BIL_denominator_is_resolved_from_consecutive_price_domains(
+            self, conn):
+        put_defensive_bar(
+            conn, "2026-08-04", close_signal="100", close_unadjusted="100")
+        # before=1 and after=3, so the independent share multiplier is 1/3.
+        put_defensive_bar(
+            conn, "2026-08-05", close_signal="100", close_unadjusted="300")
+        feed_store.write_actions(conn, [
+            {"ticker": "BIL", "date": "2026-08-05", "action": "split",
+             "value": 3}])
+
+        lookup = R.corpus_action_lookup(
+            conn, start=date(2026, 8, 1), end=date(2026, 8, 10))
+
+        assert lookup("SENTINEL:BIL") == pytest.approx(Decimal(1) / Decimal(3))
+        assert lookup.material_events_for(
+            security_ids={"SENTINEL:BIL"}) == ()
+
+    def test_BIL_domain_discontinuity_without_ACTIONS_is_explicitly_blocking(
+            self, conn):
+        put_defensive_bar(
+            conn, "2026-08-04", close_signal="100", close_unadjusted="100")
+        put_defensive_bar(
+            conn, "2026-08-05", close_signal="100", close_unadjusted="50")
+
+        lookup = R.corpus_action_lookup(
+            conn, start=date(2026, 8, 1), end=date(2026, 8, 10))
+
+        assert lookup("SENTINEL:BIL") == Decimal(1)
+        material = lookup.material_events_for(
+            security_ids={"SENTINEL:BIL"})
+        assert len(material) == 1
+        assert material[0].evidence_kind == \
+            "published_defensive_domains_unmatched"
+
+    def test_BIL_orientation_does_not_bridge_a_missing_exchange_session(
+            self, conn):
+        put_defensive_bar(
+            conn, "2026-08-03", close_signal="100", close_unadjusted="100")
+        put_defensive_bar(
+            conn, "2026-08-05", close_signal="100", close_unadjusted="300")
+        feed_store.write_actions(conn, [
+            {"ticker": "BIL", "date": "2026-08-05", "action": "split",
+             "value": 3}])
+
+        lookup = R.corpus_action_lookup(
+            conn, start=date(2026, 8, 1), end=date(2026, 8, 10))
+
+        assert lookup("SENTINEL:BIL") == Decimal(1)
+        material = lookup.material_events_for(
+            security_ids={"SENTINEL:BIL"})
+        assert len(material) == 1
+        assert "immediately consecutive" in material[0].reason
 
     def test_a_SPINOFF_is_NOT_silently_treated_as_a_multiplier(self, conn):
         """Scope honesty. A spinoff is not expressible as a share-count scalar,
@@ -914,6 +1116,8 @@ class TestCorpusActionLookup:
         feed_store.write_actions(conn, [
             {"ticker": "AAA", "date": "2026-08-05", "action": "dividend",
              "value": 0.25},
+            {"ticker": "AAA", "date": "2026-08-05",
+             "action": "spinoffdividend", "value": 0.1},
             {"ticker": "AAA", "date": "2026-08-06",
              "action": "acquisitionof", "value": None,
              "contraticker": "VICTIM"}])
@@ -933,7 +1137,8 @@ class TestCorpusActionLookup:
 
         events = lookup.material_events_for(symbols={"AAA"})
         assert len(events) == 1
-        assert events[0].reason == "scalar action has no as-of security mapping"
+        assert events[0].reason == (
+            "scalar action has absent published effective-session security mapping")
 
     def test_an_unmapped_security_returns_1_rather_than_raising(self, conn):
         lookup = R.corpus_action_lookup(conn, start=date(2026, 8, 1),

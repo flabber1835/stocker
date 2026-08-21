@@ -65,6 +65,48 @@ def test_fractional_reverse_split_uses_broker_certified_increment_exactly():
     assert projected.target_basket == {"SEC-A": Decimal("0.3")}
 
 
+def _reverse_denominator_evidence():
+    return ({
+        "security_id": "SEC-A", "session": "2026-08-21",
+        "action": "split", "value": "30", "source_row_id": "action-30",
+        "canonical_multiplier": "0.03333333333333333",
+        "split_disposition": "published_canonical_equity_ratio",
+    },)
+
+
+def test_repeating_reverse_ratio_reconstructs_exact_increment_from_evidence():
+    projected = project_target(
+        plan(basket={"SEC-A": Decimal("300")}),
+        through_session=date(2026, 8, 21),
+        action_multipliers={
+            "SEC-A": Decimal("0.03333333333333333")},
+        action_evidence=_reverse_denominator_evidence(),
+        minimum_quantity_increment=Decimal("1"))
+
+    assert projected.target_basket == {"SEC-A": Decimal("10")}
+
+
+def test_repeating_reverse_ratio_never_rounds_a_fractional_entitlement():
+    with pytest.raises(TargetProjectionRefused, match="not a multiple"):
+        project_target(
+            plan(basket={"SEC-A": Decimal("301")}),
+            through_session=date(2026, 8, 21),
+            action_multipliers={
+                "SEC-A": Decimal("0.03333333333333333")},
+            action_evidence=_reverse_denominator_evidence(),
+            minimum_quantity_increment=Decimal("1"))
+
+
+def test_repeating_reverse_ratio_without_structured_evidence_still_refuses():
+    with pytest.raises(TargetProjectionRefused, match="not a multiple"):
+        project_target(
+            plan(basket={"SEC-A": Decimal("300")}),
+            through_session=date(2026, 8, 21),
+            action_multipliers={
+                "SEC-A": Decimal("0.03333333333333333")},
+            minimum_quantity_increment=Decimal("1"))
+
+
 @pytest.mark.parametrize("ratio", [Decimal("0"), Decimal("-1"), Decimal("NaN")])
 def test_invalid_scalar_terms_refuse(ratio):
     with pytest.raises(TargetProjectionRefused):

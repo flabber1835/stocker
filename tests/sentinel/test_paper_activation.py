@@ -41,7 +41,10 @@ from sentinel.core.decision import (  # noqa: E402
     publication_fingerprint,
     runtime_strategy_identity as production_runtime_strategy_identity,
 )
-from sentinel.core.loader import CorpusWindow  # noqa: E402
+from sentinel.core.loader import (  # noqa: E402
+    CausalMetadataUnavailable,
+    CorpusWindow,
+)
 from sentinel.core.production import PublishedSession, SessionState  # noqa: E402
 from sentinel.execution import alpaca, journal, target_reprojection  # noqa: E402
 from sentinel.execution.commands import Command  # noqa: E402
@@ -61,7 +64,12 @@ from sentinel.execution.simulator import (  # noqa: E402
     SimulatedBroker,
 )
 from sentinel.execution.states import CommandState, RuntimeState  # noqa: E402
-from sentinel.feed import publication, store as feed_store  # noqa: E402
+from sentinel.feed import (  # noqa: E402
+    publication,
+    store as feed_store,
+    universe as feed_universe,
+)
+from sentinel.feed.domains import NormalisedBar  # noqa: E402
 from sentinel.ownership import AccountObservation, OpenOrder  # noqa: E402
 from stock_strategy_shared.wealth_core.feed import (  # noqa: E402
     DecisionMetadataTimelineBuilder, SecurityMeta,
@@ -163,7 +171,8 @@ def simulator_is_certified(monkeypatch):
     monkeypatch.setattr(
         paper, "require_current_authority",
         lambda *_args, **_kwargs: SimpleNamespace(
-            certificate_sha256=ROLLOUT_CERTIFICATE))
+            certificate_sha256=ROLLOUT_CERTIFICATE,
+            authorization_mode="PAPER_OBSERVATION_ONLY"))
     monkeypatch.setattr(
         paper.system_identity, "rehearsal_identity",
         lambda: {"identity_hash": "test-runtime"})
@@ -693,6 +702,249 @@ def test_fresh_boot_warms_exactly_252_feature_sessions_without_path_history(
     assert portfolio.episodes == {}
     assert state.pending == []
     assert state.ledger["events"] == []
+
+
+def test_current_only_paper_observation_starts_witness_prospectively(
+        monkeypatch):
+    """A supported fresh seed never backdates today's TICKERS observation."""
+    sessions = [f"S{i:04d}" for i in range(1, 254)]
+    warm = sessions[:-1]
+    securities = [(AAA.security_id, AAA.symbol)] + [
+        (f"SEC-AUX-{index:02d}", f"AUX{index:02d}")
+        for index in range(1, 30)]
+    current_meta = {
+        security_id: SecurityMeta(
+            security_id, ticker, category="Domestic Common Stock",
+            permaticker=security_id, first_session=warm[0])
+        for security_id, ticker in securities
+    }
+    window = CorpusWindow(
+        sessions=warm, meta=current_meta,
+        bars_by_session={
+            session: [VendorBar(
+                session=session, security_id=security_id, ticker=ticker,
+                raw_close=100.0, raw_open=100.0, volume=1_000_000.0)
+                for security_id, ticker in securities]
+            for session in warm})
+    monkeypatch.setattr(
+        paper.calendar, "previous_sessions",
+        lambda through, count: sessions
+        if (through, count) == (sessions[-1], 253) else [])
+    monkeypatch.setattr(
+        paper, "load_window",
+        lambda _conn, *, start, end: window
+        if (start, end) == (warm[0], warm[-1]) else None)
+
+    def no_history(_conn, *, sessions):
+        raise CausalMetadataUnavailable(
+            f"no causally available metadata before {sessions[0]}")
+
+    monkeypatch.setattr(paper, "load_causal_meta_history", no_history)
+    account = BrokerAccountSnapshot(
+        identity=BrokerAccountIdentity("sim", ACCOUNT),
+        equity=D("1000"), cash=D("1000"))
+
+    state = paper._fresh_warmed_state(                    # noqa: SLF001
+        object(), through=sessions[-1], count=252, account=account,
+        controller_config=CONFIG, strategy_identity=IDENTITY,
+        publication_version=7,
+        authorization_mode="PAPER_OBSERVATION_ONLY")
+
+    assert state.feed["session_index"] == 251
+    assert state.recent_leadership == {
+        "version": 1, "selected_recent": [], "selected_close": [],
+        "nav_history": [], "session_history": [], "last_session": None}
+    assert state.ldrc["last_session"] is None
+    assert state.last_processed_session is None
+    assert PortfolioState.from_dict(state.wealth_core).episodes == {}
+    assert state.concordance_witness_origin == \
+        "PROSPECTIVE_PAPER_OBSERVATION"
+
+
+def test_prospective_witness_provenance_survives_restart_and_blocks_mode_rotation():
+    state = SessionState.fresh(
+        starting_cash=1000, controller=Controller(CONFIG),
+        strategy_identity=IDENTITY)
+    state.concordance_witness_origin = "PROSPECTIVE_PAPER_OBSERVATION"
+    restarted = SessionState.from_dict(state.to_dict())
+
+    paper._assert_concordance_witness_authority(  # noqa: SLF001
+        restarted, "PAPER_OBSERVATION_ONLY")
+    with pytest.raises(
+            paper.PaperActivationRefused,
+            match="rebuild from a complete causal metadata timeline"):
+        paper._assert_concordance_witness_authority(  # noqa: SLF001
+            restarted, "HISTORICALLY_CERTIFIED")
+
+
+def test_v4_witness_origin_encoding_preserves_legacy_hash_and_binds_prospective():
+    historical = SessionState.fresh(
+        starting_cash=1000, controller=Controller(CONFIG),
+        strategy_identity=IDENTITY)
+    legacy_v4 = historical.to_dict()
+    legacy_hash = historical.state_hash
+
+    assert "concordance_witness_origin" not in legacy_v4
+    restored = SessionState.from_dict(legacy_v4)
+    assert restored.concordance_witness_origin == "HISTORICAL_CAUSAL_METADATA"
+    assert restored.state_hash == legacy_hash
+
+    historical.concordance_witness_origin = "PROSPECTIVE_PAPER_OBSERVATION"
+    prospective_v4 = historical.to_dict()
+    prospective_hash = historical.state_hash
+    assert prospective_v4["concordance_witness_origin"] == \
+        "PROSPECTIVE_PAPER_OBSERVATION"
+
+    stripped = dict(prospective_v4)
+    stripped.pop("concordance_witness_origin")
+    stripped_state = SessionState.from_dict(stripped)
+    assert stripped_state.concordance_witness_origin == \
+        "HISTORICAL_CAUSAL_METADATA"
+    assert stripped_state.state_hash != prospective_hash
+
+
+def test_current_only_metadata_never_weakens_historical_authority(monkeypatch):
+    sessions = [f"S{i:04d}" for i in range(1, 254)]
+    warm = sessions[:-1]
+    meta = {AAA.security_id: SecurityMeta(
+        AAA.security_id, AAA.symbol, category="Domestic Common Stock",
+        permaticker=AAA.security_id, first_session=warm[0])}
+    window = CorpusWindow(
+        sessions=warm, meta=meta,
+        bars_by_session={session: [VendorBar(
+            session=session, security_id=AAA.security_id, ticker=AAA.symbol,
+            raw_close=100.0, raw_open=100.0, volume=1_000_000.0)]
+            for session in warm})
+    monkeypatch.setattr(
+        paper.calendar, "previous_sessions", lambda *_: sessions)
+    monkeypatch.setattr(paper, "load_window", lambda *_args, **_kwargs: window)
+    monkeypatch.setattr(
+        paper, "load_causal_meta_history",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            CausalMetadataUnavailable("current-only TICKERS")))
+    account = BrokerAccountSnapshot(
+        identity=BrokerAccountIdentity("sim", ACCOUNT),
+        equity=D("1000"), cash=D("1000"))
+
+    with pytest.raises(
+            paper.PaperActivationRefused,
+            match="requires session-effective TICKERS metadata"):
+        paper._fresh_warmed_state(                         # noqa: SLF001
+            object(), through=sessions[-1], count=252, account=account,
+            controller_config=CONFIG, strategy_identity=IDENTITY,
+            publication_version=7,
+            authorization_mode="HISTORICALLY_CERTIFIED")
+
+
+def test_supported_current_only_seed_produces_the_first_plan_without_backdating(
+        conn, monkeypatch):
+    """Exercise the real seed relations and loaders, not a metadata fake.
+
+    A supported seed publishes one current TICKERS snapshot alongside the
+    historical SEP/SFP price rows.  This test would fail at activation before
+    the prospective-witness rule because the first warm session predates that
+    snapshot.  It also fails if anyone "fixes" activation by inserting or
+    projecting a historical metadata observation that the source never made.
+    """
+    config = paper.load_concordance_parent()
+    strategy_identity = production_runtime_strategy_identity(
+        config, concordance=True)
+    real_previous_sessions = paper.calendar.previous_sessions
+    real_sessions_in_range = paper.calendar.sessions_in_range
+    sessions = real_previous_sessions(DECISION.isoformat(), 253)
+    assert len(sessions) == 253 and sessions[-1] == DECISION.isoformat()
+    securities = [
+        (str(10_000 + index), f"SEED{index:02d}")
+        for index in range(30)
+    ]
+    run = feed_store.IngestRun(
+        conn, "supported-current-only-seed",
+        date_from=sessions[0], date_to=sessions[-1])
+    run_id = run.progress.run_id
+    feed_universe.write_universe(
+        conn,
+        [{
+            "table": "SEP", "permaticker": security_id,
+            "ticker": ticker, "category": "Domestic Common Stock",
+            "sector": "Industrials", "firstpricedate": sessions[0],
+        } for security_id, ticker in securities],
+        DECISION.isoformat(), run_id=run_id)
+    feed_store.write_bars(
+        conn,
+        (NormalisedBar(
+            close_signal=(
+                100.0 + session_index / 20.0 + security_index / 100.0),
+            vendor=VendorBar(
+                session=session, security_id=security_id, ticker=ticker,
+                raw_close=(
+                    100.0 + session_index / 20.0 + security_index / 100.0),
+                raw_open=(
+                    100.0 + session_index / 20.0 + security_index / 100.0),
+                volume=1_000_000.0))
+         for session_index, session in enumerate(sessions)
+         for security_index, (security_id, ticker) in enumerate(securities)),
+        run_id=run_id)
+    spy_sessions = sessions[-41:]
+    feed_store.write_spy_total_return(
+        conn,
+        ({"ticker": "SPY", "date": session,
+          "closeadj": 400.0 + index}
+         for index, session in enumerate(spy_sessions)),
+        run_id=run_id)
+    feed_store.write_defensive_bars(
+        conn,
+        ({"ticker": "BIL", "date": session,
+          "close": 91.0 + index / 100.0,
+          "closeunadj": 91.0 + index / 100.0}
+         for index, session in enumerate(spy_sessions)),
+        run_id=run_id)
+    run.finish("success")
+    publication.publish(
+        conn, run_id=run_id, window_start=sessions[0],
+        window_end=sessions[-1], evidence={"fixture": "supported-seed"})
+    _bind(conn)
+    _ready(monkeypatch)
+
+    def exact_previous_sessions(through, count):
+        key = (str(through), count)
+        if key == (DECISION.isoformat(), 253):
+            return list(sessions)
+        if key == (DECISION.isoformat(), 41):
+            return list(spy_sessions)
+        return real_previous_sessions(through, count)
+
+    monkeypatch.setattr(
+        paper.calendar, "previous_sessions", exact_previous_sessions)
+    monkeypatch.setattr(
+        paper.calendar, "sessions_in_range",
+        lambda start, end: [DECISION.isoformat()]
+        if (dt.date.fromisoformat(str(start)), dt.date.fromisoformat(str(end)))
+        == (DECISION, DECISION)
+        else real_sessions_in_range(start, end))
+    result = _prepare(
+        conn, _broker(equity="100000", cash="100000"),
+        controller_config=config, strategy_identity=strategy_identity)
+    state = SessionState.from_dict(catchup.resume_state(conn))
+
+    assert result.sessions_replayed == 1
+    assert result.warmup_sessions == 252
+    assert result.plan == journal.latest_plan(conn)
+    assert state.last_processed_session == DECISION.isoformat()
+    assert state.concordance_witness_origin == \
+        "PROSPECTIVE_PAPER_OBSERVATION"
+    assert state.recent_leadership["session_history"] == [
+        DECISION.isoformat()]
+    assert state.last_evidence["recent_leadership_readiness"] == {
+        "history_sessions": 1,
+        "r20_available": False,
+        "r40_available": False,
+    }
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT snapshot_date FROM sentinel_universe"
+            " ORDER BY snapshot_date")
+        assert [str(row[0]) for row in cur.fetchall()] == [
+            DECISION.isoformat()]
 
 
 def test_real_fresh_boot_pipeline_is_restart_equivalent_and_adopts_one_plan(
@@ -1354,10 +1606,13 @@ class TestStrictExecutionGate:
             _install_current_authorities(conn, with_target=True)
         _ready(monkeypatch)
         with conn.cursor() as cur:
-            cur.execute(
+            cur.executemany(
                 "INSERT INTO sentinel_bars (security_id,session,ticker,"
-                " close_unadjusted) VALUES (%s,%s,%s,%s)",
-                (AAA.security_id, DECISION, AAA.symbol, 100))
+                " close_signal,close_unadjusted,split_ratio)"
+                " VALUES (%s,%s,%s,%s,%s,%s)", [
+                    (AAA.security_id, DECISION, AAA.symbol, 100, 100, 1),
+                    (AAA.security_id, EFFECTIVE, AAA.symbol, 100, 100, 2),
+                ])
             cur.execute(
                 "INSERT INTO sentinel_actions (ticker,session,action,value)"
                 " VALUES (%s,%s,'split',2)",
@@ -1452,8 +1707,9 @@ class TestStrictExecutionGate:
                  historical.client_key))
             cur.execute(
                 "INSERT INTO sentinel_bars (security_id,session,ticker,"
-                " close_unadjusted) VALUES (%s,%s,%s,%s)",
-                (AAA.security_id, action_session, AAA.symbol, 50))
+                " close_signal,close_unadjusted,split_ratio)"
+                " VALUES (%s,%s,%s,%s,%s,%s)",
+                (AAA.security_id, action_session, AAA.symbol, 50, 50, 2))
             cur.execute(
                 "INSERT INTO sentinel_actions (ticker,session,action,value)"
                 " VALUES (%s,%s,'split',2)",

@@ -449,7 +449,7 @@ class TestUnexplainedCorpusAnomaliesBlockTheInterval:
         kinds = [
             "SPLIT_AUTHORITATIVE_APPLIED", "SPLIT_CORROBORATED_DERIVED",
             "SPLIT_ONLY_DERIVED", "SEAM_SPLIT_UNCORROBORATED",
-            "SPLIT_DISAGREEMENT",
+            "SPLIT_DISAGREEMENT", "AMBIGUOUS_SPLIT_MULTIPLICITY",
         ]
         for offset, kind in enumerate(kinds, 3):
             self.anomaly(conn, kind, ticker=f"T{offset}",
@@ -459,8 +459,16 @@ class TestUnexplainedCorpusAnomaliesBlockTheInterval:
         assert {item["category"] for item in report["split_dispositions"]} == {
             "authoritative applied split", "corroborated derived split",
             "derived-only non-seam split", "seam artifact suppressed",
-            "unresolved material disagreement",
+            "unresolved material disagreement", "ambiguous split multiplicity",
         }
+
+    def test_ambiguous_split_multiplicity_is_a_named_blocker(self, conn):
+        self.anomaly(conn, "AMBIGUOUS_SPLIT_MULTIPLICITY", ticker="DUP")
+        report = RA.audit(conn, start=START, end=END, **EMPTY_BOOK)
+        item = report.unsafe_split_dispositions[0]
+        assert item["category"] == "ambiguous split multiplicity"
+        assert item["economic_relevance"] == "unresolved"
+        assert report.certifiable is False
 
     def test_unresolved_split_on_a_held_security_fails_closed(self, conn):
         self.anomaly(conn, "SPLIT_DISAGREEMENT", ticker="OWNED")

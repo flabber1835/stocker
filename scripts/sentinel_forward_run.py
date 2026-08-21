@@ -20,7 +20,7 @@ import tempfile
 from typing import Any, Callable, Mapping, Sequence
 
 SCHEMA = "sentinel.production-forward-chain-run/1"
-REPORT_SCHEMA = "sentinel.production-forward-chain/1"
+REPORT_SCHEMA = "sentinel.production-forward-chain/2"
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RUNNER = ROOT / "tools" / "sentinel_forward_chain.py"
 # This producer runs on the NAS host, whose compatibility floor is Python
@@ -104,12 +104,19 @@ _CORPUS_FIELDS = {
     "window", "data_version", "publication", "postgres_server_version",
     "postgres_certified", "first_session", "last_session", "sessions",
     "securities", "normalised_bars", "vendor_actions", "vendor_universe",
-    "spy_total_return", "applied_repairs", "refusals", "anomalies",
+    "spy_total_return", "defensive_bars", "applied_repairs", "refusals",
+    "anomalies",
     "refusal_truncation", "corpus_hash",
 }
+_CORPUS_HASH_FIELDS = (
+    "data_version", "normalised_bars", "vendor_actions", "vendor_universe",
+    "spy_total_return", "defensive_bars", "applied_repairs", "refusals",
+    "anomalies", "refusal_truncation",
+)
 _COHERENCE_FIELDS = {
     "coherent", "version", "unpublished_rows", "unpublished_bars",
-    "unpublished_actions", "unpublished_spy", "unpublished_universe",
+    "unpublished_actions", "unpublished_spy", "unpublished_defensive",
+    "unpublished_universe",
     "unpublished_repairs", "unpublished_anomalies", "unpublished_runs",
     "enumeration",
 }
@@ -141,6 +148,14 @@ def canonical_bytes(value: Any) -> bytes:
 
 def _canonical_sha256(value: Any) -> str:
     return _sha256(canonical_bytes(value))
+
+
+def _corpus_component_sha256(corpus: Mapping[str, Any]) -> str:
+    """Reproduce the component-bound digest emitted by sentinel.identity."""
+    return _sha256(json.dumps(
+        {field: corpus[field] for field in _CORPUS_HASH_FIELDS},
+        sort_keys=True,
+    ).encode())
 
 
 def _json_object(raw: bytes, *, label: str) -> dict[str, Any]:
@@ -329,7 +344,8 @@ def _report_binding(raw: Mapping[str, Any], *, raw_sha256: str,
             or coherence.get("version") != version
             or any(coherence.get(field) != 0 for field in (
                 "unpublished_rows", "unpublished_bars", "unpublished_actions",
-                "unpublished_spy", "unpublished_universe",
+                "unpublished_spy", "unpublished_defensive",
+                "unpublished_universe",
                 "unpublished_repairs", "unpublished_anomalies"))
             or coherence.get("unpublished_runs") != []
             or coherence.get("enumeration") != "exhaustive"):
@@ -343,6 +359,7 @@ def _report_binding(raw: Mapping[str, Any], *, raw_sha256: str,
         fields={"version", "previous_version", "run_id", "window", "evidence"})
     if (corpus.get("data_version") != version
             or publication.get("version") != version
+            or corpus.get("corpus_hash") != _corpus_component_sha256(corpus)
             or corpus.get("corpus_hash") != base["certification_corpus_sha256"]
             or corpus.get("window") != {"start": CHAIN_START,
                                         "end": REFERENCE_END}

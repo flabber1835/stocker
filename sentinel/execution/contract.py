@@ -279,6 +279,10 @@ class BrokerObservation:
     """
 
     observed_at: datetime
+    #: Local lower bound for the first request in this multi-request snapshot.
+    #: A close valuation may use the observation only when the entire interval,
+    #: not merely its final response stamp, is after the official close.
+    started_at: Optional[datetime] = None
     orders: tuple = ()
     positions: tuple = ()
     completeness: Completeness = Completeness.COMPLETE
@@ -293,6 +297,15 @@ class BrokerObservation:
     account_identity: Optional[BrokerAccountIdentity] = None
 
     def __post_init__(self) -> None:
+        if self.observed_at.tzinfo is None:
+            raise ValueError("BrokerObservation.observed_at must be timezone-aware")
+        if self.started_at is not None:
+            if self.started_at.tzinfo is None:
+                raise ValueError(
+                    "BrokerObservation.started_at must be timezone-aware")
+            if self.started_at > self.observed_at:
+                raise ValueError(
+                    "BrokerObservation.started_at follows observed_at")
         if self.account_identity is not None:
             if (not self.account_identity.broker
                     or not self.account_identity.account_id):

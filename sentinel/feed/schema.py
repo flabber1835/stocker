@@ -24,6 +24,7 @@ is a long seed the operator will interrupt.
 sentinel_bars          one row per (security, session). The corpus
 sentinel_actions       SHARADAR/ACTIONS, the authoritative corporate-action stream
 sentinel_universe      SHARADAR/TICKERS snapshots, for identity and eligibility
+sentinel_defensive_bars fixed-identity raw BIL execution marks from SFP
 feed_ingest_runs       progress and history, committed per chunk
 ```
 """
@@ -62,6 +63,31 @@ DDL = [
         last_written_run_id UUID)""",
     """CREATE INDEX IF NOT EXISTS idx_sentinel_spy_total_return_written_by
         ON sentinel_spy_total_return (last_written_run_id)
+        WHERE last_written_run_id IS NOT NULL""",
+    # BIL is an execution instrument, not an SEP company.  Keep the fixed
+    # Sentinel identity and the two SFP price domains outside Wealth Core's
+    # equity corpus. ``close_unadjusted`` is the tradable broker mark;
+    # ``close_signal`` is retained only to translate ACTIONS dividends from the
+    # split-adjusted source basis onto raw paper shares.
+    """CREATE TABLE IF NOT EXISTS sentinel_defensive_bars (
+        security_id         TEXT NOT NULL DEFAULT 'SENTINEL:BIL'
+                            CHECK (security_id = 'SENTINEL:BIL'),
+        session             DATE PRIMARY KEY,
+        ticker              TEXT NOT NULL DEFAULT 'BIL'
+                            CHECK (ticker = 'BIL'),
+        close_signal        DOUBLE PRECISION NOT NULL
+                            CHECK (close_signal > 0
+                                   AND close_signal NOT IN
+                                       ('NaN'::DOUBLE PRECISION,
+                                        'Infinity'::DOUBLE PRECISION)),
+        close_unadjusted    DOUBLE PRECISION NOT NULL
+                            CHECK (close_unadjusted > 0
+                                   AND close_unadjusted NOT IN
+                                       ('NaN'::DOUBLE PRECISION,
+                                        'Infinity'::DOUBLE PRECISION)),
+        last_written_run_id UUID)""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_defensive_bars_written_by
+        ON sentinel_defensive_bars (last_written_run_id)
         WHERE last_written_run_id IS NOT NULL""",
 
     # RAW VENDOR ROWS THE INGEST REFUSED. Append-only observations, not a
@@ -716,6 +742,10 @@ DDL = [
     """DROP TRIGGER IF EXISTS sentinel_guard_strategy_row_mutation ON sentinel_spy_total_return""",
     """CREATE TRIGGER sentinel_guard_strategy_row_mutation
         BEFORE UPDATE OR DELETE ON sentinel_spy_total_return
+        FOR EACH ROW EXECUTE FUNCTION sentinel_guard_strategy_row_mutation()""",
+    """DROP TRIGGER IF EXISTS sentinel_guard_strategy_row_mutation ON sentinel_defensive_bars""",
+    """CREATE TRIGGER sentinel_guard_strategy_row_mutation
+        BEFORE UPDATE OR DELETE ON sentinel_defensive_bars
         FOR EACH ROW EXECUTE FUNCTION sentinel_guard_strategy_row_mutation()""",
     """DROP TRIGGER IF EXISTS sentinel_guard_strategy_row_mutation ON sentinel_universe""",
     """CREATE TRIGGER sentinel_guard_strategy_row_mutation

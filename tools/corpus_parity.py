@@ -70,6 +70,7 @@ COMPARED_FIELDS = ("raw_close", "raw_open", "volume", "split_ratio",
                    "dividend_per_share", "tradeable", "ticker")
 TOLERANCE = 1e-9
 BT_CORPUS_LOCK_KEY = 0x4254_434F_5250_5553
+CANONICAL_SECURITY_ID_PREFIX = "P:"
 
 
 @dataclass
@@ -85,6 +86,8 @@ class ParityReport:
     field_divergences: dict[str, int] = field(default_factory=dict)
     examples: list[dict] = field(default_factory=list)
     examples_truncated: int = 0
+    identity_failure_count: int = 0
+    identity_failure_sample: list[dict] = field(default_factory=list)
     unavailable: Optional[str] = None
     canonical_loader_failure: Optional[str] = None
     sentinel_data_version: Optional[int] = None
@@ -101,10 +104,16 @@ class ParityReport:
         if len(self.extra_in_sentinel) < max_report:
             self.extra_in_sentinel.append(key)
 
+    def note_identity_failure(self, failure: dict, *, max_report: int) -> None:
+        self.identity_failure_count += 1
+        if len(self.identity_failure_sample) < max_report:
+            self.identity_failure_sample.append(failure)
+
     @property
     def agrees(self) -> bool:
         return (self.unavailable is None
                 and self.canonical_loader_failure is None
+                and not self.identity_failure_count
                 and not self.missing_count
                 and not self.extra_count
                 and not self.field_divergences)
@@ -118,6 +127,8 @@ class ParityReport:
                 "sentinel_data_version": self.sentinel_data_version,
                 "canonical_data_version": self.canonical_data_version,
                 "canonical_source_mode": self.canonical_source_mode,
+                "identity_failures": self.identity_failure_count,
+                "identity_failure_sample": self.identity_failure_sample,
                 "missing_from_sentinel": self.missing_count,
                 "extra_in_sentinel": self.extra_count,
                 "missing_sample": [list(k) for k in self.missing_from_sentinel],
@@ -153,18 +164,109 @@ def _close(a, b) -> bool:
         return a == b
 
 
+def _permaticker_identity(security_id, *, source: str) -> str:
+    """Return the opaque vendor permaticker carried by one loader.
+
+    Sentinel stores the Sharadar permaticker verbatim.  The retained canonical
+    loader wraps that same value in its explicit ``P:`` namespace.  The
+    conversion is therefore SIDE-AWARE: removing ``P:`` from both sides would
+    collapse two valid Sentinel permatickers such as ``"123"`` and
+    ``"P:123"`` into one financial identity.
+
+    No whitespace or type coercion is performed.  Both production loaders
+    already emit stripped strings, and accepting a malformed value here would
+    make a certification comparison repair evidence it is supposed to audit.
+    """
+    if source not in {"sentinel", "canonical"}:
+        raise ValueError(f"unknown corpus identity source {source!r}")
+    if not isinstance(security_id, str):
+        raise ValueError("security_id is not a string")
+    if not security_id:
+        raise ValueError("security_id is empty")
+    if security_id != security_id.strip():
+        raise ValueError("security_id has surrounding whitespace")
+    if source == "sentinel":
+        return security_id
+    if not security_id.startswith(CANONICAL_SECURITY_ID_PREFIX):
+        raise ValueError(
+            "canonical security_id lacks the required P: namespace")
+    permaticker = security_id[len(CANONICAL_SECURITY_ID_PREFIX):]
+    if not permaticker:
+        raise ValueError("canonical security_id has an empty permaticker")
+    if permaticker != permaticker.strip():
+        raise ValueError("canonical permaticker has surrounding whitespace")
+    return permaticker
+
+
+def comparison_security_id(security_id, *, source: str) -> str:
+    """Canonical display key for the same permanent security on either side."""
+    return (CANONICAL_SECURITY_ID_PREFIX
+            + _permaticker_identity(security_id, source=source))
+
+
+def _index_session_bars(bars, *, source: str, session: str,
+                        report: ParityReport, max_report: int
+                        ) -> tuple[dict[str, object], bool]:
+    """Index one session without silently dropping malformed/duplicate bars."""
+    indexed: dict[str, object] = {}
+    observed_ids: dict[str, str] = {}
+    failed = False
+    for bar in bars:
+        security_id = getattr(bar, "security_id", None)
+        try:
+            permaticker = _permaticker_identity(security_id, source=source)
+        except ValueError as exc:
+            failed = True
+            report.note_identity_failure({
+                "session": str(session), "source": source,
+                "security_id": security_id, "reason": str(exc),
+            }, max_report=max_report)
+            continue
+        if permaticker in indexed:
+            failed = True
+            prior = observed_ids[permaticker]
+            reason = ("duplicate security_id in one session"
+                      if prior == security_id
+                      else "distinct security_ids normalize to one permaticker")
+            report.note_identity_failure({
+                "session": str(session), "source": source,
+                "security_id": security_id,
+                "comparison_security_id": (
+                    CANONICAL_SECURITY_ID_PREFIX + permaticker),
+                "collides_with": prior, "reason": reason,
+            }, max_report=max_report)
+            continue
+        indexed[permaticker] = bar
+        observed_ids[permaticker] = security_id
+    return indexed, failed
+
+
 def compare(sentinel_bars: dict, canonical_bars: dict, *, window,
             max_report: int = 25) -> ParityReport:
     rep = ParityReport(window=tuple(window))
     for session in sorted(set(sentinel_bars) | set(canonical_bars)):
-        mine = {b.security_id: b for b in sentinel_bars.get(session, ())}
-        theirs = {b.security_id: b for b in canonical_bars.get(session, ())}
-        rep.sentinel_bars += len(mine)
-        rep.canonical_bars += len(theirs)
+        mine_rows = tuple(sentinel_bars.get(session, ()))
+        their_rows = tuple(canonical_bars.get(session, ()))
+        rep.sentinel_bars += len(mine_rows)
+        rep.canonical_bars += len(their_rows)
+        mine, mine_failed = _index_session_bars(
+            mine_rows, source="sentinel", session=str(session), report=rep,
+            max_report=max_report)
+        theirs, theirs_failed = _index_session_bars(
+            their_rows, source="canonical", session=str(session), report=rep,
+            max_report=max_report)
+        # Membership and field claims over a partially indexed session would be
+        # noise.  The identity failure itself is the fail-closed verdict.
+        if mine_failed or theirs_failed:
+            continue
         for sid in sorted(theirs.keys() - mine.keys()):
-            rep.note_missing((session, sid), max_report=max_report)
+            rep.note_missing(
+                (session, CANONICAL_SECURITY_ID_PREFIX + sid),
+                max_report=max_report)
         for sid in sorted(mine.keys() - theirs.keys()):
-            rep.note_extra((session, sid), max_report=max_report)
+            rep.note_extra(
+                (session, CANONICAL_SECURITY_ID_PREFIX + sid),
+                max_report=max_report)
         for sid in sorted(mine.keys() & theirs.keys()):
             a, b = mine[sid], theirs[sid]
             for f in COMPARED_FIELDS:
@@ -173,7 +275,9 @@ def compare(sentinel_bars: dict, canonical_bars: dict, *, window,
                 rep.field_divergences[f] = rep.field_divergences.get(f, 0) + 1
                 if len(rep.examples) < max_report:
                     rep.examples.append({
-                        "session": session, "security_id": sid, "field": f,
+                        "session": session,
+                        "security_id": CANONICAL_SECURITY_ID_PREFIX + sid,
+                        "field": f,
                         "sentinel": getattr(a, f, None),
                         "canonical": getattr(b, f, None)})
                 else:
@@ -309,6 +413,7 @@ def main(argv=None) -> int:
         print(f"REFUSED: {rep.unavailable}", file=sys.stderr)
     else:
         print(f"REFUSED: the seeded corpus differs from the canonical one — "
+              f"{rep.identity_failure_count} identity failures, "
               f"{rep.missing_count} missing, {rep.extra_count} extra, field "
               f"divergences {rep.field_divergences}. Read membership first: a "
               "field mismatch on a bar that should not exist is noise.",
@@ -316,8 +421,8 @@ def main(argv=None) -> int:
     return 2
 
 
-__all__ = ["COMPARED_FIELDS", "ParityReport", "TOLERANCE", "compare", "main",
-           "run"]
+__all__ = ["COMPARED_FIELDS", "ParityReport", "TOLERANCE", "compare",
+           "comparison_security_id", "main", "run"]
 
 if __name__ == "__main__":                                   # pragma: no cover
     raise SystemExit(main())

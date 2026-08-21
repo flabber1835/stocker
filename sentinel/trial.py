@@ -25,13 +25,15 @@ if TYPE_CHECKING:
 
 
 ACCOUNT_PREFIX = "trial-account:v1:"
-VERIFICATION_PREFIX = "trial-verification:v1:"
+VERIFICATION_PREFIX = "trial-verification:v2:"
 ACCOUNT_KIND = "sentinel-trial-account/v1"
-VERIFICATION_KIND = "sentinel-trial-verification/v1"
+VERIFICATION_KIND = "sentinel-trial-verification/v2"
 FINANCIAL_TOLERANCE = Decimal("1.00")
 SHARE_TOLERANCE = Decimal("0.000001")
 DIVIDEND_EVIDENCE_TOLERANCE = Decimal("0.000001")
 MAXIMUM_CLOCK_SKEW_SECONDS = 5
+BROKER_CLOSE_TIMESTAMP_AUTHORITY = "BROKER_AUTHORITATIVE_CLOSE"
+LOCAL_TIMESTAMP_AUTHORITY = "LOCAL_RESPONSE_BRACKET_UNVERIFIED"
 
 
 class TrialEvidenceRefused(RuntimeError):
@@ -120,7 +122,8 @@ def record_account_evidence(
         deployment: "DeploymentIdentity", reconciliation,
         activity_state: "CashActivityState | None",
         plan_target: Mapping[str, object],
-        target_actions: Mapping[str, object]) -> dict:
+        target_actions: Mapping[str, object],
+        observation_started_at: datetime | None = None) -> dict:
     """Bind actual account equity/cash to one clean reconciliation row."""
     if observation_id < 1:
         raise TrialEvidenceRefused("reconciliation observation id is invalid")
@@ -135,6 +138,19 @@ def record_account_evidence(
     if not deployment.matches_account(snapshot.identity):
         raise TrialEvidenceRefused("account evidence belongs to another binding")
     stamp = _utc(observed_at, where="account evidence observed_at")
+    started = (_utc(observation_started_at,
+                    where="account evidence observation_started_at")
+               if observation_started_at is not None else None)
+    if started is not None and started > stamp:
+        raise TrialEvidenceRefused(
+            "account evidence request begins after its response timestamp")
+    reconciliation_started = (
+        _utc(reconciliation.observation.started_at,
+             where="reconciliation observation start")
+        if reconciliation.observation.started_at is not None else None)
+    reconciliation_observed = _utc(
+        reconciliation.observation.observed_at,
+        where="reconciliation observation completion")
     equity = _decimal(snapshot.equity, where="actual account equity", positive=True)
     cash = _decimal(snapshot.cash, where="actual account cash")
     durable_target = _quantity_map(plan_target, where="plan target")
@@ -156,7 +172,16 @@ def record_account_evidence(
         "kind": ACCOUNT_KIND,
         "session": session.isoformat(),
         "observation_id": observation_id,
+        "observation_started_at": started.isoformat() if started else None,
         "observed_at": stamp.isoformat(),
+        "reconciliation_started_at": (
+            reconciliation_started.isoformat()
+            if reconciliation_started is not None else None),
+        "reconciliation_observed_at": reconciliation_observed.isoformat(),
+        # Alpaca's account/positions payloads contain no broker-authenticated
+        # valuation timestamp.  Local request bracketing is retained for
+        # diagnostics but cannot promote itself to close authority.
+        "valuation_timestamp_authority": LOCAL_TIMESTAMP_AUTHORITY,
         "deployment": {
             "deployment_id": deployment.deployment_id,
             "broker": deployment.broker,
@@ -243,129 +268,239 @@ def _age_plan_target(plan_target: Mapping[str, object],
     return target
 
 
-def _expected_paper_dividends(
-        state, decision_session: date, previous: Mapping | None) -> list[dict]:
-    """Project causal Wealth Core dividend entitlements into trial evidence.
-
-    Wealth Core's hashed ledger supplies the security and per-share source
-    evidence, but its shares belong to the full shadow.  Recover the scaled
-    paper entitlement by reversing the decision session's signed fills from
-    the immediately preceding immutable closing paper position.
-
-    This helper is evidence-only.  Its output is never added to broker cash,
-    NAV, positions, fills, orders, or target sizing.
-    """
-    ledger = _mapping(getattr(state, "ledger", None),
-                      where="canonical Wealth Core ledger")
-    events = ledger.get("events")
-    if not isinstance(events, list):
-        raise TrialEvidenceRefused(
-            "canonical Wealth Core ledger events are not an array")
-    wanted = decision_session.isoformat()
-    source: list[dict] = []
-    for index, raw in enumerate(events):
-        event = _mapping(raw, where=f"Wealth Core ledger event {index}")
-        if (event.get("event_type") != "DIVIDEND_ACCRUED"
-                or event.get("session") != wanted):
-            continue
-        security_id = str(event.get("security_id") or "").strip()
-        ticker = str(event.get("ticker") or "").strip()
-        if not security_id or not ticker:
-            raise TrialEvidenceRefused(
-                f"dividend entitlement {index} has no security identity")
-        detail = _mapping(
-            event.get("detail"), where=f"dividend entitlement {index} detail")
-        shares = _decimal(
-            detail.get("shares"), where=f"dividend entitlement {index} shares",
-            positive=True)
-        per_share = _decimal(
-            event.get("price"), where=f"dividend entitlement {index} per-share",
-            positive=True)
-        amount = _decimal(
-            detail.get("amount"), where=f"dividend entitlement {index} amount",
-            positive=True)
-        try:
-            due_in = int(detail.get("due_in"))
-        except (TypeError, ValueError) as exc:
-            raise TrialEvidenceRefused(
-                f"dividend entitlement {index} has invalid settlement lag") from exc
-        if due_in < 0:
-            raise TrialEvidenceRefused(
-                f"dividend entitlement {index} has negative settlement lag")
-        if abs(amount - shares * per_share) > DIVIDEND_EVIDENCE_TOLERANCE:
-            raise TrialEvidenceRefused(
-                f"dividend entitlement {index} amount disagrees with shares "
-                "times per-share amount")
-        source.append({
-            "security_id": security_id,
-            "ticker": ticker,
-            "accrued_session": wanted,
-            "shadow_shares": shares,
-            "per_share": str(per_share),
-            "shadow_amount": str(amount),
-            "settlement_lag_sessions": due_in,
-        })
-    if not source:
-        return []
-    prior = _mapping(previous, where="preceding trial verification")
-    if (prior.get("session") != wanted
-            or prior.get("verdict") not in {"VERIFIED", "NOT_VERIFIED"}):
-        raise TrialEvidenceRefused(
-            "paper dividend entitlement lacks the preceding session evidence")
-    allowed_prior_reasons = {
-        "ALPACA_PAPER_DIVIDEND_UNSUPPORTED", "VERIFICATION_GAP"}
-    if set(prior.get("reason_codes") or ()) - allowed_prior_reasons:
-        raise TrialEvidenceRefused(
-            "preceding paper book is not clean enough to prove dividend entitlement")
-    reconciliation = _mapping(
-        prior.get("reconciliation"), where="preceding reconciliation")
-    positions = _quantity_map(
-        reconciliation.get("positions") or {}, where="preceding positions")
-    pre_open = dict(positions)
-    commands = prior.get("commands")
+def _reverse_session_fills(
+        closing_positions: Mapping[str, object], commands: object, *,
+        where: str) -> dict[str, Decimal]:
+    """Recover a session's pre-open actual shares from its closing book."""
+    pre_open = _quantity_map(closing_positions, where=f"{where} positions")
+    pre_open = dict(pre_open)
     if not isinstance(commands, list):
-        raise TrialEvidenceRefused("preceding commands are not an array")
+        raise TrialEvidenceRefused(f"{where} commands are not an array")
     seen_commands: set[str] = set()
     for index, raw in enumerate(commands):
-        command = _mapping(raw, where=f"preceding command {index}")
+        command = _mapping(raw, where=f"{where} command {index}")
         client_key = str(command.get("client_key") or "").strip()
         security_id = str(command.get("security_id") or "").strip()
         side = str(command.get("side") or "").upper()
         if (not client_key or client_key in seen_commands or not security_id
                 or side not in {"BUY", "SELL"}):
             raise TrialEvidenceRefused(
-                f"preceding command {index} has invalid identity or side")
+                f"{where} command {index} has invalid identity or side")
         seen_commands.add(client_key)
         filled = _decimal(
             command.get("filled_quantity"),
-            where=f"preceding command {index} filled quantity")
+            where=f"{where} command {index} filled quantity")
         if filled < 0:
             raise TrialEvidenceRefused(
-                f"preceding command {index} has negative filled quantity")
+                f"{where} command {index} has negative filled quantity")
         opening = pre_open.get(security_id, Decimal(0))
         pre_open[security_id] = (
             opening - filled if side == "BUY" else opening + filled)
     if any(quantity < 0 for quantity in pre_open.values()):
         raise TrialEvidenceRefused(
             "signed fills imply a negative pre-open paper holding")
+    return pre_open
+
+
+def _expected_effective_equity_dividends(
+        conn, effective_session: date,
+        closing_positions: Mapping[str, object], commands: object) -> list[dict]:
+    """Read effective-session equity dividends from the published corpus.
+
+    The state committed by the plan ends on the preceding decision session, so
+    its ledger cannot witness a dividend that occurs during the interval being
+    verified.  The newly published effective-session bar can: its dividend is
+    already normalized onto raw/as-traded shares and remains publication-bound.
+    """
+    from sentinel.core.decision import DEFENSIVE_SECURITY_ID
+    from sentinel.core.terminal import DIVIDEND_ACTIONS
+    from sentinel.feed import calendar, publication
+    from stock_strategy_shared.wealth_core.sharadar_domains import (
+        raw_dividend_per_share)
+
+    wanted = effective_session.isoformat()
+    pre_open = _reverse_session_fills(
+        closing_positions, commands, where="effective-session")
+    held = sorted(
+        security_id for security_id, shares in pre_open.items()
+        if shares > 0 and security_id != DEFENSIVE_SECURITY_ID)
+    if not held:
+        return []
+
+    visible = publication.visible_predicate("b")
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT security_id,ticker,close_signal,close_unadjusted,"
+            " dividend_per_share"
+            " FROM sentinel_bars b WHERE session=%s"
+            " AND security_id=ANY(%s) AND " + visible
+            + " ORDER BY security_id", (wanted, held))
+        bar_rows = cur.fetchall()
+    found_security_ids = [str(row[0]) for row in bar_rows]
+    if (set(found_security_ids) != set(held)
+            or len(found_security_ids) != len(set(found_security_ids))):
+        missing = sorted(set(held) - set(found_security_ids))
+        raise TrialEvidenceRefused(
+            "effective-session dividend evidence has missing or duplicate "
+            "published bars for: " + ", ".join(missing or held))
+
+    ticker_rows: dict[str, tuple[str, str, Decimal, Decimal, Decimal]] = {}
+    for security_id, ticker, close_signal, close_unadjusted, amount in bar_rows:
+        ticker_key = str(ticker or "").strip().upper()
+        if not ticker_key or ticker_key in ticker_rows:
+            raise TrialEvidenceRefused(
+                "effective-session dividend evidence has an absent or "
+                f"ambiguous ticker: {ticker!r}")
+        signal = _decimal(
+            close_signal, where=f"{ticker_key} close signal", positive=True)
+        raw = _decimal(
+            close_unadjusted, where=f"{ticker_key} raw close", positive=True)
+        per_share = _decimal(
+            amount,
+            where=f"{ticker_key} effective-session dividend per-share")
+        if per_share < 0:
+            raise TrialEvidenceRefused(
+                f"{ticker_key} effective-session dividend is negative")
+        ticker_rows[ticker_key] = (
+            str(security_id), str(ticker), signal, raw, per_share)
+
+    raw_start, raw_end = calendar.action_date_window(wanted, wanted)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT session,action,ticker,value,source_row_id"
+            " FROM sentinel_active_actions"
+            " WHERE session BETWEEN %s AND %s"
+            " ORDER BY session,ticker,source_row_id", (raw_start, raw_end))
+        action_rows = [row for row in cur.fetchall()
+                       if str(row[1] or "").lower() in DIVIDEND_ACTIONS
+                       and calendar.session_on_or_after(str(row[0])) == wanted
+                       and str(row[2] or "").strip().upper() in ticker_rows]
+    sources: dict[str, list[str]] = {}
+    reported: dict[str, Decimal] = {}
+    seen_sources: set[str] = set()
+    for raw_session, action, ticker, value, source_row_id in action_rows:
+        ticker_key = str(ticker).strip().upper()
+        identity = str(source_row_id or "").strip()
+        if not identity or identity in seen_sources:
+            raise TrialEvidenceRefused(
+                "effective-session dividend source identities are absent or repeat")
+        seen_sources.add(identity)
+        amount = _decimal(
+            value,
+            where=f"{ticker_key} {action} {raw_session} amount",
+            positive=True)
+        reported[ticker_key] = reported.get(ticker_key, Decimal(0)) + amount
+        sources.setdefault(ticker_key, []).append(identity)
 
     expected: list[dict] = []
-    for item in source:
-        paper_shares = pre_open.get(item["security_id"], Decimal(0))
-        if paper_shares == 0:
-            continue
-        per_share = _decimal(
-            item["per_share"], where="paper dividend per-share", positive=True)
+    for ticker_key, row in sorted(ticker_rows.items()):
+        security_id, ticker, close_signal, close_unadjusted, per_share = row
+        source_ids = sources.get(ticker_key, [])
+        reported_per_share = reported.get(ticker_key)
+        if reported_per_share is None:
+            if per_share == 0:
+                continue
+            raise TrialEvidenceRefused(
+                f"{ticker} positive dividend lacks bound action evidence")
+        converted = _decimal(
+            raw_dividend_per_share(
+                float(close_signal), float(close_unadjusted),
+                float(reported_per_share)),
+            where=f"{ticker} normalized dividend per-share")
+        if abs(converted - per_share) > DIVIDEND_EVIDENCE_TOLERANCE:
+            raise TrialEvidenceRefused(
+                f"{ticker} dividend action aggregate does not match the "
+                "published normalized bar")
+        shares = pre_open[security_id]
         expected.append({
-            **item,
-            "shadow_shares": str(item["shadow_shares"]),
-            "shares": str(paper_shares),
-            "amount": str(paper_shares * per_share),
+            "security_id": security_id,
+            "ticker": ticker,
+            "accrued_session": wanted,
+            "shares": str(shares),
+            "per_share": str(per_share),
+            "amount": str(shares * per_share),
+            "reported_per_share": str(reported_per_share),
+            "source_row_ids": sorted(source_ids),
+            "source": "PUBLISHED_NORMALISED_BAR_AND_SHARADAR_ACTIONS",
+            "settlement_lag_sessions": None,
         })
-    return sorted(
-        expected,
-        key=lambda row: (
-            row["security_id"], row["ticker"], row["amount"], row["shares"]))
+    return expected
+
+
+def _expected_defensive_dividends(
+        conn, effective_session: date, closing_positions: Mapping[str, object],
+        commands: object) -> list[dict]:
+    """Project published BIL ACTIONS onto raw paper shares, evidence-only."""
+    from sentinel.core.decision import DEFENSIVE_SECURITY_ID
+    from sentinel.core.terminal import DIVIDEND_ACTIONS
+    from sentinel.feed import calendar, publication
+    from stock_strategy_shared.wealth_core.sharadar_domains import (
+        raw_dividend_per_share)
+
+    wanted = effective_session.isoformat()
+    raw_start, raw_end = calendar.action_date_window(wanted, wanted)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT session,action,value,source_row_id"
+            " FROM sentinel_active_actions"
+            " WHERE UPPER(ticker)='BIL' AND session BETWEEN %s AND %s"
+            " ORDER BY session,source_row_id", (raw_start, raw_end))
+        rows = [row for row in cur.fetchall()
+                if str(row[1] or "").lower() in DIVIDEND_ACTIONS
+                and calendar.session_on_or_after(str(row[0])) == wanted]
+    if not rows:
+        return []
+
+    pre_open = _reverse_session_fills(
+        closing_positions, commands, where="effective-session")
+    shares = pre_open.get(DEFENSIVE_SECURITY_ID, Decimal(0))
+    if shares == 0:
+        return []
+
+    reported = Decimal(0)
+    source_rows: list[str] = []
+    for raw_session, action, value, source_row_id in rows:
+        reported += _decimal(
+            value, where=f"BIL {action} {raw_session} amount", positive=True)
+        identity = str(source_row_id or "").strip()
+        if not identity:
+            raise TrialEvidenceRefused(
+                "BIL distribution lacks a source-row identity")
+        source_rows.append(identity)
+    if len(set(source_rows)) != len(source_rows):
+        raise TrialEvidenceRefused("BIL distribution source identities repeat")
+
+    visible = publication.visible_predicate("d")
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT close_signal,close_unadjusted"
+            " FROM sentinel_defensive_bars d WHERE session=%s"
+            " AND security_id=%s AND ticker='BIL' AND " + visible,
+            (wanted, DEFENSIVE_SECURITY_ID))
+        mark_row = cur.fetchone()
+    if mark_row is None:
+        raise TrialEvidenceRefused(
+            "BIL distribution lacks published price-domain evidence")
+    close_signal = _decimal(
+        mark_row[0], where="BIL close signal", positive=True)
+    close_unadjusted = _decimal(
+        mark_row[1], where="BIL raw close", positive=True)
+    converted = raw_dividend_per_share(
+        close_signal, close_unadjusted, reported)
+    per_share = _decimal(
+        converted, where="BIL raw dividend per-share", positive=True)
+    return [{
+        "security_id": DEFENSIVE_SECURITY_ID,
+        "ticker": "BIL",
+        "accrued_session": wanted,
+        "shares": str(shares),
+        "per_share": str(per_share),
+        "amount": str(shares * per_share),
+        "reported_per_share": str(reported),
+        "source_row_ids": sorted(source_rows),
+        "source": "SHARADAR_ACTIONS",
+        "settlement_lag_sessions": None,
+    }]
 
 
 def _performance_attribution(*, opening: Decimal | None,
@@ -390,6 +525,33 @@ def _performance_attribution(*, opening: Decimal | None,
     cumulative_factor = prior_cumulative_factor * (Decimal(1) + daily_return)
     return (strategy_pl, daily_return, cumulative_factor,
             cumulative_factor - Decimal(1))
+
+
+def _valuation_timestamp_aligned(
+        session: date, account_started_at: datetime,
+        account_observed_at: datetime,
+        reconciliation_started_at: datetime,
+        reconciliation_observed_at: datetime,
+        timestamp_authority: str) -> bool:
+    """True only for a fully post-close, tightly bracketed account read."""
+    from sentinel.feed import calendar
+
+    if timestamp_authority != BROKER_CLOSE_TIMESTAMP_AUTHORITY:
+        return False
+    _opened, closed = calendar.session_window(session)
+    close_utc = _utc(closed, where="effective-session close")
+    started = _utc(account_started_at, where="account request start")
+    observed = _utc(account_observed_at, where="account evidence time")
+    reconciliation_started = _utc(
+        reconciliation_started_at, where="reconciliation request start")
+    reconciled = _utc(
+        reconciliation_observed_at, where="reconciliation evidence time")
+    stamps = (started, observed, reconciliation_started, reconciled)
+    return (started <= observed
+            and reconciliation_started <= reconciled
+            and reconciled <= started
+            and all(0 <= (stamp - close_utc).total_seconds()
+                    <= MAXIMUM_CLOCK_SKEW_SECONDS for stamp in stamps))
 
 
 def _read_state(conn):
@@ -484,17 +646,30 @@ def _cash_rows(conn, session: date) -> tuple[list[dict], Decimal, Decimal]:
 
 def _marks(conn, session: date, positions: Mapping[str, object]) -> tuple[dict, Decimal]:
     from sentinel.feed import publication
+    from sentinel.core.decision import DEFENSIVE_SECURITY_ID
     wanted = sorted(key for key, value in positions.items()
                     if _decimal(value, where=f"position {key}") != 0)
     if not wanted:
         return {}, Decimal(0)
     visible = publication.visible_predicate("b")
+    equity_wanted = [key for key in wanted if key != DEFENSIVE_SECURITY_ID]
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT security_id,ticker,close_unadjusted FROM sentinel_bars b"
-            f" WHERE b.session=%s AND b.security_id=ANY(%s) AND {visible}",
-            (session, wanted))
-        rows = cur.fetchall()
+        rows = []
+        if equity_wanted:
+            cur.execute(
+                "SELECT security_id,ticker,close_unadjusted FROM sentinel_bars b"
+                f" WHERE b.session=%s AND b.security_id=ANY(%s) AND {visible}",
+                (session, equity_wanted))
+            rows.extend(cur.fetchall())
+        if DEFENSIVE_SECURITY_ID in wanted:
+            defensive_visible = publication.visible_predicate("d")
+            cur.execute(
+                "SELECT security_id,ticker,close_unadjusted"
+                " FROM sentinel_defensive_bars d WHERE d.session=%s"
+                " AND d.security_id=%s AND d.ticker='BIL' AND "
+                + defensive_visible,
+                (session, DEFENSIVE_SECURITY_ID))
+            rows.extend(cur.fetchall())
     found: dict[str, dict] = {}
     value = Decimal(0)
     for security_id, ticker, close in rows:
@@ -637,13 +812,6 @@ def build_cycle_verification(conn, *, cycle_id: str,
                 "TERMINAL_UNRESOLVED")
         _reason(reasons, not (wealth.get("terminal_pending_terms") or {}),
                 "TERMINAL_CARRIED")
-        try:
-            expected_paper_dividends = _expected_paper_dividends(
-                state, plan.decision_session, previous)
-        except TrialEvidenceRefused:
-            reasons.append("DIVIDEND_EVIDENCE_INVALID")
-        if expected_paper_dividends:
-            reasons.append("ALPACA_PAPER_DIVIDEND_UNSUPPORTED")
         if strategy_evidence is not None:
             _reason(reasons,
                     strategy_evidence["state_sha256"] == state.state_hash,
@@ -721,6 +889,16 @@ def build_cycle_verification(conn, *, cycle_id: str,
         _reason(reasons, account["session"] == cycle.effective_session.isoformat()
                 and account["observation_id"] == reconciliation_id,
                 "ACCOUNT_EVIDENCE_MISMATCH")
+        try:
+            reconciliation_time_matches = (
+                observation is not None
+                and _utc(account.get("reconciliation_observed_at"),
+                         where="bound reconciliation completion")
+                == observation["observed_at"])
+        except (TrialEvidenceRefused, TypeError, ValueError):
+            reconciliation_time_matches = False
+        _reason(reasons, reconciliation_time_matches,
+                "ACCOUNT_RECONCILIATION_TIME_MISMATCH")
         account_at = _utc(account["observed_at"], where="account evidence")
         _reason(reasons, account_at <= latest_allowed,
                 "ACCOUNT_EVIDENCE_FUTURE")
@@ -827,6 +1005,25 @@ def build_cycle_verification(conn, *, cycle_id: str,
             and _utc(row["filled_at"], where="fill time") > latest_allowed
             for row in fills), "FILL_TIMESTAMP_FUTURE")
 
+    if plan is not None and observation is not None:
+        try:
+            expected_paper_dividends.extend(
+                _expected_effective_equity_dividends(
+                    conn, cycle.effective_session, positions, commands))
+        except TrialEvidenceRefused:
+            reasons.append("DIVIDEND_EVIDENCE_INVALID")
+        try:
+            expected_paper_dividends.extend(
+                _expected_defensive_dividends(
+                    conn, cycle.effective_session, positions, commands))
+        except TrialEvidenceRefused:
+            reasons.append("DIVIDEND_EVIDENCE_INVALID")
+    expected_paper_dividends.sort(
+        key=lambda row: (
+            row["security_id"], row["ticker"], row["amount"], row["shares"]))
+    if expected_paper_dividends:
+        reasons.append("ALPACA_PAPER_DIVIDEND_UNSUPPORTED")
+
     cash_rows, external, internal = _cash_rows(conn, cycle.effective_session)
     _reason(reasons, not any(
         row["recorded_at"] is not None
@@ -835,11 +1032,27 @@ def build_cycle_verification(conn, *, cycle_id: str,
     _reason(reasons, external == 0, "EXTERNAL_FLOW_UNWEIGHTED")
     marks, securities_value = ({}, Decimal(0))
     marked_nav = residual = None
+    valuation_timestamp_aligned = False
     equity = cash = None
     if account is not None:
         equity = _decimal(account["account"]["equity"],
                           where="actual account equity", positive=True)
         cash = _decimal(account["account"]["cash"], where="actual account cash")
+        try:
+            valuation_timestamp_aligned = _valuation_timestamp_aligned(
+                cycle.effective_session,
+                _utc(account["observation_started_at"],
+                     where="account request start"),
+                _utc(account["observed_at"], where="account evidence time"),
+                _utc(account["reconciliation_started_at"],
+                     where="reconciliation request start"),
+                _utc(account["reconciliation_observed_at"],
+                     where="reconciliation evidence time"),
+                str(account.get("valuation_timestamp_authority") or ""))
+        except Exception:  # noqa: BLE001 - calendar ambiguity is NOT_VERIFIED
+            valuation_timestamp_aligned = False
+        _reason(reasons, valuation_timestamp_aligned,
+                "VALUATION_TIMESTAMP_UNALIGNED")
         try:
             marks, securities_value = _marks(
                 conn, cycle.effective_session, positions)
@@ -944,6 +1157,22 @@ def build_cycle_verification(conn, *, cycle_id: str,
             "marked_nav": str(marked_nav) if marked_nav is not None else None,
             "securities_value": str(securities_value),
             "unexplained": str(residual) if residual is not None else None,
+            "account_observed_at": (
+                account.get("observed_at") if account is not None else None),
+            "account_observation_started_at": (
+                account.get("observation_started_at")
+                if account is not None else None),
+            "reconciliation_observed_at": (
+                account.get("reconciliation_observed_at")
+                if account is not None else None),
+            "reconciliation_started_at": (
+                account.get("reconciliation_started_at")
+                if account is not None else None),
+            "marks_session": cycle.effective_session.isoformat(),
+            "timestamp_aligned": valuation_timestamp_aligned,
+            "timestamp_authority": (
+                account.get("valuation_timestamp_authority")
+                if account is not None else None),
             "tolerance": str(FINANCIAL_TOLERANCE)},
         "performance": {
             "opening_equity": str(opening) if opening is not None else None,

@@ -4,11 +4,27 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
+from pathlib import Path
 import subprocess
 
 import pytest
 
 from scripts import sentinel_forward_run as producer
+
+REPO = Path(os.environ.get("SENTINEL_REPO_ROOT") or producer.ROOT)
+
+
+def test_certification_manifest_keeps_publication_version_numeric():
+    script = (REPO / "scripts" / "sentinel-certify.sh").read_text()
+    assert '"sentinel_data_version": sentinel_data_version' in script
+    assert '"sentinel_data_version": str(parity["sentinel_data_version"])' \
+        not in script
+    assert "not isinstance(sentinel_data_version, int)" in script
+
+
+def test_forward_report_schema_versions_defensive_evidence():
+    assert producer.REPORT_SCHEMA == "sentinel.production-forward-chain/2"
 
 
 def _inputs(tmp_path):
@@ -103,7 +119,8 @@ def _inputs(tmp_path):
         "publication_coherence": {
             "coherent": True, "version": 81, "unpublished_rows": 0,
             "unpublished_bars": 0, "unpublished_actions": 0,
-            "unpublished_spy": 0, "unpublished_universe": 0,
+            "unpublished_spy": 0, "unpublished_defensive": 0,
+            "unpublished_universe": 0,
             "unpublished_repairs": 0, "unpublished_anomalies": 0,
             "unpublished_runs": [],
             "enumeration": "exhaustive",
@@ -126,6 +143,7 @@ def _inputs(tmp_path):
             "vendor_actions": {"rows": 0, "hash": None},
             "vendor_universe": {"rows": 1, "hash": "a" * 64},
             "spy_total_return": {"rows": 1, "hash": "b" * 64},
+            "defensive_bars": {"rows": 1, "hash": "d" * 64},
             "applied_repairs": {"rows": 0, "hash": None},
             "refusals": {"rows": 0, "hash": None},
             "anomalies": {"rows": 0, "hash": None},
@@ -144,6 +162,14 @@ def _inputs(tmp_path):
             "runner_sha256": runner_sha, "reference_sha256": reference,
         },
     }
+    corpus_hash = producer._corpus_component_sha256(  # noqa: SLF001
+        report["corpus_identity"])
+    report["corpus_identity"]["corpus_hash"] = corpus_hash
+    manifest_value = json.loads(manifest.read_text(encoding="utf-8"))
+    manifest_value["corpus_hash"] = corpus_hash
+    manifest_value["final_corpus_hash"] = corpus_hash
+    manifest.write_text(
+        json.dumps(manifest_value, sort_keys=True, indent=2), encoding="utf-8")
     stdout = json.dumps(
         report, sort_keys=True, indent=2, allow_nan=False).encode() + b"\n"
     command = [
@@ -198,7 +224,8 @@ def test_run_formal_owns_one_broker_free_invocation(tmp_path, monkeypatch):
 @pytest.mark.parametrize("mutation", [
     "minimal_pass", "partial_count", "write_transaction", "wrong_corpus",
     "wrong_runner", "runtime_identity", "nonzero_exit", "stderr",
-    "broker_option", "unpublished_anomaly",
+    "broker_option", "unpublished_anomaly", "unpublished_defensive",
+    "missing_defensive_bars", "changed_defensive_bars",
 ])
 def test_fabricated_partial_or_mutating_run_cannot_publish(tmp_path, mutation):
     manifest, report, _, command = _inputs(tmp_path)
@@ -226,6 +253,12 @@ def test_fabricated_partial_or_mutating_run_cannot_publish(tmp_path, mutation):
         report["publication_coherence"]["unpublished_rows"] = 1
         report["publication_coherence"]["unpublished_anomalies"] = 1
         report["publication_coherence"]["unpublished_runs"] = ["candidate"]
+    elif mutation == "unpublished_defensive":
+        report["publication_coherence"]["unpublished_defensive"] = 1
+    elif mutation == "missing_defensive_bars":
+        del report["corpus_identity"]["defensive_bars"]
+    elif mutation == "changed_defensive_bars":
+        report["corpus_identity"]["defensive_bars"]["hash"] = "e" * 64
     else:
         command[7:9] = ["-e", "ALPACA_API_KEY"]
     stdout = json.dumps(report, sort_keys=True).encode()

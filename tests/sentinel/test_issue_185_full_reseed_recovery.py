@@ -169,8 +169,16 @@ def _full_reseed_fixture(monkeypatch, *, actions_rows):
     monkeypatch.setattr(
         reseed.universe, "write_universe", lambda *a, **k: 1)
     monkeypatch.setattr(reseed.feed_store, "write_actions", lambda *a, **k: 1)
+    def write_sfp_family(_conn, rows, **kwargs):
+        materialized = tuple(rows)
+        events.append(("sfp", tuple(row["ticker"] for row in materialized),
+                       kwargs))
+        return len(materialized)
+
     monkeypatch.setattr(
-        reseed.feed_store, "write_spy_total_return", lambda *a, **k: 1)
+        reseed.feed_store, "write_spy_total_return", write_sfp_family)
+    monkeypatch.setattr(
+        reseed.feed_store, "write_defensive_bars", write_sfp_family)
     monkeypatch.setattr(
         maintenance, "_active_action_rows", lambda conn: {})
     monkeypatch.setattr(
@@ -230,6 +238,13 @@ def _full_reseed_fixture(monkeypatch, *, actions_rows):
             return list(actions_rows)
         if table == reseed.sharadar.SEP:
             return [params["date.gte"]]
+        if table == reseed.sharadar.SFP:
+            return [
+                {"ticker": "SPY", "date": params["date.lte"],
+                 "closeadj": 600.0},
+                {"ticker": "BIL", "date": params["date.lte"],
+                 "close": 91.0, "closeunadj": 91.0},
+            ]
         return []
 
     return events, action_requests, final_scopes, fetch
@@ -263,6 +278,8 @@ def test_full_reseed_uses_complete_actions_scope_and_retires_bars_before_next_pr
     }
     assert final_scopes == [
         ("covered", expected_scope), ("retired", expected_scope)]
+    assert [event[1] for event in events if isinstance(event, tuple)
+            and event[0] == "sfp"] == [("SPY",), ("BIL",)]
     assert events[-3:] == ["covered", "retire-nonbar", "publish"]
 
 

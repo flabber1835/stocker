@@ -37,6 +37,16 @@ from stock_strategy_shared.wealth_core.feed import (
 from sentinel.feed.universe import parse_related_tickers
 
 
+class CausalMetadataUnavailable(RuntimeError):
+    """A requested decision session predates every published TICKERS fact.
+
+    This is a typed boundary rather than a generic loader failure because the
+    authenticated PAPER_OBSERVATION_ONLY cold start may respond by beginning
+    its zero-capital witness prospectively.  Every other caller still refuses;
+    database errors and malformed evidence must never be mistaken for absence.
+    """
+
+
 @dataclass
 class CorpusWindow:
     """Everything `run_sessions` needs for a date range."""
@@ -139,7 +149,7 @@ def load_causal_meta_history(
     for session in ordered:
         metadata = load_meta(conn, as_of=session)
         if not metadata:
-            raise RuntimeError(
+            raise CausalMetadataUnavailable(
                 "causal metadata history contains an empty session snapshot: "
                 + session)
         builder.add_snapshot(session, metadata)
@@ -202,7 +212,7 @@ def load_meta(conn, *, as_of: Optional[str] = None) -> dict[str, SecurityMeta]:
     if as_of is not None and not _current_metadata_is_causal(conn, as_of):
         rows = _historical_metadata_rows(conn, as_of=as_of)
         if not rows:
-            raise RuntimeError(
+            raise CausalMetadataUnavailable(
                 f"no causally available TICKERS metadata exists on or before {as_of}")
     else:
         with conn.cursor() as cur:

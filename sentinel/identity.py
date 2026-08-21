@@ -58,7 +58,6 @@ import json
 import os
 import platform
 import re
-import sys
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -368,9 +367,11 @@ def _corpus_pinned(conn, *, start: str, end: str, publication_record) -> dict:
         " FROM sentinel_universe u"
         f" WHERE {visible_predicate('u')}"
         " ORDER BY permaticker, ticker, snapshot_date", ())
-    from sentinel.feed.store import published_spy_total_return
+    from sentinel.feed.store import (
+        published_defensive_bars, published_spy_total_return)
 
     spy = _digest_rows(published_spy_total_return(conn, start, end))
+    defensive = _digest_rows(published_defensive_bars(conn, start, end))
     repairs = _digest_query(
         conn,
         "SELECT rr.security_id, rr.session, rr.prior_split_ratio,"
@@ -434,6 +435,7 @@ def _corpus_pinned(conn, *, start: str, end: str, publication_record) -> dict:
         "vendor_actions": actions,
         "vendor_universe": universe,
         "spy_total_return": spy,
+        "defensive_bars": defensive,
         "applied_repairs": repairs,
         "refusals": rejections,
         "anomalies": anomalies,
@@ -442,7 +444,8 @@ def _corpus_pinned(conn, *, start: str, end: str, publication_record) -> dict:
     out["corpus_hash"] = _sha(json.dumps(
         {k: out[k] for k in ("data_version", "normalised_bars",
                              "vendor_actions", "vendor_universe",
-                             "spy_total_return", "applied_repairs", "refusals",
+                             "spy_total_return", "defensive_bars",
+                             "applied_repairs", "refusals",
                              "anomalies", "refusal_truncation")},
         sort_keys=True).encode())
     return out

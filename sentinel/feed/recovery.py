@@ -209,7 +209,8 @@ def _candidate_session_bounds(conn, run_ids: tuple[str, ...]
         return None, None
     lows: list[str] = []
     highs: list[str] = []
-    for table in ("sentinel_bars", "sentinel_spy_total_return"):
+    for table in ("sentinel_bars", "sentinel_spy_total_return",
+                  "sentinel_defensive_bars"):
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT MIN(session),MAX(session) FROM {table}"
@@ -336,6 +337,7 @@ def retire_failed_nonbar_rows_after_full_seed(
     counts: dict[str, int] = {}
     for table, start in (
         ("sentinel_spy_total_return", market_start),
+        ("sentinel_defensive_bars", market_start),
         ("sentinel_actions", actions_start),
     ):
         with conn.cursor() as cur:
@@ -361,6 +363,7 @@ def assert_full_reseed_covered_live_rows(
     for table, start in (
         ("sentinel_bars", market_start),
         ("sentinel_spy_total_return", market_start),
+        ("sentinel_defensive_bars", market_start),
         ("sentinel_actions", actions_start),
     ):
         with conn.cursor() as cur:

@@ -16,6 +16,8 @@ import sys
 import os
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 #: The REPOSITORY under inspection. Inside the certified image ROOT is /work
 #: (tests, an importable backtester copy, tools) while the repo SOURCES live at
@@ -38,12 +40,17 @@ from app import wealth_core_replay as BT  # noqa: E402
 W = ("2024-01-01", "2024-12-31")
 
 
-def bar(session="2024-06-03", sid="P:AAA", **kw):
+def bar(session="2024-06-03", sid="101", **kw):
     base = dict(session=session, security_id=sid, ticker="AAA",
                 raw_close=100.0, raw_open=99.0, volume=1e6,
                 split_ratio=1.0, dividend_per_share=0.0, tradeable=True)
     base.update(kw)
     return VendorBar(**base)
+
+
+def canonical_bar(session="2024-06-03", permaticker="101", **kw):
+    """A production-shaped canonical bar; its loader owns the ``P:`` wrapper."""
+    return bar(session=session, sid=BT.permanent_id(permaticker), **kw)
 
 
 def side(*bars):
@@ -56,61 +63,144 @@ def side(*bars):
 class TestItAgreesOnlyWhenItShould:
 
     def test_identical_corpora_agree(self):
-        a = side(bar(), bar(sid="P:BBB"))
-        assert CP.compare(a, side(bar(), bar(sid="P:BBB")), window=W).agrees
+        mine = side(bar(), bar(sid="202", ticker="BBB"))
+        theirs = side(canonical_bar(),
+                      canonical_bar(permaticker="202", ticker="BBB"))
+        assert CP.compare(mine, theirs, window=W).agrees
 
     def test_a_MISSING_bar_is_reported_as_membership_not_as_a_field(self):
-        rep = CP.compare(side(bar()), side(bar(), bar(sid="P:BBB")), window=W)
-        assert rep.missing_from_sentinel == [("2024-06-03", "P:BBB")]
+        rep = CP.compare(
+            side(bar()),
+            side(canonical_bar(), canonical_bar(permaticker="202")), window=W)
+        assert rep.missing_from_sentinel == [("2024-06-03", "P:202")]
         assert rep.field_divergences == {} and not rep.agrees
 
     def test_an_EXTRA_bar_is_reported_separately(self):
-        rep = CP.compare(side(bar(), bar(sid="P:BBB")), side(bar()), window=W)
-        assert rep.extra_in_sentinel == [("2024-06-03", "P:BBB")]
+        rep = CP.compare(side(bar(), bar(sid="202")),
+                         side(canonical_bar()), window=W)
+        assert rep.extra_in_sentinel == [("2024-06-03", "P:202")]
 
     def test_each_FIELD_divergence_is_counted_by_name(self):
         rep = CP.compare(side(bar(split_ratio=2.0, dividend_per_share=0.3)),
-                         side(bar()), window=W)
+                         side(canonical_bar()), window=W)
         assert rep.field_divergences == {"split_ratio": 1,
                                          "dividend_per_share": 1}
         assert not rep.agrees
 
     def test_the_examples_NAME_the_security_and_the_two_values(self):
-        rep = CP.compare(side(bar(split_ratio=2.0)), side(bar()), window=W)
+        rep = CP.compare(side(bar(split_ratio=2.0)),
+                         side(canonical_bar()), window=W)
         e = rep.examples[0]
         assert (e["security_id"], e["field"], e["sentinel"], e["canonical"]) \
-            == ("P:AAA", "split_ratio", 2.0, 1.0)
+            == ("P:101", "split_ratio", 2.0, 1.0)
 
     def test_tradeable_is_compared(self):
         """The field with no visible consequence until an order fills. It was
         defaulted on Sentinel's side until this batch."""
-        rep = CP.compare(side(bar(tradeable=False)), side(bar()), window=W)
+        rep = CP.compare(side(bar(tradeable=False)),
+                         side(canonical_bar()), window=W)
         assert rep.field_divergences == {"tradeable": 1}
 
     def test_None_and_zero_are_NOT_the_same(self):
-        rep = CP.compare(side(bar(volume=None)), side(bar(volume=0.0)), window=W)
+        rep = CP.compare(side(bar(volume=None)),
+                         side(canonical_bar(volume=0.0)), window=W)
         assert rep.field_divergences == {"volume": 1}
 
     def test_representation_noise_does_NOT_count_as_divergence(self):
         """Both sides scale and round the as-traded open, so an exact equality
         test would fail on float representation rather than on data."""
         assert CP.compare(side(bar(raw_open=99.0)),
-                          side(bar(raw_open=99.0 + 1e-13)), window=W).agrees
+                          side(canonical_bar(raw_open=99.0 + 1e-13)),
+                          window=W).agrees
+
+
+class TestPermanentIdentityNamespaces:
+    """The two loaders encode one permaticker differently, and only one does."""
+
+    def test_bare_sentinel_and_namespaced_canonical_ids_match(self):
+        rep = CP.compare(side(bar(sid="110543")),
+                         side(canonical_bar(permaticker="110543")), window=W)
+        assert rep.agrees
+        assert rep.sentinel_bars == rep.canonical_bars == 1
+
+    def test_a_literal_prefix_in_the_raw_permaticker_does_not_collide(self):
+        """Stripping ``P:`` from BOTH sides would collapse these two names."""
+        mine = side(bar(sid="110543", ticker="AAA"),
+                    bar(sid="P:110543", ticker="BBB"))
+        theirs = side(canonical_bar(permaticker="110543", ticker="AAA"),
+                      canonical_bar(permaticker="P:110543", ticker="BBB"))
+        rep = CP.compare(mine, theirs, window=W)
+        assert rep.agrees
+        assert rep.sentinel_bars == rep.canonical_bars == 2
+
+    def test_distinct_namespaces_do_not_match_by_spelling_alone(self):
+        rep = CP.compare(side(bar(sid="P:110543")),
+                         side(canonical_bar(permaticker="110543")), window=W)
+        assert rep.missing_from_sentinel == [("2024-06-03", "P:110543")]
+        assert rep.extra_in_sentinel == [("2024-06-03", "P:P:110543")]
+        assert not rep.agrees
+
+    def test_a_bare_id_from_the_canonical_loader_is_malformed(self):
+        rep = CP.compare(side(bar(sid="110543")),
+                         side(bar(sid="110543")), window=W)
+        assert rep.identity_failure_count == 1
+        assert rep.identity_failure_sample[0]["source"] == "canonical"
+        assert "required P: namespace" in \
+            rep.identity_failure_sample[0]["reason"]
+        assert rep.missing_count == rep.extra_count == 0
+        assert not rep.agrees
+
+    def test_empty_and_non_string_ids_are_not_repaired_by_the_audit(self):
+        from types import SimpleNamespace
+        malformed = [bar(sid=""), SimpleNamespace(**{
+            **vars(bar()), "security_id": 110543})]
+        rep = CP.compare(side(*malformed), side(canonical_bar()), window=W)
+        assert rep.identity_failure_count == 2
+        assert {f["reason"] for f in rep.identity_failure_sample} == {
+            "security_id is empty", "security_id is not a string"}
+        assert not rep.agrees
+
+    def test_whitespace_inside_the_canonical_wrapper_is_malformed(self):
+        rep = CP.compare(side(bar(sid="110543")),
+                         side(bar(sid="P: 110543")), window=W)
+        assert rep.identity_failure_count == 1
+        assert rep.identity_failure_sample[0]["reason"] == \
+            "canonical permaticker has surrounding whitespace"
+        assert not rep.agrees
+
+    def test_duplicate_ids_cannot_be_silently_overwritten_by_a_dict(self):
+        mine = side(bar(sid="110543", ticker="AAA"),
+                    bar(sid="110543", ticker="BBB"))
+        rep = CP.compare(mine,
+                         side(canonical_bar(permaticker="110543")), window=W)
+        assert rep.identity_failure_count == 1
+        assert "duplicate security_id" in \
+            rep.identity_failure_sample[0]["reason"]
+        assert rep.sentinel_bars == 2
+        assert rep.missing_count == rep.extra_count == 0
+        assert not rep.agrees
 
 
 class TestTheReportIsBOUNDED:
 
     def test_examples_are_capped_and_the_overflow_is_counted(self):
-        mine = side(*[bar(sid=f"P:{i}", split_ratio=2.0) for i in range(40)])
-        theirs = side(*[bar(sid=f"P:{i}") for i in range(40)])
+        mine = side(*[bar(sid=str(i), split_ratio=2.0) for i in range(40)])
+        theirs = side(*[canonical_bar(permaticker=str(i)) for i in range(40)])
         rep = CP.compare(mine, theirs, window=W, max_report=5)
         assert len(rep.examples) == 5 and rep.examples_truncated == 35
 
     def test_the_COUNT_stays_exact_regardless(self):
-        mine = side(*[bar(sid=f"P:{i}", split_ratio=2.0) for i in range(40)])
-        theirs = side(*[bar(sid=f"P:{i}") for i in range(40)])
+        mine = side(*[bar(sid=str(i), split_ratio=2.0) for i in range(40)])
+        theirs = side(*[canonical_bar(permaticker=str(i)) for i in range(40)])
         rep = CP.compare(mine, theirs, window=W, max_report=5)
         assert rep.field_divergences["split_ratio"] == 40
+
+    def test_identity_failure_samples_are_capped_but_the_count_is_exact(self):
+        mine = side(*[bar(sid="") for _ in range(40)])
+        rep = CP.compare(mine, {}, window=W, max_report=5)
+        assert rep.identity_failure_count == 40
+        assert len(rep.identity_failure_sample) == 5
+        assert rep.to_dict()["identity_failures"] == 40
 
 
 class TestNotHavingRunIsNotAPass:
@@ -292,12 +382,13 @@ class TestTheCanonicalPathIsIMPORTABLE:
     def test_the_canonical_module_then_imports(self):
         CP._add_backtester_to_path()
         try:
-            from app import wealth_core_replay  # noqa: F401
+            from app import wealth_core_replay
         except ModuleNotFoundError as exc:
             if "sqlalchemy" in str(exc):
                 pytest.skip("sqlalchemy absent in this checkout (it is pinned "
                             "in the certification image, not the runtime one)")
             raise
+        assert wealth_core_replay is not None
 
     def test_the_TEST_image_also_sets_it_on_PYTHONPATH(self):
         """Belt and braces, and the belt is the one that matters at 8b: the
@@ -367,7 +458,9 @@ class TestTheStreamedCompareIsTheSameCOMPARISON:
         for s in ("2021-01-04", "2021-02-04", "2021-03-04"):
             mine[s] = [self.bar("S1"), self.bar("S2", raw_close=11.0),
                        self.bar("EXTRA")]
-            theirs[s] = [self.bar("S1"), self.bar("S2"), self.bar("MISSING")]
+            theirs[s] = [self.bar(BT.permanent_id("S1")),
+                          self.bar(BT.permanent_id("S2")),
+                          self.bar(BT.permanent_id("MISSING"))]
         return mine, theirs
 
     def test_the_counts_are_exact(self):
@@ -384,14 +477,16 @@ class TestTheStreamedCompareIsTheSameCOMPARISON:
         on different sessions on the two sides, that is two membership
         differences, not a match."""
         mine = {"2021-01-04": [self.bar("S1")]}
-        theirs = {"2021-01-05": [self.bar("S1")]}
+        theirs = {"2021-01-05": [self.bar(BT.permanent_id("S1"))]}
         rep = CP.compare(mine, theirs, window=("2021-01-01", "2021-01-31"))
         assert rep.missing_count == 1 and rep.extra_count == 1
         assert rep.field_divergences == {}
 
     def test_agreement_is_still_agreement(self):
-        mine, _ = self.frames()
-        rep = CP.compare(mine, mine, window=("2021-01-01", "2021-03-31"))
+        mine = {"2021-01-04": [self.bar("S1"), self.bar("S2")]}
+        theirs = {"2021-01-04": [self.bar(BT.permanent_id("S1")),
+                                  self.bar(BT.permanent_id("S2"))]}
+        rep = CP.compare(mine, theirs, window=("2021-01-01", "2021-03-31"))
         assert rep.agrees is True
         assert rep.missing_count == rep.extra_count == 0
 
@@ -411,7 +506,8 @@ class TestTheREPORTIsBoundedWhenParityFailsCATASTROPHICALLY:
 
     def total_disagreement(self, n=500):
         mine = {"2021-01-04": [self.bar(f"MINE{i}") for i in range(n)]}
-        theirs = {"2021-01-04": [self.bar(f"THEIRS{i}") for i in range(n)]}
+        theirs = {"2021-01-04": [
+            self.bar(BT.permanent_id(f"THEIRS{i}")) for i in range(n)]}
         return CP.compare(mine, theirs, window=("2021-01-01", "2021-01-31"),
                           max_report=25)
 

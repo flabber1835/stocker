@@ -1,9 +1,9 @@
 """SHARADAR/ACTIONS -> authoritative split ratios and dividends. PURE.
 
-CARRIED FORWARD from `services/backtester/app/wealth_core_replay.py`, the same
-way `sentinel/core/terminal.py` carries the terminal mapping: Sentinel may not
-import a retired Stocker SERVICE, and the behaviour must not diverge because of
-it. `tests/sentinel/test_actions_map.py` pins the two against each other.
+The Sentinel-specific ACTIONS mapping lives here, while split orientation is a
+shared pure rule in `stock_strategy_shared.split_reconciliation`.  Sentinel may
+not import a retired Stocker SERVICE, and the production and canonical replay
+paths may not own separate share-count semantics.
 
 WHY THIS EXISTS AT ALL — the defect it closes. `ingest.seed` and `ingest.daily`
 fetched ACTIONS, wrote it to `sentinel_actions`, and then called
@@ -56,60 +56,14 @@ import bisect
 from typing import Iterable, Mapping, Sequence
 
 from sentinel.core.terminal import DIVIDEND_ACTIONS, SPLIT_ACTIONS
-
-#: How far a derived ratio may sit from the authoritative one before the
-#: disagreement is treated as a fault rather than as rounding. Splits are
-#: stated in clean fractions, so a real agreement is exact to well within this;
-#: anything outside it means the two sources describe different events.
-SPLIT_AGREEMENT_TOLERANCE = 0.01
-
-SPLIT_AUTHORITATIVE_APPLIED = "authoritative_applied"
-SPLIT_CORROBORATED_DIRECT = "corroborated_direct"
-SPLIT_CORROBORATED_RECIPROCAL = "corroborated_reciprocal"
-SPLIT_UNRESOLVED = "unresolved"
-
-
-def _ratios_close(left: float, right: float, tolerance: float) -> bool:
-    return abs(float(left) - float(right)) <= (
-        tolerance * max(abs(float(left)), abs(float(right)), 1e-12))
-
-
-def resolve_split_orientation(
-        stated: float, derived: float | None, *,
-        tolerance: float = SPLIT_AGREEMENT_TOLERANCE) -> tuple[float, str]:
-    """Return the canonical post/pre multiplier and its evidence disposition.
-
-    The price-domain ratio is independent orientation evidence. Agreement with
-    ``stated`` preserves a forward multiplier; agreement with ``1/stated``
-    proves that ACTIONS supplied a reverse-split denominator. A material value
-    greater than one with no usable price witness is ambiguous and fails closed
-    as ``1.0``. Values at or below one are already in canonical reverse-split
-    form and may be applied from ACTIONS alone.
-    """
-    value = float(stated)
-    if value <= 0:
-        return 1.0, SPLIT_UNRESOLVED
-    evidence = None if derived is None else float(derived)
-    if evidence is not None and evidence > 0:
-        if _ratios_close(evidence, value, tolerance):
-            return value, SPLIT_CORROBORATED_DIRECT
-        reciprocal = 1.0 / value
-        if _ratios_close(evidence, reciprocal, tolerance):
-            # Vendor reverse denominators are sometimes slightly noisy
-            # (30.003, 9.00009, 6.99986).  Once independent price evidence
-            # proves reciprocal orientation, snap a near-integral denominator
-            # so a 1-for-30 event is represented as exactly 1/30.
-            denominator = round(value)
-            if (denominator > 0
-                    and _ratios_close(value, denominator, tolerance)
-                    and _ratios_close(evidence, 1.0 / denominator, tolerance)):
-                reciprocal = 1.0 / denominator
-            return reciprocal, SPLIT_CORROBORATED_RECIPROCAL
-        if not _ratios_close(evidence, 1.0, tolerance):
-            return 1.0, SPLIT_UNRESOLVED
-    if value <= 1.0:
-        return value, SPLIT_AUTHORITATIVE_APPLIED
-    return 1.0, SPLIT_UNRESOLVED
+from stock_strategy_shared.split_reconciliation import (
+    SPLIT_AGREEMENT_TOLERANCE,
+    SPLIT_AUTHORITATIVE_APPLIED,
+    SPLIT_CORROBORATED_DIRECT,
+    SPLIT_CORROBORATED_RECIPROCAL,
+    SPLIT_UNRESOLVED,
+    resolve_split_orientation,
+)
 
 
 def snap_to_session(day: str, sessions_sorted: Sequence[str]):
@@ -222,17 +176,16 @@ def unusable_dividend_rows_detail(rows: Iterable[Mapping]) -> list[dict]:
     return out
 
 
-def split_disagreements(report, authoritative: Mapping[tuple[str, str], float],
-                        *, tolerance: float = SPLIT_AGREEMENT_TOLERANCE
+def split_disagreements(report, authoritative: Mapping[tuple[str, str], float]
                         ) -> list[dict]:
     """Where the DERIVED ratio and the STATED one describe different events.
 
-    Reported, never silently resolved. The authoritative value wins — it is the
-    vendor's statement of the corporate action, while the derived value is an
-    inference from two prices — but a material disagreement means one of the two
-    inputs is wrong about this security, and that is a fact about the corpus an
-    operator has to see. Silently preferring either one turns a data problem
-    into a share count nobody questions.
+    Reported, never silently resolved. Neither value wins: ACTIONS states the
+    corporate action while the price domains independently orient it, and a
+    material disagreement means one input is wrong about this security.  The
+    shared resolver applies no transformation and this function makes the
+    disagreement durable instead of turning it into a share count nobody
+    questions.
 
     THE UNSNAPPED DERIVED RATIO IS THE ONE COMPARED, and that is the fix for a
     real blind spot. `split_ratio_from_domains` snaps its inference to a
@@ -254,7 +207,7 @@ def split_disagreements(report, authoritative: Mapping[tuple[str, str], float],
         if derived is None:
             continue
         _canonical, disposition = resolve_split_orientation(
-            float(stated), float(derived), tolerance=tolerance)
+            float(stated), float(derived))
         if disposition == SPLIT_UNRESOLVED:
             out.append({"ticker": ticker, "session": session,
                         "stated": float(stated), "derived": float(derived),

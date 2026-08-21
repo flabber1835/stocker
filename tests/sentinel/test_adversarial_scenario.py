@@ -153,8 +153,9 @@ def record_split(conn, ratio="2", when="2026-08-12"):
     """A corporate action the corpus knows about, on a security that traded."""
     with conn.cursor() as cur:
         cur.execute("INSERT INTO sentinel_bars (security_id, session, ticker,"
-                    " close_unadjusted) VALUES ('SEC-AAA','2026-08-11','AAA',100)"
-                    " ON CONFLICT DO NOTHING")
+                    " close_signal,close_unadjusted,split_ratio)"
+                    " VALUES ('SEC-AAA',%s,'AAA',100,100,%s)"
+                    " ON CONFLICT DO NOTHING", (when, ratio))
     conn.commit()
     feed_store.write_actions(conn, [{"ticker": "AAA", "date": when,
                                      "action": "split", "value": float(ratio)}])

@@ -85,6 +85,7 @@ RESET_TABLES = (
     "sentinel_bar_split_repairs",
     "sentinel_bars",
     "sentinel_spy_total_return",
+    "sentinel_defensive_bars",
     "sentinel_action_generation_events",
     "sentinel_action_observations",
     "sentinel_action_generations",
@@ -206,6 +207,9 @@ class TestTheIrreversibleStepComesLAST:
                             f"('SEC-1', '2026-08-12', 2, 1, '{run_id}')")
                 cur.execute("INSERT INTO sentinel_spy_total_return "
                             "(session, closeadj) VALUES ('2026-08-12', 100)")
+                cur.execute("INSERT INTO sentinel_defensive_bars "
+                            "(session, close_signal, close_unadjusted) VALUES "
+                            "('2026-08-12', 91, 91)")
                 cur.execute("INSERT INTO sentinel_actions "
                             "(ticker, session, action) VALUES "
                             "('ONE', '2026-08-12', 'split')")

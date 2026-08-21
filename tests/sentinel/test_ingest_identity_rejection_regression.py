@@ -63,6 +63,7 @@ def conn(pg):
             "sentinel_rejection_truncation",
             "sentinel_ingest_rejections",
             "sentinel_spy_total_return",
+            "sentinel_defensive_bars",
             "sentinel_bars",
             "sentinel_actions",
             "sentinel_universe",
