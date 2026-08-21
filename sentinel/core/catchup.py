@@ -485,6 +485,13 @@ def _catch_up_locked(conn, *, through: date, missed, advance_state, decide,
         # (silent, permanent, and the worse one).
         state = advance_state(conn, session.isoformat(), state)
         _mark_processed(conn, session, state)
+        # Preserve the exact canonical strategy facts in the SAME transaction
+        # as the cursor/state. Generic research/test seams are deliberately
+        # ignored by the recorder; only a valid production SessionState can
+        # enter the forward-trial evidence ledger.
+        from sentinel import trial_evidence
+        trial_evidence.record_strategy_session(
+            conn, session=session.isoformat(), state=state)
         # Historical sessions become durable one at a time. The FINAL session
         # deliberately remains in this transaction until its one current plan
         # has been saved and every older plan superseded. Committing here left a
