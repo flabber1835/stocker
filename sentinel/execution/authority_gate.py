@@ -15,6 +15,7 @@ from typing import Callable, Mapping, Protocol
 
 from sentinel.authority import (
     AuthorityRefused,
+    PAPER_OBSERVATION_ONLY,
     RolloutMode,
     canonical_sha256,
     execution_config_identity,
@@ -36,6 +37,9 @@ from sentinel.execution.guarded import (
     PaperPreparationGrant,
 )
 from sentinel.feed import publication
+from sentinel.standing_observation_authority import (
+    require_standing_observation_authority,
+)
 
 
 PUBLICATION_POLICY_SCHEMA = "sentinel.publication-chain-policy/1"
@@ -171,21 +175,47 @@ def require_current_authority(
         paper_base_url: str, current_publication_version: int | None = None,
         automation_config_sha256: str | None = None,
         now: datetime | None = None):
-    """Verify signature and independently observed runtime/publication facts."""
+    """Verify signature and independently observed runtime/publication facts.
+
+    An activated PAPER_OBSERVATION_ONLY certificate is standing paper authority:
+    nominal certificate expiry does not halt an otherwise unchanged forward
+    trial.  The same certificate remains explicitly revocable and every
+    account/runtime/strategy/publication/config binding is still rechecked at
+    each authority boundary.  Historical execution certificates retain their
+    ordinary bounded lifetime.
+    """
     assert_paper_url(paper_base_url)
-    preliminary = load_active_signed_certificate(conn, now=now)
+    # This loader flag bypasses expiry only for PAPER_OBSERVATION_ONLY; ordinary
+    # historical certificates remain time-bounded inside authority.py.
+    preliminary = load_active_signed_certificate(
+        conn, now=now, allow_expired_observation_safety=True)
     policy = preliminary.claims["bindings"]["publication_policy"]
     root = require_publication_chain(
         conn, expected_root_sha256=policy["chain_root_sha256"],
         current_version=current_publication_version)
+    execution_config_sha = canonical_sha256(
+        execution_config_identity(paper_base_url=paper_base_url))
+    implementation_sha = publication_policy_implementation_sha256()
+    if preliminary.authorization_mode == PAPER_OBSERVATION_ONLY:
+        return require_standing_observation_authority(
+            conn,
+            runtime_identity=runtime_identity,
+            strategy_identity=strategy_identity,
+            required_mode=required_mode,
+            required_operation=required_operation,
+            execution_config_sha256=execution_config_sha,
+            publication_policy_implementation_sha256=implementation_sha,
+            publication_chain_root_sha256=root,
+            current_publication_version=current_publication_version,
+            automation_config_sha256=automation_config_sha256,
+            now=now,
+        )
     return require_execution_authority(
         conn, runtime_identity=runtime_identity,
         strategy_identity=strategy_identity, required_mode=required_mode,
         required_operation=required_operation,
-        execution_config_sha256=canonical_sha256(
-            execution_config_identity(paper_base_url=paper_base_url)),
-        publication_policy_implementation_sha256=(
-            publication_policy_implementation_sha256()),
+        execution_config_sha256=execution_config_sha,
+        publication_policy_implementation_sha256=implementation_sha,
         publication_chain_root_sha256=root,
         current_publication_version=current_publication_version,
         automation_config_sha256=automation_config_sha256,
