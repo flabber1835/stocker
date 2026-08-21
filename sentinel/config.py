@@ -225,17 +225,22 @@ def build_execution_broker(config: SentinelConfig, *, resolve_security_id,
                            to_broker_symbol=None):
     """Construct the certified typed Alpaca PAPER execution adapter.
 
+    Production order transport is addressed by Alpaca's stable ``asset_id``.
+    The Trading API accepts an asset ID in its create-order ``symbol`` field,
+    so the adapter does not need to send a mutable ticker after resolving a
+    permanent listing identity.
+
     Kept separate from :func:`build_broker`: the latter is the narrow,
     administrative migration seam with broker-native close operations. The
     autonomous executor must never acquire those operations by convenience.
     """
-    from sentinel.execution.alpaca import AlpacaExecutionBroker
+    from sentinel.execution.alpaca_asset_id import AssetIdAlpacaExecutionBroker
     from sentinel.execution.certification import require_certified
 
     config.assert_paper()
     config.assert_credentials()
     require_certified("alpaca")
-    return AlpacaExecutionBroker(
+    return AssetIdAlpacaExecutionBroker(
         api_key=config.alpaca_key, secret_key=config.alpaca_secret,
         base_url=config.base_url, resolve_security_id=resolve_security_id,
         to_broker_symbol=to_broker_symbol)
