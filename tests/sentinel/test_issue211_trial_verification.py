@@ -292,16 +292,39 @@ def test_expected_paper_dividend_uses_causal_hashed_ledger_entitlement():
         ],
         "receivables": [],
     })
+    previous = {
+        "session": "2026-08-19", "verdict": "VERIFIED", "reason_codes": [],
+        "reconciliation": {"positions": {"SEC-A": "7"}},
+        "commands": [{
+            "client_key": "sell-at-open", "security_id": "SEC-A",
+            "side": "SELL", "filled_quantity": "3"}],
+    }
 
     expected = trial._expected_paper_dividends(  # noqa: SLF001
-        state, date(2026, 8, 19))
+        state, date(2026, 8, 19), previous)
 
     assert expected == [{
         "security_id": "SEC-A", "ticker": "AAA",
         "accrued_session": "2026-08-19", "shares": "10",
-        "per_share": "0.5", "amount": "5.0",
+        "shadow_shares": "10", "per_share": "0.5", "amount": "5.0",
+        "shadow_amount": "5.0",
         "settlement_lag_sessions": 1,
     }]
+
+
+def test_ex_date_open_buy_does_not_manufacture_paper_entitlement():
+    state = SimpleNamespace(ledger={
+        "events": [_dividend_event()], "receivables": []})
+    previous = {
+        "session": "2026-08-19", "verdict": "VERIFIED", "reason_codes": [],
+        "reconciliation": {"positions": {"SEC-A": "10"}},
+        "commands": [{
+            "client_key": "buy-at-open", "security_id": "SEC-A",
+            "side": "BUY", "filled_quantity": "10"}],
+    }
+
+    assert trial._expected_paper_dividends(  # noqa: SLF001
+        state, date(2026, 8, 19), previous) == []
 
 
 def test_corrupt_dividend_entitlement_fails_financial_evidence():
@@ -310,7 +333,7 @@ def test_corrupt_dividend_entitlement_fails_financial_evidence():
 
     with pytest.raises(trial.TrialEvidenceRefused, match="disagrees"):
         trial._expected_paper_dividends(  # noqa: SLF001
-            state, date(2026, 8, 19))
+            state, date(2026, 8, 19), None)
 
 
 def test_current_operational_failure_removes_all_verified_styling():

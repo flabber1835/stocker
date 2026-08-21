@@ -136,9 +136,16 @@ proves all of the following:
     boundary timing and is not TWR.
     Alpaca paper's documented dividend omission has a separate, explicit rule:
     a hashed Wealth Core `DIVIDEND_ACCRUED` event on the plan's decision session
-    proves the causal entitlement (security, ticker, pre-open shares, per-share
-    amount and total) before same-session fills.  The following effective-session
-    verification is `NOT_VERIFIED` with
+    proves the source security and authoritative per-share amount before
+    same-session fills.  Its share count belongs to the full shadow, not
+    necessarily the Sentinel-scaled paper account.  The paper entitlement is
+    therefore reconstructed from the immediately preceding immutable session's
+    closing broker positions by reversing that session's signed, exact filled
+    command quantities.  This recovers the actual post-action, pre-open paper
+    holding without reading the later post-fill book as entitlement.  Missing,
+    gapped or contradictory predecessor evidence is
+    `DIVIDEND_EVIDENCE_INVALID`, never an assumed zero.  The following
+    effective-session verification is `NOT_VERIFIED` with
     `ALPACA_PAPER_DIVIDEND_UNSUPPORTED`, and retains that exact entitlement as a
     paper limitation.  Execution may continue when every ordinary safety gate is
     clean, but the financial chain cannot remain green.  The verifier neither
