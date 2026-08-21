@@ -1971,6 +1971,19 @@ async def _execute_current_paper_plan(
                 required_cutoff_at=official_open,
                 evaluated_at=clock(), actions=actions,
                 target_actions=target_actions)
+            target_projection = None
+            trial_target_actions = {}
+            if authority is not None:
+                # Refuse unsupported/non-scalar corporate actions before the
+                # broker book can be consulted.  Reconciliation may still
+                # adopt a previously unknown command identity, so the exact
+                # projection is re-derived and matched below after that read.
+                target_projection = _target_projection_or_refuse(
+                    conn, state=state, plan=plan, binding=binding,
+                    broker=broker, through=today, actions=actions,
+                    target_actions=target_actions)
+                trial_target_actions = _target_action_multipliers(
+                    plan, target_actions)
             preflight = await reconciliation.reconcile(
                 broker=broker, conn=conn, binding=None,
                 deployment=binding.identity, actions=actions)
@@ -2006,16 +2019,18 @@ async def _execute_current_paper_plan(
                 projected_deltas = preopen_deltas
                 trial_target_actions = {}
             else:
+                # Reconciliation can durably adopt a broker order that was not
+                # present at the first projection boundary.  Re-run all
+                # material-action checks over that expanded command set and
+                # require the result to equal the immutable pre-read target.
                 target_projection = _target_projection_or_refuse(
                     conn, state=state, plan=plan, binding=binding,
                     broker=broker, through=today, actions=actions,
-                    target_actions=target_actions)
+                    target_actions=target_actions, require_existing=True)
                 projected_deltas = _plan_deltas(
                     target_basket=target_projection.target_basket,
                     observation=observation,
                     minimum_quantity_increment=minimum_increment)
-                trial_target_actions = _target_action_multipliers(
-                    plan, target_actions)
 
             if all(delta.classification is execution_commands.DeltaClass.NONE
                    for delta in projected_deltas):
