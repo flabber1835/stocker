@@ -112,7 +112,7 @@ def test_published_strategy_families_refuse_in_place_mutation(conn):
     _refused(conn, "DELETE FROM sentinel_corpus_publications")
 
 
-def test_restatement_requires_new_unpublished_run_and_legacy_is_protected(conn):
+def test_restatement_requires_new_unpublished_run_and_legacy_stays_mutable(conn):
     published = uuid4()
     candidate = uuid4()
     _run(conn, published)
@@ -131,8 +131,10 @@ def test_restatement_requires_new_unpublished_run_and_legacy_is_protected(conn):
 
     _refused(conn,
              "UPDATE sentinel_bars SET close_unadjusted=101 WHERE security_id='SEC-P'")
-    _refused(conn,
-             "UPDATE sentinel_bars SET close_unadjusted=91 WHERE security_id='SEC-L'")
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE sentinel_bars SET close_unadjusted=91 WHERE security_id='SEC-L'")
+    conn.commit()
 
     with conn.cursor() as cur:
         cur.execute(

@@ -339,6 +339,35 @@ _VIEW_WITNESSES = {
         "publication_version", "disposition", "present"),
 }
 
+_TRIGGER_WITNESSES = {
+    **{
+        table: {
+            "sentinel_guard_strategy_row_mutation": (
+                "before delete or update", "for each row",
+                "execute function sentinel_guard_strategy_row_mutation()"),
+        }
+        for table in (
+            "sentinel_bars", "sentinel_spy_total_return",
+            "sentinel_universe", "sentinel_actions",
+            "sentinel_bar_split_repairs", "sentinel_action_generations",
+            "sentinel_action_observations", "sentinel_corpus_anomalies",
+            "sentinel_ingest_rejections",
+        )
+    },
+    **{
+        table: {
+            "sentinel_refuse_append_only_mutation": (
+                "before delete or update", "for each row",
+                "execute function sentinel_refuse_append_only_mutation()"),
+        }
+        for table in (
+            "sentinel_corpus_publications",
+            "sentinel_action_generation_events",
+            "sentinel_anomaly_observation_events",
+        )
+    },
+}
+
 
 def _fold(value: object) -> str:
     return behavioral_schema._normal_sql(value).casefold()
@@ -371,8 +400,21 @@ def _validate_catalog(catalog) -> None:
         if observed != expected:
             raise _refuse(
                 f"relation {name!r} has shape {observed!r}, expected {expected!r}")
-        if triggers.get(name):
-            raise _refuse(f"relation {name!r} has an unexpected application trigger")
+        actual_triggers = triggers.get(name, {})
+        expected_triggers = _TRIGGER_WITNESSES.get(name, {})
+        if set(actual_triggers) != set(expected_triggers):
+            raise _refuse(
+                f"relation {name!r} has application triggers "
+                f"{sorted(actual_triggers)!r}, expected "
+                f"{sorted(expected_triggers)!r}")
+        for trigger_name, witnesses in expected_triggers.items():
+            definition, enabled = actual_triggers[trigger_name]
+            folded = _fold(definition)
+            if enabled != "O" or any(
+                    witness not in folded for witness in witnesses):
+                raise _refuse(
+                    f"application trigger {trigger_name!r} on {name!r} "
+                    "has changed semantics or is not enabled")
     for table, expected_columns in _COLUMNS.items():
         actual_columns = columns.get(table, {})
         if set(actual_columns) != set(expected_columns):

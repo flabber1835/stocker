@@ -660,8 +660,10 @@ DDL = [
     # A legitimate restatement must move the row to a distinct durable ingest
     # run that has not published yet.  That makes the candidate invisible to
     # readers until validation publishes a NEW data_version.  Direct SQL that
-    # changes bytes while leaving NULL/published ownership in place is exactly
-    # the same-version corruption #122 exists to prevent.
+    # changes bytes while leaving published ownership in place is exactly the
+    # same-version corruption #122 exists to prevent.  Unstamped legacy rows
+    # have no published identity and retain the pre-versioning upsert surface;
+    # their first governed write stamps a durable ingest run.
     # ------------------------------------------------------------------
     """CREATE OR REPLACE FUNCTION sentinel_guard_strategy_row_mutation()
         RETURNS trigger LANGUAGE plpgsql AS $$
@@ -669,7 +671,7 @@ DDL = [
           old_protected BOOLEAN;
           new_status TEXT;
         BEGIN
-          old_protected := OLD.last_written_run_id IS NULL OR EXISTS (
+          old_protected := OLD.last_written_run_id IS NOT NULL AND EXISTS (
             SELECT 1 FROM sentinel_corpus_publications p
              WHERE p.run_id=OLD.last_written_run_id);
           IF NOT old_protected THEN
@@ -678,13 +680,13 @@ DDL = [
           END IF;
           IF TG_OP='DELETE' THEN
             RAISE EXCEPTION USING ERRCODE='23000', MESSAGE=format(
-              '%s: legacy/published strategy evidence is append-only; DELETE refused',
+              '%s: published strategy evidence is append-only; DELETE refused',
               TG_TABLE_NAME);
           END IF;
           IF NEW.last_written_run_id IS NULL
              OR NEW.last_written_run_id IS NOT DISTINCT FROM OLD.last_written_run_id THEN
             RAISE EXCEPTION USING ERRCODE='23000', MESSAGE=format(
-              '%s: strategy evidence cannot change under the same published/legacy identity',
+              '%s: strategy evidence cannot change under the same published identity',
               TG_TABLE_NAME);
           END IF;
           IF EXISTS (SELECT 1 FROM sentinel_corpus_publications p

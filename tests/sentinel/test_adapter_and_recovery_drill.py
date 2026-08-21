@@ -176,8 +176,8 @@ class TestAlpacaObservation:
                                "/v2/positions": []})
         run(broker.observe())
         assert [c[1] for c in http.calls] == [
-            "/v2/account", "/v2/orders", "/v2/positions", "/v2/orders",
-            "/v2/account"]
+            "/v2/account", "/v2/orders", "/v2/account", "/v2/positions",
+            "/v2/account", "/v2/orders", "/v2/account"]
 
     def test_a_consistent_read_is_COMPLETE(self):
         broker, _ = alpaca({"/v2/orders": [order_payload()],
