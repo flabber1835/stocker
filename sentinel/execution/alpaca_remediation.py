@@ -64,6 +64,14 @@ def install_automation_serialization() -> bool:
         return True
 
     from sentinel.automation import store as automation_store
+    # Importing ``automation.store`` can complete the reciprocal installation
+    # at that module's tail.  Re-check after the import: without this guard an
+    # execution-first import enters here with the flag false, the nested store
+    # import installs and then removes the temporary serialization wrapper, and
+    # this outer frame would wrap ``engage_kill`` a second time.  The immediate
+    # emergency kill would then block forever behind the execution writer lock.
+    if _AUTOMATION_SERIALIZATION_INSTALLED:
+        return True
     if not hasattr(automation_store, "engage_kill"):
         return False
     from sentinel import authority
