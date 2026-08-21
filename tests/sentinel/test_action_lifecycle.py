@@ -54,6 +54,7 @@ def conn(pg):
                 "sentinel_action_observations", "sentinel_action_generations",
                 "sentinel_bar_split_repairs", "sentinel_bars",
                 "sentinel_spy_total_return",
+                "sentinel_defensive_bars",
                 "sentinel_actions", "sentinel_universe",
                 "sentinel_corpus_publications", "feed_ingest_runs",
                 "sentinel_corpus_anomalies"):
@@ -619,7 +620,7 @@ def test_failed_13216_row_daily_candidate_is_retired_by_later_daily_retry(conn):
         "run_id": FAILED_PRODUCTION_RUN, "rows": 13216}]
 
 
-def test_later_daily_retry_rewrites_failed_bar_and_spy_owners(conn):
+def test_later_daily_retry_rewrites_failed_bar_spy_and_bil_owners(conn):
     S.write_bars(conn, [_bar("2026-08-13")])
     P.publish(conn, window_start="2026-08-13", window_end="2026-08-13")
     _establish_sep_cursor(conn, "2026-08-13")
@@ -632,8 +633,12 @@ def test_later_daily_retry_rewrites_failed_bar_and_spy_owners(conn):
             conn, [{"ticker": "SPY", "date": "2026-08-14",
                     "closeadj": 501.0}],
             run_id=failed.progress.run_id, require_lock=True)
+        S.write_defensive_bars(
+            conn, [{"ticker": "BIL", "date": "2026-08-14",
+                    "close": 91.0, "closeunadj": 91.0}],
+            run_id=failed.progress.run_id, require_lock=True)
         failed.finish("failed", "fixture stopped after destructive writes")
-    assert P.coherence(conn).unpublished_rows == 2
+    assert P.coherence(conn).unpublished_rows == 3
 
     def corrected_fetch(table, params=None):
         from sentinel.feed import sharadar
@@ -645,10 +650,16 @@ def test_later_daily_retry_rewrites_failed_bar_and_spy_owners(conn):
         if table == sharadar.ACTIONS:
             return [CONTROL_ACTION] if params.get("date.gte") == "1900-01-01" else []
         if table == sharadar.SFP:
-            return [{"ticker": "SPY", "date": day,
-                     "closeadj": 600.0 + i}
+            return [row
                     for i, day in enumerate(calendar.sessions_in_range(
-                        params["date.gte"], params["date.lte"]))]
+                        params["date.gte"], params["date.lte"]))
+                    for row in (
+                        {"ticker": "SPY", "date": day,
+                         "closeadj": 600.0 + i},
+                        {"ticker": "BIL", "date": day,
+                         "close": 91.0 + i / 100,
+                         "closeunadj": 91.0 + i / 100},
+                    )]
         if table == sharadar.SEP:
             rows = [
                 {"ticker": "AAA", "date": "2026-08-13", "close": 50,
@@ -670,11 +681,20 @@ def test_later_daily_retry_rewrites_failed_bar_and_spy_owners(conn):
     ingest.daily(conn, fetch=corrected_fetch, today="2026-08-15")
     assert P.coherence(conn).coherent
     with conn.cursor() as cur:
-        for table in ("sentinel_bars", "sentinel_spy_total_return"):
+        for table in ("sentinel_bars", "sentinel_spy_total_return",
+                      "sentinel_defensive_bars"):
             cur.execute(
                 f"SELECT COUNT(*) FROM {table} WHERE last_written_run_id=%s",
                 (failed.progress.run_id,))
             assert cur.fetchone()[0] == 0
+        visible_counts = []
+        for table, alias in (("sentinel_spy_total_return", "r"),
+                             ("sentinel_defensive_bars", "d")):
+            cur.execute(
+                f"SELECT COUNT(*) FROM {table} {alias} WHERE "
+                + P.visible_predicate(alias))
+            visible_counts.append(cur.fetchone()[0])
+        assert visible_counts[0] == visible_counts[1] > 0
     assert "retired_failed_universe_candidates" not in P.require_current(
         conn).evidence
 

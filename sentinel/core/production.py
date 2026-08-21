@@ -44,6 +44,12 @@ from sentinel.regime.spy import MIN_CLOSES, dated_spy_regime
 ENVELOPE_VERSION = 4
 LEGACY_ENVELOPE_VERSIONS = frozenset({2, 3})
 FEED_RESTART_SESSIONS = REQUIRED_CLOSES
+CONCORDANCE_WITNESS_HISTORICAL = "HISTORICAL_CAUSAL_METADATA"
+CONCORDANCE_WITNESS_PROSPECTIVE = "PROSPECTIVE_PAPER_OBSERVATION"
+_CONCORDANCE_WITNESS_ORIGINS = frozenset({
+    CONCORDANCE_WITNESS_HISTORICAL,
+    CONCORDANCE_WITNESS_PROSPECTIVE,
+})
 REQUIRED_IDENTITY_FIELDS = frozenset({
     "strategy", "controller_rule_sha256", "wealth_core_source_sha256"})
 
@@ -233,6 +239,7 @@ class SessionState:
     last_evidence: dict | None = None
     recent_leadership: dict | None = None
     ldrc: dict | None = None
+    concordance_witness_origin: str | None = None
     version: int = ENVELOPE_VERSION
 
     @classmethod
@@ -253,12 +260,40 @@ class SessionState:
             recent_leadership=(
                 leadership_state_to_dict(RecentLeadershipState())
                 if concordance else None),
-            ldrc=(ldrc_state_to_dict(LDRCState()) if concordance else None))
+            ldrc=(ldrc_state_to_dict(LDRCState()) if concordance else None),
+            # Before prospective paper formation existed, every Concordance
+            # state was formed under the historical-causality contract.  The
+            # warm-up boundary overwrites this only for the explicitly signed
+            # current-only observation path.
+            concordance_witness_origin=(
+                CONCORDANCE_WITNESS_HISTORICAL if concordance else None))
 
     def to_dict(self) -> dict:
         recent_leadership, ldrc = _canonical_concordance_state(
             self.strategy_identity, self.recent_leadership, self.ldrc)
+        concordance = is_concordance_identity(self.strategy_identity)
+        origin = self.concordance_witness_origin
+        if concordance and origin is None:
+            # Hand-built/current pre-field v4 objects have the same unambiguous
+            # meaning as a persisted missing field: historical formation.
+            origin = CONCORDANCE_WITNESS_HISTORICAL
+        if concordance:
+            if origin not in _CONCORDANCE_WITNESS_ORIGINS:
+                raise ValueError(
+                    "Concordance state lacks a valid witness-formation origin")
+        elif self.concordance_witness_origin is not None:
+            raise ValueError(
+                "non-Concordance state carries Concordance witness provenance")
         raw = asdict(self)
+        # Backward-compatible discriminated encoding: absence is the only
+        # historical formation that pre-dates this field; prospective
+        # formation is always explicit.  Omitting the historical/irrelevant
+        # default preserves every already-committed v4 state fingerprint while
+        # still making the weaker formation mode durable and hash-bound.
+        if origin != CONCORDANCE_WITNESS_PROSPECTIVE:
+            raw.pop("concordance_witness_origin", None)
+        else:
+            raw["concordance_witness_origin"] = origin
         raw["recent_leadership"] = recent_leadership
         raw["ldrc"] = ldrc
         protected = _path_dependent_security_ids(
@@ -280,6 +315,14 @@ class SessionState:
         if version not in (*LEGACY_ENVELOPE_VERSIONS, ENVELOPE_VERSION):
             raise ValueError(f"unsupported production state version {raw.get('version')!r}")
         migrated = dict(raw)
+        if "concordance_witness_origin" not in migrated:
+            # Version-4 states written before prospective formation existed can
+            # only have used the historical metadata path.  This is a typed
+            # migration of old evidence, not a guess about a new state.
+            migrated["concordance_witness_origin"] = (
+                CONCORDANCE_WITNESS_HISTORICAL
+                if is_concordance_identity(
+                    migrated.get("strategy_identity") or {}) else None)
         if version in LEGACY_ENVELOPE_VERSIONS:
             migrated.setdefault("recent_leadership", None)
             migrated.setdefault("ldrc", None)
@@ -302,6 +345,15 @@ class SessionState:
                              + ", ".join(sorted(missing)))
         state.recent_leadership, state.ldrc = _canonical_concordance_state(
             state.strategy_identity, state.recent_leadership, state.ldrc)
+        concordance = is_concordance_identity(state.strategy_identity)
+        if (concordance
+                and state.concordance_witness_origin not in
+                _CONCORDANCE_WITNESS_ORIGINS):
+            raise ValueError(
+                "persisted Concordance witness-formation origin is invalid")
+        if not concordance and state.concordance_witness_origin is not None:
+            raise ValueError(
+                "persisted non-Concordance state carries witness provenance")
         return state
 
     @property
@@ -334,7 +386,8 @@ class PublishedSession:
 
 def warm_session_state(state: SessionState | Mapping, window, *,
                        publication_version: int,
-                       eligibility_config: EligibilityConfig | None = None
+                       eligibility_config: EligibilityConfig | None = None,
+                       prospective_concordance_witness: bool = False,
                        ) -> SessionState:
     """Prime canonical rolling feed features without inventing book history.
 
@@ -357,9 +410,16 @@ def warm_session_state(state: SessionState | Mapping, window, *,
             or any(left >= right for left, right in zip(sessions, sessions[1:]))):
         raise ValueError(
             "warm-up window sessions must be strictly increasing and unique")
+    if type(prospective_concordance_witness) is not bool:
+        raise ValueError(
+            "prospective_concordance_witness must be an explicit boolean")
     elig = eligibility_config or EligibilityConfig()
     witness_state = None
-    if is_concordance_identity(env.strategy_identity):
+    concordance = is_concordance_identity(env.strategy_identity)
+    if prospective_concordance_witness and not concordance:
+        raise ValueError(
+            "prospective Concordance witness mode requires Concordance identity")
+    if concordance and not prospective_concordance_witness:
         timeline = getattr(window, "metadata_timeline", None)
         if (timeline is None or list(timeline.sessions) != sessions):
             raise ValueError(
@@ -397,12 +457,22 @@ def warm_session_state(state: SessionState | Mapping, window, *,
                 eligible_universe_count=eligible_count,
                 signal_closes=signal_closes, state=witness_state)
     else:
+        # In the authenticated current-only paper cold start this primes only
+        # price/volume/split features.  It makes no historical strategy or
+        # witness decision; the zero-capital witness begins on the first live
+        # close.  Non-Concordance warmup has always used this same feature-only
+        # path.
         feed = Feed(window.meta, elig)
         feed.warmup(sessions, window.bars_by_session)
     warmed = SessionState.from_dict(env.to_dict())
     warmed.feed = _feed_to_dict(feed, set())
     if witness_state is not None:
         warmed.recent_leadership = leadership_state_to_dict(witness_state)
+    if concordance:
+        warmed.concordance_witness_origin = (
+            CONCORDANCE_WITNESS_PROSPECTIVE
+            if prospective_concordance_witness
+            else CONCORDANCE_WITNESS_HISTORICAL)
     warmed.data_version = int(publication_version)
     return warmed
 
@@ -758,6 +828,11 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
         concordance_evidence = {
             "native_controller": native_decision.to_dict(),
             "recent_leadership": asdict(witness_decision),
+            "recent_leadership_readiness": {
+                "history_sessions": len(witness_after.session_history),
+                "r20_available": witness_decision.recent_r20 is not None,
+                "r40_available": witness_decision.recent_r40 is not None,
+            },
             "ldrc": asdict(overlay_decision),
         }
     evidence = {"observation": asdict(ob), "breadth": {
@@ -782,7 +857,8 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
         data_version=published.data_version,
         strategy_identity=dict(env.strategy_identity),
         last_decision=decision, last_evidence=evidence,
-        recent_leadership=recent_leadership_state, ldrc=ldrc_state)
+        recent_leadership=recent_leadership_state, ldrc=ldrc_state,
+        concordance_witness_origin=env.concordance_witness_origin)
 
 
 def advance_and_persist(conn, session: str, prior: SessionState | Mapping, *,

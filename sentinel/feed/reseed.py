@@ -80,10 +80,11 @@ def full_reseed_locked(
             window_start=action_start, window_end=date_to)
 
     with run.chunk("spy"):
-        params = {"ticker": "SPY", **sharadar.date_params(date_from, date_to)}
+        params = {"ticker": ingest_impl.SFP_REFERENCE_TICKERS,
+                  **sharadar.date_params(date_from, date_to)}
         rows = fetch(sharadar.SFP, params)
-        run.progress.rows_written += feed_store.write_spy_total_return(
-            conn, rows, run_id=run.progress.run_id, require_lock=True)
+        run.progress.rows_written += ingest_impl._write_sfp_reference_rows(
+            conn, rows, run_id=run.progress.run_id)
 
     resolver = resolve_identity or universe.load_resolver(
         conn, include_run_id=run.progress.run_id).resolve

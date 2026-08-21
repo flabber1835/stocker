@@ -90,6 +90,17 @@ _SPY_TOTAL_RETURN_UPSERT = """
         last_written_run_id = EXCLUDED.last_written_run_id
 """
 
+_DEFENSIVE_BAR_UPSERT = """
+    INSERT INTO sentinel_defensive_bars
+        (security_id, session, ticker, close_signal, close_unadjusted,
+         last_written_run_id)
+    VALUES ('SENTINEL:BIL', %s, 'BIL', %s, %s, %s)
+    ON CONFLICT (session) DO UPDATE SET
+        close_signal = EXCLUDED.close_signal,
+        close_unadjusted = EXCLUDED.close_unadjusted,
+        last_written_run_id = EXCLUDED.last_written_run_id
+"""
+
 _ACTION_UPSERT = """
     INSERT INTO sentinel_actions (ticker, session, action, value, contraticker,
         last_written_run_id)
@@ -537,6 +548,49 @@ def write_spy_total_return(conn, rows: Iterable[Any], *, run_id=None,
     return written
 
 
+def write_defensive_bars(conn, rows: Iterable[Any], *, run_id=None,
+                         batch_size: int = 0,
+                         require_lock: bool = False) -> int:
+    """Persist only raw BIL SFP marks under Sentinel's fixed identity."""
+    if require_lock:
+        _assert_corpus_locked(conn)
+    size = batch_size or WRITE_BATCH
+    payload: list[tuple] = []
+    written = 0
+
+    def flush() -> None:
+        nonlocal written
+        if not payload:
+            return
+        with conn.cursor() as cur:
+            cur.executemany(_DEFENSIVE_BAR_UPSERT, payload)
+        conn.commit()
+        written += len(payload)
+        payload.clear()
+
+    for row in rows:
+        if str(row.get("ticker", "")).strip().upper() != "BIL":
+            raise ValueError("the defensive SFP ingest accepts only ticker=BIL")
+        session = str(row.get("date") or "")
+        try:
+            close_signal = float(row.get("close"))
+            close_unadjusted = float(row.get("closeunadj"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"BIL SFP row {session!r} lacks valid close/closeunadj") from exc
+        if (not session or close_signal <= 0 or close_unadjusted <= 0
+                or not math.isfinite(close_signal)
+                or not math.isfinite(close_unadjusted)):
+            raise ValueError(
+                f"BIL SFP row {session!r} lacks valid close/closeunadj")
+        payload.append((session, close_signal, close_unadjusted,
+                        str(run_id) if run_id else None))
+        if len(payload) >= size:
+            flush()
+    flush()
+    return written
+
+
 def write_actions(conn, rows: Sequence[Any], *, run_id=None,
                   window_start: str | None = None,
                   window_end: str | None = None) -> int:
@@ -888,6 +942,21 @@ def published_spy_total_return(conn, start: str, end: str) -> list[tuple]:
             " WHERE session BETWEEN %s AND %s"
             f" AND {visible_predicate('r')} ORDER BY session", (start, end))
         return [(str(session), value) for session, value in cur.fetchall()]
+
+
+def published_defensive_bars(conn, start: str, end: str) -> list[tuple]:
+    """Published BIL price-domain evidence in an inclusive dated window."""
+    from sentinel.feed.publication import visible_predicate
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT session, security_id, ticker, close_signal,"
+            " close_unadjusted FROM sentinel_defensive_bars b"
+            " WHERE session BETWEEN %s AND %s"
+            f" AND {visible_predicate('b')} ORDER BY session", (start, end))
+        return [(str(session), security_id, ticker, close_signal, raw_close)
+                for session, security_id, ticker, close_signal, raw_close
+                in cur.fetchall()]
 
 
 def run_status(conn, limit: int = 5) -> list[dict]:

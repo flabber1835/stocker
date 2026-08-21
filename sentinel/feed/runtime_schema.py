@@ -41,6 +41,7 @@ def _refuse(detail: str) -> FeedSchemaRefused:
 _RELATIONS = {
     "sentinel_bars": ("r", "p", False, False, False),
     "sentinel_spy_total_return": ("r", "p", False, False, False),
+    "sentinel_defensive_bars": ("r", "p", False, False, False),
     "sentinel_ingest_rejections": ("r", "p", False, False, False),
     "sentinel_rejection_truncation": ("r", "p", False, False, False),
     "sentinel_corpus_anomalies": ("r", "p", False, False, False),
@@ -74,6 +75,13 @@ _COLUMNS = {
     },
     "sentinel_spy_total_return": {
         "session": ("date", True), _TOTAL_RETURN_COLUMN: ("double precision", True),
+        "last_written_run_id": ("uuid", False),
+    },
+    "sentinel_defensive_bars": {
+        "security_id": ("text", True), "session": ("date", True),
+        "ticker": ("text", True),
+        "close_signal": ("double precision", True),
+        "close_unadjusted": ("double precision", True),
         "last_written_run_id": ("uuid", False),
     },
     "sentinel_ingest_rejections": {
@@ -207,6 +215,7 @@ _COLUMNS = {
 _PRIMARY_KEYS = {
     "sentinel_bars": "primary key (security_id, session)",
     "sentinel_spy_total_return": "primary key (session)",
+    "sentinel_defensive_bars": "primary key (session)",
     "sentinel_ingest_rejections": "primary key (observation_id)",
     "sentinel_rejection_truncation": "primary key (run_id, chunk)",
     "sentinel_corpus_anomalies": "primary key (observation_id)",
@@ -224,6 +233,12 @@ _PRIMARY_KEYS = {
 }
 
 _CONSTRAINT_WITNESSES = {
+    "sentinel_defensive_bars": (
+        ("c", ("security_id", "sentinel:bil")),
+        ("c", ("ticker", "bil")),
+        ("c", ("close_signal", ">", "0", "nan", "infinity")),
+        ("c", ("close_unadjusted", ">", "0", "nan", "infinity")),
+    ),
     "sentinel_bar_split_repairs": (
         ("f", ("foreign key (security_id, session)", "sentinel_bars",
                "security_id, session", "on delete cascade")),
@@ -255,6 +270,7 @@ _INDEXES = {
     "idx_sentinel_bars_session": False,
     "idx_sentinel_bars_predecessor": False,
     "idx_sentinel_spy_total_return_written_by": False,
+    "idx_sentinel_defensive_bars_written_by": False,
     "idx_sentinel_rejections_session": False,
     "idx_sentinel_rejections_written_by": False,
     "uq_sentinel_rejection_run_observation": True,
@@ -348,6 +364,7 @@ _TRIGGER_WITNESSES = {
         }
         for table in (
             "sentinel_bars", "sentinel_spy_total_return",
+            "sentinel_defensive_bars",
             "sentinel_universe", "sentinel_actions",
             "sentinel_bar_split_repairs", "sentinel_action_generations",
             "sentinel_action_observations", "sentinel_corpus_anomalies",

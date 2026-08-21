@@ -195,7 +195,7 @@ _TARGET_CATALOG_SHA256 = {
 # behaviorally empty.  An unknown ``sentinel_*`` table does: it may be evidence
 # from a newer or damaged schema this build has no authority to reinterpret.
 _FEED_TABLES = frozenset({
-    "sentinel_bars", "sentinel_spy_total_return",
+    "sentinel_bars", "sentinel_spy_total_return", "sentinel_defensive_bars",
     "sentinel_ingest_rejections", "sentinel_rejection_truncation",
     "sentinel_corpus_anomalies", "sentinel_anomaly_observation_events",
     "sentinel_actions", "sentinel_action_generations",

@@ -52,6 +52,7 @@ def conn(pg):
                   "sentinel_action_generation_events",
                   "sentinel_action_observations", "sentinel_action_generations",
                   "sentinel_bars", "sentinel_spy_total_return",
+                  "sentinel_defensive_bars",
                   "sentinel_actions", "sentinel_universe",
                   "feed_ingest_runs"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
@@ -243,7 +244,7 @@ class TestDaily:
             ingest.daily(conn, fetch=fetcher([prior, *blank]), today="2024-02-01",
                          resolve_identity=lambda t, s: t)
 
-    def test_legacy_equities_with_empty_spy_are_repaired_from_bounded_sfp(
+    def test_legacy_equities_get_bounded_spy_and_bil_reference_evidence(
             self, conn):
         from sentinel.feed import calendar, publication, readiness
 
@@ -260,9 +261,12 @@ class TestDaily:
 
         spy_sessions = calendar.previous_sessions(
             frontier, readiness.REQUIRED_SPY_SESSIONS)
-        sfp = [{"ticker": "SPY", "date": session,
-                "closeadj": 400.0 + i}
-               for i, session in enumerate(spy_sessions)]
+        sfp = [row for i, session in enumerate(spy_sessions) for row in (
+            {"ticker": "SPY", "date": session, "close": 400.0 + i,
+             "closeadj": 400.0 + i, "closeunadj": 400.0 + i},
+            {"ticker": "BIL", "date": session, "close": 91.0,
+             "closeadj": 91.0, "closeunadj": 91.0},
+        )]
         equity_rows = [
             sep_row("AAA", session, close=100.0, raw=100.0, open_=99.0)
             for session in equity_sessions
@@ -282,16 +286,25 @@ class TestDaily:
 
         sfp_calls = [params for table, params in fetch.calls
                      if table == sharadar.SFP]
-        assert sfp_calls and all(call["ticker"] == "SPY" for call in sfp_calls)
+        assert sfp_calls and all(
+            call["ticker"] == "SPY,BIL" for call in sfp_calls)
         assert all(call["date.gte"] == spy_sessions[0] for call in sfp_calls)
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*), COUNT(DISTINCT session),"
                         " COUNT(DISTINCT last_written_run_id)"
                         " FROM sentinel_spy_total_return")
             assert cur.fetchone() == (41, 41, 1)
+            cur.execute("SELECT COUNT(*), COUNT(DISTINCT session),"
+                        " COUNT(DISTINCT last_written_run_id)"
+                        " FROM sentinel_defensive_bars")
+            assert cur.fetchone() == (41, 41, 1)
             cur.execute("SELECT COUNT(*) FROM sentinel_bars WHERE ticker='SPY'")
             assert cur.fetchone()[0] == 0
             cur.execute("SELECT COUNT(*) FROM sentinel_universe WHERE ticker='SPY'")
+            assert cur.fetchone()[0] == 0
+            cur.execute("SELECT COUNT(*) FROM sentinel_bars WHERE ticker='BIL'")
+            assert cur.fetchone()[0] == 0
+            cur.execute("SELECT COUNT(*) FROM sentinel_universe WHERE ticker='BIL'")
             assert cur.fetchone()[0] == 0
             cur.execute("SELECT COUNT(*) FROM sentinel_spy_total_return"
                         " WHERE last_written_run_id=%s",
@@ -309,6 +322,9 @@ class TestDaily:
         benchmark = next(c for c in result.checks
                          if c.name == "frontier benchmark")
         assert benchmark.status == readiness.PASS, benchmark.detail
+        defensive = next(c for c in result.checks
+                         if c.name == "defensive fund marks")
+        assert defensive.status == readiness.PASS, defensive.detail
 
 
 class TestRetryConstantsHaveNotDrifted:

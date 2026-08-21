@@ -84,6 +84,50 @@ controller state, LD-RC state and the ledger remain fresh. Session-effective
 metadata is required for every historical witness close; a current snapshot may
 not be projected backward merely to make the witness ready.
 
+### Fresh current-only paper observation
+
+The supported Sharadar seed observes one complete TICKERS snapshot on the seed
+date.  It does not contain the dated TICKERS observations required by the
+historical witness rule above.  A fresh database must therefore choose between
+two explicit, economically different starts; absence of metadata must never
+select one implicitly:
+
+```text
+historically certified authority
+    require a complete session-effective metadata timeline for the historical
+    zero-capital witness; otherwise REFUSE
+
+PAPER_OBSERVATION_ONLY authority
+    prime Wealth Core's price features without making historical decisions,
+    start the zero-capital witness at the first live decision close, and retain
+    its unavailable r20/r40 evidence until those forward sessions exist
+```
+
+The paper-observation path is causal because it does not assign the current
+TICKERS observation to any earlier session.  It can produce the first current
+plan from a fresh supported seed, but it does **not** claim to reproduce a
+fully warmed Concordance controller on that first close.  LD-RC's existing
+typed unavailable-evidence behavior remains the rule: no divergence may be
+entered on missing entry evidence, recovery confirmations cannot be
+manufactured, and the native parent allocation remains the ceiling.  The
+per-session evidence records the witness history length and whether its r20/r40
+surface is ready, so the prospective formation interval is visible rather than
+mistaken for historical parity.
+
+This exception is keyed to the authenticated `PAPER_OBSERVATION_ONLY` authority
+mode, whose signed claims already say `HISTORICAL_CAUSALITY_UNVERIFIED` and
+`historical_certification=NOT_GRANTED`.  A generic flag, caller override, or
+historically certified certificate cannot request it.  If a complete causal
+timeline is present, both authority modes use it; the prospective start is a
+fallback for the current-only seed, not a competing implementation.
+
+The durable v4 state binds the witness origin.  A current-only start is stored
+as `PROSPECTIVE_PAPER_OBSERVATION` and survives every restart; absence of the
+new field on a legacy state means the historical path, preserving its existing
+state hash.  Authority rotation cannot silently promote prospective evidence:
+loading a prospective state under historically certified authority refuses and
+requires a rebuild from complete session-effective metadata.
+
 A duplicate/out-of-order session refuses. Eligible-count disagreement between
 Wealth Core and the audit rows refuses instead of silently composing different
 universes.

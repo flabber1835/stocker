@@ -16,7 +16,8 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
+from fractions import Fraction
 from typing import Mapping, Optional
 
 from sentinel.execution.plan import ExecutionPlan
@@ -42,6 +43,130 @@ def _decimal(value, *, where: str) -> Decimal:
     if not converted.is_finite():
         raise TargetProjectionRefused(f"{where} must be finite")
     return converted
+
+
+# Publication ratios originate in DOUBLE PRECISION.  A repeating rational such
+# as 1/30 therefore arrives as 0.03333333333333333 and Decimal faithfully
+# preserves that approximation: 300 * ratio becomes 9.99999999999999900.  A
+# generic nearest-lot rounding rule would silently change economic intent, so
+# the only correction permitted below is an exact rational reconstruction from
+# the durable per-action evidence that produced the aggregate multiplier.
+_RATIO_REPRESENTATION_TOLERANCE = Fraction(1, 10**12)
+_STATED_DENOMINATOR_TOLERANCE = Fraction(1, 100)
+_RECIPROCAL_EVIDENCE_DISPOSITIONS = frozenset({
+    "published_canonical_equity_ratio", "corroborated_reciprocal"})
+
+
+def _fractions_close(left: Fraction, right: Fraction,
+                     tolerance: Fraction) -> bool:
+    scale = max(abs(left), abs(right), Fraction(1, 10**30))
+    return abs(left - right) <= tolerance * scale
+
+
+def _evidence_factor(item: Mapping[str, object]) -> tuple[Fraction, Fraction]:
+    """Return (published approximation, exact evidenced multiplier)."""
+    canonical = _decimal(
+        item.get("canonical_multiplier"),
+        where="scalar action evidence canonical multiplier")
+    stated = _decimal(
+        item.get("value"), where="scalar action evidence ACTIONS value")
+    if canonical <= 0 or stated <= 0:
+        raise TargetProjectionRefused(
+            "scalar action evidence multipliers must be positive")
+    published = Fraction(canonical)
+    exact = published
+
+    raw_numerator = item.get("canonical_numerator")
+    raw_denominator = item.get("canonical_denominator")
+    if (raw_numerator is None) != (raw_denominator is None):
+        raise TargetProjectionRefused(
+            "scalar action rational evidence is incomplete")
+    if raw_numerator is not None:
+        try:
+            numerator = int(raw_numerator)
+            denominator = int(raw_denominator)
+        except (TypeError, ValueError) as exc:
+            raise TargetProjectionRefused(
+                "scalar action rational evidence is invalid") from exc
+        if numerator <= 0 or denominator <= 0:
+            raise TargetProjectionRefused(
+                "scalar action rational evidence must be positive")
+        rational = Fraction(numerator, denominator)
+        if not _fractions_close(
+                published, rational, _RATIO_REPRESENTATION_TOLERANCE):
+            raise TargetProjectionRefused(
+                "scalar action rational evidence contradicts its published "
+                "canonical multiplier")
+        return published, rational
+
+    if (stated > 1
+            and str(item.get("action")) in {"split", "adrratiosplit"}
+            and str(item.get("split_disposition"))
+            in _RECIPROCAL_EVIDENCE_DISPOSITIONS):
+        stated_fraction = Fraction(stated)
+        reciprocal = Fraction(1, 1) / stated_fraction
+        if _fractions_close(
+                published, reciprocal, _RATIO_REPRESENTATION_TOLERANCE):
+            exact = reciprocal
+        else:
+            # The shared resolver deliberately snaps a near-integral noisy
+            # reverse denominator (30.003, 9.00009, ...) when independent price
+            # evidence corroborates the exact reciprocal. Mirror only that
+            # already-certified representation, never an arbitrary nearest lot.
+            denominator = int(stated.to_integral_value(
+                rounding=ROUND_HALF_EVEN))
+            integral = Fraction(denominator, 1)
+            if (denominator > 0
+                    and _fractions_close(
+                        stated_fraction, integral,
+                        _STATED_DENOMINATOR_TOLERANCE)
+                    and _fractions_close(
+                        published, Fraction(1, denominator),
+                        _RATIO_REPRESENTATION_TOLERANCE)):
+                exact = Fraction(1, denominator)
+    return published, exact
+
+
+def _exact_evidenced_projection(
+        *, security_id: str, quantity: Decimal, multiplier: Decimal,
+        increment: Decimal, projected: Decimal,
+        evidence: tuple[Mapping[str, object], ...]) -> Optional[Decimal]:
+    """Recover only an exact action rational that lands on a broker increment.
+
+    Returning ``None`` means the ordinary exact-Decimal refusal remains in
+    force.  This is intentionally not a tolerance-based quantity rounding path:
+    all events must carry their published canonical multiplier, that product
+    must reproduce the aggregate multiplier, and the exact rational result must
+    already be an integer number of certified broker increments.
+    """
+    relevant = tuple(
+        item for item in evidence
+        if str(item.get("security_id")) == str(security_id))
+    if not relevant or any(
+            item.get("canonical_multiplier") is None for item in relevant):
+        return None
+
+    published_product = Fraction(1, 1)
+    exact_product = Fraction(1, 1)
+    for item in relevant:
+        published, exact = _evidence_factor(item)
+        published_product *= published
+        exact_product *= exact
+    if not _fractions_close(
+            Fraction(multiplier), published_product,
+            _RATIO_REPRESENTATION_TOLERANCE):
+        return None
+
+    exact_target = Fraction(quantity) * exact_product
+    steps = exact_target / Fraction(increment)
+    if steps.denominator != 1:
+        return None
+    snapped = Decimal(steps.numerator) * increment
+    if not _fractions_close(
+            Fraction(projected), Fraction(snapped),
+            _RATIO_REPRESENTATION_TOLERANCE):
+        return None
+    return snapped
 
 
 @dataclass(frozen=True)
@@ -93,6 +218,13 @@ def project_target(
             "corporate action cannot introduce securities outside the plan "
             f"target: {unknown}")
 
+    normalized_evidence = tuple(
+        dict(item) for item in sorted(
+            action_evidence,
+            key=lambda item: (
+                str(item.get("session", "")),
+                str(item.get("security_id", "")),
+                str(item.get("source_row_id", "")))))
     increment = _decimal(
         minimum_quantity_increment, where="minimum quantity increment")
     if increment <= 0:
@@ -114,20 +246,19 @@ def project_target(
             raise TargetProjectionRefused(
                 f"projected target {security_id} would be short")
         if projected % increment != 0:
-            raise TargetProjectionRefused(
-                f"projected target {security_id}={projected} is not a multiple "
-                f"of the certified broker increment {increment}; refusing "
-                "instead of rounding economic intent")
+            exact = _exact_evidenced_projection(
+                security_id=str(security_id), quantity=quantity,
+                multiplier=multiplier, increment=increment,
+                projected=projected, evidence=normalized_evidence)
+            if exact is None:
+                raise TargetProjectionRefused(
+                    f"projected target {security_id}={projected} is not a "
+                    f"multiple of the certified broker increment {increment}; "
+                    "refusing instead of rounding economic intent")
+            projected = exact
         target[str(security_id)] = projected
         if multiplier != 1:
             multipliers[str(security_id)] = multiplier
-    normalized_evidence = tuple(
-        dict(item) for item in sorted(
-            action_evidence,
-            key=lambda item: (
-                str(item.get("session", "")),
-                str(item.get("security_id", "")),
-                str(item.get("source_row_id", "")))))
     evidence_ids = {
         str(item.get("security_id")) for item in normalized_evidence}
     if evidence_ids - set(multipliers):

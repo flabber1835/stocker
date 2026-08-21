@@ -44,7 +44,7 @@ evidence uses the same deliberate mechanism:
 
 ```text
 trial-account:v1:<observation id>
-trial-verification:v1:<effective session>
+trial-verification:v2:<effective session>
 ```
 
 The first row binds an actual broker account snapshot to the exact COMPLETE
@@ -61,6 +61,11 @@ record contains a SHA-256 over its canonical evidence object.  A future physical
 table may migrate these records only through an explicit reviewed behavioral
 schema migration.
 
+The corrected verifier deliberately starts a new `v2` certificate chain.  A
+validly hashed `v1` row remains immutable historical evidence, but it is neither
+loaded nor accepted as a predecessor: pre-fix certificates did not prove the
+same dividend binding and close-timestamp semantics.
+
 ## 3. When evidence is captured
 
 Broker account evidence is captured inside the existing guarded paper gateway,
@@ -68,15 +73,21 @@ after a fresh account/cash read and a COMPLETE, RUNNING, clean reconciliation.
 It is never captured by the panel.  The evidence names:
 
 * deployment, broker account, and takeover epoch;
-* reconciliation observation id and broker observation timestamp;
+* reconciliation observation id, reconciliation request start/completion, and
+  account request start/completion;
+* the authority class of the claimed valuation timestamp;
 * actual equity and cash;
 * account status and blocking flags;
 * broker cash-activity processed-through boundary and cumulative total.
 
 The per-session verification also projects any expected paper dividend from the
-already-hashed canonical Wealth Core ledger.  This is evidence projection only:
-the record contains `compensation_applied: false`, and no projected amount is
-added to broker cash, account equity, marked NAV or target sizing.
+effective-session published bars and their active Sharadar ACTIONS source-row
+identities.  It reconstructs the actual pre-open paper holding by reversing the
+current plan's exact signed fills from the COMPLETE closing reconciliation.  A
+buy at the ex-date open therefore earns nothing, while a sale at that open
+retains the entitlement.  This is evidence projection only: the record contains
+`compensation_applied: false`, and no projected amount is added to broker cash,
+account equity, marked NAV or target sizing.
 
 The persistent automation loop writes an immediate immutable `NOT_VERIFIED`
 record for terminal states other than `SUCCEEDED`.  Success at the execution
@@ -87,6 +98,48 @@ and COMPLETE reconciliation for the prior plan's effective session.  Before it
 advances state or supersedes that plan, it binds the now-published close marks
 and appends the final session verification.  Any failed clause earns
 `NOT_VERIFIED`.  The verifier never repairs inputs to obtain green.
+
+### Defensive-fund evidence is a separate corpus domain
+
+`SENTINEL:BIL` is Sentinel's fixed execution identity for the BIL defensive
+sleeve.  It is not an SEP company and must never be inserted into
+`sentinel_bars`, the Sharadar TICKERS projection, or the Wealth Core universe.
+The stable SFP reference request therefore fetches exactly SPY and BIL together:
+SPY `closeadj` remains isolated in the regime-sensor relation, while BIL's SFP
+`close` and `closeunadj` are published in a dedicated fixed-identity defensive
+mark relation.  `closeunadj` is the tradable paper-account mark; `close` is
+retained only as the split-adjusted, dividend-unadjusted price-domain witness
+needed to translate a reported distribution onto raw broker shares.  Neither
+field is a Wealth Core signal input.
+
+Planning and trial valuation resolve `SENTINEL:BIL` to that published BIL row
+explicitly.  Readiness requires the same exact 41-session XNYS tail used by the
+bounded SFP reference check, including a valid raw BIL frontier mark.  A missing
+or invalid BIL mark never turns the target into cash and
+never authorizes a synthetic valuation: the held/committed defensive quantity
+is preserved, an increase is refused as unpriced, and trial verification is
+`NOT_VERIFIED`.  Active published Sharadar ACTIONS rows remain the corporate-
+action authority for BIL.  When a BIL dividend or special dividend falls on the
+paper account's pre-open holding, the verifier records the exact source-row
+identity and entitlement as an evidence-only paper limitation, sets
+`ALPACA_PAPER_DIVIDEND_UNSUPPORTED`, and applies no cash compensation.  Missing,
+non-finite, non-positive, or basis-untranslatable distribution evidence is
+`DIVIDEND_EVIDENCE_INVALID`, not an assumed zero.
+
+The current broker account observation supplies live equity at its observation
+time, while clause 9 independently marks positions at the effective-session
+official close.  Those are different valuation instants during the post-close
+delay.  A qualifying observation must carry broker-authoritative close timing
+and prove the whole read sequence: reconciliation request start, reconciliation
+completion, account request start, and account completion must be ordered; none
+may precede the close; and all four must finish within the five-second allowance
+after that close.  Missing legacy fields and local wall-clock brackets fail
+closed.  The current Alpaca account/positions responses expose no authenticated
+valuation timestamp, so production stamps
+`LOCAL_RESPONSE_BRACKET_UNVERIFIED`, never
+`BROKER_AUTHORITATIVE_CLOSE`.  Until the gateway durably captures supported
+broker-authoritative close evidence (or a supported historical close mark),
+the comparison is diagnostic only and cannot certify a verified NAV interval.
 
 ## 4. Verification clauses
 
@@ -123,8 +176,13 @@ proves all of the following:
    dated, and its cash-activity cursor is complete through the evidence time.
 9. Broker equity agrees within the existing one-dollar financial tolerance with
    independently marked account NAV: actual cash plus observed quantities at
-   the effective-session published closes.  This is the NAV attribution witness;
-   the account balance is not allowed to explain itself.
+   the effective-session published closes.  The complete reconciliation and
+   account-request brackets must be ordered, post-close, within five seconds of
+   that exact XNYS close, and backed by `BROKER_AUTHORITATIVE_CLOSE` rather than
+   a local receipt time.  A later live snapshot is retained as diagnostic
+   attribution but adds `VALUATION_TIMESTAMP_UNALIGNED` and cannot certify the
+   interval even when its number happens to match.  This is the NAV attribution
+   witness; the account balance is not allowed to explain itself.
 10. External cash is identified from the durable broker/operator cash ledger.
     Internal dividends, interest, fees, and other recognized activity stay in
     account economics.  A malformed reserved activity row or a restored
@@ -134,18 +192,19 @@ proves all of the following:
     flow makes the session `NOT_VERIFIED` with no percentage return.  Subtracting
     it from closing equity and dividing by opening equity would silently assume
     boundary timing and is not TWR.
-    Alpaca paper's documented dividend omission has a separate, explicit rule:
-    a hashed Wealth Core `DIVIDEND_ACCRUED` event on the plan's decision session
-    proves the source security and authoritative per-share amount before
-    same-session fills.  Its share count belongs to the full shadow, not
-    necessarily the Sentinel-scaled paper account.  The paper entitlement is
-    therefore reconstructed from the immediately preceding immutable session's
-    closing broker positions by reversing that session's signed, exact filled
-    command quantities.  This recovers the actual post-action, pre-open paper
-    holding without reading the later post-fill book as entitlement.  Missing,
-    gapped or contradictory predecessor evidence is
-    `DIVIDEND_EVIDENCE_INVALID`, never an assumed zero.  The following
-    effective-session verification is `NOT_VERIFIED` with
+    Alpaca paper's dividend omission has a separate, explicit rule.  The
+    effective-session published bar proves the raw-domain per-share amount, and
+    the active Sharadar ACTIONS projection supplies the exact positive, finite
+    source amounts and source-row identities.  Every held-ticker dividend row is
+    aggregated, converted through the published signal/raw close domains, and
+    required to equal the normalized bar amount.  The paper entitlement is
+    reconstructed from that same
+    session's COMPLETE closing broker positions by reversing the current
+    plan's signed, exact filled command quantities.  This recovers the actual
+    pre-open paper holding without reading the later post-fill book as
+    entitlement.  Missing bars, action identities, price-domain conversion, or
+    contradictory fill evidence is `DIVIDEND_EVIDENCE_INVALID`, never an
+    assumed zero.  The effective-session verification is `NOT_VERIFIED` with
     `ALPACA_PAPER_DIVIDEND_UNSUPPORTED`, and retains that exact entitlement as a
     paper limitation.  Execution may continue when every ordinary safety gate is
     clean, but the financial chain cannot remain green.  The verifier neither
@@ -162,6 +221,17 @@ proves all of the following:
 The first session uses the plan's actual sizing NAV as its opening boundary.
 Later sessions use the previous verification's actual equity.  A gap or prior
 `NOT_VERIFIED` row breaks the verified performance chain.
+
+### Current deployment consequence
+
+The present production adapter cannot issue a `VERIFIED` NAV interval because
+it has no broker-authoritative close timestamp; every account observation is
+classified as local/unverified.  Separately, the first detected paper dividend
+produces `ALPACA_PAPER_DIVIDEND_UNSUPPORTED`; its successor receives
+`VERIFICATION_GAP`, so the chain cannot recover without an explicitly certified
+epoch/reset rule or supported dividend treatment.  These are deployment
+acceptance blockers for a multi-month verified performance series, not hidden
+adjustments the verifier is allowed to approximate.
 
 ## 5. Performance semantics
 

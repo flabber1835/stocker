@@ -163,6 +163,7 @@ class CoherenceReport:
     unpublished_bars: int
     unpublished_actions: int
     unpublished_spy: int
+    unpublished_defensive: int
     unpublished_universe: int
     unpublished_repairs: int
     unpublished_anomalies: int
@@ -179,6 +180,7 @@ class CoherenceReport:
     def unpublished_rows(self) -> int:
         return (self.unpublished_bars + self.unpublished_actions
                 + self.unpublished_spy + self.unpublished_universe
+                + self.unpublished_defensive
                 + self.unpublished_repairs + self.unpublished_anomalies)
 
     @property
@@ -192,6 +194,7 @@ class CoherenceReport:
                 "unpublished_bars": self.unpublished_bars,
                 "unpublished_actions": self.unpublished_actions,
                 "unpublished_spy": self.unpublished_spy,
+                "unpublished_defensive": self.unpublished_defensive,
                 "unpublished_universe": self.unpublished_universe,
                 "unpublished_repairs": self.unpublished_repairs,
                 "unpublished_anomalies": self.unpublished_anomalies,
@@ -216,6 +219,7 @@ def coherence(conn, *, exhaustive: bool = False) -> CoherenceReport:
         return CoherenceReport(
             version=(v.version if (v := current(conn)) else None),
             unpublished_bars=0, unpublished_actions=0, unpublished_spy=0,
+            unpublished_defensive=0,
             unpublished_universe=0, unpublished_repairs=0,
             unpublished_anomalies=0,
             unpublished_runs=(),
@@ -226,6 +230,7 @@ def coherence(conn, *, exhaustive: bool = False) -> CoherenceReport:
     for run_id, count in _live_action_rows_per_run(conn, runs).items():
         actions[run_id] = actions.get(run_id, 0) + count
     spy = _rows_per_run(conn, "sentinel_spy_total_return", runs)
+    defensive = _rows_per_run(conn, "sentinel_defensive_bars", runs)
     universe = _rows_per_run(conn, "sentinel_universe", runs)
     repairs = _live_repair_rows_per_run(conn, runs)
     anomalies = _pending_anomaly_rows_per_run(conn, runs)
@@ -239,11 +244,13 @@ def coherence(conn, *, exhaustive: bool = False) -> CoherenceReport:
         unpublished_bars=sum(bars.values()),
         unpublished_actions=sum(actions.values()),
         unpublished_spy=sum(spy.values()),
+        unpublished_defensive=sum(defensive.values()),
         unpublished_universe=sum(universe.values()),
         unpublished_repairs=sum(repairs.values()),
         unpublished_anomalies=sum(anomalies.values()),
         unpublished_runs=tuple(sorted(
-            set(bars) | set(actions) | set(spy) | set(universe) | set(repairs)
+            set(bars) | set(actions) | set(spy) | set(defensive)
+            | set(universe) | set(repairs)
             | set(anomalies))),
         enumeration="exhaustive" if exhaustive else "feed_ingest_runs")
 
@@ -280,6 +287,8 @@ def assert_retry_superseded_prior_candidates(conn, *, run_id: str) -> None:
         "bars": sum(_rows_per_run(conn, "sentinel_bars", runs).values()),
         "legacy_actions": sum(_rows_per_run(conn, "sentinel_actions", runs).values()),
         "spy": sum(_rows_per_run(conn, "sentinel_spy_total_return", runs).values()),
+        "defensive": sum(_rows_per_run(
+            conn, "sentinel_defensive_bars", runs).values()),
         "universe": sum(_rows_per_run(conn, "sentinel_universe", runs).values()),
     }
     remaining = sum(counts.values())
@@ -362,7 +371,8 @@ def _unpublished_runs_exhaustive(conn) -> tuple:
     """Straight from the data tables — the only form that sees an orphan id."""
     found: set = set()
     for table in ("sentinel_bars", "sentinel_actions",
-                  "sentinel_spy_total_return", "sentinel_universe"):
+                  "sentinel_spy_total_return", "sentinel_defensive_bars",
+                  "sentinel_universe"):
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT DISTINCT t.last_written_run_id FROM {table} t"

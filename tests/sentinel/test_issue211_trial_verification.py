@@ -99,7 +99,8 @@ def _clean_account_evidence():
         deployment_id="trial-appliance", broker="alpaca",
         broker_account_id="PA-1", takeover_epoch=4)
     observation = BrokerObservation(
-        observed_at=NOW, completeness=Completeness.COMPLETE)
+        observed_at=NOW, started_at=NOW,
+        completeness=Completeness.COMPLETE)
     reconciliation = ReconciliationResult(
         runtime_state=RuntimeState.RUNNING, observation=observation,
         expected={"SEC-A": Decimal("20")},
@@ -121,13 +122,15 @@ def test_account_evidence_is_observation_bound_and_immutable():
 
     first = trial.record_account_evidence(
         conn, session=date(2026, 8, 20), observation_id=17,
-        observed_at=NOW, snapshot=snapshot, deployment=deployment,
+        observation_started_at=NOW, observed_at=NOW,
+        snapshot=snapshot, deployment=deployment,
         reconciliation=reconciliation, activity_state=activity,
         plan_target={"SEC-A": Decimal("10")},
         target_actions={"SEC-A": Decimal("2")})
     again = trial.record_account_evidence(
         conn, session=date(2026, 8, 20), observation_id=17,
-        observed_at=NOW, snapshot=snapshot, deployment=deployment,
+        observation_started_at=NOW, observed_at=NOW,
+        snapshot=snapshot, deployment=deployment,
         reconciliation=reconciliation, activity_state=activity,
         plan_target={"SEC-A": Decimal("10")},
         target_actions={"SEC-A": Decimal("2")})
@@ -149,7 +152,8 @@ def test_account_evidence_is_observation_bound_and_immutable():
     with pytest.raises(trial.TrialEvidenceRefused, match="immutable"):
         trial.record_account_evidence(
             conn, session=date(2026, 8, 20), observation_id=17,
-            observed_at=NOW, snapshot=changed, deployment=deployment,
+            observation_started_at=NOW, observed_at=NOW,
+            snapshot=changed, deployment=deployment,
             reconciliation=reconciliation, activity_state=activity,
             plan_target={"SEC-A": Decimal("10")},
             target_actions={"SEC-A": Decimal("2")})
@@ -160,7 +164,8 @@ def test_account_evidence_fingerprint_corruption_is_not_read_as_truth():
     deployment, reconciliation, snapshot, activity = _clean_account_evidence()
     trial.record_account_evidence(
         conn, session=date(2026, 8, 20), observation_id=17,
-        observed_at=NOW, snapshot=snapshot, deployment=deployment,
+        observation_started_at=NOW, observed_at=NOW,
+        snapshot=snapshot, deployment=deployment,
         reconciliation=reconciliation, activity_state=activity,
         plan_target={"SEC-A": Decimal("10")},
         target_actions={"SEC-A": Decimal("2")})
@@ -168,6 +173,20 @@ def test_account_evidence_fingerprint_corruption_is_not_read_as_truth():
 
     with pytest.raises(trial.TrialEvidenceRefused, match="fingerprint"):
         trial.load_account_evidence(conn, 17)
+
+
+def test_legacy_v1_verification_cannot_enter_the_corrected_v2_chain():
+    session = date(2026, 8, 20)
+    legacy = {
+        "kind": "sentinel-trial-verification/v1",
+        "session": session.isoformat(),
+        "verdict": "VERIFIED",
+    }
+    legacy["evidence_sha256"] = trial._sha(legacy)  # noqa: SLF001
+
+    assert trial.VERIFICATION_PREFIX == "trial-verification:v2:"
+    with pytest.raises(trial.TrialEvidenceRefused, match="fingerprint"):
+        trial._validate_verification(session, legacy)  # noqa: SLF001
 
 
 @pytest.mark.parametrize(
@@ -272,70 +291,6 @@ def test_no_flow_return_extends_the_exact_verified_chain():
         Decimal("0.1550"))
 
 
-def _dividend_event(*, session="2026-08-19", amount=5.0):
-    return {
-        "session": session, "event_type": "DIVIDEND_ACCRUED",
-        "security_id": "SEC-A", "ticker": "AAA", "shares_delta": 0.0,
-        "cash_delta": 0.0, "price": 0.5, "fees": 0.0,
-        "cash_before": 10.0, "cash_after": 10.0,
-        "reason": "DIVIDEND_ACCRUED",
-        "detail": {"shares": 10, "amount": amount, "due_in": 1},
-    }
-
-
-def test_expected_paper_dividend_uses_causal_hashed_ledger_entitlement():
-    state = SimpleNamespace(ledger={
-        "events": [
-            _dividend_event(session="2026-08-18"),
-            _dividend_event(),
-            {**_dividend_event(), "event_type": "DIVIDEND_PAID"},
-        ],
-        "receivables": [],
-    })
-    previous = {
-        "session": "2026-08-19", "verdict": "VERIFIED", "reason_codes": [],
-        "reconciliation": {"positions": {"SEC-A": "7"}},
-        "commands": [{
-            "client_key": "sell-at-open", "security_id": "SEC-A",
-            "side": "SELL", "filled_quantity": "3"}],
-    }
-
-    expected = trial._expected_paper_dividends(  # noqa: SLF001
-        state, date(2026, 8, 19), previous)
-
-    assert expected == [{
-        "security_id": "SEC-A", "ticker": "AAA",
-        "accrued_session": "2026-08-19", "shares": "10",
-        "shadow_shares": "10", "per_share": "0.5", "amount": "5.0",
-        "shadow_amount": "5.0",
-        "settlement_lag_sessions": 1,
-    }]
-
-
-def test_ex_date_open_buy_does_not_manufacture_paper_entitlement():
-    state = SimpleNamespace(ledger={
-        "events": [_dividend_event()], "receivables": []})
-    previous = {
-        "session": "2026-08-19", "verdict": "VERIFIED", "reason_codes": [],
-        "reconciliation": {"positions": {"SEC-A": "10"}},
-        "commands": [{
-            "client_key": "buy-at-open", "security_id": "SEC-A",
-            "side": "BUY", "filled_quantity": "10"}],
-    }
-
-    assert trial._expected_paper_dividends(  # noqa: SLF001
-        state, date(2026, 8, 19), previous) == []
-
-
-def test_corrupt_dividend_entitlement_fails_financial_evidence():
-    state = SimpleNamespace(ledger={
-        "events": [_dividend_event(amount=4.0)], "receivables": []})
-
-    with pytest.raises(trial.TrialEvidenceRefused, match="disagrees"):
-        trial._expected_paper_dividends(  # noqa: SLF001
-            state, date(2026, 8, 19), None)
-
-
 def test_current_operational_failure_removes_all_verified_styling():
     from sentinel.panel import model
     from sentinel.panel.render import render
@@ -405,7 +360,10 @@ def test_success_certificate_binds_strategy_evidence_and_split_target(
         "orders": []}
     account = {
         "session": effective_session.isoformat(), "observation_id": 17,
+        "observation_started_at": observed_at.isoformat(),
         "observed_at": observed_at.isoformat(),
+        "reconciliation_started_at": observed_at.isoformat(),
+        "reconciliation_observed_at": observed_at.isoformat(),
         "deployment": {"deployment_id": "trial-appliance", "broker": "alpaca",
                        "broker_account_id": "PA-1", "takeover_epoch": 4},
         "account": {"equity": "100", "cash": "0", "status": "ACTIVE",
@@ -460,7 +418,41 @@ def test_success_certificate_binds_strategy_evidence_and_split_target(
         lambda *_: ({"SEC-A": {"ticker": "AAA", "close": "5"}},
                     Decimal("100")))
     monkeypatch.setattr(trial, "_previous_verification", lambda *_: None)
+    defensive_calls = []
 
+    def no_defensive_dividend(_conn, session, positions, commands):
+        defensive_calls.append((session, positions, commands))
+        return []
+
+    monkeypatch.setattr(
+        trial, "_expected_effective_equity_dividends", lambda *_: [])
+    monkeypatch.setattr(
+        trial, "_expected_defensive_dividends", no_defensive_dividend)
+
+    result = trial.build_cycle_verification(
+        VerificationConnection(plan.plan_id), cycle_id=cycle.cycle_id,
+        observation_id=17, now=NOW)
+
+    # Numerically equal live equity and official-close marked NAV are not the
+    # same valuation fact when the account read happened at a later instant.
+    assert result["nav_attribution"]["unexplained"] == "0"
+    assert result["verdict"] == "NOT_VERIFIED"
+    assert "VALUATION_TIMESTAMP_UNALIGNED" in result["reason_codes"]
+    assert defensive_calls[-1] == (
+        effective_session, {"SEC-A": "20"}, [])
+
+    # Evidence written before request-bracket fields were introduced is never
+    # upgraded by inference.  It remains readable but financially unverified.
+    reconciliation_observed_at = account.pop("reconciliation_observed_at")
+    legacy = trial.build_cycle_verification(
+        VerificationConnection(plan.plan_id), cycle_id=cycle.cycle_id,
+        observation_id=17, now=NOW)
+    assert legacy["verdict"] == "NOT_VERIFIED"
+    assert "VALUATION_TIMESTAMP_UNALIGNED" in legacy["reason_codes"]
+    account["reconciliation_observed_at"] = reconciliation_observed_at
+
+    monkeypatch.setattr(
+        trial, "_valuation_timestamp_aligned", lambda *_: True)
     result = trial.build_cycle_verification(
         VerificationConnection(plan.plan_id), cycle_id=cycle.cycle_id,
         observation_id=17, now=NOW)
@@ -475,12 +467,13 @@ def test_success_certificate_binds_strategy_evidence_and_split_target(
 
     entitlement = {
         "security_id": "SEC-A", "ticker": "AAA",
-        "accrued_session": decision_session.isoformat(), "shares": "10",
+        "accrued_session": effective_session.isoformat(), "shares": "10",
         "per_share": "0.5", "amount": "5.0",
         "settlement_lag_sessions": 1,
     }
     monkeypatch.setattr(
-        trial, "_expected_paper_dividends", lambda *_: [entitlement])
+        trial, "_expected_effective_equity_dividends",
+        lambda *_: [entitlement])
     limited = trial.build_cycle_verification(
         VerificationConnection(plan.plan_id), cycle_id=cycle.cycle_id,
         observation_id=17, now=NOW)
@@ -490,3 +483,36 @@ def test_success_certificate_binds_strategy_evidence_and_split_target(
     assert limited["paper_limitations"] == {
         "expected_dividends": [entitlement], "compensation_applied": False}
     assert limited["account_evidence"]["account"]["cash"] == "0"
+
+    bil_entitlement = {
+        "security_id": "SENTINEL:BIL", "ticker": "BIL",
+        "accrued_session": effective_session.isoformat(), "shares": "12",
+        "per_share": "0.25", "amount": "3.00",
+        "reported_per_share": "0.25", "source_row_ids": ["action-bil"],
+        "source": "SHARADAR_ACTIONS", "settlement_lag_sessions": None,
+    }
+    monkeypatch.setattr(
+        trial, "_expected_effective_equity_dividends", lambda *_: [])
+    monkeypatch.setattr(
+        trial, "_expected_defensive_dividends",
+        lambda *_: [bil_entitlement])
+    bil_limited = trial.build_cycle_verification(
+        VerificationConnection(plan.plan_id), cycle_id=cycle.cycle_id,
+        observation_id=17, now=NOW)
+    assert bil_limited["verdict"] == "NOT_VERIFIED"
+    assert "ALPACA_PAPER_DIVIDEND_UNSUPPORTED" in \
+        bil_limited["reason_codes"]
+    assert bil_limited["paper_limitations"] == {
+        "expected_dividends": [bil_entitlement],
+        "compensation_applied": False,
+    }
+
+    def invalid_defensive(*_args):
+        raise trial.TrialEvidenceRefused("missing BIL price basis")
+
+    monkeypatch.setattr(
+        trial, "_expected_defensive_dividends", invalid_defensive)
+    invalid = trial.build_cycle_verification(
+        VerificationConnection(plan.plan_id), cycle_id=cycle.cycle_id,
+        observation_id=17, now=NOW)
+    assert "DIVIDEND_EVIDENCE_INVALID" in invalid["reason_codes"]

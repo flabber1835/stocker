@@ -80,7 +80,7 @@ def bindings() -> dict:
         },
         "forward_chain": {
             "verdict": "PASS", "evidence_sha256": sha("4"),
-            "schema": "sentinel.production-forward-chain/1",
+            "schema": "sentinel.production-forward-chain/2",
             "reference_sha256": sha("a"), "corpus_sha256": sha("6"),
         },
         "resource_envelope": {
@@ -877,6 +877,8 @@ def issuer_fixture(tmp_path: Path, *, wealth_verdict="GO", strict_xfails=0,
     b["test_image_digest"] = manifest_value["test_image_digest"]
     b["automation_config_sha256"] = manifest_value["automation_config_sha256"]
     b["certification_manifest_sha256"] = hashlib.sha256(manifest).hexdigest()
+    b["certification_corpus"]["corpus_sha256"] = manifest_value[
+        "final_corpus_hash"]
     b["wealth_core"]["evidence_sha256"] = hashlib.sha256(wealth).hexdigest()
     b["controller"]["evidence_sha256"] = hashlib.sha256(controller).hexdigest()
     b["forward_chain"]["evidence_sha256"] = hashlib.sha256(forward).hexdigest()
@@ -892,6 +894,8 @@ def issuer_fixture(tmp_path: Path, *, wealth_verdict="GO", strict_xfails=0,
     b["reference"]["artifact_sha256"] = hashlib.sha256(reference).hexdigest()
     b["reference"]["checksums_sha256"] = hashlib.sha256(checksums).hexdigest()
     b["forward_chain"]["reference_sha256"] = b["reference"]["artifact_sha256"]
+    b["forward_chain"]["corpus_sha256"] = manifest_value[
+        "final_corpus_hash"]
     b["wealth_core"].update({
         "verdict": wealth_value["verdict"],
         "config_sha256": wealth_value["config_sha256"],

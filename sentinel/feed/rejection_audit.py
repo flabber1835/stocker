@@ -267,6 +267,7 @@ _SPLIT_DISPOSITION = {
     "SPLIT_ONLY_DERIVED": "derived-only non-seam split",
     "SEAM_SPLIT_UNCORROBORATED": "seam artifact suppressed",
     "SPLIT_DISAGREEMENT": "unresolved material disagreement",
+    "AMBIGUOUS_SPLIT_MULTIPLICITY": "ambiguous split multiplicity",
     "SPLIT_RESOLVED_NO_EVENT": "current sources prove no split event",
 }
 
@@ -298,7 +299,8 @@ def _split_dispositions(conn, start: str, end: str, *, held: set[str],
                     "SPLIT_RESOLVED_NO_EVENT"}:
             relevance, policy, blocks = (
                 "resolved", "accepted canonical split evidence", False)
-        elif kind == "SPLIT_DISAGREEMENT":
+        elif kind in {"SPLIT_DISAGREEMENT",
+                      "AMBIGUOUS_SPLIT_MULTIPLICITY"}:
             relevance, policy, blocks = (
                 "unresolved", "refuse: neither source may rewrite shares", True)
         elif intersects:

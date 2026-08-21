@@ -393,7 +393,7 @@ def promote_forward_chain(*, formal_run_path: Path, output: Path,
     if confirm_sha256 != actual:
         raise EvidenceRefused(
             f"formal forward-chain SHA-256 mismatch: actual {actual}")
-    if (raw.get("schema") != "sentinel.production-forward-chain/1"
+    if (raw.get("schema") != "sentinel.production-forward-chain/2"
             or raw.get("differential_verdict") != "PASS"
             or raw.get("authority_effect") != "NONE"
             or raw.get("runtime_authority_changed") is not False
@@ -812,7 +812,7 @@ def produce_certification_decisions(
                    for field in population_fields[1:])):
         raise EvidenceRefused(
             "expected-hash artifact has no nonzero causal metadata population")
-    if forward.get("schema") != "sentinel.production-forward-chain/1":
+    if forward.get("schema") != "sentinel.production-forward-chain/2":
         raise EvidenceRefused("controller forward-chain schema is unknown")
     raw_forward = _validate_formal_forward(
         record=forward_run_record, payload=forward_run_bytes,

@@ -291,7 +291,8 @@ def _add_version_checks(conn, r: "Readiness") -> None:
               " WHERE last_written_run_id IS NOT NULL") or 0)
         for table in ("sentinel_bars", "sentinel_actions",
                       "sentinel_action_observations",
-                      "sentinel_spy_total_return", "sentinel_universe",
+                      "sentinel_spy_total_return", "sentinel_defensive_bars",
+                      "sentinel_universe",
                       "sentinel_bar_split_repairs",
                       "sentinel_corpus_anomalies"))
     if stamped:
@@ -424,6 +425,52 @@ def check_readiness(conn, *, today: Optional[str] = None,
         r.add("frontier benchmark", PASS,
               f"SPY total-return tail is complete through {frontier}",
               benchmark_value)
+
+    # BIL is the controller's defensive execution instrument, not an SEP
+    # company. A cash residual is not a substitute for its missing mark: the
+    # exact SFP tail must be independently published under the fixed identity.
+    from sentinel.feed.store import published_defensive_bars
+
+    defensive_rows = published_defensive_bars(
+        conn, expected_spy[0], frontier)
+    valid_defensive: list[str] = []
+    invalid_defensive: list[str] = []
+    for session, security_id, ticker, close_signal, close_unadjusted in defensive_rows:
+        try:
+            values_valid = all(
+                math.isfinite(float(value)) and float(value) > 0
+                for value in (close_signal, close_unadjusted))
+        except (TypeError, ValueError, OverflowError):
+            values_valid = False
+        if (security_id == "SENTINEL:BIL" and ticker == "BIL"
+                and values_valid):
+            valid_defensive.append(session)
+        else:
+            invalid_defensive.append(session)
+    missing_defensive = sorted(set(expected_spy) - set(valid_defensive))
+    unexpected_defensive = sorted(set(valid_defensive) - set(expected_spy))
+    defensive_value = {
+        "required": REQUIRED_SPY_SESSIONS,
+        "present": len(valid_defensive),
+        "missing": missing_defensive,
+        "unexpected": unexpected_defensive,
+        "invalid": invalid_defensive,
+        "security_id": "SENTINEL:BIL",
+        "ticker": "BIL",
+    }
+    if (valid_defensive != expected_spy or invalid_defensive):
+        r.add(
+            "defensive fund marks", FAIL,
+            f"frontier {frontier} requires the exact published "
+            f"{REQUIRED_SPY_SESSIONS}-session raw BIL mark tail under "
+            f"SENTINEL:BIL; missing={missing_defensive}, "
+            f"unexpected={unexpected_defensive}, invalid={invalid_defensive}",
+            defensive_value)
+    else:
+        r.add(
+            "defensive fund marks", PASS,
+            f"raw BIL mark tail is complete through {frontier}",
+            defensive_value)
 
     # ── continuity, against an INDEPENDENT calendar ──────────────────────────
     # THE DEFECT THIS REPLACES (measured 2026-08-09): this check used to select

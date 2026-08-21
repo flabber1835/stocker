@@ -77,7 +77,7 @@ def test_forward_review_is_digest_bound_and_no_clobber(tmp_path):
 def test_hand_authored_minimal_forward_pass_cannot_be_promoted(tmp_path):
     raw = tmp_path / "minimal.json"
     payload = write(raw, {
-        "schema": "sentinel.production-forward-chain/1",
+        "schema": "sentinel.production-forward-chain/2",
         "differential_verdict": "PASS",
         "authority_effect": "NONE",
         "runtime_authority_changed": False,

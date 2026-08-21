@@ -318,7 +318,8 @@ class SimulatedBroker(ExecutionBroker):
             completeness = Completeness.PARTIAL
 
         return BrokerObservation(
-            observed_at=self.now, orders=orders, positions=positions,
+            observed_at=self.now, started_at=self.now,
+            orders=orders, positions=positions,
             completeness=completeness, account_identity=self.account)
 
     def _snapshot_orders(self):

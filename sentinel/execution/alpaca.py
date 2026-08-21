@@ -416,6 +416,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
         # Account identity is part of the snapshot, not an adjacent fact. Check
         # it around each major phase so an A->B->A routing/credential flip is
         # detected before any observation can reach the journal.
+        observation_started_at = datetime.now(timezone.utc)
         account_before = await self.identify_account()
         opened, complete_open_a = await self._list_open_orders()
         terminal_a: list[BrokerOrder] = []
@@ -451,7 +452,8 @@ class AlpacaExecutionBroker(ExecutionBroker):
               or _fingerprint(recheck) != _fingerprint(orders)):
             completeness = Completeness.INCONSISTENT
         return BrokerObservation(
-            observed_at=datetime.now(timezone.utc), orders=tuple(recheck),
+            observed_at=datetime.now(timezone.utc),
+            started_at=observation_started_at, orders=tuple(recheck),
             positions=tuple(positions), completeness=completeness,
             terminal_recovery_through=recovery_through,
             account_identity=account_before)

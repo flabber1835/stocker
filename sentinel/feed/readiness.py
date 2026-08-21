@@ -15,6 +15,7 @@ from __future__ import annotations
 import datetime as _dt
 
 from sentinel.feed import authority as _authority
+from sentinel.feed import anomalies as _anomalies
 from sentinel.feed import calendar as _cal
 from sentinel.feed import maintenance as _maintenance
 from sentinel.feed import publication as _publication
@@ -26,6 +27,12 @@ for _name in dir(_impl):
         globals()[_name] = getattr(_impl, _name)
 
 MIN_FRONTIER_DOMAIN_COVERAGE = _authority.MIN_FRONTIER_DOMAIN_COVERAGE
+RUNTIME_BLOCKING_SPLIT_KINDS = (
+    "SPLIT_DISAGREEMENT",
+    "SPLIT_ONLY_DERIVED",
+    "SEAM_SPLIT_UNCORROBORATED",
+    "AMBIGUOUS_SPLIT_MULTIPLICITY",
+)
 
 
 def _source_day(value) -> _dt.date:
@@ -84,6 +91,51 @@ def _add_recent_check(conn, result, *, source_day, frontier_day) -> None:
             f"matches current corpus v{current.version}",
             {"processed_through": recent.processed_through.isoformat(),
              "publication_version": recent.publication_version})
+
+
+def _add_split_agreement_check(conn, result, *, frontier: str) -> None:
+    """Refuse a normally-ready corpus with unresolved split economics.
+
+    This is intentionally full-history.  A split changes the cumulative signal
+    basis on every later session, so limiting the query to the warm-up window
+    would let an older unresolved share-count event silently authorize a plan.
+    The anomaly read is publication-aware: a later published resolution clears
+    the event while an unpublished retry cannot.
+    """
+    name = "split source agreement"
+    try:
+        rows = _anomalies.active_rows(
+            conn, start="1900-01-01", end=str(frontier),
+            kinds=RUNTIME_BLOCKING_SPLIT_KINDS)
+    except Exception as exc:  # noqa: BLE001
+        result.add(
+            name, _impl.FAIL,
+            f"published split dispositions cannot be validated: "
+            f"{type(exc).__name__}: {exc}")
+        return
+
+    if not rows:
+        result.add(
+            name, _impl.PASS,
+            f"no active unsafe published split disposition exists through "
+            f"{frontier}",
+            0)
+        return
+
+    shown = "; ".join(
+        f"{row['ticker']} {row['session']} (corpus v"
+        f"{row['publication_version']})" for row in rows[:10])
+    more = f" (+{len(rows) - 10} more)" if len(rows) > 10 else ""
+    result.add(
+        name, _impl.FAIL,
+        f"{len(rows)} active unsafe published split disposition(s) through "
+        f"{frontier}: {shown}{more}. Share-count evidence is uncorroborated, "
+        "ambiguous, or contradictory; no normal plan may be prepared until a "
+        "later published disposition resolves each event.",
+        [{"kind": row["kind"], "ticker": row["ticker"],
+          "session": row["session"],
+          "publication_version": row["publication_version"]}
+         for row in rows])
 
 
 def _add_source_maintenance_checks(conn, result, *, today,
@@ -240,6 +292,7 @@ def check_readiness(conn, *, today=None, cfg=None):
                 name, _impl.PASS,
                 f"{share:.1%} coverage on frontier {frontier}", value)
 
+    _add_split_agreement_check(conn, result, frontier=frontier)
     _add_source_maintenance_checks(
         conn, result, today=today, required_through=frontier)
     return result

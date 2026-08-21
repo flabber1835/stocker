@@ -42,9 +42,32 @@ DAILY_OVERLAP_DAYS = 14
 #: back that neither is ever the constraint.
 DEFAULT_SEED_START = "1998-01-01"
 
+SFP_REFERENCE_TICKERS = "SPY,BIL"
+
 
 def _today() -> str:
     return _dt.date.today().isoformat()
+
+
+def _write_sfp_reference_rows(conn, rows: Iterable[dict], *, run_id) -> int:
+    """Partition one source-stable SFP observation into isolated domains."""
+    materialized = list(rows)
+    unknown = sorted({str(row.get("ticker") or "").strip().upper()
+                      for row in materialized}
+                     - {"SPY", "BIL"})
+    if unknown:
+        raise ValueError(
+            f"bounded SFP reference request returned unexpected tickers: {unknown}")
+    spy = [row for row in materialized
+           if str(row.get("ticker") or "").strip().upper() == "SPY"]
+    bil = [row for row in materialized
+           if str(row.get("ticker") or "").strip().upper() == "BIL"]
+    return (
+        feed_store.write_spy_total_return(
+            conn, spy, run_id=run_id, require_lock=True)
+        + feed_store.write_defensive_bars(
+            conn, bil, run_id=run_id, require_lock=True)
+    )
 
 
 def _report_split_disagreements(report, authoritative, *, ignore_keys=()) -> list:
@@ -446,13 +469,15 @@ def _seed_locked(conn, *, date_from: str, date_to: Optional[str],
             conn, action_source_rows, run_id=run.progress.run_id,
             window_start=action_start, window_end=date_to)
 
-    # SPY is a FUND, not an SEP equity. Fetch only this ticker from SFP and keep
-    # it in the controller's dedicated total-return table.
+    # SPY and BIL are funds, not SEP equities. One combined request preserves
+    # StableSharadarFetch's single SFP generation witness; the writer then
+    # isolates SPY's regime value from BIL's fixed-identity execution mark.
     with run.chunk("spy"):
-        params = {"ticker": "SPY", **sharadar.date_params(date_from, date_to)}
+        params = {"ticker": SFP_REFERENCE_TICKERS,
+                  **sharadar.date_params(date_from, date_to)}
         rows = fetch(sharadar.SFP, params)
-        run.progress.rows_written += feed_store.write_spy_total_return(
-            conn, rows, run_id=run.progress.run_id, require_lock=True)
+        run.progress.rows_written += _write_sfp_reference_rows(
+            conn, rows, run_id=run.progress.run_id)
 
     # Built ONCE from what was just stored, then reused for every year. Rebuilding
     # per chunk would be correct and would re-read the whole universe 29 times.
@@ -600,15 +625,17 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
 
     # A legacy corpus may be complete while this table is empty. Repair the
     # exact readiness-required 41-session tail, not the 14-calendar-day equity
-    # overlap, and request only SPY from the fund table.
+    # overlap. BIL shares this bounded SFP observation so its frontier mark is
+    # published without ever entering the SEP universe.
     with run.chunk("spy"):
         from sentinel.feed import calendar, readiness
         spy_start = calendar.previous_sessions(
             to, readiness.REQUIRED_SPY_SESSIONS)[0]
-        params = {"ticker": "SPY", **sharadar.date_params(spy_start, to)}
+        params = {"ticker": SFP_REFERENCE_TICKERS,
+                  **sharadar.date_params(spy_start, to)}
         rows = fetch(sharadar.SFP, params)
-        run.progress.rows_written += feed_store.write_spy_total_return(
-            conn, rows, run_id=run.progress.run_id, require_lock=True)
+        run.progress.rows_written += _write_sfp_reference_rows(
+            conn, rows, run_id=run.progress.run_id)
 
     with run.chunk("prices"):
         report = domains.NormalisationReport()

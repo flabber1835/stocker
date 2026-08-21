@@ -69,7 +69,7 @@ FROZEN_REFERENCE_SHA256 = (
     "9bf46bfa229888d997072dd4fa3f60f772b208b1e2c55480c8cf65dd7b1c62f7"
 )
 
-REPORT_SCHEMA = "sentinel.production-forward-chain/1"
+REPORT_SCHEMA = "sentinel.production-forward-chain/2"
 CHAIN_START = "1998-01-02"
 REFERENCE_START = "2006-07-31"
 REFERENCE_END = "2026-07-31"

@@ -43,13 +43,19 @@ import math
 import os
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 from sqlalchemy import text
 
 from stock_strategy_shared.terminal_coalescing import (
     TerminalCandidate,
     coalesce_terminal_terms,
+)
+from stock_strategy_shared.split_reconciliation import (
+    SPLIT_AUTHORITATIVE_APPLIED,
+    SPLIT_CORROBORATED_DIRECT,
+    SPLIT_CORROBORATED_RECIPROCAL,
+    resolve_split_orientation,
 )
 from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
 from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
@@ -60,7 +66,7 @@ from stock_strategy_shared.wealth_core.feed import (
     SecurityMeta,
     VendorBar,
 )
-from stock_strategy_shared.wealth_core.run import RunResult, TerminalEvent, run_sessions
+from stock_strategy_shared.wealth_core.run import RunResult, TerminalEvent
 from stock_strategy_shared.wealth_core.sharadar_domains import raw_dividend_per_share
 from stock_strategy_shared.wealth_core.terminal import TerminalKind, TerminalTerms
 
@@ -745,8 +751,8 @@ def terminal_events_from_actions(rows: Iterable[dict],
                   key=lambda t: (t.session, t.security_id, t.kind.value))
 
 
-def reconcile_split(derived: float, authoritative: float | None,
-                    tolerance: float = 0.02) -> tuple[float, str]:
+def reconcile_split(
+        derived: float | None, authoritative: float | None) -> tuple[float, str]:
     """(canonical post/pre ratio, outcome), oriented by price evidence.
 
     The derived ratio is kept because it is an INDEPENDENT measurement of the
@@ -760,29 +766,30 @@ def reconcile_split(derived: float, authoritative: float | None,
     preserves it, reciprocal agreement applies ``1/value``, and disagreement
     applies no share transformation while recording ``unresolved``.
     """
+    # ``None`` is the same no-event price-domain evidence production passes to
+    # the shared resolver. Keep accepting the replay's historical exact-1.0
+    # spelling at this boundary, but never let it corroborate a slightly-above-
+    # one ACTIONS ratio merely because it falls inside the agreement tolerance.
+    evidence = None if derived is None or derived == 1.0 else float(derived)
     if authoritative is None:
         # No ACTIONS row. Reported inside `disagreed` when the price domains DO
         # imply a split, because acting on a ratio the authoritative source does
         # not carry is exactly the behaviour this work removes — so the derived
         # value is still applied (it is all we have) but it is never silent.
-        return derived, ("agreed" if derived == 1.0 else "disagreed")
-    def close(left, right):
-        return abs(left - right) <= tolerance * max(
-            abs(left), abs(right), 1e-12)
+        fallback = 1.0 if evidence is None else evidence
+        return fallback, ("agreed" if fallback == 1.0 else "disagreed")
 
-    if derived == 1.0:
-        return ((authoritative, "actions_only") if authoritative <= 1.0
-                else (1.0, "unresolved"))
-    if close(derived, authoritative):
-        return authoritative, "agreed"
-    reciprocal = 1.0 / authoritative
-    if close(derived, reciprocal):
-        denominator = round(authoritative)
-        if (denominator > 0 and close(authoritative, denominator)
-                and close(derived, 1.0 / denominator)):
-            reciprocal = 1.0 / denominator
-        return reciprocal, "reciprocal"
-    return 1.0, "unresolved"
+    ratio, disposition = resolve_split_orientation(authoritative, evidence)
+    if evidence is None and 0 < authoritative <= 1.0:
+        # Preserve the replay's descriptive accounting category.  The ratio
+        # and all orientation semantics still come from the shared resolver.
+        return ratio, "actions_only"
+    outcomes = {
+        SPLIT_AUTHORITATIVE_APPLIED: "actions_only",
+        SPLIT_CORROBORATED_DIRECT: "agreed",
+        SPLIT_CORROBORATED_RECIPROCAL: "reciprocal",
+    }
+    return ratio, outcomes.get(disposition, "unresolved")
 
 
 def load_actions(conn, start: str, end: str) -> list[dict]:
@@ -1077,10 +1084,15 @@ def load_bars(conn, start: str, end: str,
         ratio = split_ratio_from_domains(p_close, p_raw, close, raw)
         if authoritative_splits is not None:
             unsnapped = unsnapped_split_ratio(p_close, p_raw, close, raw)
-            evidence = (unsnapped if unsnapped is not None
-                        and abs(unsnapped - 1.0) > 0.02 else 1.0)
-            ratio, outcome = reconcile_split(
-                evidence, authoritative_splits.get((tkr, session)))
+            stated = authoritative_splits.get((tkr, session))
+            if stated is None:
+                # Keep the already-snapped price-domain fallback.  The raw
+                # ratio is comparison evidence, not an executable share count.
+                outcome = "agreed" if ratio == 1.0 else "disagreed"
+            else:
+                evidence = (unsnapped if unsnapped is not None
+                            and abs(unsnapped - 1.0) > 0.02 else None)
+                ratio, outcome = reconcile_split(evidence, stated)
             if reconciliation is not None and not (
                     outcome == "agreed" and ratio == 1.0):
                 # Only EVENTS are counted. Tallying every quiet bar as "agreed"

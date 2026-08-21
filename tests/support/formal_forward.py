@@ -8,6 +8,21 @@ from pathlib import Path
 from scripts import sentinel_forward_run as producer
 
 
+def _corpus_components(version: int) -> dict:
+    return {
+        "data_version": version,
+        "normalised_bars": {"rows": 1, "hash": "9" * 64},
+        "vendor_actions": {"rows": 0, "hash": None},
+        "vendor_universe": {"rows": 1, "hash": "a" * 64},
+        "spy_total_return": {"rows": 1, "hash": "b" * 64},
+        "defensive_bars": {"rows": 1, "hash": "d" * 64},
+        "applied_repairs": {"rows": 0, "hash": None},
+        "refusals": {"rows": 0, "hash": None},
+        "anomalies": {"rows": 0, "hash": None},
+        "refusal_truncation": {"rows": 0, "hash": None},
+    }
+
+
 def runtime_environment(*, sentinel_source: str,
                         wealth_core_source: str) -> dict:
     return {
@@ -24,11 +39,15 @@ def runtime_environment(*, sentinel_source: str,
 def complete_manifest(value: dict, *, environment: dict) -> dict:
     identity_hash = hashlib.sha256(json.dumps(
         environment, sort_keys=True).encode()).hexdigest()
+    version = value["parity_generations"]["sentinel_data_version"]
+    corpus_hash = producer._corpus_component_sha256(  # noqa: SLF001
+        _corpus_components(version))
     value.update({
         "git_tree_clean": True,
         "identity_hash": identity_hash,
         "final_identity_hash": identity_hash,
-        "corpus_hash": value["final_corpus_hash"],
+        "corpus_hash": corpus_hash,
+        "final_corpus_hash": corpus_hash,
     })
     for field in ("sentinel_runtime_image", "sentinel_test_image"):
         value[field]["source_revision"] = value["git_commit"]
@@ -110,6 +129,7 @@ def write_record(*, manifest_path: Path, output: Path,
             "unpublished_bars": 0,
             "unpublished_actions": 0,
             "unpublished_spy": 0,
+            "unpublished_defensive": 0,
             "unpublished_universe": 0,
             "unpublished_repairs": 0,
             "unpublished_anomalies": 0,
@@ -119,7 +139,6 @@ def write_record(*, manifest_path: Path, output: Path,
         "corpus_identity": {
             "window": {"start": producer.CHAIN_START,
                        "end": producer.REFERENCE_END},
-            "data_version": version,
             "publication": {
                 "version": version,
                 "previous_version": version - 1,
@@ -133,14 +152,7 @@ def write_record(*, manifest_path: Path, output: Path,
             "last_session": producer.REFERENCE_END,
             "sessions": producer.CHAIN_SESSIONS,
             "securities": 100,
-            "normalised_bars": {"rows": 1, "hash": "9" * 64},
-            "vendor_actions": {"rows": 0, "hash": None},
-            "vendor_universe": {"rows": 1, "hash": "a" * 64},
-            "spy_total_return": {"rows": 1, "hash": "b" * 64},
-            "applied_repairs": {"rows": 0, "hash": None},
-            "refusals": {"rows": 0, "hash": None},
-            "anomalies": {"rows": 0, "hash": None},
-            "refusal_truncation": {"rows": 0, "hash": None},
+            **_corpus_components(version),
             "corpus_hash": corpus_hash,
         },
         "source_identity": {

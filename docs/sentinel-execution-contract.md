@@ -1196,6 +1196,24 @@ applying one aggregate lifetime multiplier to every fill would instead multiply
 orders that were placed after the split. Neither is a durable reconciliation
 basis.
 
+The executable multiplier is never the raw ACTIONS `value`. Sharadar uses a
+value greater than one for both forward multipliers and reverse-split
+denominators, so treating that column as oriented can turn a 1-for-30 into a
+30-for-1. The raw calendar ex-date is snapped forward to its first XNYS session.
+For an equity, execution then reads the canonical `effective_split_ratio` from
+that session's published bar, including the latest published repair overlay.
+For the fixed `SENTINEL:BIL` defensive identity, which intentionally has no
+stored split column, execution derives the independent ratio from the
+immediately preceding XNYS session's published adjusted/as-traded domains and
+calls the same shared orientation resolver as ingest and canonical replay. A
+sub-unit ACTIONS value is already a canonical reverse multiplier and can apply
+without that witness; a value greater than one needs the domains to distinguish
+a forward multiplier from a reverse denominator. Absent or contradictory
+required evidence fences the intersecting book. The scalar ACTIONS vocabulary
+is exactly `split` and `adrratiosplit`; `spinoffdividend` is a cash-distribution
+row and does not by itself change share identity (unlike a `spinoff`, which
+remains blocking).
+
 ### 10.2a Decision-close to execution-open target reprojection
 
 A scalar share-count action in `(decision_session, execution_session]` changes
@@ -1213,6 +1231,27 @@ certified quantity increment is `0.000000001`; a reverse split residual is
 submitted exactly in that domain. Any target outside an adapter's declared
 increment refuses rather than rounding into a new economic intent. An ambiguous,
 unmapped, non-positive, or non-finite scalar action also refuses.
+
+Published market ratios are stored as binary floating point, so a repeating
+ratio such as `1/30` is represented approximately even when the entitlement is
+an exact whole share. Target reprojection may remove that representation noise
+only by reconstructing the exact rational from the durable raw denominator and
+per-event canonical multiplier. The canonical evidence product must reproduce
+the aggregate multiplier and the rational result must already be an integer
+number of broker increments. There is no nearest-increment fallback: `300/30`
+is exactly `10`, while `301/30` remains fractional and refuses.
+
+> **DEPLOYMENT NO-GO — same-day split authority is not yet available at the
+> next open.** Automation prepares from the decision session's closed and
+> published corpus, then executes at the following session's open. The new
+> session's SEP/SFP bar—and therefore its canonical effective split ratio—does
+> not exist until that close, while the ordinary ACTIONS ingest is also bounded
+> through the decision session. The historical/recovery lookup is correct once
+> the event session is published, but it cannot authorize split-adjusted units
+> at that session's opening boundary. Do not claim autonomous close-to-open
+> split reprojection, or deploy on that premise, until a separately published
+> pre-open orientation authority or an explicit reviewed skip policy exists.
+> Raw ACTIONS values are not an acceptable substitute.
 
 Non-scalar events are different. A spinoff, stock/cash merger, rename,
 reorganization, or terms-less terminal event can add an instrument, remove one,
@@ -1757,8 +1796,10 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
     inherited from whatever produced the plan.
 34  The single-writer lock is acquired inside the public execution entry point,
     not left to the caller.
-35  A corporate action resolves its ticker to the security that held it AS OF
-    that session; tickers are recycled.
+35  A corporate action's raw calendar date snaps forward to its first exchange
+    session, then resolves its ticker only on that exact published session;
+    tickers are recycled. An executable equity split uses that bar's published
+    canonical effective ratio, never the unoriented ACTIONS value.
 36  PUBLISHED IS WHAT READABLE MEANS. A row written by an ingest that no corpus
     publication represents is invisible to every reader. A corpus BEHIND its
     version is detectable; one AHEAD of it is not.

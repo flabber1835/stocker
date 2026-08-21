@@ -229,6 +229,14 @@ class TestReconciliation:
     def test_a_greater_than_one_actions_value_without_orientation_is_refused(self):
         assert reconcile_split(1.0, 3.0) == (1.0, "unresolved")
 
+    def test_a_nonpositive_actions_value_is_unresolved(self):
+        assert reconcile_split(1.0, 0.0) == (1.0, "unresolved")
+
+    def test_no_event_evidence_cannot_corroborate_a_near_one_forward_ratio(self):
+        assert reconcile_split(None, 1.005) == (1.0, "unresolved")
+        # The legacy replay spelling for no-event evidence remains equivalent.
+        assert reconcile_split(1.0, 1.005) == (1.0, "unresolved")
+
     def test_on_DISAGREEMENT_neither_source_wins(self):
         ratio, outcome = reconcile_split(2.0, 3.0)
         assert ratio == 1.0 and outcome == "unresolved"
@@ -249,6 +257,10 @@ class TestReconciliation:
     def test_rounding_noise_inside_tolerance_counts_as_agreement(self):
         ratio, outcome = reconcile_split(1.999, 2.0)
         assert ratio == 2.0 and outcome == "agreed"
+
+    def test_overlapping_direct_and_reciprocal_bands_are_ambiguous(self):
+        ratio, outcome = reconcile_split(1 / 1.005, 1.005)
+        assert ratio == 1.0 and outcome == "unresolved"
 
 
 # ── terminal actions, and the rule that must not be broken ──────────────────

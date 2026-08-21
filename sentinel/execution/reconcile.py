@@ -664,7 +664,7 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
 #: cannot describe, so they are deliberately NOT handled here and fall through
 #: to foreign-activity classification — visible, blocking increases, awaiting a
 #: human. The prose elsewhere describes them; this is what is IMPLEMENTED.
-SUPPORTED_ACTIONS = ("split", "reversesplit", "splitdiv")
+SUPPORTED_ACTIONS = ("split", "adrratiosplit")
 
 # These ACTIONS rows do not themselves change the security/share identity of a
 # held book.  Everything else that is not a supported scalar is treated as a
@@ -672,7 +672,7 @@ SUPPORTED_ACTIONS = ("split", "reversesplit", "splitdiv")
 # state.  In particular, acquirer-side rows must not freeze an ordinary holding
 # merely because another company was acquired.
 SAFE_NON_BOOK_ACTIONS = frozenset({
-    "listed", "relation", "dividend", "specialdividend",
+    "listed", "relation", "dividend", "specialdividend", "spinoffdividend",
     "acquisitionof", "mergerfrom"})
 
 
@@ -686,15 +686,37 @@ class CorporateActionEvent:
     contraticker: Optional[str]
     source_row_id: str
     reason: str
+    canonical_multiplier: Optional[Decimal] = None
+    split_disposition: Optional[str] = None
+    evidence_kind: Optional[str] = None
+    publication_run_id: Optional[str] = None
+    publication_version: Optional[int] = None
+    canonical_numerator: Optional[int] = None
+    canonical_denominator: Optional[int] = None
 
     def to_dict(self) -> dict:
-        return {
+        payload = {
             "security_id": self.security_id, "ticker": self.ticker,
             "session": self.session.isoformat(), "action": self.action,
             "value": None if self.value is None else str(self.value),
             "contraticker": self.contraticker,
             "source_row_id": self.source_row_id, "reason": self.reason,
         }
+        if self.canonical_multiplier is not None:
+            payload["canonical_multiplier"] = str(self.canonical_multiplier)
+        if self.split_disposition is not None:
+            payload["split_disposition"] = self.split_disposition
+        if self.evidence_kind is not None:
+            payload["evidence_kind"] = self.evidence_kind
+        if self.publication_run_id is not None:
+            payload["publication_run_id"] = self.publication_run_id
+        if self.publication_version is not None:
+            payload["publication_version"] = self.publication_version
+        if self.canonical_numerator is not None:
+            payload["canonical_numerator"] = self.canonical_numerator
+        if self.canonical_denominator is not None:
+            payload["canonical_denominator"] = self.canonical_denominator
+        return payload
 
 
 @dataclass(frozen=True)
@@ -740,117 +762,376 @@ def _safe_non_book_action(verb: str) -> bool:
     return verb in SAFE_NON_BOOK_ACTIONS
 
 
+def _canonical_rational_terms(
+        ratio: Decimal) -> tuple[Optional[int], Optional[int]]:
+    """Recognise only integral ratios and their floating-point reciprocals."""
+    if not ratio.is_finite() or ratio <= 0:
+        return None, None
+    tolerance = Decimal("1e-12")
+    if ratio >= 1:
+        numerator = ratio.to_integral_value()
+        if abs(ratio - numerator) <= tolerance * max(abs(ratio), Decimal(1)):
+            return int(numerator), 1
+        return None, None
+    reciprocal = Decimal(1) / ratio
+    denominator = reciprocal.to_integral_value()
+    if abs(reciprocal - denominator) <= (
+            tolerance * max(abs(reciprocal), Decimal(1))):
+        return 1, int(denominator)
+    return None, None
+
+
 def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
-    """A DB-backed `ActionLookup` over `sentinel_actions` for the gap.
+    """Return published, canonical share multipliers over ``(start, end]``.
 
-    ## The join must be AS-OF, not ever
+    ACTIONS names an event by ticker and raw calendar ex-date.  Execution names
+    a book by permanent security and exchange session.  The raw date is first
+    snapped forward with the same XNYS calendar used by ingest, then resolved
+    only against a published bar on that effective session.  That exact-session
+    join both handles weekend/holiday ex-dates and prevents ticker reuse from
+    attaching an old company's action to a later holder of the symbol.
 
-    `sentinel_actions` is keyed by TICKER; positions are keyed by SECURITY. The
-    bridge is `sentinel_bars`, the only place both appear — but resolving it as
-    `SELECT DISTINCT security_id, ticker` collapses time, and tickers are
-    RECYCLED. One company's 2011 split would then be applied to a different
-    company that inherited its symbol in 2019, multiplying the expected quantity
-    of the wrong holding before deciding whether the broker looked foreign.
-
-    That would be a strange defect to ship in this package in particular: the
-    ingest refuses to fall back to the ticker precisely because reuse splices
-    unrelated companies. The same rule has to hold on the way out.
-
-    So the ticker is resolved to whichever security ACTUALLY TRADED under it on
-    the action's own session, using that session's bar. An action whose ticker
-    has no bar that day resolves to nothing and is skipped — the resulting
-    unexplained quantity is caught as foreign activity, which is the safe
-    direction. A missing mapping must never silently halve a position.
-
-    ## Scope
-
-    Splits are the only events expressed as multipliers — see
-    `SUPPORTED_ACTIONS`. Spinoffs, mergers, renames and other non-scalar book
-    changes are retained as typed unsupported events so the execution gateway
-    can fence a relevant event even when Alpaca paper leaves the account
-    unchanged. Informational, dividend, and explicit acquirer-side rows are not
-    mistaken for changes to the held security.
+    ACTIONS ``value`` is evidence, not an executable multiplier.  For equities,
+    the multiplier is the published bar's effective split ratio, including any
+    published repair overlay.  BIL has no stored split column, so its canonical
+    multiplier is resolved from ACTIONS and the immediately preceding XNYS
+    session's published defensive price domains.  A sub-unit ACTIONS value is
+    already canonical; a value greater than one needs that price witness.
+    Missing, contradictory, or non-positive required evidence remains a typed
+    blocking event; execution never guesses an orientation.
     """
-    from sentinel.feed.publication import visible_predicate
+    from sentinel.feed import anomalies, calendar, domains, publication
+    from stock_strategy_shared.split_reconciliation import (
+        SPLIT_UNRESOLVED, resolve_split_orientation, split_price_evidence)
 
+    raw_start, raw_end = calendar.action_date_window(start, end)
     with conn.cursor() as cur:
         cur.execute(
-            # AS-OF, via LATERAL: the ticker resolves to whichever security most
-            # recently traded under it AT OR BEFORE the action's session.
-            #
-            # Not `b.session = a.session`. `sentinel_actions.session` holds the
-            # vendor's EX-DATE, which is a CALENDAR date and can fall on a
-            # weekend or a holiday — the same fact the ingest's action snapping
-            # exists for. An exact-session join would silently drop every such
-            # action, and a dropped split is a book that reconciles against the
-            # wrong share count.
-            "SELECT sub.security_id,sub.session,sub.value,sub.source_row_id,"
-            " sub.action,sub.ticker,sub.contraticker"
-            " FROM ("
-            "   SELECT b.security_id,a.session,a.value,a.source_row_id,"
-            "          a.action,a.ticker,a.contraticker"
-            "     FROM sentinel_active_actions a"
-            "     LEFT JOIN LATERAL ("
-            "        SELECT security_id FROM sentinel_bars b"
-            "         WHERE ticker = a.ticker AND session <= a.session"
-            f"           AND {visible_predicate('b')}"
-            "         ORDER BY session DESC LIMIT 1"
-            "     ) b ON TRUE"
-            "    WHERE a.session > %s AND a.session <= %s"
-            " ) sub"
-            " ORDER BY sub.security_id, sub.session,sub.source_row_id", (start, end))
-        source_rows: dict[tuple[str, date], list[CorporateActionEvent]] = {}
-        unsupported: list[CorporateActionEvent] = []
-        unresolved: list[CorporateActionEvent] = []
-        for (sid, session, value, source_row_id, action, ticker,
-             contraticker) in cur.fetchall():
-            verb = _action_verb(action)
-            event = CorporateActionEvent(
-                security_id=str(sid) if sid is not None else None,
-                ticker=str(ticker), session=session, action=verb, value=value,
-                contraticker=str(contraticker) if contraticker else None,
-                source_row_id=str(source_row_id), reason="")
-            if verb in SUPPORTED_ACTIONS:
-                if sid is None:
-                    unresolved.append(replace(
-                        event, reason="scalar action has no as-of security mapping"))
-                else:
-                    source_rows.setdefault((str(sid), session), []).append(
-                        event)
-            elif not _safe_non_book_action(verb):
-                unsupported.append(replace(
-                    event, reason="non-scalar book change has no certified projection"))
-        ambiguous = {key: rows for key, rows in source_rows.items()
-                     if len(rows) > 1}
-        if ambiguous:
-            examples = ", ".join(
-                f"{sid}/{session}:{len(rows)}"
-                for (sid, session), rows in sorted(ambiguous.items())[:5])
-            raise ValueError(
-                "ambiguous split ACTIONS multiplicity; refusing reconciliation "
-                f"instead of multiplying sibling rows ({examples})")
-        events: dict[str, list[tuple[date, Decimal]]] = {}
-        scalar_events: list[CorporateActionEvent] = []
-        for (sid, session), rows in source_rows.items():
-            event = rows[0]
-            value = event.value
-            try:
-                ratio = Decimal(str(value))
-            except (ArithmeticError, TypeError, ValueError):
-                ratio = Decimal("NaN")
-            if value is None or not ratio.is_finite() or ratio <= 0:
+            "SELECT a.session,a.value,a.source_row_id,a.action,a.ticker,"
+            " a.contraticker FROM sentinel_active_actions a"
+            " WHERE a.session BETWEEN %s AND %s"
+            " ORDER BY a.session,a.ticker,a.source_row_id",
+            (raw_start, raw_end))
+        action_rows = list(cur.fetchall())
+
+    # Published non-1 equity bars are themselves Wealth Core's canonical share
+    # authority. ACTIONS normally supplies event provenance, but a derived-only
+    # published split must still age the execution book rather than disappear
+    # merely because the vendor action table omitted it.
+    effective_ratio = publication.effective_split_ratio("b")
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT canonical.security_id,canonical.session,canonical.ticker,"
+            " canonical.ratio,canonical.publication_run_id,"
+            " canonical.publication_version FROM ("
+            " SELECT b.security_id,b.session,b.ticker," + effective_ratio +
+            " AS ratio,COALESCE(repair.last_written_run_id::text,"
+            " b.last_written_run_id::text,'legacy') AS publication_run_id,"
+            " COALESCE(repair.publication_version,base_publication.version,0)"
+            " AS publication_version"
+            " FROM sentinel_bars b"
+            " LEFT JOIN LATERAL ("
+            "   SELECT rr.last_written_run_id,rp.version AS publication_version"
+            "   FROM sentinel_bar_split_repairs rr"
+            "   JOIN sentinel_corpus_publications rp"
+            "     ON rp.run_id=rr.last_written_run_id"
+            "   WHERE rr.security_id=b.security_id AND rr.session=b.session"
+            "   ORDER BY rp.version DESC LIMIT 1"
+            " ) repair ON TRUE"
+            " LEFT JOIN sentinel_corpus_publications base_publication"
+            "   ON base_publication.run_id=b.last_written_run_id"
+            " WHERE b.session>%s AND b.session<=%s AND "
+            + publication.visible_predicate("b") +
+            ") canonical WHERE canonical.ratio<>1"
+            " ORDER BY canonical.session,canonical.security_id",
+            (start, end))
+        published_equity_rows = list(cur.fetchall())
+
+    # BIL carries no split column. Inspect every consecutive pair of published
+    # defensive observations in the gap so a missing ACTIONS row becomes an
+    # explicit blocking event instead of invisible x1 execution authority.
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT d.security_id,d.session,d.ticker,d.close_signal,"
+            " d.close_unadjusted,prior.session,prior.close_signal,"
+            " prior.close_unadjusted,"
+            " COALESCE(d.last_written_run_id::text,'legacy'),"
+            " COALESCE(current_publication.version,0),"
+            " COALESCE(prior.last_written_run_id::text,'legacy'),"
+            " COALESCE(prior.publication_version,0)"
+            " FROM sentinel_defensive_bars d"
+            " LEFT JOIN sentinel_corpus_publications current_publication"
+            "   ON current_publication.run_id=d.last_written_run_id"
+            " LEFT JOIN LATERAL ("
+            "   SELECT prior_bar.session,prior_bar.close_signal,"
+            "          prior_bar.close_unadjusted,prior_bar.last_written_run_id,"
+            "          prior_publication.version AS publication_version"
+            "   FROM sentinel_defensive_bars prior_bar"
+            "   LEFT JOIN sentinel_corpus_publications prior_publication"
+            "     ON prior_publication.run_id=prior_bar.last_written_run_id"
+            "   WHERE prior_bar.session<d.session AND "
+            + publication.visible_predicate("prior_bar") +
+            "   ORDER BY prior_bar.session DESC LIMIT 1"
+            " ) prior ON TRUE"
+            " WHERE d.session>%s AND d.session<=%s AND "
+            + publication.visible_predicate("d") +
+            " ORDER BY d.session", (start, end))
+        defensive_rows = list(cur.fetchall())
+
+    unsafe_dispositions = {
+        (str(row["ticker"]).upper(), date.fromisoformat(str(row["session"]))): row
+        for row in anomalies.active_rows(
+            conn, start=str(start), end=str(end),
+            kinds=("SPLIT_DISAGREEMENT", "SEAM_SPLIT_UNCORROBORATED",
+                   "AMBIGUOUS_SPLIT_MULTIPLICITY"))
+    }
+
+    published_equity: dict[tuple[str, date], CorporateActionEvent] = {}
+    for (sid, session, ticker, raw_ratio, source_run,
+         source_version) in published_equity_rows:
+        ratio = Decimal(str(raw_ratio))
+        numerator, denominator = _canonical_rational_terms(ratio)
+        symbol = str(ticker).upper()
+        published_equity[(str(sid), session)] = CorporateActionEvent(
+            security_id=str(sid), ticker=symbol, session=session,
+            action="split", value=ratio, contraticker=None,
+            source_row_id=(f"published-equity-bar:{sid}:{session}:"
+                           f"v{int(source_version)}:{source_run}"),
+            reason="published canonical equity split without ACTIONS provenance",
+            canonical_multiplier=ratio,
+            split_disposition="published_derived_only",
+            evidence_kind="published_equity_bar",
+            publication_run_id=str(source_run),
+            publication_version=int(source_version),
+            canonical_numerator=numerator,
+            canonical_denominator=denominator)
+
+    defensive_domains: dict[date, tuple] = {}
+    for row in defensive_rows:
+        (sid, session, ticker, close, raw, prior_session, prior_close,
+         prior_raw, source_run, source_version, prior_run,
+         prior_version) = row
+        previous = calendar.previous_sessions(session, 2)
+        expected_prior = (date.fromisoformat(previous[-2])
+                          if len(previous) == 2 else None)
+        if prior_session != expected_prior:
+            # A gap cannot become evidence. Comparing across a missing session
+            # would confound any number of unobserved actions inside that gap.
+            derived = None
+            prior_session, prior_run, prior_version = (
+                expected_prior, "missing", 0)
+        else:
+            derived = domains.unsnapped_split_ratio(
+                prior_close, prior_raw, close, raw)
+        defensive_domains[session] = (
+            str(sid), str(ticker).upper(), derived, prior_session,
+            str(source_run), int(source_version), str(prior_run),
+            int(prior_version))
+
+    # Candidate payload is (source event, published equity ratio, BIL derived
+    # ratio).  Exactly one of the latter two is populated.
+    source_rows: dict[
+        tuple[str, date],
+        list[tuple[CorporateActionEvent, object, object, Optional[str]]],
+    ] = {}
+    unsupported: list[CorporateActionEvent] = []
+    unresolved: list[CorporateActionEvent] = []
+    supported_action_coordinates: set[tuple[str, date]] = set()
+
+    for (raw_session, value, source_row_id, action, ticker,
+         contraticker) in action_rows:
+        effective = date.fromisoformat(calendar.session_on_or_after(raw_session))
+        if effective <= start or effective > end:
+            continue
+        verb = _action_verb(action)
+        symbol = str(ticker).upper()
+        if verb in SUPPORTED_ACTIONS:
+            supported_action_coordinates.add((symbol, effective))
+        published_ratio = None
+        derived_ratio = None
+        publication_run_id = None
+        publication_version = None
+        mapping_rows: list[tuple] = []
+
+        if symbol == "BIL":
+            defensive = defensive_domains.get(effective)
+            if defensive is not None:
+                (defensive_sid, _defensive_ticker, derived_ratio,
+                 _prior_session, publication_run_id, publication_version,
+                 _prior_run, _prior_version) = defensive
+                mapping_rows = [(defensive_sid,)]
+        else:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT b.security_id," +
+                    publication.effective_split_ratio("b") +
+                    ",COALESCE(repair.last_written_run_id::text,"
+                    " b.last_written_run_id::text,'legacy'),"
+                    " COALESCE(repair.publication_version,"
+                    " base_publication.version,0)"
+                    " FROM sentinel_bars b"
+                    " LEFT JOIN LATERAL ("
+                    "   SELECT rr.last_written_run_id,"
+                    "          rp.version AS publication_version"
+                    "   FROM sentinel_bar_split_repairs rr"
+                    "   JOIN sentinel_corpus_publications rp"
+                    "     ON rp.run_id=rr.last_written_run_id"
+                    "   WHERE rr.security_id=b.security_id"
+                    "     AND rr.session=b.session"
+                    "   ORDER BY rp.version DESC LIMIT 1"
+                    " ) repair ON TRUE"
+                    " LEFT JOIN sentinel_corpus_publications base_publication"
+                    "   ON base_publication.run_id=b.last_written_run_id"
+                    " WHERE UPPER(b.ticker)=%s AND b.session=%s AND "
+                    + publication.visible_predicate("b") +
+                    " ORDER BY b.security_id",
+                    (symbol, effective))
+                mapping_rows = list(cur.fetchall())
+                if len(mapping_rows) == 1:
+                    published_ratio = mapping_rows[0][1]
+                    publication_run_id = str(mapping_rows[0][2])
+                    publication_version = int(mapping_rows[0][3])
+
+        sid = str(mapping_rows[0][0]) if len(mapping_rows) == 1 else None
+        event = CorporateActionEvent(
+            security_id=sid, ticker=symbol, session=effective, action=verb,
+            value=value,
+            contraticker=str(contraticker) if contraticker else None,
+            source_row_id=str(source_row_id), reason="",
+            evidence_kind=("actions_and_published_defensive_domains"
+                           if symbol == "BIL"
+                           else "actions_and_published_equity_bar"),
+            publication_run_id=publication_run_id,
+            publication_version=publication_version)
+        if verb in SUPPORTED_ACTIONS:
+            if sid is None:
+                qualifier = "ambiguous" if len(mapping_rows) > 1 else "absent"
                 unresolved.append(replace(
                     event,
-                    reason=("scalar action has absent, non-finite, or "
-                            "non-positive terms")))
+                    reason=("scalar action has " + qualifier +
+                            " published effective-session security mapping")))
+            else:
+                unsafe = unsafe_dispositions.get((symbol, effective))
+                source_rows.setdefault((sid, effective), []).append(
+                    (event, published_ratio, derived_ratio,
+                     None if unsafe is None else str(unsafe["kind"])))
+        elif not _safe_non_book_action(verb):
+            unsupported.append(replace(
+                event, reason="non-scalar book change has no certified projection"))
+
+    ambiguous = {key: rows for key, rows in source_rows.items()
+                 if len(rows) > 1}
+    if ambiguous:
+        examples = ", ".join(
+            f"{sid}/{session}:{len(rows)}"
+            for (sid, session), rows in sorted(ambiguous.items())[:5])
+        raise ValueError(
+            "ambiguous split ACTIONS multiplicity; refusing reconciliation "
+            f"instead of multiplying sibling rows ({examples})")
+
+    events: dict[str, list[tuple[date, Decimal]]] = {}
+    scalar_events: list[CorporateActionEvent] = []
+    action_scalar_keys = set(source_rows)
+    for (sid, session), rows in source_rows.items():
+        event, published_ratio, derived_ratio, unsafe_kind = rows[0]
+        if unsafe_kind is not None:
+            unresolved.append(replace(
+                event,
+                reason=("published split disposition remains unsafe: "
+                        f"{unsafe_kind}")))
+            continue
+        try:
+            stated = Decimal(str(event.value))
+        except (ArithmeticError, TypeError, ValueError):
+            stated = Decimal("NaN")
+        if (event.value is None or not stated.is_finite() or stated <= 0):
+            unresolved.append(replace(
+                event,
+                reason=("scalar action has absent, non-finite, or "
+                        "non-positive ACTIONS terms")))
+            continue
+
+        disposition = "published_canonical_equity_ratio"
+        if event.ticker == "BIL":
+            canonical, disposition = resolve_split_orientation(
+                float(stated), derived_ratio)
+            ratio = Decimal(str(canonical))
+            if disposition == SPLIT_UNRESOLVED:
+                unresolved.append(replace(
+                    event,
+                    reason=("BIL split orientation is unresolved from "
+                            "immediately consecutive published defensive "
+                            "price domains")))
                 continue
-            events.setdefault(sid, []).append((session, ratio))
-            scalar_events.append(replace(
-                event, reason="supported scalar share-count action"))
+        else:
+            try:
+                ratio = Decimal(str(published_ratio))
+            except (ArithmeticError, TypeError, ValueError):
+                ratio = Decimal("NaN")
+            if (not ratio.is_finite() or ratio <= 0
+                    or (ratio == 1 and stated != 1)):
+                unresolved.append(replace(
+                    event,
+                    reason=("published effective equity bar has no positive "
+                            "canonical multiplier for the material action")))
+                continue
+
+        numerator, denominator = _canonical_rational_terms(ratio)
+        events.setdefault(sid, []).append((session, ratio))
+        scalar_events.append(replace(
+            event, reason=("supported scalar share-count action; canonical="
+                           f"{ratio}; disposition={disposition}"),
+            canonical_multiplier=ratio, split_disposition=disposition,
+            canonical_numerator=numerator,
+            canonical_denominator=denominator))
+
+    for (sid, session), event in sorted(published_equity.items()):
+        if (sid, session) in action_scalar_keys:
+            continue
+        if (event.ticker, session) in supported_action_coordinates:
+            # A present but unmapped/ambiguous ACTIONS row is already retained
+            # as unresolved evidence. Do not bypass that contradiction by
+            # relabelling the same bar as derived-only authority.
+            continue
+        unsafe = unsafe_dispositions.get((event.ticker, session))
+        if unsafe is not None:
+            unresolved.append(replace(
+                event,
+                reason=("published split disposition remains unsafe: "
+                        f"{unsafe['kind']}")))
+            continue
+        ratio = event.canonical_multiplier
+        if ratio is None or not ratio.is_finite() or ratio <= 0:
+            unresolved.append(replace(
+                event, reason="published equity bar has invalid split authority"))
+            continue
+        events.setdefault(sid, []).append((session, ratio))
+        scalar_events.append(event)
+
+    bil_action_sessions = {
+        session for sid, session in action_scalar_keys
+        if sid == "SENTINEL:BIL"}
+    for session, defensive in sorted(defensive_domains.items()):
+        (sid, ticker, derived, prior_session, source_run, source_version,
+         prior_run, prior_version) = defensive
+        evidence = split_price_evidence(derived)
+        if evidence is None or session in bil_action_sessions:
+            continue
+        unresolved.append(CorporateActionEvent(
+            security_id=sid, ticker=ticker, session=session, action="split",
+            value=evidence, contraticker=None,
+            source_row_id=(
+                f"published-defensive-domains:{sid}:{prior_session}:{session}:"
+                f"v{prior_version}:{prior_run}:v{source_version}:{source_run}"),
+            reason=("material published BIL domain discontinuity has no "
+                    "matching ACTIONS row; ratio is not authorized"),
+            evidence_kind="published_defensive_domains_unmatched",
+            publication_run_id=source_run,
+            publication_version=source_version))
 
     return CorpusActionLookup(
         start=start,
-        events={sid: tuple(values) for sid, values in events.items()},
+        events={sid: tuple(sorted(values)) for sid, values in events.items()},
         scalar_events=tuple(scalar_events),
         unsupported_events=tuple(unsupported),
         unresolved_events=tuple(unresolved))

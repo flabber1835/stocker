@@ -24,6 +24,7 @@ from sentinel import (
 )
 from sentinel.authority import (
     AuthorityRefused,
+    PAPER_OBSERVATION_ONLY,
     RolloutMode,
     load_rollout_state,
     require_observation_safety_authority,
@@ -46,8 +47,10 @@ from sentinel.core.decision import (
     shadow_target,
 )
 from sentinel.core.loader import (
+    CausalMetadataUnavailable,
     load_causal_meta_history, load_meta, load_window)
 from sentinel.core.production import (
+    CONCORDANCE_WITNESS_PROSPECTIVE,
     SessionState,
     advance_and_persist,
     load_published_session,
@@ -84,6 +87,19 @@ from sentinel.feed import calendar, publication, readiness, store as feed_store
 DEFENSIVE_SYMBOL = "BIL"
 SIMPLIFIED_LDRC_STRATEGY_ID = "sentinel-concordance-simplified-ldrc"
 SIMPLIFIED_LDRC_STRATEGY_VERSION = 3
+
+
+def _assert_concordance_witness_authority(
+        state: SessionState, authorization_mode: str) -> None:
+    """Prevent a prospective witness from inheriting historical authority."""
+    if (is_concordance_identity(state.strategy_identity)
+            and state.concordance_witness_origin
+            == CONCORDANCE_WITNESS_PROSPECTIVE
+            and authorization_mode != PAPER_OBSERVATION_ONLY):
+        raise PaperActivationRefused(
+            "prospectively formed Concordance witness state is authorized only "
+            "for PAPER_OBSERVATION_ONLY; rebuild from a complete causal "
+            "metadata timeline before using historically certified authority")
 
 
 def _default_paper_strategy() -> tuple[ControllerConfig, dict[str, str]]:
@@ -646,14 +662,13 @@ def _load_marks_and_tickers(conn, state: SessionState, session: str
                 tickers[sid] = str(ticker)
                 if close is not None:
                     marks[sid] = Decimal(str(close))
+        defensive_visible = publication.visible_predicate("d")
         cur.execute(
-            "SELECT security_id,close_unadjusted FROM sentinel_bars b"
-            " WHERE session=%s AND UPPER(ticker)=%s AND " + visible
-            + " ORDER BY security_id", (session, DEFENSIVE_SYMBOL))
+            "SELECT security_id,close_unadjusted FROM sentinel_defensive_bars d"
+            " WHERE session=%s AND security_id=%s AND ticker=%s AND "
+            + defensive_visible,
+            (session, DEFENSIVE_SECURITY_ID, DEFENSIVE_SYMBOL))
         defensive = cur.fetchall()
-    if len(defensive) > 1:
-        raise PaperActivationRefused(
-            f"{DEFENSIVE_SYMBOL} resolves to more than one security on {session}")
     if defensive and defensive[0][1] is not None:
         marks[DEFENSIVE_SECURITY_ID] = Decimal(str(defensive[0][1]))
     tickers[DEFENSIVE_SECURITY_ID] = DEFENSIVE_SYMBOL
@@ -674,7 +689,9 @@ def _fresh_warmed_state(conn, *, through: str, count: int,
                         account: BrokerAccountSnapshot,
                         controller_config: ControllerConfig,
                         strategy_identity: Mapping,
-                        publication_version: int) -> SessionState:
+                        publication_version: int,
+                        authorization_mode: str = "HISTORICALLY_CERTIFIED",
+                        ) -> SessionState:
     sessions = calendar.previous_sessions(through, count + 1)
     if len(sessions) != count + 1 or sessions[-1] != through:
         raise PaperActivationRefused(
@@ -686,9 +703,21 @@ def _fresh_warmed_state(conn, *, through: str, count: int,
         missing = sorted(set(warm) - set(window.sessions))
         raise PaperActivationRefused(
             f"the pinned warm-up window is incomplete: {missing[:8]}")
+    prospective_witness = False
     if is_concordance_identity(strategy_identity):
-        window.metadata_timeline = load_causal_meta_history(
-            conn, sessions=warm)
+        try:
+            window.metadata_timeline = load_causal_meta_history(
+                conn, sessions=warm)
+        except CausalMetadataUnavailable as exc:
+            if authorization_mode != PAPER_OBSERVATION_ONLY:
+                raise PaperActivationRefused(
+                    "fresh Concordance activation requires session-effective "
+                    "TICKERS metadata for every historical witness close") from exc
+            # The signed observation mode makes no historical causality claim.
+            # Prime price features only and begin the zero-capital witness on
+            # the first current decision close; never backdate today's TICKERS
+            # snapshot to manufacture r20/r40 readiness.
+            prospective_witness = True
     starting_cash = float(account.equity)
     if not math.isfinite(starting_cash):
         raise PaperActivationRefused("account equity cannot be represented by Wealth Core")
@@ -696,7 +725,8 @@ def _fresh_warmed_state(conn, *, through: str, count: int,
         starting_cash=starting_cash, controller=Controller(controller_config),
         strategy_identity=strategy_identity)
     return warm_session_state(
-        state, window, publication_version=publication_version)
+        state, window, publication_version=publication_version,
+        prospective_concordance_witness=prospective_witness)
 
 
 def _assert_deterministic_plan_id(plan: ExecutionPlan) -> None:
@@ -1012,6 +1042,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             # depend on how many times the operator retried it.
             if (existing_raw is not None and existing_cursor == through_date):
                 state = SessionState.from_dict(existing_raw)
+                _assert_concordance_witness_authority(
+                    state, certificate.authorization_mode)
                 if state.last_processed_session != existing_cursor.isoformat():
                     raise PaperActivationRefused(
                         "canonical state and processed-session cursor disagree")
@@ -1060,11 +1092,13 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     conn, SessionState.from_dict(existing_raw), through_date)
                     if existing_raw is not None else None))
             observation = _clean_or_refuse(rec, purpose="paper preparation")
+            account_observation_started_at = clock()
             account = await broker.account_snapshot()
+            account_observed_at = clock()
             _account_or_refuse(account, binding, expected_account)
             activity_state = await _broker_cash_state_or_refuse(
                 conn, broker=broker, binding=binding,
-                through=observation_time)
+                through=account_observed_at)
             if existing_plan is not None:
                 _cash_authority_or_refuse(
                     conn, plan=existing_plan, deployment=binding.identity,
@@ -1085,7 +1119,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                         conn,
                         session=through_date,
                         observation_id=rec.observation_id,
-                        observed_at=observation_time,
+                        observation_started_at=account_observation_started_at,
+                        observed_at=account_observed_at,
                         snapshot=account,
                         deployment=binding.identity,
                         reconciliation=rec,
@@ -1099,7 +1134,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                         conn,
                         cycle_id=due_cycle_id,
                         observation_id=rec.observation_id,
-                        now=observation_time,
+                        now=account_observed_at,
                     )
             if any(order.is_working for order in observation.orders):
                 raise PaperActivationRefused(
@@ -1125,10 +1160,15 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     conn, through=through_text, count=warmup_sessions,
                     account=account, controller_config=config,
                     strategy_identity=identity,
-                    publication_version=pinned.version)
+                    publication_version=pinned.version,
+                    authorization_mode=certificate.authorization_mode)
+                _assert_concordance_witness_authority(
+                    state, certificate.authorization_mode)
                 warmed = warmup_sessions
             else:
                 state = SessionState.from_dict(raw)
+                _assert_concordance_witness_authority(
+                    state, certificate.authorization_mode)
                 if cursor is None or state.last_processed_session != cursor.isoformat():
                     raise PaperActivationRefused(
                         "canonical state and processed-session cursor disagree")
@@ -1311,6 +1351,12 @@ def _target_projection_or_refuse(
         set(target.tickers.values())
         | {command.instrument.symbol for command in commands
            if (command.security_id in security_ids and command.instrument.symbol)})
+    if DEFENSIVE_SECURITY_ID in security_ids:
+        # BIL is a fixed execution identity outside the Wealth Core shadow, so
+        # ``target.tickers`` cannot supply it.  Unmapped corporate-action rows
+        # are ticker-bound; omitting this symbol would let an unresolved BIL
+        # action miss a fresh defensive target with no prior command/position.
+        symbols.add(DEFENSIVE_SYMBOL)
     material = []
     for lookup in (actions, target_actions):
         finder = getattr(lookup, "material_events_for", None)
@@ -1564,8 +1610,9 @@ async def _execute_current_paper_plan(
                     and final_reconciliation.observation is not None
                     and final_reconciliation.observation.is_complete
                     and final_reconciliation.observation_id is not None):
-                evidence_at = clock()
+                evidence_started_at = clock()
                 evidence_account = await broker.account_snapshot()
+                evidence_at = clock()
                 _account_or_refuse(
                     evidence_account, binding, confirmed_account)
                 evidence_activity = await _broker_cash_state_or_refuse(
@@ -1579,6 +1626,7 @@ async def _execute_current_paper_plan(
                 trial.record_account_evidence(
                     conn, session=plan.effective_session,
                     observation_id=final_reconciliation.observation_id,
+                    observation_started_at=evidence_started_at,
                     observed_at=evidence_at, snapshot=evidence_account,
                     deployment=binding.identity,
                     reconciliation=final_reconciliation,
@@ -1689,8 +1737,9 @@ async def recover_automated_paper_cycle(
                 and result.observation_id is not None):
             plan = journal.load_plan(conn, cycle.plan_id)
             if plan is not None and plan.fingerprint() == cycle.plan_fingerprint:
-                evidence_at = clock()
+                evidence_started_at = clock()
                 account = await broker.account_snapshot()
+                evidence_at = clock()
                 _account_or_refuse(account, binding, grant.broker_account_id)
                 activity_state = await _broker_cash_state_or_refuse(
                     conn, broker=broker, binding=binding,
@@ -1707,6 +1756,7 @@ async def recover_automated_paper_cycle(
                 trial.record_account_evidence(
                     conn, session=cycle.effective_session,
                     observation_id=result.observation_id,
+                    observation_started_at=evidence_started_at,
                     observed_at=evidence_at, snapshot=account,
                     deployment=binding.identity, reconciliation=result,
                     activity_state=activity_state,

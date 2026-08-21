@@ -1128,6 +1128,62 @@ unusable dividend    a distribution the vendor stated no amount for. The corpus
                      record separates them
 ```
 
+#### Split orientation has one implementation and is an operational gate
+
+Production normalisation and the canonical Wealth Core replay call the same
+pure resolver in `stock_strategy_shared.split_reconciliation`.  Neither path
+may define a local agreement threshold or a second direct/reciprocal rule.  The
+relative agreement tolerance is **1%**: clean split fractions agree well inside
+that band, while widening it can turn conflicting share-count evidence into an
+apparently corroborated event.  Thus ACTIONS `2.0` versus price-domain `2.02`
+is corroborated, while `2.0` versus `2.03` is unresolved in both paths and
+applies no share transformation.
+
+An exact price-domain ratio of `1.0` means no event was observed and is passed
+as absent evidence; it cannot corroborate a nearby ACTIONS ratio such as
+`1.005`.  If the tolerance bands around the direct and reciprocal
+interpretations overlap, the event is unresolved rather than resolved by branch
+order.  When ACTIONS contains no event, both loaders retain the same snapped
+price-domain fallback, so harmless quote noise cannot create a different share
+count in production and replay.
+
+Certification-only reporting is not enough for an unresolved split.  A split
+changes the cumulative signal basis on every later session, so any published
+active unsafe disposition—`SPLIT_DISAGREEMENT`, `SPLIT_ONLY_DERIVED`,
+`SEAM_SPLIT_UNCORROBORATED`, or `AMBIGUOUS_SPLIT_MULTIPLICITY`—anywhere at or
+before the decision frontier makes `check-data` fail and therefore prevents
+normal plan preparation.  The check is full-history rather than warm-up-window
+scoped.  A later published resolved disposition for the same event clears it
+through the existing append-only anomaly lifecycle; an unpublished retry
+cannot.  The runtime does not invent a ratio or compensate the book while the
+evidence is unresolved.
+
+The broker boundary consumes the same decision rather than reopening ACTIONS
+as a second authority.  It snaps the raw ex-date forward to the first XNYS
+session and uses that published equity bar's effective split ratio (including a
+published repair overlay) for both reconciliation and immutable target
+reprojection.  Thus a reverse denominator such as ACTIONS `30` executes as the
+published canonical `1/30`, never as `30`.  BIL has no split column: its fixed
+identity instead uses the immediately preceding XNYS session's published
+defensive price domains and the shared resolver.  A sub-unit ACTIONS value is
+already canonical without that price witness; a value greater than one needs
+the domains to choose direct versus reciprocal.  Missing or contradictory
+required evidence is a blocking event.
+
+When a repeating published ratio carries binary representation noise, target
+reprojection reconstructs the exact rational only from its durable action
+evidence: `300/30` becomes exactly 10 broker units, while `301/30` still refuses
+instead of being rounded.
+
+**Deployment NO-GO:** this authority is available only after the effective
+session's bar has been published.  Automation prepares from the prior close and
+executes at the next open, before that SEP/SFP bar exists; its ordinary ACTIONS
+fetch is also bounded through the prior decision session.  The corrected
+historical/recovery path must not be described as working same-day open
+reprojection.  Autonomous deployment remains blocked on either a separately
+published pre-open orientation authority or an explicit reviewed split-day skip
+policy.  Raw ACTIONS is not that authority.
+
 `SPLIT_ONLY_DERIVED` and `SEAM_SPLIT_UNCORROBORATED` gate certification unless
 full-interval counterfactual evidence proves that every plausible split
 treatment produces identical eligibility, rankings, selections, holdings,
