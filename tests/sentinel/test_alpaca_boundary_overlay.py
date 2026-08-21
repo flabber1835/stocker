@@ -13,6 +13,7 @@ from tests.support.postgres import _EphemeralPostgres, drop_public_tables
 
 from sentinel import binding as B, schema
 from sentinel.execution import journal
+from sentinel.execution import broker_cash
 from sentinel.execution import alpaca_remediation_compat as compat
 from sentinel.execution.alpaca import (
     AccountBoundObservation,
@@ -164,7 +165,10 @@ def test_runtime_exports_final_hardened_adapter():
     assert AlpacaExecutionBroker.__name__ == "FinancialGradeAlpacaExecutionBroker"
     assert AlpacaExecutionBroker.capabilities.complete_order_pagination is False
     assert AlpacaExecutionBroker.capabilities.recent_fill_history is False
-    assert AlpacaExecutionBroker.financial_activity_sse is True
+    assert AlpacaExecutionBroker.capabilities.account_cash_activity_evidence \
+        is False
+    assert AlpacaExecutionBroker.financial_activity_sse is False
+    assert AlpacaExecutionBroker.candidate_financial_activity_sse is True
 
 
 def test_strict_terminal_witness_is_scoped_to_alpaca_even_through_wrappers():
@@ -202,8 +206,10 @@ def test_ticker_only_submit_is_refused_before_transport():
     assert not [call for call in http.calls if call[0] == "POST"]
 
 
-def test_activity_sse_unknown_nonzero_cash_type_fails_closed():
-    event = activity_event(activity_type="FUTURE_CASH_TYPE")
+@pytest.mark.parametrize("net_amount", ["25.00", None])
+def test_activity_sse_unknown_economic_type_fails_closed(net_amount):
+    event = activity_event(
+        activity_type="FUTURE_CASH_TYPE", net_amount=net_amount)
     broker, http = adapter(routes={
         "/v2beta1/events/activities": Response(text=sse(event)),
     })
@@ -215,6 +221,120 @@ def test_activity_sse_unknown_nonzero_cash_type_fails_closed():
                  if call[1] == "/v2beta1/events/activities"]
     assert len(sse_calls) == 1
     assert set(sse_calls[0][2]) == {"since", "until"}
+
+
+def test_activity_sse_cash_type_without_amount_fails_closed():
+    event = activity_event(activity_type="CSD", net_amount=None)
+    broker, _ = adapter(routes={
+        "/v2beta1/events/activities": Response(text=sse(event)),
+    })
+
+    with pytest.raises(MalformedBrokerPayload, match="omitted net_amount"):
+        run(broker.account_cash_activities(
+            after=datetime(2026, 8, 19, 16, tzinfo=UTC),
+            through=datetime(2026, 8, 19, 18, tzinfo=UTC)))
+
+
+@pytest.mark.parametrize("currency", [None, "EUR"])
+def test_activity_sse_never_interprets_non_usd_cash_as_usd(currency):
+    event = activity_event(currency=currency)
+    broker, _ = adapter(routes={
+        "/v2beta1/events/activities": Response(text=sse(event)),
+    })
+
+    with pytest.raises(MalformedBrokerPayload, match="currency .* is not USD"):
+        run(broker.account_cash_activities(
+            after=datetime(2026, 8, 19, 16, tzinfo=UTC),
+            through=datetime(2026, 8, 19, 18, tzinfo=UTC)))
+
+
+@pytest.mark.parametrize("status", [None, "pending"])
+def test_activity_sse_accepts_only_executed_financial_state(status):
+    event = activity_event(status=status)
+    broker, _ = adapter(routes={
+        "/v2beta1/events/activities": Response(text=sse(event)),
+    })
+
+    with pytest.raises(
+            MalformedBrokerPayload, match="status .* is not executed"):
+        run(broker.account_cash_activities(
+            after=datetime(2026, 8, 19, 16, tzinfo=UTC),
+            through=datetime(2026, 8, 19, 18, tzinfo=UTC)))
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("at", None, "business time"),
+        ("at", "2026-08-20T17:00:00Z", "outside the requested"),
+        ("executed_at", None, "execution time"),
+        ("settle_date", None, "settle_date"),
+        ("settle_date", "2026-08-19T17:00:00Z", "settle_date"),
+    ],
+)
+def test_activity_sse_required_time_fields_never_fall_back(
+        field, value, message):
+    event = activity_event(**{field: value})
+    broker, _ = adapter(routes={
+        "/v2beta1/events/activities": Response(text=sse(event)),
+    })
+
+    with pytest.raises(MalformedBrokerPayload, match=message):
+        run(broker.account_cash_activities(
+            after=datetime(2026, 8, 19, 16, tzinfo=UTC),
+            through=datetime(2026, 8, 19, 18, tzinfo=UTC)))
+
+
+def test_cash_journal_is_external_capital_not_strategy_income():
+    event = activity_event(activity_type="JNLC", net_amount="100")
+    broker, _ = adapter(routes={
+        "/v2beta1/events/activities": Response(text=sse(event)),
+    })
+
+    batch = run(broker.account_cash_activities(
+        after=datetime(2026, 8, 19, 16, tzinfo=UTC),
+        through=datetime(2026, 8, 19, 18, tzinfo=UTC)))
+
+    assert len(batch.activities) == 1
+    assert batch.activities[0].classification == "EXTERNAL"
+
+
+def test_trade_activity_advances_cursor_without_double_counting_fill_cash():
+    event = activity_event(
+        activity_type="TRD", qty="1", price="100", net_amount="-100",
+        details={"execution_type": "fill", "order_id": "order-1"})
+    broker, _ = adapter(routes={
+        "/v2beta1/events/activities": Response(text=sse(event)),
+    })
+
+    batch = run(broker.account_cash_activities(
+        after=datetime(2026, 8, 19, 16, tzinfo=UTC),
+        through=datetime(2026, 8, 19, 18, tzinfo=UTC)))
+
+    assert batch.activities == ()
+    assert batch.last_activity_id is None
+    assert batch.last_event_id == event["event_id"]
+
+
+@pytest.mark.parametrize(
+    ("activity_type", "net_amount"),
+    [("JNLS", None), ("ACATS", None), ("FOPT", "0")],
+)
+def test_securities_transfer_refuses_unweighted_external_value(
+        activity_type, net_amount):
+    event = activity_event(
+        activity_type=activity_type, net_amount=net_amount,
+        qty="10", price="100")
+    broker, _ = adapter(routes={
+        "/v2beta1/events/activities": Response(text=sse(event)),
+    })
+
+    with pytest.raises(
+            broker_cash.BrokerCashAuthorityRefused,
+            match="unweighted external securities transfer"):
+        run(broker.account_cash_activities(
+            after=datetime(2026, 8, 19, 16, tzinfo=UTC),
+            through=datetime(2026, 8, 19, 18, tzinfo=UTC)))
 
 
 def test_activity_sse_correction_never_becomes_an_extra_positive_cash_row():
@@ -269,6 +389,7 @@ def test_activity_sse_resumes_by_event_cursor_through_bounded_upper_id():
              if call[1] == "/v2beta1/events/activities"]
     assert len(calls) == 2
     assert set(calls[0]) == {"since", "until"}
+    assert calls[0]["since"] == "1970-01-01T00:00:00+00:00"
     assert calls[1] == {
         "since_id": first["event_id"],
         "until_id": second["event_id"],
@@ -276,6 +397,42 @@ def test_activity_sse_resumes_by_event_cursor_through_bounded_upper_id():
     assert batch.last_event_id == second["event_id"]
     assert [activity.activity_id for activity in batch.activities] == [
         first["ref_id"], second["ref_id"]]
+
+
+def test_activity_sse_discovers_late_publication_with_pre_binding_business_time():
+    late = activity_event(
+        at="2020-01-02T12:00:00Z",
+        executed_at="2020-01-02T12:00:00Z")
+    broker, http = adapter(routes={
+        "/v2beta1/events/activities": Response(text=sse(late)),
+    })
+
+    batch = run(broker.account_cash_activities(
+        after=datetime(2026, 8, 19, 16, tzinfo=UTC),
+        through=datetime(2026, 8, 19, 18, tzinfo=UTC)))
+
+    params = [call[2] for call in http.calls
+              if call[1] == "/v2beta1/events/activities"]
+    assert params == [{
+        "since": "1970-01-01T00:00:00+00:00",
+        "until": "2026-08-19T18:00:00+00:00",
+    }]
+    assert [activity.activity_id for activity in batch.activities] == [
+        late["ref_id"]]
+
+
+def test_activity_sse_retained_cursor_cannot_disappear_from_discovery():
+    first = activity_event()
+    broker, _ = adapter(routes={
+        "/v2beta1/events/activities": Response(text=""),
+    })
+
+    with pytest.raises(
+            MalformedBrokerPayload, match="omitted the retained event cursor"):
+        run(broker.account_cash_activities(
+            after=datetime(2026, 8, 19, 16, tzinfo=UTC),
+            through=datetime(2026, 8, 19, 18, tzinfo=UTC),
+            since_event_id=first["event_id"]))
 
 
 def test_native_fill_activity_ids_preserve_economic_multiplicity():
@@ -310,7 +467,7 @@ def test_terminal_fill_recovery_replays_full_sse_lifetime_for_backfills():
     assert [fill.broker_order_id for fill in fills] == ["order-late"]
     params = [call[2] for call in http.calls
               if call[1] == "/v2beta1/events/activities"]
-    assert params[0]["since"] == "2026-02-11T00:00:00+00:00"
+    assert params[0]["since"] == "1970-01-01T00:00:00+00:00"
 
 
 @pytest.fixture(scope="module")

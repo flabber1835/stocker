@@ -1175,14 +1175,43 @@ reprojection reconstructs the exact rational only from its durable action
 evidence: `300/30` becomes exactly 10 broker units, while `301/30` still refuses
 instead of being rounded.
 
-**Deployment NO-GO:** this authority is available only after the effective
-session's bar has been published.  Automation prepares from the prior close and
-executes at the next open, before that SEP/SFP bar exists; its ordinary ACTIONS
-fetch is also bounded through the prior decision session.  The corrected
-historical/recovery path must not be described as working same-day open
-reprojection.  Autonomous deployment remains blocked on either a separately
-published pre-open orientation authority or an explicit reviewed split-day skip
-policy.  Raw ACTIONS is not that authority.
+**Deployment NO-GO:** the runtime structurally validates an immutable
+affirmative pre-open share-unit record before every invocation with any nonzero
+target, holding or commitment. Only a COMPLETE, clean, all-zero empty book may
+bypass it; equal nonzero raw shares are incomparable across an unobserved split.
+Missing evidence terminalizes automation with
+`PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE`. The record's exact covered set is
+the nonzero target, nonzero action-aged durable expected book, and durable
+in-flight commands. Therefore nonzero/held/working `SENTINEL:BIL` is covered,
+while a merely present `SENTINEL:BIL: 0` basket entry is not and must not appear
+as extra coverage.
+
+This closes the unsafe stale-unit path, but a production evidence producer is
+operationally absent and no trusted issuer/authenticator is configured. The
+runtime does not turn an arbitrary locally inserted structurally valid record
+into reviewed market-data authority. Automation prepares from the prior close
+and executes at the next open, before that SEP/SFP bar exists; its ordinary
+ACTIONS fetch is also bounded through the prior decision session. Alpaca source
+silence cannot attest no event because creation may be delayed. Autonomous
+deployment therefore remains blocked until a reviewed full-universe producer
+and trust/acceptance boundary supplies both oriented events and
+negative-space/completeness authority. Raw ACTIONS is not that authority.
+
+**Financial verification NO-GO:** a successful paper cycle also cannot be
+superseded until three independent post-close authorities are durable: a broker
+historical-close NAV point with accepted XNYS session/finality semantics, a
+COMPLETE account-wide native fill interval from the authoritative plan cash
+boundary through the close and later account observation, and an accepted
+fixed-interval/finality watermark for every close-cash activity. Alpaca currently
+advertises neither of the first two capabilities, and its Activity SSE scheme
+is a quarantined Broker-API parser, not an enabled Trading/Paper account source;
+it has neither a reachable accepted integration nor the third authority. Portfolio History is quarantined pending real
+bound-account timestamp/finality/revision acceptance, and the ordinary recent
+fill/cache paths cannot prove account-wide negative space or correction
+finality. Activity SSE can reveal later backfills but cannot prove that no later
+backfill will arrive for an ended interval. Missing/future evidence remains pending; it is never frozen as a
+false economic failure. This preserves honest observation but means the
+multi-month performance chain is not deployable as `VERIFIED` yet.
 
 `SPLIT_ONLY_DERIVED` and `SEAM_SPLIT_UNCORROBORATED` gate certification unless
 full-interval counterfactual evidence proves that every plausible split

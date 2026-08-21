@@ -35,7 +35,7 @@ from sentinel.automation.model import (
 )
 from sentinel.automation.service import AutomationService
 from sentinel.config import DEFAULT_BASE_URL, SentinelConfig
-from sentinel.execution import journal
+from sentinel.execution import journal, target_reprojection
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
     BrokerInstrument,
@@ -318,6 +318,20 @@ def install_runtime_seams(monkeypatch, runtime, conn, ctx, broker) -> None:
         automation_runtime.schema, "ensure_schema", lambda _conn: None)
 
 
+def install_durable_projection(monkeypatch, current_plan, *, multiplier="1"):
+    multipliers = (
+        {} if Decimal(multiplier) == 1
+        else {INSTRUMENT.security_id: Decimal(multiplier)})
+    projection = target_reprojection.project_target(
+        current_plan, through_session=EFFECTIVE,
+        action_multipliers=multipliers)
+    monkeypatch.setattr(
+        target_reprojection, "load_projection",
+        lambda _conn, *, plan_id: (
+            projection if plan_id == current_plan.plan_id else None))
+    return projection
+
+
 def permissive_guard() -> ExecutionBrokerGuard:
     async def before_read(_grant, _operation):
         return None
@@ -348,6 +362,7 @@ async def test_accepted_submit_needs_restart_reobservation_and_final_fill(
         inner=inner, grant=grant, guard=permissive_guard())
     runtime = production(cfg)
     install_runtime_seams(monkeypatch, runtime, conn, ctx, guarded)
+    install_durable_projection(monkeypatch, current_plan)
     submitted = command(current_plan.plan_id)
     in_flight = [submitted]
 
@@ -429,6 +444,7 @@ async def test_current_cycle_clean_read_still_requires_zero_share_delta(
     broker.seed_position(INSTRUMENT, "1")
     runtime = production(cfg)
     install_runtime_seams(monkeypatch, runtime, conn, ctx, broker)
+    install_durable_projection(monkeypatch, current_plan)
 
     async def clean(**kwargs):
         return reconciliation(await kwargs["broker"].observe())
@@ -443,6 +459,187 @@ async def test_current_cycle_clean_read_still_requires_zero_share_delta(
 
     assert result.disposition is ExecuteDisposition.READY_TO_EXECUTE
     assert result.failure_code == "READY_FOR_FRESH_EXECUTION"
+
+
+@async_test
+async def test_split_projected_book_is_converged_during_recovery(
+        monkeypatch) -> None:
+    """A 2-for-1 target of 10 is complete at 20, not a corrective SELL."""
+    cfg = config()
+    current_plan = plan(target="10")
+    ctx = context(cfg, state=CycleState.RECONCILING, plan=current_plan)
+    conn = FakeConnection()
+    broker = SimulatedBroker()
+    broker.seed_position(INSTRUMENT, "20")
+    runtime = production(cfg)
+    install_runtime_seams(monkeypatch, runtime, conn, ctx, broker)
+    projection = install_durable_projection(
+        monkeypatch, current_plan, multiplier="2")
+
+    async def clean(**kwargs):
+        return reconciliation(await kwargs["broker"].observe())
+
+    monkeypatch.setattr(paper, "recover_automated_paper_cycle", clean)
+    monkeypatch.setattr(journal, "in_flight_commands", lambda *_args: ())
+    monkeypatch.setattr(journal, "latest_plan", lambda _conn: current_plan)
+    monkeypatch.setattr(
+        journal, "load_commands",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("a converged split target was treated as actionable")))
+
+    result = await runtime.recover(ctx)
+
+    assert projection.target_basket == {INSTRUMENT.security_id: Decimal("20")}
+    assert result.disposition is ExecuteDisposition.SUCCEEDED
+
+
+@async_test
+async def test_split_projected_book_is_converged_after_execute(
+        monkeypatch) -> None:
+    cfg = config()
+    current_plan = plan(target="10")
+    ctx = context(cfg, plan=current_plan)
+    conn = FakeConnection()
+    broker = SimulatedBroker()
+    broker.seed_position(INSTRUMENT, "20")
+    runtime = production(cfg)
+    install_runtime_seams(monkeypatch, runtime, conn, ctx, broker)
+    install_durable_projection(monkeypatch, current_plan, multiplier="2")
+
+    async def no_submit(**kwargs):
+        rec = reconciliation(await kwargs["broker"].observe())
+        return paper.ExecutionResult(
+            plan=current_plan, preflight=DictEvidence(),
+            session=SessionResult(
+                runtime_state=RuntimeState.RUNNING,
+                reconciliation=rec, detail="already projected"))
+
+    monkeypatch.setattr(
+        paper, "execute_automated_paper_plan", no_submit)
+    monkeypatch.setattr(journal, "in_flight_commands", lambda *_args: ())
+
+    result = await runtime.execute(ctx)
+
+    assert result.disposition is ExecuteDisposition.SUCCEEDED
+
+
+@async_test
+async def test_execute_refuses_clean_success_without_durable_projection(
+        monkeypatch) -> None:
+    cfg = config()
+    current_plan = plan(target="3")
+    ctx = context(cfg, plan=current_plan)
+    conn = FakeConnection()
+    broker = SimulatedBroker()
+    broker.seed_position(INSTRUMENT, "1")
+    runtime = production(cfg)
+    install_runtime_seams(monkeypatch, runtime, conn, ctx, broker)
+
+    async def no_submit(**kwargs):
+        rec = reconciliation(await kwargs["broker"].observe())
+        return paper.ExecutionResult(
+            plan=current_plan, preflight=DictEvidence(),
+            session=SessionResult(
+                runtime_state=RuntimeState.RUNNING,
+                reconciliation=rec, detail="apparently converged"))
+
+    monkeypatch.setattr(
+        paper, "execute_automated_paper_plan", no_submit)
+    monkeypatch.setattr(journal, "in_flight_commands", lambda *_args: ())
+
+    result = await runtime.execute(ctx)
+
+    assert result.disposition is ExecuteDisposition.BLOCKED
+    assert result.failure_code == automation_runtime.TARGET_PROJECTION_REFUSED
+    assert "is absent" in result.failure_detail
+
+
+@async_test
+async def test_execute_refuses_nonempty_raw_share_noop_without_projection(
+        monkeypatch) -> None:
+    cfg = config()
+    current_plan = plan(target="1")
+    ctx = context(cfg, plan=current_plan)
+    conn = FakeConnection()
+    broker = SimulatedBroker()
+    broker.seed_position(INSTRUMENT, "1")
+    runtime = production(cfg)
+    install_runtime_seams(monkeypatch, runtime, conn, ctx, broker)
+
+    async def no_submit(**kwargs):
+        rec = reconciliation(await kwargs["broker"].observe())
+        return paper.ExecutionResult(
+            plan=current_plan, preflight=DictEvidence(),
+            session=SessionResult(
+                runtime_state=RuntimeState.RUNNING,
+                reconciliation=rec,
+                detail="complete clean empty no-op; no command transport"))
+
+    monkeypatch.setattr(paper, "execute_automated_paper_plan", no_submit)
+    monkeypatch.setattr(journal, "in_flight_commands", lambda *_args: ())
+
+    result = await runtime.execute(ctx)
+
+    assert result.disposition is ExecuteDisposition.BLOCKED
+    assert result.failure_code == automation_runtime.TARGET_PROJECTION_REFUSED
+
+
+@async_test
+async def test_execute_allows_empty_book_noop_without_projection(
+        monkeypatch) -> None:
+    cfg = config()
+    current_plan = plan(target="0")
+    ctx = context(cfg, plan=current_plan)
+    conn = FakeConnection()
+    broker = SimulatedBroker()
+    runtime = production(cfg)
+    install_runtime_seams(monkeypatch, runtime, conn, ctx, broker)
+
+    async def no_submit(**kwargs):
+        rec = reconciliation(await kwargs["broker"].observe())
+        return paper.ExecutionResult(
+            plan=current_plan, preflight=DictEvidence(),
+            session=SessionResult(
+                runtime_state=RuntimeState.RUNNING,
+                reconciliation=rec,
+                detail="complete clean empty no-op; no command transport"))
+
+    monkeypatch.setattr(paper, "execute_automated_paper_plan", no_submit)
+    monkeypatch.setattr(journal, "in_flight_commands", lambda *_args: ())
+
+    result = await runtime.execute(ctx)
+
+    assert result.disposition is ExecuteDisposition.SUCCEEDED
+
+
+@async_test
+async def test_recovery_refuses_corrupt_durable_projection(monkeypatch) -> None:
+    cfg = config()
+    current_plan = plan()
+    ctx = context(cfg, state=CycleState.RECONCILING, plan=current_plan)
+    conn = FakeConnection()
+    broker = SimulatedBroker()
+    broker.seed_position(INSTRUMENT, "1")
+    runtime = production(cfg)
+    install_runtime_seams(monkeypatch, runtime, conn, ctx, broker)
+
+    async def clean(**kwargs):
+        return reconciliation(await kwargs["broker"].observe())
+
+    def corrupt(_conn, *, plan_id):
+        raise target_reprojection.TargetProjectionRefused(
+            f"target projection for {plan_id} has a corrupt fingerprint")
+
+    monkeypatch.setattr(paper, "recover_automated_paper_cycle", clean)
+    monkeypatch.setattr(journal, "in_flight_commands", lambda *_args: ())
+    monkeypatch.setattr(journal, "latest_plan", lambda _conn: current_plan)
+    monkeypatch.setattr(target_reprojection, "load_projection", corrupt)
+
+    result = await runtime.recover(ctx)
+
+    assert result.disposition is ExecuteDisposition.BLOCKED
+    assert result.failure_code == automation_runtime.TARGET_PROJECTION_REFUSED
+    assert "corrupt fingerprint" in result.failure_detail
 
 
 @async_test
@@ -577,12 +774,80 @@ async def test_paper_refusal_class_controls_durable_latching(
         await runtime.execute(ctx)
 
 
-def test_old_generation_grant_is_read_only_recovery_only(monkeypatch) -> None:
+@async_test
+async def test_missing_preopen_units_return_stable_terminal_failure_code(
+        monkeypatch) -> None:
+    cfg = config()
+    current_plan = plan()
+    ctx = context(cfg, plan=current_plan)
+    broker = SimulatedBroker()
+    runtime = production(cfg)
+    install_runtime_seams(
+        monkeypatch, runtime, FakeConnection(), ctx, broker)
+
+    async def refuse(**_kwargs):
+        raise paper.PreOpenShareUnitAuthorityUnavailable(
+            "complete provider publication is absent")
+
+    monkeypatch.setattr(paper, "execute_automated_paper_plan", refuse)
+
+    result = await runtime.execute(ctx)
+
+    assert result.disposition is ExecuteDisposition.BLOCKED
+    assert result.failure_code == (
+        automation_runtime.PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE)
+    assert result.diagnostic["plan_id"] == current_plan.plan_id
+    assert "provider publication" in result.failure_detail
+    assert not any(call.startswith(("submit:", "cancel:"))
+                   for call in broker.calls)
+
+
+@async_test
+async def test_recovery_missing_preopen_units_keep_stable_failure_code(
+        monkeypatch) -> None:
+    cfg = config()
+    current_plan = plan()
+    ctx = context(
+        cfg, state=CycleState.RECONCILING, plan=current_plan)
+    broker = SimulatedBroker()
+    runtime = production(cfg)
+    install_runtime_seams(
+        monkeypatch, runtime, FakeConnection(), ctx, broker)
+
+    async def refuse(**_kwargs):
+        raise paper.PreOpenShareUnitAuthorityUnavailable(
+            "recovered command lacks complete provider coverage")
+
+    monkeypatch.setattr(
+        paper, "recover_automated_paper_cycle", refuse)
+
+    result = await runtime.recover(ctx)
+
+    assert result.disposition is ExecuteDisposition.BLOCKED
+    assert result.failure_code == (
+        automation_runtime.PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE)
+    assert result.diagnostic["plan_id"] == current_plan.plan_id
+    assert "recovered command" in result.failure_detail
+    assert not any(call.startswith(("submit:", "cancel:"))
+                   for call in broker.calls)
+
+
+@pytest.mark.parametrize(("state", "diagnostic"), [
+    (CycleState.RECONCILING, {}),
+    (CycleState.RETRY_WAIT, {"retry_phase": "PREFLIGHT_RECOVER"}),
+    (CycleState.RECONCILING, {"retry_phase": "PREFLIGHT_RECOVER"}),
+], ids=["transport", "planless-preflight", "stranded-planless-preflight"])
+def test_old_generation_grant_is_read_only_recovery_only(
+        monkeypatch, state, diagnostic) -> None:
     cfg = config()
     current_control = control(cfg)
     old_cycle = cycle(
-        cfg, generation=2, state=CycleState.RECONCILING,
-        last_fence_token=17)
+        cfg, generation=2, state=state, last_fence_token=17).model_copy(
+            update={"diagnostic": diagnostic})
+    assert store.cycle_recovery_capable(old_cycle)
+    if diagnostic:
+        assert store.cycle_preflight_recovery_pending(old_cycle)
+        assert not store.cycle_transport_capable(old_cycle)
     conn = FakeConnection()
     monkeypatch.setattr(store, "load_control", lambda _conn: current_control)
     monkeypatch.setattr(store, "require_leader", lambda _conn, permit: permit)
@@ -895,6 +1160,7 @@ async def test_after_close_clean_delta_is_superseded_not_late_submitted(
     broker = SimulatedBroker()
     runtime = production(cfg)
     install_runtime_seams(monkeypatch, runtime, conn, ctx, broker)
+    install_durable_projection(monkeypatch, current_plan)
 
     async def clean(**kwargs):
         return reconciliation(await kwargs["broker"].observe())
@@ -924,6 +1190,7 @@ async def test_terminal_rejection_blocks_revision_loop(monkeypatch) -> None:
     broker = SimulatedBroker()
     runtime = production(cfg)
     install_runtime_seams(monkeypatch, runtime, conn, ctx, broker)
+    install_durable_projection(monkeypatch, current_plan)
     rejected = command(current_plan.plan_id, state=CommandState.REJECTED)
 
     async def clean(**kwargs):
@@ -1074,3 +1341,54 @@ async def test_service_supersedes_adopted_old_generation_transport(
     assert result.cycle.state is CycleState.SUPERSEDED
     assert all(call.get("to_state") is not CycleState.EXECUTING
                for call in adopted)
+
+
+@async_test
+async def test_service_supersedes_clean_old_generation_planless_preflight(
+        monkeypatch) -> None:
+    cfg = config()
+    ctx = context(cfg, generation=2, state=CycleState.RETRY_WAIT)
+    preflight = ctx.cycle.model_copy(update={
+        "diagnostic": {"retry_phase": "PREFLIGHT_RECOVER"},
+    })
+    adopted = []
+
+    async def recover(_context):
+        return {
+            "disposition": "SUPERSEDED",
+            "last_clean_reconciliation_id": "clean-old-preflight",
+            "failure_code": "OLD_GENERATION_RECOVERED",
+        }
+
+    service = AutomationService(
+        config=cfg, holder_id="worker-a",
+        refresh=lambda _context: {}, prepare=lambda _context: {},
+        recover=recover, execute=lambda _context: {})
+    monkeypatch.setattr(store, "require_leader", lambda _conn, value: value)
+
+    def adopt(_conn, **kwargs):
+        adopted.append(kwargs)
+        return preflight.model_copy(update={
+            "state": CycleState(kwargs.get("to_state", preflight.state)),
+            "last_fence_token": ctx.permit.fence_token,
+            "last_clean_reconciliation_id":
+                kwargs.get("last_clean_reconciliation_id"),
+            "failure_code": kwargs.get("failure_code"),
+            "diagnostic": kwargs.get("diagnostic", preflight.diagnostic),
+        })
+
+    monkeypatch.setattr(store, "adopt_cycle", adopt)
+
+    result = await service._run_preflight_recover(  # noqa: SLF001
+        FakeConnection(), now=NOW, cycle=preflight, permit=ctx.permit,
+        supersede_on_success=True)
+
+    assert result.action is TickAction.SUPERSEDED
+    assert result.cycle.state is CycleState.SUPERSEDED
+    assert result.cycle.plan_id is None
+    assert result.cycle.failure_code == "STALE_PREFLIGHT_RECOVERED"
+    assert (result.cycle.last_clean_reconciliation_id
+            == "clean-old-preflight")
+    assert result.cycle.diagnostic["stale_preflight_superseded"] is True
+    assert len(adopted) == 1
+    assert adopted[0]["to_state"] is CycleState.SUPERSEDED

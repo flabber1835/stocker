@@ -24,7 +24,9 @@ from typing import Awaitable, Callable, Sequence, TypeAlias
 from sentinel.execution.contract import (
     BrokerAccountIdentity,
     BrokerAccountSnapshot,
+    BrokerCloseValuation,
     BrokerFill,
+    BrokerFillIntervalEvidence,
     BrokerInstrument,
     BrokerObservation,
     BrokerOrder,
@@ -58,6 +60,8 @@ class PreTransportAuthorityRefused(BrokerAuthorityRefused):
 class BrokerOperation(str, Enum):
     IDENTIFY_ACCOUNT = "identify_account"
     ACCOUNT_SNAPSHOT = "account_snapshot"
+    ACCOUNT_CLOSE_VALUATION = "account_close_valuation"
+    ACCOUNT_FILL_INTERVAL_EVIDENCE = "account_fill_interval_evidence"
     RESOLVE_INSTRUMENT = "resolve_instrument"
     MARKET_CLOCK = "market_clock"
     ACCOUNT_CASH_ACTIVITIES = "account_cash_activities"
@@ -215,8 +219,25 @@ class GuardedExecutionBroker(ExecutionBroker):
 
     @property
     def supports_account_cash_activities(self) -> bool:
-        return self._has_optional_override(
-            self._inner, "account_cash_activities")
+        return (self.capabilities.account_cash_activity_evidence is True
+                and self._has_optional_override(
+                    self._inner, "account_cash_activities"))
+
+    @property
+    def supports_account_close_valuation(self) -> bool:
+        # Method presence alone is explicitly not certification.  Alpaca's
+        # quarantined Portfolio History reader is callable by its acceptance
+        # harness but remains unreachable through the production guard until a
+        # reviewed capability promotion says otherwise.
+        return (self.capabilities.account_close_valuation is True
+                and self._has_optional_override(
+                    self._inner, "account_close_valuation"))
+
+    @property
+    def supports_account_fill_interval_evidence(self) -> bool:
+        return (self.capabilities.account_fill_interval_evidence is True
+                and self._has_optional_override(
+                    self._inner, "account_fill_interval_evidence"))
 
     @property
     def financial_activity_sse(self) -> bool:
@@ -262,6 +283,31 @@ class GuardedExecutionBroker(ExecutionBroker):
         return await self._read(
             BrokerOperation.ACCOUNT_SNAPSHOT,
             self._inner.account_snapshot)
+
+    async def account_close_valuation(
+            self, *, session: date) -> BrokerCloseValuation:
+        if not self.supports_account_close_valuation:
+            raise AttributeError(
+                "execution broker has no certified close valuation")
+
+        async def read():
+            return await self._inner.account_close_valuation(session=session)
+
+        return await self._read(BrokerOperation.ACCOUNT_CLOSE_VALUATION, read)
+
+    async def account_fill_interval_evidence(
+            self, *, session: date,
+            interval_start: datetime) -> BrokerFillIntervalEvidence:
+        if not self.supports_account_fill_interval_evidence:
+            raise AttributeError(
+                "execution broker has no certified account fill interval")
+
+        async def read():
+            return await self._inner.account_fill_interval_evidence(
+                session=session, interval_start=interval_start)
+
+        return await self._read(
+            BrokerOperation.ACCOUNT_FILL_INTERVAL_EVIDENCE, read)
 
     async def resolve_instrument(
             self, *, security_id: str, symbol: str) -> BrokerInstrument:

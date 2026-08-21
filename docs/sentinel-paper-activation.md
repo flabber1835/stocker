@@ -304,10 +304,21 @@ and a corpus publication pin:
   mistaken for an ordinary 16:00 close;
 - complete reconciliation in `RUNNING`, with no foreign positions/orders,
   unresolved ownership, UNKNOWN commands, or inconsistent observation;
-- no split or other supported share-count action between the durable decision
-  and execution. Such an action may explain broker holdings, but it also makes
-  the immutable share target stale; this gateway refuses instead of trading a
-  pre-action basket against post-action quantities;
+- after COMPLETE clean reconciliation, only an all-zero empty share-unit domain
+  (zero targets, holdings and commitments, with no durable or broker working
+  order) may return without share-unit authority. Equal nonzero raw target and
+  held shares cannot prove that no effective-session split occurred.
+  Every other invocation requires an immutable pre-open record bound to the
+  exact plan/effective session and active permanent-identity set; absence
+  terminalizes automation as `PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE`. The set
+  includes a nonzero target, nonzero action-aged durable expected holding, or
+  in-flight command for `SENTINEL:BIL`; the ordinary zero BIL basket key alone
+  is excluded and extra coverage refuses. The producer is operationally absent
+  and no trusted issuer/authenticator is configured, so an arbitrary locally
+  inserted record is not reviewed production authority and nonempty execution
+  remains a deployment NO-GO. Neither a prior-close Sharadar corpus, an empty
+  Alpaca corporate-action response, nor an unchanged broker position proves
+  absence of an effective-session split;
 - a permanent-id-to-broker-instrument mapping for every actionable leg.
   Observed stable asset identity is sufficient for a reduction; every increase
   re-resolves the asset and requires it to remain active and tradable.
@@ -331,10 +342,42 @@ and a corpus publication pin:
   has no same-session cash-flow re-projection authority: leave the plan
   unexecuted, resolve and record the flow separately, and prepare from the next
   closed decision session;
+- an immutable plan-time cash baseline. A legacy plan with no baseline is never
+  stamped retroactively from a matching current account/cursor snapshot;
+  offsetting activity could have restored both cash and the cumulative total
+  while changing the native event set. Resolve that plan explicitly and prepare
+  a fresh one;
 - no working broker order at initial plan adoption. That establishes an exact
   cash baseline. Working/partial Sentinel commands created by the adopted plan
   are subsequently recovered from the journal and complete broker observation,
   including their average fill price, without changing plan economics.
+
+A later preparation cannot supersede a prior `SUCCEEDED` plan merely because
+its open execution finished. This debt follows the durable cycle regardless of
+whether the caller is automated, manual, or delayed; every historical lookup
+remains bound to the old plan's effective session. After the official close it
+must first retain an
+accepted historical-close NAV point and one COMPLETE account-wide fill interval
+whose exact start is the plan's authoritative Activity-SSE cash baseline. The
+fill interval must extend through the close and later account/reconciliation
+observation and retain native fill/order identity; the ordinary command cache
+is not absence proof. The plan's cash source must also carry a separately
+retained, plan/account/session-bound close-interval finality/watermark;
+append-only Activity-SSE replay alone cannot prove that an ended interval will
+receive no later backfill. Missing capability, transport failure, or not-yet-mature
+evidence is retryable and leaves the old plan due. Malformed accepted evidence
+is a hard refusal. Current Alpaca capability bits for historical close NAV and
+account-wide fill intervals are false, and its cash identity has no accepted
+close-finality witness, so verified autonomous progression
+remains a deployment NO-GO even though the gateway fails safely.
+
+A delayed retry retains two share-unit views for that old plan. The
+effective-session target is the historical close book and is the only book
+valued with old close marks. A second target, aged through the later account
+observation using the same supported scalar-action authority (including the
+plan-bound pre-open overlay), is compared with reconciliation and live
+positions. A post-close split therefore neither creates a false position
+mismatch nor multiplies later shares by an earlier close price.
 
 Only after those checks does the command delegate order handling to the existing
 executor.
@@ -636,6 +679,8 @@ Checkpoints:
 - account cash matches the durable baseline (or, after a restart, the baseline
   plus/minus every observed average-price fill under this plan); overnight
   equity mark movement by itself is not a cash-flow refusal;
+- the baseline actually existed when the immutable plan was adopted. Matching
+  current cash is not authority to backfill a missing legacy boundary;
 - cash-only buying power differs from cash by no more than the executor's
   absolute `$1.00` tolerance; a larger difference in either direction is a
   settlement/margin stop;

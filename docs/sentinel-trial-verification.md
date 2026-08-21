@@ -17,7 +17,7 @@ the intended strategy.  The panel therefore keeps the existing diagnostic
 rows but gives the financial headline only one of these meanings:
 
 * `TRIAL VERIFIED THROUGH <effective session>` means that session has an
-  immutable v1 verification whose verdict is `VERIFIED`, every later owed
+  immutable v3 verification whose verdict is `VERIFIED`, every later owed
   exchange session is absent only because it is not due yet, and the rendered
   page is inside its presentation-age budget.
 * `TRIAL NOT VERIFIED — <reason>` is used for missing, failed, stale, future,
@@ -44,15 +44,42 @@ evidence uses the same deliberate mechanism:
 
 ```text
 trial-account:v1:<observation id>
-trial-verification:v2:<effective session>
+trial-close-nav:v1:<effective session>
+trial-fill-interval:v1:<effective session>
+trial-verification:v3:<effective session>
 ```
 
 The first row binds an actual broker account snapshot to the exact COMPLETE
-reconciliation observation that preceded it.  The second is inserted only
-after the automation cycle has reached a terminal state.  Existing rows are
-read and compared byte-for-byte; a retry may confirm identical evidence but
-may not rewrite history.  A different attempt for the same effective session
-is an integrity refusal, not an upsert.
+reconciliation observation that preceded it. The close-NAV row binds an
+adapter-accepted typed broker historical point to the exact account, XNYS
+session and official close. It retains the declared source semantics/query,
+opaque raw label and declared unit, the first request bracket, raw-response
+digest, and its own canonical evidence hash. These retained strings are audit
+facts, not a generic validator's claim that their provider meaning is trusted.
+The fill-interval row separately binds the exact plan and account to one
+COMPLETE, account-wide broker publication from the plan cash-baseline boundary
+through a fixed inclusive upper boundary after the close. It retains every
+native fill activity id, broker order id, optional client key, exact quantity,
+price and execution time, plus the provider semantics/query and raw digest.
+The ordinary command fill cache is never treated as proof that no other account
+fill occurred.
+
+Terminal outcomes have two paths. A non-success terminal cycle immediately
+freezes one immutable `NOT_VERIFIED` row without waiting for close evidence. A
+`SUCCEEDED` cycle freezes no open-time row; it remains due until both its
+close-NAV and account-wide fill-interval rows exist and post-close verification
+can run. Missing or future-dated source evidence never freezes an immutable red
+row merely because the provider has not caught up. On close-NAV retry, identical
+source economics are idempotent even when the later request bracket differs;
+the first retained bracket and evidence hash stay immutable. A different source
+point for the same effective session is an integrity refusal, not an upsert.
+The terminal state transition and verification callback are separate durable
+boundaries. Before any success can verify, the verifier scans every earlier
+cycle for the same deployment/broker/account across all takeover epochs. A
+nonterminal predecessor or a terminal predecessor without its exact immutable
+verdict is `VERIFICATION_GAP`; a later success cannot hide a callback crash by
+becoming a fresh anchor. Exact v1/v2 terminal rows satisfy this callback-debt
+check across an upgrade, but remain ineligible as v3 NAV/return predecessors.
 
 This is an equivalently strong per-session verification ledger: the namespace
 and JSON `kind` are versioned, `cursor_name` is the primary key, the trading
@@ -61,10 +88,14 @@ record contains a SHA-256 over its canonical evidence object.  A future physical
 table may migrate these records only through an explicit reviewed behavioral
 schema migration.
 
-The corrected verifier deliberately starts a new `v2` certificate chain.  A
-validly hashed `v1` row remains immutable historical evidence, but it is neither
-loaded nor accepted as a predecessor: pre-fix certificates did not prove the
-same dividend binding and close-timestamp semantics.
+The broker-history verifier deliberately starts a new `v3` certificate chain.
+Validly hashed `v1`/`v2` rows remain immutable historical evidence, but neither
+is loaded nor accepted as a predecessor: those certificates did not bind an
+independent broker historical-close source point or a complete account-wide
+fill interval. They may only prove that the corresponding old terminal callback
+occurred, as described above. A changed value, label,
+semantics, query or raw-response digest for an already recorded close raises
+`TrialCloseNavHistoricalRevision`; history is never overwritten.
 
 ## 3. When evidence is captured
 
@@ -78,7 +109,8 @@ It is never captured by the panel.  The evidence names:
 * the authority class of the claimed valuation timestamp;
 * actual equity and cash;
 * account status and blocking flags;
-* broker cash-activity processed-through boundary and cumulative total.
+* broker cash-activity processed-through boundary, cumulative total, last
+  non-zero native activity id, and accepted append-only identity scheme.
 
 The per-session verification also projects any expected paper dividend from the
 effective-session published bars and their active Sharadar ACTIONS source-row
@@ -95,8 +127,10 @@ checkpoint is necessary but not sufficient: an open-time account read cannot
 certify a full session against a close that does not exist yet.  On the next
 post-close preparation, the guarded gateway obtains a fresh account/cash read
 and COMPLETE reconciliation for the prior plan's effective session.  Before it
-advances state or supersedes that plan, it binds the now-published close marks
-and appends the final session verification.  Any failed clause earns
+advances state or supersedes that plan, it retains the broker historical-close
+point and the complete account-wide fill interval, binds the now-published
+close marks, and appends the final session verification. Any complete but
+economically failed clause earns
 `NOT_VERIFIED`.  The verifier never repairs inputs to obtain green.
 
 ### Defensive-fund evidence is a separate corpus domain
@@ -126,20 +160,49 @@ identity and entitlement as an evidence-only paper limitation, sets
 non-finite, non-positive, or basis-untranslatable distribution evidence is
 `DIVIDEND_EVIDENCE_INVALID`, not an assumed zero.
 
+The pre-open share-unit gate uses active quantity rather than mere basket-key
+presence. Nonzero BIL target, nonzero action-aged expected BIL, or an in-flight
+BIL command requires explicit coverage. The conventional zero-valued BIL key
+alone requires no coverage and exact-set validation rejects it as extra.
+
 The current broker account observation supplies live equity at its observation
-time, while clause 9 independently marks positions at the effective-session
-official close.  Those are different valuation instants during the post-close
-delay.  A qualifying observation must carry broker-authoritative close timing
-and prove the whole read sequence: reconciliation request start, reconciliation
-completion, account request start, and account completion must be ordered; none
-may precede the close; and all four must finish within the five-second allowance
-after that close.  Missing legacy fields and local wall-clock brackets fail
-closed.  The current Alpaca account/positions responses expose no authenticated
-valuation timestamp, so production stamps
-`LOCAL_RESPONSE_BRACKET_UNVERIFIED`, never
-`BROKER_AUTHORITATIVE_CLOSE`.  Until the gateway durably captures supported
-broker-authoritative close evidence (or a supported historical close mark),
-the comparison is diagnostic only and cannot certify a verified NAV interval.
+time and remains diagnostic. It is never the session-close performance source.
+Clause 9 instead consumes `trial-close-nav:v1` after an adapter has returned an
+accepted typed historical object. Persistence enforces the account and requested
+session, requires the object's `valuation_at` to equal the official XNYS close,
+requires its request bracket to begin at or after that close, and retains the
+declared source, semantics, query, label/unit, and raw digest. It does not interpret or
+whitelist those declared provider semantics. Local request brackets remain
+provenance and cannot by themselves promote a source point.
+
+Alpaca Portfolio History is the candidate source, but current documentation does
+not establish the wire timestamp unit/label mapping, close-point finality or
+revision timing needed by this contract. The adapter/parser is therefore
+quarantined and advertises no production close-valuation capability until a
+real bound paper-account acceptance covers normal and half-day sessions,
+repeated post-close/T+1 reads, cash-flow cases, fractional positions and split
+days. Those are future promotion requirements; the retained-object layer does
+not currently enforce the Portfolio History-specific interpretations.
+Missing/not-yet-mature evidence and transport/parser failure before an accepted
+typed object exists are retryable and must leave a succeeded cycle unwritten
+before a successor plan can supersede the due plan. An accepted object that then
+fails immutable account/session/official-close validation is a hard refusal; a
+different source point for an already retained session raises
+`TrialCloseNavHistoricalRevision`.
+
+Fill evidence has its own stronger capability and cannot be synthesized from
+`recent_fills` or the Sentinel command journal. Its interval must start exactly
+at the immutable plan cash baseline's processed-through boundary, be explicitly
+COMPLETE, reach the official close and the later account/reconciliation
+observation, and retain native account activity identities. Every account fill
+must bind to exactly one current-plan command by both client key and broker
+order id, with the same exact quantity and price, and must execute no later than
+the close. Foreign, post-close, missing-key, mislinked, revised, or cache-only
+fills block close-book attribution. The Alpaca adapter currently advertises no
+account-fill-interval capability: Activity SSE remains useful for recovery and
+cash evidence, but its correction/finality and fixed-boundary acceptance has
+not earned this separate negative-space claim. A due successful cycle therefore
+remains pending rather than manufacturing an empty fill interval.
 
 ## 4. Verification clauses
 
@@ -158,34 +221,70 @@ proves all of the following:
    than two parallel claims.
 4. The plan and cycle agree on the immutable decision publication identity.
    The later valuation publication is explicit, its visible Sharadar frontier
-   equals the effective session, and exchange-calendar freshness reports zero
-   owed sessions.
+   is at or after the effective session, and exchange-calendar freshness
+   reports zero owed sessions. This permits delayed finalization without
+   relabelling a later frontier as the old close.
 5. The readiness PASS was computed after that exact valuation publication was published
    and before any later publication, and every stored readiness clause passed.
 6. The named broker observation is COMPLETE and RUNNING; its observed positions
-   equal the reconciled expected book.  That expected book must itself equal the
-   immutable plan target aged through the exact supported corporate-action
-   multipliers for `(decision session, evidence session]`, captured alongside
-   the same reconciliation in immutable account evidence.  It has no foreign
+   equal the reconciled expected book. Account evidence retains two exact
+   action-aged targets: the close target through the effective session and the
+   observation target through the later evidence session. The reconciled/live
+   book must equal the observation target; only the close target is valued at
+   the historical close. This prevents a supported post-close split from
+   creating a false mismatch while also preventing later share units from being
+   multiplied by old close prices. An explicit
+   zero-quantity sleeve in the plan and its omission from the command-derived
+   book are economically identical; all other union-of-identity differences
+   retain the share tolerance. It has no foreign
    working order, and the command journal has no active, uncertain, rejected,
    or cancelled current-plan command.  Comparing post-action positions directly
    with the pre-action share basket is forbidden.
-7. No plan security is unpriced.  Current published close marks exist and are
-   finite for every nonzero observed position.
+7. No plan security is unpriced. Effective-session published close marks exist
+   and are finite for every nonzero close-target position.
 8. The account evidence names the same observation and account, is not future
    dated, and its cash-activity cursor is complete through the evidence time.
-9. Broker equity agrees within the existing one-dollar financial tolerance with
-   independently marked account NAV: actual cash plus observed quantities at
-   the effective-session published closes.  The complete reconciliation and
-   account-request brackets must be ordered, post-close, within five seconds of
-   that exact XNYS close, and backed by `BROKER_AUTHORITATIVE_CLOSE` rather than
-   a local receipt time.  A later live snapshot is retained as diagnostic
-   attribution but adds `VALUATION_TIMESTAMP_UNALIGNED` and cannot certify the
-   interval even when its number happens to match.  This is the NAV attribution
-   witness; the account balance is not allowed to explain itself.
+9. Broker historical-close equity agrees within the existing one-dollar
+   financial tolerance with independently reconstructed close NAV. Close cash
+   comes from the immutable plan cash baseline plus exact signed notionals from
+   the COMPLETE account-wide fill interval. The plan baseline must carry the
+   accepted append-only Activity-SSE cash identity plus a separately retained,
+   plan/account/session-bound fixed-interval finality witness. A global scheme
+   string cannot retroactively promote old baselines. The current Alpaca source
+   has append-only identity but no finality witness, so it reports
+   `CLOSE_CASH_FINALITY_UNAVAILABLE` and the succeeded cycle remains pending.
+   Once a future source earns both authorities, its cumulative total and last
+   non-zero cash activity id must remain unchanged.
+   A missing baseline is never backfilled from current cash or the current
+   activity cursor: offsetting post-plan events could make that snapshot look
+   numerically unchanged. A legacy/timestamp-paged baseline or any post-baseline
+   cash activity refuses as `CLOSE_CASH_UNPROVEN` because the available business
+   date cannot assign it to an intraday official-close boundary. The
+   implementation does not yet assign even a recognized activity through the
+   close. Cash is not taken from a later live account snapshot and is never
+   derived as `equity - securities`. The v3 certificate embeds the exact
+   plan-cash baseline and revalidates both that source row and its current
+   finality acceptance on every load and ancestor link; finality revocation
+   cannot leave a stale VERIFIED return in the chain. The
+   close book is the action-aged exact target/command book, independently valued
+   at effective-session published raw closes. The independently retained fill
+   interval must start at the plan cash boundary, cover the entire account
+   through both the close and the account evidence observation, and match every
+   durable current-plan fill by native broker order identity and exact
+   economics. Any foreign, missing, mislinked, or post-close fill makes
+   `CLOSE_BOOK_INTERVAL_UNPROVEN` block. The
+   immutable close-evidence hash is part of the v3 verification. Endpoint
+   P/L/base-value fields never enter Sentinel's math. The later `/v2/account`
+   equity/cash remain labelled live diagnostics and cannot explain the
+   historical point.
 10. External cash is identified from the durable broker/operator cash ledger.
+    `JNLC`/legacy `JNL` cash journals are account-boundary capital; they are not
+    strategy income. `JNLS`, `ACATS`, and `FOPT` securities transfers are refused until
+    an accepted in-kind-flow valuation and time-weighting contract exists.
     Internal dividends, interest, fees, and other recognized activity stay in
-    account economics.  A malformed reserved activity row or a restored
+    account economics, but that classification does not make a post-baseline
+    broker activity assignable to the official close under clause 9. A
+    malformed reserved activity row or a restored
     cursor/event inconsistency is `NOT_VERIFIED`.  The present broker evidence
     carries only an activity business date, not an independently marked NAV at
     the instant of an intraday external flow.  Therefore any nonzero external
@@ -218,18 +317,36 @@ proves all of the following:
 12. Required timestamps are within the automation clock-skew allowance and the
     verification time is at or after all evidence it certifies.
 
-The first session uses the plan's actual sizing NAV as its opening boundary.
-Later sessions use the previous verification's actual equity.  A gap or prior
-`NOT_VERIFIED` row breaks the verified performance chain.
+The first successful session is a close anchor only. Its independently accepted
+official-close equity is retained, but opening equity, strategy P/L, daily TWR,
+and total return are omitted: the plan's later live sizing NAV is not a
+historical opening mark. The next adjacent successful session uses that anchor's
+official-close equity as its opening boundary. A gap or prior `NOT_VERIFIED` row
+breaks the verified performance chain. Deployment/account/takeover identity is
+part of a deterministic performance `chain_id`. An explicit account,
+deployment, or takeover-epoch change starts a new certified anchor with no
+opening equity or inherited cumulative factor; it never computes a return
+across the boundary. Missing terminal evidence on the same economic account is
+still detected across takeover epochs before that reset is allowed.
 
 ### Current deployment consequence
 
-The present production adapter cannot issue a `VERIFIED` NAV interval because
-it has no broker-authoritative close timestamp; every account observation is
-classified as local/unverified.  Separately, the first detected paper dividend
+The present production adapter cannot issue a `VERIFIED` interval because
+Portfolio History wire semantics have not passed the bound-account acceptance
+and no complete account-wide fill publication has passed its separate
+correction/finality/fixed-boundary acceptance; both advertised capability bits
+are false. Independently, Activity SSE has append-only replay identity but no
+accepted close-cash finality/fixed-interval watermark, so its identity scheme is
+not close authority. Its documented Broker API endpoint/authentication also is
+not the Trading/Paper account interface used by this deployment, so the Alpaca
+adapter's account-cash capability and SSE scheme claim are both disabled. All
+three source contracts must be accepted. The quarantined decoder also accepts
+only completed (`status: executed`) USD events; foreign-currency economics are
+not converted or interpreted as USD. Separately, the first detected paper dividend
 produces `ALPACA_PAPER_DIVIDEND_UNSUPPORTED`; its successor receives
-`VERIFICATION_GAP`, so the chain cannot recover without an explicitly certified
-epoch/reset rule or supported dividend treatment.  These are deployment
+`VERIFICATION_GAP` within the same takeover epoch. An explicit takeover reset
+starts a new chain but does not repair or reclassify the affected old session;
+supported dividend treatment is required for an unbroken series. These are deployment
 acceptance blockers for a multi-month verified performance series, not hidden
 adjustments the verifier is allowed to approximate.
 
@@ -259,8 +376,12 @@ the verified-performance chain even though ordinary automation may safely keep
 running.  This separates an accepted simulator limitation from an execution
 failure without pretending the omitted cash was received.  The UI calls the
 primary figure `Total return`; geometric
-annualization is labelled `Annualized TWR` and uses 252 exchange sessions.  It
-is omitted when the chain is shorter than two verified marks or contains a gap.
+annualization is labelled `Annualized TWR` and uses 252 exchange sessions. The
+anchor is retained in the drawdown path but is not counted as a zero-return day
+in the annualization exponent. Annualization is omitted when the chain is
+shorter than two verified marks or contains a gap. The panel slices factors,
+drawdown, and annualization to the latest immutable `chain_id`; an epoch reset
+cannot turn a prior peak into a fictitious drawdown or cross-chain return.
 
 Marked NAV and the cash equation are attribution controls, not the performance
 source.  Performance uses actual Alpaca equity.

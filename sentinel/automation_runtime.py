@@ -47,9 +47,15 @@ from sentinel.execution.guarded import (
 )
 from sentinel.execution.identity import DeploymentIdentity
 from sentinel.execution import journal
+from sentinel.execution import target_reprojection
 from sentinel.execution.states import CommandState, RuntimeState
 from sentinel.feed import calendar, ingest, publication, readiness
 from sentinel.feed import store as feed_store
+
+
+PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE = \
+    "PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE"
+TARGET_PROJECTION_REFUSED = "TARGET_PROJECTION_REFUSED"
 
 
 def config_from_env(env: Mapping[str, str] | None = None) -> AutomationConfig:
@@ -92,9 +98,10 @@ def _grant(context: CycleContext, operation_scope: str, *, binding=None
         certificate_sha256=authority.certificate_sha256)
 
 
-def _actionable_plan_deltas(plan, observation) -> tuple:
-    """Share deltas still owed after a fresh complete observation."""
-    security_ids = set(plan.target_basket)
+def _actionable_target_deltas(
+        target_basket, observation, *, minimum_quantity_increment) -> tuple:
+    """Share deltas still owed to one already-authorized target basket."""
+    security_ids = set(target_basket)
     security_ids.update(observation.positions_by_security())
     security_ids.update(
         order.instrument.security_id for order in observation.orders)
@@ -102,10 +109,76 @@ def _actionable_plan_deltas(plan, observation) -> tuple:
         delta for security_id in sorted(security_ids)
         if (delta := execution_commands.compute_delta(
             security_id=security_id,
-            desired=plan.target_basket.get(security_id, Decimal(0)),
+            desired=target_basket.get(security_id, Decimal(0)),
             observation=observation,
-            min_increment=Decimal(1))).classification
+            min_increment=minimum_quantity_increment)).classification
         is execution_commands.DeltaClass.ACTIONABLE)
+
+
+def _all_target_deltas(
+        target_basket, observation, *, minimum_quantity_increment) -> tuple:
+    security_ids = set(target_basket)
+    security_ids.update(observation.positions_by_security())
+    security_ids.update(
+        order.instrument.security_id for order in observation.orders)
+    return tuple(
+        execution_commands.compute_delta(
+            security_id=security_id,
+            desired=target_basket.get(security_id, Decimal(0)),
+            observation=observation,
+            min_increment=minimum_quantity_increment)
+        for security_id in sorted(security_ids))
+
+
+def _actionable_projection_deltas(
+        conn, *, plan, effective_session, observation,
+        minimum_quantity_increment) -> tuple:
+    """Validate and use the durable execution-session unit projection.
+
+    The immutable plan basket is decision-close intent.  It is not necessarily
+    the number of shares owed after an effective-session split.  Automation may
+    declare convergence (or decide to re-enter execution) only from the exact
+    projection that the executor durably bound to this plan and session.
+    """
+    projection = target_reprojection.load_projection(
+        conn, plan_id=plan.plan_id)
+    if projection is None:
+        # Raw nonzero shares are not comparable across an unobserved open split,
+        # even when their numbers happen to match. Missing authority/projection
+        # can certify convergence only for an all-zero share-unit domain.
+        raw = _all_target_deltas(
+            plan.target_basket, observation,
+            minimum_quantity_increment=minimum_quantity_increment)
+        if (all(delta.classification is execution_commands.DeltaClass.NONE
+                for delta in raw)
+                and all(delta.desired == 0 and delta.held == 0
+                        and delta.committed == 0 for delta in raw)
+                and not any(order.is_working for order in observation.orders)):
+            return ()
+        raise target_reprojection.TargetProjectionRefused(
+            f"durable target projection for plan {plan.plan_id} is absent")
+    target_reprojection.assert_projection(
+        conn, plan=plan, projection=projection,
+        through_session=effective_session)
+    return _actionable_target_deltas(
+        projection.target_basket, observation,
+        minimum_quantity_increment=minimum_quantity_increment)
+
+
+def _projection_refusal_result(*, result, observation_id, exc) -> ExecuteResult:
+    detail = (
+        "automation convergence cannot validate the durable effective-session "
+        f"target projection: {exc}")
+    return ExecuteResult(
+        disposition=ExecuteDisposition.BLOCKED,
+        last_clean_reconciliation_id=str(observation_id),
+        failure_code=TARGET_PROJECTION_REFUSED,
+        failure_detail=detail,
+        diagnostic={
+            **result.to_dict(),
+            "failure_code": TARGET_PROJECTION_REFUSED,
+            "detail": detail,
+        })
 
 
 def _now_utc() -> datetime:
@@ -225,12 +298,12 @@ class ProductionAutomation:
                     raise RuntimeError("automation cycle authority is stale")
             elif (operation_scope != "RECOVER"
                     or cycle.control_generation >= control.generation
-                    or not store.cycle_transport_capable(cycle)
+                    or not store.cycle_recovery_capable(cycle)
                     or not store.adoption_identity_matches(cycle, control)
                     or cycle.last_fence_token != context.permit.fence_token):
                 raise RuntimeError(
-                    "old-generation cycle lacks current fenced recovery "
-                    "adoption")
+                    "old-generation cycle lacks current fenced read-only "
+                    "recovery adoption")
         except Exception as exc:                              # noqa: BLE001
             self._record_authority_verdict(
                 conn, context.permit, verdict="FAIL",
@@ -387,6 +460,20 @@ class ProductionAutomation:
                         context, "RECOVER", binding=control.binding),
                     automation_config_sha256=
                         self.automation_config.fingerprint)
+            except paper.PreOpenShareUnitAuthorityUnavailable as exc:
+                detail = str(exc)
+                return ExecuteResult(
+                    disposition=ExecuteDisposition.BLOCKED,
+                    failure_code=PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE,
+                    failure_detail=detail,
+                    diagnostic={
+                        "failure_code":
+                            PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE,
+                        "detail": detail,
+                        "plan_id": cycle.plan_id,
+                        "effective_session":
+                            cycle.effective_session.isoformat(),
+                    })
             except paper.PaperRetryableRefused:
                 raise
             except (AuthorityRefused, BrokerAuthorityRefused,
@@ -462,8 +549,18 @@ class ProductionAutomation:
                                 "current-generation recovery cycle does not "
                                 "name the durable current plan"),
                             diagnostic=result.to_dict())
-                    actionable = _actionable_plan_deltas(
-                        plan, result.observation)
+                    try:
+                        actionable = _actionable_projection_deltas(
+                            conn, plan=plan,
+                            effective_session=cycle.effective_session,
+                            observation=result.observation,
+                            minimum_quantity_increment=(
+                                broker.capabilities
+                                .minimum_quantity_increment))
+                    except target_reprojection.TargetProjectionRefused as exc:
+                        return _projection_refusal_result(
+                            result=result,
+                            observation_id=result.observation_id, exc=exc)
                     if actionable:
                         terminal_refusals = journal.load_commands(
                             conn, deployment, plan_id=cycle.plan_id,
@@ -542,6 +639,20 @@ class ProductionAutomation:
                         context, "EXECUTE", binding=control.binding),
                     automation_config_sha256=
                         self.automation_config.fingerprint)
+            except paper.PreOpenShareUnitAuthorityUnavailable as exc:
+                detail = str(exc)
+                return ExecuteResult(
+                    disposition=ExecuteDisposition.BLOCKED,
+                    failure_code=PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE,
+                    failure_detail=detail,
+                    diagnostic={
+                        "failure_code":
+                            PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE,
+                        "detail": detail,
+                        "plan_id": cycle.plan_id,
+                        "effective_session":
+                            cycle.effective_session.isoformat(),
+                    })
             except paper.PaperRetryableRefused:
                 raise
             except (AuthorityRefused, BrokerAuthorityRefused,
@@ -564,14 +675,11 @@ class ProductionAutomation:
                 broker_account_id=cycle.broker_account_id,
                 takeover_epoch=cycle.takeover_epoch)
             in_flight = journal.in_flight_commands(conn, deployment)
-            actionable = (
-                _actionable_plan_deltas(
-                    result.plan, final_reconciliation.observation)
-                if reconciliation_id is not None else ())
             terminal_refusals = tuple(
                 command for command in result.session.submitted
                 if command.state in {
                     CommandState.REJECTED, CommandState.CANCELLED})
+            actionable = ()
             # An executor result carries the last reconciliation it needed to
             # authorize transport; for a pure BUY that observation predates
             # the newly ACKNOWLEDGED order.  Submission is therefore never a
@@ -582,9 +690,6 @@ class ProductionAutomation:
                 disposition = ExecuteDisposition.BLOCKED
             elif result.session.submitted or in_flight:
                 disposition = ExecuteDisposition.RECONCILE
-            elif (not result.needs_attention
-                  and reconciliation_id is not None and not actionable):
-                disposition = ExecuteDisposition.SUCCEEDED
             elif (final_reconciliation is not None
                   and (final_reconciliation.runtime_state
                        is RuntimeState.RECONCILING
@@ -597,7 +702,24 @@ class ProductionAutomation:
                   or result.session.runtime_state is not RuntimeState.RUNNING):
                 disposition = ExecuteDisposition.BLOCKED
             else:
-                disposition = ExecuteDisposition.RECONCILE
+                if reconciliation_id is not None:
+                    try:
+                        actionable = _actionable_projection_deltas(
+                            conn, plan=result.plan,
+                            effective_session=cycle.effective_session,
+                            observation=final_reconciliation.observation,
+                            minimum_quantity_increment=(
+                                broker.capabilities
+                                .minimum_quantity_increment))
+                    except target_reprojection.TargetProjectionRefused as exc:
+                        return _projection_refusal_result(
+                            result=result,
+                            observation_id=reconciliation_id, exc=exc)
+                disposition = (
+                    ExecuteDisposition.SUCCEEDED
+                    if (not result.needs_attention
+                        and reconciliation_id is not None and not actionable)
+                    else ExecuteDisposition.RECONCILE)
             return ExecuteResult(
                 disposition=disposition,
                 last_clean_reconciliation_id=reconciliation_id,
@@ -830,4 +952,8 @@ class ProductionAutomation:
             max_ticks=max_ticks)
 
 
-__all__ = ["ProductionAutomation", "config_from_env"]
+__all__ = [
+    "PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE",
+    "TARGET_PROJECTION_REFUSED",
+    "ProductionAutomation", "config_from_env",
+]

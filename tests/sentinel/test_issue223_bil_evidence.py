@@ -1,7 +1,7 @@
 """Issue #223 — BIL is published evidence, never an SEP/cash substitute."""
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -283,29 +283,6 @@ def test_missing_bil_mark_is_explicitly_unpriced_not_a_cash_decision():
     assert sized.defensive_quantity == 0
     assert sized.cash_residual == Decimal("4500")
     assert sized.unpriced == ("SENTINEL:BIL",)
-
-
-def test_trial_account_mark_must_be_at_the_real_xnys_close_boundary():
-    from sentinel.feed import calendar
-
-    session = date(2026, 8, 20)
-    _opened, closed = calendar.session_window(session)
-
-    assert trial._valuation_timestamp_aligned(  # noqa: SLF001
-        session, closed, closed, closed, closed,
-        trial.BROKER_CLOSE_TIMESTAMP_AUTHORITY)
-    assert not trial._valuation_timestamp_aligned(  # noqa: SLF001
-        session, closed, closed + timedelta(minutes=15), closed, closed,
-        trial.BROKER_CLOSE_TIMESTAMP_AUTHORITY)
-    assert not trial._valuation_timestamp_aligned(  # noqa: SLF001
-        session, closed - timedelta(seconds=1), closed, closed, closed,
-        trial.BROKER_CLOSE_TIMESTAMP_AUTHORITY)
-    assert not trial._valuation_timestamp_aligned(  # noqa: SLF001
-        session, closed, closed, closed - timedelta(seconds=1), closed,
-        trial.BROKER_CLOSE_TIMESTAMP_AUTHORITY)
-    assert not trial._valuation_timestamp_aligned(  # noqa: SLF001
-        session, closed, closed, closed, closed,
-        trial.LOCAL_TIMESTAMP_AUTHORITY)
 
 
 def _previous_bil_book(*, position="12", commands=(), reason_codes=()):

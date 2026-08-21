@@ -205,7 +205,7 @@ def _detail_sections(panel: Panel) -> str:
     accounting = [
         ("external capital", cash.get("external", "")),
         ("internal strategy cash", cash.get("internal", "")),
-        ("marked account NAV", nav.get("marked_nav", "")),
+        ("independent close NAV", nav.get("marked_nav", "")),
         ("unexplained residual", nav.get("unexplained", "")),
         ("financial tolerance", nav.get("tolerance", "")),
     ]
@@ -260,7 +260,7 @@ def _detail_sections(panel: Panel) -> str:
         ("Corporate actions and terminals", _table(
             ("Security", "Applied share multiplier"), corporate_rows)),
         ("Trial session history", _table(
-            ("Session", "Verdict", "Cycle", "Equity", "Daily", "Total",
+            ("Session", "Verdict", "Cycle", "Close equity", "Daily", "Total",
              "External", "Reasons"), history_rows)),
     ]
     return "".join(

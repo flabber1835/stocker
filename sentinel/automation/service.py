@@ -176,7 +176,7 @@ class AutomationService:
             control, heartbeat_conn_factory=None) -> TickResult:
         """Resolve one fenced obligation without ever executing its old plan."""
         integrity.validate_cycle_lineage(conn, cycle)
-        if not store.cycle_transport_capable(cycle):
+        if not store.cycle_recovery_capable(cycle):
             adopted = store.adopt_cycle(
                 conn, permit=permit, cycle_id=cycle.cycle_id,
                 to_state=CycleState.SUPERSEDED,
@@ -199,8 +199,8 @@ class AutomationService:
                 to_state=CycleState.BLOCKED,
                 failure_code="ADOPTION_ACCOUNT_IDENTITY_MISMATCH",
                 failure_detail=(
-                    "ambiguous old-generation transport belongs to a "
-                    "different deployment, paper account, or takeover epoch"),
+                    "old-generation recovery belongs to a different "
+                    "deployment, paper account, or takeover epoch"),
                 diagnostic={
                     "adopting_control_generation": control.generation,
                     "originating_control_generation":
@@ -212,6 +212,11 @@ class AutomationService:
 
         adopted = store.adopt_cycle(
             conn, permit=permit, cycle_id=cycle.cycle_id)
+        if store.cycle_preflight_recovery_pending(adopted):
+            return await self._run_preflight_recover(
+                conn, now=now, cycle=adopted, permit=permit,
+                heartbeat_conn_factory=heartbeat_conn_factory,
+                supersede_on_success=True)
         return await self._run_recover(
             conn, now=now, cycle=adopted, permit=permit,
             heartbeat_conn_factory=heartbeat_conn_factory)
@@ -363,6 +368,12 @@ class AutomationService:
         if (prior is not None
                 and prior.decision_session < obligation.decision_session
                 and not prior.state.terminal):
+            retry_phase = str(prior.diagnostic.get("retry_phase", ""))
+            if store.cycle_preflight_recovery_pending(prior):
+                return await self._run_preflight_recover(
+                    conn, now=now, cycle=prior, permit=permit,
+                    heartbeat_conn_factory=heartbeat_conn_factory,
+                    supersede_on_success=True)
             if store.cycle_transport_capable(prior):
                 recovery = await self._run_recover(
                     conn, now=now, cycle=prior, permit=permit,
@@ -379,7 +390,10 @@ class AutomationService:
                 CycleState.PLAN_READY,
                 CycleState.WAITING_OPEN,
             }
-            if (prior.state in pre_transport
+            stale_pre_transport_retry = (
+                prior.state is CycleState.RETRY_WAIT
+                and retry_phase in {"", "PREPARE", "REFRESH"})
+            if ((prior.state in pre_transport or stale_pre_transport_retry)
                     and now >= prior.execution_close_at):
                 prior = store.transition_cycle(
                     conn, permit=permit, cycle_id=prior.cycle_id,
@@ -407,10 +421,15 @@ class AutomationService:
         if unresolved is not None:
             integrity.validate_cycle_lineage(conn, unresolved)
             phase = str(unresolved.diagnostic.get("retry_phase", ""))
+            if store.cycle_preflight_recovery_pending(unresolved):
+                return await self._run_preflight_recover(
+                    conn, now=now, cycle=unresolved, permit=permit,
+                    heartbeat_conn_factory=heartbeat_conn_factory,
+                    supersede_on_success=True)
             if (unresolved.state in {
                     CycleState.EXECUTING, CycleState.RECONCILING}
                     or phase in {
-                        "EXECUTE", "RECOVER", "PREFLIGHT_RECOVER"}):
+                        "EXECUTE", "RECOVER"}):
                 return await self._run_recover(
                     conn, now=now, cycle=unresolved, permit=permit,
                     heartbeat_conn_factory=heartbeat_conn_factory)
@@ -436,8 +455,12 @@ class AutomationService:
                 action=TickAction.WAITING, cycle=cycle, permit=permit,
                 reason=f"cycle is {cycle.state.value}")
 
-        if (store.cycle_transport_capable(cycle)
+        if (store.cycle_recovery_capable(cycle)
                 and cycle.last_fence_token != permit.fence_token):
+            if store.cycle_preflight_recovery_pending(cycle):
+                return await self._run_preflight_recover(
+                    conn, now=now, cycle=cycle, permit=permit,
+                    heartbeat_conn_factory=heartbeat_conn_factory)
             return await self._run_recover(
                 conn, now=now, cycle=cycle, permit=permit,
                 heartbeat_conn_factory=heartbeat_conn_factory)
@@ -612,8 +635,21 @@ class AutomationService:
 
     async def _run_preflight_recover(
             self, conn, *, now: datetime, cycle: CycleRecord,
-            permit, heartbeat_conn_factory=None) -> TickResult:
+            permit, heartbeat_conn_factory=None,
+            supersede_on_success: bool = False) -> TickResult:
         """Prove the shared journal clean before any new publication."""
+        if cycle.last_fence_token != permit.fence_token:
+            cycle = store.adopt_cycle(
+                conn, permit=permit, cycle_id=cycle.cycle_id)
+        if (cycle.state is CycleState.RECONCILING
+                and store.cycle_preflight_recovery_pending(cycle)):
+            cycle = self._recover_transition(
+                conn, permit=permit, cycle=cycle,
+                to_state=CycleState.RETRY_WAIT,
+                next_wake_at=cycle.next_wake_at,
+                failure_code=cycle.failure_code,
+                failure_detail=cycle.failure_detail,
+                diagnostic=cycle.diagnostic)
         try:
             permit = store.require_leader(conn, permit)
             raw = await self._invoke(
@@ -628,8 +664,8 @@ class AutomationService:
         except Exception as exc:                                  # noqa: BLE001
             store.require_leader(conn, permit)
             if self._nonretryable(exc):
-                cycle = store.transition_cycle(
-                    conn, permit=permit, cycle_id=cycle.cycle_id,
+                cycle = self._recover_transition(
+                    conn, permit=permit, cycle=cycle,
                     to_state=CycleState.BLOCKED, next_wake_at=None,
                     failure_code=type(exc).__name__,
                     failure_detail=str(exc)[:4000],
@@ -639,11 +675,12 @@ class AutomationService:
                     action=TickAction.BLOCKED, cycle=cycle, permit=permit,
                     reason=str(exc))
             if cycle.state is CycleState.RETRY_WAIT:
-                cycle = store.transition_cycle(
-                    conn, permit=permit, cycle_id=cycle.cycle_id,
-                    to_state=CycleState.RECONCILING)
-            cycle = store.transition_cycle(
-                conn, permit=permit, cycle_id=cycle.cycle_id,
+                if cycle.control_generation == permit.control_generation:
+                    cycle = store.transition_cycle(
+                        conn, permit=permit, cycle_id=cycle.cycle_id,
+                        to_state=CycleState.RECONCILING)
+            cycle = self._recover_transition(
+                conn, permit=permit, cycle=cycle,
                 to_state=CycleState.RETRY_WAIT,
                 next_wake_at=self._retry_at(now, cycle.attempt_count),
                 failure_code=type(exc).__name__, failure_detail=str(exc)[:4000],
@@ -652,6 +689,30 @@ class AutomationService:
                 action=TickAction.RETRY_SCHEDULED, cycle=cycle, permit=permit,
                 reason=str(exc))
 
+        if (supersede_on_success
+                and result.disposition in {
+                    ExecuteDisposition.SUCCEEDED,
+                    ExecuteDisposition.SUPERSEDED,
+                }):
+            cycle = self._recover_transition(
+                conn, permit=permit, cycle=cycle,
+                to_state=CycleState.SUPERSEDED,
+                next_wake_at=None,
+                last_clean_reconciliation_id=
+                    result.last_clean_reconciliation_id,
+                failure_code="STALE_PREFLIGHT_RECOVERED",
+                failure_detail=(
+                    "the shared journal is clean, but this preflight cycle "
+                    "never prepared or executed a plan before a newer "
+                    "decision-session obligation became due"),
+                diagnostic={
+                    **dict(result.diagnostic),
+                    "preflight_recovery_complete": True,
+                    "stale_preflight_superseded": True,
+                })
+            return TickResult(
+                action=TickAction.SUPERSEDED, cycle=cycle, permit=permit,
+                reason=cycle.failure_detail)
         if result.disposition is ExecuteDisposition.SUCCEEDED:
             cycle = store.transition_cycle(
                 conn, permit=permit, cycle_id=cycle.cycle_id,
@@ -667,12 +728,13 @@ class AutomationService:
                 action=TickAction.RECOVERED, cycle=cycle, permit=permit,
                 reason="journal is clean before publication")
         if cycle.state is CycleState.RETRY_WAIT:
-            cycle = store.transition_cycle(
-                conn, permit=permit, cycle_id=cycle.cycle_id,
-                to_state=CycleState.RECONCILING)
+            if cycle.control_generation == permit.control_generation:
+                cycle = store.transition_cycle(
+                    conn, permit=permit, cycle_id=cycle.cycle_id,
+                    to_state=CycleState.RECONCILING)
         if result.disposition is ExecuteDisposition.BLOCKED:
-            cycle = store.transition_cycle(
-                conn, permit=permit, cycle_id=cycle.cycle_id,
+            cycle = self._recover_transition(
+                conn, permit=permit, cycle=cycle,
                 to_state=CycleState.BLOCKED, next_wake_at=None,
                 last_clean_reconciliation_id=
                     result.last_clean_reconciliation_id,
@@ -682,8 +744,8 @@ class AutomationService:
             return TickResult(
                 action=TickAction.BLOCKED, cycle=cycle, permit=permit,
                 reason=result.failure_detail or result.failure_code)
-        cycle = store.transition_cycle(
-            conn, permit=permit, cycle_id=cycle.cycle_id,
+        cycle = self._recover_transition(
+            conn, permit=permit, cycle=cycle,
             to_state=CycleState.RETRY_WAIT,
             next_wake_at=self._retry_at(now, cycle.attempt_count),
             last_clean_reconciliation_id=
@@ -765,6 +827,11 @@ class AutomationService:
                 action=TickAction.RECOVERED, cycle=cycle, permit=permit,
                 reason="read-only recovery reached clean reconciliation")
         if result.disposition is ExecuteDisposition.SUPERSEDED:
+            if (cycle.control_generation == permit.control_generation
+                    and cycle.state is CycleState.EXECUTING):
+                cycle = store.transition_cycle(
+                    conn, permit=permit, cycle_id=cycle.cycle_id,
+                    to_state=CycleState.RECONCILING)
             cycle = self._recover_transition(
                 conn, permit=permit, cycle=cycle,
                 to_state=CycleState.SUPERSEDED, next_wake_at=None, **common)

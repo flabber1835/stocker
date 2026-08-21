@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import abc
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Optional, Sequence
@@ -80,6 +80,15 @@ class CapabilityNotCertified(RuntimeError):
     """
 
 
+class MalformedBrokerEvidence(RuntimeError):
+    """A broker answered, but the answer cannot satisfy the typed contract.
+
+    This is distinct from transport unavailability.  Retrying an unreadable or
+    contradictory historical point must not make it look like a temporary
+    outage that can eventually become authority without intervention.
+    """
+
+
 @dataclass(frozen=True)
 class BrokerCapabilities:
     """What this adapter is CERTIFIED to do, not what its broker might manage.
@@ -95,8 +104,23 @@ class BrokerCapabilities:
     minimum_quantity_increment: Decimal = Decimal(1)
     complete_order_pagination: bool = False
     recent_fill_history: bool = False
+    # Account cash activity is financial authority, not a convenience inferred
+    # from method presence. A parser remains quarantined until its endpoint,
+    # credentials, account scope, replay, and correction semantics are accepted.
+    account_cash_activity_evidence: bool = False
+    # A complete, account-wide, broker-native fill interval is stronger than
+    # ``recent_fill_history``.  The latter is a recovery convenience and may
+    # omit foreign orders, native activity identity, corrections, or an exact
+    # processed-through boundary.  Close accounting must require this separate
+    # capability and it is false until a real adapter earns it.
+    account_fill_interval_evidence: bool = False
     instrument_identity: bool = False
     account_bound_observation: bool = False
+    # Historical broker close valuation is a separately certified capability.
+    # The presence of an adapter method is deliberately insufficient: a vendor
+    # response cannot become close authority until its timestamp/session
+    # semantics have been validated against the real broker.
+    account_close_valuation: bool = False
     market_on_open: bool = False
 
     def __post_init__(self) -> None:
@@ -160,6 +184,87 @@ class BrokerAccountSnapshot:
 
 
 @dataclass(frozen=True)
+class BrokerCloseValuation:
+    """One quarantined broker portfolio-history point.
+
+    ``source_timestamp`` is intentionally opaque.  Portfolio-history vendors
+    can left-label an interval while valuing it at the interval end, and even
+    Alpaca's retained examples disagree about whether the integer is seconds or
+    milliseconds.  An adapter must therefore retain the wire integer without
+    converting it until a separately reviewed acceptance contract supplies both
+    ``source_timestamp_unit`` and ``valuation_at``.
+
+    Merely constructing this value is not a claim of close authority.  That
+    claim is represented by :class:`BrokerCapabilities` and defaults to false.
+    """
+
+    identity: BrokerAccountIdentity
+    requested_session: date
+    equity: Decimal
+    source_timestamp: int
+    source_timeframe: str
+    source: str
+    semantics: str
+    request_started_at: datetime
+    request_completed_at: datetime
+    query: tuple[tuple[str, str], ...]
+    source_timestamp_unit: Optional[str] = None
+    valuation_at: Optional[datetime] = None
+    raw: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.identity, BrokerAccountIdentity):
+            raise TypeError("BrokerCloseValuation.identity must be typed")
+        if type(self.requested_session) is not date:
+            raise TypeError(
+                "BrokerCloseValuation.requested_session must be a date")
+        _require_decimal("BrokerCloseValuation.equity", self.equity)
+        if not self.equity.is_finite() or self.equity <= 0:
+            raise ValueError(
+                "BrokerCloseValuation.equity must be positive and finite")
+        if (isinstance(self.source_timestamp, bool)
+                or not isinstance(self.source_timestamp, int)
+                or self.source_timestamp < 1):
+            raise ValueError(
+                "BrokerCloseValuation.source_timestamp must be a positive "
+                "opaque integer")
+        for name in ("source_timeframe", "source", "semantics"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"BrokerCloseValuation.{name} must be non-empty")
+        for name in ("request_started_at", "request_completed_at"):
+            value = getattr(self, name)
+            if (not isinstance(value, datetime) or value.tzinfo is None
+                    or value.utcoffset() is None):
+                raise ValueError(
+                    f"BrokerCloseValuation.{name} must be timezone-aware")
+        if self.request_started_at > self.request_completed_at:
+            raise ValueError(
+                "BrokerCloseValuation request begins after it completes")
+        if (not isinstance(self.query, tuple)
+                or not self.query
+                or any(not isinstance(item, tuple) or len(item) != 2
+                       or not all(isinstance(part, str) and part
+                                  for part in item)
+                       for item in self.query)
+                or len({key for key, _value in self.query}) != len(self.query)):
+            raise ValueError(
+                "BrokerCloseValuation.query must contain unique non-empty "
+                "string pairs")
+        if (self.source_timestamp_unit is not None
+                and (not isinstance(self.source_timestamp_unit, str)
+                     or not self.source_timestamp_unit.strip())):
+            raise ValueError(
+                "BrokerCloseValuation.source_timestamp_unit must be non-empty")
+        if (self.valuation_at is not None
+                and (not isinstance(self.valuation_at, datetime)
+                     or self.valuation_at.tzinfo is None
+                     or self.valuation_at.utcoffset() is None)):
+            raise ValueError(
+                "BrokerCloseValuation.valuation_at must be timezone-aware")
+
+
+@dataclass(frozen=True)
 class BrokerInstrument:
     """A security as the broker knows it.
 
@@ -197,6 +302,132 @@ class BrokerFill:
     def __post_init__(self) -> None:
         _require_decimal("BrokerFill.quantity", self.quantity)
         _require_decimal("BrokerFill.price", self.price)
+
+
+@dataclass(frozen=True)
+class BrokerAccountFill:
+    """One broker-native row from a complete account-wide fill interval.
+
+    ``activity_id`` is the broker's immutable account-scoped identity, not a
+    hash synthesized from a response. ``client_key`` is optional because a
+    complete account ledger must retain foreign fills too; the trial verifier
+    refuses rather than dropping a row that does not bind to a Sentinel key.
+    """
+
+    activity_id: str
+    broker_order_id: str
+    client_key: Optional[str]
+    quantity: Decimal
+    price: Decimal
+    filled_at: datetime
+    raw: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.activity_id, str) or not self.activity_id.strip():
+            raise ValueError("BrokerAccountFill.activity_id must be non-empty")
+        if (not isinstance(self.broker_order_id, str)
+                or not self.broker_order_id.strip()):
+            raise ValueError(
+                "BrokerAccountFill.broker_order_id must be non-empty")
+        if self.client_key is not None and (
+                not isinstance(self.client_key, str)
+                or not self.client_key.strip()):
+            raise ValueError(
+                "BrokerAccountFill.client_key must be non-empty when present")
+        _require_decimal("BrokerAccountFill.quantity", self.quantity)
+        _require_decimal("BrokerAccountFill.price", self.price)
+        if (not self.quantity.is_finite() or self.quantity <= 0
+                or not self.price.is_finite() or self.price <= 0):
+            raise ValueError(
+                "BrokerAccountFill quantity and price must be positive and finite")
+        if (not isinstance(self.filled_at, datetime)
+                or self.filled_at.tzinfo is None
+                or self.filled_at.utcoffset() is None):
+            raise ValueError(
+                "BrokerAccountFill.filled_at must be timezone-aware")
+        if not isinstance(self.raw, dict):
+            raise TypeError("BrokerAccountFill.raw must be a dict")
+
+
+@dataclass(frozen=True)
+class BrokerFillIntervalEvidence:
+    """One complete account-wide fill publication through a fixed boundary.
+
+    This is deliberately not produced from ``recent_fills``.  A certified
+    adapter must prove account identity, native row identity, completeness and
+    an inclusive processed-through boundary.  Request timestamps are only
+    provenance and never manufacture that broker boundary.
+    """
+
+    identity: BrokerAccountIdentity
+    requested_session: date
+    interval_start: datetime
+    processed_through: datetime
+    fills: tuple[BrokerAccountFill, ...]
+    completeness: Completeness
+    source: str
+    semantics: str
+    request_started_at: datetime
+    request_completed_at: datetime
+    query: tuple[tuple[str, str], ...]
+    raw: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.identity, BrokerAccountIdentity):
+            raise TypeError(
+                "BrokerFillIntervalEvidence.identity must be typed")
+        if type(self.requested_session) is not date:
+            raise TypeError(
+                "BrokerFillIntervalEvidence.requested_session must be a date")
+        for name in (
+                "interval_start", "processed_through", "request_started_at",
+                "request_completed_at"):
+            value = getattr(self, name)
+            if (not isinstance(value, datetime) or value.tzinfo is None
+                    or value.utcoffset() is None):
+                raise ValueError(
+                    f"BrokerFillIntervalEvidence.{name} must be timezone-aware")
+        if self.interval_start > self.processed_through:
+            raise ValueError("fill interval begins after its processed boundary")
+        if self.processed_through > self.request_started_at:
+            raise ValueError(
+                "fill processed boundary must be fixed before the request")
+        if self.request_started_at > self.request_completed_at:
+            raise ValueError("fill interval request begins after it completes")
+        if not isinstance(self.completeness, Completeness):
+            raise TypeError(
+                "BrokerFillIntervalEvidence.completeness must be typed")
+        if not isinstance(self.fills, tuple) or not all(
+                isinstance(fill, BrokerAccountFill) for fill in self.fills):
+            raise TypeError(
+                "BrokerFillIntervalEvidence.fills must be typed account fills")
+        activity_ids = [fill.activity_id for fill in self.fills]
+        if len(activity_ids) != len(set(activity_ids)):
+            raise ValueError(
+                "BrokerFillIntervalEvidence repeats a native activity id")
+        if any(not (self.interval_start <= fill.filled_at
+                    <= self.processed_through) for fill in self.fills):
+            raise ValueError(
+                "fill lies outside the declared account interval")
+        for name in ("source", "semantics"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(
+                    f"BrokerFillIntervalEvidence.{name} must be non-empty")
+        if not isinstance(self.query, tuple) or not self.query:
+            raise TypeError(
+                "BrokerFillIntervalEvidence.query must contain query pairs")
+        keys: set[str] = set()
+        for item in self.query:
+            if (not isinstance(item, tuple) or len(item) != 2
+                    or not all(isinstance(value, str) and value
+                               for value in item)
+                    or item[0] in keys):
+                raise ValueError(
+                    "BrokerFillIntervalEvidence.query is malformed or repeated")
+            keys.add(item[0])
+        if not isinstance(self.raw, dict):
+            raise TypeError("BrokerFillIntervalEvidence.raw must be a dict")
 
 
 @dataclass(frozen=True)
@@ -435,6 +666,19 @@ class ExecutionBroker(abc.ABC):
         """
         raise NotImplementedError("this execution adapter has no typed account snapshot")
 
+    async def account_close_valuation(
+            self, *, session: date) -> BrokerCloseValuation:
+        """Optional broker-native historical close valuation.
+
+        A concrete method does not advertise authority by itself.  Callers must
+        also require ``capabilities.account_close_valuation``; this keeps a
+        quarantined wire parser callable by an acceptance harness without
+        making it production financial evidence.
+        """
+        del session
+        raise NotImplementedError(
+            "this execution adapter has no certified close valuation")
+
     async def resolve_instrument(self, *, security_id: str,
                                  symbol: str) -> BrokerInstrument:
         """Resolve one permanent identity to a broker-native asset.
@@ -464,10 +708,11 @@ class ExecutionBroker(abc.ABC):
                                       since_event_id: str | None = None):
         """Optional broker-native cash activity evidence for balance recovery.
 
-        The durable cash-ingest path requires a concrete adapter override. The
-        default exists so the broker port, guarded wrapper and operation enum stay
-        introspectably complete without making legacy/simulator adapters claim a
-        capability they do not implement. Activity-SSE adapters use
+        The durable cash-ingest path requires both a concrete adapter override
+        and ``capabilities.account_cash_activity_evidence``. The default exists
+        so the broker port, guarded wrapper and operation enum stay introspectably
+        complete without making legacy/simulator adapters claim a capability they
+        do not implement. Activity-SSE adapters use
         ``since_event_id`` as the gap-free publication cursor; timestamp-only
         adapters may reject or ignore it because the generic ingest supplies it
         only to brokers that explicitly advertise ``financial_activity_sse``.
@@ -521,3 +766,18 @@ class ExecutionBroker(abc.ABC):
     @abc.abstractmethod
     async def recent_fills(self, since: datetime) -> Sequence[BrokerFill]:
         """Fills since `since`, for reconstructing what happened while down."""
+
+    async def account_fill_interval_evidence(
+            self, *, session: date,
+            interval_start: datetime) -> BrokerFillIntervalEvidence:
+        """Optional complete account-wide fill ledger for close accounting.
+
+        Method presence is not certification.  Production callers must also
+        require ``capabilities.account_fill_interval_evidence``.  The default
+        remains unavailable because an ordinary recent-fill endpoint cannot
+        prove negative space, native identity, corrections, or a fixed upper
+        boundary.
+        """
+        del session, interval_start
+        raise NotImplementedError(
+            "this execution adapter has no certified account fill interval")

@@ -42,6 +42,20 @@ inversion, not a second implementation.
 - A cycle state, a leader lease, or a green panel is never evidence that a
   broker side effect occurred. Only the command journal plus complete broker
   reconciliation establishes external truth.
+- A prior-close corpus is not next-open share-unit authority. After clean
+  reconciliation, Stage 4 may complete without a record only when the active
+  share-unit set is empty: zero targets, zero holdings and no working command or
+  broker order. Numerical equality of nonzero raw target/held shares cannot
+  attest that no split occurred. Every other invocation must present the immutable,
+  session/plan/identity-complete pre-open authority defined by the execution
+  contract. Missing authority terminalizes the cycle as
+  `PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE`; it is not retried into the open
+  and an empty Alpaca action response cannot satisfy it. `SENTINEL:BIL` is in
+  the exact covered set only when its target/expected book is nonzero or it has
+  an in-flight command, not merely because plans retain a zero BIL key. The
+  producer is operationally absent and no trusted issuer/authenticator is
+  configured; arbitrary local record insertion is not reviewed production
+  authority.
 
 ## 2. Durable control and activation
 
@@ -100,6 +114,12 @@ appending an event containing the adopting generation and fencing token:
   `WAITING_OPEN`, and preparation/refresh retry cycles have no durable broker
   transport boundary. Adoption terminalizes them as `SUPERSEDED`; their old
   plan, if any, can never become executable.
+- `RETRY_WAIT/PREFLIGHT_RECOVER` is also pre-transport. It may use the fenced
+  read-only recovery grant to prove the shared journal clean, but that proof is
+  not strategy execution. If its decision obligation is stale, clean recovery
+  terminalizes it as `SUPERSEDED` (`STALE_PREFLIGHT_RECOVERED`), never
+  `SUCCEEDED`; a planless cycle is forbidden from entering `SUCCEEDED` at the
+  store boundary.
 - `EXECUTING`, `RECONCILING`, and execution/recovery retry cycles may have an
   externally ambiguous command. Adoption first invokes only the injected
   read-only recovery path under the current signed paper-account authority.
@@ -126,6 +146,16 @@ session close also enters read-only recovery immediately. It is never returned
 as a merely in-memory blocked result and never resumes the mutation callback;
 the recovery result is persisted as `SUCCEEDED`, `SUPERSEDED`, `RETRY_WAIT`,
 or `BLOCKED`.
+
+The same progression rule applies without a generation change. Once a newer
+closed decision obligation exists and the old execution window has ended,
+`RETRY_WAIT/PREPARE` and `RETRY_WAIT/REFRESH` terminalize as
+`SUPERSEDED/MISSED_EXECUTION_WINDOW`; they do not remain in-memory blocked
+forever. The next current obligation can then re-enter preparation, including
+retrying any still-due prior close finalization. A stale preflight recovery is
+routed through its own handler, never ordinary execution recovery. When
+ordinary recovery returns `SUPERSEDED` from `EXECUTING`, the durable path is
+`EXECUTING -> RECONCILING -> SUPERSEDED`, matching the transition graph.
 
 ## 3. Leader lease and fencing
 
@@ -764,11 +794,43 @@ validity window at database time. Revocation, expiry, a missing lifecycle, or a
 certificate mismatch overrides the cached PASS and renders failure.
 
 The paper-trial financial headline is governed separately by
-`docs/sentinel-trial-verification.md`.  Operationally safe cycle outcomes do
-not imply verified realized performance.  The automation gateway captures
-broker/account evidence and the persistent loop appends one immutable,
-versioned verification record after each terminal session cycle; the panel
-only projects that already-earned record.
+`docs/sentinel-trial-verification.md`. Operationally safe cycle outcomes do not
+imply verified realized performance. A non-success terminal cycle immediately
+freezes one immutable `NOT_VERIFIED` row and remains red. A `SUCCEEDED` cycle
+does not freeze an open-time verdict: it waits for the later historical-close
+record, a COMPLETE account-wide native fill interval, an accepted close-cash
+finality watermark, and post-close
+finalization. Missing or future-dated source evidence keeps the cycle pending;
+complete evidence that fails an economic clause freezes red. The panel only
+projects evidence already earned by those paths.
+
+Terminal transition and financial callback are separate crash boundaries.
+Before a later success can verify, the v3 verifier requires an exact immutable
+terminal row for every earlier cycle on the same deployment/broker/account,
+including across takeover epochs. A missing callback or older nonterminal cycle
+is `VERIFICATION_GAP`; exact legacy v1/v2 terminal rows count only as upgrade
+callback boundaries and never as return predecessors.
+
+Final financial verification requires an immutable broker historical-close
+record, an immutable account-wide fill interval beginning at the plan's
+authoritative cash boundary, and a separately accepted fixed close-cash interval
+or publication-finality watermark. The ordinary `/v2/account` response remains a
+later live diagnostic, while recent fills and Sentinel's command journal remain
+recovery caches rather than account-wide absence proof.
+Pinning Portfolio History's timestamp unit, session mapping,
+availability/finality, and revision behavior is a future adapter-promotion
+requirement; the generic retained-object validator does not itself whitelist
+those semantics. Native fill correction/finality, account-wide completeness,
+and a fixed inclusive upper boundary require their own real-account acceptance.
+Activity SSE's append-only cursor can detect a later publication but cannot
+prove that none will arrive, and is therefore not on the close-cash finality
+path. No global scheme string promotes retained baselines; future finality must
+be immutable evidence bound to the plan/account/close session. The Alpaca
+adapter currently advertises neither close/fill capability, so source
+transport/parser failure is retryable and the due success cannot be superseded.
+Once a typed object has been accepted and reaches durable validation, a
+malformed binding/boundary is a hard refusal and a changed retained source
+point raises its historical-revision refusal.
 
 ## 9. Required adversarial evidence
 

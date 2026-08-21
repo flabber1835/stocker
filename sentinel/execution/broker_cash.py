@@ -32,15 +32,27 @@ DETAIL_PREFIX = "broker-cash/v1;"
 ACTIVITY_CURSOR_PREFIX = "broker-cash-activity:v1:"
 PLAN_BASELINE_PREFIX = "broker-cash-plan:v1:"
 ACTIVITY_OVERLAP = timedelta(minutes=5)
+# This scheme is earned only by the accepted Alpaca Activity-SSE traversal:
+# full owned-account bootstrap, monotonic event cursor, immutable native ref_id,
+# and explicit correction/bust refusal.  A timestamp-paged REST activity reader
+# does not have equivalent negative-space authority.
+ACTIVITY_IDENTITY_SCHEME = "alpaca-activity-sse-cash-ref/v1"
+# Compatibility sentinel only.  An append-only identity detects a changed event
+# set after publication but can never, by global scheme promotion, prove that a
+# particular plan/session interval has finished publishing.  This set is kept
+# empty so old state cannot become retroactively authoritative; a future source
+# must add immutable plan/session-bound finality evidence, not add a string here.
+CLOSE_FINALITY_IDENTITY_SCHEMES: frozenset[str] = frozenset()
 
-# These are capital crossing the account boundary rather than strategy income or
-# expense.  Cash journals stay INTERNAL: the broker says that cash moved, but a
-# journal label alone does not prove that new investor capital entered.
-EXTERNAL_ACTIVITY_TYPES = frozenset({"CSD", "CSW", "ACATC"})
+# These are capital crossing the owned account boundary rather than strategy
+# income or expense. Inter-account cash journals are external to this strategy
+# account even when both accounts share a firm owner; their sign carries the
+# inbound/outbound direction.
+EXTERNAL_ACTIVITY_TYPES = frozenset({
+    "CSD", "CSW", "ACATC", "MEM", "JNL", "JNLC"})
 INTERNAL_ACTIVITY_TYPES = frozenset({
     "FEE", "CFEE",
     "INT", "INTNRA", "INTTW",
-    "JNL", "JNLC",
     "DIV", "DIVCGL", "DIVCGS", "DIVFEE", "DIVFT", "DIVNRA", "DIVROC",
     "DIVTW", "DIVTXEX", "CGD",
     "PTC", "PTR",
@@ -100,6 +112,7 @@ class CashActivityState:
     last_activity_id: Optional[str]
     balance_total: Decimal
     last_event_id: Optional[str] = None
+    activity_identity_scheme: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -110,6 +123,28 @@ class PlanCashBaseline:
     decision_session: date
     processed_through: datetime
     balance_total: Decimal
+    # A cumulative total is not an event-set identity: +X followed by -X has
+    # the same total while still crossing an unassignable close boundary.  New
+    # baselines therefore retain the last recognized non-zero cash activity id
+    # as the append-only set witness and the certified producer scheme that
+    # gives that id its meaning. Legacy rows deliberately load with no scheme
+    # and cannot certify close cash.
+    last_activity_id: Optional[str] = None
+    activity_identity_scheme: Optional[str] = None
+
+    @property
+    def activity_identity_authoritative(self) -> bool:
+        return (self.broker == "alpaca"
+                and self.activity_identity_scheme == ACTIVITY_IDENTITY_SCHEME)
+
+    @property
+    def close_cash_finality_authoritative(self) -> bool:
+        # There is deliberately no production shortcut from a cursor scheme to
+        # interval finality.  Tests may replace this property to exercise
+        # downstream arithmetic with a hypothetical accepted source, but a
+        # production implementation needs a separately retained finality
+        # witness bound to this plan and its exact close session.
+        return False
 
 
 def _activity_cursor_name(broker: str, account_id: str) -> str:
@@ -207,15 +242,19 @@ def load_activity_state(conn, *, broker: str,
     v1 = {"kind", "broker", "account_id", "processed_through",
           "last_activity_id", "balance_total"}
     v2 = v1 | {"last_event_id"}
+    v3 = v2 | {"activity_identity_scheme"}
     state_keys = frozenset(state)
-    if (state_keys not in {frozenset(v1), frozenset(v2)}
+    if (state_keys not in {frozenset(v1), frozenset(v2), frozenset(v3)}
             or state.get("kind") not in {
-                "broker-cash-activity/v1", "broker-cash-activity/v2"}):
+                "broker-cash-activity/v1", "broker-cash-activity/v2",
+                "broker-cash-activity/v3"}):
         raise BrokerCashAuthorityRefused(
             f"cash activity cursor {name} has an unknown state shape")
     if ((state.get("kind") == "broker-cash-activity/v1" and set(state) != v1)
             or (state.get("kind") == "broker-cash-activity/v2"
-                and set(state) != v2)):
+                and set(state) != v2)
+            or (state.get("kind") == "broker-cash-activity/v3"
+                and set(state) != v3)):
         raise BrokerCashAuthorityRefused(
             f"cash activity cursor {name} mixes incompatible schema fields")
     if state["broker"] != broker or state["account_id"] != account_id:
@@ -231,6 +270,15 @@ def load_activity_state(conn, *, broker: str,
                  or not last_event_id.strip())):
         raise BrokerCashAuthorityRefused(
             f"cash activity cursor {name} has an invalid event cursor")
+    identity_scheme = state.get("activity_identity_scheme")
+    if (identity_scheme is not None
+            and identity_scheme != ACTIVITY_IDENTITY_SCHEME):
+        raise BrokerCashAuthorityRefused(
+            f"cash activity cursor {name} has an unrecognized identity scheme")
+    if identity_scheme is not None and broker != "alpaca":
+        raise BrokerCashAuthorityRefused(
+            f"cash activity cursor {name} applies the Alpaca Activity-SSE "
+            "identity scheme to another broker")
     return CashActivityState(
         broker=broker, account_id=account_id,
         processed_through=_aware(
@@ -238,7 +286,8 @@ def load_activity_state(conn, *, broker: str,
         last_activity_id=last_id,
         balance_total=_finite_decimal(
             state["balance_total"], where=f"cash activity cursor {name} total"),
-        last_event_id=last_event_id)
+        last_event_id=last_event_id,
+        activity_identity_scheme=identity_scheme)
 
 
 def _binding_established_at(conn, *, broker: str, account_id: str) -> datetime:
@@ -314,6 +363,15 @@ async def ingest_account_cash(
         conn, broker=broker, account_id=account_id)
     financial_sse = (
         getattr(broker_adapter, "financial_activity_sse", False) is True)
+    if financial_sse and broker != "alpaca":
+        raise BrokerCashAuthorityRefused(
+            "the certified Activity-SSE cash identity scheme is Alpaca-only")
+    if (prior is not None
+            and prior.activity_identity_scheme == ACTIVITY_IDENTITY_SCHEME
+            and not financial_sse):
+        raise BrokerCashAuthorityRefused(
+            "an authoritative Activity-SSE cash cursor cannot be downgraded "
+            "to timestamp-paged activity ingestion")
     if prior is not None:
         if upper < prior.processed_through:
             raise BrokerCashAuthorityRefused(
@@ -392,9 +450,12 @@ async def ingest_account_cash(
     state = CashActivityState(
         broker=broker, account_id=account_id, processed_through=upper,
         last_activity_id=last_id, balance_total=running_total,
-        last_event_id=last_event_id)
+        last_event_id=last_event_id,
+        activity_identity_scheme=(
+            ACTIVITY_IDENTITY_SCHEME if financial_sse else None))
     payload = {
-        "kind": "broker-cash-activity/v2",
+        "kind": ("broker-cash-activity/v3" if financial_sse
+                 else "broker-cash-activity/v2"),
         "broker": broker,
         "account_id": account_id,
         "processed_through": upper.isoformat(),
@@ -402,6 +463,8 @@ async def ingest_account_cash(
         "last_event_id": last_event_id,
         "balance_total": str(running_total),
     }
+    if financial_sse:
+        payload["activity_identity_scheme"] = ACTIVITY_IDENTITY_SCHEME
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_processed_sessions"
@@ -424,33 +487,68 @@ def load_plan_baseline(conn, *, plan_id: str) -> Optional[PlanCashBaseline]:
         return None
     session = row[0] if isinstance(row[0], date) else date.fromisoformat(str(row[0]))
     state = _read_json_state(row[1], where=f"plan cash baseline {plan_id}")
-    expected = {"kind", "plan_id", "broker", "account_id",
-                "processed_through", "balance_total"}
-    if set(state) != expected or state.get("kind") != "broker-cash-plan/v1":
+    v1 = {"kind", "plan_id", "broker", "account_id",
+          "processed_through", "balance_total"}
+    v2 = v1 | {"last_activity_id"}
+    v3 = v2 | {"activity_identity_scheme"}
+    if ((state.get("kind") == "broker-cash-plan/v1" and set(state) != v1)
+            or (state.get("kind") == "broker-cash-plan/v2"
+                and set(state) != v2)
+            or (state.get("kind") == "broker-cash-plan/v3"
+                and set(state) != v3)
+            or state.get("kind") not in {
+                "broker-cash-plan/v1", "broker-cash-plan/v2",
+                "broker-cash-plan/v3"}):
         raise BrokerCashAuthorityRefused(
             f"plan cash baseline {plan_id} has an unknown state shape")
     if state["plan_id"] != plan_id:
         raise BrokerCashAuthorityRefused(
             f"plan cash baseline {plan_id} names another plan")
+    last_activity_id = state.get("last_activity_id")
+    if (last_activity_id is not None
+            and (not isinstance(last_activity_id, str)
+                 or not last_activity_id.strip())):
+        raise BrokerCashAuthorityRefused(
+            f"plan cash baseline {plan_id} has an invalid activity identity")
+    identity_scheme = state.get("activity_identity_scheme")
+    if (identity_scheme is not None
+            and identity_scheme != ACTIVITY_IDENTITY_SCHEME):
+        raise BrokerCashAuthorityRefused(
+            f"plan cash baseline {plan_id} has an unrecognized identity scheme")
+    if identity_scheme is not None and state["broker"] != "alpaca":
+        raise BrokerCashAuthorityRefused(
+            f"plan cash baseline {plan_id} applies the Alpaca Activity-SSE "
+            "identity scheme to another broker")
     return PlanCashBaseline(
         plan_id=plan_id, broker=str(state["broker"]),
         account_id=str(state["account_id"]), decision_session=session,
         processed_through=_aware(
             state["processed_through"], where=f"plan cash baseline {plan_id}"),
         balance_total=_finite_decimal(
-            state["balance_total"], where=f"plan cash baseline {plan_id} total"))
+            state["balance_total"], where=f"plan cash baseline {plan_id} total"),
+        last_activity_id=last_activity_id,
+        activity_identity_scheme=identity_scheme)
 
 
 def record_plan_baseline(conn, *, plan_id: str, decision_session: date,
                          activity_state: CashActivityState) -> PlanCashBaseline:
     """Stamp the cash-activity total under which an immutable plan was sized."""
+    if (activity_state.broker != "alpaca"
+            or activity_state.activity_identity_scheme
+            != ACTIVITY_IDENTITY_SCHEME):
+        raise BrokerCashAuthorityRefused(
+            "plan cash baseline requires the certified append-only Activity "
+            "SSE cash identity scheme; timestamp-paged activity state cannot "
+            "prove an unchanged event set")
     existing = load_plan_baseline(conn, plan_id=plan_id)
     candidate = PlanCashBaseline(
         plan_id=plan_id, broker=activity_state.broker,
         account_id=activity_state.account_id,
         decision_session=decision_session,
         processed_through=activity_state.processed_through,
-        balance_total=activity_state.balance_total)
+        balance_total=activity_state.balance_total,
+        last_activity_id=activity_state.last_activity_id,
+        activity_identity_scheme=activity_state.activity_identity_scheme)
     if existing is not None:
         if existing != candidate:
             raise BrokerCashAuthorityRefused(
@@ -458,12 +556,14 @@ def record_plan_baseline(conn, *, plan_id: str, decision_session: date,
                 f"stored={existing}, attempted={candidate}")
         return existing
     payload = {
-        "kind": "broker-cash-plan/v1",
+        "kind": "broker-cash-plan/v3",
         "plan_id": plan_id,
         "broker": activity_state.broker,
         "account_id": activity_state.account_id,
         "processed_through": activity_state.processed_through.isoformat(),
         "balance_total": str(activity_state.balance_total),
+        "last_activity_id": activity_state.last_activity_id,
+        "activity_identity_scheme": activity_state.activity_identity_scheme,
     }
     with conn.cursor() as cur:
         cur.execute(
@@ -490,7 +590,9 @@ def activity_delta_for_plan(
 
 
 __all__ = [
-    "ACTIVITY_OVERLAP", "BrokerCashActivity", "BrokerCashActivityBatch",
+    "ACTIVITY_IDENTITY_SCHEME", "ACTIVITY_OVERLAP",
+    "CLOSE_FINALITY_IDENTITY_SCHEMES", "BrokerCashActivity",
+    "BrokerCashActivityBatch",
     "BrokerCashAuthorityRefused", "CashActivityState",
     "EXTERNAL_ACTIVITY_TYPES", "FLOW_PREFIX", "INTERNAL_ACTIVITY_TYPES",
     "PlanCashBaseline", "RECOGNIZED_ACTIVITY_TYPES",

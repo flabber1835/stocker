@@ -373,6 +373,193 @@ async def test_unresolved_journal_preflight_blocks_publication(conn) -> None:
 
 
 @pytest.mark.asyncio
+async def test_stale_preflight_recovery_supersedes_planless_cycle(conn) -> None:
+    cfg = config()
+    enable(conn, cfg)
+    calls = []
+
+    def incomplete(context):
+        calls.append(("incomplete", context.cycle.decision_session.isoformat(),
+                      context.cycle.plan_id))
+        return {
+            "disposition": "RECONCILE",
+            "failure_code": "OPEN_COMMANDS",
+            "failure_detail": "one shared-journal command remains in flight",
+        }
+
+    pending_service = service_for(
+        cfg, recover=incomplete,
+        refresh=lambda context: pytest.fail(
+            "publication cannot run before preflight recovery"))
+    pending = await pending_service.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
+    assert pending.cycle.state is CycleState.RETRY_WAIT
+    assert pending.cycle.plan_id is None
+    assert pending.cycle.diagnostic["retry_phase"] == "PREFLIGHT_RECOVER"
+    assert store.cycle_preflight_recovery_pending(pending.cycle)
+    assert not store.cycle_transport_capable(pending.cycle)
+    assert store.cycle_recovery_capable(pending.cycle)
+
+    def clean(context):
+        calls.append(("clean", context.cycle.decision_session.isoformat(),
+                      context.cycle.plan_id))
+        return recovery_success(context)
+
+    replacement = service_for(
+        cfg, recover=clean,
+        refresh=lambda context: pytest.fail(
+            "a stale preflight cycle must terminalize before refresh"),
+        execute=lambda context: pytest.fail(
+            "a planless preflight cycle must never execute"))
+    stale = await replacement.tick(conn, now=THURSDAY_AFTER_CLOSE)
+
+    assert stale.action is TickAction.SUPERSEDED
+    assert stale.cycle.cycle_id == pending.cycle.cycle_id
+    assert stale.cycle.state is CycleState.SUPERSEDED
+    assert stale.cycle.plan_id is None
+    assert stale.cycle.failure_code == "STALE_PREFLIGHT_RECOVERED"
+    assert stale.cycle.diagnostic["stale_preflight_superseded"] is True
+    assert calls == [
+        ("incomplete", "2026-08-12", None),
+        ("clean", "2026-08-12", None),
+    ]
+
+    current = service_for(cfg, recover=clean)
+    progressed = await current.tick(conn, now=THURSDAY_AFTER_CLOSE)
+    assert progressed.action is TickAction.RECOVERED
+    assert progressed.cycle.state is CycleState.REFRESHING_DATA
+    assert progressed.cycle.decision_session.isoformat() == "2026-08-13"
+
+
+@pytest.mark.asyncio
+async def test_generation_change_supersedes_clean_planless_preflight(
+        conn) -> None:
+    cfg = config()
+    enable(conn, cfg)
+
+    def incomplete(context):
+        return {
+            "disposition": "RECONCILE",
+            "failure_code": "OPEN_COMMANDS",
+            "failure_detail": "one shared-journal command remains in flight",
+        }
+
+    pending = await service_for(cfg, recover=incomplete).tick(
+        conn, now=AFTER_WEDNESDAY_CLOSE)
+    assert pending.cycle.state is CycleState.RETRY_WAIT
+    assert pending.cycle.plan_id is None
+    origin_generation = pending.cycle.control_generation
+
+    store.engage_kill(conn, actor="operator", reason="fence old preflight")
+    current_binding = store.load_control(conn).binding
+    assert current_binding is not None
+    control = store.release_kill(
+        conn, expected_binding=current_binding, actor="operator",
+        reason="recover shared journal under current authority")
+    assert control.generation > origin_generation
+    calls = []
+
+    def recover(context):
+        calls.append((context.cycle.cycle_id,
+                      context.cycle.control_generation,
+                      context.permit.control_generation))
+        if (context.cycle.control_generation
+                != context.permit.control_generation):
+            return {
+                "disposition": "SUPERSEDED",
+                "last_clean_reconciliation_id": "clean-old-generation",
+                "failure_code": "OLD_GENERATION_RECOVERED",
+                "failure_detail": "old generation journal is clean",
+            }
+        return recovery_success(context)
+
+    replacement = service_for(
+        cfg, holder="worker-b", recover=recover,
+        refresh=lambda context: pytest.fail(
+            "the old planless preflight must terminalize first"))
+    stale = await replacement.tick(conn, now=THURSDAY_AFTER_CLOSE)
+
+    assert stale.action is TickAction.SUPERSEDED
+    assert stale.cycle.cycle_id == pending.cycle.cycle_id
+    assert stale.cycle.state is CycleState.SUPERSEDED
+    assert stale.cycle.plan_id is None
+    assert stale.cycle.control_generation == origin_generation
+    assert stale.permit.control_generation == control.generation
+    assert stale.cycle.failure_code == "STALE_PREFLIGHT_RECOVERED"
+    assert (stale.cycle.last_clean_reconciliation_id
+            == "clean-old-generation")
+    assert calls == [
+        (pending.cycle.cycle_id, origin_generation, control.generation),
+    ]
+
+    progressed = await service_for(
+        cfg, holder="worker-b", recover=recover).tick(
+            conn, now=THURSDAY_AFTER_CLOSE)
+    assert progressed.action is TickAction.RECOVERED
+    assert progressed.cycle.state is CycleState.REFRESHING_DATA
+    assert progressed.cycle.decision_session.isoformat() == "2026-08-13"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retry_phase", ["REFRESH", "PREPARE"])
+async def test_stale_pretransport_retry_terminalizes_and_next_obligation_runs(
+        conn, retry_phase) -> None:
+    cfg = config()
+    enable(conn, cfg)
+    fail = {retry_phase: True}
+    calls = []
+
+    def refresh(context):
+        calls.append(("refresh", context.cycle.decision_session.isoformat()))
+        if retry_phase == "REFRESH" and fail[retry_phase]:
+            raise RuntimeError("close source is still publishing")
+        return refresh_result(context)
+
+    def prepare(context):
+        calls.append(("prepare", context.cycle.decision_session.isoformat()))
+        if retry_phase == "PREPARE" and fail[retry_phase]:
+            raise RuntimeError("prior close evidence is not final")
+        return prepare_result(context)
+
+    service = service_for(cfg, refresh=refresh, prepare=prepare)
+    preflight = await service.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
+    assert preflight.action is TickAction.RECOVERED
+    if retry_phase == "PREPARE":
+        refreshed = await service.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
+        assert refreshed.action is TickAction.REFRESHED
+    retry = await service.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
+    assert retry.action is TickAction.RETRY_SCHEDULED
+    assert retry.cycle.state is CycleState.RETRY_WAIT
+    assert retry.cycle.diagnostic["retry_phase"] == retry_phase
+    calls_before_stale_tick = list(calls)
+
+    fail[retry_phase] = False
+    stale = await service.tick(conn, now=THURSDAY_AFTER_CLOSE)
+    assert stale.action is TickAction.SUPERSEDED
+    assert stale.cycle.cycle_id == retry.cycle.cycle_id
+    assert stale.cycle.state is CycleState.SUPERSEDED
+    assert stale.cycle.failure_code == "MISSED_EXECUTION_WINDOW"
+    assert calls == calls_before_stale_tick
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT to_state,detail FROM sentinel_automation_cycle_events"
+            " WHERE cycle_id=%s ORDER BY seq DESC LIMIT 1",
+            (stale.cycle.cycle_id,))
+        to_state, detail = cur.fetchone()
+    assert to_state == "SUPERSEDED"
+    assert detail["failure_code"] == "MISSED_EXECUTION_WINDOW"
+
+    current_preflight = await service.tick(conn, now=THURSDAY_AFTER_CLOSE)
+    assert current_preflight.action is TickAction.RECOVERED
+    assert current_preflight.cycle.state is CycleState.REFRESHING_DATA
+    assert current_preflight.cycle.decision_session.isoformat() == "2026-08-13"
+    current_refresh = await service.tick(conn, now=THURSDAY_AFTER_CLOSE)
+    assert current_refresh.action is TickAction.REFRESHED
+    current_prepare = await service.tick(conn, now=THURSDAY_AFTER_CLOSE)
+    assert current_prepare.action is TickAction.PREPARED
+    assert current_prepare.cycle.state is CycleState.PLAN_READY
+
+
+@pytest.mark.asyncio
 async def test_blocked_cycle_latches_across_later_sessions(conn) -> None:
     cfg = config()
     enable(conn, cfg)
@@ -754,6 +941,55 @@ async def test_transport_state_after_close_enters_recovery_not_execution(
     assert result.action is TickAction.RECOVERED
     assert result.cycle.state is CycleState.SUCCEEDED
     assert calls == ["recover"]
+
+
+@pytest.mark.asyncio
+async def test_current_executing_recovery_can_terminalize_superseded(conn) -> None:
+    cfg = config()
+    enable(conn, cfg)
+    service = service_for(cfg)
+    await service.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
+    await service.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
+    ready = await service.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
+    waiting = store.transition_cycle(
+        conn, permit=ready.permit, cycle_id=ready.cycle.cycle_id,
+        to_state=CycleState.WAITING_OPEN)
+    executing = store.transition_cycle(
+        conn, permit=ready.permit, cycle_id=waiting.cycle_id,
+        to_state=CycleState.EXECUTING)
+    calls = []
+
+    def stale(context):
+        calls.append(context.cycle.state)
+        return {
+            "disposition": "SUPERSEDED",
+            "last_clean_reconciliation_id": "clean-but-stale",
+            "failure_code": "EXECUTION_WINDOW_CLOSED",
+            "failure_detail": "remaining delta cannot be submitted after close",
+        }
+
+    replacement = service_for(
+        cfg, recover=stale,
+        execute=lambda context: pytest.fail(
+            "stale execution must remain read-only"))
+    result = await replacement.tick(conn, now=THURSDAY_AFTER_CLOSE)
+
+    assert result.action is TickAction.SUPERSEDED
+    assert result.cycle.cycle_id == executing.cycle_id
+    assert result.cycle.state is CycleState.SUPERSEDED
+    assert result.cycle.last_clean_reconciliation_id == "clean-but-stale"
+    assert result.cycle.failure_code == "EXECUTION_WINDOW_CLOSED"
+    assert calls == [CycleState.EXECUTING]
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT from_state,to_state FROM sentinel_automation_cycle_events"
+            " WHERE cycle_id=%s ORDER BY seq DESC LIMIT 2",
+            (executing.cycle_id,))
+        edges = cur.fetchall()
+    assert edges == [
+        ("RECONCILING", "SUPERSEDED"),
+        ("EXECUTING", "RECONCILING"),
+    ]
 
 
 @pytest.mark.asyncio

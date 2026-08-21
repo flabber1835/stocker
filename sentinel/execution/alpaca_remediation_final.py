@@ -30,20 +30,26 @@ from typing import Mapping, Optional, Sequence
 
 _INSTALLED = False
 
-_ACTIVITY_SSE_AVAILABLE_FROM = datetime(2026, 2, 11, tzinfo=timezone.utc)
+# Activity SSE ``since``/``until`` filter the activity's business ``at`` time,
+# not its append-only publication ``event_id`` time.  A correction/backfill
+# booked today may therefore carry an old ``at``.  Discovery must start before
+# any possible Alpaca account activity; the stream's 2026-02-11 availability
+# date is not a safe business-time lower bound.
+_ACTIVITY_BUSINESS_TIME_FLOOR = datetime(1970, 1, 1, tzinfo=timezone.utc)
 _OBSERVATION_PREFIX = "broker-observation:v2:"
 _WITNESS_PREFIX = "terminal-recovery-witness:v2:"
 _DB_INCARCERATION_CURSOR = "broker-recovery-db-incarnation:v1"
 
 # Activity SSE types documented by Alpaca as of 2026-08.  Unknown non-zero cash
 # effects are a refusal, not a silently ignored vendor taxonomy addition.
-_EXTERNAL_CASH_TYPES = frozenset({"CSD", "CSW", "ACATC", "MEM", "FOPT"})
+_EXTERNAL_CASH_TYPES = frozenset({
+    "CSD", "CSW", "ACATC", "MEM", "JNL", "JNLC"})
 _INTERNAL_CASH_TYPES = frozenset({
-    "TRD", "DIV", "SPLIT", "SPIN", "MA", "NC", "REORG", "VOF", "FIMAT",
+    "DIV", "SPLIT", "SPIN", "MA", "NC", "REORG", "VOF", "FIMAT",
     "DIVNRA", "OPCA", "OPASN", "OPEXC", "OPEXP", "OPTRD", "OPCSH",
-    "ACATS", "JNLC", "JNLS", "FEE", "INT", "WH",
+    "FEE", "INT", "WH",
     # Legacy spellings remain accepted during the upgrade overlap.
-    "CFEE", "INTNRA", "INTTW", "JNL", "DIVCGL", "DIVCGS", "DIVFEE",
+    "CFEE", "INTNRA", "INTTW", "DIVCGL", "DIVCGS", "DIVFEE",
     "DIVFT", "DIVROC", "DIVTW", "DIVTXEX", "CGD", "PTC", "PTR",
 })
 
@@ -157,7 +163,12 @@ def install() -> None:
         )
         restore_grade_order_recovery = False
         account_snapshot_freshness = False
-        financial_activity_sse = True
+        # Candidate parser only. Activity SSE is a Broker API surface with a
+        # different endpoint/auth/account model from this Trading/Paper adapter.
+        # Keep both capability claims false until a real reachable account-bound
+        # integration passes acceptance; production guards cannot call it.
+        financial_activity_sse = False
+        candidate_financial_activity_sse = True
 
         async def submit(
                 self, *, client_key: str,
@@ -258,11 +269,6 @@ def install() -> None:
             if floor > upper:
                 raise alpaca.MalformedBrokerPayload(
                     "Activity SSE lower boundary exceeds upper boundary")
-            if floor < _ACTIVITY_SSE_AVAILABLE_FROM:
-                raise alpaca.MalformedBrokerPayload(
-                    "Activity SSE history begins 2026-02-11; the requested "
-                    "financial-history boundary predates the certified stream")
-
             account = await self.identify_account()
             account_uuid = str(account.raw.get("id") or "").strip()
             if not account_uuid:
@@ -303,6 +309,41 @@ def install() -> None:
                     if event_account != account_uuid:
                         raise alpaca.MalformedBrokerPayload(
                             "Activity SSE event belongs to another account")
+                    # The cash and fill consumers below are USD ledgers and
+                    # accept only completed economic state changes.  Alpaca's
+                    # common envelope requires both fields; silently accepting
+                    # a missing/foreign currency would interpret local-currency
+                    # ``net_amount``/``price`` values as USD, while accepting a
+                    # non-final status could book economics before completion.
+                    currency = str(event.get("currency") or "").strip().upper()
+                    if currency != "USD":
+                        raise alpaca.MalformedBrokerPayload(
+                            f"Activity SSE event {event_id} currency "
+                            f"{currency or '<missing>'!r} is not USD")
+                    status = str(event.get("status") or "").strip().lower()
+                    if status != "executed":
+                        raise alpaca.MalformedBrokerPayload(
+                            f"Activity SSE event {event_id} status "
+                            f"{status or '<missing>'!r} is not executed")
+                    business_at = alpaca._required_aware_ts(
+                        event.get("at"),
+                        where=f"Activity SSE {event_id} business time")
+                    if not (floor <= business_at <= upper):
+                        raise alpaca.MalformedBrokerPayload(
+                            f"Activity SSE event {event_id} business time lies "
+                            "outside the requested bounded snapshot")
+                    alpaca._required_aware_ts(
+                        event.get("executed_at"),
+                        where=f"Activity SSE {event_id} execution time")
+                    settle_date = event.get("settle_date")
+                    try:
+                        if not isinstance(settle_date, str):
+                            raise TypeError
+                        date.fromisoformat(settle_date)
+                    except (TypeError, ValueError) as exc:
+                        raise alpaca.MalformedBrokerPayload(
+                            f"Activity SSE event {event_id} settle_date is "
+                            "not an ISO date") from exc
                     if event_id in seen_event:
                         raise alpaca.MalformedBrokerPayload(
                             f"Activity SSE repeated event_id {event_id}")
@@ -332,9 +373,13 @@ def install() -> None:
                 raise alpaca.MalformedBrokerPayload(
                     "Activity SSE since_event_id must be non-empty")
             if not snapshot:
-                # With no event in the complete owned-account interval there
-                # is no newer upper cursor to replay through.
-                return ()
+                # A retained cursor proves at least one event was previously
+                # visible.  An empty exhaustive discovery snapshot contradicts
+                # that retained source; treating it as "no changes" would hide
+                # source truncation, account drift, or a vendor regression.
+                raise alpaca.MalformedBrokerPayload(
+                    "Activity SSE exhaustive discovery omitted the retained "
+                    "event cursor")
             upper_event_id = str(snapshot[-1]["event_id"])
             if upper_event_id < cursor:
                 raise alpaca.MalformedBrokerPayload(
@@ -357,10 +402,18 @@ def install() -> None:
                 through: datetime,
                 since_event_id: Optional[str] = None
                 ) -> broker_cash.BrokerCashActivityBatch:
+            requested_floor = alpaca._required_aware_ts(
+                after, where="cash activity lower boundary")
             upper = alpaca._required_aware_ts(
                 through, where="cash activity upper boundary")
+            if requested_floor > upper:
+                raise alpaca.MalformedBrokerPayload(
+                    "cash activity lower boundary exceeds upper boundary")
             events = await self._bounded_activity_events(
-                after=after, through=through,
+                # Never use the caller's business-time baseline for discovery.
+                # Publication-order replay begins only after this exhaustive
+                # snapshot has captured the current upper event_id.
+                after=_ACTIVITY_BUSINESS_TIME_FLOOR, through=through,
                 since_event_id=since_event_id)
             activities: list[broker_cash.BrokerCashActivity] = []
             last_ref: Optional[str] = None
@@ -375,8 +428,53 @@ def install() -> None:
                     raise ActivityCorrectionRequiresRecovery(
                         "Activity SSE reported a correction/bust; cash/fill "
                         "authority is fenced until the prior ref_id is reversed")
+                activity_type = str(event.get("activity_type") or "").upper()
+                activity_subtype = str(
+                    event.get("activity_subtype") or "").upper()
+                if activity_type == "TRD":
+                    # Sentinel's exact durable fill ledger already applies
+                    # trade notional to plan cash. Adding the Activity-SSE TRD
+                    # net_amount here would book the same purchase/sale twice.
+                    # The enclosing batch still advances its event_id cursor;
+                    # corrections/busts were refused above.
+                    continue
+                if activity_type in {"ACATS", "FOPT", "JNLS"}:
+                    # These move securities across the owned account boundary.
+                    # A cash-only ledger cannot value or time-weight that
+                    # external in-kind flow, so it must never be silently
+                    # treated as strategy performance.
+                    raise broker_cash.BrokerCashAuthorityRefused(
+                        "Activity SSE reported an unweighted external "
+                        f"securities transfer ({activity_type})")
+                if activity_type not in broker_cash.RECOGNIZED_ACTIVITY_TYPES:
+                    # Missing net_amount is not evidence that a newly added
+                    # vendor activity type has no economic effect. Refuse the
+                    # unknown taxonomy before any field-based filtering.
+                    raise alpaca.MalformedBrokerPayload(
+                        "unrecognized Activity SSE cash/economic type "
+                        f"{activity_type!r}")
                 raw_amount = event.get("net_amount")
                 if raw_amount is None:
+                    cash_amount_required = (
+                        activity_type in (
+                            broker_cash.EXTERNAL_ACTIVITY_TYPES
+                            | frozenset({
+                                "FEE", "CFEE", "INT", "INTNRA", "INTTW",
+                                "WH", "CGD", "PTC", "PTR", "FIMAT",
+                                "OPASN", "OPEXC", "OPTRD", "OPCSH",
+                            }))
+                        or (activity_type.startswith("DIV")
+                            and activity_subtype != "SDIV")
+                        or (activity_type == "MA"
+                            and activity_subtype in {"CMA", "SCMA"})
+                        or (activity_type == "OPCA"
+                            and (activity_subtype.endswith("CMA")
+                                 or activity_subtype == "DIV.CDIV")))
+                    if cash_amount_required:
+                        raise alpaca.MalformedBrokerPayload(
+                            "Activity SSE cash event "
+                            f"{event.get('event_id')} ({activity_type}) "
+                            "omitted net_amount")
                     continue
                 amount = alpaca._required_dec(
                     raw_amount,
@@ -384,19 +482,11 @@ def install() -> None:
                     allow_negative=True)
                 if amount == 0:
                     continue
-                activity_type = str(event.get("activity_type") or "").upper()
-                if activity_type not in broker_cash.RECOGNIZED_ACTIVITY_TYPES:
-                    raise alpaca.MalformedBrokerPayload(
-                        "unrecognized Activity SSE cash type "
-                        f"{activity_type!r} with net_amount={amount}")
-                settle = str(event.get("settle_date") or "")[:10]
-                try:
-                    activity_date = date.fromisoformat(settle)
-                except ValueError:
-                    executed = alpaca._required_aware_ts(
-                        event.get("executed_at"),
-                        where=f"Activity SSE {event.get('event_id')} executed_at")
-                    activity_date = executed.date()
+                # The common-envelope validator above has already established
+                # that this is the broker's required exact settlement date.
+                # Execution time is not a substitute: changing which session
+                # owns an external flow changes time-weighted performance.
+                activity_date = date.fromisoformat(event["settle_date"])
                 ref_id = str(event["ref_id"])
                 activities.append(broker_cash.BrokerCashActivity(
                     activity_id=ref_id,
@@ -431,7 +521,7 @@ def install() -> None:
             # read deliberately traverses the complete Activity-SSE lifetime.
             # The unbounded diagnostic method retains its caller's time filter.
             event_floor = (
-                _ACTIVITY_SSE_AVAILABLE_FROM
+                _ACTIVITY_BUSINESS_TIME_FLOOR
                 if through is not None else requested_floor)
             events = await self._bounded_activity_events(
                 after=event_floor, through=upper)
