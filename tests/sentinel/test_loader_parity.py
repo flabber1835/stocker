@@ -35,7 +35,6 @@ import sys
 from pathlib import Path
 
 import pytest
-from hypothesis import given, strategies as st
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -359,30 +358,36 @@ class TestTheValuesThatArePlausibleWhenWrong:
             0.995, shared.SPLIT_AUTHORITATIVE_APPLIED)
         assert bt.reconcile_split(0.995, 0.995) == (0.995, "actions_only")
 
-    @given(
-        stated=st.floats(min_value=0.01, max_value=100.0,
-                         allow_nan=False, allow_infinity=False),
-        evidence=st.floats(min_value=0.01, max_value=100.0,
-                           allow_nan=False, allow_infinity=False),
-    )
-    def test_shared_resolver_and_replay_wrapper_agree_for_finite_ratios(
-            self, stated, evidence):
+    def test_shared_resolver_and_replay_wrapper_agree_for_finite_ratios(self):
         from sentinel.feed import actions_map
         from stock_strategy_shared import split_reconciliation as shared
 
         bt = canonical()
-        normalized = None if evidence == 1.0 else evidence
-        expected_ratio, disposition = \
-            actions_map.resolve_split_orientation(stated, normalized)
-        actual_ratio, outcome = bt.reconcile_split(normalized, stated)
         outcome_by_disposition = {
             shared.SPLIT_AUTHORITATIVE_APPLIED: "actions_only",
             shared.SPLIT_CORROBORATED_DIRECT: "agreed",
             shared.SPLIT_CORROBORATED_RECIPROCAL: "reciprocal",
             shared.SPLIT_UNRESOLVED: "unresolved",
         }
-        assert actual_ratio == pytest.approx(expected_ratio)
-        assert outcome == outcome_by_disposition[disposition]
+        # Keep this invariant inside the certified dependency-closed image.
+        # The cross-product deliberately spans sub-unit canonical actions,
+        # both sides of the near-one event boundary, direct and reciprocal
+        # witnesses, tolerance edges, and noisy reverse denominators.
+        ratios = (
+            0.01, 1 / 30.003, 1 / 30, 0.1, 0.25, 0.5,
+            0.979, 0.98, 0.99, 0.995, 1.0, 1.005, 1.01, 1.02, 1.021,
+            1.5, 1.98, 2.0, 2.02, 3.0, 10.0, 30.0, 30.003, 100.0,
+        )
+        for stated in ratios:
+            for evidence in ratios:
+                normalized = None if evidence == 1.0 else evidence
+                expected_ratio, disposition = \
+                    actions_map.resolve_split_orientation(stated, normalized)
+                actual_ratio, outcome = bt.reconcile_split(normalized, stated)
+                assert actual_ratio == pytest.approx(expected_ratio), (
+                    stated, evidence, disposition, outcome)
+                assert outcome == outcome_by_disposition[disposition], (
+                    stated, evidence, disposition, outcome)
 
     @pytest.mark.parametrize("raw_before,expected", [
         (199.9, 2.0),
