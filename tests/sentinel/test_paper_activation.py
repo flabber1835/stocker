@@ -801,7 +801,7 @@ def test_real_fresh_boot_pipeline_is_restart_equivalent_and_adopts_one_plan(
     try:
         second = _prepare(
             restarted, broker, controller_config=config,
-            strategy_identity=IDENTITY)
+            strategy_identity=strategy_identity)
 
         assert second.sessions_replayed == 0
         assert second.warmup_sessions == 0
