@@ -1710,7 +1710,10 @@ def _official_preopen_cutoff(plan: ExecutionPlan) -> datetime:
 def _target_projection_or_refuse(
         conn, *, state: SessionState, plan: ExecutionPlan, binding,
         broker: ExecutionBroker, through: date, actions, target_actions,
-        require_existing: bool = False):
+        require_existing: bool = False,
+        persist_projection: bool = True,
+        expected_projection: Optional[
+            target_reprojection.TargetProjection] = None):
     """Derive the exact unit projection and bind it to durable plan state."""
     target = shadow_target(state)
     commands = journal.load_commands(conn, binding.identity)
@@ -1768,6 +1771,11 @@ def _target_projection_or_refuse(
             action_evidence=action_evidence,
             minimum_quantity_increment=(
                 broker.capabilities.minimum_quantity_increment))
+        if (expected_projection is not None
+                and projected != expected_projection):
+            raise target_reprojection.TargetProjectionRefused(
+                "post-reconciliation authority-derived target projection "
+                "differs from the pre-read projection")
         if require_existing:
             stored = target_reprojection.load_projection(
                 conn, plan_id=plan.plan_id)
@@ -1779,6 +1787,8 @@ def _target_projection_or_refuse(
                 conn, plan=plan, projection=stored,
                 through_session=through)
             return stored
+        if not persist_projection:
+            return projected
         return target_reprojection.record_projection(conn, projected)
     except target_reprojection.TargetProjectionRefused as exc:
         raise PaperActivationRefused(str(exc)) from exc
@@ -1981,7 +1991,8 @@ async def _execute_current_paper_plan(
                 target_projection = _target_projection_or_refuse(
                     conn, state=state, plan=plan, binding=binding,
                     broker=broker, through=today, actions=actions,
-                    target_actions=target_actions)
+                    target_actions=target_actions,
+                    persist_projection=False)
                 trial_target_actions = _target_action_multipliers(
                     plan, target_actions)
             preflight = await reconciliation.reconcile(
@@ -2026,7 +2037,8 @@ async def _execute_current_paper_plan(
                 target_projection = _target_projection_or_refuse(
                     conn, state=state, plan=plan, binding=binding,
                     broker=broker, through=today, actions=actions,
-                    target_actions=target_actions, require_existing=True)
+                    target_actions=target_actions,
+                    expected_projection=target_projection)
                 projected_deltas = _plan_deltas(
                     target_basket=target_projection.target_basket,
                     observation=observation,

@@ -351,6 +351,69 @@ def test_recovery_refuses_stale_projection_from_before_current_authority(
     assert asserted == []
 
 
+def test_target_projection_preview_does_not_persist(monkeypatch):
+    plan = _plan(basket={"SEC-A": Decimal(10)})
+    empty = CorpusActionLookup(start=plan.decision_session, events={})
+    projected = object()
+    recorded = []
+
+    monkeypatch.setattr(
+        paper, "shadow_target",
+        lambda _state: SimpleNamespace(shares={}, tickers={}))
+    monkeypatch.setattr(journal, "load_commands", lambda *_: ())
+    monkeypatch.setattr(
+        reconciliation, "expected_book_from_commands", lambda *_args, **_kw: {})
+    monkeypatch.setattr(
+        paper.target_reprojection, "project_target",
+        lambda *_args, **_kw: projected)
+    monkeypatch.setattr(
+        paper.target_reprojection, "record_projection",
+        lambda *_args, **_kw: recorded.append(True))
+    broker = SimpleNamespace(capabilities=SimpleNamespace(
+        minimum_quantity_increment=Decimal(1)))
+
+    result = paper._target_projection_or_refuse(  # noqa: SLF001
+        object(), state=object(), plan=plan,
+        binding=SimpleNamespace(identity=DEPLOYMENT), broker=broker,
+        through=plan.effective_session, actions=empty,
+        target_actions=empty, persist_projection=False)
+
+    assert result is projected
+    assert recorded == []
+
+
+def test_target_projection_preview_mismatch_refuses_before_persist(monkeypatch):
+    plan = _plan(basket={"SEC-A": Decimal(10)})
+    empty = CorpusActionLookup(start=plan.decision_session, events={})
+    recorded = []
+
+    monkeypatch.setattr(
+        paper, "shadow_target",
+        lambda _state: SimpleNamespace(shares={}, tickers={}))
+    monkeypatch.setattr(journal, "load_commands", lambda *_: ())
+    monkeypatch.setattr(
+        reconciliation, "expected_book_from_commands", lambda *_args, **_kw: {})
+    monkeypatch.setattr(
+        paper.target_reprojection, "project_target",
+        lambda *_args, **_kw: object())
+    monkeypatch.setattr(
+        paper.target_reprojection, "record_projection",
+        lambda *_args, **_kw: recorded.append(True))
+    broker = SimpleNamespace(capabilities=SimpleNamespace(
+        minimum_quantity_increment=Decimal(1)))
+
+    with pytest.raises(
+            paper.PaperActivationRefused,
+            match="post-reconciliation.*differs"):
+        paper._target_projection_or_refuse(  # noqa: SLF001
+            object(), state=object(), plan=plan,
+            binding=SimpleNamespace(identity=DEPLOYMENT), broker=broker,
+            through=plan.effective_session, actions=empty,
+            target_actions=empty, expected_projection=object())
+
+    assert recorded == []
+
+
 def test_recovery_revalidates_coverage_after_adopting_command(monkeypatch):
     effective = date(2026, 8, 20)
     plan = _plan(
