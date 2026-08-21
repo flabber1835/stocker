@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, timezone
+from datetime import date, timezone
 from decimal import Decimal
 from typing import Callable, Mapping, Optional
 
@@ -623,9 +623,14 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         detail = f"{len(unresolved)} command(s) still UNKNOWN"
     elif foreign_positions or foreign_orders:
         state = RuntimeState.FOREIGN_ACTIVITY
+        action_mismatches = sorted(set(foreign_positions) & set(applied))
+        action_note = (
+            f"; {len(action_mismatches)} position(s) still differ after "
+            "authoritative scalar-action aging, which can mean the broker "
+            "environment did not post the corporate action"
+            if action_mismatches else "")
         detail = (f"{len(foreign_positions)} unexplained position(s), "
-                  f"{len(foreign_orders)} foreign order(s) — corporate actions "
-                  f"for the gap were applied first, so these are not splits")
+                  f"{len(foreign_orders)} foreign order(s){action_note}")
 
     if applied:
         log.info("sentinel: aged %d holding(s) through corporate actions "
@@ -661,6 +666,79 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
 #: human. The prose elsewhere describes them; this is what is IMPLEMENTED.
 SUPPORTED_ACTIONS = ("split", "reversesplit", "splitdiv")
 
+# These ACTIONS rows do not themselves change the security/share identity of a
+# held book.  Everything else that is not a supported scalar is treated as a
+# potentially material non-scalar event and fenced when it intersects execution
+# state.  In particular, acquirer-side rows must not freeze an ordinary holding
+# merely because another company was acquired.
+SAFE_NON_BOOK_ACTIONS = frozenset({
+    "listed", "relation", "dividend", "specialdividend",
+    "acquisitionof", "mergerfrom"})
+
+
+@dataclass(frozen=True)
+class CorporateActionEvent:
+    security_id: Optional[str]
+    ticker: str
+    session: date
+    action: str
+    value: object
+    contraticker: Optional[str]
+    source_row_id: str
+    reason: str
+
+    def to_dict(self) -> dict:
+        return {
+            "security_id": self.security_id, "ticker": self.ticker,
+            "session": self.session.isoformat(), "action": self.action,
+            "value": None if self.value is None else str(self.value),
+            "contraticker": self.contraticker,
+            "source_row_id": self.source_row_id, "reason": self.reason,
+        }
+
+
+@dataclass(frozen=True)
+class CorpusActionLookup:
+    start: date
+    events: Mapping[str, tuple[tuple[date, Decimal], ...]]
+    scalar_events: tuple[CorporateActionEvent, ...] = ()
+    unsupported_events: tuple[CorporateActionEvent, ...] = ()
+    unresolved_events: tuple[CorporateActionEvent, ...] = ()
+
+    def __call__(self, security_id: str,
+                 since: Optional[date] = None) -> Decimal:
+        lower = max(self.start, since) if since is not None else self.start
+        ratio = Decimal(1)
+        for session, value in self.events.get(security_id, ()):
+            if session > lower:
+                ratio *= value
+        return ratio
+
+    def material_events_for(
+            self, *, security_ids=(), symbols=()) -> tuple[CorporateActionEvent, ...]:
+        ids = {str(value) for value in security_ids}
+        tickers = {str(value).upper() for value in symbols if value}
+        events = self.unsupported_events + self.unresolved_events
+        return tuple(
+            event for event in events
+            if ((event.security_id is not None and event.security_id in ids)
+                or event.ticker.upper() in tickers))
+
+    def scalar_evidence_for(
+            self, security_ids=()) -> tuple[CorporateActionEvent, ...]:
+        ids = {str(value) for value in security_ids}
+        return tuple(event for event in self.scalar_events
+                     if event.security_id in ids)
+
+
+def _action_verb(value: object) -> str:
+    return "".join(character for character in str(value).lower()
+                   if character.isalnum())
+
+
+def _safe_non_book_action(verb: str) -> bool:
+    return verb in SAFE_NON_BOOK_ACTIONS
+
 
 def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
     """A DB-backed `ActionLookup` over `sentinel_actions` for the gap.
@@ -686,12 +764,15 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
 
     ## Scope
 
-    Splits only — see `SUPPORTED_ACTIONS`. Spinoffs and mergers are not
-    expressible as a multiplier and are left to foreign-activity handling.
+    Splits are the only events expressed as multipliers — see
+    `SUPPORTED_ACTIONS`. Spinoffs, mergers, renames and other non-scalar book
+    changes are retained as typed unsupported events so the execution gateway
+    can fence a relevant event even when Alpaca paper leaves the account
+    unchanged. Informational, dividend, and explicit acquirer-side rows are not
+    mistaken for changes to the held security.
     """
     from sentinel.feed.publication import visible_predicate
 
-    verbs = "|".join(SUPPORTED_ACTIONS)
     with conn.cursor() as cur:
         cur.execute(
             # AS-OF, via LATERAL: the ticker resolves to whichever security most
@@ -703,24 +784,42 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
             # exists for. An exact-session join would silently drop every such
             # action, and a dropped split is a book that reconciles against the
             # wrong share count.
-            "SELECT sub.security_id,sub.session,sub.value,sub.source_row_id"
+            "SELECT sub.security_id,sub.session,sub.value,sub.source_row_id,"
+            " sub.action,sub.ticker,sub.contraticker"
             " FROM ("
-            "   SELECT b.security_id,a.session,a.value,a.source_row_id"
+            "   SELECT b.security_id,a.session,a.value,a.source_row_id,"
+            "          a.action,a.ticker,a.contraticker"
             "     FROM sentinel_active_actions a"
-            "     CROSS JOIN LATERAL ("
+            "     LEFT JOIN LATERAL ("
             "        SELECT security_id FROM sentinel_bars b"
             "         WHERE ticker = a.ticker AND session <= a.session"
             f"           AND {visible_predicate('b')}"
             "         ORDER BY session DESC LIMIT 1"
-            "     ) b"
+            "     ) b ON TRUE"
             "    WHERE a.session > %s AND a.session <= %s"
-            f"      AND REGEXP_REPLACE(LOWER(a.action), '[^a-z]', '', 'g') ~ '({verbs})'"
             " ) sub"
-            " ORDER BY sub.security_id, sub.session", (start, end))
-        source_rows: dict[tuple[str, date], list[tuple[str, object]]] = {}
-        for sid, session, value, source_row_id in cur.fetchall():
-            source_rows.setdefault((str(sid), session), []).append(
-                (str(source_row_id), value))
+            " ORDER BY sub.security_id, sub.session,sub.source_row_id", (start, end))
+        source_rows: dict[tuple[str, date], list[CorporateActionEvent]] = {}
+        unsupported: list[CorporateActionEvent] = []
+        unresolved: list[CorporateActionEvent] = []
+        for (sid, session, value, source_row_id, action, ticker,
+             contraticker) in cur.fetchall():
+            verb = _action_verb(action)
+            event = CorporateActionEvent(
+                security_id=str(sid) if sid is not None else None,
+                ticker=str(ticker), session=session, action=verb, value=value,
+                contraticker=str(contraticker) if contraticker else None,
+                source_row_id=str(source_row_id), reason="")
+            if verb in SUPPORTED_ACTIONS:
+                if sid is None:
+                    unresolved.append(replace(
+                        event, reason="scalar action has no as-of security mapping"))
+                else:
+                    source_rows.setdefault((str(sid), session), []).append(
+                        event)
+            elif not _safe_non_book_action(verb):
+                unsupported.append(replace(
+                    event, reason="non-scalar book change has no certified projection"))
         ambiguous = {key: rows for key, rows in source_rows.items()
                      if len(rows) > 1}
         if ambiguous:
@@ -731,18 +830,27 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
                 "ambiguous split ACTIONS multiplicity; refusing reconciliation "
                 f"instead of multiplying sibling rows ({examples})")
         events: dict[str, list[tuple[date, Decimal]]] = {}
+        scalar_events: list[CorporateActionEvent] = []
         for (sid, session), rows in source_rows.items():
-            value = rows[0][1]
-            if value is not None and Decimal(str(value)) > 0:
-                events.setdefault(sid, []).append(
-                    (session, Decimal(str(value))))
+            event = rows[0]
+            value = event.value
+            try:
+                ratio = Decimal(str(value))
+            except (ArithmeticError, TypeError, ValueError):
+                ratio = Decimal("NaN")
+            if value is None or not ratio.is_finite() or ratio <= 0:
+                unresolved.append(replace(
+                    event,
+                    reason=("scalar action has absent, non-finite, or "
+                            "non-positive terms")))
+                continue
+            events.setdefault(sid, []).append((session, ratio))
+            scalar_events.append(replace(
+                event, reason="supported scalar share-count action"))
 
-    def lookup(security_id: str, since: Optional[date] = None) -> Decimal:
-        lower = max(start, since) if since is not None else start
-        ratio = Decimal(1)
-        for session, value in events.get(security_id, ()):
-            if session > lower:
-                ratio *= value
-        return ratio
-
-    return lookup
+    return CorpusActionLookup(
+        start=start,
+        events={sid: tuple(values) for sid, values in events.items()},
+        scalar_events=tuple(scalar_events),
+        unsupported_events=tuple(unsupported),
+        unresolved_events=tuple(unresolved))

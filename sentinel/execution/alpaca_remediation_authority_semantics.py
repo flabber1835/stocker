@@ -45,6 +45,12 @@ def install() -> None:
     from sentinel.automation import store as automation_store
     from sentinel.execution import alpaca
 
+    # ``automation.store`` imports ``execution.journal`` and can therefore be
+    # only partly initialized while the execution package installs overlays.
+    # Its module tail calls this installer again after ``engage_kill`` exists.
+    if not hasattr(automation_store, "engage_kill"):
+        return
+
     if getattr(alpaca, "_IMMEDIATE_AUTHORITY_SEMANTICS_INSTALLED", False):
         _INSTALLED = True
         return

@@ -78,6 +78,7 @@ from sentinel.execution.guarded import (
 )
 from sentinel.execution.plan import ExecutionPlan
 from sentinel.execution.states import RuntimeState
+from sentinel.execution import target_reprojection
 from sentinel.feed import calendar, publication, readiness, store as feed_store
 
 DEFENSIVE_SYMBOL = "BIL"
@@ -1295,39 +1296,68 @@ def _target_action_multipliers(plan: ExecutionPlan, actions) -> dict[str, Decima
     return result
 
 
-def _refuse_target_changing_actions(state: SessionState, plan: ExecutionPlan,
-                                    actions) -> None:
-    """Corporate actions may explain holdings; they may not rewrite intent.
-
-    A share-count multiplier between decision close and execution makes the
-    durable share basket stale. Reconciliation correctly ages its expected
-    holdings, but driving those post-split holdings back to the pre-split target
-    would manufacture a trade. The current activation gateway has no immutable
-    corporate-action reprojection record, so it refuses instead.
-    """
-    affected = {
-        security_id: actions(security_id)
-        for security_id in sorted(
-            set(plan.target_basket) | set(shadow_target(state).shares))
-        if actions(security_id) not in (None, Decimal(1))
-    }
-    if affected:
+def _target_projection_or_refuse(
+        conn, *, state: SessionState, plan: ExecutionPlan, binding,
+        broker: ExecutionBroker, through: date, actions, target_actions):
+    """Persist the exact scalar unit change and fence every non-scalar gap."""
+    target = shadow_target(state)
+    commands = journal.load_commands(conn, binding.identity)
+    expected_book = reconciliation.expected_book_from_commands(
+        commands, actions=actions)
+    security_ids = (
+        set(plan.target_basket) | set(target.shares)
+        | set(expected_book))
+    symbols = (
+        set(target.tickers.values())
+        | {command.instrument.symbol for command in commands
+           if (command.security_id in security_ids and command.instrument.symbol)})
+    material = []
+    for lookup in (actions, target_actions):
+        finder = getattr(lookup, "material_events_for", None)
+        if callable(finder):
+            material.extend(finder(
+                security_ids=security_ids, symbols=symbols))
+    unique = {
+        (event.source_row_id, event.reason): event for event in material}
+    if unique:
+        detail = [event.to_dict() for event in unique.values()]
         raise PaperActivationRefused(
-            "corporate action(s) changed target share counts after the durable "
-            f"decision: {affected}. Re-prepare a current decision; the gateway "
-            "will not trade a pre-action share basket against post-action "
-            "holdings")
+            "corporate action intersects the executable book but has no "
+            f"certified scalar projection: {detail}. Sentinel will not invent "
+            "cash, positions, fills, or corrective orders for an Alpaca paper "
+            "limitation")
+
+    multipliers = {
+        security_id: target_actions(security_id)
+        for security_id in sorted(plan.target_basket)
+        if target_actions(security_id) not in (None, Decimal(1))}
+    evidence_reader = getattr(target_actions, "scalar_evidence_for", None)
+    action_evidence = (
+        tuple(event.to_dict() for event in evidence_reader(plan.target_basket))
+        if callable(evidence_reader) else ())
+    try:
+        projected = target_reprojection.project_target(
+            plan, through_session=through,
+            action_multipliers=multipliers,
+            action_evidence=action_evidence,
+            minimum_quantity_increment=(
+                broker.capabilities.minimum_quantity_increment))
+        return target_reprojection.record_projection(conn, projected)
+    except target_reprojection.TargetProjectionRefused as exc:
+        raise PaperActivationRefused(str(exc)) from exc
 
 
 async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
                           plan: ExecutionPlan,
-                          observation: BrokerObservation
+                          observation: BrokerObservation,
+                          target_basket: Mapping[str, Decimal] | None = None,
                           ) -> dict[str, BrokerInstrument]:
+    desired = plan.target_basket if target_basket is None else target_basket
     target = shadow_target(state)
     symbols = dict(target.tickers)
     symbols[DEFENSIVE_SECURITY_ID] = DEFENSIVE_SYMBOL
     meta = load_meta(conn)
-    for security_id in plan.target_basket:
+    for security_id in desired:
         if security_id in meta:
             symbols.setdefault(security_id, meta[security_id].ticker)
     instruments: dict[str, BrokerInstrument] = {}
@@ -1340,7 +1370,7 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
     # irrelevant zero leg must not block a pure Core reduction on a needless
     # asset lookup.
     held = observation.positions_by_security()
-    all_security_ids = set(plan.target_basket) | set(held)
+    all_security_ids = set(desired) | set(held)
     effective_current = {
         security_id: held.get(security_id, Decimal(0)) + committed_quantity(
             observation.working_orders_for(security_id))
@@ -1348,13 +1378,13 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
     }
     needed = {
         security_id for security_id in all_security_ids
-        if plan.target_basket.get(security_id, Decimal(0))
+        if desired.get(security_id, Decimal(0))
         != effective_current[security_id]
     }
     unresolved = []
     for security_id in sorted(needed):
         current = instruments.get(security_id)
-        increasing = (plan.target_basket.get(security_id, Decimal(0))
+        increasing = (desired.get(security_id, Decimal(0))
                       > effective_current[security_id])
         # An observed broker asset id is already the strongest mapping the
         # adapter can provide for a REDUCTION. An increase revalidates active /
@@ -1488,9 +1518,15 @@ async def _execute_current_paper_plan(
             _account_or_refuse(account, binding, confirmed_account)
             activity_state = await _broker_cash_state_or_refuse(
                 conn, broker=broker, binding=binding, through=clock())
-            actions = _action_lookup(conn, state, today)
-            target_actions = _target_action_lookup(conn, plan, today)
-            _refuse_target_changing_actions(state, plan, target_actions)
+            try:
+                actions = _action_lookup(conn, state, today)
+                target_actions = _target_action_lookup(conn, plan, today)
+            except ValueError as exc:
+                raise PaperActivationRefused(
+                    f"corporate-action authority is ambiguous or invalid: {exc}") from exc
+            target_projection = _target_projection_or_refuse(
+                conn, state=state, plan=plan, binding=binding, broker=broker,
+                through=today, actions=actions, target_actions=target_actions)
             preflight = await reconciliation.reconcile(
                 broker=broker, conn=conn, binding=None,
                 deployment=binding.identity, actions=actions)
@@ -1501,7 +1537,8 @@ async def _execute_current_paper_plan(
                 account=account, observation=observation,
                 activity_state=activity_state)
             instruments = await _instrument_map(
-                conn, broker, state, plan, observation)
+                conn, broker, state, plan, observation,
+                target_basket=target_projection.target_basket)
 
             async def authorize_increases(fresh_observation):
                 fresh_account = await broker.account_snapshot()
@@ -1517,7 +1554,9 @@ async def _execute_current_paper_plan(
             session = await executor.execute_session(
                 broker=broker, conn=conn, deployment=binding.identity,
                 plan=plan, instruments=instruments, today=today,
-                actions=actions, increase_authority=authorize_increases)
+                actions=actions, target_projection=target_projection,
+                min_increment=broker.capabilities.minimum_quantity_increment,
+                increase_authority=authorize_increases)
             final_reconciliation = session.reconciliation
             if (final_reconciliation is not None
                     and final_reconciliation.runtime_state is RuntimeState.RUNNING

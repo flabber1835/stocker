@@ -313,6 +313,16 @@ execution projection
 Alpaca paper book
 ```
 
+Alpaca paper is exercised as realistically as its API permits. Every behavior
+Sentinel controls—identity, pagination, late-fill recovery, action detection,
+target reprojection, reconciliation, restart, and fencing—remains required.
+The accepted limitation is narrower: Alpaca paper may not actually post
+corporate-action position/cash changes that its live environment posts. Sentinel
+does not compensate by writing synthetic fills, cash, or positions. It uses
+authoritative source actions to reproject scalar target units, and it fences
+non-scalar/incomplete events or any resulting broker mismatch. Such a fence is
+an honest paper-environment limitation, not a successful end-to-end trial.
+
 This is not the final system. It is the cleanest way to certify the feed, the
 planning, the state persistence, the execution and the reconciliation before
 anything is allowed to vary exposure.

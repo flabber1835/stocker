@@ -1040,6 +1040,22 @@ def record_authority_verdict(
         raise
 
 
+# ``execution`` may have been imported by this module's journal dependency and
+# observed us before ``engage_kill`` existed. Complete the emergency-authority
+# serialization only after this module is fully defined.
+from sentinel.execution.alpaca_remediation import (  # noqa: E402
+    install_automation_serialization as _install_automation_serialization,
+)
+from sentinel.execution.alpaca_remediation_authority_semantics import (  # noqa: E402
+    install as _install_immediate_authority_semantics,
+)
+
+_install_automation_serialization()
+_install_immediate_authority_semantics()
+del _install_automation_serialization
+del _install_immediate_authority_semantics
+
+
 __all__ = [
     "acquire_lease", "activate", "adopt_cycle",
     "adoption_identity_matches", "blocked_cycle_for_generation",

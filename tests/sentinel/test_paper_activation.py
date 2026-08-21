@@ -43,7 +43,7 @@ from sentinel.core.decision import (  # noqa: E402
 )
 from sentinel.core.loader import CorpusWindow  # noqa: E402
 from sentinel.core.production import PublishedSession, SessionState  # noqa: E402
-from sentinel.execution import alpaca, journal  # noqa: E402
+from sentinel.execution import alpaca, journal, target_reprojection  # noqa: E402
 from sentinel.execution.commands import Command  # noqa: E402
 from sentinel.execution.contract import (  # noqa: E402
     BrokerAccountIdentity,
@@ -1348,9 +1348,10 @@ class TestStrictExecutionGate:
         assert "get_positions" not in broker.calls
         assert _mutations(broker) == []
 
-    def test_post_decision_split_refuses_the_stale_share_target(
+    def test_post_decision_split_durably_reprojects_share_units(
             self, conn, monkeypatch):
-        _install_current_authorities(conn, with_target=True)
+        _bound, _pinned, _state_value, durable_plan = \
+            _install_current_authorities(conn, with_target=True)
         _ready(monkeypatch)
         with conn.cursor() as cur:
             cur.execute(
@@ -1364,13 +1365,67 @@ class TestStrictExecutionGate:
         conn.commit()
         broker = _broker()
 
+        result = _execute(conn, broker)
+
+        assert "account_snapshot" in broker.calls
+        assert [(command.side, command.quantity)
+                for command in result.session.submitted] == [
+                    (Side.BUY, D("20"))]
+        projection = target_reprojection.load_projection(
+            conn, plan_id=durable_plan.plan_id)
+        assert projection is not None
+        assert projection.plan_fingerprint == durable_plan.fingerprint()
+        assert projection.action_multipliers == {AAA.security_id: D("2")}
+        assert len(projection.action_evidence) == 1
+        assert projection.action_evidence[0]["action"] == "split"
+        assert projection.payload()["projection_fingerprint"] == \
+            projection.fingerprint()
+        assert projection.target_basket == {
+            AAA.security_id: D("20"), DEFENSIVE_SECURITY_ID: D("0")}
+
+    def test_non_scalar_action_fences_without_compensating_paper_book(
+            self, conn, monkeypatch):
+        _install_current_authorities(conn, with_target=True)
+        _ready(monkeypatch)
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_bars (security_id,session,ticker,"
+                " close_unadjusted) VALUES (%s,%s,%s,%s)",
+                (AAA.security_id, DECISION, AAA.symbol, 100))
+            cur.execute(
+                "INSERT INTO sentinel_actions"
+                " (ticker,session,action,value,contraticker)"
+                " VALUES (%s,%s,'spinoff',2,'NEW')",
+                (AAA.symbol, EFFECTIVE))
+        conn.commit()
+        broker = _broker()
+
         with pytest.raises(
                 paper.PaperActivationRefused,
-                match="corporate action.*changed target share counts"):
+                match="no certified scalar projection"):
             _execute(conn, broker)
 
         assert "account_snapshot" in broker.calls
         assert "get_positions" not in broker.calls
+        assert _mutations(broker) == []
+
+    def test_unmapped_split_on_target_symbol_fences(
+            self, conn, monkeypatch):
+        _install_current_authorities(conn, with_target=True)
+        _ready(monkeypatch)
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_actions (ticker,session,action,value)"
+                " VALUES (%s,%s,'split',2)",
+                (AAA.symbol, EFFECTIVE))
+        conn.commit()
+        broker = _broker()
+
+        with pytest.raises(
+                paper.PaperActivationRefused,
+                match="no certified scalar projection"):
+            _execute(conn, broker)
+
         assert _mutations(broker) == []
 
     def test_pre_decision_split_ages_history_without_staling_current_target(

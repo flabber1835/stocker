@@ -30,6 +30,7 @@ ACCOUNT_KIND = "sentinel-trial-account/v1"
 VERIFICATION_KIND = "sentinel-trial-verification/v1"
 FINANCIAL_TOLERANCE = Decimal("1.00")
 SHARE_TOLERANCE = Decimal("0.000001")
+DIVIDEND_EVIDENCE_TOLERANCE = Decimal("0.000001")
 MAXIMUM_CLOCK_SKEW_SECONDS = 5
 
 
@@ -242,6 +243,131 @@ def _age_plan_target(plan_target: Mapping[str, object],
     return target
 
 
+def _expected_paper_dividends(
+        state, decision_session: date, previous: Mapping | None) -> list[dict]:
+    """Project causal Wealth Core dividend entitlements into trial evidence.
+
+    Wealth Core's hashed ledger supplies the security and per-share source
+    evidence, but its shares belong to the full shadow.  Recover the scaled
+    paper entitlement by reversing the decision session's signed fills from
+    the immediately preceding immutable closing paper position.
+
+    This helper is evidence-only.  Its output is never added to broker cash,
+    NAV, positions, fills, orders, or target sizing.
+    """
+    ledger = _mapping(getattr(state, "ledger", None),
+                      where="canonical Wealth Core ledger")
+    events = ledger.get("events")
+    if not isinstance(events, list):
+        raise TrialEvidenceRefused(
+            "canonical Wealth Core ledger events are not an array")
+    wanted = decision_session.isoformat()
+    source: list[dict] = []
+    for index, raw in enumerate(events):
+        event = _mapping(raw, where=f"Wealth Core ledger event {index}")
+        if (event.get("event_type") != "DIVIDEND_ACCRUED"
+                or event.get("session") != wanted):
+            continue
+        security_id = str(event.get("security_id") or "").strip()
+        ticker = str(event.get("ticker") or "").strip()
+        if not security_id or not ticker:
+            raise TrialEvidenceRefused(
+                f"dividend entitlement {index} has no security identity")
+        detail = _mapping(
+            event.get("detail"), where=f"dividend entitlement {index} detail")
+        shares = _decimal(
+            detail.get("shares"), where=f"dividend entitlement {index} shares",
+            positive=True)
+        per_share = _decimal(
+            event.get("price"), where=f"dividend entitlement {index} per-share",
+            positive=True)
+        amount = _decimal(
+            detail.get("amount"), where=f"dividend entitlement {index} amount",
+            positive=True)
+        try:
+            due_in = int(detail.get("due_in"))
+        except (TypeError, ValueError) as exc:
+            raise TrialEvidenceRefused(
+                f"dividend entitlement {index} has invalid settlement lag") from exc
+        if due_in < 0:
+            raise TrialEvidenceRefused(
+                f"dividend entitlement {index} has negative settlement lag")
+        if abs(amount - shares * per_share) > DIVIDEND_EVIDENCE_TOLERANCE:
+            raise TrialEvidenceRefused(
+                f"dividend entitlement {index} amount disagrees with shares "
+                "times per-share amount")
+        source.append({
+            "security_id": security_id,
+            "ticker": ticker,
+            "accrued_session": wanted,
+            "shadow_shares": shares,
+            "per_share": str(per_share),
+            "shadow_amount": str(amount),
+            "settlement_lag_sessions": due_in,
+        })
+    if not source:
+        return []
+    prior = _mapping(previous, where="preceding trial verification")
+    if (prior.get("session") != wanted
+            or prior.get("verdict") not in {"VERIFIED", "NOT_VERIFIED"}):
+        raise TrialEvidenceRefused(
+            "paper dividend entitlement lacks the preceding session evidence")
+    allowed_prior_reasons = {
+        "ALPACA_PAPER_DIVIDEND_UNSUPPORTED", "VERIFICATION_GAP"}
+    if set(prior.get("reason_codes") or ()) - allowed_prior_reasons:
+        raise TrialEvidenceRefused(
+            "preceding paper book is not clean enough to prove dividend entitlement")
+    reconciliation = _mapping(
+        prior.get("reconciliation"), where="preceding reconciliation")
+    positions = _quantity_map(
+        reconciliation.get("positions") or {}, where="preceding positions")
+    pre_open = dict(positions)
+    commands = prior.get("commands")
+    if not isinstance(commands, list):
+        raise TrialEvidenceRefused("preceding commands are not an array")
+    seen_commands: set[str] = set()
+    for index, raw in enumerate(commands):
+        command = _mapping(raw, where=f"preceding command {index}")
+        client_key = str(command.get("client_key") or "").strip()
+        security_id = str(command.get("security_id") or "").strip()
+        side = str(command.get("side") or "").upper()
+        if (not client_key or client_key in seen_commands or not security_id
+                or side not in {"BUY", "SELL"}):
+            raise TrialEvidenceRefused(
+                f"preceding command {index} has invalid identity or side")
+        seen_commands.add(client_key)
+        filled = _decimal(
+            command.get("filled_quantity"),
+            where=f"preceding command {index} filled quantity")
+        if filled < 0:
+            raise TrialEvidenceRefused(
+                f"preceding command {index} has negative filled quantity")
+        opening = pre_open.get(security_id, Decimal(0))
+        pre_open[security_id] = (
+            opening - filled if side == "BUY" else opening + filled)
+    if any(quantity < 0 for quantity in pre_open.values()):
+        raise TrialEvidenceRefused(
+            "signed fills imply a negative pre-open paper holding")
+
+    expected: list[dict] = []
+    for item in source:
+        paper_shares = pre_open.get(item["security_id"], Decimal(0))
+        if paper_shares == 0:
+            continue
+        per_share = _decimal(
+            item["per_share"], where="paper dividend per-share", positive=True)
+        expected.append({
+            **item,
+            "shadow_shares": str(item["shadow_shares"]),
+            "shares": str(paper_shares),
+            "amount": str(paper_shares * per_share),
+        })
+    return sorted(
+        expected,
+        key=lambda row: (
+            row["security_id"], row["ticker"], row["amount"], row["shares"]))
+
+
 def _performance_attribution(*, opening: Decimal | None,
                              ending: Decimal | None,
                              external: Decimal,
@@ -439,6 +565,9 @@ def build_cycle_verification(conn, *, cycle_id: str,
     _reason(reasons, binding is not None, "BINDING_MISSING")
     state, cursor, state_at = _read_state(conn)
     _reason(reasons, state is not None and cursor is not None, "STATE_MISSING")
+    expected_paper_dividends: list[dict] = []
+    previous = (_previous_verification(conn, cycle.effective_session)
+                if plan is not None else None)
     strategy_evidence = None
     if plan is not None:
         try:
@@ -508,6 +637,13 @@ def build_cycle_verification(conn, *, cycle_id: str,
                 "TERMINAL_UNRESOLVED")
         _reason(reasons, not (wealth.get("terminal_pending_terms") or {}),
                 "TERMINAL_CARRIED")
+        try:
+            expected_paper_dividends = _expected_paper_dividends(
+                state, plan.decision_session, previous)
+        except TrialEvidenceRefused:
+            reasons.append("DIVIDEND_EVIDENCE_INVALID")
+        if expected_paper_dividends:
+            reasons.append("ALPACA_PAPER_DIVIDEND_UNSUPPORTED")
         if strategy_evidence is not None:
             _reason(reasons,
                     strategy_evidence["state_sha256"] == state.state_hash,
@@ -724,7 +860,6 @@ def build_cycle_verification(conn, *, cycle_id: str,
             _reason(reasons, processed <= latest_allowed,
                     "CASH_CURSOR_FUTURE")
 
-    previous = _previous_verification(conn, cycle.effective_session)
     previous_verified = (previous is not None
                          and previous.get("verdict") == "VERIFIED")
     if previous is not None and not previous_verified:
@@ -800,6 +935,10 @@ def build_cycle_verification(conn, *, cycle_id: str,
         "commands": commands, "fills": fills,
         "cash": {"rows": cash_rows, "external": str(external),
                  "internal": str(internal)},
+        "paper_limitations": {
+            "expected_dividends": expected_paper_dividends,
+            "compensation_applied": False,
+        },
         "marks": marks,
         "nav_attribution": {
             "marked_nav": str(marked_nav) if marked_nav is not None else None,

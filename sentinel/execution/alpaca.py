@@ -181,7 +181,8 @@ class AlpacaExecutionBroker(ExecutionBroker):
         recent_fill_history=True,
         instrument_identity=True,
         account_bound_observation=True,
-        fractional_quantities=False,
+        fractional_quantities=True,
+        minimum_quantity_increment=Decimal("0.000000001"),
         market_on_open=False,
     )
 

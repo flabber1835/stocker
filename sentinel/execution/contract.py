@@ -92,11 +92,23 @@ class BrokerCapabilities:
     stable_client_key: bool = False
     single_order_cancel: bool = False
     fractional_quantities: bool = False
+    minimum_quantity_increment: Decimal = Decimal(1)
     complete_order_pagination: bool = False
     recent_fill_history: bool = False
     instrument_identity: bool = False
     account_bound_observation: bool = False
     market_on_open: bool = False
+
+    def __post_init__(self) -> None:
+        if (not isinstance(self.minimum_quantity_increment, Decimal)
+                or not self.minimum_quantity_increment.is_finite()
+                or self.minimum_quantity_increment <= 0):
+            raise ValueError(
+                "minimum_quantity_increment must be a positive finite Decimal")
+        if (not self.fractional_quantities
+                and self.minimum_quantity_increment != Decimal(1)):
+            raise ValueError(
+                "a non-fractional adapter must use whole-share increments")
 
     def require(self, *names: str) -> None:
         missing = [n for n in names if not getattr(self, n)]
