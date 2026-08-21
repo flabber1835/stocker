@@ -763,6 +763,13 @@ durable lifecycle says that certificate is active, unrevoked, and inside its
 validity window at database time. Revocation, expiry, a missing lifecycle, or a
 certificate mismatch overrides the cached PASS and renders failure.
 
+The paper-trial financial headline is governed separately by
+`docs/sentinel-trial-verification.md`.  Operationally safe cycle outcomes do
+not imply verified realized performance.  The automation gateway captures
+broker/account evidence and the persistent loop appends one immutable,
+versioned verification record after each terminal session cycle; the panel
+only projects that already-earned record.
+
 ## 9. Required adversarial evidence
 
 Tests use deterministic clocks, ephemeral PostgreSQL, and `SimulatedBroker`:

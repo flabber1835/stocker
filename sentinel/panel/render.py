@@ -12,20 +12,22 @@ there is no breakpoint at which content moves, because the failure mode of a
 responsive dashboard is that the thing you needed was in the column that
 collapsed.
 
-The only JavaScript is a meta-refresh replacement: a timer that reloads the
-page. It is deliberately not a fetch-and-patch, because a partial update that
-fails silently leaves stale numbers on screen looking fresh — the exact class of
-failure this panel exists to catch.
+JavaScript has negative authority only: it invalidates an old DOM before a full
+reload. It never computes or promotes a financial verdict.
 """
 from __future__ import annotations
 
+import json
+from dataclasses import replace
 from datetime import datetime, timezone
 
-from sentinel.panel.model import FAIL, OK, PENDING, UNKNOWN, WARN, Panel, Row
+from sentinel.panel.model import (
+    FAIL, OK, PENDING, TRIAL_ROW_KEYS, UNKNOWN, WARN, Panel, Row)
 
 #: Refresh cadence. Long enough not to hammer the database from a phone left on
 #: a desk, short enough that a stalled ingest is visible within a coffee.
 REFRESH_SECONDS = 30
+PRESENTATION_MAX_AGE_SECONDS = 45
 
 _DOT = {OK: "●", WARN: "▲", FAIL: "■", PENDING: "○", UNKNOWN: "?"}
 
@@ -78,11 +80,12 @@ body{
           max(24px,env(safe-area-inset-bottom));
 }
 .wrap{max-width:560px;margin:0 auto}
-header{display:flex;align-items:baseline;gap:10px;margin:4px 2px 14px}
+header{display:block;margin:4px 2px 14px}
 h1{font-size:17px;font-weight:650;letter-spacing:.02em;margin:0}
 .state{
-  margin-left:auto;font-size:12px;font-weight:650;letter-spacing:.06em;
+  display:inline-block;margin-top:8px;font-size:12px;font-weight:650;letter-spacing:.06em;
   padding:4px 10px;border-radius:999px;text-transform:uppercase;
+  overflow-wrap:anywhere;
 }
 .state.ok{background:var(--okbg);color:var(--ok)}
 .state.warn{background:var(--warnbg);color:var(--warn)}
@@ -119,6 +122,16 @@ footer{
   line-height:1.7;
 }
 footer code{font-size:11px}
+details{
+  background:var(--card);border:1px solid var(--line);border-radius:14px;
+  margin:10px 0;box-shadow:var(--shadow);overflow:hidden;
+}
+summary{cursor:pointer;padding:13px 15px;font-weight:650;list-style-position:inside}
+.detail-body{padding:0 15px 14px;overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+th,td{padding:7px 6px;text-align:left;border-top:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600;letter-spacing:.04em}
+.not-current .row.ok{border-color:var(--fail)}
 """
 
 
@@ -146,40 +159,204 @@ def _esc(s) -> str:
             .replace(">", "&gt;").replace('"', "&quot;"))
 
 
+def _table(headers, rows) -> str:
+    head = "".join(f"<th>{_esc(value)}</th>" for value in headers)
+    body = "".join(
+        "<tr>" + "".join(f"<td>{_esc(value)}</td>" for value in row) + "</tr>"
+        for row in rows)
+    if not rows:
+        body = f'<tr><td colspan="{len(headers)}">none</td></tr>'
+    return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+
+
+def _detail_sections(panel: Panel) -> str:
+    latest = panel.trial_details or {}
+    reconciliation = latest.get("reconciliation") or {}
+    positions = reconciliation.get("positions") or {}
+    target = reconciliation.get("target") or {}
+    deltas = reconciliation.get("deltas") or {}
+    marks = latest.get("marks") or {}
+    position_rows = []
+    for security_id in sorted(set(positions) | set(target)):
+        mark = marks.get(security_id) or {}
+        position_rows.append((security_id, mark.get("ticker", ""),
+                              target.get(security_id, "0"),
+                              positions.get(security_id, "0"),
+                              deltas.get(security_id, "0"),
+                              mark.get("close", "")))
+
+    commands = latest.get("commands") or []
+    command_rows = [
+        (row.get("security_id", ""), row.get("side", ""),
+         row.get("quantity", ""), row.get("state", ""),
+         row.get("filled_quantity", ""),
+         row.get("filled_average_price", ""), row.get("client_key", ""))
+        for row in commands]
+    fills = latest.get("fills") or []
+    fill_rows = [(row.get("client_key", ""), row.get("quantity", ""),
+                  row.get("price", ""), row.get("filled_at", ""),
+                  row.get("broker_order_id", "")) for row in fills]
+
+    cash = latest.get("cash") or {}
+    cash_rows = [(row.get("classification", ""), row.get("amount", ""),
+                  row.get("detail", ""), row.get("recorded_at", ""))
+                 for row in (cash.get("rows") or [])]
+    nav = latest.get("nav_attribution") or {}
+    accounting = [
+        ("external capital", cash.get("external", "")),
+        ("internal strategy cash", cash.get("internal", "")),
+        ("marked account NAV", nav.get("marked_nav", "")),
+        ("unexplained residual", nav.get("unexplained", "")),
+        ("financial tolerance", nav.get("tolerance", "")),
+    ]
+
+    corporate = (((latest.get("account_evidence") or {}).get("reconciliation")
+                  or {}).get("corporate_actions") or {})
+    corporate_rows = [(security_id, multiplier)
+                      for security_id, multiplier in sorted(corporate.items())]
+    state_evidence = latest.get("state") or {}
+    carry = state_evidence.get("terminal_carry_audit") or {}
+    for security_id, evidence in sorted(carry.items()):
+        corporate_rows.append((
+            f"{security_id} terminal carry",
+            json.dumps(evidence, sort_keys=True, separators=(",", ":"))))
+    session_evidence = state_evidence.get("session_evidence") or {}
+    if session_evidence:
+        corporate_rows.append((
+            "session terminal/accounting evidence",
+            json.dumps(session_evidence, sort_keys=True,
+                       separators=(",", ":"))))
+    history_rows = []
+    for row in panel.trial_history:
+        perf = row.get("performance") or {}
+        cash_view = row.get("cash") or {}
+        cycle = row.get("cycle") or {}
+        history_rows.append((
+            row.get("session", ""), row.get("verdict", ""),
+            cycle.get("state", ""), perf.get("ending_equity", ""),
+            perf.get("daily_return", ""), perf.get("total_return", ""),
+            cash_view.get("external", ""),
+            ", ".join(row.get("reason_codes") or ())))
+
+    sections = [
+        ("Positions — target vs Alpaca", _table(
+            ("Security", "Ticker", "Target", "Actual", "Delta", "Close"),
+            position_rows)),
+        ("Orders and commands", _table(
+            ("Security", "Side", "Qty", "State", "Filled", "Avg price", "Client key"),
+            command_rows) + _table(
+                ("Fill key", "Qty", "Price", "Filled at", "Broker order"),
+                fill_rows)),
+        ("Cash and NAV attribution", _table(("Fact", "Value"), accounting)
+         + _table(("Class", "Amount", "Detail", "Recorded"), cash_rows)),
+        ("Corporate actions and terminals", _table(
+            ("Security", "Applied share multiplier"), corporate_rows)),
+        ("Trial session history", _table(
+            ("Session", "Verdict", "Cycle", "Equity", "Daily", "Total",
+             "External", "Reasons"), history_rows)),
+    ]
+    return "".join(
+        f"<details><summary>{_esc(title)}</summary>"
+        f'<div class="detail-body">{content}</div></details>'
+        for title, content in sections)
+
+
 def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
     now = panel.now
     overall = panel.overall
+    operational = panel.operational
     errs = "".join(
         f'<div class="err">source unreadable — {_esc(e)}</div>'
         for e in panel.source_errors)
-    rows = "".join(_row_html(r, now) for r in panel.rows)
+    details = _detail_sections(panel)
+    trial = panel.row("trial_verification")
+    trial_status = trial.effective_status(now) if trial is not None else FAIL
+    trial_headline = (trial.value if trial is not None
+                      else "TRIAL NOT VERIFIED — NO CERTIFICATE")
+    trial_authoritative = trial_status == OK and operational == OK
+    rendered_rows = panel.rows
+    if not trial_authoritative:
+        if trial_status == OK:
+            trial_status = FAIL
+            trial_headline = (
+                "TRIAL NOT VERIFIED — CURRENT OPERATIONAL CONDITION "
+                f"{operational.upper()}")
+        rendered_rows = [
+            (replace(
+                row,
+                value=(trial_headline if row.key == "trial_verification"
+                       else row.value),
+                status=(FAIL if row.key == "trial_verification" else WARN),
+                detail=(
+                    "UNVERIFIED · current operational authority is not fully OK; "
+                    + row.detail.removeprefix("UNVERIFIED · ")))
+             if row.key in TRIAL_ROW_KEYS and row.status == OK else row)
+            for row in panel.rows
+        ]
+    rows = "".join(_row_html(r, now) for r in rendered_rows)
     stamp = now.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+    generated = now.astimezone(timezone.utc).isoformat()
     return f"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<title>Sentinel</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Sentinel Trial">
+<meta http-equiv="Cache-Control" content="no-store, max-age=0">
+<title>Sentinel Trial</title>
 <style>{CSS}</style>
-</head><body>
+</head><body data-generated-at="{_esc(generated)}"
+             data-max-age-seconds="{PRESENTATION_MAX_AGE_SECONDS}">
 <div class="wrap">
 <header>
-  <h1>SENTINEL</h1>
-  <span class="state {overall}">{_esc(overall)}</span>
+  <h1>SENTINEL TRIAL</h1>
+  <span id="trial-state" class="state {trial_status}">{_esc(trial_headline)}</span>
 </header>
-{errs}{rows}
+{errs}{rows}{details}
 <footer>
   as of {_esc(stamp)} · refreshes every {refresh_seconds}s<br>
-  read-only · paper account · no performance figures shown here
+  read-only · paper account · performance is explicitly verified or unverified<br>
+  operational condition: {_esc(operational)} · all-row condition: {_esc(overall)}
 </footer>
 </div>
 <script>
-// A full reload, deliberately: a fetch-and-patch that fails silently leaves
-// stale values on screen looking fresh, which is the failure this panel exists
-// to catch. A reload either works or visibly does not.
-setTimeout(function(){{ location.reload(); }}, {refresh_seconds * 1000});
+// Negative authority only. This code can remove green before a network read;
+// only the server can earn it again by returning a new complete document.
+(function(){{
+  var invalidated = false;
+  var badge = document.getElementById("trial-state");
+  var generated = Date.parse(document.body.dataset.generatedAt);
+  var budget = Number(document.body.dataset.maxAgeSeconds) * 1000;
+  function invalidate(andReload){{
+    if (!invalidated){{
+      invalidated = true;
+      document.documentElement.classList.add("not-current");
+      badge.className = "state fail";
+      badge.textContent = "TRIAL NOT VERIFIED — NOT CURRENT";
+    }}
+    if (andReload && navigator.onLine){{ location.reload(); }}
+  }}
+  function checkAge(){{
+    var age = Date.now() - generated;
+    if (!Number.isFinite(age) || age > budget || age < -5000){{
+      invalidate(true);
+    }}
+  }}
+  window.addEventListener("pageshow", function(event){{
+    if (event.persisted){{ invalidate(true); }} else {{ checkAge(); }}
+  }});
+  document.addEventListener("visibilitychange", function(){{
+    if (document.visibilityState === "visible"){{ invalidate(true); }}
+  }});
+  window.addEventListener("online", function(){{ invalidate(true); }});
+  window.addEventListener("offline", function(){{ invalidate(false); }});
+  setInterval(checkAge, 1000);
+  setTimeout(function(){{ invalidate(true); }}, {refresh_seconds * 1000});
+}})();
 </script>
 </body></html>"""
 
 
-__all__ = ["CSS", "REFRESH_SECONDS", "render"]
+__all__ = ["CSS", "PRESENTATION_MAX_AGE_SECONDS", "REFRESH_SECONDS", "render"]

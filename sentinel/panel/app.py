@@ -89,9 +89,12 @@ def panel_json() -> JSONResponse:
                 {"key": r.key, "label": r.label, "value": r.value,
                  "status": r.effective_status(p.now), "detail": r.detail,
                  "as_of": r.as_of.isoformat() if r.as_of else None,
-                 "stale": r.is_stale(p.now)}
+                 "stale": r.is_stale(p.now),
+                 "future": r.is_future(p.now)}
                 for r in p.rows
             ],
+            "trial_details": p.trial_details,
+            "trial_history": p.trial_history,
         },
         headers={"Cache-Control": "no-store"},
     )

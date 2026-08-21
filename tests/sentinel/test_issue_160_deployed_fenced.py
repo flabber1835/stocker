@@ -123,6 +123,9 @@ def test_fenced_runtime_uses_canonical_ingest_without_broker(monkeypatch):
         automation_runtime.readiness, "check_readiness",
         lambda *_args, **_kwargs: SimpleNamespace(ready=True))
     monkeypatch.setattr(
+        automation_runtime.readiness, "save_snapshot",
+        lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
         automation_runtime.outbox, "enqueue", lambda _c, **kwargs: alerts.append(kwargs))
     obj._broker = lambda *_args, **_kwargs: pytest.fail(
         "fenced data progression constructed a broker")

@@ -16,8 +16,9 @@ would be an unattended API client.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Mapping
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Optional
@@ -1053,6 +1054,183 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                 pass
 
 
+def _percent(value) -> str | None:
+    if value is None:
+        return None
+    number = _finite_float(value, label="trial return")
+    return f"{number * 100:+.2f}%"
+
+
+def _trial_rows(database_url: str, *, now: datetime
+                ) -> tuple[list[model.Row], dict, list[dict], list[str]]:
+    """Project immutable trial certificates; never contact or repair a broker."""
+    if not database_url:
+        row = model.trial_verification_row(
+            verdict=None, session=None, error="SENTINEL_DATABASE_URL is unset")
+        return [row], {}, [], ["trial database: SENTINEL_DATABASE_URL is unset"]
+    conn = None
+    try:
+        from sentinel import trial
+        from sentinel.automation import schedule
+        from sentinel.automation import store as automation_store
+        from sentinel.automation.model import AutomationConfig
+        from sentinel.core.decision import publication_fingerprint
+        from sentinel.feed import calendar, publication
+        from sentinel.feed import store as feed_store
+
+        conn = feed_store.connect(_bounded_dsn(database_url))
+        history, history_error = _read(
+            conn, trial.load_verifications, STATEMENT_TIMEOUT_MS, default=[])
+        if history_error:
+            row = model.trial_verification_row(
+                verdict=None, session=None, error=history_error)
+            return [row], {}, [], [f"trial ledger: {history_error}"]
+        latest = history[-1] if history else {}
+        verdict = latest.get("verdict")
+        reasons = list(latest.get("reason_codes") or ())
+
+        # A historical certificate cannot silently certify a newer current
+        # publication/state.  These are cheap identity reads, not a recomputed
+        # financial verdict; a mismatch has only negative authority.
+        current, current_error = _read(
+            conn, publication.current, STATEMENT_TIMEOUT_MS, default=None)
+        frontier, frontier_error = _read(
+            conn, feed_store.latest_visible_session,
+            STATEMENT_TIMEOUT_MS, default=None)
+        cycle, cycle_error = _read(
+            conn, automation_store.latest_cycle,
+            STATEMENT_TIMEOUT_MS, default=None)
+        if current_error or frontier_error or cycle_error:
+            verdict = "NOT_VERIFIED"
+            reasons.append("CURRENT_IDENTITY_UNREADABLE")
+        if latest and current is not None:
+            recorded = latest.get("publication") or {}
+            if (recorded.get("valuation_version") != current.version
+                    or recorded.get("valuation_fingerprint")
+                    != publication_fingerprint(current)):
+                verdict = "NOT_VERIFIED"
+                reasons.append("CURRENT_PUBLICATION_CHANGED")
+        if latest and frontier is not None:
+            freshness = calendar.freshness(str(frontier), now)
+            if (not freshness.evaluable or freshness.sessions_behind > 0
+                    or freshness.ahead):
+                verdict = "NOT_VERIFIED"
+                reasons.append("SESSIONS_BEHIND")
+        if latest and cycle is not None:
+            latest_session = date.fromisoformat(str(latest["session"]))
+            if (cycle.effective_session > latest_session
+                    and now >= cycle.execution_close_at):
+                verdict = "NOT_VERIFIED"
+                reasons.append("OWED_SESSION_UNVERIFIED")
+            if (cycle.effective_session == latest_session
+                    and cycle.cycle_id != (latest.get("cycle") or {}).get("cycle_id")):
+                verdict = "NOT_VERIFIED"
+                reasons.append("LATEST_CYCLE_MISMATCH")
+        if latest:
+            # Certification for a just-closed effective session is due at the
+            # same post-publication preparation checkpoint that finalizes it.
+            # This catches an absent cycle/service, not merely a bad latest row.
+            closed = date.fromisoformat(str(
+                calendar.latest_closed_session(now)))
+            delay = os.environ.get(
+                "SENTINEL_AUTOMATION_PUBLICATION_DELAY_SECONDS")
+            timing = (AutomationConfig(publication_delay_seconds=int(delay))
+                      if str(delay or "").strip() else AutomationConfig())
+            certification_due = schedule.for_decision_session(
+                closed, timing).prepare_at
+            if (now >= certification_due
+                    and date.fromisoformat(str(latest["session"])) < closed):
+                verdict = "NOT_VERIFIED"
+                reasons.append("OWED_SESSION_UNVERIFIED")
+
+        verified_at = None
+        if latest.get("verified_at"):
+            verified_at = _utc(latest["verified_at"])
+            if verified_at is None or verified_at - now > timedelta(seconds=5):
+                verdict = "NOT_VERIFIED"
+                reasons.append("VERIFICATION_FUTURE")
+        headline = model.trial_verification_row(
+            verdict=verdict, session=latest.get("session"),
+            reason_codes=reasons, verified_at=verified_at)
+
+        performance = latest.get("performance") or {}
+        account = (latest.get("account_evidence") or {}).get("account") or {}
+        nav = latest.get("nav_attribution") or {}
+        plan = latest.get("plan") or {}
+        is_verified = headline.status == model.OK
+        rows = [headline]
+        rows.append(model.trial_metric_row(
+            "actual_account", "Actual Alpaca account",
+            (f"${_finite_float(account['equity'], label='equity'):,.2f} · "
+             f"cash ${_finite_float(account['cash'], label='cash'):,.2f}"
+             if account.get("equity") is not None
+             and account.get("cash") is not None else None),
+            verified=is_verified,
+            detail="actual durable broker equity and cash; never shadow NAV",
+            as_of=verified_at))
+        rows.append(model.trial_metric_row(
+            "trial_return", "Trial total return",
+            _percent(performance.get("total_return")), verified=is_verified,
+            detail=(f"actual equity, external capital removed · strategy P&L "
+                    f"${_finite_float(performance.get('strategy_pl'), label='P&L'):,.2f}"
+                    if performance.get("strategy_pl") is not None
+                    else "actual equity with external capital removed"),
+            as_of=verified_at))
+
+        verified_history = [row for row in history
+                            if row.get("verdict") == "VERIFIED"]
+        factors = [float((row.get("performance") or {}).get(
+            "cumulative_factor", 1)) for row in verified_history]
+        current_factor = factors[-1] if factors else None
+        peak = max([1.0, *factors]) if factors else None
+        drawdown = ((current_factor / peak) - 1
+                    if current_factor is not None and peak else None)
+        running_peak = 1.0
+        max_drawdown = 0.0
+        for factor in factors:
+            running_peak = max(running_peak, factor)
+            max_drawdown = min(max_drawdown, factor / running_peak - 1)
+        rows.append(model.trial_metric_row(
+            "trial_drawdown", "Trial drawdown",
+            (f"current {drawdown * 100:.2f}% · max {max_drawdown * 100:.2f}%"
+             if drawdown is not None else None), verified=is_verified,
+            detail="external-capital-adjusted verified equity chain",
+            as_of=verified_at))
+        annualized = None
+        if current_factor is not None and len(factors) >= 2 and current_factor > 0:
+            annualized = current_factor ** (252.0 / len(factors)) - 1.0
+        rows.append(model.trial_metric_row(
+            "trial_annualized", "Annualized TWR",
+            f"{annualized * 100:+.2f}%" if annualized is not None else None,
+            verified=is_verified,
+            detail="252-session geometric annualization of verified daily TWR",
+            as_of=verified_at))
+        rows.append(model.trial_metric_row(
+            "trial_intent", "Current certified intent",
+            (f"exposure {_finite_float(plan.get('target_exposure'), label='exposure'):.2f}"
+             f" · decision {latest.get('decision_session')}"
+             f" · effective {latest.get('session')}" if plan else None),
+            verified=is_verified,
+            detail=(f"marked NAV ${_finite_float(nav.get('marked_nav'), label='marked NAV'):,.2f}"
+                    f" · unexplained ${_finite_float(nav.get('unexplained'), label='unexplained'):,.2f}"
+                    if nav.get("marked_nav") is not None
+                    and nav.get("unexplained") is not None else
+                    "durable target plan and independent account marks"),
+            as_of=verified_at))
+        return rows, latest, history, []
+    except Exception as exc:                                 # noqa: BLE001
+        detail = _short(exc)
+        return ([model.trial_verification_row(
+                    verdict=None, session=None, error=detail)], {}, [],
+                [f"trial ledger: {detail}"])
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:                                # noqa: BLE001
+                pass
+
+
 def _runtime_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
     """Canonical state, current plan and durable broker evidence.
 
@@ -1244,6 +1422,10 @@ def build_panel(*, state_dir: Path, database_url: str,
     now = now or datetime.now(timezone.utc)
     errors: list[str] = []
 
+    trial_rows, trial_details, trial_history, trial_errs = _trial_rows(
+        database_url, now=now)
+    errors.extend(trial_errs)
+
     own = _ownership(Path(state_dir), database_url)
     if own.status is model.UNKNOWN:
         errors.append("ownership binding")
@@ -1255,6 +1437,7 @@ def build_panel(*, state_dir: Path, database_url: str,
     errors.extend(automation_errs)
 
     rows = [
+        *trial_rows,
         own,
         automation_rows[0],
         runtime_rows[0],
@@ -1262,7 +1445,9 @@ def build_panel(*, state_dir: Path, database_url: str,
         *runtime_rows[1:],
         *automation_rows[1:],
     ]
-    return model.Panel(rows=rows, now=now, source_errors=errors)
+    return model.Panel(rows=rows, now=now, source_errors=errors,
+                       trial_details=trial_details,
+                       trial_history=trial_history)
 
 
 __all__ = ["DEFAULT_SLOTS", "build_panel"]

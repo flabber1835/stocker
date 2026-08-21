@@ -860,6 +860,7 @@ async def test_missed_window_supersession_is_notifier_eligible(conn, pg) -> None
     ready = await setup.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
     assert ready.cycle.state is CycleState.PLAN_READY
     notifications = []
+    terminalized = []
 
     class NeverStop:
         def is_set(self):
@@ -868,16 +869,21 @@ async def test_missed_window_supersession_is_notifier_eligible(conn, pg) -> None
     async def notify(_conn, result):
         notifications.append(result)
 
+    async def terminal(_conn, result):
+        terminalized.append(result)
+
     runner = AutomationService(
         config=cfg, holder_id="worker-a", refresh=refresh_result,
         prepare=prepare_result, recover=recovery_success,
-        execute=execution_success, notify=notify)
+        execute=execution_success, notify=notify, terminal=terminal)
     await runner.run(
         lambda: feed_store.connect(pg.sync_dsn), stop=NeverStop(),
         clock=lambda: THURSDAY_AFTER_CLOSE, max_ticks=1)
     assert len(notifications) == 1
     assert notifications[0].action is TickAction.SUPERSEDED
     assert notifications[0].cycle.failure_code == "MISSED_EXECUTION_WINDOW"
+    assert len(terminalized) == 1
+    assert terminalized[0].cycle.state is CycleState.SUPERSEDED
     with conn.cursor() as cur:
         cur.execute(
             "SELECT state FROM sentinel_automation_service_instances"

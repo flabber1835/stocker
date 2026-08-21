@@ -24,7 +24,7 @@ So:
     every value carries the time it was last TRUE, not the time it was fetched
     anything past its freshness budget renders STALE rather than plain
     a value that cannot be computed renders UNKNOWN, never 0 and never blank
-    no performance number appears at all — see `NO_PERFORMANCE_HERE`
+    performance appears only beside an explicit trial-verification verdict
 """
 from __future__ import annotations
 
@@ -32,13 +32,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-#: Deliberately absent from this panel: CAGR, total return, P&L, any equity
-#: curve. The certification rule is that no Wealth Core performance number may
-#: be reported without the settlement counters and the per-episode terminal
-#: audit beside it — and a dashboard is precisely where a bare number gets
-#: screenshotted and quoted without them. The panel reports CONDITION, and the
-#: settlement counters ARE the honest headline.
-NO_PERFORMANCE_HERE = True
+#: Performance is permitted only inside the versioned trial-verification
+#: projection.  Kept as a compatibility name so old callers fail visibly if
+#: they still expect the former condition-only contract.
+NO_PERFORMANCE_HERE = False
+
+MAXIMUM_FUTURE_SKEW = timedelta(seconds=5)
 
 OK = "ok"
 """Measured, fresh, and within contract."""
@@ -59,6 +58,11 @@ UNKNOWN = "unknown"
 unresolved terminals" and "nobody could count them" is the entire point."""
 
 _STATUS_RANK = {OK: 0, PENDING: 1, WARN: 2, FAIL: 3, UNKNOWN: 3}
+
+TRIAL_ROW_KEYS = frozenset({
+    "trial_verification", "actual_account", "trial_return",
+    "trial_drawdown", "trial_annualized", "trial_intent",
+})
 
 
 @dataclass(frozen=True)
@@ -89,9 +93,15 @@ class Row:
             return False
         return (now - self.as_of) > self.freshness
 
+    def is_future(self, now: datetime) -> bool:
+        return (self.as_of is not None
+                and self.as_of - now > MAXIMUM_FUTURE_SKEW)
+
     def effective_status(self, now: datetime) -> str:
         """A stale OK is a WARN. Staleness cannot IMPROVE a status — a row that
         is already failing does not become merely stale."""
+        if self.is_future(now):
+            return FAIL
         if self.is_stale(now) and _STATUS_RANK[self.status] < _STATUS_RANK[WARN]:
             return WARN
         return self.status
@@ -104,6 +114,9 @@ class Panel:
     #: Set when a SOURCE failed rather than a check — the panel could not read
     #: the world. Rendered at the top, because every row below it is suspect.
     source_errors: list[str] = field(default_factory=list)
+    #: Already-earned durable financial evidence for read-only detail sections.
+    trial_details: dict = field(default_factory=dict)
+    trial_history: list[dict] = field(default_factory=list)
 
     @property
     def overall(self) -> str:
@@ -119,11 +132,54 @@ class Panel:
             live.append(FAIL)
         return max(live, key=lambda s: _STATUS_RANK[s]) if live else PENDING
 
+    @property
+    def operational(self) -> str:
+        """Current non-trial authority required before verified styling.
+
+        Historical financial evidence remains immutable, but it may not turn a
+        screen green while a current required source is stale, unreadable, or
+        failing.  PENDING retains its existing meaning: a deliberately absent
+        non-runtime capability is not an outage.
+        """
+        live = [r.effective_status(self.now) for r in self.rows
+                if r.key not in TRIAL_ROW_KEYS and r.status is not PENDING]
+        if self.source_errors:
+            live.append(FAIL)
+        return max(live, key=lambda s: _STATUS_RANK[s]) if live else OK
+
     def row(self, key: str) -> Optional[Row]:
         return next((r for r in self.rows if r.key == key), None)
 
 
 # ── the rows ─────────────────────────────────────────────────────────────────
+
+def trial_verification_row(*, verdict: Optional[str], session: Optional[str],
+                           reason_codes=(), verified_at: Optional[datetime] = None,
+                           error: Optional[str] = None) -> Row:
+    if error:
+        return Row("trial_verification", "Trial verification",
+                   "TRIAL NOT VERIFIED — EVIDENCE UNREADABLE", UNKNOWN,
+                   error, verified_at)
+    if verdict != "VERIFIED" or not session:
+        reason = str(next(iter(reason_codes), "NO SESSION CERTIFICATE"))
+        return Row("trial_verification", "Trial verification",
+                   f"TRIAL NOT VERIFIED — {reason.replace('_', ' ')}", FAIL,
+                   "performance is informational until every financial clause "
+                   "earns one immutable session certificate", verified_at)
+    return Row("trial_verification", "Trial verification",
+               f"TRIAL VERIFIED THROUGH {session}", OK,
+               "actual broker economics, publication, strategy state, cycle, "
+               "book, cash and marked NAV are bound by one durable record",
+               verified_at)
+
+
+def trial_metric_row(key: str, label: str, value: Optional[str], *,
+                     verified: bool, detail: str,
+                     as_of: Optional[datetime]) -> Row:
+    if value is None:
+        return Row(key, label, "UNAVAILABLE", UNKNOWN, detail, as_of)
+    return Row(key, label, value, OK if verified else WARN,
+               detail if verified else f"UNVERIFIED · {detail}", as_of)
 
 def ownership_row(*, state: Optional[str], at: Optional[datetime],
                   error: Optional[str] = None) -> Row:

@@ -31,6 +31,7 @@ from sentinel.automation.model import (
     LeaderPermit,
     NonRetryableCallbackRefused,
     TickAction,
+    TickResult,
 )
 from sentinel.automation.service import AutomationService
 from sentinel.config import DEFAULT_BASE_URL, SentinelConfig
@@ -38,7 +39,6 @@ from sentinel.execution import journal
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
     BrokerInstrument,
-    BrokerPosition,
     Completeness,
     Side,
 )
@@ -255,6 +255,54 @@ def test_production_composition_accepts_only_an_explicit_typed_alert_adapter():
         holder_id="worker-a", alert_adapter=adapter)
 
     assert runtime.alert_adapter is adapter
+
+
+@async_test
+async def test_successful_cycle_financial_certificate_waits_for_session_close(
+        monkeypatch) -> None:
+    cfg = config()
+    runtime = production(cfg)
+    conn = FakeConnection()
+    succeeded = cycle(cfg, state=CycleState.SUCCEEDED)
+    result = TickResult(action=TickAction.EXECUTED, cycle=succeeded)
+    calls = []
+    monkeypatch.setattr(
+        automation_runtime.trial, "record_cycle_verification",
+        lambda _conn, *, cycle_id: calls.append(cycle_id))
+    monkeypatch.setattr(
+        automation_runtime.outbox, "enqueue",
+        lambda *_args, **_kwargs: pytest.fail(
+            "a healthy trial certificate became alert noise"))
+
+    verdict = await runtime.certify_terminal_cycle(conn, result)
+
+    assert verdict is None
+    assert calls == []
+
+
+@async_test
+async def test_terminal_financial_refusal_creates_a_critical_alert(
+        monkeypatch) -> None:
+    cfg = config()
+    runtime = production(cfg)
+    conn = FakeConnection()
+    missed = cycle(cfg, state=CycleState.MISSED_STATE_ONLY)
+    result = TickResult(action=TickAction.SUPERSEDED, cycle=missed)
+    monkeypatch.setattr(
+        automation_runtime.trial, "record_cycle_verification",
+        lambda _conn, *, cycle_id: {
+            "verdict": "NOT_VERIFIED",
+            "reason_codes": ["CYCLE_MISSED_STATE_ONLY"],
+            "cycle_id": cycle_id})
+    alerts = []
+    monkeypatch.setattr(
+        automation_runtime.outbox, "enqueue",
+        lambda _conn, **kwargs: alerts.append(kwargs) or kwargs)
+
+    await runtime.certify_terminal_cycle(conn, result)
+
+    assert alerts[0]["event_type"] == "TRIAL_NOT_VERIFIED"
+    assert alerts[0]["severity"] == "CRITICAL"
 
 
 def install_runtime_seams(monkeypatch, runtime, conn, ctx, broker) -> None:
