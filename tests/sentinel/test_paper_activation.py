@@ -39,6 +39,7 @@ from sentinel.core import catchup  # noqa: E402
 from sentinel.core.decision import (  # noqa: E402
     DEFENSIVE_SECURITY_ID,
     publication_fingerprint,
+    runtime_strategy_identity as production_runtime_strategy_identity,
 )
 from sentinel.core.loader import CorpusWindow  # noqa: E402
 from sentinel.core.production import PublishedSession, SessionState  # noqa: E402
@@ -697,29 +698,9 @@ def test_fresh_boot_warms_exactly_252_feature_sessions_without_path_history(
 def test_real_fresh_boot_pipeline_is_restart_equivalent_and_adopts_one_plan(
         conn, pg, monkeypatch):
     """Fresh preparation crosses every durable production seam exactly once."""
-    config = ControllerConfig(
-        ordinary_stress_drawdown=CONFIG.ordinary_stress_drawdown,
-        ordinary_target_core=CONFIG.ordinary_target_core,
-        severe_target_core=CONFIG.severe_target_core,
-        slow_entry=CONFIG.slow_entry, slow_recovery=CONFIG.slow_recovery,
-        fast_entry={
-            "max_shadow_drawdown": -0.10,
-            "min_damaged_breadth": 0.85,
-            "max_green_breadth": 0.20,
-            "short_loss_or": [
-                {"max_shadow_r5": -0.05},
-                {"max_shadow_r10": -0.08},
-            ],
-            "min_damaged_breadth_delta5": 0.40,
-            "min_spy_vol5_over_vol20_minus_1": 0.04,
-            "confirmation_or": [
-                {"max_spy_r20": -0.01},
-                {"max_shadow_r10": -0.10},
-            ],
-        },
-        fast_recovery=CONFIG.fast_recovery, ramp=CONFIG.ramp,
-        healthy=CONFIG.healthy, strategy_id=CONFIG.strategy_id,
-        digest=CONFIG.digest)
+    config = paper.load_concordance_parent()
+    strategy_identity = production_runtime_strategy_identity(
+        config, concordance=True)
     sessions = [
         (DECISION - dt.timedelta(days=offset)).isoformat()
         for offset in range(252, -1, -1)
@@ -795,7 +776,8 @@ def test_real_fresh_boot_pipeline_is_restart_equivalent_and_adopts_one_plan(
     broker = _broker(equity="100000", cash="100000")
 
     first = _prepare(
-        conn, broker, controller_config=config, strategy_identity=IDENTITY)
+        conn, broker, controller_config=config,
+        strategy_identity=strategy_identity)
     first_state = catchup.resume_state(conn)
     canonical = SessionState.from_dict(first_state)
 
@@ -1196,7 +1178,9 @@ class TestStrictExecutionGate:
             takeover_epoch=bound.takeover_epoch,
             publication_fingerprint=publication_fingerprint(pinned),
             account_nav=D("1000"), account_cash=D("1000"),
-            cash_residual=D(0), defensive_security=DEFENSIVE_SECURITY_ID)
+            cash_residual=D(0), defensive_security=DEFENSIVE_SECURITY_ID,
+            rollout_mode="CONTROLLER", rollout_version=2,
+            rollout_certificate_sha256=ROLLOUT_CERTIFICATE)
         plan = ExecutionPlan(**{
             **plan.__dict__, "plan_id": f"sentinel-{plan.fingerprint()}",
         })
