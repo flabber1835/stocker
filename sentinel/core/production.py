@@ -369,7 +369,7 @@ def load_published_session(conn, session: str, *, spy_sessions: int = 41,
                            known_feed_security_ids: Sequence[str] = ()
                            ) -> PublishedSession:
     """Load one coherent production input snapshot from the published corpus."""
-    from sentinel.core.loader import load_meta, load_terminal_events
+    from sentinel.core.loader import load_meta, load_sectors, load_terminal_events
     from sentinel.feed.calendar import previous_sessions
     from sentinel.feed.publication import (
         assert_coherent, current, effective_split_ratio, visible_predicate,
@@ -390,7 +390,7 @@ def load_published_session(conn, session: str, *, spy_sessions: int = 41,
         raise RuntimeError(
             f"{session} is not the end of a complete {spy_sessions}-session "
             "XNYS SPY window")
-    meta = load_meta(conn)
+    meta = load_meta(conn, as_of=session)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT security_id,ticker,close_unadjusted,open_unadjusted,volume,"
@@ -409,12 +409,7 @@ def load_published_session(conn, session: str, *, spy_sessions: int = 41,
         spy_rows = list(reversed(cur.fetchall()))
         actual_spy_sessions = [str(row[0]) for row in spy_rows]
         spy = [float(row[1]) for row in spy_rows]
-        cur.execute(
-            "SELECT permaticker,(ARRAY_REMOVE(ARRAY_AGG(sector ORDER BY"
-            " snapshot_date DESC),NULL))[1] FROM sentinel_universe u"
-            " WHERE permaticker IS NOT NULL"
-            f" AND {visible_predicate('u')} GROUP BY permaticker")
-        sectors = {str(sid): sector for sid, sector in cur.fetchall()}
+        sectors = load_sectors(conn, as_of=session)
     if not bars:
         raise RuntimeError(f"no published bars for {session}")
     if actual_spy_sessions != expected_spy_sessions:

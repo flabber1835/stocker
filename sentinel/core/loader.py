@@ -114,38 +114,79 @@ def load_window(conn, *, start: str, end: str) -> CorpusWindow:
                         meta=load_meta(conn))
 
 
-def load_meta(conn) -> dict[str, SecurityMeta]:
-    """Per-security reference data, keyed on PERMATICKER.
+def _current_metadata_is_causal(conn, as_of: str) -> bool:
+    """Whether the bounded current projection contains no observation after D."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT MAX(snapshot_date) FROM feed_universe_current")
+        row = cur.fetchone()
+    newest = row[0] if row else None
+    return newest is not None and str(newest) <= str(as_of)
 
-    `related_tickers` is re-parsed on read rather than trusted as stored: the
-    column holds whatever an ingest wrote, and the issuer key is only as good as
-    the tokenisation behind it. Parsing at BOTH ends costs nothing and means a
-    corpus written by an older, comma-only loader still produces correct issuer
-    groups today — the GOOG/GOOGL defect cannot be reintroduced by stale rows.
 
-    `feed_universe_current` carries one row per historical ticker pairing, with
-    its latest non-null labels and listing envelope maintained transactionally at
-    publication. We still choose the latest non-null label ACROSS a security's
-    ticker pairings and retain MIN(first_price_date), but each label is ordered
-    by its own observation date. A ticker pair with a newer blank snapshot must
-    not outrank another pair's more recently observed category or issuer links.
-    The aggregation is bounded by identity cardinality rather than every dated
-    vendor snapshot.
+def _historical_metadata_rows(conn, *, as_of: str):
+    """One session-effective metadata row per permanent security.
+
+    Raw ``sentinel_universe`` is the immutable dated TICKERS evidence. Sparse
+    fields carry forward only from observations that existed by ``as_of``;
+    future snapshots are structurally absent from the CTE. Each ticker pairing
+    resolves its own latest non-null value before the outer security aggregate,
+    matching ``feed_universe_current`` without importing a later observation.
     """
+    from sentinel.feed.publication import visible_predicate
+
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT permaticker,"
-            " (ARRAY_REMOVE(ARRAY_AGG(ticker ORDER BY snapshot_date DESC),"
-            "  NULL))[1] AS ticker,"
-            " (ARRAY_REMOVE(ARRAY_AGG(category ORDER BY"
-            "  category_snapshot_date DESC NULLS LAST), NULL))[1] AS category,"
-            " (ARRAY_REMOVE(ARRAY_AGG(related_tickers ORDER BY"
-            "  related_tickers_snapshot_date DESC NULLS LAST), NULL))[1]"
-            "  AS related_tickers,"
-            " MIN(first_price_date) AS first_session"
-            " FROM feed_universe_current WHERE permaticker IS NOT NULL"
-            " GROUP BY permaticker")
-        rows = cur.fetchall()
+            "WITH pairing AS ("
+            " SELECT permaticker,ticker,"
+            "  (ARRAY_REMOVE(ARRAY_AGG(category ORDER BY snapshot_date DESC),NULL))[1] category,"
+            "  MAX(snapshot_date) FILTER (WHERE category IS NOT NULL) category_date,"
+            "  (ARRAY_REMOVE(ARRAY_AGG(related_tickers ORDER BY snapshot_date DESC),NULL))[1] related_tickers,"
+            "  MAX(snapshot_date) FILTER (WHERE related_tickers IS NOT NULL) related_date,"
+            "  (ARRAY_REMOVE(ARRAY_AGG(first_price_date ORDER BY snapshot_date DESC),NULL))[1] first_price_date,"
+            "  MAX(snapshot_date) snapshot_date"
+            " FROM sentinel_universe u"
+            " WHERE permaticker IS NOT NULL AND ticker IS NOT NULL"
+            "   AND snapshot_date<=%s AND " + visible_predicate("u") +
+            " GROUP BY permaticker,ticker)"
+            " SELECT permaticker,"
+            "  (ARRAY_REMOVE(ARRAY_AGG(ticker ORDER BY snapshot_date DESC),NULL))[1] ticker,"
+            "  (ARRAY_REMOVE(ARRAY_AGG(category ORDER BY category_date DESC NULLS LAST),NULL))[1] category,"
+            "  (ARRAY_REMOVE(ARRAY_AGG(related_tickers ORDER BY related_date DESC NULLS LAST),NULL))[1] related_tickers,"
+            "  MIN(first_price_date) first_session"
+            " FROM pairing GROUP BY permaticker",
+            (as_of,))
+        return cur.fetchall()
+
+
+def load_meta(conn, *, as_of: Optional[str] = None) -> dict[str, SecurityMeta]:
+    """Per-security strategy metadata, optionally bounded to decision session D.
+
+    Normal live planning uses the bounded ``feed_universe_current`` projection
+    when that projection contains no observation after D. Outage catch-up must
+    not do that: a recovery-day TICKERS snapshot is future information for a
+    missed decision. In that case this reads the immutable dated snapshots and
+    permits only observations with ``snapshot_date <= D``.
+    """
+    if as_of is not None and not _current_metadata_is_causal(conn, as_of):
+        rows = _historical_metadata_rows(conn, as_of=as_of)
+        if not rows:
+            raise RuntimeError(
+                f"no causally available TICKERS metadata exists on or before {as_of}")
+    else:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT permaticker,"
+                " (ARRAY_REMOVE(ARRAY_AGG(ticker ORDER BY snapshot_date DESC),"
+                "  NULL))[1] AS ticker,"
+                " (ARRAY_REMOVE(ARRAY_AGG(category ORDER BY"
+                "  category_snapshot_date DESC NULLS LAST), NULL))[1] AS category,"
+                " (ARRAY_REMOVE(ARRAY_AGG(related_tickers ORDER BY"
+                "  related_tickers_snapshot_date DESC NULLS LAST), NULL))[1]"
+                "  AS related_tickers,"
+                " MIN(first_price_date) AS first_session"
+                " FROM feed_universe_current WHERE permaticker IS NOT NULL"
+                " GROUP BY permaticker")
+            rows = cur.fetchall()
 
     out: dict[str, SecurityMeta] = {}
     for permaticker, ticker, category, related, first_session in rows:
@@ -157,6 +198,40 @@ def load_meta(conn) -> dict[str, SecurityMeta]:
             related_tickers=parse_related_tickers(related),
             first_session=None if first_session is None else str(first_session))
     return out
+
+
+def load_sectors(conn, *, as_of: Optional[str] = None) -> dict[str, str | None]:
+    """Native-Sentinel sector labels with the same session-effective boundary."""
+    if as_of is None or _current_metadata_is_causal(conn, as_of):
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT permaticker,"
+                " (ARRAY_REMOVE(ARRAY_AGG(sector ORDER BY"
+                "  sector_snapshot_date DESC NULLS LAST),NULL))[1]"
+                " FROM feed_universe_current WHERE permaticker IS NOT NULL"
+                " GROUP BY permaticker")
+            return {str(sid): sector for sid, sector in cur.fetchall()}
+
+    from sentinel.feed.publication import visible_predicate
+    with conn.cursor() as cur:
+        cur.execute(
+            "WITH pairing AS ("
+            " SELECT permaticker,ticker,"
+            "  (ARRAY_REMOVE(ARRAY_AGG(sector ORDER BY snapshot_date DESC),NULL))[1] sector,"
+            "  MAX(snapshot_date) FILTER (WHERE sector IS NOT NULL) sector_date"
+            " FROM sentinel_universe u"
+            " WHERE permaticker IS NOT NULL AND ticker IS NOT NULL"
+            "   AND snapshot_date<=%s AND " + visible_predicate("u") +
+            " GROUP BY permaticker,ticker)"
+            " SELECT permaticker,"
+            "  (ARRAY_REMOVE(ARRAY_AGG(sector ORDER BY sector_date DESC NULLS LAST),NULL))[1]"
+            " FROM pairing GROUP BY permaticker",
+            (as_of,))
+        rows = cur.fetchall()
+    if not rows:
+        raise RuntimeError(
+            f"no causally available TICKERS sector metadata exists on or before {as_of}")
+    return {str(sid): sector for sid, sector in rows}
 
 
 def load_terminal_events(conn, *, start: str, end: str, resolve_identity=None,
