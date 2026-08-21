@@ -850,6 +850,7 @@ def test_supported_current_only_seed_produces_the_first_plan_without_backdating(
     strategy_identity = production_runtime_strategy_identity(
         config, concordance=True)
     real_previous_sessions = paper.calendar.previous_sessions
+    real_sessions_in_range = paper.calendar.sessions_in_range
     sessions = real_previous_sessions(DECISION.isoformat(), 253)
     assert len(sessions) == 253 and sessions[-1] == DECISION.isoformat()
     securities = [
@@ -914,6 +915,12 @@ def test_supported_current_only_seed_produces_the_first_plan_without_backdating(
 
     monkeypatch.setattr(
         paper.calendar, "previous_sessions", exact_previous_sessions)
+    monkeypatch.setattr(
+        paper.calendar, "sessions_in_range",
+        lambda start, end: [DECISION.isoformat()]
+        if (dt.date.fromisoformat(str(start)), dt.date.fromisoformat(str(end)))
+        == (DECISION, DECISION)
+        else real_sessions_in_range(start, end))
     result = _prepare(
         conn, _broker(equity="100000", cash="100000"),
         controller_config=config, strategy_identity=strategy_identity)
