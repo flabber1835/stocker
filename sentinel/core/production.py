@@ -15,7 +15,8 @@ from typing import Mapping, Sequence
 
 from stock_strategy_shared.wealth_core.adapter import PendingOrder
 from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
-from stock_strategy_shared.wealth_core.engine import Reason, WealthCoreConfig
+from stock_strategy_shared.wealth_core.engine import (
+    Reason, WealthCoreConfig, score_universe)
 from stock_strategy_shared.wealth_core.feed import (
     Feed, FeedError, SecurityMeta, SecuritySeries, VendorBar)
 from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
@@ -357,10 +358,51 @@ def warm_session_state(state: SessionState | Mapping, window, *,
         raise ValueError(
             "warm-up window sessions must be strictly increasing and unique")
     elig = eligibility_config or EligibilityConfig()
-    feed = Feed(window.meta, elig)
-    feed.warmup(sessions, window.bars_by_session)
+    witness_state = None
+    if is_concordance_identity(env.strategy_identity):
+        timeline = getattr(window, "metadata_timeline", None)
+        if (timeline is None or list(timeline.sessions) != sessions):
+            raise ValueError(
+                "Concordance warm-up requires exact session-effective metadata")
+        feed = Feed({}, elig, metadata_timeline=timeline)
+        witness_state = leadership_state_from_dict(env.recent_leadership or {})
+        wealth_cfg = WealthCoreConfig()
+        for session in sessions:
+            bars = window.bars_by_session.get(session, ())
+            normalized = feed.advance(session, bars)
+            scored = score_universe(normalized.security_bars, wealth_cfg)
+            candidates = tuple(
+                row for row in scored
+                if row.momentum is not None and row.recent is not None)
+            eligible_count = sum(
+                1 for row in normalized.security_bars if row.eligible)
+            # Before the canonical 127-close formation window exists there is
+            # no leadership population and therefore no witness observation.
+            # Appending flat NAVs here would manufacture r20/r40 readiness from
+            # sessions on which the sensor could not yet exist.
+            if eligible_count == 0:
+                continue
+            signal_closes = {}
+            for bar in bars:
+                series = feed.series.get(bar.security_id)
+                if (series is None or not series.sessions
+                        or series.sessions[-1] != session
+                        or not series.signal_closes):
+                    continue
+                close = series.signal_closes[-1]
+                if close is not None:
+                    signal_closes[bar.security_id] = float(close)
+            witness_state, _ = advance_recent_leadership(
+                session=session, candidate_rows=candidates,
+                eligible_universe_count=eligible_count,
+                signal_closes=signal_closes, state=witness_state)
+    else:
+        feed = Feed(window.meta, elig)
+        feed.warmup(sessions, window.bars_by_session)
     warmed = SessionState.from_dict(env.to_dict())
     warmed.feed = _feed_to_dict(feed, set())
+    if witness_state is not None:
+        warmed.recent_leadership = leadership_state_to_dict(witness_state)
     warmed.data_version = int(publication_version)
     return warmed
 

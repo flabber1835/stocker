@@ -24,6 +24,7 @@ from sentinel.authority import (
     require_observation_safety_authority,
 )
 from sentinel.config import DEFAULT_BASE_URL, assert_paper_url
+from sentinel.controller.concordance import is_concordance_identity
 from sentinel.controller.concordance_parent import load as load_concordance_parent
 from sentinel.controller.frozen_rule import ControllerConfig, load as load_controller
 from sentinel.controller.ldrc import (
@@ -39,7 +40,8 @@ from sentinel.core.decision import (
     runtime_strategy_identity,
     shadow_target,
 )
-from sentinel.core.loader import load_meta, load_window
+from sentinel.core.loader import (
+    load_causal_meta_history, load_meta, load_window)
 from sentinel.core.production import (
     SessionState,
     advance_and_persist,
@@ -678,6 +680,9 @@ def _fresh_warmed_state(conn, *, through: str, count: int,
         missing = sorted(set(warm) - set(window.sessions))
         raise PaperActivationRefused(
             f"the pinned warm-up window is incomplete: {missing[:8]}")
+    if is_concordance_identity(strategy_identity):
+        window.metadata_timeline = load_causal_meta_history(
+            conn, sessions=warm)
     starting_cash = float(account.equity)
     if not math.isfinite(starting_cash):
         raise PaperActivationRefused("account equity cannot be represented by Wealth Core")

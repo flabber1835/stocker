@@ -24,7 +24,6 @@ import json
 import math
 import os
 import sys
-from pathlib import Path
 from typing import Mapping, Sequence
 from unittest.mock import patch
 
@@ -237,7 +236,9 @@ class ReferenceConcordance:
         if self.previous_native_allocation >= 1.0 - 1e-12 and native < 1.0 - 1e-12:
             episode = True
             reasons.append("RECOVERY_EPISODE_START")
-        if latched and (streak >= RECOVERY_SESSIONS or v_rebound):
+        cleared_this_session = bool(
+            latched and (streak >= RECOVERY_SESSIONS or v_rebound))
+        if cleared_this_session:
             latched = False
             reasons.append(
                 "DIVERGENCE_CLEAR_PERSISTENCE" if streak >= RECOVERY_SESSIONS
@@ -258,7 +259,7 @@ class ReferenceConcordance:
             and effective_native_allocation is not None
             and _finite(effective_native_allocation)
         )
-        if not latched:
+        if not latched and not cleared_this_session:
             effective_full = bool(
                 effective_native_allocation is not None
                 and float(effective_native_allocation) >= 1.0 - 1e-12)
@@ -379,6 +380,18 @@ def run(conn, *, end: str) -> dict:
                 conn, start=warm_sessions[0], end=warm_sessions[-1])
             if list(window.sessions) != list(warm_sessions):
                 raise DifferentialRefused("feature-only warm-up is incomplete")
+            # This integration-only differential explicitly does not claim
+            # historical metadata causality.  The 40-session prefix cannot yet
+            # produce an eligible candidate, but Concordance warmup still
+            # requires its metadata authority to be explicit rather than
+            # silently falling back to a current projection.
+            from stock_strategy_shared.wealth_core.feed import (
+                DecisionMetadataTimelineBuilder)
+            current_warm_meta = load_current_meta(conn)
+            timeline_builder = DecisionMetadataTimelineBuilder(warm_sessions)
+            for session in warm_sessions:
+                timeline_builder.add_snapshot(session, current_warm_meta)
+            window.metadata_timeline = timeline_builder.finish()
             state = warm_session_state(
                 state, window, publication_version=held.version)
             for session in sessions[warm_count:]:

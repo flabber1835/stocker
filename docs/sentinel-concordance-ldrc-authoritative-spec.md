@@ -29,7 +29,7 @@ AND recent_r20 <= -0.08
 AND SPY r20 >= 0.00
 ```
 
-This latches a 55% ceiling. The latch clears when the same live seven-session recovery condition is satisfied or `SPY r20 > 0.11`.
+This latches a 55% ceiling. The latch clears when the same live seven-session recovery condition is satisfied or `SPY r20 > 0.11`. A successful clear is authoritative for that close: divergence entry is not evaluated again until the next decision session. This applies to both persistence and SPY V-rebound clears.
 7. Every close-time decision is an intent for the **next executable open**. No same-session application is allowed.
 
 ## Recovered recent-leadership witness
@@ -48,6 +48,8 @@ For each close `t`:
 - A selected constituent with no valid next-session print keeps its fixed weight and contributes **0%** for that one-session return; it is not dropped and the remainder are not reweighted.
 - No ACTIONS dividend cash is added to the shadow.
 - `recent_r20` and `recent_r40` are exact trading-session returns of the compounded shadow NAV.
+
+On a genuinely fresh deployment, the existing causal historical feature warmup also advances this zero-capital witness. It does not replay Wealth Core trades or manufacture controller, portfolio, episode, cooldown, pending-order, or ledger history. The first live decision therefore begins with the same bounded 20/40-session witness evidence as an uninterrupted causal replay when sufficient historical sessions exist.
 
 Upstream eligibility must retain corrected Sharadar economics, including liquidity `SEP.close * SEP.volume` and the canonical Wealth Core historical eligibility semantics.
 

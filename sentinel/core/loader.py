@@ -28,9 +28,11 @@ backtester's version. This module only delegates.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping, Optional, Sequence
+from typing import Optional, Sequence
 
-from stock_strategy_shared.wealth_core.feed import SecurityMeta, VendorBar
+from stock_strategy_shared.wealth_core.feed import (
+    DecisionMetadataTimeline, DecisionMetadataTimelineBuilder, SecurityMeta,
+    VendorBar)
 
 from sentinel.feed.universe import parse_related_tickers
 
@@ -42,6 +44,10 @@ class CorpusWindow:
     sessions: list[str]
     bars_by_session: dict[str, list[VendorBar]]
     meta: dict[str, SecurityMeta]
+    # Required only when a fresh Concordance activation advances its
+    # zero-capital witness across this historical window.  The ordinary
+    # feature-only warmup deliberately needs no decision metadata.
+    metadata_timeline: DecisionMetadataTimeline | None = None
 
     @property
     def frontier(self) -> Optional[str]:
@@ -112,6 +118,32 @@ def load_window(conn, *, start: str, end: str) -> CorpusWindow:
     return CorpusWindow(sessions=sorted(bars_by_session),
                         bars_by_session=bars_by_session,
                         meta=load_meta(conn))
+
+
+def load_causal_meta_history(
+        conn, *, sessions: Sequence[str]
+        ) -> DecisionMetadataTimeline:
+    """Session-effective metadata for a historical witness-only warmup.
+
+    This deliberately calls the same bounded production metadata loader used
+    by an outage catch-up.  A current TICKERS projection is not a historical
+    decision surface and may not be projected backward to make Concordance
+    appear ready on day one.
+    """
+    ordered = [str(session) for session in sessions]
+    if (not ordered or any(left >= right
+                           for left, right in zip(ordered, ordered[1:]))):
+        raise ValueError(
+            "causal metadata sessions must be strictly increasing and unique")
+    builder = DecisionMetadataTimelineBuilder(ordered)
+    for session in ordered:
+        metadata = load_meta(conn, as_of=session)
+        if not metadata:
+            raise RuntimeError(
+                "causal metadata history contains an empty session snapshot: "
+                + session)
+        builder.add_snapshot(session, metadata)
+    return builder.finish()
 
 
 def _current_metadata_is_causal(conn, as_of: str) -> bool:

@@ -61,7 +61,9 @@ def _finite(value: object) -> bool:
 def _validate_config(cfg: LDRCConfig) -> None:
     if not _finite(cfg.divergence_ceiling) or not 0.0 <= cfg.divergence_ceiling <= 1.0:
         raise ValueError("divergence_ceiling must be finite and in [0, 1]")
-    if not isinstance(cfg.recovery_sessions, int) or cfg.recovery_sessions <= 0:
+    if (isinstance(cfg.recovery_sessions, bool)
+            or not isinstance(cfg.recovery_sessions, int)
+            or cfg.recovery_sessions <= 0):
         raise ValueError("recovery_sessions must be a positive integer")
     for name in ("wc_drawdown_trigger", "recent_r20_trigger", "spy_r20_floor", "spy_v_rebound"):
         if not _finite(getattr(cfg, name)):
@@ -76,7 +78,9 @@ def _validate_state(state: LDRCState, cfg: LDRCConfig) -> None:
         raise ValueError("recovery_episode must be bool")
     if not isinstance(state.divergence_latched, bool):
         raise ValueError("divergence_latched must be bool")
-    if not isinstance(state.recovery_streak, int) or state.recovery_streak < 0:
+    if (isinstance(state.recovery_streak, bool)
+            or not isinstance(state.recovery_streak, int)
+            or state.recovery_streak < 0):
         raise ValueError("recovery_streak must be a non-negative integer")
     if not _finite(state.previous_native_allocation) or not 0.0 <= state.previous_native_allocation <= 1.0:
         raise ValueError("previous_native_allocation must be finite and in [0, 1]")
@@ -158,7 +162,9 @@ def ldrc_step(
         episode = True
         reasons.append("RECOVERY_EPISODE_START")
 
-    if latched and (streak >= cfg.recovery_sessions or v_rebound):
+    cleared_this_session = bool(
+        latched and (streak >= cfg.recovery_sessions or v_rebound))
+    if cleared_this_session:
         latched = False
         reasons.append("DIVERGENCE_CLEAR_PERSISTENCE" if streak >= cfg.recovery_sessions else "DIVERGENCE_CLEAR_SPY_V_REBOUND")
 
@@ -176,7 +182,7 @@ def ldrc_step(
         _finite(wc_drawdown) and _finite(recent_r20) and _finite(spy_r20)
         and effective_native_allocation is not None and _finite(effective_native_allocation)
     )
-    if not latched:
+    if not latched and not cleared_this_session:
         effective_full = bool(effective_native_allocation is not None and float(effective_native_allocation) >= 1.0 - 1e-12)
         divergence = bool(
             native >= 1.0 - 1e-12 and effective_full and entry_available

@@ -103,7 +103,8 @@ def advance_shadow_nav(nav: float, one_session_return: float) -> float:
 
 
 def session_return(nav_history: Sequence[float], sessions: int) -> Optional[float]:
-    if not isinstance(sessions, int) or sessions <= 0:
+    if (isinstance(sessions, bool)
+            or not isinstance(sessions, int) or sessions <= 0):
         raise ValueError("sessions must be a positive integer")
     if len(nav_history) <= sessions:
         return None
