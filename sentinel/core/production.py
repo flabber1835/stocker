@@ -567,7 +567,8 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
                   *, controller_config: ControllerConfig,
                   strategy_identity: Mapping,
                   wealth_config: WealthCoreConfig | None = None,
-                  eligibility_config: EligibilityConfig | None = None
+                  eligibility_config: EligibilityConfig | None = None,
+                  concordance_audit=None
                   ) -> SessionState:
     """Pure one-session transition. Persist its return in the caller's txn."""
     env = (prior if isinstance(prior, SessionState)
@@ -676,6 +677,26 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
             spy_r20=regime.spy_r20, state=overlay_before)
         if overlay_decision.desired_allocation > native_decision.target_core_exposure + 1e-15:
             raise AssertionError("Concordance cannot increase native exposure")
+        if concordance_audit is not None:
+            # Certification-only seam.  The callback receives the SAME
+            # ephemeral Wealth Core rows and native inputs as production, plus
+            # production's outputs to compare.  Nothing returned by the audit
+            # callback can alter strategy state or execution.
+            concordance_audit(
+                session=published.session,
+                candidate_rows=tuple(plan.leadership_candidates),
+                eligible_universe_count=plan.eligible_universe_count,
+                signal_closes=dict(plan.signal_closes),
+                native_allocation=native_decision.target_core_exposure,
+                effective_native_allocation=(
+                    overlay_before.previous_native_allocation),
+                wc_drawdown=ob.shadow_drawdown, spy_r20=regime.spy_r20,
+                production_witness_decision=asdict(witness_decision),
+                production_witness_state=leadership_state_to_dict(witness_after),
+                production_ldrc_decision=asdict(overlay_decision),
+                production_ldrc_state=ldrc_state_to_dict(overlay_after),
+                production_final_allocation=overlay_decision.desired_allocation,
+            )
         decision = {
             **decision,
             "native_target_core_exposure":

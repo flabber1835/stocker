@@ -664,6 +664,28 @@ docker run --rm --network host --entrypoint python \
   passing it."
   }
 
+# ── 8c. deterministic Simplified Concordance LD-RC differential ─────────────
+step "8c/9 deterministic Simplified Concordance LD-RC v3 differential"
+CONCORDANCE_REPORT="${ART}/concordance-differential-${RUNSTAMP}.json"
+docker run --rm --network host --entrypoint python \
+  -e SENTINEL_DATABASE_URL="${SENTINEL_DATABASE_URL}" \
+  "${TEST_IMAGE_REF}" -m tools.sentinel_concordance_differential \
+  --end "${END}" > "${CONCORDANCE_REPORT}" \
+  || fail "Simplified Concordance LD-RC deterministic differential failed. "\
+"No expected allocation tape is used; read ${CONCORDANCE_REPORT}."
+"${HOST_PYTHON}" - "${CONCORDANCE_REPORT}" <<'PY' || fail \
+  "Simplified Concordance LD-RC differential did not prove zero mismatches"
+import json, sys
+r = json.load(open(sys.argv[1]))
+if r.get("verdict") != "PASS":
+    raise SystemExit(f"verdict={r.get('verdict')}: {r.get('first_divergence')}")
+if r.get("strategy") != "sentinel-concordance-simplified-ldrc" or r.get("strategy_version") != 3:
+    raise SystemExit("differential did not run Simplified Concordance LD-RC v3")
+if r.get("sessions_compared", 0) <= 0 or r.get("field_comparisons", 0) <= 0:
+    raise SystemExit("differential did not compare any strategy sessions")
+print(f"  {r['sessions_compared']} sessions, {r['field_comparisons']} fields, zero mismatches")
+PY
+
 # ── 9. the record ────────────────────────────────────────────────────────────
 step "9/9  recording the rehearsal identity"
 ${RUN} identity --require-certified --start "${START}" --end "${END}" \
