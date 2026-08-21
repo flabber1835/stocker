@@ -7,6 +7,12 @@ on:
     paths:
       - tools/issue213-review-fixes.py
       - .github/workflows/issue213-review-fixes.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - tools/issue213-review-fixes.py
+      - .github/workflows/issue213-review-fixes.yml
 
 permissions:
   contents: write
@@ -61,5 +67,3 @@ jobs:
           git commit -m 'Fix PR 210 review blockers (#213)'
           git pull --rebase origin fix/issue-209-financial-grade-trial
           git push origin HEAD:fix/issue-209-financial-grade-trial
-
-# Triggered after workflow installation so the push event sees this workflow.
