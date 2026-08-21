@@ -138,7 +138,13 @@ def conn(pg):
             (ROLLOUT_CERTIFICATE,))
         cur.execute(
             "UPDATE sentinel_rollout_state"
-            " SET mode='CONTROLLER',certificate_sha256=%s WHERE id=1",
+            " SET mode='CONTROLLER',version=2,certificate_sha256=%s WHERE id=1",
+            (ROLLOUT_CERTIFICATE,))
+        cur.execute(
+            "INSERT INTO sentinel_rollout_events"
+            " (version,from_mode,to_mode,certificate_sha256,reason)"
+            " VALUES (2,'PINNED_1_00','CONTROLLER',%s,"
+            " 'test fixture activates Concordance controller authority')",
             (ROLLOUT_CERTIFICATE,))
     connection.commit()
     yield connection
@@ -269,7 +275,7 @@ def _plan(state: SessionState, pinned, bound, *, plan_id=None,
         publication_fingerprint=publication_fingerprint(pinned),
         account_nav=D("1000"), account_cash=D("1000"), cash_residual=D(0),
         defensive_security=DEFENSIVE_SECURITY_ID,
-        rollout_mode="CONTROLLER", rollout_version=1,
+        rollout_mode="CONTROLLER", rollout_version=2,
         rollout_certificate_sha256=ROLLOUT_CERTIFICATE)
     return ExecutionPlan(**{
         **plan.__dict__,
@@ -1142,25 +1148,16 @@ class TestStrictExecutionGate:
             self, conn, monkeypatch):
         _install_current_authorities(conn)
         _ready(monkeypatch)
-        certificate_sha = "d" * 64
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO sentinel_system_certificates"
-                " (certificate_sha256,manifest_bytes,manifest,"
-                "  allowed_rollout_modes)"
-                " VALUES (%s,'{}'::bytea,'{}'::jsonb,"
-                "         '[\"CONTROLLER\"]'::jsonb)",
-                (certificate_sha,))
-            cur.execute(
                 "UPDATE sentinel_rollout_state"
-                " SET mode='CONTROLLER',version=2,certificate_sha256=%s"
-                " WHERE id=1", (certificate_sha,))
+                " SET mode='PINNED_1_00',version=3,certificate_sha256=NULL"
+                " WHERE id=1")
             cur.execute(
                 "INSERT INTO sentinel_rollout_events"
                 " (version,from_mode,to_mode,certificate_sha256,reason)"
-                " VALUES (2,'CONTROLLER','CONTROLLER',%s,"
-                "         'test coherent authority transition')",
-                (certificate_sha,))
+                " VALUES (3,'CONTROLLER','PINNED_1_00',NULL,"
+                "         'test coherent authority transition')")
         conn.commit()
         broker = _broker()
 
