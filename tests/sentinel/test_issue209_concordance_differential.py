@@ -59,13 +59,13 @@ def test_reference_detects_wrong_effective_native_source():
         raise AssertionError("wrong effective-native source was accepted")
 
 
-
 def test_historical_differential_does_not_claim_pit_metadata_causality():
     from sentinel.core import production
 
     signature = inspect.signature(production.load_published_session)
     assert "session_effective_metadata" not in signature.parameters
     production_source = inspect.getsource(production.load_published_session)
+    assert "session_effective_metadata" not in production_source
     assert "load_meta(conn, as_of=session)" in production_source
     assert "load_sectors(conn, as_of=session)" in production_source
     source = Path(diff.__file__).read_text(encoding="utf-8")
