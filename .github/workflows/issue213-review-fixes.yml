@@ -1,0 +1,63 @@
+name: Apply issue 213 review fixes
+
+on:
+  push:
+    branches:
+      - fix/issue-209-financial-grade-trial
+    paths:
+      - tools/issue213-review-fixes.py
+      - .github/workflows/issue213-review-fixes.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          ref: fix/issue-209-financial-grade-trial
+      - name: Apply review fixes and syntax-check
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/issue213-review-fixes.py
+          git diff --check
+          python -m compileall -q \
+            sentinel/authority.py \
+            sentinel/core/production.py \
+            sentinel/panel/sources.py \
+            sentinel/schema.py \
+            sentinel/execution/journal.py \
+            tools/sentinel_concordance_differential.py \
+            tests/sentinel/test_paper_observation_authority.py \
+            tests/sentinel/test_issue_209_standing_authority.py \
+            tests/sentinel/test_issue_209_alpaca_asset_id.py \
+            tests/sentinel/test_issue209_concordance_differential.py \
+            tests/sentinel/test_issue209_asset_identity.py
+      - name: Commit fixes and remove bootstrap files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- \
+            sentinel/authority.py \
+            sentinel/core/production.py \
+            sentinel/panel/sources.py \
+            sentinel/schema.py \
+            sentinel/execution/journal.py \
+            tools/sentinel_concordance_differential.py \
+            scripts/sentinel-certify.sh \
+            tests/sentinel/test_paper_observation_authority.py \
+            tests/sentinel/test_issue_209_standing_authority.py \
+            tests/sentinel/test_issue_209_alpaca_asset_id.py \
+            tests/sentinel/test_issue209_concordance_differential.py \
+            tests/sentinel/test_issue209_asset_identity.py
+          git rm -- tools/issue213-review-fixes.py .github/workflows/issue213-review-fixes.yml
+          git commit -m 'Fix PR 210 review blockers (#213)'
+          git pull --rebase origin fix/issue-209-financial-grade-trial
+          git push origin HEAD:fix/issue-209-financial-grade-trial
