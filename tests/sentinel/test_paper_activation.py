@@ -130,7 +130,8 @@ def simulator_is_certified(monkeypatch):
     monkeypatch.setattr(paper, "require_certified", lambda _adapter: None)
     monkeypatch.setattr(paper, "load_controller", lambda: CONFIG)
     monkeypatch.setattr(
-        paper, "runtime_strategy_identity", lambda _config: dict(IDENTITY))
+        paper, "runtime_strategy_identity",
+        lambda _config, **_kwargs: dict(IDENTITY))
     monkeypatch.setattr(
         paper, "require_current_authority",
         lambda *_args, **_kwargs: SimpleNamespace(

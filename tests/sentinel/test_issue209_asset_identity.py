@@ -78,7 +78,7 @@ def test_command_client_key_economics_include_asset_id():
 
 
 def test_observation_provenance_retains_position_asset_id():
-    from sentinel import schema
+    from sentinel import binding, schema
     from sentinel.execution.contract import BrokerAccountIdentity
     from sentinel.feed import store as feed_store
     from tests.support.postgres import _EphemeralPostgres, drop_public_tables
@@ -94,6 +94,9 @@ def test_observation_provenance_retains_position_asset_id():
         drop_public_tables(conn)
         feed_store.migrate_schema(conn)
         schema.ensure_schema(conn)
+        binding.bind(
+            conn, deployment_id="asset-identity-test", broker="alpaca",
+            broker_account_id="paper-1")
         observation = BrokerObservation(
             observed_at=datetime.now(timezone.utc),
             account_identity=BrokerAccountIdentity("alpaca", "paper-1"),
