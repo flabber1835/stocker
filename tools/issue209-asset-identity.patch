@@ -1,0 +1,190 @@
+diff --git a/sentinel/execution/journal.py b/sentinel/execution/journal.py
+--- a/sentinel/execution/journal.py
++++ b/sentinel/execution/journal.py
+@@
+-_IMMUTABLE = ("security_id", "side", "quantity", "symbol",
++_IMMUTABLE = ("security_id", "side", "quantity", "symbol",
++              "broker_instrument_id",
+               "deployment_id", "broker", "broker_account_id",
+               "takeover_epoch")
+@@
+ def _assert_economics_unchanged(cur, command: Command) -> None:
+-    cur.execute("SELECT security_id, side, quantity, symbol, deployment_id,"
+-                " broker, broker_account_id, takeover_epoch"
++    cur.execute("SELECT security_id, side, quantity, symbol,"
++                " broker_instrument_id, deployment_id, broker,"
++                " broker_account_id, takeover_epoch"
+                 " FROM sentinel_commands"
+                 " WHERE client_key = %s", (command.client_key,))
+@@
+-    stored = {"security_id": str(row[0]), "side": str(row[1]),
+-              "quantity": Decimal(str(row[2])), "symbol": str(row[3]),
+-              "deployment_id": str(row[4]), "broker": str(row[5]),
+-              "broker_account_id": str(row[6]),
+-              "takeover_epoch": int(row[7])}
++    stored = {"security_id": str(row[0]), "side": str(row[1]),
++              "quantity": Decimal(str(row[2])), "symbol": str(row[3]),
++              "broker_instrument_id": (
++                  str(row[4]) if row[4] is not None else None),
++              "deployment_id": str(row[5]), "broker": str(row[6]),
++              "broker_account_id": str(row[7]),
++              "takeover_epoch": int(row[8])}
+     incoming = {"security_id": command.security_id, "side": command.side.value,
+                 "quantity": command.quantity,
+                 "symbol": command.instrument.symbol,
++                "broker_instrument_id": command.instrument.broker_id,
+                 **command.identity.deployment.to_dict()}
+@@
+-             json.dumps([{"id": o.broker_order_id, "key": o.client_key,
++             json.dumps([{"id": o.broker_order_id, "key": o.client_key,
+                           "security_id": o.instrument.security_id,
++                          "broker_instrument_id": o.instrument.broker_id,
+                           "side": o.side.value, "state": o.state.value,
+                           "qty": str(o.quantity),
+                           "filled": str(o.filled_quantity)}
+                          for o in observation.orders]),
+diff --git a/sentinel/execution/reconcile.py b/sentinel/execution/reconcile.py
+--- a/sentinel/execution/reconcile.py
++++ b/sentinel/execution/reconcile.py
+@@
+     if (order.instrument.security_id != command.security_id
+             and not migration_identity_matches):
+         return (f"{prefix} changed durable security {command.security_id} to "
+                 f"{order.instrument.security_id}")
++    if (command.instrument.broker_id is not None
++            and order.instrument.broker_id != command.instrument.broker_id):
++        return (f"{prefix} changed durable broker instrument id "
++                f"{command.instrument.broker_id!r} to "
++                f"{order.instrument.broker_id!r}")
+@@
+ def _order_observation_fingerprint(order) -> tuple:
+     return (
+         order.broker_order_id, order.client_key,
+-        order.instrument.security_id, order.side, order.quantity,
++        order.instrument.security_id, order.instrument.broker_id,
++        order.side, order.quantity,
+         order.state, order.filled_quantity, order.filled_average_price)
++
++
++def _position_identity_conflicts(
++        observation: BrokerObservation, stored) -> tuple[str, ...]:
++    """Refuse a held Alpaca asset that no longer matches durable command identity."""
++    expected: dict[str, set[str]] = {}
++    conflicts: list[str] = []
++    for command in stored:
++        broker_id = command.instrument.broker_id
++        if broker_id:
++            expected.setdefault(command.security_id, set()).add(str(broker_id))
++    for security_id, broker_ids in sorted(expected.items()):
++        if len(broker_ids) > 1:
++            conflicts.append(
++                f"durable commands for {security_id} carry multiple broker "
++                f"instrument ids {sorted(broker_ids)}")
++    for position in observation.positions:
++        broker_ids = expected.get(position.instrument.security_id)
++        if not broker_ids:
++            continue
++        observed_id = position.instrument.broker_id
++        if observed_id not in broker_ids:
++            conflicts.append(
++                f"broker position {position.instrument.security_id} carries "
++                f"asset id {observed_id!r}, expected one of "
++                f"{sorted(broker_ids)}")
++    return tuple(conflicts)
+@@
+     if recovered:
+         log.info("sentinel: adopted %d recovered order(s) from the broker: %s",
+                  len(recovered), ", ".join(o.client_key for o in recovered))
+         stored = journal.load_commands(conn, deployment)
++
++    identity_conflicts = _position_identity_conflicts(observation, stored)
++    if identity_conflicts:
++        return ReconciliationResult(
++            runtime_state=RuntimeState.RECONCILING,
++            observation=observation,
++            observation_id=observation_seq,
++            detail="; ".join(identity_conflicts))
+ 
+     # 4b. SYNCHRONISE ORDINARY PROGRESS, not only the undetermined commands.
+diff --git a/tests/sentinel/test_issue209_asset_identity.py b/tests/sentinel/test_issue209_asset_identity.py
+new file mode 100644
+--- /dev/null
++++ b/tests/sentinel/test_issue209_asset_identity.py
+@@
++from decimal import Decimal
++
++import pytest
++
++from sentinel.execution import journal
++from sentinel.execution.commands import Command
++from sentinel.execution.contract import (
++    BrokerInstrument, BrokerObservation, BrokerOrder, BrokerPosition,
++    Completeness, Side,
++)
++from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
++from sentinel.execution.reconcile import (
++    _order_command_conflict, _order_observation_fingerprint,
++    _position_identity_conflicts,
++)
++from sentinel.execution.states import CommandState
++
++
++def _command(asset_id: str) -> Command:
++    deployment = DeploymentIdentity("deploy", "alpaca", "paper-1", 1)
++    identity = CommandIdentity(
++        deployment=deployment, plan_id="plan-1", security_id="SEC-AAA")
++    return Command(
++        identity=identity,
++        instrument=BrokerInstrument(
++            security_id="SEC-AAA", symbol="AAA", broker_id=asset_id),
++        side=Side.BUY, quantity=Decimal("2"),
++        state=CommandState.ACKNOWLEDGED, broker_order_id="order-1")
++
++
++def _order(asset_id: str) -> BrokerOrder:
++    command = _command("asset-a")
++    return BrokerOrder(
++        broker_order_id="order-1", client_key=command.client_key,
++        instrument=BrokerInstrument(
++            security_id="SEC-AAA", symbol="AAA", broker_id=asset_id),
++        side=Side.BUY, state=CommandState.ACKNOWLEDGED,
++        quantity=Decimal("2"), filled_quantity=Decimal("0"))
++
++
++def test_order_reconciliation_refuses_asset_id_change():
++    conflict = _order_command_conflict(_order("asset-b"), _command("asset-a"))
++    assert "changed durable broker instrument id" in conflict
++
++
++def test_asset_id_participates_in_order_observation_fingerprint():
++    assert _order_observation_fingerprint(_order("asset-a")) != \
++        _order_observation_fingerprint(_order("asset-b"))
++
++
++def test_position_reconciliation_refuses_asset_id_change():
++    observation = BrokerObservation(
++        observed_at=__import__("datetime").datetime.now(
++            __import__("datetime").timezone.utc),
++        positions=(BrokerPosition(
++            instrument=BrokerInstrument(
++                security_id="SEC-AAA", symbol="AAA", broker_id="asset-b"),
++            quantity=Decimal("2")),),
++        completeness=Completeness.COMPLETE)
++    conflicts = _position_identity_conflicts(observation, (_command("asset-a"),))
++    assert conflicts and "expected one of" in conflicts[0]
++
++
++class _Cursor:
++    def execute(self, _sql, _params):
++        pass
++
++    def fetchone(self):
++        return (
++            "SEC-AAA", "BUY", Decimal("2"), "AAA", "asset-a",
++            "deploy", "alpaca", "paper-1", 1)
++
++
++def test_command_client_key_economics_include_asset_id():
++    with pytest.raises(journal.CommandEconomicsChanged, match="broker_instrument_id"):
++        journal._assert_economics_unchanged(  # noqa: SLF001
++            _Cursor(), _command("asset-b"))
