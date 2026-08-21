@@ -95,6 +95,7 @@ class BrokerCapabilities:
     complete_order_pagination: bool = False
     recent_fill_history: bool = False
     instrument_identity: bool = False
+    account_bound_observation: bool = False
     market_on_open: bool = False
 
     def require(self, *names: str) -> None:
@@ -274,8 +275,17 @@ class BrokerObservation:
     #: reconciler may durably advance its processed watermark to this value only
     #: after every discovered Sentinel order has been adopted/synchronized.
     terminal_recovery_through: Optional[datetime] = None
+    #: Exact broker account under which this multi-request observation was read.
+    #: Certified adapters declaring ``account_bound_observation`` must populate
+    #: it and prove that identity stayed stable throughout the snapshot.
+    account_identity: Optional[BrokerAccountIdentity] = None
 
     def __post_init__(self) -> None:
+        if self.account_identity is not None:
+            if (not self.account_identity.broker
+                    or not self.account_identity.account_id):
+                raise ValueError(
+                    "BrokerObservation account identity must be complete")
         if (self.terminal_recovery_through is not None
                 and self.terminal_recovery_through.tzinfo is None):
             raise ValueError(

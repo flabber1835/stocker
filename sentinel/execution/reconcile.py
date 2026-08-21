@@ -297,6 +297,32 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
             runtime_state=RuntimeState.BROKER_DEGRADED,
             detail=f"broker unreachable: {exc}")
 
+    # A certified account-bound observation may mutate command history only
+    # after the exact observation itself is proven to belong to the durable
+    # binding. The earlier identify_account() call is not a substitute: routing
+    # can flip during the multi-request orders/positions snapshot.
+    if getattr(broker.capabilities, "account_bound_observation", False):
+        observed_identity = observation.account_identity
+        if observed_identity is None:
+            return ReconciliationResult(
+                runtime_state=RuntimeState.BROKER_DEGRADED,
+                observation=observation,
+                detail="certified broker observation omitted account provenance")
+        try:
+            binding_mod.verify(conn, observed_identity)
+        except Exception as exc:                              # noqa: BLE001
+            return ReconciliationResult(
+                runtime_state=RuntimeState.BROKER_DEGRADED,
+                observation=observation,
+                detail=f"broker observation account provenance refused: {exc}")
+        if ((observed_identity.broker, observed_identity.account_id)
+                != (identity.broker, identity.account_id)):
+            return ReconciliationResult(
+                runtime_state=RuntimeState.BROKER_DEGRADED,
+                observation=observation,
+                detail="broker identity changed between reconciliation and "
+                       "the account-bound observation")
+
     observation_seq = journal.record_observation(
         conn, observation, RuntimeState.RECONCILING.value)
 

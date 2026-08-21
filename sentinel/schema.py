@@ -234,6 +234,7 @@ _STAGE4_TABLES = frozenset({
     "sentinel_alert_outbox",
     "sentinel_alert_delivery_events",
     "sentinel_automation_service_instances",
+    "sentinel_observation_provenance",
 })
 
 # Additive Stage-4 migrations that historically arrived through ALTER.
@@ -738,6 +739,13 @@ DDL = (
         runtime_state TEXT)""",
     """ALTER TABLE sentinel_observations
         ADD COLUMN IF NOT EXISTS terminal_recovery_through TIMESTAMPTZ""",
+    # Additive Stage-4 provenance avoids rewriting the core behavioral catalog
+    # while binding each new authority-bearing observation to its broker account.
+    """CREATE TABLE IF NOT EXISTS sentinel_observation_provenance (
+        observation_seq   BIGINT PRIMARY KEY REFERENCES sentinel_observations(seq),
+        broker            TEXT        NOT NULL,
+        broker_account_id TEXT        NOT NULL,
+        observed_at       TIMESTAMPTZ NOT NULL)""",
 
     # A broker response being durable is not proof that it was PROCESSED. This
     # watermark advances only after all Sentinel-keyed terminal rows in the

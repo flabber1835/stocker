@@ -124,7 +124,7 @@ class SimulatedBroker(ExecutionBroker):
             stable_client_key=True, single_order_cancel=True,
             fractional_quantities=True, complete_order_pagination=True,
             recent_fill_history=True, instrument_identity=True,
-            market_on_open=True))
+            account_bound_observation=True, market_on_open=True))
 
     #: Faults queued per operation. Popped in order, so a test reads as a script.
     submit_faults: list = field(default_factory=list)
@@ -317,8 +317,9 @@ class SimulatedBroker(ExecutionBroker):
         elif fault is FaultKind.PARTIAL_OBSERVATION:
             completeness = Completeness.PARTIAL
 
-        return BrokerObservation(observed_at=self.now, orders=orders,
-                                 positions=positions, completeness=completeness)
+        return BrokerObservation(
+            observed_at=self.now, orders=orders, positions=positions,
+            completeness=completeness, account_identity=self.account)
 
     def _snapshot_orders(self):
         """Recent orders INCLUDING terminal ones, as a real order list returns.

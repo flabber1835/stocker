@@ -827,6 +827,14 @@ def record_observation(conn, observation: BrokerObservation,
                          for o in observation.orders]),
              runtime_state))
         seq = int(cur.fetchone()[0])
+        if observation.account_identity is not None:
+            cur.execute(
+                "INSERT INTO sentinel_observation_provenance"
+                " (observation_seq,broker,broker_account_id,observed_at)"
+                " VALUES (%s,%s,%s,%s)",
+                (seq, observation.account_identity.broker,
+                 observation.account_identity.account_id,
+                 observation.observed_at))
     conn.commit()
     return seq
 
