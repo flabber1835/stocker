@@ -536,12 +536,33 @@ def blocked_cycle_for_generation(
 
 def cycle_transport_capable(cycle: CycleRecord) -> bool:
     """Whether a cycle may have crossed a durable broker-send boundary."""
+    if cycle_preflight_recovery_pending(cycle):
+        return False
     if cycle.state in {CycleState.EXECUTING, CycleState.RECONCILING}:
         return True
     return (cycle.state is CycleState.RETRY_WAIT
             and str(cycle.diagnostic.get("retry_phase", "")) in {
-                "EXECUTE", "RECOVER", "PREFLIGHT_RECOVER",
+                "EXECUTE", "RECOVER",
             })
+
+
+def cycle_preflight_recovery_pending(cycle: CycleRecord) -> bool:
+    """Whether a pre-transport cycle still owes a shared-journal proof.
+
+    This phase may need the same read-only broker recovery callback as an
+    ambiguous sender, but it has not prepared or executed a plan.  Keeping it
+    distinct from :func:`cycle_transport_capable` prevents a clean journal from
+    being misinterpreted as successful strategy execution.
+    """
+    return (cycle.state in {CycleState.RETRY_WAIT, CycleState.RECONCILING}
+            and str(cycle.diagnostic.get("retry_phase", ""))
+            == "PREFLIGHT_RECOVER")
+
+
+def cycle_recovery_capable(cycle: CycleRecord) -> bool:
+    """Whether current authority may adopt the cycle for read-only recovery."""
+    return (cycle_transport_capable(cycle)
+            or cycle_preflight_recovery_pending(cycle))
 
 
 def adoption_identity_matches(
@@ -707,6 +728,9 @@ def transition_cycle(
             raise InvalidCycleTransition(
                 "a historical state-only audit cycle can never become "
                 "preparable or executable")
+        if to_state is CycleState.SUCCEEDED and current.plan_id is None:
+            raise InvalidCycleTransition(
+                "a planless automation cycle cannot become SUCCEEDED")
         allowed = _ALLOWED_TRANSITIONS.get(current.state, set())
         if to_state not in allowed:
             raise InvalidCycleTransition(
@@ -803,6 +827,9 @@ def adopt_cycle(
         if current.state.terminal:
             raise InvalidCycleTransition(
                 "a terminal automation cycle cannot be adopted")
+        if to_state is CycleState.SUCCEEDED and current.plan_id is None:
+            raise InvalidCycleTransition(
+                "a planless automation cycle cannot become SUCCEEDED")
         if current.control_generation == permit.control_generation:
             if current.last_fence_token == permit.fence_token:
                 raise InvalidCycleTransition(
@@ -813,11 +840,14 @@ def adopt_cycle(
                 "a leader cannot adopt a future-generation cycle")
 
         transport_capable = cycle_transport_capable(current)
+        preflight_pending = cycle_preflight_recovery_pending(current)
+        recovery_capable = transport_capable or preflight_pending
         identity_matches = adoption_identity_matches(current, control)
         if to_state is None:
-            if not transport_capable:
+            if not recovery_capable:
                 raise InvalidCycleTransition(
-                    "only a transport-capable cycle needs recovery adoption")
+                    "only a transport-capable or preflight-recovery cycle needs "
+                    "recovery adoption")
             if not identity_matches:
                 raise AutomationRefused(
                     "ambiguous cycle paper-account identity differs from "
@@ -825,15 +855,19 @@ def adopt_cycle(
             target = current.state
         else:
             target = to_state
-            allowed = ({CycleState.SUCCEEDED, CycleState.RETRY_WAIT,
-                        CycleState.SUPERSEDED, CycleState.BLOCKED}
-                       if transport_capable else
-                       {CycleState.SUPERSEDED, CycleState.BLOCKED})
+            allowed = (
+                {CycleState.SUCCEEDED, CycleState.RETRY_WAIT,
+                 CycleState.SUPERSEDED, CycleState.BLOCKED}
+                if transport_capable else
+                {CycleState.RETRY_WAIT, CycleState.SUPERSEDED,
+                 CycleState.BLOCKED}
+                if preflight_pending else
+                {CycleState.SUPERSEDED, CycleState.BLOCKED})
             if target not in allowed:
                 raise InvalidCycleTransition(
                     f"adoption cannot move {current.state.value} -> "
                     f"{target.value}")
-            if (transport_capable and target is not CycleState.BLOCKED
+            if (recovery_capable and target is not CycleState.BLOCKED
                     and not identity_matches):
                 raise AutomationRefused(
                     "ambiguous cycle paper-account identity differs from "
@@ -1060,6 +1094,7 @@ __all__ = [
     "acquire_lease", "activate", "adopt_cycle",
     "adoption_identity_matches", "blocked_cycle_for_generation",
     "control_generation_action", "create_cycle",
+    "cycle_preflight_recovery_pending", "cycle_recovery_capable",
     "cycle_transport_capable", "engage_config_mismatch_kill",
     "deactivate", "engage_kill",
     "ensure_historical_cycles", "heartbeat_lease", "latest_cycle",

@@ -77,6 +77,14 @@ REGISTRY: Mapping[str, AdapterCertification] = {
             "accounting ledger because trade corrections/busts are explicit "
             "refusals. Account REST payload timing is not treated as freshness; "
             "cash authority is corroborated against the bounded Activity SSE. "
+            "The adapter contains a quarantined Portfolio History 1D wire "
+            "reader for real-paper acceptance testing, but historical close "
+            "valuation remains explicitly UNcertified and its capability bit "
+            "is false: timestamp units, left-label/session mapping, and source "
+            "finality have not yet been validated. A complete account-wide "
+            "fill interval with native activity identity and a fixed inclusive "
+            "upper boundary is also UNcertified and its independent capability "
+            "bit is false; recent-fill recovery is not negative-space proof. "
             "Fractional quantities and market-on-open remain uncertified.")),
 
     "ibkr": AdapterCertification(

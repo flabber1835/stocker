@@ -169,7 +169,8 @@ def trial_verification_row(*, verdict: Optional[str], session: Optional[str],
     return Row("trial_verification", "Trial verification",
                f"TRIAL VERIFIED THROUGH {session}", OK,
                "actual broker economics, publication, strategy state, cycle, "
-               "book, cash and marked NAV are bound by one durable record",
+               "book, reconstructed close cash and independent close NAV are "
+               "bound by one durable record",
                verified_at)
 
 

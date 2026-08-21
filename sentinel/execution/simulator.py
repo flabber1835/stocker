@@ -47,15 +47,15 @@ corporate action      a share count that changes with nobody trading
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import Optional, Sequence
 
 from sentinel.execution.contract import (
     BrokerAccountIdentity, BrokerAccountSnapshot, BrokerCapabilities, BrokerFill,
-    BrokerInstrument, BrokerObservation, BrokerOrder, BrokerPosition, CommandOutcome,
-    Completeness, ExecutionBroker, Side)
+    BrokerCloseValuation, BrokerInstrument, BrokerObservation, BrokerOrder,
+    BrokerPosition, CommandOutcome, Completeness, ExecutionBroker, Side)
 from sentinel.execution.states import CommandState as S, blocks_overlapping
 
 EPOCH = datetime(2026, 8, 11, 14, 30, tzinfo=timezone.utc)
@@ -124,7 +124,12 @@ class SimulatedBroker(ExecutionBroker):
             stable_client_key=True, single_order_cancel=True,
             fractional_quantities=True, complete_order_pagination=True,
             recent_fill_history=True, instrument_identity=True,
-            account_bound_observation=True, market_on_open=True))
+            account_bound_observation=True, account_close_valuation=True,
+            market_on_open=True))
+
+    #: Explicit historical points.  Absence remains unavailable rather than
+    #: silently reusing the simulator's current equity as a past close.
+    close_valuations: dict[date, Decimal] = field(default_factory=dict)
 
     #: Faults queued per operation. Popped in order, so a test reads as a script.
     submit_faults: list = field(default_factory=list)
@@ -199,6 +204,12 @@ class SimulatedBroker(ExecutionBroker):
         instrument, qty = self._positions[security_id]
         self._positions[security_id] = (instrument, qty * Decimal(ratio))
 
+    def seed_close_valuation(self, session: date, equity: str) -> None:
+        value = Decimal(equity)
+        if not value.is_finite() or value <= 0:
+            raise ValueError("simulated close equity must be positive and finite")
+        self.close_valuations[session] = value
+
     def fill(self, client_key: str, qty: str | None = None) -> None:
         """Advance a resting order. `None` fills it completely."""
         resting = self._by_key(client_key)
@@ -261,6 +272,34 @@ class SimulatedBroker(ExecutionBroker):
                                      account_blocked=self.account_blocked,
                                      trade_suspended_by_user=(
                                          self.trade_suspended_by_user))
+
+    async def account_close_valuation(
+            self, *, session: date) -> BrokerCloseValuation:
+        self.calls.append(f"account_close_valuation:{session.isoformat()}")
+        if session not in self.close_valuations:
+            raise BrokerUnavailable(
+                f"no simulated close valuation seeded for {session}")
+        from sentinel.feed import calendar  # noqa: PLC0415
+
+        opened, closed = calendar.session_window(session)
+        query = tuple(sorted({
+            "start": opened.isoformat(),
+            "end": closed.isoformat(),
+            "timeframe": "1D",
+            "intraday_reporting": "market_hours",
+            "cashflow_types": "ALL",
+        }.items()))
+        value = self.close_valuations[session]
+        return BrokerCloseValuation(
+            identity=self.account, requested_session=session, equity=value,
+            source_timestamp=int(opened.timestamp()), source_timeframe="1D",
+            source="simulator_portfolio_history",
+            semantics="SIMULATED_XNYS_1D_END_OF_WINDOW",
+            request_started_at=self.now, request_completed_at=self.now,
+            query=query, source_timestamp_unit="epoch_seconds",
+            valuation_at=closed,
+            raw={"timestamp": [int(opened.timestamp())],
+                 "equity": [str(value)], "timeframe": "1D"})
 
     async def resolve_instrument(self, *, security_id: str,
                                  symbol: str) -> BrokerInstrument:

@@ -1061,6 +1061,74 @@ def _percent(value) -> str | None:
     return f"{number * 100:+.2f}%"
 
 
+def _annualized_twr(*, current_factor: float | None,
+                    verified_mark_count: int,
+                    return_interval_count: int) -> float | None:
+    """Annualize elapsed return intervals, never the opening anchor mark."""
+    if (current_factor is None or verified_mark_count < 2
+            or return_interval_count < 1 or current_factor <= 0):
+        return None
+    return current_factor ** (252.0 / return_interval_count) - 1.0
+
+
+def _latest_verified_chain(history: list[dict]) -> list[dict]:
+    """Return only VERIFIED marks in the latest certified return segment."""
+    if not history:
+        return []
+    latest_chain = ((history[-1].get("performance") or {}).get("chain") or {})
+    chain_id = latest_chain.get("chain_id")
+    if isinstance(chain_id, str) and chain_id:
+        selected = [
+            index for index, row in enumerate(history)
+            if (row.get("verdict") == "VERIFIED"
+                and (((row.get("performance") or {}).get("chain") or {})
+                     .get("chain_id") == chain_id))]
+        if not selected:
+            return []
+        start = min(selected)
+        first_chain = (
+            ((history[start].get("performance") or {}).get("chain") or {}))
+        # A v3 row written immediately before chain ids were introduced can be
+        # a certified predecessor of the first id-bearing row. Include that
+        # contiguous verified ancestry only when the new row explicitly says
+        # it is continuous; an anchor/reset never reaches backward.
+        if first_chain.get("continuous"):
+            expected = first_chain.get("predecessor_session")
+            index = start - 1
+            while index >= 0 and expected:
+                row = history[index]
+                if (row.get("verdict") != "VERIFIED"
+                        or row.get("session") != expected):
+                    break
+                row_chain = (
+                    ((row.get("performance") or {}).get("chain") or {}))
+                row_chain_id = row_chain.get("chain_id")
+                if row_chain_id not in (None, "", chain_id):
+                    break
+                start = index
+                expected = row_chain.get("predecessor_session")
+                if not row_chain:
+                    expected = (history[index - 1].get("session")
+                                if index > 0 else None)
+                index -= 1
+        return [
+            row for row in history[start:]
+            if (row.get("verdict") == "VERIFIED"
+                and ((((row.get("performance") or {}).get("chain") or {})
+                      .get("chain_id") in (None, "", chain_id))))]
+
+    # Backward-compatible projection for already-retained rows written before
+    # chain ids existed.  An explicit reset marker starts a new segment; in its
+    # absence preserve the historical single-chain interpretation.
+    start = 0
+    for index, row in enumerate(history):
+        chain = ((row.get("performance") or {}).get("chain") or {})
+        if chain.get("reset_reason"):
+            start = index
+    return [row for row in history[start:]
+            if row.get("verdict") == "VERIFIED"]
+
+
 def _trial_rows(database_url: str, *, now: datetime
                 ) -> tuple[list[model.Row], dict, list[dict], list[str]]:
     """Project immutable trial certificates; never contact or repair a broker."""
@@ -1160,27 +1228,34 @@ def _trial_rows(database_url: str, *, now: datetime
         is_verified = headline.status == model.OK
         rows = [headline]
         rows.append(model.trial_metric_row(
-            "actual_account", "Actual Alpaca account",
+            "actual_account", "Latest live Alpaca account",
             (f"${_finite_float(account['equity'], label='equity'):,.2f} · "
              f"cash ${_finite_float(account['cash'], label='cash'):,.2f}"
              if account.get("equity") is not None
              and account.get("cash") is not None else None),
             verified=is_verified,
-            detail="actual durable broker equity and cash; never shadow NAV",
+            detail=("later live broker diagnostic; not the historical close "
+                    "performance source"),
             as_of=verified_at))
         rows.append(model.trial_metric_row(
             "trial_return", "Trial total return",
             _percent(performance.get("total_return")), verified=is_verified,
-            detail=(f"actual equity, external capital removed · strategy P&L "
+            detail=(f"historical close equity, external capital removed · "
+                    f"strategy P&L "
                     f"${_finite_float(performance.get('strategy_pl'), label='P&L'):,.2f}"
                     if performance.get("strategy_pl") is not None
-                    else "actual equity with external capital removed"),
+                    else "historical close equity with external capital removed"),
             as_of=verified_at))
 
-        verified_history = [row for row in history
-                            if row.get("verdict") == "VERIFIED"]
+        verified_history = _latest_verified_chain(history)
         factors = [float((row.get("performance") or {}).get(
             "cumulative_factor", 1)) for row in verified_history]
+        # The first verified close is an anchor, not a zero-return session.
+        # Keep its factor in the drawdown path, but count only certificates
+        # with an actual daily return as elapsed TWR intervals.
+        return_interval_count = sum(
+            1 for row in verified_history
+            if (row.get("performance") or {}).get("daily_return") is not None)
         current_factor = factors[-1] if factors else None
         peak = max([1.0, *factors]) if factors else None
         drawdown = ((current_factor / peak) - 1
@@ -1196,9 +1271,10 @@ def _trial_rows(database_url: str, *, now: datetime
              if drawdown is not None else None), verified=is_verified,
             detail="external-capital-adjusted verified equity chain",
             as_of=verified_at))
-        annualized = None
-        if current_factor is not None and len(factors) >= 2 and current_factor > 0:
-            annualized = current_factor ** (252.0 / len(factors)) - 1.0
+        annualized = _annualized_twr(
+            current_factor=current_factor,
+            verified_mark_count=len(factors),
+            return_interval_count=return_interval_count)
         rows.append(model.trial_metric_row(
             "trial_annualized", "Annualized TWR",
             f"{annualized * 100:+.2f}%" if annualized is not None else None,
@@ -1211,7 +1287,8 @@ def _trial_rows(database_url: str, *, now: datetime
              f" · decision {latest.get('decision_session')}"
              f" · effective {latest.get('session')}" if plan else None),
             verified=is_verified,
-            detail=(f"marked NAV ${_finite_float(nav.get('marked_nav'), label='marked NAV'):,.2f}"
+            detail=(f"independent close NAV "
+                    f"${_finite_float(nav.get('marked_nav'), label='close NAV'):,.2f}"
                     f" · unexplained ${_finite_float(nav.get('unexplained'), label='unexplained'):,.2f}"
                     if nav.get("marked_nav") is not None
                     and nav.get("unexplained") is not None else

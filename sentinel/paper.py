@@ -21,6 +21,8 @@ from sentinel import (
     identity as system_identity,
     schema,
     trial,
+    trial_close,
+    trial_fills,
 )
 from sentinel.authority import (
     AuthorityRefused,
@@ -57,6 +59,8 @@ from sentinel.core.production import (
     warm_session_state,
 )
 from sentinel.execution import broker_cash, executor, journal
+from sentinel.execution import commands as execution_commands
+from sentinel.execution import preopen_authority
 from sentinel.execution import reconcile as reconciliation
 from sentinel.execution.authority_gate import (
     build_fresh_execution_guard,
@@ -70,6 +74,7 @@ from sentinel.execution.contract import (
     BrokerInstrument,
     BrokerObservation,
     ExecutionBroker,
+    MalformedBrokerEvidence,
 )
 from sentinel.execution.guarded import (
     AutomationExecutionGrant,
@@ -81,6 +86,7 @@ from sentinel.execution.guarded import (
 )
 from sentinel.execution.plan import ExecutionPlan
 from sentinel.execution.states import RuntimeState
+from sentinel.execution.states import blocks_overlapping
 from sentinel.execution import target_reprojection
 from sentinel.feed import calendar, publication, readiness, store as feed_store
 
@@ -139,6 +145,10 @@ class PaperActivationRefused(BrokerAuthorityRefused):
 
 class PaperRetryableRefused(PaperActivationRefused):
     """Temporary readiness or settlement evidence is not yet usable."""
+
+
+class PreOpenShareUnitAuthorityUnavailable(PaperActivationRefused):
+    """The exact next-open units needed for safe transport are unavailable."""
 
 
 @dataclass(frozen=True)
@@ -576,6 +586,207 @@ async def _broker_cash_state_or_refuse(
             f"{type(exc).__name__}: {exc}") from exc
 
 
+async def _record_due_close_nav_or_refuse(
+        conn, *, broker: ExecutionBroker, deployment,
+        session: date) -> dict:
+    """Fetch and retain one certified historical close before supersession."""
+    if not getattr(broker, "supports_account_close_valuation", False):
+        raise PaperRetryableRefused(
+            "broker historical close valuation is not a certified capability; "
+            "the succeeded cycle remains pending and no successor plan will "
+            "be adopted")
+    try:
+        valuation = await broker.account_close_valuation(session=session)
+    except BrokerAuthorityRefused:
+        raise
+    except MalformedBrokerEvidence as exc:
+        raise PaperActivationRefused(
+            "broker historical close valuation returned malformed or "
+            f"contradictory evidence: {exc}") from exc
+    except Exception as exc:                                  # noqa: BLE001
+        raise PaperRetryableRefused(
+            "broker historical close valuation is temporarily unavailable: "
+            f"{type(exc).__name__}: {exc}") from exc
+    try:
+        return trial_close.record_close_nav_evidence(
+            conn, deployment=deployment, valuation=valuation)
+    except trial_close.TrialCloseNavRefused as exc:
+        raise PaperActivationRefused(
+            "broker historical close valuation failed its immutable "
+            f"acceptance contract: {exc}") from exc
+
+
+async def _record_due_fill_interval_or_refuse(
+        conn, *, broker: ExecutionBroker, deployment, plan: ExecutionPlan,
+        session: date, required_through: datetime) -> dict:
+    """Retain the complete plan-baseline-to-paper-time account fill ledger."""
+    if not getattr(broker, "supports_account_fill_interval_evidence", False):
+        raise PaperRetryableRefused(
+            "broker account-wide fill interval is not a certified capability; "
+            "the succeeded cycle remains pending and no successor plan will "
+            "be adopted")
+
+    try:
+        baseline = broker_cash.load_plan_baseline(conn, plan_id=plan.plan_id)
+    except broker_cash.BrokerCashAuthorityRefused as exc:
+        raise PaperActivationRefused(
+            f"authoritative plan cash baseline is invalid: {exc}") from exc
+    if baseline is None:
+        raise PaperActivationRefused(
+            "the due cycle has no authoritative plan cash baseline from which "
+            "to begin account-wide fill evidence")
+    if (baseline.plan_id != plan.plan_id
+            or baseline.broker != plan.broker
+            or baseline.account_id != plan.broker_account_id
+            or baseline.broker != deployment.broker
+            or baseline.account_id != deployment.broker_account_id
+            or baseline.decision_session != plan.decision_session
+            or not baseline.activity_identity_authoritative):
+        raise PaperActivationRefused(
+            "the due cycle plan cash baseline is not authoritative for this "
+            "plan, decision session, deployment, and broker account")
+    interval_start = baseline.processed_through
+    if (not isinstance(interval_start, datetime)
+            or interval_start.tzinfo is None
+            or interval_start.utcoffset() is None
+            or not isinstance(required_through, datetime)
+            or required_through.tzinfo is None
+            or required_through.utcoffset() is None):
+        raise PaperActivationRefused(
+            "the plan cash baseline and required fill boundary must be "
+            "timezone-aware timestamps")
+
+    try:
+        interval = await broker.account_fill_interval_evidence(
+            session=session, interval_start=interval_start)
+    except BrokerAuthorityRefused:
+        raise
+    except MalformedBrokerEvidence as exc:
+        raise PaperActivationRefused(
+            "broker account-wide fill interval returned malformed or "
+            f"contradictory evidence: {exc}") from exc
+    except Exception as exc:                                  # noqa: BLE001
+        raise PaperRetryableRefused(
+            "broker account-wide fill interval is temporarily unavailable: "
+            f"{type(exc).__name__}: {exc}") from exc
+
+    # Build before writing so a provider that ignored the requested lower bound,
+    # returned an incomplete ledger, or stopped before the paper-time account /
+    # reconciliation observations cannot poison the immutable session cursor.
+    try:
+        candidate = trial_fills.build_fill_interval_evidence(
+            deployment=deployment, plan_id=plan.plan_id, interval=interval)
+        accepted_start = datetime.fromisoformat(candidate["interval_start"])
+        accepted_through = datetime.fromisoformat(
+            candidate["processed_through"])
+        if accepted_start != interval_start:
+            raise trial_fills.TrialFillIntervalRefused(
+                "account fill interval does not begin at the authoritative "
+                "plan cash baseline")
+        if accepted_through < required_through:
+            raise trial_fills.TrialFillIntervalRefused(
+                "account fill interval does not cover the paper-time account "
+                "and reconciliation observations")
+    except Exception as exc:                                  # noqa: BLE001
+        raise PaperActivationRefused(
+            "broker account-wide fill interval failed its accepted evidence "
+            f"contract: {exc}") from exc
+
+    try:
+        return trial_fills.record_fill_interval_evidence(
+            conn, deployment=deployment, plan_id=plan.plan_id,
+            interval=interval)
+    except trial_fills.TrialFillIntervalRefused as exc:
+        raise PaperActivationRefused(
+            "broker account-wide fill interval failed its immutable "
+            f"acceptance contract: {exc}") from exc
+
+
+async def _finalize_due_succeeded_cycle_or_refuse(
+        conn, *, broker: ExecutionBroker, deployment, plan: ExecutionPlan,
+        reconciliation, account: BrokerAccountSnapshot,
+        activity_state: broker_cash.CashActivityState | None,
+        observation_started_at: datetime, observed_at: datetime,
+        target_actions, observation_target_actions, clock) -> dict | None:
+    """Finalize any succeeded cycle before its plan can be superseded.
+
+    This gate deliberately has no automation-grant input.  The durable cycle,
+    rather than the identity of today's caller, creates the verification debt.
+    Every historical coordinate is the old plan's effective session; a delayed
+    preparation may observe the account later, but cannot relabel that evidence
+    as belonging to the newer requested decision session.
+    """
+    session = plan.effective_session
+    cycle_id = trial.due_succeeded_cycle_id(
+        conn, plan_id=plan.plan_id, effective_session=session)
+    if cycle_id is None:
+        return None
+    if reconciliation.observation_id is None:
+        raise PaperActivationRefused(
+            "a succeeded cycle is due for finalization, but the clean "
+            "reconciliation has no durable observation identity")
+
+    try:
+        cash_baseline = broker_cash.load_plan_baseline(
+            conn, plan_id=plan.plan_id)
+    except broker_cash.BrokerCashAuthorityRefused as exc:
+        raise PaperActivationRefused(
+            f"the due cycle cash baseline is invalid: {exc}") from exc
+    if (cash_baseline is None
+            or cash_baseline.plan_id != plan.plan_id
+            or cash_baseline.broker != plan.broker
+            or cash_baseline.account_id != plan.broker_account_id
+            or cash_baseline.broker != deployment.broker
+            or cash_baseline.account_id != deployment.broker_account_id
+            or cash_baseline.decision_session != plan.decision_session
+            or not cash_baseline.activity_identity_authoritative):
+        raise PaperActivationRefused(
+            "the due cycle has no authoritative plan-bound cash baseline")
+    if not cash_baseline.close_cash_finality_authoritative:
+        # Source availability is not an economic red verdict. Keep the prior
+        # success due until a reviewed fixed interval/finality contract exists;
+        # otherwise this transient capability gap would be frozen forever and
+        # the successor plan would poison the cumulative chain.
+        raise PaperRetryableRefused(
+            "the due cycle cash source has no accepted close-interval "
+            "finality or publication watermark; the succeeded cycle remains "
+            "pending and no successor plan will be adopted")
+
+    # A later live account snapshot cannot stand in for the official close.
+    # Retain both account-wide historical sources before account evidence or a
+    # verdict is frozen, and before the caller may adopt a successor plan.
+    await _record_due_close_nav_or_refuse(
+        conn, broker=broker, deployment=deployment, session=session)
+    await _record_due_fill_interval_or_refuse(
+        conn, broker=broker, deployment=deployment, plan=plan,
+        session=session,
+        required_through=max(
+            observed_at, reconciliation.observation.observed_at))
+    trial.record_account_evidence(
+        conn,
+        session=session,
+        observation_id=reconciliation.observation_id,
+        observation_started_at=observation_started_at,
+        observed_at=observed_at,
+        snapshot=account,
+        deployment=deployment,
+        reconciliation=reconciliation,
+        activity_state=activity_state,
+        plan_target=plan.target_basket,
+        target_actions=_target_action_multipliers(plan, target_actions),
+        observation_target_actions=_target_action_multipliers(
+            plan, observation_target_actions),
+    )
+    return trial.record_cycle_verification(
+        conn,
+        cycle_id=cycle_id,
+        observation_id=reconciliation.observation_id,
+        # Verification must be causally later than the awaited historical
+        # source reads.  Earlier broker response brackets remain evidence only.
+        now=clock(),
+    )
+
+
 def _cash_authority_or_refuse(
         conn, *, plan: ExecutionPlan, deployment,
         account: BrokerAccountSnapshot, observation: BrokerObservation,
@@ -604,6 +815,7 @@ def _cash_authority_or_refuse(
             notional if command.side.value == "SELL" else -notional)
 
     activity_delta = Decimal(0)
+    activity_identity_changed = False
     if activity_state is not None:
         if (activity_state.broker != plan.broker
                 or activity_state.account_id != plan.broker_account_id):
@@ -612,22 +824,31 @@ def _cash_authority_or_refuse(
         baseline = broker_cash.load_plan_baseline(
             conn, plan_id=plan.plan_id)
         if baseline is None:
-            # Upgrade bridge: an old plan can acquire a baseline only when the
-            # old cash equation still balances exactly. If cash already moved,
-            # we cannot know which retained activity preceded that plan and
-            # which followed it, so guessing is forbidden.
-            if abs(account.cash - expected_without_activity) > Decimal("1.00"):
-                raise PaperActivationRefused(
-                    f"plan {plan.plan_id} predates broker cash baselines and "
-                    "fresh cash no longer matches its durable fills. The "
-                    "activity history cannot be safely partitioned around that "
-                    "old plan; resolve the cash explicitly and prepare a fresh "
-                    "decision")
-            baseline = broker_cash.record_plan_baseline(
-                conn, plan_id=plan.plan_id,
-                decision_session=plan.decision_session,
-                activity_state=activity_state)
+            # Never stamp current activity history retroactively onto an old
+            # immutable plan. Offsetting post-plan events can leave cash
+            # numerically unchanged while changing the native event set, so a
+            # current equality cannot reconstruct the plan-time boundary.
+            raise PaperActivationRefused(
+                f"plan {plan.plan_id} has no immutable broker cash baseline. "
+                "It cannot be backfilled from current cash or activity state; "
+                "resolve the legacy plan explicitly and prepare a fresh plan")
+        if (baseline.activity_identity_authoritative
+                and activity_state.activity_identity_scheme
+                != baseline.activity_identity_scheme):
+            raise PaperActivationRefused(
+                "broker cash activity state does not carry the same accepted "
+                "activity identity scheme as the authoritative plan baseline")
         activity_delta = activity_state.balance_total - baseline.balance_total
+        if not baseline.activity_identity_authoritative:
+            if not permit_new_activity:
+                raise PaperActivationRefused(
+                    f"plan {plan.plan_id} has a legacy cash baseline without "
+                    "native activity-set identity; execution is refused until "
+                    "preparation adopts a fresh plan")
+            activity_identity_changed = True
+        else:
+            activity_identity_changed = (
+                activity_state.last_activity_id != baseline.last_activity_id)
 
     expected = expected_without_activity + activity_delta
     if abs(account.cash - expected) > Decimal("1.00"):
@@ -636,12 +857,15 @@ def _cash_authority_or_refuse(
             f"baseline {plan.account_cash}, durable fills and broker-native "
             f"cash activities (expected {expected}). Cash movement is never "
             "inferred")
-    if activity_delta != 0 and not permit_new_activity:
+    if (activity_delta != 0 or activity_identity_changed) \
+            and not permit_new_activity:
         raise PaperActivationRefused(
-            f"broker-native cash activity changed by {activity_delta} after "
-            f"plan {plan.plan_id} was prepared. The event is durably explained, "
-            "but this immutable plan will not be re-sized in place; prepare the "
-            "next closed decision session")
+            "broker-native cash activity changed after plan "
+            f"{plan.plan_id} was prepared (net={activity_delta}, "
+            f"last_activity_id={activity_state.last_activity_id!r}). The "
+            "event set is durably explained, but this immutable plan will not "
+            "be re-sized or netted in place; prepare the next closed decision "
+            "session")
 
 
 def _load_marks_and_tickers(conn, state: SessionState, session: str
@@ -798,14 +1022,15 @@ def _validate_automation_grant(conn, grant: AutomationExecutionGrant):
                 "automation cycle does not match its live fencing grant")
     else:
         # Only read-only recovery may cross a generation boundary. The core's
-        # sole adoption operation proves that this is a transport-capable old
-        # obligation for the same deployment/account/takeover identity and
-        # stamps the current live fence without rewriting its historical
-        # rollout/certificate identity. Those stale economics are deliberately
-        # not compared with current authority and can never execute.
+        # sole adoption operation proves that this old obligation needs
+        # read-only recovery for the same deployment/account/takeover identity
+        # and stamps the current live fence without rewriting its historical
+        # rollout/certificate identity. A planless preflight has not crossed a
+        # transport boundary; stale plan economics are never compared with
+        # current authority and can never execute.
         if (grant.operation_scope != "RECOVER"
                 or cycle.control_generation >= grant.control_generation
-                or not automation_store.cycle_transport_capable(cycle)
+                or not automation_store.cycle_recovery_capable(cycle)
                 or not automation_store.adoption_identity_matches(
                     cycle, control)
                 or cycle.last_fence_token != grant.fence_token):
@@ -1085,12 +1310,67 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     publication_version=pinned.version, frontier=through_text,
                     reconciliation=rec, superseded_plans=0)
 
+            actions = (_action_lookup(
+                conn, SessionState.from_dict(existing_raw), through_date)
+                if existing_raw is not None else None)
+            due_existing_cycle = (
+                existing_plan is not None
+                and trial.due_succeeded_cycle_id(
+                    conn, plan_id=existing_plan.plan_id,
+                    effective_session=existing_plan.effective_session)
+                is not None)
+            due_authority = None
+            due_target_actions = None
+            due_observation_target_actions = None
+            if due_existing_cycle:
+                _assert_deterministic_plan_id(existing_plan)
+                due_target_actions = _target_action_lookup(
+                    conn, existing_plan, existing_plan.effective_session)
+                due_observation_target_actions = _target_action_lookup(
+                    conn, existing_plan, through_date)
+                commands = journal.load_commands(conn, binding.identity)
+                active_security_ids = _preopen_active_security_ids(
+                    plan=existing_plan, commands=commands, actions=actions)
+                if active_security_ids:
+                    official_open = _official_preopen_cutoff(existing_plan)
+                    due_authority, actions, due_target_actions = (
+                        _preopen_views_or_none(
+                            conn, plan=existing_plan,
+                            active_security_ids=active_security_ids,
+                            required_cutoff_at=official_open,
+                            evaluated_at=clock(), actions=actions,
+                            target_actions=due_target_actions))
+                    if due_authority is None:
+                        raise PreOpenShareUnitAuthorityUnavailable(
+                            "pre-open share-unit authority is absent for a "
+                            "nonempty succeeded-cycle finalization book; "
+                            "Sentinel will not interpret prior-plan, command, "
+                            "or broker-position units across its open")
+                    due_observation_target_actions = (
+                        preopen_authority.overlay_actions(
+                            due_observation_target_actions, due_authority))
+
             rec = await reconciliation.reconcile(
                 broker=broker, conn=conn, binding=None,
                 deployment=binding.identity,
-                actions=(_action_lookup(
-                    conn, SessionState.from_dict(existing_raw), through_date)
-                    if existing_raw is not None else None))
+                actions=actions)
+            if due_existing_cycle:
+                current_commands = journal.load_commands(
+                    conn, binding.identity)
+                current_security_ids = _preopen_active_security_ids(
+                    plan=existing_plan, commands=current_commands,
+                    actions=actions)
+                if due_authority is None and current_security_ids:
+                    raise PreOpenShareUnitAuthorityUnavailable(
+                        "pre-open share-unit authority is absent after "
+                        "succeeded-cycle reconciliation adopted a nonempty "
+                        "share-unit identity")
+                if due_authority is not None:
+                    _revalidate_preopen_authority_or_refuse(
+                        authority=due_authority, plan=existing_plan,
+                        commands=current_commands, actions=actions,
+                        required_cutoff_at=_official_preopen_cutoff(
+                            existing_plan), evaluated_at=clock())
             observation = _clean_or_refuse(rec, purpose="paper preparation")
             account_observation_started_at = clock()
             account = await broker.account_snapshot()
@@ -1105,37 +1385,18 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     account=account, observation=observation,
                     activity_state=activity_state,
                     permit_new_activity=True)
-                due_cycle_id = (trial.due_succeeded_cycle_id(
-                    conn, plan_id=existing_plan.plan_id,
-                    effective_session=through_date)
-                    if (automation_grant is not None
-                        and existing_plan.effective_session == through_date)
-                    else None)
-                if due_cycle_id is not None and rec.observation_id is not None:
-                    # The close for the prior effective session is now
-                    # published and ready.  Bind the fresh post-close broker
-                    # observation before a new plan supersedes its evidence.
-                    trial.record_account_evidence(
-                        conn,
-                        session=through_date,
-                        observation_id=rec.observation_id,
-                        observation_started_at=account_observation_started_at,
+                if due_existing_cycle:
+                    await _finalize_due_succeeded_cycle_or_refuse(
+                        conn, broker=broker, deployment=binding.identity,
+                        plan=existing_plan, reconciliation=rec,
+                        account=account, activity_state=activity_state,
+                        observation_started_at=(
+                            account_observation_started_at),
                         observed_at=account_observed_at,
-                        snapshot=account,
-                        deployment=binding.identity,
-                        reconciliation=rec,
-                        activity_state=activity_state,
-                        plan_target=existing_plan.target_basket,
-                        target_actions=_target_action_multipliers(
-                            existing_plan, _target_action_lookup(
-                                conn, existing_plan, through_date)),
-                    )
-                    trial.record_cycle_verification(
-                        conn,
-                        cycle_id=due_cycle_id,
-                        observation_id=rec.observation_id,
-                        now=account_observed_at,
-                    )
+                        target_actions=due_target_actions,
+                        observation_target_actions=(
+                            due_observation_target_actions),
+                        clock=clock)
             if any(order.is_working for order in observation.orders):
                 raise PaperActivationRefused(
                     "initial plan adoption requires no working broker order; "
@@ -1329,28 +1590,147 @@ def _target_action_lookup(conn, plan: ExecutionPlan, through: date):
 def _target_action_multipliers(plan: ExecutionPlan, actions) -> dict[str, Decimal]:
     """Material supported share changes in the exact target-validity window."""
     result = {}
-    for security_id in sorted(plan.target_basket):
+    for security_id, target in sorted(plan.target_basket.items()):
+        if target == 0:
+            continue
         multiplier = actions(security_id)
         if multiplier not in (None, Decimal(1)):
             result[security_id] = multiplier
     return result
 
 
+def _preopen_active_security_ids(
+        *, plan: ExecutionPlan, commands, actions) -> tuple[str, ...]:
+    """Return every identity that can affect this execution boundary.
+
+    A recovered command identity remains authority-relevant even when terminal
+    with zero fill and therefore absent from the expected book.  Reconciliation
+    can adopt such a row after the initial provider coverage was checked;
+    omitting it would let projection/transport proceed under a publication that
+    never answered for the newly trusted broker identity.  Ordinary terminal,
+    zero-book commands do not expand the executable security set.
+    """
+    expected = reconciliation.expected_book_from_commands(
+        commands, actions=actions)
+    identities = {
+        str(security_id)
+        for security_id, quantity in plan.target_basket.items()
+        if quantity != 0}
+    identities.update(
+        str(security_id) for security_id, quantity in expected.items()
+        if quantity != 0)
+    identities.update(
+        str(command.security_id) for command in commands
+        if blocks_overlapping(command.state) or command.is_recovered)
+    return tuple(sorted(identities))
+
+
+def _plan_deltas(
+        *, target_basket: Mapping[str, Decimal],
+        observation: BrokerObservation,
+        minimum_quantity_increment: Decimal):
+    identities = set(target_basket)
+    identities.update(observation.positions_by_security())
+    identities.update(
+        order.instrument.security_id for order in observation.orders)
+    return tuple(
+        execution_commands.compute_delta(
+            security_id=security_id,
+            desired=target_basket.get(security_id, Decimal(0)),
+            observation=observation,
+            min_increment=minimum_quantity_increment)
+        for security_id in sorted(identities))
+
+
+def _provably_clean_empty_noop(
+        *, deltas, commands, observation: BrokerObservation) -> bool:
+    """Bypass authority only when no active share-unit domain exists.
+
+    Equality between a nonzero raw plan target and a nonzero broker holding is
+    not a no-event attestation: an unobserved split can make those incomparable
+    units numerically equal.  Only the all-zero book has no share units whose
+    open-boundary meaning needs affirmative authority.
+    """
+    return (
+        all(delta.classification is execution_commands.DeltaClass.NONE
+            for delta in deltas)
+        and all(delta.desired == 0 and delta.held == 0
+                and delta.committed == 0 for delta in deltas)
+        and not any(blocks_overlapping(command.state) for command in commands)
+        and not any(order.is_working for order in observation.orders))
+
+
+def _preopen_views_or_none(
+        conn, *, plan: ExecutionPlan, active_security_ids,
+        required_cutoff_at: datetime, evaluated_at: datetime,
+        actions, target_actions):
+    """Load, validate, and overlay an immutable authority if one exists."""
+    try:
+        authority = preopen_authority.load_authority(
+            conn, plan_id=plan.plan_id)
+        if authority is None:
+            return None, actions, target_actions
+        preopen_authority.validate_for_plan(
+            authority, plan=plan,
+            required_security_ids=active_security_ids,
+            required_cutoff_at=required_cutoff_at,
+            evaluated_at=evaluated_at)
+        return (
+            authority,
+            preopen_authority.overlay_actions(actions, authority),
+            preopen_authority.overlay_actions(target_actions, authority))
+    except preopen_authority.PreOpenAuthorityRefused as exc:
+        raise PreOpenShareUnitAuthorityUnavailable(str(exc)) from exc
+
+
+def _revalidate_preopen_authority_or_refuse(
+        *, authority, plan: ExecutionPlan, commands, actions,
+        required_cutoff_at: datetime, evaluated_at: datetime) -> None:
+    """Recheck exact coverage after reconciliation may have adopted commands."""
+    if authority is None:
+        return
+    active_security_ids = _preopen_active_security_ids(
+        plan=plan, commands=commands, actions=actions)
+    try:
+        preopen_authority.validate_for_plan(
+            authority, plan=plan,
+            required_security_ids=active_security_ids,
+            required_cutoff_at=required_cutoff_at,
+            evaluated_at=evaluated_at)
+    except preopen_authority.PreOpenAuthorityRefused as exc:
+        raise PreOpenShareUnitAuthorityUnavailable(str(exc)) from exc
+
+
+def _official_preopen_cutoff(plan: ExecutionPlan) -> datetime:
+    """The evidence boundary is the exact certified XNYS session open."""
+    opened, _closed = calendar.session_window(plan.effective_session)
+    return opened
+
+
 def _target_projection_or_refuse(
         conn, *, state: SessionState, plan: ExecutionPlan, binding,
-        broker: ExecutionBroker, through: date, actions, target_actions):
-    """Persist the exact scalar unit change and fence every non-scalar gap."""
+        broker: ExecutionBroker, through: date, actions, target_actions,
+        require_existing: bool = False,
+        persist_projection: bool = True,
+        expected_projection: Optional[
+            target_reprojection.TargetProjection] = None):
+    """Derive the exact unit projection and bind it to durable plan state."""
     target = shadow_target(state)
     commands = journal.load_commands(conn, binding.identity)
     expected_book = reconciliation.expected_book_from_commands(
         commands, actions=actions)
     security_ids = (
-        set(plan.target_basket) | set(target.shares)
+        {security_id for security_id, quantity in plan.target_basket.items()
+         if quantity != 0}
+        | {security_id for security_id, quantity in target.shares.items()
+           if quantity != 0}
         | set(expected_book))
     symbols = (
-        set(target.tickers.values())
+        {target.tickers[security_id] for security_id in security_ids
+         if target.tickers.get(security_id)}
         | {command.instrument.symbol for command in commands
-           if (command.security_id in security_ids and command.instrument.symbol)})
+           if (command.security_id in security_ids
+               and command.instrument.symbol)})
     if DEFENSIVE_SECURITY_ID in security_ids:
         # BIL is a fixed execution identity outside the Wealth Core shadow, so
         # ``target.tickers`` cannot supply it.  Unmapped corporate-action rows
@@ -1373,13 +1753,16 @@ def _target_projection_or_refuse(
             "cash, positions, fills, or corrective orders for an Alpaca paper "
             "limitation")
 
+    target_security_ids = tuple(
+        security_id for security_id, quantity
+        in sorted(plan.target_basket.items()) if quantity != 0)
     multipliers = {
         security_id: target_actions(security_id)
-        for security_id in sorted(plan.target_basket)
+        for security_id in target_security_ids
         if target_actions(security_id) not in (None, Decimal(1))}
     evidence_reader = getattr(target_actions, "scalar_evidence_for", None)
     action_evidence = (
-        tuple(event.to_dict() for event in evidence_reader(plan.target_basket))
+        tuple(event.to_dict() for event in evidence_reader(target_security_ids))
         if callable(evidence_reader) else ())
     try:
         projected = target_reprojection.project_target(
@@ -1388,6 +1771,24 @@ def _target_projection_or_refuse(
             action_evidence=action_evidence,
             minimum_quantity_increment=(
                 broker.capabilities.minimum_quantity_increment))
+        if (expected_projection is not None
+                and projected != expected_projection):
+            raise target_reprojection.TargetProjectionRefused(
+                "post-reconciliation authority-derived target projection "
+                "differs from the pre-read projection")
+        if require_existing:
+            stored = target_reprojection.load_projection(
+                conn, plan_id=plan.plan_id)
+            if stored is None or stored != projected:
+                raise target_reprojection.TargetProjectionRefused(
+                    "recovery's authority-derived target projection is absent "
+                    "or differs from the immutable projection used by execution")
+            target_reprojection.assert_projection(
+                conn, plan=plan, projection=stored,
+                through_session=through)
+            return stored
+        if not persist_projection:
+            return projected
         return target_reprojection.record_projection(conn, projected)
     except target_reprojection.TargetProjectionRefused as exc:
         raise PaperActivationRefused(str(exc)) from exc
@@ -1570,9 +1971,30 @@ async def _execute_current_paper_plan(
             except ValueError as exc:
                 raise PaperActivationRefused(
                     f"corporate-action authority is ambiguous or invalid: {exc}") from exc
-            target_projection = _target_projection_or_refuse(
-                conn, state=state, plan=plan, binding=binding, broker=broker,
-                through=today, actions=actions, target_actions=target_actions)
+            commands = journal.load_commands(conn, binding.identity)
+            active_security_ids = _preopen_active_security_ids(
+                plan=plan, commands=commands, actions=actions)
+            official_open = _official_preopen_cutoff(plan)
+            authority, actions, target_actions = _preopen_views_or_none(
+                conn, plan=plan,
+                active_security_ids=active_security_ids,
+                required_cutoff_at=official_open,
+                evaluated_at=clock(), actions=actions,
+                target_actions=target_actions)
+            target_projection = None
+            trial_target_actions = {}
+            if authority is not None:
+                # Refuse unsupported/non-scalar corporate actions before the
+                # broker book can be consulted.  Reconciliation may still
+                # adopt a previously unknown command identity, so the exact
+                # projection is re-derived and matched below after that read.
+                target_projection = _target_projection_or_refuse(
+                    conn, state=state, plan=plan, binding=binding,
+                    broker=broker, through=today, actions=actions,
+                    target_actions=target_actions,
+                    persist_projection=False)
+                trial_target_actions = _target_action_multipliers(
+                    plan, target_actions)
             preflight = await reconciliation.reconcile(
                 broker=broker, conn=conn, binding=None,
                 deployment=binding.identity, actions=actions)
@@ -1582,27 +2004,80 @@ async def _execute_current_paper_plan(
                 conn, plan=plan, deployment=binding.identity,
                 account=account, observation=observation,
                 activity_state=activity_state)
-            instruments = await _instrument_map(
-                conn, broker, state, plan, observation,
-                target_basket=target_projection.target_basket)
+            current_commands = journal.load_commands(conn, binding.identity)
+            _revalidate_preopen_authority_or_refuse(
+                authority=authority, plan=plan, commands=current_commands,
+                actions=actions, required_cutoff_at=official_open,
+                evaluated_at=clock())
+            minimum_increment = (
+                broker.capabilities.minimum_quantity_increment)
+            preopen_deltas = _plan_deltas(
+                target_basket=plan.target_basket,
+                observation=observation,
+                minimum_quantity_increment=minimum_increment)
+            if authority is None:
+                if not _provably_clean_empty_noop(
+                        deltas=preopen_deltas, commands=current_commands,
+                        observation=observation):
+                    raise PreOpenShareUnitAuthorityUnavailable(
+                        "pre-open share-unit authority is absent and the "
+                        "complete, clean broker book is not an empty no-op; "
+                        "numerical equality of nonzero raw shares cannot prove "
+                        "that no effective-session split occurred; "
+                        "Sentinel will not project a target or create, cancel, "
+                        "or submit a command")
+                target_projection = None
+                projected_deltas = preopen_deltas
+                trial_target_actions = {}
+            else:
+                # Reconciliation can durably adopt a broker order that was not
+                # present at the first projection boundary.  Re-run all
+                # material-action checks over that expanded command set and
+                # require the result to equal the immutable pre-read target.
+                target_projection = _target_projection_or_refuse(
+                    conn, state=state, plan=plan, binding=binding,
+                    broker=broker, through=today, actions=actions,
+                    target_actions=target_actions,
+                    expected_projection=target_projection)
+                projected_deltas = _plan_deltas(
+                    target_basket=target_projection.target_basket,
+                    observation=observation,
+                    minimum_quantity_increment=minimum_increment)
 
-            async def authorize_increases(fresh_observation):
-                fresh_account = await broker.account_snapshot()
-                _account_or_refuse(
-                    fresh_account, binding, confirmed_account)
-                fresh_activity_state = await _broker_cash_state_or_refuse(
-                    conn, broker=broker, binding=binding, through=clock())
-                _cash_authority_or_refuse(
-                    conn, plan=plan, deployment=binding.identity,
-                    account=fresh_account, observation=fresh_observation,
-                    activity_state=fresh_activity_state)
+            if all(delta.classification is execution_commands.DeltaClass.NONE
+                   for delta in projected_deltas):
+                session = executor.SessionResult(
+                    runtime_state=RuntimeState.RUNNING,
+                    reconciliation=preflight,
+                    detail="complete clean empty no-op; no command transport")
+            else:
+                # The branch is unreachable without a validated authority:
+                # dust is not a true no-op, even when no broker can fill it.
+                if target_projection is None:                 # pragma: no cover
+                    raise PreOpenShareUnitAuthorityUnavailable(
+                        "pre-open authority is required before command sizing")
+                instruments = await _instrument_map(
+                    conn, broker, state, plan, observation,
+                    target_basket=target_projection.target_basket)
 
-            session = await executor.execute_session(
-                broker=broker, conn=conn, deployment=binding.identity,
-                plan=plan, instruments=instruments, today=today,
-                actions=actions, target_projection=target_projection,
-                min_increment=broker.capabilities.minimum_quantity_increment,
-                increase_authority=authorize_increases)
+                async def authorize_increases(fresh_observation):
+                    fresh_account = await broker.account_snapshot()
+                    _account_or_refuse(
+                        fresh_account, binding, confirmed_account)
+                    fresh_activity_state = await _broker_cash_state_or_refuse(
+                        conn, broker=broker, binding=binding, through=clock())
+                    _cash_authority_or_refuse(
+                        conn, plan=plan, deployment=binding.identity,
+                        account=fresh_account,
+                        observation=fresh_observation,
+                        activity_state=fresh_activity_state)
+
+                session = await executor.execute_session(
+                    broker=broker, conn=conn, deployment=binding.identity,
+                    plan=plan, instruments=instruments, today=today,
+                    actions=actions, target_projection=target_projection,
+                    min_increment=minimum_increment,
+                    increase_authority=authorize_increases)
             final_reconciliation = session.reconciliation
             if (final_reconciliation is not None
                     and final_reconciliation.runtime_state is RuntimeState.RUNNING
@@ -1632,8 +2107,8 @@ async def _execute_current_paper_plan(
                     reconciliation=final_reconciliation,
                     activity_state=evidence_activity,
                     plan_target=plan.target_basket,
-                    target_actions=_target_action_multipliers(
-                        plan, target_actions))
+                    target_actions=trial_target_actions,
+                    observation_target_actions=trial_target_actions)
             return ExecutionResult(plan=plan, preflight=preflight,
                                    session=session)
 
@@ -1723,47 +2198,118 @@ async def recover_automated_paper_cycle(
             conn, broker=broker, binding=binding, through=clock())
         raw = catchup.resume_state(conn)
         state = SessionState.from_dict(raw) if raw is not None else None
+
+        # An adopted old-generation obligation may be reconciled under the
+        # current safety fence, but its stale plan economics must never be
+        # loaded or interpreted under current authority.  Only the exact plan
+        # already bound to this live generation can supply a target or a
+        # plan-bound pre-open share-unit publication.
+        plan = None
+        if (cycle.control_generation == grant.control_generation
+                and cycle.plan_id is not None):
+            candidate = journal.load_plan(conn, cycle.plan_id)
+            if (candidate is not None
+                    and candidate.fingerprint() == cycle.plan_fingerprint
+                    and candidate.decision_session == cycle.decision_session
+                    and candidate.effective_session
+                    == cycle.effective_session):
+                _assert_deterministic_plan_id(candidate)
+                plan = candidate
+
         actions = (_action_lookup(conn, state, clock().date())
                    if state is not None else None)
+        authority = None
+        target_actions = None
+        observation_target_actions = None
+        if plan is not None:
+            target_actions = _target_action_lookup(
+                conn, plan, plan.effective_session)
+            observation_target_actions = _target_action_lookup(
+                conn, plan, clock().date())
+            commands = journal.load_commands(conn, binding.identity)
+            active_security_ids = _preopen_active_security_ids(
+                plan=plan, commands=commands, actions=actions)
+            if active_security_ids:
+                official_open = _official_preopen_cutoff(plan)
+                authority, actions, target_actions = _preopen_views_or_none(
+                    conn, plan=plan,
+                    active_security_ids=active_security_ids,
+                    required_cutoff_at=official_open,
+                    evaluated_at=clock(), actions=actions,
+                    target_actions=target_actions)
+                if authority is None:
+                    raise PreOpenShareUnitAuthorityUnavailable(
+                        "pre-open share-unit authority is absent for the "
+                        "nonempty recovery book; Sentinel will not interpret "
+                        "plan, command, or broker-position share units across "
+                        "the effective-session open")
+                observation_target_actions = (
+                    preopen_authority.overlay_actions(
+                        observation_target_actions, authority))
         result = await reconciliation.reconcile(
             broker=broker, conn=conn, binding=None,
             deployment=binding.identity, actions=actions)
-        if (cycle.control_generation == grant.control_generation
-                and cycle.plan_id is not None
+
+        if plan is not None:
+            current_commands = journal.load_commands(conn, binding.identity)
+            current_security_ids = _preopen_active_security_ids(
+                plan=plan, commands=current_commands, actions=actions)
+            if authority is None and current_security_ids:
+                raise PreOpenShareUnitAuthorityUnavailable(
+                    "pre-open share-unit authority is absent after recovery "
+                    "adopted a nonempty share-unit identity; Sentinel will "
+                    "not treat that command or broker position as current "
+                    "plan economics")
+            if authority is not None:
+                _revalidate_preopen_authority_or_refuse(
+                    authority=authority, plan=plan,
+                    commands=current_commands, actions=actions,
+                    required_cutoff_at=_official_preopen_cutoff(plan),
+                    evaluated_at=clock())
+                if state is None:
+                    raise PaperActivationRefused(
+                        "current-generation recovery cannot revalidate its "
+                        "target projection without canonical strategy state")
+                _target_projection_or_refuse(
+                    conn, state=state, plan=plan, binding=binding,
+                    broker=broker, through=plan.effective_session,
+                    actions=actions, target_actions=target_actions,
+                    require_existing=True)
+
+        if (plan is not None
                 and result.runtime_state is RuntimeState.RUNNING
                 and result.clean
                 and result.observation is not None
                 and result.observation.is_complete
                 and result.observation_id is not None):
-            plan = journal.load_plan(conn, cycle.plan_id)
-            if plan is not None and plan.fingerprint() == cycle.plan_fingerprint:
-                evidence_started_at = clock()
-                account = await broker.account_snapshot()
-                evidence_at = clock()
-                _account_or_refuse(account, binding, grant.broker_account_id)
-                activity_state = await _broker_cash_state_or_refuse(
-                    conn, broker=broker, binding=binding,
-                    through=evidence_at)
-                _cash_authority_or_refuse(
-                    conn, plan=plan, deployment=binding.identity,
-                    account=account, observation=result.observation,
-                    activity_state=activity_state,
-                    # Recovery submits nothing. A recognized post-plan
-                    # dividend/interest/fee is legitimate realized economics;
-                    # it may be certified after the book is clean even though
-                    # it would refuse a stale plan's new BUY authorization.
-                    permit_new_activity=True)
-                trial.record_account_evidence(
-                    conn, session=cycle.effective_session,
-                    observation_id=result.observation_id,
-                    observation_started_at=evidence_started_at,
-                    observed_at=evidence_at, snapshot=account,
-                    deployment=binding.identity, reconciliation=result,
-                    activity_state=activity_state,
-                    plan_target=plan.target_basket,
-                    target_actions=_target_action_multipliers(
-                        plan, _target_action_lookup(
-                            conn, plan, cycle.effective_session)))
+            evidence_started_at = clock()
+            account = await broker.account_snapshot()
+            evidence_at = clock()
+            _account_or_refuse(account, binding, grant.broker_account_id)
+            activity_state = await _broker_cash_state_or_refuse(
+                conn, broker=broker, binding=binding,
+                through=evidence_at)
+            _cash_authority_or_refuse(
+                conn, plan=plan, deployment=binding.identity,
+                account=account, observation=result.observation,
+                activity_state=activity_state,
+                # Recovery submits nothing. A recognized post-plan
+                # dividend/interest/fee is legitimate realized economics;
+                # it may be certified after the book is clean even though
+                # it would refuse a stale plan's new BUY authorization.
+                permit_new_activity=True)
+            trial.record_account_evidence(
+                conn, session=plan.effective_session,
+                observation_id=result.observation_id,
+                observation_started_at=evidence_started_at,
+                observed_at=evidence_at, snapshot=account,
+                deployment=binding.identity, reconciliation=result,
+                activity_state=activity_state,
+                plan_target=plan.target_basket,
+                target_actions=_target_action_multipliers(
+                    plan, target_actions),
+                observation_target_actions=_target_action_multipliers(
+                    plan, observation_target_actions))
         return result
 
 
@@ -1853,7 +2399,8 @@ def build_security_resolver(conn, session: str):
 
 __all__ = [
     "DEFENSIVE_SYMBOL", "ExecutionResult", "PaperAccountInspection",
-    "PaperActivationRefused", "PaperRetryableRefused", "PreparationResult",
+    "PaperActivationRefused", "PaperRetryableRefused",
+    "PreOpenShareUnitAuthorityUnavailable", "PreparationResult",
     "build_security_resolver",
     "current_paper_plan", "execute_automated_paper_plan",
     "execute_paper_plan", "inspect_paper_account", "prepare_paper_plan",

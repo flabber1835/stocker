@@ -46,7 +46,12 @@ from sentinel.core.loader import (  # noqa: E402
     CorpusWindow,
 )
 from sentinel.core.production import PublishedSession, SessionState  # noqa: E402
-from sentinel.execution import alpaca, journal, target_reprojection  # noqa: E402
+from sentinel.execution import (  # noqa: E402
+    alpaca,
+    journal,
+    preopen_authority,
+    target_reprojection,
+)
 from sentinel.execution.commands import Command  # noqa: E402
 from sentinel.execution.contract import (  # noqa: E402
     BrokerAccountIdentity,
@@ -54,6 +59,7 @@ from sentinel.execution.contract import (  # noqa: E402
     IncompleteObservation,
     BrokerInstrument,
     BrokerObservation,
+    BrokerOrder,
     BrokerPosition,
     Side,
 )
@@ -343,6 +349,55 @@ def _prepare(conn, broker, **overrides):
 
 def _execute(conn, broker, **overrides):
     plan = journal.latest_plan(conn)
+    install_preopen_authority = overrides.pop(
+        "install_preopen_authority", True)
+    if plan is not None and install_preopen_authority:
+        state, current, _cursor = paper._state_and_plan_or_refuse(  # noqa: SLF001
+            conn)
+        bound = binding.require(conn)
+        actions = paper._action_lookup(  # noqa: SLF001
+            conn, state, current.effective_session)
+        commands = journal.load_commands(conn, bound.identity)
+        active = paper._preopen_active_security_ids(  # noqa: SLF001
+            plan=current, commands=commands, actions=actions)
+        coverage = []
+        for security_id in active:
+            effective_values = tuple(
+                value for session, value
+                in actions.events.get(security_id, ())
+                if session == current.effective_session)
+            if not effective_values:
+                coverage.append(
+                    preopen_authority.ShareUnitCoverage.no_event(security_id))
+                continue
+            multiplier = D(1)
+            for value in effective_values:
+                multiplier *= value
+            numerator = denominator = None
+            if multiplier >= 1 and multiplier == multiplier.to_integral_value():
+                numerator, denominator = int(multiplier), 1
+            elif multiplier < 1:
+                reciprocal = D(1) / multiplier
+                if reciprocal == reciprocal.to_integral_value():
+                    numerator, denominator = 1, int(reciprocal)
+            coverage.append(preopen_authority.ShareUnitCoverage.oriented(
+                security_id, (preopen_authority.ShareUnitEvent(
+                    event_id=f"test-open-event:{security_id}",
+                    revision_id="test-revision-1",
+                    effective_session=current.effective_session,
+                    multiplier=multiplier,
+                    canonical_numerator=numerator,
+                    canonical_denominator=denominator),)))
+        cutoff = paper._official_preopen_cutoff(current)  # noqa: SLF001
+        preopen_authority.record_authority(
+            conn, preopen_authority.PreOpenShareUnitAuthority(
+                plan_id=current.plan_id,
+                plan_fingerprint=current.fingerprint(),
+                effective_session=current.effective_session,
+                provider="test-complete-preopen-provider",
+                publication_id=f"test:{current.plan_id}",
+                as_of=cutoff, cutoff_at=cutoff, complete=True,
+                coverage=tuple(coverage)))
     kwargs = {
         "conn": conn,
         "broker": broker,
@@ -1344,6 +1399,82 @@ def test_restart_cash_authority_uses_durable_average_fill_price(conn, pg):
 
 
 class TestStrictExecutionGate:
+    def test_missing_preopen_authority_blocks_actionable_cycle_before_projection(
+            self, conn, monkeypatch):
+        _bound, _pinned, _state_value, durable_plan = \
+            _install_current_authorities(conn, with_target=True)
+        _ready(monkeypatch)
+        broker = _broker()
+
+        with pytest.raises(
+                paper.PreOpenShareUnitAuthorityUnavailable,
+                match="empty no-op"):
+            _execute(
+                conn, broker, install_preopen_authority=False)
+
+        assert target_reprojection.load_projection(
+            conn, plan_id=durable_plan.plan_id) is None
+        assert _mutations(broker) == []
+
+    def test_missing_preopen_authority_allows_only_clean_empty_noop(
+            self, conn, monkeypatch):
+        _bound, _pinned, _state_value, durable_plan = \
+            _install_current_authorities(conn)
+        _ready(monkeypatch)
+        broker = _broker()
+
+        result = _execute(
+            conn, broker, install_preopen_authority=False)
+
+        assert result.session.submitted == ()
+        assert result.session.detail == (
+            "complete clean empty no-op; no command transport")
+        assert target_reprojection.load_projection(
+            conn, plan_id=durable_plan.plan_id) is None
+        assert _mutations(broker) == []
+
+    def test_recovered_command_adopted_by_reconcile_revalidates_exact_coverage(
+            self, conn, monkeypatch):
+        bound, _pinned, _state_value, durable_plan = \
+            _install_current_authorities(conn, with_target=True)
+        _ready(monkeypatch)
+        broker = _broker()
+        recovered = BrokerOrder(
+            broker_order_id="recovered-terminal-1",
+            client_key="sntl-recovered-after-preopen-read",
+            instrument=BrokerInstrument(
+                security_id="SEC-RECOVERED", symbol="REC"),
+            side=Side.BUY, state=CommandState.CANCELLED,
+            quantity=D(1), submitted_at=dt.datetime(
+                2026, 8, 12, 13, 31, tzinfo=dt.timezone.utc))
+
+        async def adopt_during_reconcile(**kwargs):
+            journal.adopt_recovered_order(
+                kwargs["conn"], recovered, deployment=bound.identity)
+            observation = await kwargs["broker"].observe()
+            return paper.reconciliation.ReconciliationResult(
+                runtime_state=RuntimeState.RUNNING,
+                observation=observation,
+                expected=observation.positions_by_security(),
+                observed=observation.positions_by_security(),
+                recovered_orders=(recovered,), observation_id=73,
+                detail="adopted terminal recovered order")
+
+        monkeypatch.setattr(
+            paper.reconciliation, "reconcile", adopt_during_reconcile)
+
+        with pytest.raises(
+                paper.PreOpenShareUnitAuthorityUnavailable,
+                match=r"missing=\['SEC-RECOVERED'\]"):
+            _execute(conn, broker)
+
+        adopted = journal.load_commands(conn, bound.identity)
+        assert any(command.security_id == "SEC-RECOVERED"
+                   and command.is_recovered for command in adopted)
+        assert target_reprojection.load_projection(
+            conn, plan_id=durable_plan.plan_id) is None
+        assert _mutations(broker) == []
+
     def test_missing_system_certificate_refuses_before_broker_read(
             self, conn, pg, monkeypatch):
         _install_current_authorities(conn)

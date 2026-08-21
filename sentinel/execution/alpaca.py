@@ -19,9 +19,10 @@ from urllib.parse import quote
 from sentinel.execution.broker_cash import (
     BrokerCashActivity, BrokerCashActivityBatch, RECOGNIZED_ACTIVITY_TYPES)
 from sentinel.execution.contract import (
-    BrokerAccountIdentity, BrokerAccountSnapshot, BrokerCapabilities, BrokerFill,
-    BrokerInstrument, BrokerObservation, BrokerOrder, BrokerPosition,
-    CommandOutcome, Completeness, ExecutionBroker, Side)
+    BrokerAccountIdentity, BrokerAccountSnapshot, BrokerCapabilities,
+    BrokerCloseValuation, BrokerFill, BrokerInstrument, BrokerObservation,
+    BrokerOrder, BrokerPosition, CommandOutcome, Completeness, ExecutionBroker,
+    MalformedBrokerEvidence, Side)
 from sentinel.execution.guarded import BrokerAuthorityRefused
 from sentinel.execution.states import CommandState as S
 
@@ -31,6 +32,8 @@ PAGE_SIZE = 500
 MAX_PAGES = 20
 ACTIVITY_PAGE_SIZE = 100
 MAX_ACTIVITY_PAGES = 20
+PORTFOLIO_HISTORY_SOURCE = "alpaca_portfolio_history"
+PORTFOLIO_HISTORY_QUARANTINE_SEMANTICS = "UNVALIDATED_1D_LEFT_LABEL"
 
 _STATUS = {
     "new": S.ACKNOWLEDGED,
@@ -61,7 +64,7 @@ class UnmappedBrokerStatus(RuntimeError):
     """Alpaca reported a lifecycle state without a certified mapping."""
 
 
-class MalformedBrokerPayload(RuntimeError):
+class MalformedBrokerPayload(MalformedBrokerEvidence):
     """Broker evidence is contradictory or unreadable and cannot be trusted."""
 
 
@@ -163,6 +166,83 @@ def _retry_after_seconds(resp) -> Decimal:
     return value
 
 
+def parse_portfolio_history_close(
+        payload, *, identity: BrokerAccountIdentity, requested_session: date,
+        request_started_at: datetime, request_completed_at: datetime,
+        query: Sequence[tuple[str, str]]) -> BrokerCloseValuation:
+    """Strictly parse one *quarantined* Alpaca 1D history point.
+
+    Alpaca documents the response timestamp as a left label and the equity as
+    the value at the end of that window.  Retained examples do not establish a
+    stable integer unit.  This parser consequently validates and preserves the
+    integer but never converts it, maps it to ``requested_session``, or stamps a
+    valuation time.  A real-account acceptance contract must do those things
+    before the adapter can advertise close-valuation capability.
+    """
+    if not isinstance(payload, dict):
+        raise MalformedBrokerPayload(
+            "portfolio-history response must be an object")
+    if type(requested_session) is not date:
+        raise MalformedBrokerPayload(
+            "portfolio-history requested session must be a date")
+    if payload.get("timeframe") != "1D":
+        raise MalformedBrokerPayload(
+            "portfolio-history response timeframe must be exactly '1D'")
+    timestamps = payload.get("timestamp")
+    equities = payload.get("equity")
+    if not isinstance(timestamps, list) or not isinstance(equities, list):
+        raise MalformedBrokerPayload(
+            "portfolio-history timestamp and equity must be arrays")
+    if len(timestamps) != 1 or len(equities) != 1:
+        raise MalformedBrokerPayload(
+            "quarantined one-session portfolio-history query must return "
+            "exactly one timestamp/equity point")
+    source_timestamp = timestamps[0]
+    if (isinstance(source_timestamp, bool)
+            or not isinstance(source_timestamp, int)
+            or source_timestamp < 1):
+        raise MalformedBrokerPayload(
+            "portfolio-history timestamp must be a positive opaque integer")
+    equity = _required_dec(
+        equities[0], where="portfolio-history close equity")
+    if equity <= 0:
+        raise MalformedBrokerPayload(
+            "portfolio-history close equity must be positive")
+
+    # Validate documented parallel numeric series when they are present, even
+    # though Sentinel must never use Alpaca's P/L or percentage calculation as
+    # its own performance arithmetic.
+    for key in ("profit_loss", "profit_loss_pct"):
+        if key not in payload:
+            continue
+        series = payload[key]
+        if not isinstance(series, list) or len(series) != 1:
+            raise MalformedBrokerPayload(
+                f"portfolio-history {key} must parallel the one equity point")
+        _required_dec(
+            series[0], where=f"portfolio-history {key}",
+            allow_negative=True)
+    if "base_value" in payload and payload["base_value"] is not None:
+        _required_dec(payload["base_value"], where="portfolio-history base_value")
+
+    try:
+        return BrokerCloseValuation(
+            identity=identity, requested_session=requested_session,
+            equity=equity, source_timestamp=source_timestamp,
+            source_timeframe="1D", source=PORTFOLIO_HISTORY_SOURCE,
+            semantics=PORTFOLIO_HISTORY_QUARANTINE_SEMANTICS,
+            request_started_at=_required_aware_ts(
+                request_started_at, where="portfolio-history request start"),
+            request_completed_at=_required_aware_ts(
+                request_completed_at,
+                where="portfolio-history request completion"),
+            query=tuple(query), source_timestamp_unit=None, valuation_at=None,
+            raw=dict(payload))
+    except (TypeError, ValueError) as exc:
+        raise MalformedBrokerPayload(
+            f"portfolio-history typed evidence is invalid: {exc}") from exc
+
+
 @dataclass(frozen=True)
 class AlpacaMarketClock:
     timestamp: datetime
@@ -245,6 +325,47 @@ class AlpacaExecutionBroker(ExecutionBroker):
                 payload, "account_blocked", where="account"),
             trade_suspended_by_user=_required_bool(
                 payload, "trade_suspended_by_user", where="account"))
+
+    async def account_close_valuation(
+            self, *, session: date) -> BrokerCloseValuation:
+        """Fetch one raw 1D Portfolio History point for acceptance testing.
+
+        This method intentionally exists while
+        ``capabilities.account_close_valuation`` remains false.  Production
+        guarded callers therefore cannot consume it.  It is a read-only seam
+        for validating the real paper endpoint's wire/session semantics.
+        """
+        if type(session) is not date:
+            raise MalformedBrokerPayload(
+                "portfolio-history session must be a date")
+        from sentinel.feed import calendar  # noqa: PLC0415
+
+        opened, closed = calendar.session_window(session)
+        params = {
+            "start": opened.isoformat(),
+            "end": closed.isoformat(),
+            "timeframe": "1D",
+            "intraday_reporting": "market_hours",
+            "cashflow_types": "ALL",
+        }
+        query = tuple(sorted((key, str(value))
+                             for key, value in params.items()))
+
+        identity_before = await self.identify_account()
+        request_started_at = datetime.now(timezone.utc)
+        payload = await self._get("/v2/account/portfolio/history", params)
+        request_completed_at = datetime.now(timezone.utc)
+        identity_after = await self.identify_account()
+        if ((identity_before.broker, identity_before.account_id)
+                != (identity_after.broker, identity_after.account_id)):
+            raise MalformedBrokerPayload(
+                "Alpaca account identity changed around portfolio-history read: "
+                f"{identity_before.broker}/{identity_before.account_id} -> "
+                f"{identity_after.broker}/{identity_after.account_id}")
+        return parse_portfolio_history_close(
+            payload, identity=identity_before, requested_session=session,
+            request_started_at=request_started_at,
+            request_completed_at=request_completed_at, query=query)
 
     @staticmethod
     def _account_identity(payload: dict) -> BrokerAccountIdentity:

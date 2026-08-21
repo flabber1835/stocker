@@ -785,21 +785,59 @@ by a reconciliation interval.
 
 ### 5.4 Activity SSE has separate economic and replay identities
 
+The current Alpaca Trading/Paper adapter does **not** advertise account-cash
+activity authority. Alpaca documents Activity SSE on its Broker API endpoint and
+authentication/account model, while this adapter is bound to the Trading/Paper
+API. Its SSE decoder remains a quarantined acceptance-harness candidate; method
+presence cannot make the production guard call it or earn the identity scheme.
+A reviewed, reachable, account-bound integration is required first.
+
 For Alpaca financial activities, `ref_id` is the durable idempotency key for the
 economic row and `event_id` is the durable replay cursor. `event_id` is persisted
 after a complete batch and supplied as `since_id` on reconnect. Timestamp
 `since`/`until` queries are permitted only to establish a bounded upper event
-cursor or to bootstrap/upgrade from account binding establishment; they never
-authorize gap-free resumption because they filter business time (`at`) rather
-than publication order. A delayed/backfilled event with old business time must
-still be observed at the end of the `event_id` stream.
+cursor. Discovery always starts at the fixed 1970 business-time floor, before
+any possible Alpaca account activity; binding establishment and the stream's
+2026-02-11 availability date are not valid `at` lower bounds. Timestamp filters
+never authorize gap-free resumption because they filter business time (`at`)
+rather than publication order. A delayed/backfilled event with old business time
+must still be observed at the end of the `event_id` stream.
+
+The candidate decoder validates the required common envelope before routing an
+event: the account UUID must match the bound account, `status` must be exactly
+`executed`, and `currency` must be USD. Missing/non-final status or any other
+currency refuses the entire batch. Sentinel has no reviewed FX conversion
+contract and must never add a local-currency `net_amount` to a USD cash ledger
+or treat a local-currency fill price as USD.
 
 The cash cursor therefore retains both ids plus the audited
-`processed_through` time. An upgrade from the timestamp-only cursor replays from
-binding establishment and deduplicates by `ref_id` before it earns the first
-event cursor. Trade events filtered out of cash accounting still advance the
-shared Activity SSE event cursor; otherwise an account containing only fills
-would replay the same stream forever.
+`processed_through` time. An upgrade from the timestamp-only cursor performs the
+same exhaustive discovery and deduplicates by `ref_id` before it earns the first
+event cursor. A retained cursor disappearing from that discovery is source
+contradiction, not an empty interval. Trade events filtered out of cash
+accounting still advance the shared Activity SSE event cursor; otherwise an
+account containing only fills would replay the same stream forever. Ordinary
+`TRD/fill` cash is not added to the activity total because the exact durable
+fill ledger already moves plan cash; booking both would count the same trade
+twice. A correction or bust remains a refusal until the prior native fill can
+be reversed.
+
+An append-only event cursor proves only what has been published so far. Activity
+SSE exposes no accepted fixed close interval or finality watermark. No global
+scheme allow-list can promote old plan baselines into close authority: a future
+source must retain a separate immutable finality witness bound to the exact
+plan, account, and close session.
+It cannot certify historical return even when its current cumulative amount and
+last cash `ref_id` match the plan baseline. Retained v3 verifications re-read the
+exact session cash ledger and embedded plan-cash baseline/finality reference on
+every load and chain operation; a late insertion, source change, or finality
+revocation invalidates the historical chain.
+
+Cash journals (`JNLC`, including the legacy `JNL` spelling) cross the owned
+account boundary and are external capital, never strategy income. Securities
+journals/transfers (`JNLS`/`ACATS`/`FOPT`) are refused until an in-kind-flow valuation
+and time-weighting contract exists. A known cash-impact event without
+`net_amount` is malformed financial evidence rather than an ignorable event.
 
 Terminal fill recovery does not yet own an independent durable event cursor.
 Consequently its bounded recovery read traverses the complete available
@@ -1241,17 +1279,52 @@ the aggregate multiplier and the rational result must already be an integer
 number of broker increments. There is no nearest-increment fallback: `300/30`
 is exactly `10`, while `301/30` remains fractional and refuses.
 
-> **DEPLOYMENT NO-GO — same-day split authority is not yet available at the
-> next open.** Automation prepares from the decision session's closed and
-> published corpus, then executes at the following session's open. The new
-> session's SEP/SFP bar—and therefore its canonical effective split ratio—does
-> not exist until that close, while the ordinary ACTIONS ingest is also bounded
-> through the decision session. The historical/recovery lookup is correct once
-> the event session is published, but it cannot authorize split-adjusted units
-> at that session's opening boundary. Do not claim autonomous close-to-open
-> split reprojection, or deploy on that premise, until a separately published
-> pre-open orientation authority or an explicit reviewed skip policy exists.
-> Raw ACTIONS values are not an acceptable substitute.
+#### Pre-open share-unit authority is an affirmative execution input
+
+The stable automation failure for this boundary is
+`PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE`. Automation prepares from the
+decision session's closed and published corpus, then executes at the following
+session's open. The new session's SEP/SFP bar—and therefore its canonical
+effective split ratio—does not exist until that close, while the ordinary
+ACTIONS ingest is also bounded through the decision session. The
+historical/recovery lookup remains correct once the event session is published;
+silence at the open is not proof that no share-unit event exists.
+
+Any invocation with a nonempty active share-unit set therefore requires one
+immutable pre-open authority record. It binds the plan id and
+fingerprint, effective XNYS session, provider and provider-publication id,
+provider cutoff/as-of time,
+complete covered permanent-security identities, an explicit oriented positive
+multiplier for every covered identity (including `1` as an affirmative no-event
+attestation), source event/revision identities, and a canonical evidence digest.
+The covered set is exact: every nonzero plan target, every nonzero action-aged
+durable expected-book identity, and every durable in-flight command identity.
+This includes `SENTINEL:BIL` when its target, expected holding, or in-flight
+command is nonzero/active. A zero-valued BIL basket key by itself is inactive;
+including it as extra coverage is also a refusal. Wrong-session, stale, partial,
+missing/extra identity, duplicate, revised, or digest-inconsistent evidence
+refuses before target projection or command reservation.
+
+A COMPLETE clean reconciliation may bypass the record only for an empty
+share-unit domain: every target, holding and commitment is exactly zero and
+neither a durable command nor a broker order is still working. Equality between
+a nonzero raw plan target and a nonzero broker holding is not proof of no event;
+an unobserved split can make incomparable units numerically equal. Dust is not
+empty, and this exception cannot authorize a held, targeted or committed share.
+
+Alpaca's corporate-actions endpoint is positive evidence only: its documentation
+does not guarantee creation time and permits provider/processing delay. An empty
+or repeatedly identical response, `data_quality=all`, a quote discontinuity, or
+the absence of a broker position for a fresh target therefore cannot create the
+required negative attestation. Raw ACTIONS values are not an acceptable
+substitute either. The producer is operationally absent and no trusted
+issuer/authenticator is configured. The existing persistence/validation shape
+does not make an arbitrary locally inserted record reviewed market-data
+authority. Every nonempty autonomous cycle therefore remains fail-closed until
+a reviewed source with full-universe pre-open delivery,
+negative-space/completeness authority, and an explicit trust/acceptance boundary
+is integrated. This closes the unsafe execution path; it does not turn missing
+market information into a deployment GO.
 
 Non-scalar events are different. A spinoff, stock/cash merger, rename,
 reorganization, or terms-less terminal event can add an instrument, remove one,
@@ -1853,6 +1926,28 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
 55  A decision-close-to-open scalar corporate action reprojects share units in
     an immutable record; it never edits plan intent. Non-scalar or incomplete
     terms fence execution and never create a compensating broker ledger.
+56  Every effective-session invocation with a nonempty target, holding or
+    commitment has affirmative, immutable pre-open share-unit authority
+    covering its exact active permanent-identity set. Equal nonzero raw share
+    counts do not prove no event; source silence never means multiplier 1. Only
+    an all-zero empty book bypasses, and a zero-only BIL key is not coverage.
+57  Once an adapter has accepted a broker close valuation, persistence binds
+    that typed historical source point to the exact account and XNYS session.
+    Production source-semantics promotion remains a separate acceptance gate; a
+    local request bracket or current account balance is not such authority.
+58  Close cash uses a plan baseline only when its append-only broker activity
+    identity scheme is explicit and unchanged. A missing plan-time baseline is
+    never backfilled from current state. Equal cumulative cash totals do not
+    prove an unchanged event set: offsetting cash events still refuse.
+59  A complete account-wide broker fill interval, not the command recovery
+    cache, proves the close book. It starts at the plan cash boundary, reaches
+    the close and later observation, retains native activity/order identities,
+    and refuses every foreign, mislinked, missing, or post-close fill.
+60  A successful cycle with missing or future close/fill source evidence stays
+    pending and cannot be superseded. That obligation is caller-independent and
+    stays bound to the old plan's effective session during manual or delayed
+    preparation. Complete evidence that economically disagrees freezes an
+    immutable `NOT_VERIFIED` verdict.
 ```
 
 Every one of these is falsifiable, and each should fail a test when violated.

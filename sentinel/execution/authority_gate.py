@@ -28,6 +28,8 @@ from sentinel.config import assert_paper_url
 from sentinel.execution.contract import (
     BrokerAccountIdentity,
     BrokerAccountSnapshot,
+    BrokerCloseValuation,
+    BrokerFillIntervalEvidence,
 )
 from sentinel.execution.guarded import (
     AutomationExecutionGrant,
@@ -46,6 +48,8 @@ PUBLICATION_POLICY_SCHEMA = "sentinel.publication-chain-policy/1"
 _READ_OPERATIONS = frozenset({
     BrokerOperation.IDENTIFY_ACCOUNT,
     BrokerOperation.ACCOUNT_SNAPSHOT,
+    BrokerOperation.ACCOUNT_CLOSE_VALUATION,
+    BrokerOperation.ACCOUNT_FILL_INTERVAL_EVIDENCE,
     BrokerOperation.RESOLVE_INSTRUMENT,
     BrokerOperation.OBSERVE,
     BrokerOperation.OBSERVE_WITH_TERMINAL_RECOVERY,
@@ -249,6 +253,10 @@ def _result_account(result: object) -> BrokerAccountIdentity | None:
     if isinstance(result, BrokerAccountIdentity):
         return result
     if isinstance(result, BrokerAccountSnapshot):
+        return result.identity
+    if isinstance(result, BrokerCloseValuation):
+        return result.identity
+    if isinstance(result, BrokerFillIntervalEvidence):
         return result.identity
     return None
 

@@ -239,6 +239,7 @@ def activity(aid, activity_type, amount, *, event_id):
         "status": "executed",
         "executed_at": "2026-08-18T17:00:00Z",
         "settle_date": "2026-08-18",
+        "currency": "USD",
         "net_amount": str(amount),
         "previous_id": None,
         "details": {},
@@ -409,8 +410,15 @@ def test_cash_activity_restart_overlap_is_idempotent_and_pnl_classified():
         through=second_through))
 
     assert first.balance_total == second.balance_total == Decimal(90)
+    assert first.activity_identity_scheme is None
+    assert second.activity_identity_scheme is None
     assert len(conn.cash_flows) == 2
     assert broker.calls[1][0] == first_through - broker_cash.ACTIVITY_OVERLAP
+    cursor_name = (
+        f"{broker_cash.ACTIVITY_CURSOR_PREFIX}alpaca:PA-1")
+    stored = json.loads(conn.cursors[cursor_name][1])
+    assert stored["kind"] == "broker-cash-activity/v2"
+    assert "activity_identity_scheme" not in stored
     assert cashflow.net_external(
         conn, date(2026, 8, 18), date(2026, 8, 18)) == Decimal(100)
 
@@ -444,9 +452,56 @@ def test_timestamp_cursor_upgrade_replays_binding_then_uses_event_id():
         established, old_through + timedelta(hours=2), first.last_event_id)
     assert first.last_event_id == "01J5R000000000000000000001"
     assert second.last_event_id == "01J5R000000000000000000002"
+    assert first.activity_identity_scheme == broker_cash.ACTIVITY_IDENTITY_SCHEME
+    assert second.activity_identity_scheme == broker_cash.ACTIVITY_IDENTITY_SCHEME
     stored = json.loads(conn.cursors[cursor_name][1])
-    assert stored["kind"] == "broker-cash-activity/v2"
+    assert stored["kind"] == "broker-cash-activity/v3"
     assert stored["last_event_id"] == second.last_event_id
+    assert stored["activity_identity_scheme"] == (
+        broker_cash.ACTIVITY_IDENTITY_SCHEME)
+
+
+def test_authoritative_sse_cursor_cannot_downgrade_to_timestamp_paging():
+    conn = MemoryConnection()
+    through = datetime(2026, 8, 18, 18, tzinfo=UTC)
+    sse = SseCashActivityBroker()
+    authoritative = run(broker_cash.ingest_account_cash(
+        conn, broker_adapter=sse, broker="alpaca", account_id="PA-1",
+        through=through))
+    cursor_name = (
+        f"{broker_cash.ACTIVITY_CURSOR_PREFIX}alpaca:PA-1")
+    retained = conn.cursors[cursor_name]
+    timestamp_paged = CashActivityBroker(())
+
+    with pytest.raises(
+            broker_cash.BrokerCashAuthorityRefused,
+            match="cannot be downgraded"):
+        run(broker_cash.ingest_account_cash(
+            conn, broker_adapter=timestamp_paged, broker="alpaca",
+            account_id="PA-1", through=through + timedelta(hours=1)))
+
+    assert authoritative.activity_identity_scheme == (
+        broker_cash.ACTIVITY_IDENTITY_SCHEME)
+    assert timestamp_paged.calls == []
+    assert conn.cursors[cursor_name] == retained
+
+
+def test_non_alpaca_sse_flag_cannot_mint_the_alpaca_identity_scheme():
+    conn = MemoryConnection()
+    conn.binding = (
+        "other", "OTHER-1", datetime(2026, 8, 18, 15, tzinfo=UTC))
+    broker = SseCashActivityBroker()
+
+    with pytest.raises(
+            broker_cash.BrokerCashAuthorityRefused,
+            match="Alpaca-only"):
+        run(broker_cash.ingest_account_cash(
+            conn, broker_adapter=broker, broker="other",
+            account_id="OTHER-1",
+            through=datetime(2026, 8, 18, 18, tzinfo=UTC)))
+
+    assert broker.calls == []
+    assert conn.cursors == {}
 
 
 def test_replayed_native_activity_id_cannot_change_economics():
