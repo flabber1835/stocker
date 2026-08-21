@@ -248,6 +248,7 @@ _STAGE4_RUNTIME_REQUIRED_COLUMNS = {
     "sentinel_automation_cycles": frozenset({"historical_state_only"}),
     "sentinel_automation_service_instances": frozenset({
         "authority_verdict", "authority_detail", "authority_checked_at"}),
+    "sentinel_observation_provenance": frozenset({"positions"}),
 }
 
 _PLAN_AUTHORITY_CHECK = "sentinel_execution_plan_rollout_authority_ck"
@@ -746,7 +747,10 @@ DDL = (
         observation_seq   BIGINT PRIMARY KEY REFERENCES sentinel_observations(seq),
         broker            TEXT        NOT NULL,
         broker_account_id TEXT        NOT NULL,
-        observed_at       TIMESTAMPTZ NOT NULL)""",
+        observed_at       TIMESTAMPTZ NOT NULL,
+        positions         JSONB       NOT NULL DEFAULT '[]'::jsonb)""",
+    """ALTER TABLE sentinel_observation_provenance
+        ADD COLUMN IF NOT EXISTS positions JSONB NOT NULL DEFAULT '[]'::jsonb""",
 
     # Per-session STRATEGY evidence for the forward paper trial.  Plans, broker
     # observations, commands and fills already have separate durable journals;

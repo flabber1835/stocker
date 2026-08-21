@@ -1,11 +1,21 @@
-"""No-oracle deterministic differential for Simplified Concordance LD-RC v3.
+"""No-oracle deterministic integration differential for Simplified LD-RC v3.
 
 Both sides receive the same pinned Sharadar/Wealth-Core/native-parent inputs.
-The production side is :func:`sentinel.core.production.advance_state`.  The
+The production side is :func:`sentinel.core.production.advance_state`. The
 reference side below is deliberately handwritten from the retained strategy
 formula and imports neither ``recent_leadership`` nor ``ldrc`` nor the
-production Concordance integration module.  No historical expected-allocation
+production Concordance integration module. No historical expected-allocation
 CSV or session tape is read.
+
+A fresh certification seed has one *current* TICKERS observation, not historical
+point-in-time TICKERS snapshots back to 1998. Therefore this tool uses the
+current published metadata projection on BOTH sides to prove historical
+integration parity and explicitly reports ``historical_metadata_causality`` as
+``NOT_CLAIMED``. Live and outage/catch-up production does the opposite: it keeps
+``load_published_session``'s session-effective metadata default and refuses a
+missed decision when no causal TICKERS observation exists. Keeping those claims
+separate prevents a deterministic integration test from laundering current
+metadata into a historical causality certification.
 """
 from __future__ import annotations
 
@@ -386,7 +396,8 @@ def run(conn, *, end: str) -> dict:
                     reference.field_comparisons += 1
                 published = load_published_session(
                     conn, session, spy_sessions=REQUIRED_SPY_SESSIONS,
-                    known_feed_security_ids=_known_ids(state))
+                    known_feed_security_ids=_known_ids(state),
+                    session_effective_metadata=False)
                 if int(published.data_version) != int(held.version):
                     raise DifferentialRefused(
                         "published session escaped the held corpus generation")
@@ -399,6 +410,9 @@ def run(conn, *, end: str) -> dict:
             "verdict": "PASS",
             "oracle_used": False,
             "reference_kind": "INDEPENDENT_DETERMINISTIC_CODE",
+            "metadata_mode": "CURRENT_PUBLISHED_SNAPSHOT_FOR_INTEGRATION_PARITY_ONLY",
+            "historical_metadata_causality": "NOT_CLAIMED",
+            "prospective_metadata_causality": "SESSION_EFFECTIVE_RUNTIME_GATE",
             "strategy": STRATEGY,
             "strategy_version": STRATEGY_VERSION,
             "parent_strategy": controller_config.strategy_id,
@@ -417,6 +431,9 @@ def run(conn, *, end: str) -> dict:
             "schema": "sentinel.concordance-differential/1",
             "verdict": "FAIL", "oracle_used": False,
             "reference_kind": "INDEPENDENT_DETERMINISTIC_CODE",
+            "metadata_mode": "CURRENT_PUBLISHED_SNAPSHOT_FOR_INTEGRATION_PARITY_ONLY",
+            "historical_metadata_causality": "NOT_CLAIMED",
+            "prospective_metadata_causality": "SESSION_EFFECTIVE_RUNTIME_GATE",
             "strategy": STRATEGY, "strategy_version": STRATEGY_VERSION,
             "end": end, "first_divergence": exc.detail,
         }
@@ -442,6 +459,9 @@ def main(argv=None) -> int:
         print(json.dumps({
             "schema": "sentinel.concordance-differential/1",
             "verdict": "REFUSED", "oracle_used": False,
+            "metadata_mode": "CURRENT_PUBLISHED_SNAPSHOT_FOR_INTEGRATION_PARITY_ONLY",
+            "historical_metadata_causality": "NOT_CLAIMED",
+            "prospective_metadata_causality": "SESSION_EFFECTIVE_RUNTIME_GATE",
             "strategy": STRATEGY, "strategy_version": STRATEGY_VERSION,
             "reason": str(exc),
         }, indent=2, sort_keys=True))
@@ -450,6 +470,9 @@ def main(argv=None) -> int:
         print(json.dumps({
             "schema": "sentinel.concordance-differential/1",
             "verdict": "REFUSED", "oracle_used": False,
+            "metadata_mode": "CURRENT_PUBLISHED_SNAPSHOT_FOR_INTEGRATION_PARITY_ONLY",
+            "historical_metadata_causality": "NOT_CLAIMED",
+            "prospective_metadata_causality": "SESSION_EFFECTIVE_RUNTIME_GATE",
             "strategy": STRATEGY, "strategy_version": STRATEGY_VERSION,
             "reason": f"{type(exc).__name__}: {exc}",
         }, indent=2, sort_keys=True))

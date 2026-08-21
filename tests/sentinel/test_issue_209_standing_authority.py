@@ -16,6 +16,7 @@ from tests.sentinel.test_paper_observation_authority import (
     pg,
     runtime_identity,
     sha,
+    publish_metadata_snapshot,
 )
 
 
@@ -61,15 +62,13 @@ def test_newer_metadata_does_not_require_certificate_rotation(conn):
 
     # A forward trial must accept ordinary future TICKERS evolution once the
     # normal ingest/publication/readiness path has made it current authority.
-    with conn.cursor() as cur:
-        cur.execute(
-            "UPDATE sentinel_universe SET sector='Industrials',"
-            " snapshot_date='2026-09-30'"
-        )
-    conn.commit()
+    # Model the real path: a new immutable snapshot in a new published run.
+    current_version = publish_metadata_snapshot(
+        conn, snapshot_date="2026-09-30", sector="Industrials")
 
-    standing = require_standing_observation_authority(
-        conn, **_kwargs(document, now=expired))
+    kwargs = _kwargs(document, now=expired)
+    kwargs["current_publication_version"] = current_version
+    standing = require_standing_observation_authority(conn, **kwargs)
     assert standing.authorization_mode == authority.PAPER_OBSERVATION_ONLY
 
 
@@ -99,3 +98,13 @@ def test_runtime_drift_still_stops_standing_authority(conn):
 
     with pytest.raises(authority.AuthorityRefused, match="runtime image digest"):
         require_standing_observation_authority(conn, **kwargs)
+
+
+
+def test_panel_uses_standing_observation_lifecycle_semantics():
+    import inspect
+    from sentinel.panel import sources
+
+    source = inspect.getsource(sources._authority_lifecycle)  # noqa: SLF001
+    assert "PAPER_OBSERVATION_ONLY" in source
+    assert "c.expires_at > clock_timestamp()" in source

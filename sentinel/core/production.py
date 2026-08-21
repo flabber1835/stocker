@@ -366,9 +366,18 @@ def warm_session_state(state: SessionState | Mapping, window, *,
 
 
 def load_published_session(conn, session: str, *, spy_sessions: int = 41,
-                           known_feed_security_ids: Sequence[str] = ()
+                           known_feed_security_ids: Sequence[str] = (),
+                           session_effective_metadata: bool = True
                            ) -> PublishedSession:
-    """Load one coherent production input snapshot from the published corpus."""
+    """Load one coherent production input snapshot from the published corpus.
+
+    Production planning leaves ``session_effective_metadata`` at its default
+    True, so category/issuer/sector observations after ``session`` are excluded.
+    The historical Concordance *integration* differential explicitly passes
+    False because a fresh seed contains only the current TICKERS observation;
+    that mode proves code-path parity only and makes no historical causality
+    claim. It must never be used by live/catch-up planning.
+    """
     from sentinel.core.loader import load_meta, load_sectors, load_terminal_events
     from sentinel.feed.calendar import previous_sessions
     from sentinel.feed.publication import (
@@ -390,7 +399,8 @@ def load_published_session(conn, session: str, *, spy_sessions: int = 41,
         raise RuntimeError(
             f"{session} is not the end of a complete {spy_sessions}-session "
             "XNYS SPY window")
-    meta = load_meta(conn, as_of=session)
+    metadata_as_of = session if session_effective_metadata else None
+    meta = load_meta(conn, as_of=metadata_as_of)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT security_id,ticker,close_unadjusted,open_unadjusted,volume,"
@@ -409,7 +419,7 @@ def load_published_session(conn, session: str, *, spy_sessions: int = 41,
         spy_rows = list(reversed(cur.fetchall()))
         actual_spy_sessions = [str(row[0]) for row in spy_rows]
         spy = [float(row[1]) for row in spy_rows]
-        sectors = load_sectors(conn, as_of=session)
+        sectors = load_sectors(conn, as_of=metadata_as_of)
     if not bars:
         raise RuntimeError(f"no published bars for {session}")
     if actual_spy_sessions != expected_spy_sessions:

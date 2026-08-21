@@ -80,6 +80,36 @@ def conn(pg):
     connection.close()
 
 
+def publish_metadata_snapshot(conn, *, snapshot_date: str, sector: str) -> int:
+    """Publish one later TICKERS observation without rewriting prior history."""
+    suffix = snapshot_date.replace("-", "")[-8:]
+    run_id = f"00000000-0000-0000-0000-{suffix.zfill(12)}"
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO feed_ingest_runs"
+            " (run_id,kind,status,date_from,date_to,completed_at)"
+            " VALUES (%s,'daily','success',%s,%s,clock_timestamp())",
+            (run_id, snapshot_date, snapshot_date))
+        cur.execute(
+            "INSERT INTO sentinel_universe"
+            " (permaticker,ticker,category,sector,related_tickers,"
+            " first_price_date,last_price_date,is_delisted,snapshot_date,"
+            " last_written_run_id)"
+            " VALUES ('1001','AAA','Domestic Common Stock',%s,NULL,"
+            " '2020-01-01',NULL,FALSE,%s,%s)",
+            (sector, snapshot_date, run_id))
+        cur.execute("SELECT MAX(version) FROM sentinel_corpus_publications")
+        previous = int(cur.fetchone()[0])
+        version = previous + 1
+        cur.execute(
+            "INSERT INTO sentinel_corpus_publications"
+            " (version,previous_version,run_id,window_start,window_end,evidence)"
+            " VALUES (%s,%s,%s,%s,%s,'{}'::jsonb)",
+            (version, previous, run_id, snapshot_date, snapshot_date))
+    conn.commit()
+    return version
+
+
 def runtime_identity(*, runtime_digest: str | None = None) -> dict:
     return {
         "deployment_artifacts": {
@@ -317,21 +347,20 @@ def test_digest_corpus_metadata_and_account_mismatch_refuse(conn):
         authority.require_execution_authority(
             conn, runtime_identity=runtime_identity(),
             **{**kwargs, "current_publication_version": 80})
-    with conn.cursor() as cur:
-        cur.execute("UPDATE sentinel_universe SET sector='Changed'")
-    conn.commit()
+    current_version = publish_metadata_snapshot(
+        conn, snapshot_date="2026-08-16", sector="Changed")
+    changed_kwargs = {**kwargs, "current_publication_version": current_version}
     with pytest.raises(authority.AuthorityRefused, match="metadata snapshot"):
         authority.require_execution_authority(
-            conn, runtime_identity=runtime_identity(), **kwargs)
+            conn, runtime_identity=runtime_identity(), **changed_kwargs)
     with conn.cursor() as cur:
-        cur.execute("UPDATE sentinel_universe SET sector='Technology'")
         cur.execute(
             "UPDATE sentinel_account_binding SET broker_account_id='paper-evil'"
             " WHERE id=1")
     conn.commit()
     with pytest.raises(authority.AuthorityRefused, match="account binding"):
         authority.require_execution_authority(
-            conn, runtime_identity=runtime_identity(), **kwargs)
+            conn, runtime_identity=runtime_identity(), **changed_kwargs)
 
 
 def test_restart_persistence_and_expired_safety_scope(conn, pg):

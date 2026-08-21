@@ -828,13 +828,20 @@ def record_observation(conn, observation: BrokerObservation,
              runtime_state))
         seq = int(cur.fetchone()[0])
         if observation.account_identity is not None:
+            position_identity = [{
+                "security_id": p.instrument.security_id,
+                "symbol": p.instrument.symbol,
+                "broker_instrument_id": p.instrument.broker_id,
+                "quantity": str(p.quantity),
+            } for p in observation.positions]
             cur.execute(
                 "INSERT INTO sentinel_observation_provenance"
-                " (observation_seq,broker,broker_account_id,observed_at)"
-                " VALUES (%s,%s,%s,%s)",
+                " (observation_seq,broker,broker_account_id,observed_at,positions)"
+                " VALUES (%s,%s,%s,%s,%s)",
                 (seq, observation.account_identity.broker,
                  observation.account_identity.account_id,
-                 observation.observed_at))
+                 observation.observed_at,
+                 json.dumps(position_identity, sort_keys=True)))
     conn.commit()
     return seq
 

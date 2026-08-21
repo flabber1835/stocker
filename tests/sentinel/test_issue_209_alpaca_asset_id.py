@@ -105,3 +105,12 @@ def test_production_builder_selects_asset_id_bound_adapter():
     )
 
     assert isinstance(broker, AssetIdAlpacaExecutionBroker)
+
+
+
+def test_execution_certificate_identity_names_asset_id_transport():
+    from sentinel.authority import execution_config_identity
+
+    identity = execution_config_identity(paper_base_url=PAPER)
+    assert identity["adapter"] == (
+        "sentinel.execution.alpaca_asset_id.AssetIdAlpacaExecutionBroker")

@@ -57,3 +57,15 @@ def test_reference_detects_wrong_effective_native_source():
         assert exc.detail["field"] == "effective_native_allocation"
     else:
         raise AssertionError("wrong effective-native source was accepted")
+
+
+
+def test_historical_differential_does_not_claim_pit_metadata_causality():
+    from sentinel.core import production
+
+    signature = inspect.signature(production.load_published_session)
+    assert signature.parameters["session_effective_metadata"].default is True
+    source = Path(diff.__file__).read_text(encoding="utf-8")
+    assert "session_effective_metadata=False" in source
+    assert '"historical_metadata_causality": "NOT_CLAIMED"' in source
+    assert '"prospective_metadata_causality": "SESSION_EFFECTIVE_RUNTIME_GATE"' in source

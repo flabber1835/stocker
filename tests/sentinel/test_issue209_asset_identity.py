@@ -75,3 +75,44 @@ def test_command_client_key_economics_include_asset_id():
     with pytest.raises(journal.CommandEconomicsChanged, match="broker_instrument_id"):
         journal._assert_economics_unchanged(  # noqa: SLF001
             _Cursor(), _command("asset-b"))
+
+
+
+def test_observation_provenance_retains_position_asset_id():
+    from sentinel import schema
+    from sentinel.execution.contract import BrokerAccountIdentity
+    from sentinel.feed import store as feed_store
+    from tests.support.postgres import _EphemeralPostgres, drop_public_tables
+
+    server = _EphemeralPostgres()
+    try:
+        server.start()
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"ephemeral Postgres unavailable: {exc}")
+    conn = None
+    try:
+        conn = feed_store.connect(server.sync_dsn)
+        drop_public_tables(conn)
+        feed_store.migrate_schema(conn)
+        schema.migrate_schema(conn)
+        observation = BrokerObservation(
+            observed_at=datetime.now(timezone.utc),
+            account_identity=BrokerAccountIdentity("alpaca", "paper-1"),
+            positions=(BrokerPosition(
+                instrument=BrokerInstrument(
+                    security_id="SEC-AAA", symbol="AAA", broker_id="asset-a"),
+                quantity=Decimal("2")),),
+            completeness=Completeness.COMPLETE)
+        seq = journal.record_observation(conn, observation, "RECONCILING")
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT positions FROM sentinel_observation_provenance "
+                "WHERE observation_seq=%s", (seq,))
+            positions = cur.fetchone()[0]
+        assert positions == [{
+            "security_id": "SEC-AAA", "symbol": "AAA",
+            "broker_instrument_id": "asset-a", "quantity": "2"}]
+    finally:
+        if conn is not None:
+            conn.close()
+        server.stop()

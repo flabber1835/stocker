@@ -665,7 +665,7 @@ docker run --rm --network host --entrypoint python \
   }
 
 # ── 8c. deterministic Simplified Concordance LD-RC differential ─────────────
-step "8c/9 deterministic Simplified Concordance LD-RC v3 differential"
+step "8c/9 deterministic Simplified Concordance LD-RC v3 integration differential"
 CONCORDANCE_REPORT="${ART}/concordance-differential-${RUNSTAMP}.json"
 docker run --rm --network host --entrypoint python \
   -e SENTINEL_DATABASE_URL="${SENTINEL_DATABASE_URL}" \
@@ -681,9 +681,16 @@ if r.get("verdict") != "PASS":
     raise SystemExit(f"verdict={r.get('verdict')}: {r.get('first_divergence')}")
 if r.get("strategy") != "sentinel-concordance-simplified-ldrc" or r.get("strategy_version") != 3:
     raise SystemExit("differential did not run Simplified Concordance LD-RC v3")
+if r.get("metadata_mode") != "CURRENT_PUBLISHED_SNAPSHOT_FOR_INTEGRATION_PARITY_ONLY":
+    raise SystemExit("differential metadata mode is ambiguous")
+if r.get("historical_metadata_causality") != "NOT_CLAIMED":
+    raise SystemExit("integration differential may not claim historical metadata causality")
+if r.get("prospective_metadata_causality") != "SESSION_EFFECTIVE_RUNTIME_GATE":
+    raise SystemExit("differential does not name the forward PIT runtime gate")
 if r.get("sessions_compared", 0) <= 0 or r.get("field_comparisons", 0) <= 0:
     raise SystemExit("differential did not compare any strategy sessions")
 print(f"  {r['sessions_compared']} sessions, {r['field_comparisons']} fields, zero mismatches")
+print("  historical metadata causality: NOT CLAIMED; forward catch-up remains session-effective")
 PY
 
 # ── 9. the record ────────────────────────────────────────────────────────────
