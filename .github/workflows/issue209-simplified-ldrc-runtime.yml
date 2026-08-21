@@ -44,3 +44,5 @@ jobs:
           git commit -m 'Run paper on simplified three-signal LD-RC (#209)'
           git pull --rebase origin fix/issue-209-financial-grade-trial
           git push origin HEAD:fix/issue-209-financial-grade-trial
+
+# contents-api trigger for the self-removing bootstrap
