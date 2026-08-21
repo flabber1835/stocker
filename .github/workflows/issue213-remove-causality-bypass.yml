@@ -1,0 +1,43 @@
+name: Apply issue 213 causal-only loader fix
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - tools/issue213-remove-causality-bypass.py
+      - .github/workflows/issue213-remove-causality-bypass.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          ref: fix/issue-209-financial-grade-trial
+      - name: Apply and compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/issue213-remove-causality-bypass.py
+          git diff --check
+          python -m compileall -q \
+            sentinel/core/production.py \
+            tools/sentinel_concordance_differential.py \
+            tests/sentinel/test_issue209_concordance_differential.py
+      - name: Commit and remove bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- sentinel/core/production.py tools/sentinel_concordance_differential.py tests/sentinel/test_issue209_concordance_differential.py
+          git rm -- tools/issue213-remove-causality-bypass.py .github/workflows/issue213-remove-causality-bypass.yml
+          git commit -m 'Keep production metadata causality non-bypassable (#213)'
+          git pull --rebase origin fix/issue-209-financial-grade-trial
+          git push origin HEAD:fix/issue-209-financial-grade-trial
