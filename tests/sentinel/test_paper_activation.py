@@ -63,7 +63,7 @@ from sentinel.execution.states import CommandState, RuntimeState  # noqa: E402
 from sentinel.feed import publication, store as feed_store  # noqa: E402
 from sentinel.ownership import AccountObservation, OpenOrder  # noqa: E402
 from stock_strategy_shared.wealth_core.feed import (  # noqa: E402
-    SecurityMeta,
+    DecisionMetadataTimelineBuilder, SecurityMeta,
     VendorBar,
 )
 from stock_strategy_shared.wealth_core.state import (  # noqa: E402
@@ -83,6 +83,8 @@ IDENTITY = {
     "strategy": "paper-activation-test",
     "controller_rule_sha256": "controller-test-sha",
     "wealth_core_source_sha256": "wealth-core-test-sha",
+    "allocation_overlay": "sentinel-concordance-simplified-ldrc",
+    "allocation_overlay_version": "3",
 }
 CONFIG = ControllerConfig(
     ordinary_stress_drawdown=-0.10,
@@ -99,6 +101,13 @@ CONFIG = ControllerConfig(
     strategy_id=IDENTITY["strategy"],
     digest=IDENTITY["controller_rule_sha256"],
 )
+
+
+def _metadata_timeline(sessions, metadata):
+    builder = DecisionMetadataTimelineBuilder(sessions)
+    for session in sessions:
+        builder.add_snapshot(session, metadata)
+    return builder.finish()
 
 
 @pytest.fixture(scope="module")
@@ -632,6 +641,9 @@ def test_fresh_boot_warms_exactly_252_feature_sessions_without_path_history(
         paper, "load_window",
         lambda _conn, *, start, end: window
         if (start, end) == (warm[0], warm[-1]) else None)
+    monkeypatch.setattr(
+        paper, "load_causal_meta_history",
+        lambda _conn, *, sessions: _metadata_timeline(sessions, meta))
     account = BrokerAccountSnapshot(
         identity=BrokerAccountIdentity("sim", ACCOUNT),
         equity=D("1000"), cash=D("1000"))
@@ -738,6 +750,9 @@ def test_real_fresh_boot_pipeline_is_restart_equivalent_and_adopts_one_plan(
         if (dt.date.fromisoformat(str(start)), dt.date.fromisoformat(str(end)))
         == (DECISION, DECISION) else [])
     monkeypatch.setattr(paper, "load_window", load_window)
+    monkeypatch.setattr(
+        paper, "load_causal_meta_history",
+        lambda _conn, *, sessions: _metadata_timeline(sessions, meta))
     monkeypatch.setattr(paper, "load_published_session", load_published)
     broker = _broker(equity="100000", cash="100000")
 
