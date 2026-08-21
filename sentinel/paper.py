@@ -1548,8 +1548,7 @@ async def recover_automated_paper_cycle(
         broker = _guard_broker(
             conn=conn, broker=broker, grant=grant, base_url=base_url,
             now_provider=clock,
-            strategy_provider=lambda: runtime_strategy_identity(
-                load_controller()),
+            strategy_provider=lambda: _default_paper_strategy()[1],
             automation_config_sha256=automation_config_sha256)
         account = await broker.account_snapshot()
         _recovery_account_identity_or_refuse(
