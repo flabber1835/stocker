@@ -698,9 +698,18 @@ class TestAlpacaHasNoClosePosition:
         assert not caps.market_on_open, (
             "this adapter sends DAY orders; claiming MOO while sending DAY is "
             "the silent substitution the fail-closed rule exists to prevent")
-        assert not caps.fractional_quantities, (
-            "a capability is what has been PROVEN, not what the vendor's docs "
-            "permit")
+        assert caps.fractional_quantities
+        assert caps.minimum_quantity_increment == D("0.000000001")
+
+    def test_fractional_quantity_is_sent_as_an_exact_decimal_string(self):
+        broker, http = alpaca({}, post=FakeResponse(
+            {"id": "o-fraction", "status": "new"}, 200))
+
+        run(broker.submit(
+            client_key="sntl-fraction", instrument=AAA,
+            side=Side.SELL, quantity=D("0.123456789")))
+
+        assert http.calls[0][2]["qty"] == "0.123456789"
 
 
 # ===========================================================================

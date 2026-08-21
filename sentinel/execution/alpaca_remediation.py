@@ -23,6 +23,75 @@ from typing import Optional, Sequence
 from urllib.parse import quote
 
 _INSTALLED = False
+_AUTOMATION_SERIALIZATION_INSTALLED = False
+
+
+@contextmanager
+def _authority_transition_lock(conn):
+    """Linearize emergency authority changes with broker mutation."""
+    from sentinel.execution import journal
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT pg_advisory_lock(%s)", (journal.WRITER_LOCK_KEY,))
+    try:
+        yield
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT pg_advisory_unlock(%s)",
+                    (journal.WRITER_LOCK_KEY,))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def install_automation_serialization() -> bool:
+    """Install authority fencing after ``automation.store`` is initialized.
+
+    ``automation.store`` imports ``execution.journal``. Importing the execution
+    package installs this overlay, so eagerly dereferencing ``engage_kill`` here
+    used to observe a half-built module and made the unattended service fail at
+    collection/startup. The store calls this hook again at the end of its own
+    module; ordinary execution-first imports also call it from :func:`install`.
+    """
+    global _AUTOMATION_SERIALIZATION_INSTALLED
+    if _AUTOMATION_SERIALIZATION_INSTALLED:
+        return True
+
+    from sentinel.automation import store as automation_store
+    if not hasattr(automation_store, "engage_kill"):
+        return False
+    from sentinel import authority
+
+    original_engage_kill = automation_store.engage_kill
+
+    def serialized_engage_kill(conn, *, actor: str, reason: str):
+        with _authority_transition_lock(conn):
+            return original_engage_kill(conn, actor=actor, reason=reason)
+
+    automation_store.engage_kill = serialized_engage_kill
+
+    def serialize_authority_function(function):
+        def serialized(conn, *args, **kwargs):
+            with _authority_transition_lock(conn):
+                return function(conn, *args, **kwargs)
+        serialized.__name__ = function.__name__
+        serialized.__doc__ = function.__doc__
+        return serialized
+
+    authority.revoke_signed_certificate = serialize_authority_function(
+        authority.revoke_signed_certificate)
+    authority.revoke_signed_key = serialize_authority_function(
+        authority.revoke_signed_key)
+    authority.revoke_system_certificate = serialize_authority_function(
+        authority.revoke_system_certificate)
+    _AUTOMATION_SERIALIZATION_INSTALLED = True
+    return True
 
 
 def install() -> None:
@@ -41,8 +110,6 @@ def install() -> None:
         BrokerCashActivityBatch,
         RECOGNIZED_ACTIVITY_TYPES,
     )
-    from sentinel.automation import store as automation_store
-    from sentinel import authority
 
     if getattr(alpaca, "_BOUNDARY_REMEDIATION_INSTALLED", False):
         _INSTALLED = True
@@ -639,55 +706,10 @@ def install() -> None:
     journal.advance_terminal_recovery_watermark = (
         hardened_advance_terminal_watermark)
 
-    # Linearize emergency authority changes with broker mutation. Unlike the
-    # normal writer entry point this lock intentionally waits: once kill/revoke
-    # COMMITs, no older locally-authorized mutation can cross transport later.
-    @contextmanager
-    def authority_transition_lock(conn):
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT pg_advisory_lock(%s)", (journal.WRITER_LOCK_KEY,))
-        try:
-            yield
-        except BaseException:
-            conn.rollback()
-            raise
-        finally:
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT pg_advisory_unlock(%s)",
-                        (journal.WRITER_LOCK_KEY,))
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
-
-    original_engage_kill = automation_store.engage_kill
-
-    def serialized_engage_kill(conn, *, actor: str, reason: str):
-        with authority_transition_lock(conn):
-            return original_engage_kill(conn, actor=actor, reason=reason)
-
-    automation_store.engage_kill = serialized_engage_kill
-
-    def serialize_authority_function(function):
-        def serialized(conn, *args, **kwargs):
-            with authority_transition_lock(conn):
-                return function(conn, *args, **kwargs)
-        serialized.__name__ = function.__name__
-        serialized.__doc__ = function.__doc__
-        return serialized
-
-    authority.revoke_signed_certificate = serialize_authority_function(
-        authority.revoke_signed_certificate)
-    authority.revoke_signed_key = serialize_authority_function(
-        authority.revoke_signed_key)
-    authority.revoke_system_certificate = serialize_authority_function(
-        authority.revoke_system_certificate)
+    install_automation_serialization()
 
     alpaca._BOUNDARY_REMEDIATION_INSTALLED = True
     _INSTALLED = True
 
 
-__all__ = ["install"]
+__all__ = ["install", "install_automation_serialization"]

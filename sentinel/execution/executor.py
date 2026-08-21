@@ -47,6 +47,8 @@ from sentinel.execution.contract import Completeness, ExecutionBroker, Side
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
 from sentinel.execution.guarded import BrokerAuthorityRefused
 from sentinel.execution.plan import ExecutionPlan
+from sentinel.execution.target_reprojection import (
+    TargetProjection, assert_projection)
 from sentinel.execution.states import CommandState, RuntimeState, TERMINAL
 
 log = logging.getLogger(__name__)
@@ -243,6 +245,7 @@ async def execute_session(*, broker: ExecutionBroker, conn,
                           instruments: Mapping[str, object],
                           today: date,
                           actions: Optional[R.ActionLookup] = None,
+                          target_projection: Optional[TargetProjection] = None,
                           min_increment: Decimal = Decimal(1),
                           settle_cycles: int = DEFAULT_SETTLE_CYCLES,
                           increase_authority=None,
@@ -281,7 +284,8 @@ async def execute_session(*, broker: ExecutionBroker, conn,
     exists to see proceeds; with nothing sold there are none, and an
     unconditional extra round trip is latency for nothing.
 
-    **The quantities come from `plan.target_basket` and nowhere else.** This
+    **The quantities come from `plan.target_basket` and nowhere else, except for
+    a durably verified scalar corporate-action projection.** This
     used to take a separate `desired` mapping alongside the plan, which meant
     the client key said "plan P, security S" while the quantity came from an
     argument nobody checked against P. A caller could pass 200 under a plan that
@@ -289,8 +293,11 @@ async def execute_session(*, broker: ExecutionBroker, conn,
     opposite. Since the identity is the entire recovery mechanism, an identity
     that does not determine the economics is not an identity — it is a label.
 
-    Removing the parameter is deliberate rather than validating it: a check can
-    be skipped by a future call site, an absent parameter cannot.
+    A target projection is not a free-form desired mapping. It binds the plan
+    fingerprint, execution session, exact multipliers and action-aged basket,
+    and the executor reloads the identical record under its writer lock before
+    using it. That preserves the original rule's purpose: command identity still
+    determines command economics after a share unit changes.
     """
     # `_assert_executable` is a property of the PLAN OBJECT — arithmetic on
     # values already in hand — so it is safe outside the lock and cheap enough
@@ -324,6 +331,10 @@ async def execute_session(*, broker: ExecutionBroker, conn,
         # true for the duration of the session rather than at an instant before
         # it, because supersession requires the same lock.
         _assert_current_plan(conn, plan)
+        if target_projection is not None:
+            assert_projection(
+                conn, plan=plan, projection=target_projection,
+                through_session=today)
         fence_reason = next((reason for reason in (
             check(conn=conn, deployment=deployment, today=today)
             for check in _INCREASE_FENCE_REASONS) if reason), "")
@@ -339,6 +350,7 @@ async def execute_session(*, broker: ExecutionBroker, conn,
         return await _execute_session_locked(
             broker=broker, conn=conn, deployment=deployment, plan=plan,
             instruments=instruments, today=today, actions=actions,
+            target_projection=target_projection,
             min_increment=min_increment, settle_cycles=settle_cycles,
             increase_authority=increase_authority)
 
@@ -349,11 +361,13 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                                   instruments: Mapping[str, object],
                                   today: date,
                                   actions: Optional[R.ActionLookup],
+                                  target_projection: Optional[TargetProjection],
                                   min_increment: Decimal,
                                   settle_cycles: int = DEFAULT_SETTLE_CYCLES,
                                   increase_authority=None,
                                   ) -> SessionResult:
-    desired = plan.target_basket
+    desired = (target_projection.target_basket
+               if target_projection is not None else plan.target_basket)
 
     # 1. RECONCILE. Nothing is submitted before the broker's own state is
     #    established — including after a restart, where the journal may be

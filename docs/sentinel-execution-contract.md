@@ -29,6 +29,8 @@ sentinel/execution/journal.py        durable journal + single-writer lock
 sentinel/execution/reconcile.py      the ordered sequence, actions before blame
 sentinel/execution/plan.py           immutable plans, economic fingerprint
 sentinel/execution/projection.py     shadow x exposure -> whole shares
+sentinel/execution/target_reprojection.py
+                                      immutable action-aged execution target
 sentinel/execution/executor.py       the session loop
 sentinel/execution/simulator.py      the conformance ORACLE
 sentinel/execution/alpaca.py         Alpaca mapped onto the contract
@@ -61,12 +63,13 @@ crash injection is LOGICAL (state, journal, stale restore), not SIGKILL
 the resource limits are declared and ENFORCED (every service carries
     mem_limit and cpus, asserted by test) but not yet MEASURED against a real
     run — that needs a Docker daemon on the NAS and cannot be done in CI
-spinoffs and mergers are NOT modelled as share-count changes; they fall
-    through to foreign-activity handling, which blocks increases until a human
-    acknowledges. The prose describes them; only splits are implemented
-`sentinel_fills` keys on a CONTENT fingerprint, not broker-native activity
-    ids, so it cannot yet model trade corrections or busts. It must not become
-    the accounting ledger in this form
+spinoffs, mergers, renames and other non-scalar book changes are NOT fabricated
+    from incomplete Sharadar terms. A relevant event is detected and fences
+    execution until authoritative broker-visible economics exist; only scalar
+    split/reverse-split/share-dividend reprojection is implemented
+Alpaca fills key on broker-native activity ids. Trade corrections/busts are not
+    yet applied as reversal economics and remain part of the separate live-money
+    promotion gate; the paper trial never invents them
 ```
 
 The architecture document settles what Sentinel *decides*. This one settles what
@@ -1193,6 +1196,38 @@ applying one aggregate lifetime multiplier to every fill would instead multiply
 orders that were placed after the split. Neither is a durable reconciliation
 basis.
 
+### 10.2a Decision-close to execution-open target reprojection
+
+A scalar share-count action in `(decision_session, execution_session]` changes
+the units in which an immutable plan is expressed; it does not change the
+plan's economic intent. Sentinel therefore writes an immutable, namespaced
+target-projection record before the first order. The record binds the original
+plan id and fingerprint, the through-session, each authoritative action source
+row, the exact action multipliers, the resulting share basket, and a canonical
+projection fingerprint. The executor accepts that basket only after loading the
+identical durable record under its writer lock. The plan row is never edited,
+and a retry cannot rebuild the same command identity with different quantities.
+
+The projection must remain representable by the certified adapter. Alpaca's
+certified quantity increment is `0.000000001`; a reverse split residual is
+submitted exactly in that domain. Any target outside an adapter's declared
+increment refuses rather than rounding into a new economic intent. An ambiguous,
+unmapped, non-positive, or non-finite scalar action also refuses.
+
+Non-scalar events are different. A spinoff, stock/cash merger, rename,
+reorganization, or terms-less terminal event can add an instrument, remove one,
+or add cash. Sharadar ACTIONS is sufficient to detect those event classes but
+not to manufacture broker-grade entitlements. If one intersects the plan,
+shadow target, or durable command book, execution fences before sizing. Sentinel
+does not create synthetic positions, cash, fills, or corrective orders to make
+an Alpaca paper account resemble live clearing.
+
+This is an explicit broker-boundary decision. Alpaca live accounts process
+mandatory corporate actions and expose native activity evidence; Alpaca paper
+accounts may leave positions unchanged. Paper is used as realistically as its
+observable state permits, but a paper-only omission remains a visible limitation
+rather than an invitation to build a second brokerage ledger.
+
 ### 10.3 Foreign activity
 
 What remains unexplained after §10.2:
@@ -1715,8 +1750,9 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
     to re-risk.
 31  A broker status is classified by whether a trade can still occur under it,
     never by whether it sounds finished; an unmapped status raises.
-32  The executor's quantities come from the plan and nowhere else, and a stored
-    client key may never be rebuilt with different economics.
+32  The executor's quantities come from the plan plus, only for a scalar
+    corporate action, its immutable action-aged target-projection record. A
+    stored client key may never be rebuilt with different economics.
 33  The long-only, unlevered envelope is asserted at the execution gate, not
     inherited from whatever produced the plan.
 34  The single-writer lock is acquired inside the public execution entry point,
@@ -1773,6 +1809,9 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
 54  The catch-up seam receives the transaction, and catch-up persists the state
     it returns in the same statement as the pointer. A state that cannot be
     encoded is refused before the first session advances.
+55  A decision-close-to-open scalar corporate action reprojects share units in
+    an immutable record; it never edits plan intent. Non-scalar or incomplete
+    terms fence execution and never create a compensating broker ledger.
 ```
 
 Every one of these is falsifiable, and each should fail a test when violated.

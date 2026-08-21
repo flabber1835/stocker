@@ -36,7 +36,7 @@ from sentinel.execution import journal, recovery, reconcile as R  # noqa: E402
 from sentinel.execution.commands import Command  # noqa: E402
 from sentinel.execution.contract import (  # noqa: E402
     BrokerAccountIdentity, BrokerInstrument, BrokerObservation, BrokerOrder,
-    BrokerPosition, Completeness, Side)
+    Completeness, Side)
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity  # noqa: E402
 from sentinel.execution.plan import ExecutionPlan  # noqa: E402
 from sentinel.execution.simulator import FaultKind as F, SimulatedBroker  # noqa: E402
@@ -422,6 +422,22 @@ class TestReconciliation:
                                 actions=lambda sid: Decimal(2)))
         assert aware.clean and aware.runtime_state is RuntimeState.RUNNING
         assert aware.corporate_actions == {"SEC-AAA": Decimal(2)}
+
+    def test_a_broker_that_does_not_post_the_split_is_fenced_and_named(
+            self, conn):
+        """Alpaca paper may omit corporate actions; Sentinel does not forge it."""
+        journal.save_command(conn, cmd(state=S.FILLED, filled="10"))
+        broker = self._broker()
+        broker.seed_position(AAA, "10")
+
+        result = run(R.reconcile(
+            broker=broker, conn=conn, binding=None, deployment=DEPLOY,
+            actions=lambda sid: Decimal(2)))
+
+        assert result.runtime_state is RuntimeState.FOREIGN_ACTIVITY
+        assert result.foreign_positions == ("SEC-AAA",)
+        assert "broker environment did not post the corporate action" in \
+            result.detail
 
     def test_a_genuinely_unexplained_position_IS_foreign(self, conn):
         b = self._broker()
@@ -889,6 +905,35 @@ class TestCorpusActionLookup:
                                         end=date(2026, 8, 10))
         assert lookup("SEC-AAA") == Decimal(1)
         assert "spinoff" not in R.SUPPORTED_ACTIONS
+        assert [event.action for event in lookup.material_events_for(
+            security_ids={"SEC-AAA"})] == ["spinoff"]
+
+    def test_dividend_and_acquirer_side_rows_do_not_fence_the_held_book(
+            self, conn):
+        put_bar(conn, "SEC-AAA", "2026-08-05", "AAA")
+        feed_store.write_actions(conn, [
+            {"ticker": "AAA", "date": "2026-08-05", "action": "dividend",
+             "value": 0.25},
+            {"ticker": "AAA", "date": "2026-08-06",
+             "action": "acquisitionof", "value": None,
+             "contraticker": "VICTIM"}])
+
+        lookup = R.corpus_action_lookup(
+            conn, start=date(2026, 8, 1), end=date(2026, 8, 10))
+
+        assert lookup.material_events_for(security_ids={"SEC-AAA"}) == ()
+
+    def test_unmapped_target_split_is_retained_as_blocking_evidence(self, conn):
+        feed_store.write_actions(conn, [
+            {"ticker": "AAA", "date": "2026-08-05", "action": "split",
+             "value": 2}])
+
+        lookup = R.corpus_action_lookup(
+            conn, start=date(2026, 8, 1), end=date(2026, 8, 10))
+
+        events = lookup.material_events_for(symbols={"AAA"})
+        assert len(events) == 1
+        assert events[0].reason == "scalar action has no as-of security mapping"
 
     def test_an_unmapped_security_returns_1_rather_than_raising(self, conn):
         lookup = R.corpus_action_lookup(conn, start=date(2026, 8, 1),
