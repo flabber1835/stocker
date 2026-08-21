@@ -1,0 +1,46 @@
+name: Apply issue 209 trial strategy evidence
+
+on:
+  push:
+    branches:
+      - fix/issue-209-financial-grade-trial
+    paths:
+      - tools/issue209-trial-strategy-evidence.py
+      - .github/workflows/issue209-trial-strategy-evidence.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - tools/issue209-trial-strategy-evidence.py
+      - .github/workflows/issue209-trial-strategy-evidence.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          ref: fix/issue-209-financial-grade-trial
+      - name: Apply and syntax-check
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/issue209-trial-strategy-evidence.py
+          git diff --check
+          python -m compileall -q sentinel/trial_evidence.py sentinel/core/catchup.py sentinel/schema.py tests/sentinel/test_issue209_trial_strategy_evidence.py
+      - name: Commit production patch and remove bootstrap files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- sentinel/trial_evidence.py sentinel/core/catchup.py sentinel/schema.py tests/sentinel/test_issue209_trial_strategy_evidence.py
+          git rm -- tools/issue209-trial-strategy-evidence.py .github/workflows/issue209-trial-strategy-evidence.yml
+          git commit -m 'Retain append-only trial strategy evidence (#209)'
+          git pull --rebase origin fix/issue-209-financial-grade-trial
+          git push origin HEAD:fix/issue-209-financial-grade-trial
