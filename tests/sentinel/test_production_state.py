@@ -601,10 +601,6 @@ def test_path_dependent_securities_pin_anchors_and_marks_after_expiry():
 
 def test_published_loader_reconstructs_prior_split_factor_from_pinned_rows(
         monkeypatch):
-    meta = {"1": SecurityMeta(
-        "1", "AAA", category="Domestic Common Stock", permaticker="1",
-        related_tickers=("AAA",), first_session="S0001")}
-
     spy_tail = [f"S{number:04d}" for number in range(160, 201)]
 
     class Cursor:
@@ -632,6 +628,15 @@ def test_published_loader_reconstructs_prior_split_factor_from_pinned_rows(
                 return [("1", "TECH")]
             if "session<%s" in self.sql:
                 return [("1", 2.0), ("1", 3.0)]
+            if "FROM sentinel_universe u" in self.sql:
+                if "ARRAY_AGG(sector" in self.sql:
+                    return [("1", "TECH")]
+                return [("1", "AAA", "Domestic Common Stock", "AAA", "S0001")]
+            raise AssertionError(self.sql)
+
+        def fetchone(self):
+            if "SELECT MAX(snapshot_date)" in self.sql:
+                return ("S9999",)
             raise AssertionError(self.sql)
 
     class Connection:
@@ -645,7 +650,6 @@ def test_published_loader_reconstructs_prior_split_factor_from_pinned_rows(
         lambda _: SimpleNamespace(version=7))
     monkeypatch.setattr(
         "sentinel.feed.publication.visible_predicate", lambda _: "TRUE")
-    monkeypatch.setattr("sentinel.core.loader.load_meta", lambda _: meta)
     monkeypatch.setattr(
         "sentinel.core.loader.load_terminal_events",
         lambda *_, **__: TerminalLoadResult(events=[], rows=[]))

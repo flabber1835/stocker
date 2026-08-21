@@ -180,6 +180,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
         complete_order_pagination=True,
         recent_fill_history=True,
         instrument_identity=True,
+        account_bound_observation=True,
         fractional_quantities=False,
         market_on_open=False,
     )
@@ -411,20 +412,35 @@ class AlpacaExecutionBroker(ExecutionBroker):
     async def _observe_snapshot(
             self, *, terminal_floor: Optional[datetime] = None,
             recovery_through: Optional[datetime] = None) -> BrokerObservation:
+        # Account identity is part of the snapshot, not an adjacent fact. Check
+        # it around each major phase so an A->B->A routing/credential flip is
+        # detected before any observation can reach the journal.
+        account_before = await self.identify_account()
         opened, complete_open_a = await self._list_open_orders()
         terminal_a: list[BrokerOrder] = []
         complete_terminal_a = True
         if terminal_floor is not None:
             terminal_a, complete_terminal_a = await self._list_closed_orders(
                 floor=terminal_floor, through=recovery_through)
-        orders, merged_a = _merge_order_sets(opened, terminal_a)
+        account_after_orders = await self.identify_account()
         positions = await self._list_positions()
+        account_after_positions = await self.identify_account()
         reopened, complete_open_b = await self._list_open_orders()
         terminal_b: list[BrokerOrder] = []
         complete_terminal_b = True
         if terminal_floor is not None:
             terminal_b, complete_terminal_b = await self._list_closed_orders(
                 floor=terminal_floor, through=recovery_through)
+        account_after = await self.identify_account()
+        accounts = (
+            account_before, account_after_orders,
+            account_after_positions, account_after)
+        identity_keys = {(item.broker, item.account_id) for item in accounts}
+        if len(identity_keys) != 1:
+            raise MalformedBrokerPayload(
+                "Alpaca account identity changed during one broker observation: "
+                + ", ".join(f"{b}/{a}" for b, a in sorted(identity_keys)))
+        orders, merged_a = _merge_order_sets(opened, terminal_a)
         recheck, merged_b = _merge_order_sets(reopened, terminal_b)
         completeness = Completeness.COMPLETE
         if not (complete_open_a and complete_open_b
@@ -436,7 +452,8 @@ class AlpacaExecutionBroker(ExecutionBroker):
         return BrokerObservation(
             observed_at=datetime.now(timezone.utc), orders=tuple(recheck),
             positions=tuple(positions), completeness=completeness,
-            terminal_recovery_through=recovery_through)
+            terminal_recovery_through=recovery_through,
+            account_identity=account_before)
 
     async def _list_open_orders(self):
         out: list[BrokerOrder] = []

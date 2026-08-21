@@ -655,6 +655,110 @@ DDL = [
         ON sentinel_readiness_snapshots (computed_at DESC)""",
 
     # ------------------------------------------------------------------
+    # PUBLISHED STRATEGY EVIDENCE IS IMMUTABLE UNDER ITS PUBLISHED IDENTITY.
+    #
+    # A legitimate restatement must move the row to a distinct durable ingest
+    # run that has not published yet.  That makes the candidate invisible to
+    # readers until validation publishes a NEW data_version.  Direct SQL that
+    # changes bytes while leaving published ownership in place is exactly the
+    # same-version corruption #122 exists to prevent.  Unstamped legacy rows
+    # have no published identity and retain the pre-versioning upsert surface;
+    # their first governed write stamps a durable ingest run.
+    # ------------------------------------------------------------------
+    """CREATE OR REPLACE FUNCTION sentinel_guard_strategy_row_mutation()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        DECLARE
+          old_protected BOOLEAN;
+          new_status TEXT;
+        BEGIN
+          old_protected := OLD.last_written_run_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM sentinel_corpus_publications p
+             WHERE p.run_id=OLD.last_written_run_id);
+          IF NOT old_protected THEN
+            IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+            RETURN NEW;
+          END IF;
+          IF TG_OP='DELETE' THEN
+            RAISE EXCEPTION USING ERRCODE='23000', MESSAGE=format(
+              '%s: published strategy evidence is append-only; DELETE refused',
+              TG_TABLE_NAME);
+          END IF;
+          IF NEW.last_written_run_id IS NULL
+             OR NEW.last_written_run_id IS NOT DISTINCT FROM OLD.last_written_run_id THEN
+            RAISE EXCEPTION USING ERRCODE='23000', MESSAGE=format(
+              '%s: strategy evidence cannot change under the same published identity',
+              TG_TABLE_NAME);
+          END IF;
+          IF EXISTS (SELECT 1 FROM sentinel_corpus_publications p
+                      WHERE p.run_id=NEW.last_written_run_id) THEN
+            RAISE EXCEPTION USING ERRCODE='23000', MESSAGE=format(
+              '%s: restatement target run is already published', TG_TABLE_NAME);
+          END IF;
+          SELECT r.status INTO new_status FROM feed_ingest_runs r
+           WHERE r.run_id=NEW.last_written_run_id;
+          IF new_status IS NULL OR new_status='failed' THEN
+            RAISE EXCEPTION USING ERRCODE='23000', MESSAGE=format(
+              '%s: restatement requires a durable non-failed unpublished ingest run',
+              TG_TABLE_NAME);
+          END IF;
+          RETURN NEW;
+        END $$""",
+    """CREATE OR REPLACE FUNCTION sentinel_refuse_append_only_mutation()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          RAISE EXCEPTION USING ERRCODE='23000', MESSAGE=format(
+            '%s is append-only; %s refused', TG_TABLE_NAME, TG_OP);
+        END $$""",
+    """DROP TRIGGER IF EXISTS sentinel_guard_strategy_row_mutation ON sentinel_bars""",
+    """CREATE TRIGGER sentinel_guard_strategy_row_mutation
+        BEFORE UPDATE OR DELETE ON sentinel_bars
+        FOR EACH ROW EXECUTE FUNCTION sentinel_guard_strategy_row_mutation()""",
+    """DROP TRIGGER IF EXISTS sentinel_guard_strategy_row_mutation ON sentinel_spy_total_return""",
+    """CREATE TRIGGER sentinel_guard_strategy_row_mutation
+        BEFORE UPDATE OR DELETE ON sentinel_spy_total_return
+        FOR EACH ROW EXECUTE FUNCTION sentinel_guard_strategy_row_mutation()""",
+    """DROP TRIGGER IF EXISTS sentinel_guard_strategy_row_mutation ON sentinel_universe""",
+    """CREATE TRIGGER sentinel_guard_strategy_row_mutation
+        BEFORE UPDATE OR DELETE ON sentinel_universe
+        FOR EACH ROW EXECUTE FUNCTION sentinel_guard_strategy_row_mutation()""",
+    """DROP TRIGGER IF EXISTS sentinel_guard_strategy_row_mutation ON sentinel_actions""",
+    """CREATE TRIGGER sentinel_guard_strategy_row_mutation
+        BEFORE UPDATE OR DELETE ON sentinel_actions
+        FOR EACH ROW EXECUTE FUNCTION sentinel_guard_strategy_row_mutation()""",
+    """DROP TRIGGER IF EXISTS sentinel_guard_strategy_row_mutation ON sentinel_bar_split_repairs""",
+    """CREATE TRIGGER sentinel_guard_strategy_row_mutation
+        BEFORE UPDATE OR DELETE ON sentinel_bar_split_repairs
+        FOR EACH ROW EXECUTE FUNCTION sentinel_guard_strategy_row_mutation()""",
+    """DROP TRIGGER IF EXISTS sentinel_guard_strategy_row_mutation ON sentinel_action_generations""",
+    """CREATE TRIGGER sentinel_guard_strategy_row_mutation
+        BEFORE UPDATE OR DELETE ON sentinel_action_generations
+        FOR EACH ROW EXECUTE FUNCTION sentinel_guard_strategy_row_mutation()""",
+    """DROP TRIGGER IF EXISTS sentinel_guard_strategy_row_mutation ON sentinel_action_observations""",
+    """CREATE TRIGGER sentinel_guard_strategy_row_mutation
+        BEFORE UPDATE OR DELETE ON sentinel_action_observations
+        FOR EACH ROW EXECUTE FUNCTION sentinel_guard_strategy_row_mutation()""",
+    """DROP TRIGGER IF EXISTS sentinel_guard_strategy_row_mutation ON sentinel_corpus_anomalies""",
+    """CREATE TRIGGER sentinel_guard_strategy_row_mutation
+        BEFORE UPDATE OR DELETE ON sentinel_corpus_anomalies
+        FOR EACH ROW EXECUTE FUNCTION sentinel_guard_strategy_row_mutation()""",
+    """DROP TRIGGER IF EXISTS sentinel_guard_strategy_row_mutation ON sentinel_ingest_rejections""",
+    """CREATE TRIGGER sentinel_guard_strategy_row_mutation
+        BEFORE UPDATE OR DELETE ON sentinel_ingest_rejections
+        FOR EACH ROW EXECUTE FUNCTION sentinel_guard_strategy_row_mutation()""",
+    """DROP TRIGGER IF EXISTS sentinel_refuse_append_only_mutation ON sentinel_corpus_publications""",
+    """CREATE TRIGGER sentinel_refuse_append_only_mutation
+        BEFORE UPDATE OR DELETE ON sentinel_corpus_publications
+        FOR EACH ROW EXECUTE FUNCTION sentinel_refuse_append_only_mutation()""",
+    """DROP TRIGGER IF EXISTS sentinel_refuse_append_only_mutation ON sentinel_action_generation_events""",
+    """CREATE TRIGGER sentinel_refuse_append_only_mutation
+        BEFORE UPDATE OR DELETE ON sentinel_action_generation_events
+        FOR EACH ROW EXECUTE FUNCTION sentinel_refuse_append_only_mutation()""",
+    """DROP TRIGGER IF EXISTS sentinel_refuse_append_only_mutation ON sentinel_anomaly_observation_events""",
+    """CREATE TRIGGER sentinel_refuse_append_only_mutation
+        BEFORE UPDATE OR DELETE ON sentinel_anomaly_observation_events
+        FOR EACH ROW EXECUTE FUNCTION sentinel_refuse_append_only_mutation()""",
+
+    # ------------------------------------------------------------------
     # THE CHUNK SORT, moved out of the interpreter. See sentinel/feed/staging.py.
     #
     # `normalise_sep_rows` requires session order and the vendor's cursor-paged

@@ -234,6 +234,8 @@ _STAGE4_TABLES = frozenset({
     "sentinel_alert_outbox",
     "sentinel_alert_delivery_events",
     "sentinel_automation_service_instances",
+    "sentinel_observation_provenance",
+    "sentinel_trial_strategy_evidence",
 })
 
 # Additive Stage-4 migrations that historically arrived through ALTER.
@@ -246,6 +248,7 @@ _STAGE4_RUNTIME_REQUIRED_COLUMNS = {
     "sentinel_automation_cycles": frozenset({"historical_state_only"}),
     "sentinel_automation_service_instances": frozenset({
         "authority_verdict", "authority_detail", "authority_checked_at"}),
+    "sentinel_observation_provenance": frozenset({"positions"}),
 }
 
 _PLAN_AUTHORITY_CHECK = "sentinel_execution_plan_rollout_authority_ck"
@@ -738,6 +741,52 @@ DDL = (
         runtime_state TEXT)""",
     """ALTER TABLE sentinel_observations
         ADD COLUMN IF NOT EXISTS terminal_recovery_through TIMESTAMPTZ""",
+    # Additive Stage-4 provenance avoids rewriting the core behavioral catalog
+    # while binding each new authority-bearing observation to its broker account.
+    """CREATE TABLE IF NOT EXISTS sentinel_observation_provenance (
+        observation_seq   BIGINT PRIMARY KEY REFERENCES sentinel_observations(seq),
+        broker            TEXT        NOT NULL,
+        broker_account_id TEXT        NOT NULL,
+        observed_at       TIMESTAMPTZ NOT NULL,
+        positions         JSONB       NOT NULL DEFAULT '[]'::jsonb)""",
+    """ALTER TABLE sentinel_observation_provenance
+        ADD COLUMN IF NOT EXISTS positions JSONB NOT NULL DEFAULT '[]'::jsonb""",
+
+    # Per-session STRATEGY evidence for the forward paper trial.  Plans, broker
+    # observations, commands and fills already have separate durable journals;
+    # this table preserves the strategy-side facts that would otherwise be
+    # overwritten when SessionState advances to the next close.
+    """CREATE TABLE IF NOT EXISTS sentinel_trial_strategy_evidence (
+        session             DATE PRIMARY KEY,
+        data_version        BIGINT      NOT NULL,
+        state_sha256        TEXT        NOT NULL CHECK (
+            state_sha256 ~ '^[0-9a-f]{64}$'),
+        strategy_identity   JSONB       NOT NULL,
+        decision            JSONB       NOT NULL,
+        evidence            JSONB       NOT NULL,
+        recent_leadership   JSONB,
+        ldrc                JSONB,
+        payload_sha256      TEXT        NOT NULL CHECK (
+            payload_sha256 ~ '^[0-9a-f]{64}$'),
+        recorded_at         TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())""",
+    """CREATE OR REPLACE FUNCTION sentinel_refuse_trial_evidence_mutation()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          RAISE EXCEPTION 'sentinel_trial_strategy_evidence is append-only';
+        END; $$""",
+    """DO $$
+        BEGIN
+          IF NOT EXISTS (
+              SELECT 1 FROM pg_trigger
+               WHERE tgname = 'sentinel_trial_strategy_evidence_append_only'
+                 AND tgrelid = 'sentinel_trial_strategy_evidence'::regclass
+                 AND NOT tgisinternal) THEN
+            CREATE TRIGGER sentinel_trial_strategy_evidence_append_only
+              BEFORE UPDATE OR DELETE ON sentinel_trial_strategy_evidence
+              FOR EACH ROW EXECUTE FUNCTION
+                sentinel_refuse_trial_evidence_mutation();
+          END IF;
+        END $$""",
 
     # A broker response being durable is not proof that it was PROCESSED. This
     # watermark advances only after all Sentinel-keyed terminal rows in the

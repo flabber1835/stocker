@@ -134,6 +134,11 @@ def _order_command_conflict(order, command) -> Optional[str]:
             and not migration_identity_matches):
         return (f"{prefix} changed durable security {command.security_id} to "
                 f"{order.instrument.security_id}")
+    if (command.instrument.broker_id is not None
+            and order.instrument.broker_id != command.instrument.broker_id):
+        return (f"{prefix} changed durable broker instrument id "
+                f"{command.instrument.broker_id!r} to "
+                f"{order.instrument.broker_id!r}")
     if order.side is not command.side:
         return f"{prefix} changed durable side {command.side.value}"
     if order.quantity != command.quantity:
@@ -163,8 +168,36 @@ def _order_command_conflict(order, command) -> Optional[str]:
 def _order_observation_fingerprint(order) -> tuple:
     return (
         order.broker_order_id, order.client_key,
-        order.instrument.security_id, order.side, order.quantity,
+        order.instrument.security_id, order.instrument.broker_id,
+        order.side, order.quantity,
         order.state, order.filled_quantity, order.filled_average_price)
+
+
+def _position_identity_conflicts(
+        observation: BrokerObservation, stored) -> tuple[str, ...]:
+    """Refuse a held Alpaca asset that no longer matches durable command identity."""
+    expected: dict[str, set[str]] = {}
+    conflicts: list[str] = []
+    for command in stored:
+        broker_id = command.instrument.broker_id
+        if broker_id:
+            expected.setdefault(command.security_id, set()).add(str(broker_id))
+    for security_id, broker_ids in sorted(expected.items()):
+        if len(broker_ids) > 1:
+            conflicts.append(
+                f"durable commands for {security_id} carry multiple broker "
+                f"instrument ids {sorted(broker_ids)}")
+    for position in observation.positions:
+        broker_ids = expected.get(position.instrument.security_id)
+        if not broker_ids:
+            continue
+        observed_id = position.instrument.broker_id
+        if observed_id not in broker_ids:
+            conflicts.append(
+                f"broker position {position.instrument.security_id} carries "
+                f"asset id {observed_id!r}, expected one of "
+                f"{sorted(broker_ids)}")
+    return tuple(conflicts)
 
 
 def age_book_through_actions(expected: Mapping[str, Decimal],
@@ -264,6 +297,32 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
             runtime_state=RuntimeState.BROKER_DEGRADED,
             detail=f"broker unreachable: {exc}")
 
+    # A certified account-bound observation may mutate command history only
+    # after the exact observation itself is proven to belong to the durable
+    # binding. The earlier identify_account() call is not a substitute: routing
+    # can flip during the multi-request orders/positions snapshot.
+    if getattr(broker.capabilities, "account_bound_observation", False):
+        observed_identity = observation.account_identity
+        if observed_identity is None:
+            return ReconciliationResult(
+                runtime_state=RuntimeState.BROKER_DEGRADED,
+                observation=observation,
+                detail="certified broker observation omitted account provenance")
+        try:
+            binding_mod.verify(conn, observed_identity)
+        except Exception as exc:                              # noqa: BLE001
+            return ReconciliationResult(
+                runtime_state=RuntimeState.BROKER_DEGRADED,
+                observation=observation,
+                detail=f"broker observation account provenance refused: {exc}")
+        if ((observed_identity.broker, observed_identity.account_id)
+                != (identity.broker, identity.account_id)):
+            return ReconciliationResult(
+                runtime_state=RuntimeState.BROKER_DEGRADED,
+                observation=observation,
+                detail="broker identity changed between reconciliation and "
+                       "the account-bound observation")
+
     observation_seq = journal.record_observation(
         conn, observation, RuntimeState.RECONCILING.value)
 
@@ -332,6 +391,14 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         log.info("sentinel: adopted %d recovered order(s) from the broker: %s",
                  len(recovered), ", ".join(o.client_key for o in recovered))
         stored = journal.load_commands(conn, deployment)
+
+    identity_conflicts = _position_identity_conflicts(observation, stored)
+    if identity_conflicts:
+        return ReconciliationResult(
+            runtime_state=RuntimeState.RECONCILING,
+            observation=observation,
+            observation_id=observation_seq,
+            detail="; ".join(identity_conflicts))
 
     # 4b. SYNCHRONISE ORDINARY PROGRESS, not only the undetermined commands.
     #

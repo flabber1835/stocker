@@ -233,7 +233,7 @@ def execution_config_identity(*, paper_base_url: str,
         "scope": PAPER_SCOPE,
         "paper_base_url": paper_base_url,
         "broker": "alpaca",
-        "adapter": "sentinel.execution.alpaca.AlpacaExecutionBroker",
+        "adapter": "sentinel.execution.alpaca_asset_id.AssetIdAlpacaExecutionBroker",
         "trust_roots_sha256": roots_sha,
     }
 

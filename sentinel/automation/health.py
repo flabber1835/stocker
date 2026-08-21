@@ -66,6 +66,11 @@ def read_health(conn) -> AutomationHealth:
     ready.  A missing singleton is both uninstalled and unhealthy.  Operational
     readiness additionally requires evidence that the current scheduler process
     is alive and progressing; a valid authority + lease alone is insufficient.
+
+    PAPER_OBSERVATION_ONLY is standing forward-trial authority once activated.
+    Its nominal observation-window expiry remains visible as retained evidence,
+    but time passage alone does not invalidate that explicitly revocable paper
+    authority.  Historical/admin authority families remain time-bounded.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -130,7 +135,8 @@ def read_health(conn) -> AutomationHealth:
             "SELECT a.active_certificate_sha256,"
             " (a.active_certificate_sha256=%s"
             "  AND l.status='ACTIVE'"
-            "  AND c.expires_at > clock_timestamp()"
+            "  AND (c.expires_at > clock_timestamp()"
+            "       OR c.claims->>'authorization_mode'='PAPER_OBSERVATION_ONLY')"
             "  AND cr.certificate_sha256 IS NULL"
             "  AND kr.key_id IS NULL),c.claims,c.expires_at"
             " FROM sentinel_execution_authority_state a"

@@ -15,7 +15,8 @@ from typing import Mapping, Sequence
 
 from stock_strategy_shared.wealth_core.adapter import PendingOrder
 from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
-from stock_strategy_shared.wealth_core.engine import Reason, WealthCoreConfig
+from stock_strategy_shared.wealth_core.engine import (
+    Reason, WealthCoreConfig, score_universe)
 from stock_strategy_shared.wealth_core.feed import (
     Feed, FeedError, SecurityMeta, SecuritySeries, VendorBar)
 from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
@@ -357,10 +358,51 @@ def warm_session_state(state: SessionState | Mapping, window, *,
         raise ValueError(
             "warm-up window sessions must be strictly increasing and unique")
     elig = eligibility_config or EligibilityConfig()
-    feed = Feed(window.meta, elig)
-    feed.warmup(sessions, window.bars_by_session)
+    witness_state = None
+    if is_concordance_identity(env.strategy_identity):
+        timeline = getattr(window, "metadata_timeline", None)
+        if (timeline is None or list(timeline.sessions) != sessions):
+            raise ValueError(
+                "Concordance warm-up requires exact session-effective metadata")
+        feed = Feed({}, elig, metadata_timeline=timeline)
+        witness_state = leadership_state_from_dict(env.recent_leadership or {})
+        wealth_cfg = WealthCoreConfig()
+        for session in sessions:
+            bars = window.bars_by_session.get(session, ())
+            normalized = feed.advance(session, bars)
+            scored = score_universe(normalized.security_bars, wealth_cfg)
+            candidates = tuple(
+                row for row in scored
+                if row.momentum is not None and row.recent is not None)
+            eligible_count = sum(
+                1 for row in normalized.security_bars if row.eligible)
+            # Before the canonical 127-close formation window exists there is
+            # no leadership population and therefore no witness observation.
+            # Appending flat NAVs here would manufacture r20/r40 readiness from
+            # sessions on which the sensor could not yet exist.
+            if eligible_count == 0:
+                continue
+            signal_closes = {}
+            for bar in bars:
+                series = feed.series.get(bar.security_id)
+                if (series is None or not series.sessions
+                        or series.sessions[-1] != session
+                        or not series.signal_closes):
+                    continue
+                close = series.signal_closes[-1]
+                if close is not None:
+                    signal_closes[bar.security_id] = float(close)
+            witness_state, _ = advance_recent_leadership(
+                session=session, candidate_rows=candidates,
+                eligible_universe_count=eligible_count,
+                signal_closes=signal_closes, state=witness_state)
+    else:
+        feed = Feed(window.meta, elig)
+        feed.warmup(sessions, window.bars_by_session)
     warmed = SessionState.from_dict(env.to_dict())
     warmed.feed = _feed_to_dict(feed, set())
+    if witness_state is not None:
+        warmed.recent_leadership = leadership_state_to_dict(witness_state)
     warmed.data_version = int(publication_version)
     return warmed
 
@@ -368,8 +410,15 @@ def warm_session_state(state: SessionState | Mapping, window, *,
 def load_published_session(conn, session: str, *, spy_sessions: int = 41,
                            known_feed_security_ids: Sequence[str] = ()
                            ) -> PublishedSession:
-    """Load one coherent production input snapshot from the published corpus."""
-    from sentinel.core.loader import load_meta, load_terminal_events
+    """Load one causal production input snapshot from the published corpus.
+
+    Strategy metadata is always bounded to ``session``. There is intentionally
+    no production switch for current/future TICKERS metadata: a missed session
+    either has a causally available observation or planning refuses. Historical
+    integration-only experiments that cannot make that causality claim must
+    override their inputs outside this production API.
+    """
+    from sentinel.core.loader import load_meta, load_sectors, load_terminal_events
     from sentinel.feed.calendar import previous_sessions
     from sentinel.feed.publication import (
         assert_coherent, current, effective_split_ratio, visible_predicate,
@@ -390,7 +439,7 @@ def load_published_session(conn, session: str, *, spy_sessions: int = 41,
         raise RuntimeError(
             f"{session} is not the end of a complete {spy_sessions}-session "
             "XNYS SPY window")
-    meta = load_meta(conn)
+    meta = load_meta(conn, as_of=session)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT security_id,ticker,close_unadjusted,open_unadjusted,volume,"
@@ -409,12 +458,7 @@ def load_published_session(conn, session: str, *, spy_sessions: int = 41,
         spy_rows = list(reversed(cur.fetchall()))
         actual_spy_sessions = [str(row[0]) for row in spy_rows]
         spy = [float(row[1]) for row in spy_rows]
-        cur.execute(
-            "SELECT permaticker,(ARRAY_REMOVE(ARRAY_AGG(sector ORDER BY"
-            " snapshot_date DESC),NULL))[1] FROM sentinel_universe u"
-            " WHERE permaticker IS NOT NULL"
-            f" AND {visible_predicate('u')} GROUP BY permaticker")
-        sectors = {str(sid): sector for sid, sector in cur.fetchall()}
+        sectors = load_sectors(conn, as_of=session)
     if not bars:
         raise RuntimeError(f"no published bars for {session}")
     if actual_spy_sessions != expected_spy_sessions:
@@ -572,7 +616,8 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
                   *, controller_config: ControllerConfig,
                   strategy_identity: Mapping,
                   wealth_config: WealthCoreConfig | None = None,
-                  eligibility_config: EligibilityConfig | None = None
+                  eligibility_config: EligibilityConfig | None = None,
+                  concordance_audit=None
                   ) -> SessionState:
     """Pure one-session transition. Persist its return in the caller's txn."""
     env = (prior if isinstance(prior, SessionState)
@@ -681,6 +726,26 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
             spy_r20=regime.spy_r20, state=overlay_before)
         if overlay_decision.desired_allocation > native_decision.target_core_exposure + 1e-15:
             raise AssertionError("Concordance cannot increase native exposure")
+        if concordance_audit is not None:
+            # Certification-only seam.  The callback receives the SAME
+            # ephemeral Wealth Core rows and native inputs as production, plus
+            # production's outputs to compare.  Nothing returned by the audit
+            # callback can alter strategy state or execution.
+            concordance_audit(
+                session=published.session,
+                candidate_rows=tuple(plan.leadership_candidates),
+                eligible_universe_count=plan.eligible_universe_count,
+                signal_closes=dict(plan.signal_closes),
+                native_allocation=native_decision.target_core_exposure,
+                effective_native_allocation=(
+                    overlay_before.previous_native_allocation),
+                wc_drawdown=ob.shadow_drawdown, spy_r20=regime.spy_r20,
+                production_witness_decision=asdict(witness_decision),
+                production_witness_state=leadership_state_to_dict(witness_after),
+                production_ldrc_decision=asdict(overlay_decision),
+                production_ldrc_state=ldrc_state_to_dict(overlay_after),
+                production_final_allocation=overlay_decision.desired_allocation,
+            )
         decision = {
             **decision,
             "native_target_core_exposure":

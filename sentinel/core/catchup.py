@@ -55,6 +55,7 @@ CURRENT target against the new NAV and advances nothing.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from dataclasses import dataclass, field
@@ -74,6 +75,17 @@ class StateNotDurable(TypeError):
     Raised at the FIRST session rather than at the end. A four-hour replay that
     discovers this on its last step has lost the run; one that refuses
     immediately has cost a clear error message.
+    """
+
+
+class StateCommitmentMismatch(RuntimeError):
+    """Canonical production restart state no longer matches its durable plan.
+
+    A path-dependent state is authority, not a cache. Once a production plan
+    commits to its state hash, a later restart may advance that state only if
+    the exact commitment still holds. This makes a valid-looking SQL mutation
+    a refusal instead of allowing it to become a new self-consistent strategy
+    path on the next session.
     """
 
 
@@ -143,6 +155,79 @@ def last_processed_session(conn) -> Optional[date]:
     return None if row is None else _d(row[0])
 
 
+def _canonical_hash(value) -> str:
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _assert_resume_state_commitment(conn, state) -> None:
+    """Verify production `SessionState` against the prior durable plan.
+
+    Catch-up intentionally accepts arbitrary JSON-serialisable state seams in
+    unit/research callers, so this check activates only when the row decodes as
+    the canonical production `SessionState` and the durable current plan is a
+    normal content-addressed Sentinel production plan.
+    """
+    if not isinstance(state, Mapping):
+        return
+    try:
+        # Lazy import keeps the generic coordinator independent at module load
+        # time and avoids a production<->catchup import cycle.
+        from sentinel.core.production import SessionState
+        canonical = SessionState.from_dict(state)
+    except (KeyError, TypeError, ValueError):
+        return
+
+    plan = journal.latest_plan(conn)
+    if plan is None:
+        # A genuinely fresh canonical state can exist briefly before its first
+        # plan. Once any execution-plan history exists, losing the current
+        # commitment is corruption rather than permission to mint a new one.
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM sentinel_execution_plans")
+            prior_plan_count = int(cur.fetchone()[0])
+        if prior_plan_count:
+            raise StateCommitmentMismatch(
+                "canonical restart state has execution-plan history but no "
+                "durable current plan commitment")
+        return
+
+    # Research/reprojection plans are not the production state commitment and
+    # deliberately do not carry the fields below. Do not reinterpret them.
+    if (not str(plan.plan_id).startswith("sentinel-")
+            or not plan.shadow_snapshot_hash
+            or not plan.sentinel_transition_hash
+            or not plan.strategy_fingerprint):
+        return
+
+    cursor = last_processed_session(conn)
+    if cursor is None:
+        raise StateCommitmentMismatch(
+            "canonical restart state has a plan but no processed-session cursor")
+    if canonical.last_processed_session != cursor.isoformat():
+        raise StateCommitmentMismatch(
+            "canonical restart state and processed-session cursor disagree")
+    if plan.decision_session != cursor:
+        raise StateCommitmentMismatch(
+            "canonical restart cursor is not the prior committed plan session")
+    if canonical.state_hash != plan.shadow_snapshot_hash:
+        raise StateCommitmentMismatch(
+            "canonical restart state fingerprint does not match the prior "
+            "committed plan")
+    if _canonical_hash(canonical.last_decision) != plan.sentinel_transition_hash:
+        raise StateCommitmentMismatch(
+            "canonical restart controller transition does not match the prior "
+            "committed plan")
+    if _canonical_hash(canonical.strategy_identity) != plan.strategy_fingerprint:
+        raise StateCommitmentMismatch(
+            "canonical restart strategy fingerprint does not match the prior "
+            "committed plan")
+    if canonical.data_version != plan.data_version:
+        raise StateCommitmentMismatch(
+            "canonical restart data version does not match the prior committed "
+            "plan")
+
+
 def resume_state(conn):
     """The state catch-up last persisted, or None.
 
@@ -150,6 +235,10 @@ def resume_state(conn):
     the seam has no history to advance from — so the sessions after a crash
     would be replayed against an empty book, which is a quieter version of the
     skip this whole mechanism exists to prevent.
+
+    Canonical production state is additionally checked against the durable plan
+    that committed it. A later decision therefore cannot launder a valid JSON
+    mutation into a new strategy path simply because the cursor still agrees.
     """
     with conn.cursor() as cur:
         cur.execute("SELECT state FROM sentinel_processed_sessions"
@@ -157,7 +246,9 @@ def resume_state(conn):
         row = cur.fetchone()
     if row is None or row[0] is None:
         return None
-    return row[0] if isinstance(row[0], (dict, list)) else json.loads(row[0])
+    state = row[0] if isinstance(row[0], (dict, list)) else json.loads(row[0])
+    _assert_resume_state_commitment(conn, state)
+    return state
 
 
 def _encode(state) -> Optional[str]:
@@ -394,6 +485,13 @@ def _catch_up_locked(conn, *, through: date, missed, advance_state, decide,
         # (silent, permanent, and the worse one).
         state = advance_state(conn, session.isoformat(), state)
         _mark_processed(conn, session, state)
+        # Preserve the exact canonical strategy facts in the SAME transaction
+        # as the cursor/state. Generic research/test seams are deliberately
+        # ignored by the recorder; only a valid production SessionState can
+        # enter the forward-trial evidence ledger.
+        from sentinel import trial_evidence
+        trial_evidence.record_strategy_session(
+            conn, session=session.isoformat(), state=state)
         # Historical sessions become durable one at a time. The FINAL session
         # deliberately remains in this transaction until its one current plan
         # has been saved and every older plan superseded. Committing here left a
@@ -610,6 +708,7 @@ def _d(v) -> date:
     return v if isinstance(v, date) else date.fromisoformat(str(v))
 
 
-__all__ = ["CatchUpResult", "NavUnobserved", "Reprojection", "StateNotDurable",
+__all__ = ["CatchUpResult", "NavUnobserved", "Reprojection",
+           "StateCommitmentMismatch", "StateNotDurable",
            "catch_up", "last_processed_session", "project", "reproject",
            "resume_state", "unpriceable"]

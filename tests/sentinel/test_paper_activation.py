@@ -39,6 +39,7 @@ from sentinel.core import catchup  # noqa: E402
 from sentinel.core.decision import (  # noqa: E402
     DEFENSIVE_SECURITY_ID,
     publication_fingerprint,
+    runtime_strategy_identity as production_runtime_strategy_identity,
 )
 from sentinel.core.loader import CorpusWindow  # noqa: E402
 from sentinel.core.production import PublishedSession, SessionState  # noqa: E402
@@ -63,7 +64,7 @@ from sentinel.execution.states import CommandState, RuntimeState  # noqa: E402
 from sentinel.feed import publication, store as feed_store  # noqa: E402
 from sentinel.ownership import AccountObservation, OpenOrder  # noqa: E402
 from stock_strategy_shared.wealth_core.feed import (  # noqa: E402
-    SecurityMeta,
+    DecisionMetadataTimelineBuilder, SecurityMeta,
     VendorBar,
 )
 from stock_strategy_shared.wealth_core.state import (  # noqa: E402
@@ -78,11 +79,14 @@ PRIOR = dt.date(2026, 8, 7)
 HALF_DAY_DECISION = dt.date(2024, 11, 27)
 HALF_DAY_EFFECTIVE = dt.date(2024, 11, 29)
 ACCOUNT = "SIM-PAPER"
+ROLLOUT_CERTIFICATE = "c" * 64
 AAA = BrokerInstrument(security_id="SEC-AAA", symbol="AAA")
 IDENTITY = {
     "strategy": "paper-activation-test",
     "controller_rule_sha256": "controller-test-sha",
     "wealth_core_source_sha256": "wealth-core-test-sha",
+    "allocation_overlay": "sentinel-concordance-simplified-ldrc",
+    "allocation_overlay_version": "3",
 }
 CONFIG = ControllerConfig(
     ordinary_stress_drawdown=-0.10,
@@ -99,6 +103,13 @@ CONFIG = ControllerConfig(
     strategy_id=IDENTITY["strategy"],
     digest=IDENTITY["controller_rule_sha256"],
 )
+
+
+def _metadata_timeline(sessions, metadata):
+    builder = DecisionMetadataTimelineBuilder(sessions)
+    for session in sessions:
+        builder.add_snapshot(session, metadata)
+    return builder.finish()
 
 
 @pytest.fixture(scope="module")
@@ -120,6 +131,23 @@ def conn(pg):
     drop_public_tables(connection)
     feed_store.ensure_schema(connection)
     schema.ensure_schema(connection)
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_system_certificates"
+            " (certificate_sha256,manifest_bytes,manifest,allowed_rollout_modes)"
+            " VALUES (%s,'{}'::bytea,'{}'::jsonb,'[\"CONTROLLER\"]'::jsonb)",
+            (ROLLOUT_CERTIFICATE,))
+        cur.execute(
+            "UPDATE sentinel_rollout_state"
+            " SET mode='CONTROLLER',version=2,certificate_sha256=%s WHERE id=1",
+            (ROLLOUT_CERTIFICATE,))
+        cur.execute(
+            "INSERT INTO sentinel_rollout_events"
+            " (version,from_mode,to_mode,certificate_sha256,reason)"
+            " VALUES (2,'PINNED_1_00','CONTROLLER',%s,"
+            " 'test fixture activates Concordance controller authority')",
+            (ROLLOUT_CERTIFICATE,))
+    connection.commit()
     yield connection
     connection.close()
 
@@ -130,11 +158,12 @@ def simulator_is_certified(monkeypatch):
     monkeypatch.setattr(paper, "require_certified", lambda _adapter: None)
     monkeypatch.setattr(paper, "load_controller", lambda: CONFIG)
     monkeypatch.setattr(
-        paper, "runtime_strategy_identity", lambda _config: dict(IDENTITY))
+        paper, "runtime_strategy_identity",
+        lambda _config, **_kwargs: dict(IDENTITY))
     monkeypatch.setattr(
         paper, "require_current_authority",
         lambda *_args, **_kwargs: SimpleNamespace(
-            certificate_sha256="test-system-certificate"))
+            certificate_sha256=ROLLOUT_CERTIFICATE))
     monkeypatch.setattr(
         paper.system_identity, "rehearsal_identity",
         lambda: {"identity_hash": "test-runtime"})
@@ -246,7 +275,9 @@ def _plan(state: SessionState, pinned, bound, *, plan_id=None,
         takeover_epoch=bound.takeover_epoch,
         publication_fingerprint=publication_fingerprint(pinned),
         account_nav=D("1000"), account_cash=D("1000"), cash_residual=D(0),
-        defensive_security=DEFENSIVE_SECURITY_ID)
+        defensive_security=DEFENSIVE_SECURITY_ID,
+        rollout_mode="CONTROLLER", rollout_version=2,
+        rollout_certificate_sha256=ROLLOUT_CERTIFICATE)
     return ExecutionPlan(**{
         **plan.__dict__,
         "plan_id": plan_id or f"sentinel-{plan.fingerprint()}",
@@ -614,14 +645,22 @@ def test_fresh_boot_warms_exactly_252_feature_sessions_without_path_history(
         monkeypatch):
     sessions = [f"S{i:04d}" for i in range(1, 254)]
     warm = sessions[:-1]
-    meta = {AAA.security_id: SecurityMeta(
-        AAA.security_id, AAA.symbol, category="Domestic Common Stock",
-        permaticker=AAA.security_id, first_session=warm[0])}
+    securities = [(AAA.security_id, AAA.symbol)] + [
+        (f"SEC-AUX-{index:02d}", f"AUX{index:02d}")
+        for index in range(1, 30)]
+    meta = {
+        security_id: SecurityMeta(
+            security_id, ticker, category="Domestic Common Stock",
+            permaticker=security_id, first_session=warm[0])
+        for security_id, ticker in securities
+    }
     window = CorpusWindow(
         sessions=warm, meta=meta,
-        bars_by_session={session: [VendorBar(
-            session=session, security_id=AAA.security_id, ticker=AAA.symbol,
-            raw_close=100.0, raw_open=100.0, volume=1_000_000.0)]
+        bars_by_session={
+            session: [VendorBar(
+                session=session, security_id=security_id, ticker=ticker,
+                raw_close=100.0, raw_open=100.0, volume=1_000_000.0)
+                for security_id, ticker in securities]
             for session in warm})
     monkeypatch.setattr(
         paper.calendar, "previous_sessions",
@@ -631,6 +670,9 @@ def test_fresh_boot_warms_exactly_252_feature_sessions_without_path_history(
         paper, "load_window",
         lambda _conn, *, start, end: window
         if (start, end) == (warm[0], warm[-1]) else None)
+    monkeypatch.setattr(
+        paper, "load_causal_meta_history",
+        lambda _conn, *, sessions: _metadata_timeline(sessions, meta))
     account = BrokerAccountSnapshot(
         identity=BrokerAccountIdentity("sim", ACCOUNT),
         equity=D("1000"), cash=D("1000"))
@@ -656,54 +698,44 @@ def test_fresh_boot_warms_exactly_252_feature_sessions_without_path_history(
 def test_real_fresh_boot_pipeline_is_restart_equivalent_and_adopts_one_plan(
         conn, pg, monkeypatch):
     """Fresh preparation crosses every durable production seam exactly once."""
-    config = ControllerConfig(
-        ordinary_stress_drawdown=CONFIG.ordinary_stress_drawdown,
-        ordinary_target_core=CONFIG.ordinary_target_core,
-        severe_target_core=CONFIG.severe_target_core,
-        slow_entry=CONFIG.slow_entry, slow_recovery=CONFIG.slow_recovery,
-        fast_entry={
-            "max_shadow_drawdown": -0.10,
-            "min_damaged_breadth": 0.85,
-            "max_green_breadth": 0.20,
-            "short_loss_or": [
-                {"max_shadow_r5": -0.05},
-                {"max_shadow_r10": -0.08},
-            ],
-            "min_damaged_breadth_delta5": 0.40,
-            "min_spy_vol5_over_vol20_minus_1": 0.04,
-            "confirmation_or": [
-                {"max_spy_r20": -0.01},
-                {"max_shadow_r10": -0.10},
-            ],
-        },
-        fast_recovery=CONFIG.fast_recovery, ramp=CONFIG.ramp,
-        healthy=CONFIG.healthy, strategy_id=CONFIG.strategy_id,
-        digest=CONFIG.digest)
+    config = paper.load_concordance_parent()
+    strategy_identity = production_runtime_strategy_identity(
+        config, concordance=True)
     sessions = [
         (DECISION - dt.timedelta(days=offset)).isoformat()
         for offset in range(252, -1, -1)
     ]
     warm = sessions[:-1]
-    meta = {AAA.security_id: SecurityMeta(
-        AAA.security_id, AAA.symbol, category="Domestic Common Stock",
-        permaticker=AAA.security_id, first_session=sessions[0])}
+    securities = [(AAA.security_id, AAA.symbol)] + [
+        (f"SEC-AUX-{index:02d}", f"AUX{index:02d}")
+        for index in range(1, 30)]
+    meta = {
+        security_id: SecurityMeta(
+            security_id, ticker, category="Domestic Common Stock",
+            permaticker=security_id, first_session=sessions[0])
+        for security_id, ticker in securities
+    }
 
-    def bar(session, index):
+    def bar(session, index, security_id=AAA.security_id, ticker=AAA.symbol):
         price = 100.0 + index / 10.0
         return VendorBar(
-            session=session, security_id=AAA.security_id, ticker=AAA.symbol,
+            session=session, security_id=security_id, ticker=ticker,
             raw_close=price, raw_open=price, volume=1_000_000.0)
 
     window = CorpusWindow(
         sessions=warm, meta=meta,
         bars_by_session={
-            session: [bar(session, index)]
+            session: [
+                bar(session, index, security_id, ticker)
+                for security_id, ticker in securities]
             for index, session in enumerate(warm)
         })
     pinned = _publish(conn)
     current = PublishedSession(
         session=DECISION.isoformat(), data_version=pinned.version,
-        bars=(bar(DECISION.isoformat(), len(warm)),), meta=meta,
+        bars=tuple(
+            bar(DECISION.isoformat(), len(warm), security_id, ticker)
+            for security_id, ticker in securities), meta=meta,
         sectors={AAA.security_id: "Information Technology"},
         spy_sessions=tuple(sessions[-41:]),
         spy_expected_sessions=tuple(sessions[-41:]),
@@ -737,11 +769,15 @@ def test_real_fresh_boot_pipeline_is_restart_equivalent_and_adopts_one_plan(
         if (dt.date.fromisoformat(str(start)), dt.date.fromisoformat(str(end)))
         == (DECISION, DECISION) else [])
     monkeypatch.setattr(paper, "load_window", load_window)
+    monkeypatch.setattr(
+        paper, "load_causal_meta_history",
+        lambda _conn, *, sessions: _metadata_timeline(sessions, meta))
     monkeypatch.setattr(paper, "load_published_session", load_published)
     broker = _broker(equity="100000", cash="100000")
 
     first = _prepare(
-        conn, broker, controller_config=config, strategy_identity=IDENTITY)
+        conn, broker, controller_config=config,
+        strategy_identity=strategy_identity)
     first_state = catchup.resume_state(conn)
     canonical = SessionState.from_dict(first_state)
 
@@ -765,7 +801,7 @@ def test_real_fresh_boot_pipeline_is_restart_equivalent_and_adopts_one_plan(
     try:
         second = _prepare(
             restarted, broker, controller_config=config,
-            strategy_identity=IDENTITY)
+            strategy_identity=strategy_identity)
 
         assert second.sessions_replayed == 0
         assert second.warmup_sessions == 0
@@ -1094,25 +1130,16 @@ class TestStrictExecutionGate:
             self, conn, monkeypatch):
         _install_current_authorities(conn)
         _ready(monkeypatch)
-        certificate_sha = "d" * 64
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO sentinel_system_certificates"
-                " (certificate_sha256,manifest_bytes,manifest,"
-                "  allowed_rollout_modes)"
-                " VALUES (%s,'{}'::bytea,'{}'::jsonb,"
-                "         '[\"CONTROLLER\"]'::jsonb)",
-                (certificate_sha,))
-            cur.execute(
                 "UPDATE sentinel_rollout_state"
-                " SET mode='CONTROLLER',version=2,certificate_sha256=%s"
-                " WHERE id=1", (certificate_sha,))
+                " SET mode='PINNED_1_00',version=3,certificate_sha256=NULL"
+                " WHERE id=1")
             cur.execute(
                 "INSERT INTO sentinel_rollout_events"
                 " (version,from_mode,to_mode,certificate_sha256,reason)"
-                " VALUES (2,'PINNED_1_00','CONTROLLER',%s,"
-                "         'test coherent authority transition')",
-                (certificate_sha,))
+                " VALUES (3,'CONTROLLER','PINNED_1_00',NULL,"
+                "         'test coherent authority transition')")
         conn.commit()
         broker = _broker()
 
@@ -1151,7 +1178,9 @@ class TestStrictExecutionGate:
             takeover_epoch=bound.takeover_epoch,
             publication_fingerprint=publication_fingerprint(pinned),
             account_nav=D("1000"), account_cash=D("1000"),
-            cash_residual=D(0), defensive_security=DEFENSIVE_SECURITY_ID)
+            cash_residual=D(0), defensive_security=DEFENSIVE_SECURITY_ID,
+            rollout_mode="CONTROLLER", rollout_version=2,
+            rollout_certificate_sha256=ROLLOUT_CERTIFICATE)
         plan = ExecutionPlan(**{
             **plan.__dict__, "plan_id": f"sentinel-{plan.fingerprint()}",
         })
@@ -1460,8 +1489,8 @@ class TestStrictExecutionGate:
         broker = _broker()
 
         with pytest.raises(
-                paper.PaperActivationRefused,
-                match="state fingerprint is stale"):
+                catchup.StateCommitmentMismatch,
+                match="state fingerprint does not match"):
             _execute(conn, broker)
 
         assert broker.calls == []

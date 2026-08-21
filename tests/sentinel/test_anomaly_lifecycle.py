@@ -415,7 +415,16 @@ def test_schema_upgrade_classifies_stamped_legacy_rows_deterministically(conn):
                                   "legacy unresolved"), "ticker": "CCC"}],
             run_id=running.progress.run_id, require_lock=True)
     with conn.cursor() as cur:
+        # Recreate the historical pre-event-ledger state explicitly.  The
+        # installed production table is now append-only, so test setup must
+        # suspend its guard rather than weaken the runtime contract.
+        cur.execute(
+            "ALTER TABLE sentinel_anomaly_observation_events DISABLE TRIGGER "
+            "sentinel_refuse_append_only_mutation")
         cur.execute("DELETE FROM sentinel_anomaly_observation_events")
+        cur.execute(
+            "ALTER TABLE sentinel_anomaly_observation_events ENABLE TRIGGER "
+            "sentinel_refuse_append_only_mutation")
     conn.commit()
 
     S.ensure_schema(conn)

@@ -77,6 +77,13 @@ At close `t` the order is load-bearing:
 4. the current eligible population is ranked;
 5. current recent membership is stored for `t -> t+1`.
 
+Fresh activation reuses the feature-only historical warmup stream to perform
+those five witness steps causally. Only the zero-capital witness state is
+advanced. Wealth Core episodes, peaks, ages, cooldowns, pending actions,
+controller state, LD-RC state and the ledger remain fresh. Session-effective
+metadata is required for every historical witness close; a current snapshot may
+not be projected backward merely to make the witness ready.
+
 A duplicate/out-of-order session refuses. Eligible-count disagreement between
 Wealth Core and the audit rows refuses instead of silently composing different
 universes.
@@ -102,6 +109,11 @@ in evidence. `final <= native` is asserted.
 `effective_native_allocation` for close `t` is the previous LD-RC state's
 `previous_native_allocation`: the native parent intent that became effective at
 the prior executable open. Broker fills do not rewrite strategy state.
+
+When an existing divergence latch clears by persistence or SPY V-rebound, that
+clear is authoritative for close `t`. Divergence entry is skipped for the rest
+of that `ldrc_step`; simultaneous entry evidence may latch again only at a
+subsequent close.
 
 ## Execution timing
 

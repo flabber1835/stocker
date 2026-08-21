@@ -24,7 +24,13 @@ from sentinel.authority import (
     require_observation_safety_authority,
 )
 from sentinel.config import DEFAULT_BASE_URL, assert_paper_url
+from sentinel.controller.concordance import is_concordance_identity
+from sentinel.controller.concordance_parent import load as load_concordance_parent
 from sentinel.controller.frozen_rule import ControllerConfig, load as load_controller
+from sentinel.controller.ldrc import (
+    LDRCConfig, STRATEGY_ID as LDRC_STRATEGY_ID,
+    STRATEGY_VERSION as LDRC_STRATEGY_VERSION,
+)
 from sentinel.controller.machine import Controller
 from sentinel.core import catchup
 from sentinel.core.decision import (
@@ -34,7 +40,8 @@ from sentinel.core.decision import (
     runtime_strategy_identity,
     shadow_target,
 )
-from sentinel.core.loader import load_meta, load_window
+from sentinel.core.loader import (
+    load_causal_meta_history, load_meta, load_window)
 from sentinel.core.production import (
     SessionState,
     advance_and_persist,
@@ -69,6 +76,39 @@ from sentinel.execution.states import RuntimeState
 from sentinel.feed import calendar, publication, readiness, store as feed_store
 
 DEFENSIVE_SYMBOL = "BIL"
+SIMPLIFIED_LDRC_STRATEGY_ID = "sentinel-concordance-simplified-ldrc"
+SIMPLIFIED_LDRC_STRATEGY_VERSION = 3
+
+
+def _default_paper_strategy() -> tuple[ControllerConfig, dict[str, str]]:
+    """Return the one paper-trial strategy: hardened parent + simplified LD-RC.
+
+    The assertions are intentionally redundant with source identity. They make
+    an accidental rollback to the older five-condition/legacy recovery model a
+    startup refusal instead of a plausible but different trading strategy.
+    """
+    if (LDRC_STRATEGY_ID != SIMPLIFIED_LDRC_STRATEGY_ID
+            or LDRC_STRATEGY_VERSION != SIMPLIFIED_LDRC_STRATEGY_VERSION):
+        raise PaperActivationRefused(
+            "paper runtime requires Simplified Concordance LD-RC v3")
+    cfg = LDRCConfig()
+    expected = (0.55, -0.10, -0.08, 0.00, 7, 0.11)
+    actual = (
+        cfg.divergence_ceiling, cfg.wc_drawdown_trigger,
+        cfg.recent_r20_trigger, cfg.spy_r20_floor,
+        cfg.recovery_sessions, cfg.spy_v_rebound,
+    )
+    if actual != expected:
+        raise PaperActivationRefused(
+            "Simplified LD-RC v3 constants differ from the retained strategy")
+    controller = load_concordance_parent()
+    identity = runtime_strategy_identity(controller, concordance=True)
+    if (identity.get("allocation_overlay") != SIMPLIFIED_LDRC_STRATEGY_ID
+            or identity.get("allocation_overlay_version")
+            != str(SIMPLIFIED_LDRC_STRATEGY_VERSION)):
+        raise PaperActivationRefused(
+            "paper strategy identity does not name Simplified LD-RC v3")
+    return controller, identity
 
 
 class PaperActivationRefused(BrokerAuthorityRefused):
@@ -640,6 +680,9 @@ def _fresh_warmed_state(conn, *, through: str, count: int,
         missing = sorted(set(warm) - set(window.sessions))
         raise PaperActivationRefused(
             f"the pinned warm-up window is incomplete: {missing[:8]}")
+    if is_concordance_identity(strategy_identity):
+        window.metadata_timeline = load_causal_meta_history(
+            conn, sessions=warm)
     starting_cash = float(account.equity)
     if not math.isfinite(starting_cash):
         raise PaperActivationRefused("account equity cannot be represented by Wealth Core")
@@ -752,7 +795,7 @@ def _validate_automation_grant(conn, grant: AutomationExecutionGrant):
 
 
 def _validate_broker_grant(conn, grant, _operation: BrokerOperation,
-                           result, *, now_provider) -> None:
+                           result, *, now_provider, strategy_provider) -> None:
     """Fresh database-only grant proof run before and after every broker read."""
     from sentinel.handover import assert_no_legacy_path
 
@@ -769,7 +812,7 @@ def _validate_broker_grant(conn, grant, _operation: BrokerOperation,
         raise PaperActivationRefused("broker authority clock is timezone-naive")
     current = publication.require_current(conn)
     frontier = feed_store.latest_visible_session(conn)
-    runtime_strategy = runtime_strategy_identity(load_controller())
+    runtime_strategy = dict(strategy_provider())
 
     if isinstance(grant, AutomationExecutionGrant):
         _control, cycle = _validate_automation_grant(conn, grant)
@@ -841,7 +884,8 @@ def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
         validate_grant=lambda fresh, current_grant, operation, result: (
             _validate_broker_grant(
                 fresh, current_grant, operation, result,
-                now_provider=now_provider)),
+                now_provider=now_provider,
+                strategy_provider=strategy_provider)),
         automation_config_sha256=automation_config_sha256,
         authority_check=require_current_authority)
     return GuardedExecutionBroker(inner=broker, grant=grant, guard=guard)
@@ -871,8 +915,13 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             and automation_grant.operation_scope != "PREPARE"):
         raise PaperActivationRefused(
             "automation preparation requires a PREPARE-scoped grant")
-    config = controller_config or load_controller()
-    identity = dict(strategy_identity or runtime_strategy_identity(config))
+    if controller_config is None and strategy_identity is None:
+        config, identity = _default_paper_strategy()
+    else:
+        # Preserve the explicit injection seam used by deterministic tests and
+        # administrative tooling. Production supplies neither override.
+        config = controller_config or load_controller()
+        identity = dict(strategy_identity or runtime_strategy_identity(config))
 
     with journal.writer_lock(conn):
         # Ownership is checked under the same lock as plan adoption and before
@@ -933,7 +982,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             else:
                 clock = lambda: observation_time
             strategy_provider = (
-                (lambda: runtime_strategy_identity(load_controller()))
+                (lambda: _default_paper_strategy()[1])
                 if controller_config is None and strategy_identity is None
                 else lambda: dict(identity))
             broker = _guard_broker(
@@ -1317,7 +1366,7 @@ async def _execute_current_paper_plan(
         from sentinel.handover import assert_no_legacy_path
         binding = assert_no_legacy_path(conn)
         rollout = load_rollout_state(conn)
-        strategy_identity = runtime_strategy_identity(load_controller())
+        _controller_config, strategy_identity = _default_paper_strategy()
         with publication.pinned(conn, commit=False) as pinned:
             _readiness_or_refuse(conn, now_et=now_et)
             frontier = feed_store.latest_visible_session(conn)
@@ -1387,8 +1436,7 @@ async def _execute_current_paper_plan(
             broker = _guard_broker(
                 conn=conn, broker=broker, grant=grant, base_url=base_url,
                 now_provider=clock,
-                strategy_provider=lambda: runtime_strategy_identity(
-                    load_controller()),
+                strategy_provider=lambda: _default_paper_strategy()[1],
                 automation_config_sha256=automation_config_sha256)
 
             account = await broker.account_snapshot()
@@ -1477,7 +1525,7 @@ async def recover_automated_paper_cycle(
         from sentinel.handover import assert_no_legacy_path
         binding = assert_no_legacy_path(conn)
         rollout = load_rollout_state(conn)
-        strategy = runtime_strategy_identity(load_controller())
+        _controller_config, strategy = _default_paper_strategy()
         current = publication.require_current(conn)
         authority_kwargs = dict(
             runtime_identity=system_identity.rehearsal_identity(),
@@ -1505,8 +1553,7 @@ async def recover_automated_paper_cycle(
         broker = _guard_broker(
             conn=conn, broker=broker, grant=grant, base_url=base_url,
             now_provider=clock,
-            strategy_provider=lambda: runtime_strategy_identity(
-                load_controller()),
+            strategy_provider=lambda: _default_paper_strategy()[1],
             automation_config_sha256=automation_config_sha256)
         account = await broker.account_snapshot()
         _recovery_account_identity_or_refuse(
@@ -1530,7 +1577,7 @@ def current_paper_plan(conn, *, base_url: str = DEFAULT_BASE_URL) -> dict:
     binding = assert_no_legacy_path(conn)
     current = publication.require_current(conn)
     frontier = feed_store.latest_visible_session(conn)
-    runtime_identity = runtime_strategy_identity(load_controller())
+    _controller_config, runtime_identity = _default_paper_strategy()
     rollout = load_rollout_state(conn)
     checks = {
         "owned_binding": binding.is_owned,

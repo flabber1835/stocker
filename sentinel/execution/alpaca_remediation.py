@@ -282,6 +282,13 @@ def install() -> None:
         async def _observe_snapshot(
                 self, *, terminal_floor: Optional[datetime] = None,
                 recovery_through: Optional[datetime] = None):
+            # The base adapter already binds ordinary snapshots with identity
+            # reads around every major phase.  This overlay needs an additional
+            # outer fence only when it adds fill-activity recovery work.
+            if terminal_floor is None:
+                return await super()._observe_snapshot(
+                    terminal_floor=terminal_floor,
+                    recovery_through=recovery_through)
             account_before = await self.identify_account()
             observed = await super()._observe_snapshot(
                 terminal_floor=terminal_floor,

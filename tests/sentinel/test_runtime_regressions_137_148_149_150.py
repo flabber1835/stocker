@@ -107,7 +107,8 @@ def test_148_preparation_guard_rechecks_boundary_without_full_readiness(monkeypa
     paper._validate_broker_grant(
         object(), grant, BrokerOperation.ACCOUNT_SNAPSHOT, None,
         now_provider=lambda: datetime(
-            2026, 8, 14, 17, tzinfo=timezone.utc))
+            2026, 8, 14, 17, tzinfo=timezone.utc),
+        strategy_provider=lambda: {})
 
 
 def test_149_emergency_cli_does_not_enter_schema_preflight(monkeypatch, capsys):
