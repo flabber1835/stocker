@@ -215,6 +215,11 @@ def test_renderer_exposes_owner_audit_without_a_write_control():
                             "tolerance": "1.00"},
         "account_evidence": {"reconciliation": {
             "corporate_actions": {"SEC-A": "2"}}},
+        "paper_limitations": {"compensation_applied": False,
+                              "expected_dividends": [{
+                                  "security_id": "SEC-A", "ticker": "AAA",
+                                  "shares": "10", "per_share": "0.5",
+                                  "amount": "5.0"}]},
     }
     panel = model.Panel(
         rows=[model.trial_verification_row(
@@ -229,6 +234,8 @@ def test_renderer_exposes_owner_audit_without_a_write_control():
     assert "Orders and commands" in html
     assert "Cash and NAV attribution" in html and "type=DIV" in html
     assert "Corporate actions and terminals" in html
+    assert "SEC-A dividend entitlement" in html
+    assert "Alpaca paper unsupported; no compensation applied" in html
     assert "Trial session history" in html
     for forbidden in ("<form", "<button", "<input", 'type="submit"'):
         assert forbidden not in html.lower()
@@ -263,6 +270,47 @@ def test_no_flow_return_extends_the_exact_verified_chain():
     assert result == (
         Decimal("5"), Decimal("0.05"), Decimal("1.1550"),
         Decimal("0.1550"))
+
+
+def _dividend_event(*, session="2026-08-19", amount=5.0):
+    return {
+        "session": session, "event_type": "DIVIDEND_ACCRUED",
+        "security_id": "SEC-A", "ticker": "AAA", "shares_delta": 0.0,
+        "cash_delta": 0.0, "price": 0.5, "fees": 0.0,
+        "cash_before": 10.0, "cash_after": 10.0,
+        "reason": "DIVIDEND_ACCRUED",
+        "detail": {"shares": 10, "amount": amount, "due_in": 1},
+    }
+
+
+def test_expected_paper_dividend_uses_causal_hashed_ledger_entitlement():
+    state = SimpleNamespace(ledger={
+        "events": [
+            _dividend_event(session="2026-08-18"),
+            _dividend_event(),
+            {**_dividend_event(), "event_type": "DIVIDEND_PAID"},
+        ],
+        "receivables": [],
+    })
+
+    expected = trial._expected_paper_dividends(  # noqa: SLF001
+        state, date(2026, 8, 19))
+
+    assert expected == [{
+        "security_id": "SEC-A", "ticker": "AAA",
+        "accrued_session": "2026-08-19", "shares": "10",
+        "per_share": "0.5", "amount": "5.0",
+        "settlement_lag_sessions": 1,
+    }]
+
+
+def test_corrupt_dividend_entitlement_fails_financial_evidence():
+    state = SimpleNamespace(ledger={
+        "events": [_dividend_event(amount=4.0)], "receivables": []})
+
+    with pytest.raises(trial.TrialEvidenceRefused, match="disagrees"):
+        trial._expected_paper_dividends(  # noqa: SLF001
+            state, date(2026, 8, 19))
 
 
 def test_current_operational_failure_removes_all_verified_styling():
@@ -324,6 +372,7 @@ def test_success_certificate_binds_strategy_evidence_and_split_target(
         last_processed_session=decision_session.isoformat(),
         state_hash="state-sha", data_version=41,
         strategy_identity=strategy_identity, wealth_core={},
+        ledger={"events": [], "receivables": []},
         last_decision={"allocation": "1"},
         last_evidence={"session": decision_session.isoformat()})
     observed_at = NOW - timedelta(minutes=1)
@@ -398,3 +447,23 @@ def test_success_certificate_binds_strategy_evidence_and_split_target(
     assert result["reconciliation"]["target"] == {"SEC-A": "20"}
     assert result["reconciliation"]["deltas"] == {"SEC-A": "0"}
     assert result["state"]["strategy_evidence"]["payload_sha256"] == "evidence-sha"
+    assert result["paper_limitations"] == {
+        "expected_dividends": [], "compensation_applied": False}
+
+    entitlement = {
+        "security_id": "SEC-A", "ticker": "AAA",
+        "accrued_session": decision_session.isoformat(), "shares": "10",
+        "per_share": "0.5", "amount": "5.0",
+        "settlement_lag_sessions": 1,
+    }
+    monkeypatch.setattr(
+        trial, "_expected_paper_dividends", lambda *_: [entitlement])
+    limited = trial.build_cycle_verification(
+        VerificationConnection(plan.plan_id), cycle_id=cycle.cycle_id,
+        observation_id=17, now=NOW)
+
+    assert limited["verdict"] == "NOT_VERIFIED"
+    assert "ALPACA_PAPER_DIVIDEND_UNSUPPORTED" in limited["reason_codes"]
+    assert limited["paper_limitations"] == {
+        "expected_dividends": [entitlement], "compensation_applied": False}
+    assert limited["account_evidence"]["account"]["cash"] == "0"

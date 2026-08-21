@@ -73,6 +73,11 @@ It is never captured by the panel.  The evidence names:
 * account status and blocking flags;
 * broker cash-activity processed-through boundary and cumulative total.
 
+The per-session verification also projects any expected paper dividend from the
+already-hashed canonical Wealth Core ledger.  This is evidence projection only:
+the record contains `compensation_applied: false`, and no projected amount is
+added to broker cash, account equity, marked NAV or target sizing.
+
 The persistent automation loop writes an immediate immutable `NOT_VERIFIED`
 record for terminal states other than `SUCCEEDED`.  Success at the execution
 checkpoint is necessary but not sufficient: an open-time account read cannot
@@ -129,6 +134,18 @@ proves all of the following:
     flow makes the session `NOT_VERIFIED` with no percentage return.  Subtracting
     it from closing equity and dividing by opening equity would silently assume
     boundary timing and is not TWR.
+    Alpaca paper's documented dividend omission has a separate, explicit rule:
+    a hashed Wealth Core `DIVIDEND_ACCRUED` event on the plan's decision session
+    proves the causal entitlement (security, ticker, pre-open shares, per-share
+    amount and total) before same-session fills.  The following effective-session
+    verification is `NOT_VERIFIED` with
+    `ALPACA_PAPER_DIVIDEND_UNSUPPORTED`, and retains that exact entitlement as a
+    paper limitation.  Execution may continue when every ordinary safety gate is
+    clean, but the financial chain cannot remain green.  The verifier neither
+    waits for paper cash that Alpaca says it will not emit nor creates synthetic
+    cash, fills, positions, orders or a second economic ledger.  Broker-native
+    cash activity, if any, remains independently retained exactly once and does
+    not rewrite the immutable limitation evidence.
 11. Canonical unresolved/carried terminal state is zero.  Corporate-action rows
     for the session remain linked audit detail; reconciliation has already
     applied supported share transformations before classifying any mismatch.
@@ -159,7 +176,12 @@ Dietz estimate, or assumed open/close timing is insufficient.
 
 Internal dividends, interest, fees, fill prices/slippage, fractional residual
 cash, and terminal settlements remain in ending equity and therefore in
-strategy return.  The UI calls the primary figure `Total return`; geometric
+strategy return only when the broker actually reports those economics.  A
+known paper dividend entitlement with no certified paper implementation breaks
+the verified-performance chain even though ordinary automation may safely keep
+running.  This separates an accepted simulator limitation from an execution
+failure without pretending the omitted cash was received.  The UI calls the
+primary figure `Total return`; geometric
 annualization is labelled `Annualized TWR` and uses 252 exchange sessions.  It
 is omitted when the chain is shorter than two verified marks or contains a gap.
 

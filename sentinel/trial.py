@@ -30,6 +30,7 @@ ACCOUNT_KIND = "sentinel-trial-account/v1"
 VERIFICATION_KIND = "sentinel-trial-verification/v1"
 FINANCIAL_TOLERANCE = Decimal("1.00")
 SHARE_TOLERANCE = Decimal("0.000001")
+DIVIDEND_EVIDENCE_TOLERANCE = Decimal("0.000001")
 MAXIMUM_CLOCK_SKEW_SECONDS = 5
 
 
@@ -242,6 +243,73 @@ def _age_plan_target(plan_target: Mapping[str, object],
     return target
 
 
+def _expected_paper_dividends(state, decision_session: date) -> list[dict]:
+    """Project causal Wealth Core dividend entitlements into trial evidence.
+
+    Wealth Core accrues a dividend before the session's fills and retains the
+    entitled shares and exact amount in its hashed ledger.  Reuse that event;
+    recomputing entitlement from the post-execution broker book would assign
+    the dividend to the wrong owner around an ex-date sale or purchase.
+
+    This helper is evidence-only.  Its output is never added to broker cash,
+    NAV, positions, fills, orders, or target sizing.
+    """
+    ledger = _mapping(getattr(state, "ledger", None),
+                      where="canonical Wealth Core ledger")
+    events = ledger.get("events")
+    if not isinstance(events, list):
+        raise TrialEvidenceRefused(
+            "canonical Wealth Core ledger events are not an array")
+    wanted = decision_session.isoformat()
+    expected: list[dict] = []
+    for index, raw in enumerate(events):
+        event = _mapping(raw, where=f"Wealth Core ledger event {index}")
+        if (event.get("event_type") != "DIVIDEND_ACCRUED"
+                or event.get("session") != wanted):
+            continue
+        security_id = str(event.get("security_id") or "").strip()
+        ticker = str(event.get("ticker") or "").strip()
+        if not security_id or not ticker:
+            raise TrialEvidenceRefused(
+                f"dividend entitlement {index} has no security identity")
+        detail = _mapping(
+            event.get("detail"), where=f"dividend entitlement {index} detail")
+        shares = _decimal(
+            detail.get("shares"), where=f"dividend entitlement {index} shares",
+            positive=True)
+        per_share = _decimal(
+            event.get("price"), where=f"dividend entitlement {index} per-share",
+            positive=True)
+        amount = _decimal(
+            detail.get("amount"), where=f"dividend entitlement {index} amount",
+            positive=True)
+        try:
+            due_in = int(detail.get("due_in"))
+        except (TypeError, ValueError) as exc:
+            raise TrialEvidenceRefused(
+                f"dividend entitlement {index} has invalid settlement lag") from exc
+        if due_in < 0:
+            raise TrialEvidenceRefused(
+                f"dividend entitlement {index} has negative settlement lag")
+        if abs(amount - shares * per_share) > DIVIDEND_EVIDENCE_TOLERANCE:
+            raise TrialEvidenceRefused(
+                f"dividend entitlement {index} amount disagrees with shares "
+                "times per-share amount")
+        expected.append({
+            "security_id": security_id,
+            "ticker": ticker,
+            "accrued_session": wanted,
+            "shares": str(shares),
+            "per_share": str(per_share),
+            "amount": str(amount),
+            "settlement_lag_sessions": due_in,
+        })
+    return sorted(
+        expected,
+        key=lambda row: (
+            row["security_id"], row["ticker"], row["amount"], row["shares"]))
+
+
 def _performance_attribution(*, opening: Decimal | None,
                              ending: Decimal | None,
                              external: Decimal,
@@ -439,6 +507,7 @@ def build_cycle_verification(conn, *, cycle_id: str,
     _reason(reasons, binding is not None, "BINDING_MISSING")
     state, cursor, state_at = _read_state(conn)
     _reason(reasons, state is not None and cursor is not None, "STATE_MISSING")
+    expected_paper_dividends: list[dict] = []
     strategy_evidence = None
     if plan is not None:
         try:
@@ -508,6 +577,13 @@ def build_cycle_verification(conn, *, cycle_id: str,
                 "TERMINAL_UNRESOLVED")
         _reason(reasons, not (wealth.get("terminal_pending_terms") or {}),
                 "TERMINAL_CARRIED")
+        try:
+            expected_paper_dividends = _expected_paper_dividends(
+                state, plan.decision_session)
+        except TrialEvidenceRefused:
+            reasons.append("DIVIDEND_EVIDENCE_INVALID")
+        if expected_paper_dividends:
+            reasons.append("ALPACA_PAPER_DIVIDEND_UNSUPPORTED")
         if strategy_evidence is not None:
             _reason(reasons,
                     strategy_evidence["state_sha256"] == state.state_hash,
@@ -800,6 +876,10 @@ def build_cycle_verification(conn, *, cycle_id: str,
         "commands": commands, "fills": fills,
         "cash": {"rows": cash_rows, "external": str(external),
                  "internal": str(internal)},
+        "paper_limitations": {
+            "expected_dividends": expected_paper_dividends,
+            "compensation_applied": False,
+        },
         "marks": marks,
         "nav_attribution": {
             "marked_nav": str(marked_nav) if marked_nav is not None else None,

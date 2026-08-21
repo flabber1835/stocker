@@ -214,6 +214,14 @@ def _detail_sections(panel: Panel) -> str:
                   or {}).get("corporate_actions") or {})
     corporate_rows = [(security_id, multiplier)
                       for security_id, multiplier in sorted(corporate.items())]
+    paper_limitations = latest.get("paper_limitations") or {}
+    for entitlement in paper_limitations.get("expected_dividends") or []:
+        corporate_rows.append((
+            f"{entitlement.get('security_id', '')} dividend entitlement",
+            (f"{entitlement.get('shares', '')} {entitlement.get('ticker', '')}"
+             f" x ${entitlement.get('per_share', '')}"
+             f" = ${entitlement.get('amount', '')}; Alpaca paper unsupported;"
+             " no compensation applied")))
     state_evidence = latest.get("state") or {}
     carry = state_evidence.get("terminal_carry_audit") or {}
     for security_id, evidence in sorted(carry.items()):
