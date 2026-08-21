@@ -395,13 +395,15 @@ class CommandEconomicsChanged(RuntimeError):
 #: genuinely new intent needs `CommandIdentity.superseding()`, which mints a new
 #: key precisely so the old promise stays intact.
 _IMMUTABLE = ("security_id", "side", "quantity", "symbol",
+              "broker_instrument_id",
               "deployment_id", "broker", "broker_account_id",
               "takeover_epoch")
 
 
 def _assert_economics_unchanged(cur, command: Command) -> None:
-    cur.execute("SELECT security_id, side, quantity, symbol, deployment_id,"
-                " broker, broker_account_id, takeover_epoch"
+    cur.execute("SELECT security_id, side, quantity, symbol,"
+                " broker_instrument_id, deployment_id, broker,"
+                " broker_account_id, takeover_epoch"
                 " FROM sentinel_commands"
                 " WHERE client_key = %s", (command.client_key,))
     row = cur.fetchone()
@@ -409,12 +411,15 @@ def _assert_economics_unchanged(cur, command: Command) -> None:
         return
     stored = {"security_id": str(row[0]), "side": str(row[1]),
               "quantity": Decimal(str(row[2])), "symbol": str(row[3]),
-              "deployment_id": str(row[4]), "broker": str(row[5]),
-              "broker_account_id": str(row[6]),
-              "takeover_epoch": int(row[7])}
+              "broker_instrument_id": (
+                  str(row[4]) if row[4] is not None else None),
+              "deployment_id": str(row[5]), "broker": str(row[6]),
+              "broker_account_id": str(row[7]),
+              "takeover_epoch": int(row[8])}
     incoming = {"security_id": command.security_id, "side": command.side.value,
                 "quantity": command.quantity,
                 "symbol": command.instrument.symbol,
+                "broker_instrument_id": command.instrument.broker_id,
                 **command.identity.deployment.to_dict()}
     differs = {k: (stored[k], incoming[k]) for k in _IMMUTABLE
                if stored[k] != incoming[k]}
@@ -815,6 +820,7 @@ def record_observation(conn, observation: BrokerObservation,
                           sorted(observation.positions_by_security().items())}),
              json.dumps([{"id": o.broker_order_id, "key": o.client_key,
                           "security_id": o.instrument.security_id,
+                          "broker_instrument_id": o.instrument.broker_id,
                           "side": o.side.value, "state": o.state.value,
                           "qty": str(o.quantity),
                           "filled": str(o.filled_quantity)}
