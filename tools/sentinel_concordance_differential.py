@@ -26,11 +26,15 @@ import os
 import sys
 from pathlib import Path
 from typing import Mapping, Sequence
+from unittest.mock import patch
 
 from sentinel.controller.concordance_parent import load as load_concordance_parent
 from sentinel.controller.machine import Controller
 from sentinel.core.decision import runtime_strategy_identity
-from sentinel.core.loader import load_window
+from sentinel.core.loader import (
+    load_meta as load_current_meta, load_sectors as load_current_sectors,
+    load_window,
+)
 from sentinel.core.production import (
     SessionState, advance_state, load_published_session, warm_session_state,
 )
@@ -394,10 +398,23 @@ def run(conn, *, end: str) -> dict:
                             "actual": actual_effective,
                         })
                     reference.field_comparisons += 1
-                published = load_published_session(
-                    conn, session, spy_sessions=REQUIRED_SPY_SESSIONS,
-                    known_feed_security_ids=_known_ids(state),
-                    session_effective_metadata=False)
+                # A fresh historical seed has only one current TICKERS
+                # observation. Override metadata strictly inside this audit
+                # process so we can test overlay/integration parity without
+                # creating a production causality bypass. Both sides receive
+                # the same current projection and the report says explicitly
+                # that historical metadata causality is NOT claimed.
+                def current_meta(_conn, *, as_of=None):
+                    return load_current_meta(_conn)
+
+                def current_sectors(_conn, *, as_of=None):
+                    return load_current_sectors(_conn)
+
+                with patch("sentinel.core.loader.load_meta", current_meta), \
+                     patch("sentinel.core.loader.load_sectors", current_sectors):
+                    published = load_published_session(
+                        conn, session, spy_sessions=REQUIRED_SPY_SESSIONS,
+                        known_feed_security_ids=_known_ids(state))
                 if int(published.data_version) != int(held.version):
                     raise DifferentialRefused(
                         "published session escaped the held corpus generation")

@@ -64,8 +64,12 @@ def test_historical_differential_does_not_claim_pit_metadata_causality():
     from sentinel.core import production
 
     signature = inspect.signature(production.load_published_session)
-    assert signature.parameters["session_effective_metadata"].default is True
+    assert "session_effective_metadata" not in signature.parameters
+    production_source = inspect.getsource(production.load_published_session)
+    assert "load_meta(conn, as_of=session)" in production_source
+    assert "load_sectors(conn, as_of=session)" in production_source
     source = Path(diff.__file__).read_text(encoding="utf-8")
-    assert "session_effective_metadata=False" in source
+    assert 'patch("sentinel.core.loader.load_meta"' in source
+    assert 'patch("sentinel.core.loader.load_sectors"' in source
     assert '"historical_metadata_causality": "NOT_CLAIMED"' in source
     assert '"prospective_metadata_causality": "SESSION_EFFECTIVE_RUNTIME_GATE"' in source
