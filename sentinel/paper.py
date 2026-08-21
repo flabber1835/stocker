@@ -16,7 +16,12 @@ from decimal import Decimal
 from typing import Mapping, Optional
 from zoneinfo import ZoneInfo
 
-from sentinel import binding as binding_mod, identity as system_identity, schema
+from sentinel import (
+    binding as binding_mod,
+    identity as system_identity,
+    schema,
+    trial,
+)
 from sentinel.authority import (
     AuthorityRefused,
     RolloutMode,
@@ -1065,6 +1070,36 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     account=account, observation=observation,
                     activity_state=activity_state,
                     permit_new_activity=True)
+                due_cycle_id = (trial.due_succeeded_cycle_id(
+                    conn, plan_id=existing_plan.plan_id,
+                    effective_session=through_date)
+                    if (automation_grant is not None
+                        and existing_plan.effective_session == through_date)
+                    else None)
+                if due_cycle_id is not None and rec.observation_id is not None:
+                    # The close for the prior effective session is now
+                    # published and ready.  Bind the fresh post-close broker
+                    # observation before a new plan supersedes its evidence.
+                    trial.record_account_evidence(
+                        conn,
+                        session=through_date,
+                        observation_id=rec.observation_id,
+                        observed_at=observation_time,
+                        snapshot=account,
+                        deployment=binding.identity,
+                        reconciliation=rec,
+                        activity_state=activity_state,
+                        plan_target=existing_plan.target_basket,
+                        target_actions=_target_action_multipliers(
+                            existing_plan, _target_action_lookup(
+                                conn, existing_plan, through_date)),
+                    )
+                    trial.record_cycle_verification(
+                        conn,
+                        cycle_id=due_cycle_id,
+                        observation_id=rec.observation_id,
+                        now=observation_time,
+                    )
             if any(order.is_working for order in observation.orders):
                 raise PaperActivationRefused(
                     "initial plan adoption requires no working broker order; "
@@ -1248,6 +1283,16 @@ def _target_action_lookup(conn, plan: ExecutionPlan, through: date):
 
     return corpus_action_lookup(
         conn, start=plan.decision_session, end=through)
+
+
+def _target_action_multipliers(plan: ExecutionPlan, actions) -> dict[str, Decimal]:
+    """Material supported share changes in the exact target-validity window."""
+    result = {}
+    for security_id in sorted(plan.target_basket):
+        multiplier = actions(security_id)
+        if multiplier not in (None, Decimal(1)):
+            result[security_id] = multiplier
+    return result
 
 
 def _refuse_target_changing_actions(state: SessionState, plan: ExecutionPlan,
@@ -1473,6 +1518,35 @@ async def _execute_current_paper_plan(
                 broker=broker, conn=conn, deployment=binding.identity,
                 plan=plan, instruments=instruments, today=today,
                 actions=actions, increase_authority=authorize_increases)
+            final_reconciliation = session.reconciliation
+            if (final_reconciliation is not None
+                    and final_reconciliation.runtime_state is RuntimeState.RUNNING
+                    and final_reconciliation.clean
+                    and final_reconciliation.observation is not None
+                    and final_reconciliation.observation.is_complete
+                    and final_reconciliation.observation_id is not None):
+                evidence_at = clock()
+                evidence_account = await broker.account_snapshot()
+                _account_or_refuse(
+                    evidence_account, binding, confirmed_account)
+                evidence_activity = await _broker_cash_state_or_refuse(
+                    conn, broker=broker, binding=binding,
+                    through=evidence_at)
+                _cash_authority_or_refuse(
+                    conn, plan=plan, deployment=binding.identity,
+                    account=evidence_account,
+                    observation=final_reconciliation.observation,
+                    activity_state=evidence_activity)
+                trial.record_account_evidence(
+                    conn, session=plan.effective_session,
+                    observation_id=final_reconciliation.observation_id,
+                    observed_at=evidence_at, snapshot=evidence_account,
+                    deployment=binding.identity,
+                    reconciliation=final_reconciliation,
+                    activity_state=evidence_activity,
+                    plan_target=plan.target_basket,
+                    target_actions=_target_action_multipliers(
+                        plan, target_actions))
             return ExecutionResult(plan=plan, preflight=preflight,
                                    session=session)
 
@@ -1548,7 +1622,7 @@ async def recover_automated_paper_cycle(
         if grant.certificate_sha256 != readable.certificate_sha256:
             raise PaperActivationRefused(
                 "automation recovery grant and signed safety authority differ")
-        _validate_automation_grant(conn, grant)
+        _control, cycle = _validate_automation_grant(conn, grant)
         clock = lambda: datetime.now(ZoneInfo(calendar.EXCHANGE_TZ))
         broker = _guard_broker(
             conn=conn, broker=broker, grant=grant, base_url=base_url,
@@ -1558,7 +1632,7 @@ async def recover_automated_paper_cycle(
         account = await broker.account_snapshot()
         _recovery_account_identity_or_refuse(
             account, binding, grant.broker_account_id)
-        await _broker_cash_state_or_refuse(
+        activity_state = await _broker_cash_state_or_refuse(
             conn, broker=broker, binding=binding, through=clock())
         raw = catchup.resume_state(conn)
         state = SessionState.from_dict(raw) if raw is not None else None
@@ -1567,6 +1641,40 @@ async def recover_automated_paper_cycle(
         result = await reconciliation.reconcile(
             broker=broker, conn=conn, binding=None,
             deployment=binding.identity, actions=actions)
+        if (cycle.control_generation == grant.control_generation
+                and cycle.plan_id is not None
+                and result.runtime_state is RuntimeState.RUNNING
+                and result.clean
+                and result.observation is not None
+                and result.observation.is_complete
+                and result.observation_id is not None):
+            plan = journal.load_plan(conn, cycle.plan_id)
+            if plan is not None and plan.fingerprint() == cycle.plan_fingerprint:
+                evidence_at = clock()
+                account = await broker.account_snapshot()
+                _account_or_refuse(account, binding, grant.broker_account_id)
+                activity_state = await _broker_cash_state_or_refuse(
+                    conn, broker=broker, binding=binding,
+                    through=evidence_at)
+                _cash_authority_or_refuse(
+                    conn, plan=plan, deployment=binding.identity,
+                    account=account, observation=result.observation,
+                    activity_state=activity_state,
+                    # Recovery submits nothing. A recognized post-plan
+                    # dividend/interest/fee is legitimate realized economics;
+                    # it may be certified after the book is clean even though
+                    # it would refuse a stale plan's new BUY authorization.
+                    permit_new_activity=True)
+                trial.record_account_evidence(
+                    conn, session=cycle.effective_session,
+                    observation_id=result.observation_id,
+                    observed_at=evidence_at, snapshot=account,
+                    deployment=binding.identity, reconciliation=result,
+                    activity_state=activity_state,
+                    plan_target=plan.target_basket,
+                    target_actions=_target_action_multipliers(
+                        plan, _target_action_lookup(
+                            conn, plan, cycle.effective_session)))
         return result
 
 

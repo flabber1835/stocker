@@ -47,6 +47,8 @@ RecoverCallable: TypeAlias = Callable[
     | Awaitable[ExecuteResult | Mapping[str, Any]]]
 NotifyCallable: TypeAlias = Callable[
     [Any, TickResult | BaseException], Any | Awaitable[Any]]
+TerminalCallable: TypeAlias = Callable[
+    [Any, TickResult], Any | Awaitable[Any]]
 
 
 async def _resolve(value):
@@ -68,7 +70,8 @@ class AutomationService:
             self, *, config: AutomationConfig, holder_id: str,
             refresh: RefreshCallable, prepare: PrepareCallable,
             recover: RecoverCallable, execute: ExecuteCallable,
-            notify: NotifyCallable | None = None) -> None:
+            notify: NotifyCallable | None = None,
+            terminal: TerminalCallable | None = None) -> None:
         if not holder_id:
             raise ValueError("holder_id must be non-empty")
         self.config = config
@@ -78,6 +81,7 @@ class AutomationService:
         self.recover = recover
         self.execute = execute
         self.notify = notify
+        self.terminal = terminal
 
     def _spec(self, control, obligation) -> CycleSpec:
         binding = control.binding
@@ -1031,6 +1035,14 @@ class AutomationService:
                         last_error=f"{type(exc).__name__}: {exc}"[:4000])
                     raise
                 ticks += 1
+                if (self.terminal is not None and result.cycle is not None
+                        and result.cycle.state in {
+                            CycleState.SUCCEEDED,
+                            CycleState.MISSED_STATE_ONLY,
+                            CycleState.SUPERSEDED,
+                            CycleState.BLOCKED,
+                        }):
+                    await _resolve(self.terminal(conn, result))
                 if (self.notify is not None
                         and (result.action in {
                             TickAction.BLOCKED,

@@ -69,6 +69,13 @@ class TestStalenessCannotHide:
                                        freshness=timedelta(hours=1))))
         assert "STALE" in html
 
+    def test_a_materially_future_fact_is_never_green(self):
+        r = model.Row("k", "Feed", "future", model.OK,
+                      as_of=NOW + timedelta(seconds=6),
+                      freshness=timedelta(hours=1))
+        assert r.is_future(NOW)
+        assert r.effective_status(NOW) is model.FAIL
+
 
 # ── 2. unknown is never zero ─────────────────────────────────────────────────
 
@@ -927,14 +934,31 @@ class TestItCannotAct:
         for tag in ("<form", "<button", "<input", 'type="submit"'):
             assert tag not in low, f"{tag} on a read-only panel"
 
-    def test_no_PERFORMANCE_figure_is_shown(self):
-        """The certification rule: no Wealth Core performance number without the
-        settlement counters and the episode audit beside it. A dashboard is
-        precisely where a bare number gets screenshotted and quoted."""
-        html = render(build_panel(state_dir="/nonexistent", database_url="",
-                                  now=NOW)).lower()
-        for word in ("cagr", "sharpe", "total return", "p&l"):
-            assert word not in html, f"{word!r} on the panel"
+    def test_performance_is_never_shown_without_an_explicit_verdict(self):
+        panel = _panel(
+            model.trial_verification_row(
+                verdict="NOT_VERIFIED", session="2026-08-20",
+                reason_codes=("NAV_UNEXPLAINED",), verified_at=NOW),
+            model.trial_metric_row(
+                "trial_return", "Trial total return", "+1.25%",
+                verified=False, detail="actual equity", as_of=NOW))
+        html = render(panel).lower()
+        assert "trial not verified" in html
+        assert "unverified · actual equity" in html
+        assert "cagr" not in html and "sharpe" not in html
+
+    def test_ios_resume_and_clock_guards_can_only_invalidate(self):
+        panel = _panel(model.trial_verification_row(
+            verdict="VERIFIED", session="2026-08-20", verified_at=NOW))
+        html = render(panel)
+        for event in ("pageshow", "visibilitychange", "online", "offline"):
+            assert event in html
+        assert "TRIAL NOT VERIFIED — NOT CURRENT" in html
+        assert "event.persisted" in html
+        assert "age > budget" in html and "age < -5000" in html
+        script = html.split("<script>", 1)[1].split("</script>", 1)[0]
+        assert "VERIFIED THROUGH" not in script, (
+            "browser code gained authority to manufacture financial green")
 
     def test_the_sources_module_never_imports_a_BROKER(self):
         """A page refreshing every 30 seconds must not produce broker traffic."""

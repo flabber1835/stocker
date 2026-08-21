@@ -16,7 +16,7 @@ from decimal import Decimal
 from typing import Mapping
 from zoneinfo import ZoneInfo
 
-from sentinel import identity as system_identity, paper, schema
+from sentinel import identity as system_identity, paper, schema, trial
 from sentinel.authority import AuthorityRefused, load_rollout_state
 from sentinel.automation import outbox, schedule, store
 from sentinel.automation.model import (
@@ -139,7 +139,7 @@ class ProductionAutomation:
             config=automation_config, holder_id=self.holder_id,
             refresh=self.refresh, prepare=self.prepare,
             recover=self.recover, execute=self.execute,
-            notify=self.notify)
+            notify=self.notify, terminal=self.certify_terminal_cycle)
 
     def connect(self):
         return feed_store.connect(self.sentinel_config.database_url)
@@ -259,6 +259,7 @@ class ProductionAutomation:
                 report = readiness.check_readiness(
                     conn, today=datetime.now(
                         ZoneInfo(calendar.EXCHANGE_TZ)).isoformat())
+                readiness.save_snapshot(conn, report)
                 if not report.ready:
                     raise RuntimeError(
                         "published decision close is not operationally ready")
@@ -277,6 +278,7 @@ class ProductionAutomation:
             report = readiness.check_readiness(
                 conn, today=datetime.now(
                     ZoneInfo(calendar.EXCHANGE_TZ)).isoformat())
+            readiness.save_snapshot(conn, report)
             if not report.ready:
                 raise RuntimeError("daily refresh completed but readiness failed")
             return RefreshResult(
@@ -644,6 +646,36 @@ class ProductionAutomation:
             severity=severity, payload=payload,
             max_attempts=self.automation_config.alert_max_attempts)
 
+    async def certify_terminal_cycle(self, conn, result: TickResult):
+        """Append the financial verdict after the terminal transition commits."""
+        assert result.cycle is not None
+        # A successful open-time execution cannot yet prove full-session
+        # performance.  Its immutable account evidence is captured by the
+        # execution gateway and finalized after that session's close publishes.
+        if result.cycle.state.value == "SUCCEEDED":
+            return None
+        try:
+            verification = trial.record_cycle_verification(
+                conn, cycle_id=result.cycle.cycle_id)
+            if verification["verdict"] == "VERIFIED":
+                return verification
+            detail = ",".join(verification["reason_codes"])
+            payload = {"cycle_id": result.cycle.cycle_id,
+                       "trial_verification": verification}
+            event_type = "TRIAL_NOT_VERIFIED"
+        except Exception as exc:                            # noqa: BLE001
+            conn.rollback()
+            detail = f"{type(exc).__name__}:{str(exc)[:1000]}"
+            payload = {"cycle_id": result.cycle.cycle_id,
+                       "trial_verification_error": detail}
+            event_type = "TRIAL_VERIFICATION_EXCEPTION"
+        return outbox.enqueue(
+            conn,
+            idempotency_key=(f"trial:{result.cycle.cycle_id}:"
+                             f"{event_type}:{detail[:500]}"),
+            event_type=event_type, severity="CRITICAL", payload=payload,
+            max_attempts=self.automation_config.alert_max_attempts)
+
     async def dispatch_alert(self, conn):
         return await outbox.dispatch_once(
             conn, adapter=self.alert_adapter,
@@ -686,6 +718,7 @@ class ProductionAutomation:
             report = readiness.check_readiness(
                 conn, today=now.astimezone(
                     ZoneInfo(calendar.EXCHANGE_TZ)).isoformat())
+            readiness.save_snapshot(conn, report)
             if visible != target or not report.ready:
                 raise RuntimeError(
                     "fenced data progression has not reached exact ready frontier "
