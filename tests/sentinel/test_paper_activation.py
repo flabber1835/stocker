@@ -78,6 +78,7 @@ PRIOR = dt.date(2026, 8, 7)
 HALF_DAY_DECISION = dt.date(2024, 11, 27)
 HALF_DAY_EFFECTIVE = dt.date(2024, 11, 29)
 ACCOUNT = "SIM-PAPER"
+ROLLOUT_CERTIFICATE = "c" * 64
 AAA = BrokerInstrument(security_id="SEC-AAA", symbol="AAA")
 IDENTITY = {
     "strategy": "paper-activation-test",
@@ -129,6 +130,17 @@ def conn(pg):
     drop_public_tables(connection)
     feed_store.ensure_schema(connection)
     schema.ensure_schema(connection)
+    with connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_system_certificates"
+            " (certificate_sha256,manifest_bytes,manifest,allowed_rollout_modes)"
+            " VALUES (%s,'{}'::bytea,'{}'::jsonb,'[\"CONTROLLER\"]'::jsonb)",
+            (ROLLOUT_CERTIFICATE,))
+        cur.execute(
+            "UPDATE sentinel_rollout_state"
+            " SET mode='CONTROLLER',certificate_sha256=%s WHERE id=1",
+            (ROLLOUT_CERTIFICATE,))
+    connection.commit()
     yield connection
     connection.close()
 
@@ -256,7 +268,9 @@ def _plan(state: SessionState, pinned, bound, *, plan_id=None,
         takeover_epoch=bound.takeover_epoch,
         publication_fingerprint=publication_fingerprint(pinned),
         account_nav=D("1000"), account_cash=D("1000"), cash_residual=D(0),
-        defensive_security=DEFENSIVE_SECURITY_ID)
+        defensive_security=DEFENSIVE_SECURITY_ID,
+        rollout_mode="CONTROLLER", rollout_version=1,
+        rollout_certificate_sha256=ROLLOUT_CERTIFICATE)
     return ExecutionPlan(**{
         **plan.__dict__,
         "plan_id": plan_id or f"sentinel-{plan.fingerprint()}",
@@ -624,14 +638,22 @@ def test_fresh_boot_warms_exactly_252_feature_sessions_without_path_history(
         monkeypatch):
     sessions = [f"S{i:04d}" for i in range(1, 254)]
     warm = sessions[:-1]
-    meta = {AAA.security_id: SecurityMeta(
-        AAA.security_id, AAA.symbol, category="Domestic Common Stock",
-        permaticker=AAA.security_id, first_session=warm[0])}
+    securities = [(AAA.security_id, AAA.symbol)] + [
+        (f"SEC-AUX-{index:02d}", f"AUX{index:02d}")
+        for index in range(1, 30)]
+    meta = {
+        security_id: SecurityMeta(
+            security_id, ticker, category="Domestic Common Stock",
+            permaticker=security_id, first_session=warm[0])
+        for security_id, ticker in securities
+    }
     window = CorpusWindow(
         sessions=warm, meta=meta,
-        bars_by_session={session: [VendorBar(
-            session=session, security_id=AAA.security_id, ticker=AAA.symbol,
-            raw_close=100.0, raw_open=100.0, volume=1_000_000.0)]
+        bars_by_session={
+            session: [VendorBar(
+                session=session, security_id=security_id, ticker=ticker,
+                raw_close=100.0, raw_open=100.0, volume=1_000_000.0)
+                for security_id, ticker in securities]
             for session in warm})
     monkeypatch.setattr(
         paper.calendar, "previous_sessions",
@@ -697,26 +719,36 @@ def test_real_fresh_boot_pipeline_is_restart_equivalent_and_adopts_one_plan(
         for offset in range(252, -1, -1)
     ]
     warm = sessions[:-1]
-    meta = {AAA.security_id: SecurityMeta(
-        AAA.security_id, AAA.symbol, category="Domestic Common Stock",
-        permaticker=AAA.security_id, first_session=sessions[0])}
+    securities = [(AAA.security_id, AAA.symbol)] + [
+        (f"SEC-AUX-{index:02d}", f"AUX{index:02d}")
+        for index in range(1, 30)]
+    meta = {
+        security_id: SecurityMeta(
+            security_id, ticker, category="Domestic Common Stock",
+            permaticker=security_id, first_session=sessions[0])
+        for security_id, ticker in securities
+    }
 
-    def bar(session, index):
+    def bar(session, index, security_id=AAA.security_id, ticker=AAA.symbol):
         price = 100.0 + index / 10.0
         return VendorBar(
-            session=session, security_id=AAA.security_id, ticker=AAA.symbol,
+            session=session, security_id=security_id, ticker=ticker,
             raw_close=price, raw_open=price, volume=1_000_000.0)
 
     window = CorpusWindow(
         sessions=warm, meta=meta,
         bars_by_session={
-            session: [bar(session, index)]
+            session: [
+                bar(session, index, security_id, ticker)
+                for security_id, ticker in securities]
             for index, session in enumerate(warm)
         })
     pinned = _publish(conn)
     current = PublishedSession(
         session=DECISION.isoformat(), data_version=pinned.version,
-        bars=(bar(DECISION.isoformat(), len(warm)),), meta=meta,
+        bars=tuple(
+            bar(DECISION.isoformat(), len(warm), security_id, ticker)
+            for security_id, ticker in securities), meta=meta,
         sectors={AAA.security_id: "Information Technology"},
         spy_sessions=tuple(sessions[-41:]),
         spy_expected_sessions=tuple(sessions[-41:]),
@@ -1126,7 +1158,7 @@ class TestStrictExecutionGate:
             cur.execute(
                 "INSERT INTO sentinel_rollout_events"
                 " (version,from_mode,to_mode,certificate_sha256,reason)"
-                " VALUES (2,'PINNED_1_00','CONTROLLER',%s,"
+                " VALUES (2,'CONTROLLER','CONTROLLER',%s,"
                 "         'test coherent authority transition')",
                 (certificate_sha,))
         conn.commit()
@@ -1476,8 +1508,8 @@ class TestStrictExecutionGate:
         broker = _broker()
 
         with pytest.raises(
-                paper.PaperActivationRefused,
-                match="state fingerprint is stale"):
+                catchup.StateCommitmentMismatch,
+                match="state fingerprint does not match"):
             _execute(conn, broker)
 
         assert broker.calls == []
