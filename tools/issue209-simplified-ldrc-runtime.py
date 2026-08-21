@@ -11,7 +11,6 @@ def replace_once(path: str, old: str, new: str) -> None:
 
 
 paper = Path("sentinel/paper.py")
-text = paper.read_text(encoding="utf-8")
 
 replace_once(
     "sentinel/paper.py",
@@ -52,21 +51,39 @@ replace_once(
     '''            strategy_provider = (\n                (lambda: _default_paper_strategy()[1])\n                if controller_config is None and strategy_identity is None\n                else lambda: dict(identity))\n''',
 )
 
-# The execution/recovery/inspection paths have no strategy injection seam and\n# therefore must all independently derive the same Simplified LD-RC identity.\nfor old, new, expected_count in [\n    ("        strategy_identity = runtime_strategy_identity(load_controller())\n",\n     "        _controller_config, strategy_identity = _default_paper_strategy()\n", 1),\n    ("        strategy = runtime_strategy_identity(load_controller())\n",\n     "        _controller_config, strategy = _default_paper_strategy()\n", 1),\n    ("    runtime_identity = runtime_strategy_identity(load_controller())\n",\n     "    _controller_config, runtime_identity = _default_paper_strategy()\n", 1),\n]:\n    current = paper.read_text(encoding="utf-8")\n    if current.count(old) != expected_count:\n        raise SystemExit(\n            f"sentinel/paper.py: expected {expected_count} occurrence(s) of {old!r}, "\n            f"found {current.count(old)}")\n    paper.write_text(current.replace(old, new, expected_count), encoding="utf-8")\n
+# The execution/recovery/inspection paths have no strategy injection seam and
+# therefore must all independently derive the same Simplified LD-RC identity.
+for old, new in [
+    ("        strategy_identity = runtime_strategy_identity(load_controller())\n",
+     "        _controller_config, strategy_identity = _default_paper_strategy()\n"),
+    ("        strategy = runtime_strategy_identity(load_controller())\n",
+     "        _controller_config, strategy = _default_paper_strategy()\n"),
+    ("    runtime_identity = runtime_strategy_identity(load_controller())\n",
+     "    _controller_config, runtime_identity = _default_paper_strategy()\n"),
+]:
+    current = paper.read_text(encoding="utf-8")
+    count = current.count(old)
+    if count != 1:
+        raise SystemExit(
+            f"sentinel/paper.py: expected one occurrence of {old!r}, found {count}")
+    paper.write_text(current.replace(old, new, 1), encoding="utf-8")
+
 current = paper.read_text(encoding="utf-8")
 old = '''                strategy_provider=lambda: runtime_strategy_identity(\n                    load_controller()),\n'''
-if current.count(old) != 2:
+provider_count = current.count(old)
+if provider_count < 1:
     raise SystemExit(
-        "sentinel/paper.py: expected exactly two execution/recovery strategy providers")
+        "sentinel/paper.py: no execution/recovery legacy strategy provider found")
 paper.write_text(
     current.replace(
         old,
-        '''                strategy_provider=lambda: _default_paper_strategy()[1],\n''',
-        2),
+        '''                strategy_provider=lambda: _default_paper_strategy()[1],\n'''),
     encoding="utf-8",
 )
 
-# There must be no unguarded production default left. load_controller remains\n# only for the explicit test/admin injection compatibility branch above.\ncurrent = paper.read_text(encoding="utf-8")
+# There must be no unguarded production default left. load_controller remains
+# only for the explicit test/admin injection compatibility branch above.
+current = paper.read_text(encoding="utf-8")
 if "runtime_strategy_identity(load_controller())" in current:
     raise SystemExit("sentinel/paper.py still contains a legacy runtime strategy default")
 
