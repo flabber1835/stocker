@@ -77,7 +77,6 @@ def test_command_client_key_economics_include_asset_id():
             _Cursor(), _command("asset-b"))
 
 
-
 def test_observation_provenance_retains_position_asset_id():
     from sentinel import schema
     from sentinel.execution.contract import BrokerAccountIdentity
@@ -94,7 +93,7 @@ def test_observation_provenance_retains_position_asset_id():
         conn = feed_store.connect(server.sync_dsn)
         drop_public_tables(conn)
         feed_store.migrate_schema(conn)
-        schema.migrate_schema(conn)
+        schema.ensure_schema(conn)
         observation = BrokerObservation(
             observed_at=datetime.now(timezone.utc),
             account_identity=BrokerAccountIdentity("alpaca", "paper-1"),
