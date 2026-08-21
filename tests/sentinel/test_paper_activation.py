@@ -162,7 +162,7 @@ def simulator_is_certified(monkeypatch):
     monkeypatch.setattr(
         paper, "require_current_authority",
         lambda *_args, **_kwargs: SimpleNamespace(
-            certificate_sha256="test-system-certificate"))
+            certificate_sha256=ROLLOUT_CERTIFICATE))
     monkeypatch.setattr(
         paper.system_identity, "rehearsal_identity",
         lambda: {"identity_hash": "test-runtime"})
