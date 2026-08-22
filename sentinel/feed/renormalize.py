@@ -30,6 +30,7 @@ class RenormalizedWindow:
     source_rows: int
     bars_written: int
     rows_dropped: int
+    failed_rows_retired: int = 0
 
 
 def _window_for_date(day: str) -> tuple[str, str]:
@@ -49,9 +50,44 @@ def _window_for_date(day: str) -> tuple[str, str]:
     return start, following
 
 
-def correction_windows(dates: Iterable[str]) -> list[tuple[str, str]]:
-    """Return deterministic merged replay windows for source dates."""
-    raw = sorted({_window_for_date(str(day)) for day in dates})
+def correction_windows(
+        dates: Iterable[str], *, market_start: str | None = None,
+        market_end: str | None = None) -> list[tuple[str, str]]:
+    """Return deterministic merged replay windows for source dates.
+
+    When a retained market boundary is supplied, a source event participates
+    only when its effective XNYS session is inside that boundary.  Its ordinary
+    prior/effective/following window is then clipped to the same boundary.  A
+    complete ACTIONS history is therefore not permission to widen a deliberately
+    shorter SEP corpus.
+    """
+    if (market_start is None) != (market_end is None):
+        raise ValueError("market_start and market_end must be supplied together")
+    if market_start is not None and str(market_start) > str(market_end):
+        raise ValueError(
+            f"reversed retained market boundary: {market_start} > {market_end}")
+
+    raw_market_start = None
+    if market_start is not None:
+        raw_market_start, _ = calendar.action_date_window(
+            str(market_start), str(market_end))
+    raw: list[tuple[str, str]] = []
+    for day in {str(value) for value in dates}:
+        if market_start is not None:
+            # Cheap raw-date exclusion comes first. Complete ACTIONS authority
+            # can begin before the pinned XNYS calendar itself; those dates are
+            # metadata-only for a short retained market corpus.
+            if day < str(raw_market_start) or day > str(market_end):
+                continue
+            effective = calendar.session_on_or_after(day)
+            if effective < str(market_start) or effective > str(market_end):
+                continue
+        start, end = _window_for_date(day)
+        if market_start is not None:
+            start = max(start, str(market_start))
+            end = min(end, str(market_end))
+        raw.append((start, end))
+    raw.sort()
     if not raw:
         return []
     merged: list[list[str]] = []
@@ -75,7 +111,11 @@ def _stable_sep(fetch, start: str, end: str):
 def renormalize(
         conn, *, fetch, run, dates: Iterable[str],
         include_action_run_id: str | None = None,
-        chunk_prefix: str = "historical") -> list[RenormalizedWindow]:
+        chunk_prefix: str = "historical",
+        market_start: str | None = None,
+        market_end: str | None = None,
+        retire_failed_action_candidates: bool = False,
+        ) -> list[RenormalizedWindow]:
     """Replay bounded affected windows into ``run`` using canonical ingest logic.
 
     ``include_action_run_id`` lets an ACTIONS reconciliation normalize prices
@@ -87,7 +127,8 @@ def renormalize(
     # maintenance helper that itself deliberately reuses its private primitives.
     from sentinel.feed import ingest_impl
 
-    windows = correction_windows(dates)
+    windows = correction_windows(
+        dates, market_start=market_start, market_end=market_end)
     if not windows:
         return []
     resolver = universe.load_resolver(conn).resolve
@@ -113,12 +154,18 @@ def renormalize(
             ingest_impl._persist_chunk_evidence(
                 conn, run, label, start, end, report, splits,
                 action_rows, action_rows, ambiguous)
+            retired = 0
+            if retire_failed_action_candidates:
+                from sentinel.feed import recovery
+                retired = recovery.retire_failed_action_reconcile_bars_in_window(
+                    conn, run_id=run.progress.run_id, start=start, end=end)
             dropped = report.dropped_no_raw_close + report.dropped_no_identity
             run.progress.rows_written += written
             run.progress.rows_dropped += dropped
             results.append(RenormalizedWindow(
                 start=start, end=end, source_rows=report.rows,
-                bars_written=written, rows_dropped=dropped))
+                bars_written=written, rows_dropped=dropped,
+                failed_rows_retired=retired))
     return results
 
 

@@ -11,6 +11,8 @@ import datetime as dt
 from contextlib import contextmanager
 from types import SimpleNamespace
 
+import pytest
+
 from sentinel.feed import maintenance, publication, renormalize, store
 
 
@@ -79,8 +81,17 @@ def test_actions_split_correction_replays_against_candidate_before_publication(
     monkeypatch.setattr(
         maintenance, "_action_change_dates", lambda conn, current: ["2020-01-02"])
     monkeypatch.setattr(
+        maintenance, "_retained_market_bounds",
+        lambda conn: ("2019-01-02", "2026-08-18"))
+    monkeypatch.setattr(
+        maintenance, "_failed_action_reconcile_bar_footprint",
+        lambda conn, **kwargs: ([], False))
+    monkeypatch.setattr(
         renormalize, "correction_windows",
-        lambda dates: [("2019-12-31", "2020-01-03")])
+        lambda dates, **kwargs: [("2019-12-31", "2020-01-03")])
+    monkeypatch.setattr(
+        "sentinel.feed.recovery.retire_failed_action_reconcile_bars_outside_market",
+        lambda conn, **kwargs: 0)
 
     def write_actions(conn, current, *, run_id, window_start, window_end):
         events.append(("actions", run_id))
@@ -88,9 +99,12 @@ def test_actions_split_correction_replays_against_candidate_before_publication(
 
     monkeypatch.setattr(store, "write_actions", write_actions)
 
-    def replay(conn, *, fetch, run, dates, include_action_run_id, chunk_prefix):
+    def replay(conn, *, fetch, run, dates, include_action_run_id, chunk_prefix,
+               market_start, market_end, retire_failed_action_candidates):
         events.append(("replay", run.progress.run_id, include_action_run_id))
         assert include_action_run_id == run.progress.run_id
+        assert (market_start, market_end) == ("2019-01-02", "2026-08-18")
+        assert retire_failed_action_candidates is True
         return []
 
     monkeypatch.setattr(renormalize, "renormalize", replay)
@@ -122,6 +136,65 @@ def test_actions_split_correction_replays_against_candidate_before_publication(
     ]
 
 
+def test_full_actions_history_does_not_expand_a_short_price_seed(monkeypatch):
+    events = []
+    old = {
+        "ticker": "OLD", "date": "1998-01-02", "action": "split",
+        "name": None, "value": 2.0, "contraticker": None,
+        "contraname": None,
+    }
+    recent = {
+        "ticker": "NEW", "date": "2025-08-18", "action": "dividend",
+        "name": None, "value": 0.5, "contraticker": None,
+        "contraname": None,
+    }
+    monkeypatch.setattr(store, "_assert_corpus_locked", lambda conn: None)
+    monkeypatch.setattr(store, "IngestRun", _Run)
+    monkeypatch.setattr(maintenance, "load_actions_cursor", lambda conn: None)
+    monkeypatch.setattr(
+        maintenance, "_stable_rows",
+        lambda fetch, table, params: [old, recent])
+    monkeypatch.setattr(
+        maintenance, "_active_action_rows",
+        lambda conn: {"recent": recent})
+    monkeypatch.setattr(
+        maintenance, "_action_change_dates",
+        lambda conn, rows: ["1998-01-02"])
+    monkeypatch.setattr(
+        maintenance, "_retained_market_bounds",
+        lambda conn: ("2025-07-01", "2026-08-21"))
+    monkeypatch.setattr(
+        maintenance, "_failed_action_reconcile_bar_footprint",
+        lambda conn, **kwargs: ([], False))
+    monkeypatch.setattr(
+        "sentinel.feed.recovery.retire_failed_action_reconcile_bars_outside_market",
+        lambda conn, **kwargs: 0)
+    monkeypatch.setattr(
+        store, "write_actions", lambda *args, **kwargs: 2)
+    monkeypatch.setattr(
+        renormalize, "renormalize",
+        lambda *args, **kwargs: pytest.fail(
+            "an action outside the retained market must not fetch SEP"))
+    monkeypatch.setattr(
+        publication, "publish",
+        lambda conn, *, run_id, **kwargs: events.append(kwargs["evidence"])
+        or _pub(run_id))
+    monkeypatch.setattr(
+        maintenance, "_write_cursor",
+        lambda conn, **kwargs: maintenance.SourceCursor(
+            kind=kwargs["kind"], processed_through=kwargs["through"],
+            publication_version=kwargs["publication_version"]))
+
+    maintenance.reconcile_actions_if_due(
+        object(), fetch=object(), through="2026-08-21", force=True)
+
+    evidence = events[0]
+    assert evidence["changed_action_dates"] == 1
+    assert evidence["affected_bar_dates"] == 1
+    assert evidence["retained_market_window"] == ["2025-07-01", "2026-08-21"]
+    assert evidence["replay_windows"] == []
+
+
 def test_sep_mutation_cursor_moves_only_after_bounded_replay_publication(monkeypatch):
     events = []
     cursor = maintenance.SourceCursor(
@@ -138,13 +211,19 @@ def test_sep_mutation_cursor_moves_only_after_bounded_replay_publication(monkeyp
         maintenance, "_stable_rows", lambda fetch, table, params: rows)
     monkeypatch.setattr(
         maintenance, "_validate_sep_mutation_rows",
-        lambda conn, current, *, lo, hi, published_through: ["2020-01-02"])
+        lambda conn, current, *, lo, hi, published_from, published_through:
+            ["2020-01-02"])
+    monkeypatch.setattr(
+        maintenance, "_retained_market_bounds",
+        lambda conn: ("2019-01-02", "2026-08-18"))
     monkeypatch.setattr(
         renormalize, "correction_windows",
-        lambda dates: [("2019-12-31", "2020-01-03")])
+        lambda dates, **kwargs: [("2019-12-31", "2020-01-03")])
 
     def replay(conn, *, fetch, run, dates, chunk_prefix, **kwargs):
         events.append(("replay", run.progress.run_id))
+        assert kwargs == {
+            "market_start": "2019-01-02", "market_end": "2026-08-18"}
         return []
 
     monkeypatch.setattr(renormalize, "renormalize", replay)

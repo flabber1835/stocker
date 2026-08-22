@@ -1029,6 +1029,19 @@ lock. The same publication transaction activates the action generation,
 anomaly disposition, and split-repair overlay, and rolls all activation back if
 the publication row fails.
 
+Complete ACTIONS authority does not define the retained SEP horizon. A
+reconciliation may observe and retain rows from `1900-01-01`, but changed
+actions trigger price re-normalization only when their effective XNYS session
+falls inside the already-published market corpus, and the prior/effective/next
+replay is clipped at that corpus boundary. This keeps historical action
+negative-space complete without silently expanding a short operational price
+seed. On retry, stable source replay first reclaims failed in-range bar keys;
+failed ACTIONS-reconciliation bars outside the published market boundary are
+candidate-only rows and are retired before publication. SEP `lastupdated`
+maintenance is bounded on both sides by the same retained horizon; a current
+revision outside it belongs to a deliberately wider complete seed, not to
+incremental corpus expansion.
+
 Universe recovery is deliberately different because TICKERS is a complete
 dated snapshot keyed by `(permaticker, ticker, snapshot_date)`. A retry on a
 later date cannot overwrite the failed snapshot's keys. Once the retry is

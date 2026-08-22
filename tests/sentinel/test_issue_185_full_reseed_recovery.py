@@ -137,6 +137,32 @@ def test_prepare_full_reseed_widens_to_candidate_rows_and_retires_no_publication
     assert conn.commits == 1
 
 
+def test_failed_actions_replay_cleanup_is_scoped_by_kind_and_market_boundary(
+        monkeypatch):
+    conn = _Conn()
+    monkeypatch.setattr(
+        "sentinel.feed.store._assert_corpus_locked", lambda conn: None)
+
+    outside = recovery.retire_failed_action_reconcile_bars_outside_market(
+        conn, run_id="new-run", market_start="2025-07-01",
+        market_end="2026-08-21")
+    inside = recovery.retire_failed_action_reconcile_bars_in_window(
+        conn, run_id="new-run", start="2025-07-01", end="2025-07-03")
+
+    assert (outside, inside) == (2, 2)
+    outside_sql, outside_params = conn.sql[-2]
+    inside_sql, inside_params = conn.sql[-1]
+    for sql in (outside_sql, inside_sql):
+        assert "r.kind='actions_reconcile'" in sql
+        assert "r.status='failed'" in sql
+        assert "sentinel_corpus_publications" in sql
+    assert "b.session<%s OR b.session>%s" in outside_sql
+    assert outside_params == ("new-run", "2025-07-01", "2026-08-21")
+    assert "b.session BETWEEN %s AND %s" in inside_sql
+    assert inside_params == ("new-run", "2025-07-01", "2025-07-03")
+    assert conn.commits == 2
+
+
 class _Progress:
     run_id = "new-seed"
     kind = "seed"

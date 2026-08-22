@@ -321,6 +321,63 @@ def retire_failed_bars_in_stable_seed_window(
     return deleted
 
 
+def retire_failed_action_reconcile_bars_in_window(
+        conn, *, run_id: str, start: str, end: str) -> int:
+    """Retire residual failed ACTIONS-replay rows after stable SEP replacement.
+
+    A failed in-place upsert may have taken ownership of a formerly published
+    key, so an in-range row is deleted only after the retry has double-observed
+    and replayed the complete SEP window that contains it.  Rows present in the
+    current source have already been reclaimed by the new run; any residual is
+    now an authoritative absence.
+    """
+    from sentinel.feed.store import _assert_corpus_locked
+
+    _assert_corpus_locked(conn)
+    writer = str(run_id)
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM sentinel_bars b USING feed_ingest_runs r"
+            " WHERE b.last_written_run_id=r.run_id"
+            "   AND b.last_written_run_id<>%s"
+            "   AND r.kind='actions_reconcile' AND r.status='failed'"
+            "   AND b.session BETWEEN %s AND %s"
+            "   AND NOT EXISTS (SELECT 1 FROM sentinel_corpus_publications p"
+            "                   WHERE p.run_id=b.last_written_run_id)",
+            (writer, str(start), str(end)))
+        deleted = int(cur.rowcount)
+    conn.commit()
+    return deleted
+
+
+def retire_failed_action_reconcile_bars_outside_market(
+        conn, *, run_id: str, market_start: str, market_end: str) -> int:
+    """Remove failed ACTIONS-replay rows beyond published price authority.
+
+    These rows cannot have replaced a published price key: by definition no
+    published market corpus exists outside ``market_start..market_end``.  They
+    are residue from an earlier implementation that let complete historical
+    ACTIONS metadata widen a short SEP seed.
+    """
+    from sentinel.feed.store import _assert_corpus_locked
+
+    _assert_corpus_locked(conn)
+    writer = str(run_id)
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM sentinel_bars b USING feed_ingest_runs r"
+            " WHERE b.last_written_run_id=r.run_id"
+            "   AND b.last_written_run_id<>%s"
+            "   AND r.kind='actions_reconcile' AND r.status='failed'"
+            "   AND (b.session<%s OR b.session>%s)"
+            "   AND NOT EXISTS (SELECT 1 FROM sentinel_corpus_publications p"
+            "                   WHERE p.run_id=b.last_written_run_id)",
+            (writer, str(market_start), str(market_end)))
+        deleted = int(cur.rowcount)
+    conn.commit()
+    return deleted
+
+
 def retire_failed_nonbar_rows_after_full_seed(
         conn, *, run_id: str, market_start: str, actions_start: str,
         end: str) -> dict[str, int]:
@@ -408,5 +465,7 @@ __all__ = [
     "failed_live_candidates", "live_candidates", "pending_validated",
     "prepare_full_reseed", "require_published",
     "resume_pending_publication", "retire_failed_bars_in_stable_seed_window",
+    "retire_failed_action_reconcile_bars_in_window",
+    "retire_failed_action_reconcile_bars_outside_market",
     "retire_failed_nonbar_rows_after_full_seed",
 ]

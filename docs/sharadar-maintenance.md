@@ -35,6 +35,9 @@ Rules:
 - each mutation set is observed twice before it becomes input authority;
 - historical corrections replay prior/effective/following sessions through the
   ordinary normalizer;
+- correction replay is bounded on both sides by the already-published market
+  horizon; a current revision outside it belongs to a deliberately wider
+  complete seed and cannot expand the retained corpus incrementally;
 - the mutation cursor advances only **after** the correction publication exists;
 - a crash after publication but before cursor commit causes replay, never a gap;
 - missing identity or economically incomplete correction data fails closed.
@@ -131,8 +134,11 @@ decision day.
 The existing PRESENT/REMOVED candidate-generation machinery remains unchanged.
 When a changed row is a split or dividend, Sentinel writes the candidate ACTIONS
 generation then re-normalizes the affected prior/effective/following SEP window
-against that candidate overlay. One publication activates both. Terminal-only
-changes remain candidate state until publication.
+against that candidate overlay. Only actions whose effective XNYS session is
+inside the already-published market horizon participate, and replay is clipped
+to that horizon. The complete 1900 ACTIONS scope is metadata/negative-space
+authority, never permission to widen a short SEP seed. One publication activates
+both. Terminal-only changes remain candidate state until publication.
 
 A suspicious empty export or material mass shrink is refused rather than
 interpreted as authoritative removal. Credential-bearing download URLs are never
