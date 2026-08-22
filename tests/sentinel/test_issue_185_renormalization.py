@@ -23,6 +23,26 @@ def test_adjacent_corrections_merge_into_one_bounded_replay_window():
     assert windows[0][1] >= "2026-08-19"
 
 
+def test_complete_action_history_is_clipped_to_retained_market_sessions():
+    windows = renormalize.correction_windows(
+        ["1900-01-01", "1998-01-02", "2025-07-01", "2026-08-24"],
+        market_start="2025-07-01", market_end="2026-08-21")
+
+    # The old and future events are outside the retained price authority.  The
+    # first retained-session event cannot pull in its ordinary predecessor.
+    assert windows == [("2025-07-01", "2025-07-02")]
+
+
+def test_retained_market_bounds_must_be_complete_and_ordered():
+    with pytest.raises(ValueError, match="supplied together"):
+        renormalize.correction_windows(
+            ["2025-07-01"], market_start="2025-07-01")
+    with pytest.raises(ValueError, match="reversed"):
+        renormalize.correction_windows(
+            ["2025-07-01"], market_start="2026-01-01",
+            market_end="2025-01-01")
+
+
 def test_sep_mutation_validation_refuses_unknown_permanent_identity(monkeypatch):
     monkeypatch.setattr(
         universe, "load_resolver",
@@ -35,6 +55,7 @@ def test_sep_mutation_validation_refuses_unknown_permanent_identity(monkeypatch)
         maintenance._validate_sep_mutation_rows(
             object(), [row], lo=__import__("datetime").date(2026, 8, 17),
             hi=__import__("datetime").date(2026, 8, 18),
+            published_from=__import__("datetime").date(2020, 1, 1),
             published_through=__import__("datetime").date(2026, 8, 18))
 
 
@@ -50,7 +71,29 @@ def test_sep_mutation_validation_refuses_missing_new_raw_price(monkeypatch):
         maintenance._validate_sep_mutation_rows(
             object(), [row], lo=__import__("datetime").date(2026, 8, 17),
             hi=__import__("datetime").date(2026, 8, 18),
+            published_from=__import__("datetime").date(2020, 1, 1),
             published_through=__import__("datetime").date(2026, 8, 18))
+
+
+def test_sep_mutation_before_retained_market_is_not_imported(monkeypatch):
+    def must_not_resolve(_ticker, _session):
+        raise AssertionError("an out-of-range mutation must not resolve identity")
+
+    monkeypatch.setattr(
+        universe, "load_resolver",
+        lambda conn: SimpleNamespace(resolve=must_not_resolve))
+    row = {
+        "ticker": "OLD", "date": "1998-01-02",
+        "lastupdated": "2026-08-18", "closeunadj": 10.0,
+    }
+
+    dates = maintenance._validate_sep_mutation_rows(
+        object(), [row], lo=__import__("datetime").date(2026, 8, 17),
+        hi=__import__("datetime").date(2026, 8, 18),
+        published_from=__import__("datetime").date(2025, 7, 1),
+        published_through=__import__("datetime").date(2026, 8, 18))
+
+    assert dates == []
 
 
 def test_action_change_dates_replay_only_bar_affecting_actions(monkeypatch):

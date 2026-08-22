@@ -34,8 +34,8 @@ from typing import Iterable, Mapping, Optional
 
 from sentinel.core.terminal import DIVIDEND_ACTIONS, SPLIT_ACTIONS
 from sentinel.feed import (
-    action_source, authority, publication, renormalize, sharadar,
-    snapshot_export, store, universe)
+    action_source, authority, calendar, publication, recovery, renormalize,
+    sharadar, snapshot_export, store, universe)
 
 SEP_CURSOR_NAME = "sharadar-sep-lastupdated:v1"
 # New name on purpose: a pre-fix v1 cursor was earned by two paginated reads and
@@ -276,6 +276,7 @@ def _positive(value) -> bool:
 
 def _validate_sep_mutation_rows(conn, rows: Iterable[Mapping], *,
                                 lo: dt.date, hi: dt.date,
+                                published_from: dt.date,
                                 published_through: dt.date) -> list[str]:
     resolver = universe.load_resolver(conn).resolve
     dates: list[str] = []
@@ -298,11 +299,11 @@ def _validate_sep_mutation_rows(conn, rows: Iterable[Mapping], *,
             raise SharadarMutationRefused(
                 f"SEP mutation row on {session} has no ticker")
         # CDC owns historical rows already inside published market authority.
-        # A row beyond that frontier is a new-session observation and belongs to
-        # the ordinary daily path, which refreshes TICKERS before resolving it.
-        # Trying to resolve it here against yesterday's local universe can block
-        # the ingest that would establish its permanent identity.
-        if session_date > published_through:
+        # A row outside that retained horizon belongs to a future ordinary daily
+        # load or a deliberately wider complete seed. Letting a current
+        # lastupdated row widen either edge would recreate the ACTIONS defect one
+        # source membrane over.
+        if session_date < published_from or session_date > published_through:
             continue
         if resolver(ticker, session) is None:
             raise SharadarMutationRefused(
@@ -337,19 +338,12 @@ def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
     params = {"lastupdated.gte": lo.isoformat(),
               "lastupdated.lte": hi.isoformat()}
     rows = _stable_rows(fetch, sharadar.SEP, params)
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT MAX(b.session) FROM sentinel_bars b WHERE "
-            + publication.visible_predicate("b"))
-        frontier_row = cur.fetchone()
-    if not frontier_row or frontier_row[0] is None:
-        raise SharadarMutationRefused(
-            "published corpus has no SEP session frontier for mutation CDC")
-    published_through = (
-        frontier_row[0] if isinstance(frontier_row[0], dt.date)
-        else dt.date.fromisoformat(str(frontier_row[0])))
+    market_start, market_end = _retained_market_bounds(conn)
+    published_from = dt.date.fromisoformat(market_start)
+    published_through = dt.date.fromisoformat(market_end)
     dates = _validate_sep_mutation_rows(
-        conn, rows, lo=lo, hi=hi, published_through=published_through)
+        conn, rows, lo=lo, hi=hi, published_from=published_from,
+        published_through=published_through)
 
     if not dates:
         current = publication.require_current(conn)
@@ -357,14 +351,16 @@ def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
             conn, name=SEP_CURSOR_NAME, kind="sharadar-sep-lastupdated/v1",
             through=hi, publication_version=current.version)
 
-    windows = renormalize.correction_windows(dates)
+    windows = renormalize.correction_windows(
+        dates, market_start=market_start, market_end=market_end)
     run = store.IngestRun(
         conn, "sep_mutations", date_from=windows[0][0], date_to=windows[-1][1],
         chunks_total=len(windows))
     try:
         replayed = renormalize.renormalize(
             conn, fetch=fetch, run=run, dates=dates,
-            chunk_prefix="lastupdated")
+            chunk_prefix="lastupdated", market_start=market_start,
+            market_end=market_end)
     except BaseException:
         # ``run.chunk`` records failures that occur inside a chunk. A failure
         # constructing the first window before entering it still needs a durable
@@ -450,6 +446,69 @@ def _validate_action_snapshot_window(rows: Iterable[Mapping], *, hi: dt.date) ->
                 f"{ACTIONS_FULL_WINDOW_START}..{hi.isoformat()}")
 
 
+def _retained_market_bounds(conn) -> tuple[str, str]:
+    """Return the published SEP horizon, resilient to a failed in-place write.
+
+    Visible rows normally provide the exact bounds.  A failed upsert can hide a
+    formerly published edge row by taking ownership of its key, so the durable
+    windows of published market-writing runs are included as a second witness.
+    ACTIONS reconciliations are deliberately excluded: their 1900 authority
+    window is metadata scope, not price scope.
+    """
+    candidates: list[str] = []
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT MIN(b.session),MAX(b.session) FROM sentinel_bars b WHERE "
+            + publication.visible_predicate("b"))
+        visible = cur.fetchone()
+    if visible:
+        candidates.extend(str(value) for value in visible if value is not None)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT MIN(p.window_start),MAX(p.window_end)"
+            " FROM sentinel_corpus_publications p"
+            " JOIN feed_ingest_runs r ON r.run_id=p.run_id"
+            " WHERE r.kind IN ('seed','daily','sep_mutations')")
+        published = cur.fetchone()
+    if published:
+        candidates.extend(str(value) for value in published if value is not None)
+
+    if not candidates:
+        raise SharadarMutationRefused(
+            "published corpus has no retained SEP market boundary for ACTIONS "
+            "reconciliation")
+    sessions = calendar.sessions_in_range(min(candidates), max(candidates))
+    if not sessions:
+        raise SharadarMutationRefused(
+            "published SEP market boundary contains no XNYS session")
+    return sessions[0], sessions[-1]
+
+
+def _failed_action_reconcile_bar_footprint(
+        conn, *, market_start: str, market_end: str) -> tuple[list[str], bool]:
+    """Sessions a retry must reclaim, plus whether out-of-range residue exists."""
+    common = (
+        " FROM sentinel_bars b"
+        " JOIN feed_ingest_runs r ON r.run_id=b.last_written_run_id"
+        " WHERE r.kind='actions_reconcile' AND r.status='failed'"
+        "   AND NOT EXISTS (SELECT 1 FROM sentinel_corpus_publications p"
+        "                   WHERE p.run_id=b.last_written_run_id)")
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT b.session" + common
+            + " AND b.session BETWEEN %s AND %s ORDER BY b.session",
+            (str(market_start), str(market_end)))
+        dates = [str(row[0]) for row in cur.fetchall()]
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT EXISTS(SELECT 1" + common
+            + " AND (b.session<%s OR b.session>%s))",
+            (str(market_start), str(market_end)))
+        row = cur.fetchone()
+    return dates, bool(row and row[0])
+
+
 def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
                              through: str, force: bool = False
                              ) -> Optional[SourceCursor]:
@@ -491,29 +550,43 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
             f"complete ACTIONS source shrank from {len(prior_active):,} active "
             f"rows to {len(distinct):,}; refusing mass-removal authority "
             "without inspection")
-    dates = _action_change_dates(conn, rows)
+    changed_dates = _action_change_dates(conn, rows)
+    market_start, market_end = _retained_market_bounds(conn)
+    recovery_dates, has_outside_failed_bars = (
+        _failed_action_reconcile_bar_footprint(
+            conn, market_start=market_start, market_end=market_end))
+    replay_dates = sorted(set(changed_dates) | set(recovery_dates))
 
     current_ids = {identity for identity, _payload, _row in distinct}
-    if current_ids == set(prior_active):
+    if (current_ids == set(prior_active)
+            and not recovery_dates and not has_outside_failed_bars):
         current = publication.require_current(conn)
         return _write_cursor(
             conn, name=ACTIONS_CURSOR_NAME, kind=ACTIONS_CURSOR_KIND,
             through=hi, publication_version=current.version)
 
-    windows = renormalize.correction_windows(dates)
+    windows = renormalize.correction_windows(
+        replay_dates, market_start=market_start, market_end=market_end)
     run = store.IngestRun(
         conn, "actions_reconcile",
         date_from=ACTIONS_FULL_WINDOW_START, date_to=hi.isoformat(),
         chunks_total=1 + len(windows))
+    retired_outside = 0
     with run.chunk("actions_full"):
         run.progress.rows_written += store.write_actions(
             conn, rows, run_id=run.progress.run_id,
             window_start=ACTIONS_FULL_WINDOW_START, window_end=hi.isoformat())
-    if dates:
-        renormalize.renormalize(
-            conn, fetch=fetch, run=run, dates=dates,
+        retired_outside = (
+            recovery.retire_failed_action_reconcile_bars_outside_market(
+                conn, run_id=run.progress.run_id,
+                market_start=market_start, market_end=market_end))
+    replayed = []
+    if windows:
+        replayed = renormalize.renormalize(
+            conn, fetch=fetch, run=run, dates=replay_dates,
             include_action_run_id=run.progress.run_id,
-            chunk_prefix="actions")
+            chunk_prefix="actions", market_start=market_start,
+            market_end=market_end, retire_failed_action_candidates=True)
     run.finish("success")
     published = publication.publish(
         conn, run_id=run.progress.run_id,
@@ -523,7 +596,13 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
             "source_authority": source_evidence,
             "source_rows": len(rows),
             "changed_source_rows": len(set(prior_active).symmetric_difference(current_ids)),
-            "affected_bar_dates": len(set(dates)),
+            "changed_action_dates": len(set(changed_dates)),
+            "recovery_bar_dates": len(set(recovery_dates)),
+            "affected_bar_dates": len(set(replay_dates)),
+            "retained_market_window": [market_start, market_end],
+            "retired_failed_bars_outside_market": retired_outside,
+            "retired_failed_bars_in_replay": sum(
+                item.failed_rows_retired for item in replayed),
             "replay_windows": [list(w) for w in windows],
         })
     return _write_cursor(

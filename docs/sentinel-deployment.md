@@ -1271,6 +1271,20 @@ rule: only published repairs apply, and a later published repair for the same
 bar makes the older unpublished retry terminal for coherence without deleting
 it.
 
+The complete ACTIONS authority window is independent of the retained SEP price
+window. Reconciliation may store and publish an action dating back to
+`1900-01-01`, but it may re-normalize prices only when that action's effective
+XNYS session is inside the already-published market corpus, and every replay
+window is clipped to that corpus boundary. An old action is therefore audit and
+negative-space evidence; it is never permission to widen a deliberately short
+price seed into decades of SEP history. Recovery applies the same boundary:
+failed ACTIONS-reconciliation bars inside the retained window are rewritten
+from stable source evidence, while failed candidate rows outside that window
+are retired because no published price authority existed there. SEP
+`lastupdated` maintenance follows the same two-sided market boundary: a current
+vendor revision outside the retained horizon is left for a deliberately wider
+complete seed and cannot widen the operational corpus by itself.
+
 ### 10c. Synthetic parity is not corpus parity
 
 `tests/sentinel/test_loader_parity.py` proves the two loading MAPPINGS agree on
