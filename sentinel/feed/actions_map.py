@@ -30,15 +30,15 @@ made fractional entitlement exact and canonical, so an approximate ratio is now
 the largest remaining source of share-count error, and the vendor states the
 exact figure in a column the ingest was already reading.
 
-## The orientation rule that is easy to get backwards
+## The share-multiplier rule that is easy to get backwards
 
 ```text
-ACTIONS `value` IS NOT BY ITSELF AN ORIENTATION WITNESS
-    Sharadar has emitted both canonical share multipliers and reverse-split
-    denominators. A value greater than one can therefore mean either a forward
-    multiplier or the denominator of a reverse event. The independently
-    derived price-domain ratio decides between `value` and `1/value`. If it
-    agrees with neither, the event is unresolved and is not applied.
+ONLY `split` IS LISTED-SHARE AUTHORITY
+    Sharadar documents `split` as new-float/old-float, already the direct share
+    multiplier. `adrratiosplit` describes depositary-ratio metadata and never
+    resizes the listed holding. The independently derived price-domain ratio
+    corroborates the direct value; a reciprocal is disagreement, not permission
+    to invert the vendor value.
 
 THE ACTIONS DATE IS THE EX-DATE, AND IT IS A CALENDAR DATE
     It can land on a weekend or a holiday. An event dated on a non-session
@@ -69,6 +69,7 @@ from stock_strategy_shared.split_reconciliation import (
     SPLIT_UNRESOLVED,
     SplitAuthority,
     resolve_split_orientation,
+    split_price_evidence,
 )
 
 
@@ -238,7 +239,9 @@ def split_disagreements(report, authoritative: Mapping[tuple[str, str], float]
             continue
         if item is None:
             _ratio, disposition = resolve_split_orientation(
-                float(stated), float(derived))
+                float(stated), float(derived),
+                explicit_no_event=(split_price_evidence(float(derived))
+                                   is None))
             if disposition != SPLIT_UNRESOLVED:
                 continue
         out.append({"ticker": ticker, "session": session,

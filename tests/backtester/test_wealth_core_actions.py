@@ -145,13 +145,11 @@ class TestAuthoritativeSplits:
         assert got == {("AAA", "2022-03-07"): 2.0}
 
     @pytest.mark.parametrize("value", [None, 0.0, -1.0])
-    def test_an_unusable_ratio_is_DROPPED_rather_than_defaulted(self, value):
-        """A missing ratio must not become 1.0 in this map: 1.0 would read as
-        'the vendor says there was no split', which is a statement the vendor
-        did not make. Absent from the map means the derived cross-check still
-        has something to say."""
-        assert split_ratios_from_actions(
-            [action(action="split", value=value)], SESSIONS) == {}
+    def test_an_unusable_ratio_refuses_rather_than_defaulting(self, value):
+        """Invalid direct authority must not become either 1.0 or silence."""
+        with pytest.raises(CorporateActionsAmbiguous):
+            split_ratios_from_actions(
+                [action(action="split", value=value)], SESSIONS)
 
     def test_non_split_actions_are_ignored(self):
         rows = [action(action="dividend", value=0.5),
@@ -257,6 +255,7 @@ class TestReconciliation:
         assert reconcile_split(None, 1.005) == (1.0, "unresolved")
         # The legacy replay spelling for no-event evidence remains equivalent.
         assert reconcile_split(1.0, 1.005) == (1.0, "unresolved")
+        assert reconcile_split(0.995, 1.005) == (1.0, "unresolved")
 
     def test_on_DISAGREEMENT_neither_source_wins(self):
         ratio, outcome = reconcile_split(2.0, 3.0)

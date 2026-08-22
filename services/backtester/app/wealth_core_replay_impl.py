@@ -64,6 +64,7 @@ from stock_strategy_shared.split_reconciliation import (
     SplitAuthority,
     SplitStreamReconciler,
     resolve_split_orientation,
+    split_price_evidence,
 )
 from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
 from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
@@ -752,11 +753,11 @@ def reconcile_split(
     ADR ratio changes are filtered before this boundary. Disagreement applies
     no share transformation while recording ``unresolved``.
     """
-    # ``None`` is the same no-event price-domain evidence production passes to
-    # the shared resolver. Keep accepting the replay's historical exact-1.0
-    # spelling at this boundary, but never let it corroborate a slightly-above-
-    # one ACTIONS ratio merely because it falls inside the agreement tolerance.
-    evidence = None if derived is None or derived == 1.0 else float(derived)
+    # This legacy pure boundary receives ``None`` for an observed quiet row;
+    # the stream loader itself retains the raw predecessor and can separately
+    # represent a genuinely missing predecessor. Keep accepting exact 1.0 and
+    # near-one price noise as the same explicit no-event witness.
+    evidence = split_price_evidence(derived)
     if authoritative is None:
         # No ACTIONS row. Reported inside `disagreed` when the price domains DO
         # imply a split, because acting on a ratio the authoritative source does
@@ -765,11 +766,8 @@ def reconcile_split(
         fallback = 1.0 if evidence is None else evidence
         return fallback, ("agreed" if fallback == 1.0 else "disagreed")
 
-    ratio, disposition = resolve_split_orientation(authoritative, evidence)
-    if evidence is None and authoritative > 0:
-        # Preserve the replay's descriptive accounting category.  The ratio
-        # and all orientation semantics still come from the shared resolver.
-        return ratio, "actions_only"
+    ratio, disposition = resolve_split_orientation(
+        authoritative, evidence, explicit_no_event=(evidence is None))
     outcomes = {
         SPLIT_AUTHORITATIVE_APPLIED: "actions_only",
         SPLIT_CORROBORATED_DIRECT: "agreed",
@@ -1269,7 +1267,8 @@ ACTIONS_CAVEATS: tuple[str, ...] = (
     "PAYMENT date, so that lag is an adopted convention in the config hash, not "
     "an observed fact — the default of 1 is the smallest lag that stops a "
     "dividend funding an admission on its own ex-date.",
-    "only SHARADAR/ACTIONS `split` rows are listed-share authority; "
+    "only SHARADAR/ACTIONS `split` rows are authoritative for listed-share "
+    "changes; "
     "`adrratiosplit` is depositary metadata. The direct new-float/old-float "
     "multiplier is corroborated against the independent SEP.close versus "
     "SEP.closeunadj ratio, including the source's finite price precision and "

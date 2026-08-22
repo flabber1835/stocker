@@ -1258,7 +1258,7 @@ class TestCorpusActionLookup:
         scalar = lookup.scalar_evidence_for({"SEC-AAA"})[0]
         assert scalar.publication_run_id == str(published.progress.run_id)
 
-    def test_BIL_denominator_is_resolved_from_consecutive_price_domains(
+    def test_BIL_direct_reverse_multiplier_is_corroborated_by_price_domains(
             self, conn):
         put_defensive_bar(
             conn, "2026-08-04", close_signal="100", close_unadjusted="100")
@@ -1267,7 +1267,7 @@ class TestCorpusActionLookup:
             conn, "2026-08-05", close_signal="100", close_unadjusted="300")
         feed_store.write_actions(conn, [
             {"ticker": "BIL", "date": "2026-08-05", "action": "split",
-             "value": 3}])
+             "value": 1 / 3}])
 
         lookup = R.corpus_action_lookup(
             conn, start=date(2026, 8, 1), end=date(2026, 8, 10))
@@ -1301,7 +1301,7 @@ class TestCorpusActionLookup:
             conn, "2026-08-05", close_signal="100", close_unadjusted="300")
         feed_store.write_actions(conn, [
             {"ticker": "BIL", "date": "2026-08-05", "action": "split",
-             "value": 3}])
+             "value": 1 / 3}])
 
         lookup = R.corpus_action_lookup(
             conn, start=date(2026, 8, 1), end=date(2026, 8, 10))

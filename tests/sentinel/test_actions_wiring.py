@@ -156,13 +156,14 @@ class TestTheCorpusCarriesTheAUTHORITATIVEValues:
         ]))
         ratio, _ = bars(conn, day)
         assert float(ratio) == 1.0
-        with conn.cursor() as cur:
-            cur.execute("SELECT kind,detail FROM sentinel_corpus_anomalies"
-                        " WHERE ticker='AAA' AND session=%s", (day,))
-            evidence = cur.fetchall()
+        from sentinel.feed import anomalies
+
+        evidence = anomalies.active_rows(
+            conn, start=day, end=day,
+            kinds=("AMBIGUOUS_SPLIT_MULTIPLICITY",))
         assert len(evidence) == 1
-        assert evidence[0][0] == "AMBIGUOUS_SPLIT_MULTIPLICITY"
-        assert "no ACTIONS multiplier applied" in evidence[0][1]
+        assert evidence[0]["kind"] == "AMBIGUOUS_SPLIT_MULTIPLICITY"
+        assert "no ACTIONS multiplier applied" in evidence[0]["detail"]
 
     def test_a_3_for_2_split_lands_as_1_point_5(self, conn):
         """THE case the derived inference cannot be trusted on: 1.5 sits exactly
@@ -374,7 +375,6 @@ class TestItMatchesTheCarriedForwardMapping:
         [{"ticker": "AAA", "date": "2024-06-03", "action": "split", "value": 2.0},
          {"ticker": "BBB", "date": "2024-06-04", "action": "adrratiosplit",
           "value": 0.5}],
-        [{"ticker": "AAA", "date": "2024-06-03", "action": "split", "value": None}],
         [{"ticker": "AAA", "date": "2024-06-03", "action": "delisted", "value": 9}],
     ])
     def test_split_maps_agree(self, rows):
@@ -382,6 +382,21 @@ class TestItMatchesTheCarriedForwardMapping:
         s = ["2024-06-03", "2024-06-04", "2024-06-05"]
         assert (A.split_ratios_from_actions(rows, s)
                 == bt.split_ratios_from_actions(rows, s))
+
+    def test_invalid_split_terms_fail_closed_on_both_paths(self):
+        bt = self._bt()
+        rows = [{"ticker": "AAA", "date": "2024-06-03",
+                 "action": "split", "value": None}]
+        sessions = ["2024-06-03", "2024-06-04", "2024-06-05"]
+
+        ratios, ambiguous = A.split_rows_from_actions(rows, sessions)
+        assert ratios == {}
+        assert ambiguous == [{
+            "ticker": "AAA", "session": "2024-06-03", "distinct_rows": 1,
+            "distinct_values": [], "invalid_value_rows": 1,
+        }]
+        with pytest.raises(bt.CorporateActionsAmbiguous):
+            bt.split_ratios_from_actions(rows, sessions)
 
     @pytest.mark.parametrize("rows", [
         [{"ticker": "AAA", "date": "2024-06-03", "action": "dividend", "value": 0.3}],

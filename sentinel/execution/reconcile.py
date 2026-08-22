@@ -1268,12 +1268,17 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
         disposition = "published_canonical_equity_ratio"
         if event.ticker == "BIL":
             canonical, disposition = resolve_split_orientation(
-                float(stated), derived_ratio)
+                float(stated), derived_ratio,
+                # Unlike the ingest seam, execution requires the immediately
+                # preceding published XNYS observation. A missing predecessor
+                # is therefore blocking evidence, not permission to apply an
+                # otherwise uncorroborated ACTIONS multiplier.
+                explicit_no_event=(split_price_evidence(derived_ratio) is None))
             ratio = Decimal(str(canonical))
             if disposition == SPLIT_UNRESOLVED:
                 unresolved.append(replace(
                     event,
-                    reason=("BIL split orientation is unresolved from "
+                    reason=("BIL split corroboration is unresolved from "
                             "immediately consecutive published defensive "
                             "price domains")))
                 continue

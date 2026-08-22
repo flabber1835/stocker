@@ -287,7 +287,7 @@ def test_execution_uses_published_reverse_split_multiplier_not_raw_denominator(
     assert "sentinel_bar_split_repairs" in conn.statements[1][0]
 
 
-def test_execution_resolves_bil_denominator_from_published_price_domains(
+def test_execution_corroborates_bil_direct_reverse_multiplier_from_price_domains(
         monkeypatch):
     from sentinel.feed import calendar
 
@@ -297,8 +297,9 @@ def test_execution_resolves_bil_denominator_from_published_price_domains(
     monkeypatch.setattr(
         calendar, "previous_sessions",
         lambda *_: ["2026-08-19", "2026-08-20"])
+    canonical = Decimal(1) / Decimal(3)
     conn = _Connection(
-        [(date(2026, 8, 20), Decimal(3), "action-bil-split", "split", "BIL", None)],
+        [(date(2026, 8, 20), canonical, "action-bil-split", "split", "BIL", None)],
         [],
         [("SENTINEL:BIL", date(2026, 8, 20), "BIL",
           Decimal(100), Decimal(300), date(2026, 8, 19),
@@ -309,9 +310,41 @@ def test_execution_resolves_bil_denominator_from_published_price_domains(
     lookup = reconcile.corpus_action_lookup(
         conn, start=date(2026, 8, 19), end=date(2026, 8, 20))
 
-    assert lookup("SENTINEL:BIL") == pytest.approx(Decimal(1) / Decimal(3))
+    assert lookup("SENTINEL:BIL") == pytest.approx(canonical)
     assert lookup.material_events_for(
         security_ids={"SENTINEL:BIL"}) == ()
+
+
+@pytest.mark.parametrize(("stated", "prior_session", "prior_close", "prior_raw"), [
+    (Decimal(1) / Decimal(3), None, None, None),
+    (Decimal(3), date(2026, 8, 19), Decimal(100), Decimal(100)),
+])
+def test_execution_blocks_bil_when_required_split_evidence_is_absent_or_conflicts(
+        monkeypatch, stated, prior_session, prior_close, prior_raw):
+    from sentinel.feed import calendar
+
+    monkeypatch.setattr(
+        calendar, "action_date_window", lambda *_: ("2026-08-20", "2026-08-20"))
+    monkeypatch.setattr(calendar, "session_on_or_after", lambda *_: "2026-08-20")
+    monkeypatch.setattr(
+        calendar, "previous_sessions",
+        lambda *_: ["2026-08-19", "2026-08-20"])
+    conn = _Connection(
+        [(date(2026, 8, 20), stated, "action-bil-split", "split", "BIL", None)],
+        [],
+        [("SENTINEL:BIL", date(2026, 8, 20), "BIL",
+          Decimal(100), Decimal(300), prior_session, prior_close, prior_raw,
+          "legacy", 0, "legacy", 0)],
+        [],
+    )
+
+    lookup = reconcile.corpus_action_lookup(
+        conn, start=date(2026, 8, 19), end=date(2026, 8, 20))
+
+    assert lookup("SENTINEL:BIL") == Decimal(1)
+    material = lookup.material_events_for(security_ids={"SENTINEL:BIL"})
+    assert len(material) == 1
+    assert "immediately consecutive" in material[0].reason
 
 
 def test_fresh_bil_target_is_fenced_by_ticker_only_unresolved_action(

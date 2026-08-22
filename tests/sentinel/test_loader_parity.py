@@ -302,11 +302,17 @@ class TestTheValuesThatArePlausibleWhenWrong:
 
         # A quiet price-domain row is absence of orientation evidence, not a
         # synthetic ratio that may corroborate a nearby ACTIONS value.
-        assert actions_map.resolve_split_orientation(1.005, None) == (
+        assert actions_map.resolve_split_orientation(
+            1.005, None, explicit_no_event=True) == (
             1.0, shared.SPLIT_UNRESOLVED)
         assert bt.reconcile_split(None, 1.005) == (1.0, "unresolved")
+        # A genuinely missing predecessor is a different stream state: direct
+        # ACTIONS authority is permitted until price evidence exists.
+        assert actions_map.resolve_split_orientation(1.005, None) == (
+            1.005, shared.SPLIT_AUTHORITATIVE_APPLIED)
         assert actions_map.resolve_split_orientation(
-            1.005, 1 / 1.005) == (1.0, shared.SPLIT_UNRESOLVED)
+            1.005, 1 / 1.005, explicit_no_event=True) == (
+            1.0, shared.SPLIT_UNRESOLVED)
         assert bt.reconcile_split(1 / 1.005, 1.005) == (
             1.0, "unresolved")
 
@@ -350,9 +356,10 @@ class TestTheValuesThatArePlausibleWhenWrong:
 
         bt = canonical()
         assert shared.split_price_evidence(0.995) is None
-        assert actions_map.resolve_split_orientation(0.995, 0.995) == (
-            0.995, shared.SPLIT_AUTHORITATIVE_APPLIED)
-        assert bt.reconcile_split(0.995, 0.995) == (0.995, "actions_only")
+        assert actions_map.resolve_split_orientation(
+            0.995, 0.995, explicit_no_event=True) == (
+            1.0, shared.SPLIT_UNRESOLVED)
+        assert bt.reconcile_split(0.995, 0.995) == (1.0, "unresolved")
 
     def test_shared_resolver_and_replay_wrapper_agree_for_finite_ratios(self):
         from sentinel.feed import actions_map
@@ -376,8 +383,10 @@ class TestTheValuesThatArePlausibleWhenWrong:
         for stated in ratios:
             for evidence in ratios:
                 normalized = None if evidence == 1.0 else evidence
-                expected_ratio, disposition = \
-                    actions_map.resolve_split_orientation(stated, normalized)
+                expected_ratio, disposition = actions_map.resolve_split_orientation(
+                    stated, normalized,
+                    explicit_no_event=(
+                        shared.split_price_evidence(normalized) is None))
                 actual_ratio, outcome = bt.reconcile_split(normalized, stated)
                 assert actual_ratio == pytest.approx(expected_ratio), (
                     stated, evidence, disposition, outcome)

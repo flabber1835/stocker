@@ -444,8 +444,7 @@ class TestIGMSProductionPair:
         assert book.terminal_accounting["collapsed"] == 1
         assert book.terminal_accounting["normalized_stream_holds"] is True
 
-    def test_conflicting_richest_evidence_is_an_actionable_readiness_failure(
-            self, conn):
+    def test_distinct_public_buyers_are_provenance_and_coalesce(self, conn):
         self._corpus(conn)
         with conn.cursor() as cur:
             cur.execute("DELETE FROM sentinel_actions")
@@ -455,6 +454,40 @@ class TestIGMSProductionPair:
                 "('IGMS','2025-08-13','acquisitionby',76.6,'BBB'),"
                 "('IGMS','2025-08-13','mergerto',76.6,'CCC')")
         conn.commit()
+
+        check = {item.name: item for item in R.check_readiness(
+            conn, today="2025-08-14").checks}["terminal identity"]
+        assert check.status == R.PASS
+        assert check.value["resolved"] == 1
+        assert check.value["collapsed"] == 1
+        assert check.value["unresolved"] == 0
+
+    def test_conflicting_richest_evidence_is_an_actionable_readiness_failure(
+            self, conn, monkeypatch):
+        self._corpus(conn)
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM sentinel_actions")
+            cur.execute(
+                "INSERT INTO sentinel_actions "
+                "(ticker,session,action,value,contraticker) VALUES "
+                "('IGMS','2025-08-13','acquisitionby',76.6,'BBB'),"
+                "('IGMS','2025-08-13','mergerto',76.6,'CCC')")
+        conn.commit()
+
+        # Buyer identities alone are provenance and correctly coalesce. Model
+        # a future source adapter that actually supports two different holder
+        # cash terms so this test continues to exercise the readiness conflict
+        # path with genuine mapped economics.
+        from dataclasses import replace
+
+        real_mapper = T.terminal_from_action
+
+        def conflicting_terms(row, session, **kwargs):
+            terms = real_mapper(row, session, **kwargs)
+            cash = 10.0 if row.get("contraticker") == "BBB" else 20.0
+            return replace(terms, cash_per_share=cash)
+
+        monkeypatch.setattr(T, "terminal_from_action", conflicting_terms)
 
         report = R.check_readiness(conn, today="2025-08-14")
         check = {item.name: item for item in report.checks}["terminal identity"]

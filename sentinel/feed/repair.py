@@ -17,10 +17,12 @@ repair()    make those bars agree with ACTIONS             exact, and audited
 
 ## Why the audit is only a lower bound, and why it is still worth having
 
-`sentinel_actions` is an independent record of corporate actions, so any bar
-holding `split_ratio = 1.0` on a session where ACTIONS states a split is
-CONFIRMED wrong — two sources, one of them authoritative, in flat contradiction.
-That set can be produced with one query and no re-fetch.
+`sentinel_actions` is an independent record of corporate actions. A stored bar
+is CONFIRMED wrong only when the shared resolver supports a different direct
+multiplier from the available predecessor price domains. A real predecessor
+whose domains show no event is a conflict (or a proved no-listed-event), not
+permission for this audit to let ACTIONS silently overrule the corpus. That set
+can be produced with bounded indexed reads and no re-fetch.
 
 What it CANNOT see is the population most at risk: splits ACTIONS never recorded
 at all. Those are exactly the ones the derived fallback existed to catch, and
@@ -46,6 +48,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from sentinel.feed import actions_map, anomalies, calendar, publication
+from stock_strategy_shared.split_reconciliation import (
+    raw_prices_refute_listed_split,
+)
 
 
 @dataclass(frozen=True)
@@ -188,7 +193,14 @@ def audit(conn, *, start: str, end: str) -> AuditResult:
             derived = (domains.unsnapped_split_ratio(
                 prior[0], prior[1], close, raw) if prior else None)
             canonical, disposition = actions_map.resolve_split_orientation(
-                float(stated), derived)
+                float(stated), derived,
+                explicit_no_event=(
+                    prior is not None
+                    and actions_map.split_price_evidence(derived) is None),
+                raw_refutes_event=(
+                    prior is not None
+                    and raw_prices_refute_listed_split(
+                        float(stated), prior[1], raw)))
             if disposition == actions_map.SPLIT_UNRESOLVED:
                 result.unresolved_orientation.append({
                     "ticker": tkr, "session": sess, "stated": float(stated),
