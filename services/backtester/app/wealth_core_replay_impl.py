@@ -54,8 +54,15 @@ from stock_strategy_shared.terminal_coalescing import (
 from stock_strategy_shared.split_reconciliation import (
     SPLIT_AUTHORITATIVE_APPLIED,
     SPLIT_CORROBORATED_DIRECT,
-    SPLIT_CORROBORATED_RECIPROCAL,
-    coalesce_split_sibling_values,
+    SPLIT_CORROBORATED_BRIDGED,
+    SPLIT_CORROBORATED_QUANTIZED,
+    SPLIT_CORROBORATED_SHIFTED,
+    SPLIT_DERIVED_ONLY,
+    SPLIT_PENDING_BRIDGE,
+    SPLIT_RESOLVED_NO_EVENT,
+    SPLIT_UNRESOLVED,
+    SplitAuthority,
+    SplitStreamReconciler,
     resolve_split_orientation,
 )
 from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
@@ -363,10 +370,11 @@ TERMINAL_ACTION_SIDES: dict[str, ActionSide] = {
 TERMINAL_ACTIONS = frozenset(
     k for k, v in TERMINAL_ACTION_SIDES.items() if v is ActionSide.TARGET)
 
-#: Share-count changes. `adrratiosplit` (386 rows) IS one — an ADR ratio change
-#: alters shares per receipt exactly as a split does — and was absent, so those
-#: adjustments never reached the split factor.
-SPLIT_ACTIONS = frozenset({"split", "adrratiosplit"})
+#: Only the listed-instrument stock split changes the broker share count.
+#: Sharadar documents ADR ratio changes as a separate action class; they remain
+#: source provenance and are not multiplied into US-listed holdings.
+SPLIT_ACTIONS = frozenset({"split"})
+ADR_RATIO_ACTIONS = frozenset({"adrratiosplit"})
 
 # Cash distributions. `dividend` is the ordinary one; `spinoffdividend` (497) is
 # a distribution that is still cash to the holder and was absent. NOTE:
@@ -429,9 +437,9 @@ def split_ratios_from_actions(rows: Iterable[dict],
     Sharadar states a forward 2:1 as `value = 2.0`, which is already the share
     multiplier `apply_splits` wants — shares_after = shares_before x ratio. No
     inversion, and that is worth stating because the DERIVED ratio required one.
-    Distinct sibling rows are reduced by the shared production rule only when
-    every row supports one common direct/reciprocal economics. Otherwise the
-    canonical replay refuses instead of picking or multiplying rows.
+    ``adrratiosplit`` is a separate depositary-ratio action and is not a broker
+    share multiplier. Distinct stock-split siblings must state one identical
+    value; otherwise canonical replay refuses instead of picking or multiplying.
     """
     grouped: dict[tuple[str, str], list[dict]] = {}
     for r in rows:
@@ -453,20 +461,30 @@ def split_ratios_from_actions(rows: Iterable[dict],
                               else float(value))
             except (TypeError, ValueError):
                 values.append(None)
-        if len(siblings) > 1:
-            canonical = coalesce_split_sibling_values(values)
-            if canonical is not None:
-                out[key] = canonical
-                continue
+        distinct = {value for value in values if value is not None}
+        if any(value is None for value in values) or len(distinct) != 1:
             identities = sorted(str(row.get("source_row_id") or "<unknown>")
                                 for row in siblings)
             raise CorporateActionsAmbiguous(
                 "ambiguous split ACTIONS multiplicity for "
                 f"{key[0]} on {key[1]}: {', '.join(identities)}")
-        if values[0] is None:
+        out[key] = float(distinct.pop())
+
+    session_index = {str(session): i
+                     for i, session in enumerate(sessions_sorted)}
+    previous = {}
+    collisions = set()
+    for key, value in sorted(out.items()):
+        i = session_index.get(key[1])
+        if i is None or i == 0:
             continue
-        out[key] = float(values[0])
-    return out
+        probe = (key[0], str(sessions_sorted[i - 1]))
+        if probe in previous:
+            collisions.add(probe)
+        previous[probe] = (key, value)
+    for probe in collisions:
+        previous.pop(probe, None)
+    return SplitAuthority(out, previous_session_candidates=previous)
 
 
 def dividends_from_actions(rows: Iterable[dict],
@@ -722,7 +740,7 @@ def terminal_events_from_actions(rows: Iterable[dict],
 
 def reconcile_split(
         derived: float | None, authoritative: float | None) -> tuple[float, str]:
-    """(canonical post/pre ratio, outcome), oriented by price evidence.
+    """(canonical post/pre ratio, outcome), checked by price evidence.
 
     The derived ratio is kept because it is an INDEPENDENT measurement of the
     same event — the vendor's own cumulative adjustment factor, read off the two
@@ -730,10 +748,9 @@ def reconcile_split(
     authoritative source alone, so it becomes a cross-check rather than being
     deleted.
 
-    ACTIONS has supplied both forward multipliers and reverse denominators.
-    Therefore a value greater than one is not self-orienting: direct agreement
-    preserves it, reciprocal agreement applies ``1/value``, and disagreement
-    applies no share transformation while recording ``unresolved``.
+    Sharadar ``split`` is new-float/old-float and therefore already canonical.
+    ADR ratio changes are filtered before this boundary. Disagreement applies
+    no share transformation while recording ``unresolved``.
     """
     # ``None`` is the same no-event price-domain evidence production passes to
     # the shared resolver. Keep accepting the replay's historical exact-1.0
@@ -749,14 +766,14 @@ def reconcile_split(
         return fallback, ("agreed" if fallback == 1.0 else "disagreed")
 
     ratio, disposition = resolve_split_orientation(authoritative, evidence)
-    if evidence is None and 0 < authoritative <= 1.0:
+    if evidence is None and authoritative > 0:
         # Preserve the replay's descriptive accounting category.  The ratio
         # and all orientation semantics still come from the shared resolver.
         return ratio, "actions_only"
     outcomes = {
         SPLIT_AUTHORITATIVE_APPLIED: "actions_only",
         SPLIT_CORROBORATED_DIRECT: "agreed",
-        SPLIT_CORROBORATED_RECIPROCAL: "reciprocal",
+        SPLIT_CORROBORATED_QUANTIZED: "agreed_quantized",
     }
     return ratio, outcomes.get(disposition, "unresolved")
 
@@ -1020,10 +1037,11 @@ def load_bars(conn, start: str, end: str,
     loader converts them to raw historical dollars per as-traded share using the
     current row's `close_unadjusted / close` factor before the ledger sees them.
 
-    When `authoritative_splits` is supplied, ACTIONS identifies the event and
-    the unsnapped price-domain ratio selects direct versus reciprocal
-    orientation. Its outcome is tallied into `reconciliation`. Omitting ACTIONS
-    keeps the snapped derived fallback, which remains explicitly uncertified.
+    When `authoritative_splits` is supplied, the shared stream reconciler
+    cross-checks the canonical stock-split multiplier, including bounded source
+    precision and the two documented one-session date shapes. Its outcome is
+    tallied into `reconciliation`. Omitting ACTIONS keeps the snapped derived
+    fallback, which remains explicitly uncertified.
     """
     if identity is None:
         raise IdentityAuthorityUnavailable(
@@ -1033,6 +1051,8 @@ def load_bars(conn, start: str, end: str,
     prev: dict[str, tuple[float | None, float | None]] = {}
     out: dict[str, list[VendorBar]] = {}
     source_rows = 0
+    split_reconciler = (SplitStreamReconciler(authoritative_splits)
+                        if authoritative_splits is not None else None)
     for r in conn.execute(_PRICES_SQL, {"start": start, "end": end}).mappings():
         source_rows += 1
         session = str(r["date"])
@@ -1051,17 +1071,23 @@ def load_bars(conn, start: str, end: str,
         # at a rename and manufacture a spurious ratio on that session.
         p_close, p_raw = prev.get(sid, (None, None))
         ratio = split_ratio_from_domains(p_close, p_raw, close, raw)
-        if authoritative_splits is not None:
-            unsnapped = unsnapped_split_ratio(p_close, p_raw, close, raw)
-            stated = authoritative_splits.get((tkr, session))
-            if stated is None:
-                # Keep the already-snapped price-domain fallback.  The raw
-                # ratio is comparison evidence, not an executable share count.
-                outcome = "agreed" if ratio == 1.0 else "disagreed"
-            else:
-                evidence = (unsnapped if unsnapped is not None
-                            and abs(unsnapped - 1.0) > 0.02 else None)
-                ratio, outcome = reconcile_split(evidence, stated)
+        if split_reconciler is not None:
+            decision = split_reconciler.decide(
+                (tkr, session), prev_close=p_close, prev_raw=p_raw,
+                close=close, raw=raw, fallback_ratio=ratio)
+            ratio = decision.ratio
+            outcomes = {
+                SPLIT_AUTHORITATIVE_APPLIED: "actions_only",
+                SPLIT_CORROBORATED_DIRECT: "agreed",
+                SPLIT_CORROBORATED_QUANTIZED: "agreed_quantized",
+                SPLIT_CORROBORATED_SHIFTED: "agreed_shifted",
+                SPLIT_CORROBORATED_BRIDGED: "agreed_bridged",
+                SPLIT_RESOLVED_NO_EVENT: "resolved_no_event",
+                SPLIT_DERIVED_ONLY: "disagreed",
+                SPLIT_PENDING_BRIDGE: "unresolved",
+                SPLIT_UNRESOLVED: "unresolved",
+            }
+            outcome = outcomes.get(decision.disposition, "agreed")
             if reconciliation is not None and not (
                     outcome == "agreed" and ratio == 1.0):
                 # Only EVENTS are counted. Tallying every quiet bar as "agreed"
@@ -1243,12 +1269,12 @@ ACTIONS_CAVEATS: tuple[str, ...] = (
     "PAYMENT date, so that lag is an adopted convention in the config hash, not "
     "an observed fact — the default of 1 is the smallest lag that stops a "
     "dividend funding an admission on its own ex-date.",
-    "splits are read from authoritative SHARADAR/ACTIONS and oriented against "
-    "the independent "
-    "ratio derived from SEP.close vs SEP.closeunadj. Equal evidence applies the "
-    "stated multiplier; reciprocal evidence applies its reciprocal; unresolved "
-    "disagreement applies no share transformation and is counted in "
-    "`split_reconciliation`.",
+    "only SHARADAR/ACTIONS `split` rows are listed-share authority; "
+    "`adrratiosplit` is depositary metadata. The direct new-float/old-float "
+    "multiplier is corroborated against the independent SEP.close versus "
+    "SEP.closeunadj ratio, including the source's finite price precision and "
+    "one-session effective-date bridge. Unresolved disagreement applies no "
+    "share transformation and is counted in `split_reconciliation`.",
     "ACTIONS identifies acquisition counterparties and aggregate deal value but "
     "does not state holder consideration. Public buyer tickers are provenance, "
     "not delivered securities; cash, stock, mixed, and zero consideration are "
@@ -1387,7 +1413,7 @@ def run_wealth_core_replay(conn, req: WealthCoreReplayRequest,
 
 __all__ = ["ACTIONS_CAVEATS", "CAVEATS", "DERIVED_SPLIT_CAVEATS",
            "CorporateActionsAmbiguous", "CorporateActionsUnavailable",
-           "REQUIRE_ACTIONS", "SPLIT_ACTIONS",
+           "REQUIRE_ACTIONS", "SPLIT_ACTIONS", "ADR_RATIO_ACTIONS",
            "TERMINAL_ACTIONS", "DIVIDEND_ACTIONS", "dividends_from_actions",
            "CanonicalBarsUnavailable", "DecisionMetadataUnavailable",
            "IdentityAuthorityUnavailable",

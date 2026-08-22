@@ -648,9 +648,10 @@ causal ACTION boundary       retain action dates strictly after the trading
                              session immediately preceding the first warm-up
                              session; weekend/holiday actions between them map
                              to that first retained session
-split source                 ACTIONS present; price-domain evidence orients a
-                             direct multiplier versus reverse denominator;
-                             unresolved orientation refuses, never silently wins
+split source                 ACTIONS present; only `split` is listed-share
+                             authority; finite-precision price and narrow date
+                             evidence corroborate its direct multiplier;
+                             unresolved conflict refuses, never silently wins
 ACTION ingestion evidence    one successful Sharadar bt_actions run whose
                              recorded bounds cover every queried action date
 hashes                       exactly HASH_ORDER's seven 64-hex digests

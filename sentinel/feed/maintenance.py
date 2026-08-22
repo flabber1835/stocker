@@ -32,7 +32,7 @@ import os
 from dataclasses import dataclass
 from typing import Iterable, Mapping, Optional
 
-from sentinel.core.terminal import DIVIDEND_ACTIONS, SPLIT_ACTIONS
+from sentinel.core.terminal import DIVIDEND_ACTIONS, SHARE_SPLIT_ACTIONS
 from sentinel.feed import (
     action_source, anomalies, authority, calendar, publication, recovery,
     renormalize, sharadar, snapshot_export, store, universe)
@@ -40,12 +40,11 @@ from sentinel.feed import (
 SEP_CURSOR_NAME = "sharadar-sep-lastupdated:v1"
 # New name on purpose: a pre-fix v1 cursor was earned by two paginated reads and
 # must not authorize operation after this stronger negative-space contract lands.
-# v3 re-earns action authority under complete-row terminal semantics and
-# reciprocal-sibling split coalescing.  A v2 cursor proved source bytes only;
-# it cannot prove that an upgraded normalizer replayed already-published
-# blocking dispositions under the reviewed interpretation.
-ACTIONS_CURSOR_NAME = "sharadar-actions-export-reconcile:v3"
-ACTIONS_CURSOR_KIND = "sharadar-actions-export-reconcile/v3"
+# v4 re-earns action authority under the listed-stock-split/ADR boundary,
+# finite-price interval, and one-session date reconciliation. An older cursor
+# proved source bytes under a different economic interpretation.
+ACTIONS_CURSOR_NAME = "sharadar-actions-export-reconcile:v4"
+ACTIONS_CURSOR_KIND = "sharadar-actions-export-reconcile/v4"
 # Full ACTIONS authority must cover the decision frontier itself.  A 7-day
 # cadence allowed a same-day omitted dividend/terminal action to coexist with a
 # READY frontier.  One vendor export per decision day is intentionally stronger.
@@ -411,7 +410,7 @@ def _active_action_rows(conn) -> dict[str, dict]:
 
 def _bar_affecting_action(row: Mapping) -> bool:
     action = str(row.get("action") or "").lower()
-    return action in SPLIT_ACTIONS or action in DIVIDEND_ACTIONS
+    return action in SHARE_SPLIT_ACTIONS or action in DIVIDEND_ACTIONS
 
 
 def _action_change_dates(conn, rows: Iterable[Mapping]) -> list[str]:

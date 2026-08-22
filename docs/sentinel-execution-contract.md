@@ -1139,8 +1139,8 @@ witness: incorrect split treatment can be why the security never appears there.
 Consequently `SPLIT_ONLY_DERIVED` and `SEAM_SPLIT_UNCORROBORATED` block
 certification unless a complete interval replay proves equivalence under every
 plausible treatment. The present system has no such proof and uses no local
-price, liquidity or book proxy. Authoritative and directly/reciprocally
-corroborated split dispositions remain resolved.
+price, liquidity or book proxy. Direct authoritative, finite-price-interval,
+and narrowly bridged split dispositions remain resolved.
 
 Anomaly observations use the same publication boundary as their corpus. They
 are append-only and carry `last_written_run_id`; the active disposition is the
@@ -1247,23 +1247,20 @@ applying one aggregate lifetime multiplier to every fill would instead multiply
 orders that were placed after the split. Neither is a durable reconciliation
 basis.
 
-The executable multiplier is never the raw ACTIONS `value`. Sharadar uses a
-value greater than one for both forward multipliers and reverse-split
-denominators, so treating that column as oriented can turn a 1-for-30 into a
-30-for-1. The raw calendar ex-date is snapped forward to its first XNYS session.
-For an equity, execution then reads the canonical `effective_split_ratio` from
-that session's published bar, including the latest published repair overlay.
+Only an ACTIONS `split` row is listed-share authority; `adrratiosplit` is
+depositary-ratio metadata and cannot independently resize a broker holding.
+The `split` value is the direct new-float/old-float multiplier. The raw calendar
+ex-date is snapped forward to its first XNYS session. For an equity, execution
+then reads the canonical `effective_split_ratio` from that session's published
+bar, including the latest published repair overlay.
 For the fixed `SENTINEL:BIL` defensive identity, which intentionally has no
 stored split column, execution derives the independent ratio from the
 immediately preceding XNYS session's published adjusted/as-traded domains and
-calls the same shared orientation resolver as ingest and canonical replay. A
-sub-unit ACTIONS value is already a canonical reverse multiplier and can apply
-without that witness; a value greater than one needs the domains to distinguish
-a forward multiplier from a reverse denominator. Absent or contradictory
-required evidence fences the intersecting book. The scalar ACTIONS vocabulary
-is exactly `split` and `adrratiosplit`; `spinoffdividend` is a cash-distribution
-row and does not by itself change share identity (unlike a `spinoff`, which
-remains blocking).
+calls the same shared corroboration resolver as ingest and canonical replay.
+Absent or contradictory required evidence fences the intersecting book. The
+scalar ACTIONS vocabulary is exactly `split`; `spinoffdividend` is a
+cash-distribution row and does not by itself change share identity (unlike a
+`spinoff`, which remains blocking).
 
 ### 10.2a Decision-close to execution-open target reprojection
 

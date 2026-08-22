@@ -125,15 +125,16 @@ latest reported table refresh.
 The stronger contract deliberately uses a new cursor:
 
 ```text
-sharadar-actions-export-reconcile:v3
+sharadar-actions-export-reconcile:v4
 ```
 
-A pre-fix v1/v2 cursor cannot satisfy v3 readiness. V3 retains the same fresh
+A pre-fix v1/v2/v3 cursor cannot satisfy v4 readiness. V4 retains the same fresh
 whole-export negative-space authority and additionally replays every active
 blocking split disposition inside the retained market window through the
-reviewed reciprocal-sibling semantics. This semantic re-earn is required even
-when the export's source-row identities are unchanged. The default cadence is
-one decision day.
+reviewed stock-split/ADR boundary, finite-price interval, and one-session
+effective-date reconciliation. This semantic re-earn is required even when the
+export's source-row identities are unchanged. The default cadence is one
+decision day.
 
 The existing PRESENT/REMOVED candidate-generation machinery remains unchanged.
 When a changed row is a split or dividend, Sentinel writes the candidate ACTIONS

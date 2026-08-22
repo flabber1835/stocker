@@ -16,7 +16,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import date
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import Decimal
 from fractions import Fraction
 from typing import Mapping, Optional
 
@@ -52,9 +52,6 @@ def _decimal(value, *, where: str) -> Decimal:
 # the only correction permitted below is an exact rational reconstruction from
 # the durable per-action evidence that produced the aggregate multiplier.
 _RATIO_REPRESENTATION_TOLERANCE = Fraction(1, 10**12)
-_STATED_DENOMINATOR_TOLERANCE = Fraction(1, 100)
-_RECIPROCAL_EVIDENCE_DISPOSITIONS = frozenset({
-    "published_canonical_equity_ratio", "corroborated_reciprocal"})
 
 
 def _fractions_close(left: Fraction, right: Fraction,
@@ -99,31 +96,6 @@ def _evidence_factor(item: Mapping[str, object]) -> tuple[Fraction, Fraction]:
                 "canonical multiplier")
         return published, rational
 
-    if (stated > 1
-            and str(item.get("action")) in {"split", "adrratiosplit"}
-            and str(item.get("split_disposition"))
-            in _RECIPROCAL_EVIDENCE_DISPOSITIONS):
-        stated_fraction = Fraction(stated)
-        reciprocal = Fraction(1, 1) / stated_fraction
-        if _fractions_close(
-                published, reciprocal, _RATIO_REPRESENTATION_TOLERANCE):
-            exact = reciprocal
-        else:
-            # The shared resolver deliberately snaps a near-integral noisy
-            # reverse denominator (30.003, 9.00009, ...) when independent price
-            # evidence corroborates the exact reciprocal. Mirror only that
-            # already-certified representation, never an arbitrary nearest lot.
-            denominator = int(stated.to_integral_value(
-                rounding=ROUND_HALF_EVEN))
-            integral = Fraction(denominator, 1)
-            if (denominator > 0
-                    and _fractions_close(
-                        stated_fraction, integral,
-                        _STATED_DENOMINATOR_TOLERANCE)
-                    and _fractions_close(
-                        published, Fraction(1, denominator),
-                        _RATIO_REPRESENTATION_TOLERANCE)):
-                exact = Fraction(1, denominator)
     return published, exact
 
 

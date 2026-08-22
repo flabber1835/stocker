@@ -410,13 +410,29 @@ rolls the replacement back and leaves the corpus generation unreadable.
 
 Exact semantic redeliveries collapse by `source_row_id`; distinct siblings
 coexist. Readers order by that identity. Dividends sum every distinct usable
-source row deterministically. Split siblings reduce through the one shared
-direct/reciprocal orientation rule: values such as `0.1` and `10` resolve only
-because every row has the same unique canonical `0.1` economics. An empty or
-multi-valued intersection remains unresolved ambiguity, never first-row,
-last-row, or product semantics. Terminal rows continue through the shared
-deterministic coalescer, using source identity as provenance and refusing
-equally rich conflicting economics.
+source row deterministically. `split` and `adrratiosplit` do not coexist as two
+candidate share multipliers: Sharadar documents the first as a stock split and
+the second as an ADR ratio change. Wealth Core consumes only the `split`
+new-float/old-float multiplier and retains the ADR row as provenance. Distinct
+`split` values at one effective key remain unresolved ambiguity, never
+first-row, last-row, reciprocal, or product semantics. Terminal rows continue
+through the shared deterministic coalescer, using source identity as provenance
+and refusing equally rich conflicting economics.
+
+The price-domain cross-check is exact about source precision. The ordinary
+one-percent relative agreement rule remains, but a stated value can also be
+corroborated when it lies inside the ratio interval obtained by propagating a
+half-mill rounding interval through all four SEP prices. One-session date
+shifts and two-session adjustment bridges are accepted only in the narrowly
+documented shapes: the immediately prior transition must corroborate the
+action, or the prior-through-action net transition must corroborate while the
+intermediate event is suppressed. Canonical replay and production use the same
+state machine.
+
+A corroborated five-decimal reverse ratio is represented as exact ``1/N`` only
+when that simple rational lies inside the same strict agreement band. This
+prevents 300 shares in a documented 1-for-30 from becoming 9.999 solely because
+the source spelled the multiplier as ``0.03333``.
 
 The backtester used to derive everything it knew about corporate actions from
 the price series itself. That was the right call while ACTIONS was un-ingested —
@@ -714,7 +730,7 @@ volatility dispersion.
 | issuer conflict winner | adopted convention, not transcribed |
 | dividends in the backtester | **applied** from ACTIONS on the ex-date as a receivable, settling after `dividend_settlement_lag_sessions` |
 | dividend PAYMENT dates | **unobservable** — ACTIONS carries no pay date, so the lag is an adopted convention in the config hash |
-| splits in the backtester | ACTIONS presence is required for certified provenance; independent price-domain evidence selects a direct multiplier or reciprocal reverse denominator, and unresolved orientation is not applied; **derived** only when `bt_actions` is empty |
+| splits in the backtester | ACTIONS presence is required for certified provenance; only `split` is share authority, its direct multiplier is checked against finite-precision price evidence and narrow date bridges, and unresolved conflicts are not applied; **derived** only when `bt_actions` is empty |
 | terminal actions in the backtester | **detected** from ACTIONS; holder consideration is unavailable, so source rows enter the incomplete-terms settlement waterfall |
 | mixed consideration in the backtester | **unsupported and never inferred** — ACTIONS identifies buyers and aggregate deal value, not holder cash/share legs |
 | a conversion's fractional stub in the backtester | **blocks** — ACTIONS carries no cash-in-lieu price |

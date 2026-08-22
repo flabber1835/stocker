@@ -67,7 +67,7 @@ def test_exact_duplicate_split_is_one_source_row():
     assert ambiguous == []
 
 
-def test_reciprocal_split_siblings_are_one_canonical_reverse_event():
+def test_stock_split_wins_without_combining_adr_ratio_metadata():
     ratios, ambiguous = actions_map.split_rows_from_actions([
         row(ticker="AAA", action="split", value=0.1),
         row(ticker="AAA", action="adrratiosplit", value=10.0),
@@ -76,7 +76,7 @@ def test_reciprocal_split_siblings_are_one_canonical_reverse_event():
     assert ambiguous == []
 
 
-def test_noisy_reciprocal_split_siblings_preserve_vendor_subunit_value():
+def test_stock_split_preserves_vendor_subunit_value_when_adr_ratio_is_noisy():
     ratios, ambiguous = actions_map.split_rows_from_actions([
         row(ticker="AAA", action="split", value=0.03333),
         row(ticker="AAA", action="adrratiosplit", value=30.00300030003),
@@ -85,7 +85,7 @@ def test_noisy_reciprocal_split_siblings_preserve_vendor_subunit_value():
     assert ambiguous == []
 
 
-def test_identical_greater_than_one_siblings_preserve_orientation_question():
+def test_identical_adr_metadata_does_not_create_split_multiplicity():
     ratios, ambiguous = actions_map.split_rows_from_actions([
         row(ticker="AAA", action="split", value=2.0),
         row(ticker="AAA", action="adrratiosplit", value=2.0),
@@ -94,18 +94,15 @@ def test_identical_greater_than_one_siblings_preserve_orientation_question():
     assert ambiguous == []
 
 
-@pytest.mark.parametrize("values", [
+@pytest.mark.parametrize("stock_split,adr_ratio", [
     (0.1, 0.5),
-    (0.00666666666666667, 0.9375),
-    (0.0066, 0.05),
+    (0.9375, 0.00666666666666667),
+    (0.05, 0.0066),
 ])
-def test_nonreciprocal_split_siblings_remain_ambiguous(values):
+def test_adr_ratio_never_makes_a_stock_split_ambiguous(stock_split, adr_ratio):
     ratios, ambiguous = actions_map.split_rows_from_actions([
-        row(ticker="AAA", action="split", value=values[0]),
-        row(ticker="AAA", action="adrratiosplit", value=values[1]),
+        row(ticker="AAA", action="split", value=stock_split),
+        row(ticker="AAA", action="adrratiosplit", value=adr_ratio),
     ], ["2026-08-14"])
-    assert ratios == {}
-    assert ambiguous == [{
-        "ticker": "AAA", "session": "2026-08-14", "distinct_rows": 2,
-        "distinct_values": sorted(values), "invalid_value_rows": 0,
-    }]
+    assert ratios == {("AAA", "2026-08-14"): stock_split}
+    assert ambiguous == []

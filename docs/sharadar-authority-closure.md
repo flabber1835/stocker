@@ -65,13 +65,14 @@ complete reconciliation therefore uses a fresh whole-table export over the
 explicit `1900-01-01..decision-frontier` window. The stronger durable cursor is:
 
 ```text
-sharadar-actions-export-reconcile:v3
+sharadar-actions-export-reconcile:v4
 ```
 
-A legacy v1/v2 cursor cannot satisfy v3 readiness. V3 re-earns the unchanged
+A legacy v1/v2/v3 cursor cannot satisfy v4 readiness. V4 re-earns the unchanged
 whole-export authority and replays active blocking split dispositions inside
-the retained market window through the reviewed reciprocal-sibling rule, even
-when no source-row identity changed. The default complete-export cadence is one
+the retained market window through the reviewed stock-split/ADR boundary,
+finite-price interval, and one-session effective-date rule, even when no
+source-row identity changed. The default complete-export cadence is one
 decision day. Split/dividend changes re-normalize the affected SEP windows
 against the candidate action generation before one publication activates both
 action and bar economics.

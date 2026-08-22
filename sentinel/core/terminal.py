@@ -81,7 +81,11 @@ TERMINAL_ACTION_SIDES: dict[str, ActionSide] = {
 TERMINAL_ACTIONS = frozenset(
     k for k, v in TERMINAL_ACTION_SIDES.items() if v is ActionSide.TARGET)
 
-SPLIT_ACTIONS = frozenset({"split", "adrratiosplit"})
+SHARE_SPLIT_ACTIONS = frozenset({"split"})
+ADR_RATIO_ACTIONS = frozenset({"adrratiosplit"})
+# The union remains the maintenance/source-change family. Economic consumers
+# must choose the narrower class explicitly.
+SPLIT_ACTIONS = SHARE_SPLIT_ACTIONS | ADR_RATIO_ACTIONS
 DIVIDEND_ACTIONS = frozenset({"dividend", "specialdividend", "spinoffdividend"})
 
 #: Vendor placeholders that mean ABSENCE. `contraticker` carries the literal

@@ -521,7 +521,7 @@ class AuthorityActionOverlay:
                 if (event.security_id == coverage.security_id
                     and event.session == effective
                     and _action_verb(event.action)
-                    in {"split", "adrratiosplit"}))
+                    == "split"))
             if coverage.disposition == NO_EVENT:
                 if current or current_evidence or unresolved_scalar:
                     raise PreOpenAuthorityRefused(
@@ -591,7 +591,7 @@ class AuthorityActionOverlay:
                 coverage is not None
                 and coverage.disposition == ORIENTED_EVENTS
                 and event.session == effective
-                and _action_verb(event.action) in {"split", "adrratiosplit"})
+                and _action_verb(event.action) == "split")
             if not provider_resolves_scalar:
                 result.append(event)
         return tuple(result)

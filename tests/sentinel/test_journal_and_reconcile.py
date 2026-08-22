@@ -1130,24 +1130,24 @@ class TestCorpusActionLookup:
                                         end=date(2026, 8, 10))
         assert lookup("SEC-AAA") == pytest.approx(Decimal("0.1"))
 
-    def test_reverse_split_denominator_uses_published_canonical_ratio(self, conn):
-        """ACTIONS 30 can mean 1-for-30; raw multiplication is 900x wrong."""
+    def test_rounded_direct_reverse_split_uses_exact_canonical_ratio(self, conn):
+        """ACTIONS 0.03333 represents exact 1-for-30 broker units."""
         canonical = Decimal(1) / Decimal(30)
         put_bar(conn, "SEC-AAA", "2026-08-05", "AAA",
                 split_ratio=canonical)
         feed_store.write_actions(conn, [
             {"ticker": "AAA", "date": "2026-08-05", "action": "split",
-             "value": 30}])
+             "value": 0.03333}])
 
         lookup = R.corpus_action_lookup(
             conn, start=date(2026, 8, 1), end=date(2026, 8, 10))
 
         assert lookup("SEC-AAA") == pytest.approx(canonical)
-        assert lookup("SEC-AAA") != Decimal(30)
+        assert lookup("SEC-AAA") != Decimal("0.03333")
         scalar = lookup.scalar_evidence_for({"SEC-AAA"})[0]
-        assert scalar.value == 30
+        assert scalar.value == pytest.approx(0.03333)
         evidence = (scalar.to_dict(),)
-        assert evidence[0]["canonical_multiplier"] != "30"
+        assert evidence[0]["canonical_multiplier"] != "0.03333"
 
         projected = target_reprojection.project_target(
             ExecutionPlan(
@@ -1161,8 +1161,8 @@ class TestCorpusActionLookup:
             minimum_quantity_increment=Decimal(1))
         assert projected.target_basket == {"SEC-AAA": Decimal(10)}
 
-    def test_ADR_ratio_split_uses_the_published_canonical_ratio(self, conn):
-        put_bar(conn, "SEC-AAA", "2026-08-05", "AAA", split_ratio="0.5")
+    def test_ADR_ratio_metadata_does_not_resize_the_book(self, conn):
+        put_bar(conn, "SEC-AAA", "2026-08-05", "AAA", split_ratio="1")
         feed_store.write_actions(conn, [
             {"ticker": "AAA", "date": "2026-08-05",
              "action": "adrratiosplit", "value": 2}])
@@ -1170,9 +1170,9 @@ class TestCorpusActionLookup:
         lookup = R.corpus_action_lookup(
             conn, start=date(2026, 8, 1), end=date(2026, 8, 10))
 
-        assert lookup("SEC-AAA") == Decimal("0.5")
-        assert lookup.scalar_evidence_for({"SEC-AAA"})[0].action \
-            == "adrratiosplit"
+        assert lookup("SEC-AAA") == Decimal("1")
+        assert lookup.scalar_evidence_for({"SEC-AAA"}) == ()
+        assert lookup.material_events_for(security_ids={"SEC-AAA"}) == ()
 
     def test_published_derived_only_split_ages_book_and_target_without_ACTIONS(
             self, conn):

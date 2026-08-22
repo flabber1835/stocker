@@ -311,17 +311,13 @@ class TestTheValuesThatArePlausibleWhenWrong:
             1.0, "unresolved")
 
     @pytest.mark.parametrize("stated", [0.1, 0.5, 2.0, 10.0, 30.0])
-    def test_direct_and_reciprocal_tolerance_matrix_matches(self, stated):
+    def test_direct_tolerance_matrix_matches(self, stated):
         from sentinel.feed import actions_map
         from stock_strategy_shared import split_reconciliation as shared
 
         bt = canonical()
         cases = [
             (stated * 1.009, shared.SPLIT_CORROBORATED_DIRECT, "agreed")]
-        if stated > 1:
-            cases.append(((1 / stated) * 1.009,
-                          shared.SPLIT_CORROBORATED_RECIPROCAL,
-                          "reciprocal"))
         for evidence, disposition, outcome in cases:
             expected_ratio, expected_disposition = \
                 actions_map.resolve_split_orientation(stated, evidence)
@@ -330,7 +326,7 @@ class TestTheValuesThatArePlausibleWhenWrong:
             assert actual_ratio == pytest.approx(expected_ratio)
             assert actual_outcome == outcome
 
-        for evidence in (stated * 1.011, (1 / stated) * 1.011):
+        for evidence in (stated * 1.011, 1 / stated):
             expected = actions_map.resolve_split_orientation(stated, evidence)
             actual = bt.reconcile_split(evidence, stated)
             assert expected[1] == shared.SPLIT_UNRESOLVED
@@ -366,13 +362,12 @@ class TestTheValuesThatArePlausibleWhenWrong:
         outcome_by_disposition = {
             shared.SPLIT_AUTHORITATIVE_APPLIED: "actions_only",
             shared.SPLIT_CORROBORATED_DIRECT: "agreed",
-            shared.SPLIT_CORROBORATED_RECIPROCAL: "reciprocal",
             shared.SPLIT_UNRESOLVED: "unresolved",
         }
         # Keep this invariant inside the certified dependency-closed image.
         # The cross-product deliberately spans sub-unit canonical actions,
-        # both sides of the near-one event boundary, direct and reciprocal
-        # witnesses, tolerance edges, and noisy reverse denominators.
+        # both sides of the near-one event boundary, direct witnesses,
+        # tolerance edges, and mismatched ADR-style reciprocals.
         ratios = (
             0.01, 1 / 30.003, 1 / 30, 0.1, 0.25, 0.5,
             0.979, 0.98, 0.99, 0.995, 1.0, 1.005, 1.01, 1.02, 1.021,

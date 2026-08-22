@@ -1128,24 +1128,21 @@ unusable dividend    a distribution the vendor stated no amount for. The corpus
                      record separates them
 ```
 
-#### Split orientation has one implementation and is an operational gate
+#### Split reconciliation has one implementation and is an operational gate
 
 Production normalisation and the canonical Wealth Core replay call the same
 pure resolver in `stock_strategy_shared.split_reconciliation`.  Neither path
-may define a local agreement threshold or a second direct/reciprocal rule.  The
-relative agreement tolerance is **1%**: clean split fractions agree well inside
-that band, while widening it can turn conflicting share-count evidence into an
-apparently corroborated event.  Thus ACTIONS `2.0` versus price-domain `2.02`
-is corroborated, while `2.0` versus `2.03` is unresolved in both paths and
-applies no share transformation.
+may define a local threshold or invert an ACTIONS value. Only ``split`` is
+listed-share authority; ``adrratiosplit`` is depositary metadata. The relative
+agreement tolerance is **1%**, supplemented only by the exact interval obtained
+by propagating Sharadar's half-mill price precision through all four prices.
+This accepts penny-stock rounding without accepting an arbitrary wider band.
 
-An exact price-domain ratio of `1.0` means no event was observed and is passed
-as absent evidence; it cannot corroborate a nearby ACTIONS ratio such as
-`1.005`.  If the tolerance bands around the direct and reciprocal
-interpretations overlap, the event is unresolved rather than resolved by branch
-order.  When ACTIONS contains no event, both loaders retain the same snapped
-price-domain fallback, so harmless quote noise cannot create a different share
-count in production and replay.
+An exact price-domain ratio of `1.0` means no event was observed and cannot
+corroborate a nearby ACTIONS ratio such as `1.005`. One-session action-date
+shifts and a two-session adjustment bridge are resolved only by the shared
+stream state machine; each applies the stated event exactly once. When ACTIONS
+contains no event, both loaders retain the same snapped price-domain fallback.
 
 Certification-only reporting is not enough for an unresolved split.  A split
 changes the cumulative signal basis on every later session, so any published
@@ -1162,12 +1159,11 @@ The broker boundary consumes the same decision rather than reopening ACTIONS
 as a second authority.  It snaps the raw ex-date forward to the first XNYS
 session and uses that published equity bar's effective split ratio (including a
 published repair overlay) for both reconciliation and immutable target
-reprojection.  Thus a reverse denominator such as ACTIONS `30` executes as the
-published canonical `1/30`, never as `30`.  BIL has no split column: its fixed
+reprojection. Thus an ACTIONS `split=0.03333` executes as the published
+canonical reverse multiplier while a same-day `adrratiosplit=30.003` remains
+metadata. BIL has no split column: its fixed
 identity instead uses the immediately preceding XNYS session's published
-defensive price domains and the shared resolver.  A sub-unit ACTIONS value is
-already canonical without that price witness; a value greater than one needs
-the domains to choose direct versus reciprocal.  Missing or contradictory
+defensive price domains and the shared resolver. Missing or contradictory
 required evidence is a blocking event.
 
 When a repeating published ratio carries binary representation noise, target
@@ -1232,8 +1228,8 @@ accounting and hashes. Event-day price or liquidity cannot prove that: a split
 changes the cumulative signal series on every later session, when the security
 may cross either floor. Absence from the observed book is also not proof,
 because the uncertain split can be the cause of that absence. No such
-counterfactual engine exists today, so both dispositions block; authoritative
-and directly/reciprocally corroborated dispositions clear.
+counterfactual engine exists today, so both dispositions block; direct
+authoritative, finite-price-interval, shifted and bridged dispositions clear.
 
 These rows are publication-scoped evidence. Each ingest observation is retained
 with its writer run; only the newest successfully published disposition for a
@@ -1695,13 +1691,42 @@ rewrite or discard the baseline.
 
 Economic consumers remain deliberately narrower than source storage.  Positive
 cash distributions on one ticker/effective session sum once per distinct source
-row.  Split siblings are first reduced through the shared orientation rule.
-Rows such as ``0.1`` and ``10`` that have exactly one common canonical economic
-ratio describe one reverse split and are corroborating source evidence, not two
-events.  If the intersection of every sibling's possible direct/reciprocal
-interpretations is empty or contains more than one ratio, Sentinel applies no
-ACTIONS multiplier and publishes ``AMBIGUOUS_SPLIT_MULTIPLICITY`` certification
-evidence.  It may not pick the first/last row or multiply sibling values.
+row.  Sharadar documents ``split`` and ``adrratiosplit`` as different action
+classes.  Only ``split`` states the new-float/old-float multiplier for the
+US-listed instrument.  ``adrratiosplit`` is retained as ADR/depositary metadata
+and is never multiplied into the broker share count.  This matters when the
+same date carries reciprocal-looking rows such as ``split=0.1`` and
+``adrratiosplit=10``: they are not two spellings to multiply or orient; the
+former is share authority and the latter is separate metadata.  More than one
+distinct ``split`` value at one effective key remains
+``AMBIGUOUS_SPLIT_MULTIPLICITY`` and is never first/last/product resolved.
+
+The independent SEP domains still cross-check every stock split.  Their ratio
+is evaluated with a source-precision interval because a three-decimal
+``closeunadj`` such as ``0.039`` cannot support a fixed one-percent relative
+tolerance around a 1-for-80 event.  Agreement must be either inside the existing
+relative tolerance or inside the mathematically propagated half-mill price
+rounding interval; the tolerance itself is not widened.
+
+Sharadar can spell a simple reverse ratio to five decimals (for example
+``split=0.03333`` for 1-for-30). After the direct value is corroborated, the
+shared resolver reconstructs ``1/N`` only when that simple rational lies inside
+the same strict one-percent representation band. This changes arithmetic
+representation, not event authority, and makes broker-unit projection exact.
+
+A stock-split ACTIONS date may disagree with the SEP adjustment transition by
+one exchange session.  The stream reconciler may shift the event to the prior
+session only when that transition uniquely corroborates the stated multiplier.
+If the intervening SEP factor is an inverse artifact but the two-session net
+factor corroborates the ACTIONS row, the intermediate transformation is
+suppressed and the stated split is applied once on the ACTIONS session.  GP on
+2025-09-08/09 and BJDX on 2026-01-28/29 are production-shaped witnesses for
+those two paths.  No wider date search is allowed.
+
+Finally, an explicit no-adjustment SEP transition plus a raw-price move more
+than one order of magnitude away from the stated split-implied move proves that
+the issuer-level action did not transform the listed instrument.  That event is
+recorded as ``SPLIT_RESOLVED_NO_EVENT`` rather than applied or silently dropped.
 
 Terminal consumers map every distinct source row before coalescing.  The
 economic key is ``(effective exchange session, permanent security id)`` -- not

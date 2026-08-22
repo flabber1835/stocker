@@ -55,6 +55,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable, Iterator, Mapping, Optional
 
+from stock_strategy_shared.split_reconciliation import SplitStreamReconciler
 from stock_strategy_shared.wealth_core.feed import VendorBar
 from stock_strategy_shared.wealth_core.sharadar_domains import (
     raw_compatible_volume,
@@ -360,6 +361,8 @@ def normalise_sep_rows(
     #: applies to exactly one comparison each.
     seeded: set[str] = set(prev)
     last_session: Optional[str] = None
+    split_reconciler = (SplitStreamReconciler(authoritative_splits)
+                        if authoritative_splits is not None else None)
 
     for r in rows:
         rep.rows += 1
@@ -418,23 +421,31 @@ def normalise_sep_rows(
             rep.split_no_event_evidence.add((ticker, session))
         if unsnapped is not None and abs(unsnapped - 1.0) > SPLIT_TOLERANCE:
             rep.derived_splits_unsnapped[(ticker, session)] = unsnapped
-        stated = (authoritative_splits or {}).get((ticker, session))
-        if authoritative_splits is not None:
-            if stated is not None:
-                # ACTIONS values are not consistently oriented. Production
-                # reverse splits supplied denominators (30, 9, 7), while a
-                # forward 2-for-1 also supplies 2. Independent price evidence
-                # selects stated versus reciprocal; neither/either ambiguity
-                # is suppressed and made durable.
-                from sentinel.feed import actions_map
-                evidence = (unsnapped if unsnapped is not None
-                            and abs(unsnapped - 1.0) > SPLIT_TOLERANCE else None)
-                ratio, disposition = actions_map.resolve_split_orientation(
-                    float(stated), evidence)
+        decision = None
+        if split_reconciler is not None:
+            decision = split_reconciler.decide(
+                (ticker, session), prev_close=p_close, prev_raw=p_raw,
+                close=close, raw=raw, fallback_ratio=ratio)
+            ratio = decision.ratio
+            if decision.disposition is not None:
                 rep.split_dispositions[(ticker, session)] = {
-                    "disposition": disposition, "stated": float(stated),
-                    "derived": evidence, "applied_ratio": float(ratio),
+                    "disposition": decision.disposition,
+                    "stated": decision.stated,
+                    "derived": decision.derived,
+                    "applied_ratio": float(ratio),
                 }
+            if decision.prior_key is not None:
+                prior = rep.split_dispositions.get(decision.prior_key, {})
+                rep.split_dispositions[decision.prior_key] = {
+                    "disposition": decision.prior_disposition,
+                    "stated": prior.get("stated"),
+                    "derived": prior.get("derived"),
+                    "applied_ratio": 1.0,
+                }
+                rep.derived_splits.pop(decision.prior_key, None)
+                rep.derived_splits_unsnapped.pop(decision.prior_key, None)
+
+        stated = decision.stated if decision is not None else None
         if from_seed and ratio != 1.0 and stated is None:
             # AN UNCORROBORATED SPLIT AT THE SEAM IS NOT APPLIED.
             #
@@ -462,7 +473,8 @@ def normalise_sep_rows(
                 "derived": unsnapped, "applied_ratio": 1.0,
             }
             ratio = 1.0
-        elif stated is None and ratio != 1.0:
+        elif (split_reconciler is None and stated is None
+              and ratio != 1.0):
             rep.split_dispositions[(ticker, session)] = {
                 "disposition": "derived_only_applied", "stated": None,
                 "derived": unsnapped, "applied_ratio": float(ratio),

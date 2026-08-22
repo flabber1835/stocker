@@ -26,6 +26,7 @@ from app.wealth_core_replay import (  # noqa: E402
     CorporateActionsAmbiguous,
     CorporateActionsUnavailable,
     DERIVED_SPLIT_CAVEATS,
+    ADR_RATIO_ACTIONS,
     DIVIDEND_ACTIONS,
     SPLIT_ACTIONS,
     TERMINAL_ACTIONS,
@@ -167,7 +168,7 @@ class TestAuthoritativeSplits:
                                match="ambiguous split ACTIONS multiplicity"):
                 split_ratios_from_actions(ordered, SESSIONS)
 
-    def test_reciprocal_split_siblings_are_one_reverse_event(self):
+    def test_adr_ratio_metadata_does_not_change_the_stock_split(self):
         rows = [
             action(action="split", value=0.1, source_row_id="a" * 64),
             action(action="adrratiosplit", value=10.0,
@@ -261,9 +262,9 @@ class TestReconciliation:
         ratio, outcome = reconcile_split(2.0, 3.0)
         assert ratio == 1.0 and outcome == "unresolved"
 
-    def test_reverse_denominator_is_oriented_by_reciprocal_evidence(self):
-        ratio, outcome = reconcile_split(1 / 30, 30.0)
-        assert ratio == pytest.approx(1 / 30) and outcome == "reciprocal"
+    def test_reverse_split_uses_the_direct_stock_split_value(self):
+        ratio, outcome = reconcile_split(1 / 30, 1 / 30)
+        assert ratio == pytest.approx(1 / 30) and outcome == "agreed"
 
     def test_a_derived_split_ACTIONS_does_not_carry_is_flagged(self):
         """Applied — it is all we have — but never silently. Acting on a ratio
@@ -278,7 +279,7 @@ class TestReconciliation:
         ratio, outcome = reconcile_split(1.999, 2.0)
         assert ratio == 2.0 and outcome == "agreed"
 
-    def test_overlapping_direct_and_reciprocal_bands_are_ambiguous(self):
+    def test_near_one_direct_mismatch_is_unresolved(self):
         ratio, outcome = reconcile_split(1 / 1.005, 1.005)
         assert ratio == 1.0 and outcome == "unresolved"
 
@@ -408,11 +409,10 @@ class TestTerminalMapping:
             assert gone not in TERMINAL_ACTIONS, (
                 f"{gone!r} appears in no row of the corpus")
 
-    def test_adrratiosplit_IS_a_split_and_spinoffdividend_IS_a_dividend(self):
-        """Both were absent from their sets. An ADR ratio change alters shares
-        per receipt exactly as a split does, so missing it leaves the split
-        factor — and therefore every stored episode peak — wrong."""
-        assert "adrratiosplit" in SPLIT_ACTIONS
+    def test_adr_ratio_is_not_a_listed_share_split(self):
+        """ADR ratio metadata is retained but cannot resize the listed book."""
+        assert "adrratiosplit" not in SPLIT_ACTIONS
+        assert "adrratiosplit" in ADR_RATIO_ACTIONS
         assert "spinoffdividend" in DIVIDEND_ACTIONS
 
     @pytest.mark.parametrize("act", ["delisted", "bankruptcyliquidation",
