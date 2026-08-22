@@ -1,0 +1,10 @@
+Recommendation from 2026-08-22 corrected Sharadar + SEC PIT re-optimization:
+
+Promote only spy_v_rebound from 0.11 to 0.10 as a challenger/certification candidate.
+
+Primary pre-SNDK window (2006-07-31 through 2025-12-31):
+- current: 21.2638% CAGR, -21.8724% max drawdown, 1.2041 Sharpe
+- 0.10 candidate: 21.7898% CAGR, -21.8724% max drawdown, 1.2244 Sharpe
+
+SEC-filing PIT issuer reconstruction produced zero economic delta versus the post-PR230 corrected replay.
+Do not promote the ~22.03% multi-parameter grid winner from this evidence because it depends on too few historical episodes and is materially more curve-fit-prone.
