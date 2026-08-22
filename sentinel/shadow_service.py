@@ -65,6 +65,21 @@ class ShadowServiceConfig:
         if enabled not in {"1", "true", "yes", "on"}:
             raise ShadowServiceRefused(
                 "reviewed shadow observation is not explicitly enabled")
+        reviewed_hashes = (
+            "SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256",
+            "SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256",
+            "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256",
+            "SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256",
+        )
+        for name in reviewed_hashes:
+            if _SHA256.fullmatch(str(source.get(name, "")).strip()) is None:
+                raise ShadowServiceRefused("%s is required" % name)
+        reviewed_mode = str(source.get(
+            "SENTINEL_REVIEWED_DEPLOYMENT_MODE", "")).strip().lower()
+        if reviewed_mode not in {"shadow", "dual"}:
+            raise ShadowServiceRefused(
+                "SENTINEL_REVIEWED_DEPLOYMENT_MODE must authorize shadow or "
+                "dual operation")
         database_url = str(source.get("SENTINEL_DATABASE_URL") or "").strip()
         if not database_url:
             raise ShadowServiceRefused("SENTINEL_DATABASE_URL is required")
@@ -88,11 +103,6 @@ class ShadowServiceConfig:
                 != shadow_runtime.SHADOW_PUBLICATION_TIMING_POLICY):
             raise ShadowServiceRefused(
                 "shadow publication timing policy differs from review")
-        if _SHA256.fullmatch(str(source.get(
-                "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256", "")).strip()) \
-                is None:
-            raise ShadowServiceRefused(
-                "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256 is required")
         try:
             poll_seconds = int(str(source.get(
                 "SENTINEL_SHADOW_POLL_SECONDS", "300")).strip())

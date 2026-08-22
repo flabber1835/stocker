@@ -24,7 +24,11 @@ def _env(**updates):
         "SENTINEL_SHADOW_OBSERVATION_ENABLED": "1",
         "SENTINEL_SHADOW_OBSERVATION_ID": "year-end",
         "SENTINEL_SHADOW_STARTING_CASH": "100000.00",
+        "SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256": "a" * 64,
+        "SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256": "c" * 64,
         "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256": "d" * 64,
+        "SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256": "b" * 64,
+        "SENTINEL_REVIEWED_DEPLOYMENT_MODE": "dual",
     }
     value.update(updates)
     return value
@@ -50,13 +54,28 @@ def test_shadow_service_config_is_explicit_and_normalized():
         shadow_service.ShadowServiceConfig.from_env(
             _env(SENTINEL_SHADOW_OBSERVATION_ENABLED="0"))
     with pytest.raises(shadow_service.ShadowServiceRefused,
-                       match="DATA_PUBLICATION"):
-        shadow_service.ShadowServiceConfig.from_env(
-            _env(SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256=""))
-    with pytest.raises(shadow_service.ShadowServiceRefused,
                        match="timing policy differs"):
         shadow_service.ShadowServiceConfig.from_env(_env(
             SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY="close-plus-one-second"))
+
+
+@pytest.mark.parametrize("name", [
+    "SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256",
+    "SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256",
+    "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256",
+    "SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256",
+])
+def test_shadow_service_requires_every_reviewed_digest(name):
+    with pytest.raises(shadow_service.ShadowServiceRefused, match=name):
+        shadow_service.ShadowServiceConfig.from_env(_env(**{name: ""}))
+
+
+@pytest.mark.parametrize("mode", ["", "paper", "unexpected"])
+def test_shadow_service_requires_reviewed_shadow_capable_mode(mode):
+    with pytest.raises(shadow_service.ShadowServiceRefused,
+                       match="REVIEWED_DEPLOYMENT_MODE"):
+        shadow_service.ShadowServiceConfig.from_env(
+            _env(SENTINEL_REVIEWED_DEPLOYMENT_MODE=mode))
 
 
 class _Cursor:
@@ -528,3 +547,19 @@ def test_shadow_module_and_compose_service_have_no_broker_surface():
     assert "SENTINEL_PAPER_ACCOUNT_ID" not in block
     assert "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256" in block
     assert shadow_service.shadow_runtime.SHADOW_PUBLICATION_TIMING_POLICY in block
+
+
+def test_inactive_shadow_profile_does_not_require_late_review_values():
+    compose = (ROOT / "docker-compose.sentinel-automation.yml").read_text(
+        encoding="utf-8")
+    start = compose.index("  sentinel-shadow:")
+    block = compose[start:]
+    assert "${SENTINEL_SHADOW_OBSERVATION_ENABLED:-0}" in block
+    for name in (
+            "SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256",
+            "SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256",
+            "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256",
+            "SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256",
+            "SENTINEL_REVIEWED_DEPLOYMENT_MODE"):
+        assert "${%s:-}" % name in block
+        assert "${%s:?" % name not in block
