@@ -119,6 +119,21 @@ jobs:
             exit 1
           fi
 
+      - name: Run the prospective Wealth Core boundary without skips
+        run: |
+          set -euo pipefail
+          docker run --rm --network none sentinel-test:ci \
+            tests/wealth_core \
+            --deselect tests/wealth_core/test_golden_fixture.py::test_the_result_matches_the_pinned_fixture \
+            --deselect tests/wealth_core/test_golden_fixture.py::TestTheHashesAreInterpreterIndependent::test_the_run_hash_is_stable_in_a_FRESH_INTERPRETER \
+            --deselect tests/wealth_core/test_performance_integration.py::test_measuring_does_not_move_the_pinned_result_hash \
+            -q -ra 2>&1 | tee /tmp/wealth-core-prospective.txt
+          if grep -Eq '(^|, )[0-9]+ (skipped|xfailed|xpassed)(,| in |$)' \
+              /tmp/wealth-core-prospective.txt; then
+            echo 'REFUSED: the prospective Wealth Core run had non-passes' >&2
+            exit 1
+          fi
+
       - name: Run cold-boot, canonical replay, and bt-data boundary without skips
         run: |
           set -euo pipefail
