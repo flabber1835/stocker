@@ -556,6 +556,32 @@ def require_current(conn) -> Publication:
     return published
 
 
+def _run_producer_identity(conn, run_id: str) -> dict:
+    """Bind a publication to the exact deployment that opened its run row."""
+    from sentinel.identity import require_feed_producer_identity
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT source_git_commit,runtime_image_digest"
+            " FROM feed_ingest_runs WHERE run_id=%s", (str(run_id),))
+        row = cur.fetchone()
+    if row is None:
+        raise CorpusIncoherent(
+            f"run-backed publication {run_id} has no ingest run record")
+    recorded = {
+        "schema": "sentinel.feed-producer/1",
+        "git_commit": str(row[0] or ""),
+        "runtime_image_digest": str(row[1] or ""),
+    }
+    current_producer = require_feed_producer_identity()
+    expected = {key: current_producer[key] for key in recorded}
+    if recorded != expected:
+        raise CorpusIncoherent(
+            f"ingest run {run_id} producer identity is missing or differs from "
+            "the deployment currently attempting publication")
+    return recorded
+
+
 def publish(conn, *, run_id: Optional[str] = None,
             window_start: Optional[str] = None,
             window_end: Optional[str] = None,
@@ -575,6 +601,7 @@ def publish(conn, *, run_id: Optional[str] = None,
                 "make that decision's recorded data_version a lie.")
     try:
         if run_id is not None:
+            producer = _run_producer_identity(conn, str(run_id))
             retired_universe = retire_failed_universe_candidates(
                 conn, run_id=str(run_id))
             assert_retry_superseded_prior_candidates(conn, run_id=str(run_id))
@@ -593,6 +620,13 @@ def publish(conn, *, run_id: Optional[str] = None,
             retired_universe = {}
         previous = current(conn)
         publication_evidence = dict(evidence or {})
+        if run_id is not None:
+            supplied_producer = publication_evidence.get("producer")
+            if supplied_producer is not None and supplied_producer != producer:
+                raise CorpusIncoherent(
+                    "caller-supplied publication producer conflicts with the "
+                    "durable ingest run")
+            publication_evidence["producer"] = producer
         if retired_universe:
             publication_evidence["retired_failed_universe_candidates"] = [
                 {"run_id": candidate, "rows": retired_universe[candidate]}

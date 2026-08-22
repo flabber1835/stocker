@@ -8,7 +8,8 @@
 #
 #    1  build the pinned image        the environment must exist before it can
 #                                     be named
-#    2  name it                       `identity --require-certified` refuses if
+#    2  name it                       `identity --require-environment-compatible`
+#                                     refuses if
 #                                     the interpreter, any pin, or either source
 #                                     tree cannot be pinned down
 #   2b  REQUIRE the closure lock      and STOP if it is missing. Ahead of the
@@ -224,7 +225,7 @@ export SENTINEL_RUNTIME_IMAGE_REF="${RUNTIME_IMAGE_REF}"
 
 # ── 2. name the environment ──────────────────────────────────────────────────
 step "2/9  naming the environment"
-${RUN} identity --require-certified > "${ART}/identity-env.json" \
+${RUN} identity --require-environment-compatible > "${ART}/identity-env.json" \
   || fail "the image is not the certified environment — pin drift, the wrong
   interpreter, or a source tree that could not be located. See
   ${ART}/identity-env.json"
@@ -696,7 +697,7 @@ PY
 
 # ── 9. the record ────────────────────────────────────────────────────────────
 step "9/9  recording the rehearsal identity"
-${RUN} identity --require-certified --start "${START}" --end "${END}" \
+${RUN} identity --require-environment-compatible --start "${START}" --end "${END}" \
   > "${ART}/identity-${RUNSTAMP}.json" \
   || fail "the identity record could not be produced"
 "${HOST_PYTHON}" - "${ART}/identity-${RUNSTAMP}.json" <<'PY'

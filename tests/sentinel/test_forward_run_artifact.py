@@ -30,7 +30,7 @@ def test_forward_report_schema_versions_defensive_evidence():
 def _inputs(tmp_path):
     sentinel_source, wealth_source = "1" * 64, "2" * 64
     environment = {
-        "certified": True, "pins_match": True, "sources_known": True,
+        "compatible": True, "pins_match": True, "sources_known": True,
         "lock_present": True, "pin_drift": {},
         "sentinel_source": {"hash": sentinel_source, "files": 10},
         "wealth_core_source": {"hash": wealth_source, "files": 10},

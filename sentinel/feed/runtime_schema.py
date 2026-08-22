@@ -154,6 +154,8 @@ _COLUMNS = {
         "chunks_total": ("integer", True), "chunks_done": ("integer", True),
         "rows_written": ("bigint", True), "rows_dropped": ("bigint", True),
         "current_chunk": ("text", False), "error_message": ("text", False),
+        "source_git_commit": ("text", False),
+        "runtime_image_digest": ("text", False),
     },
     "sentinel_action_generations": {
         "last_written_run_id": ("uuid", True), "window_start": ("date", True),

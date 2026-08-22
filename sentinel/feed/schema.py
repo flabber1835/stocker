@@ -477,7 +477,16 @@ DDL = [
         rows_written  BIGINT  NOT NULL DEFAULT 0,
         rows_dropped  BIGINT  NOT NULL DEFAULT 0,
         current_chunk TEXT,
-        error_message TEXT)""",
+        error_message TEXT,
+        source_git_commit TEXT,
+        runtime_image_digest TEXT)""",
+    # Existing ingest history predates deployment binding and remains readable
+    # as explicitly unbound NULL provenance. Every new IngestRun supplies both
+    # fields and every new run-backed publication refuses their absence.
+    """ALTER TABLE feed_ingest_runs
+        ADD COLUMN IF NOT EXISTS source_git_commit TEXT""",
+    """ALTER TABLE feed_ingest_runs
+        ADD COLUMN IF NOT EXISTS runtime_image_digest TEXT""",
     """CREATE INDEX IF NOT EXISTS idx_feed_ingest_runs_started
         ON feed_ingest_runs (started_at DESC)""",
 

@@ -394,7 +394,7 @@ def _report_binding(raw: Mapping[str, Any], *, raw_sha256: str,
     runtime_identity_sha = _runtime_identity_sha256(environment)
     if (source.get("environment_identity_sha256") != environment_sha
             or runtime_identity_sha != base["identity_hash"]
-            or environment.get("certified") is not True
+            or environment.get("compatible") is not True
             or environment.get("pins_match") is not True
             or environment.get("sources_known") is not True
             or environment.get("lock_present") is not True

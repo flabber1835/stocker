@@ -582,9 +582,10 @@ class TestTheCertifiedPostgresIsAGateNotAWarning:
         return M.cmd_identity(_Cfg(), args)
 
     def rec(self, *, certified=True, pg_ok=True):
-        return {"environment": {"certified": certified, "pin_drift": {},
+        return {"environment": {"compatible": certified, "pin_drift": {},
                                 "python": "3.12.13"},
                 "identity_hash": "x",
+                "certification": {"certified": certified, "failures": []},
                 "corpus": {"postgres_certified": pg_ok,
                            "postgres_server_version": "17.2"}}
 

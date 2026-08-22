@@ -67,6 +67,23 @@ def _runtime_schema_test_double_compat(request, monkeypatch):
 
     module_name = request.module.__name__.rsplit(".", 1)[-1]
 
+    # Production IngestRun now refuses to exist without the deployment binding
+    # established by sentinel-compose.sh. Most unit modules construct runs
+    # directly because they test SQL/economic behavior rather than host Docker
+    # identity. Keep that seam explicit and deterministic; the dedicated
+    # deployment-provenance module exercises the real fail-closed function.
+    if module_name != "test_feed_deployment_provenance":
+        from sentinel import identity as runtime_identity
+
+        monkeypatch.setattr(
+            runtime_identity, "require_feed_producer_identity",
+            lambda: {
+                "schema": "sentinel.feed-producer/1",
+                "git_commit": "a" * 40,
+                "runtime_image_digest": "sha256:" + "b" * 64,
+                "image_source_revision": "a" * 40,
+            })
+
     # The public backtester module is now deliberately a thin economic-domain
     # gate; the retained canonical replay bytes moved beside it to
     # wealth_core_replay_impl.py. Historical drift tests must keep pinning the

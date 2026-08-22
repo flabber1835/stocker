@@ -949,7 +949,7 @@ def probe_certified_suite(runner: CommandRunner, *, commit: Optional[str],
     identity = runner.run([
         "docker", "run", "--rm", "--network", "none",
         "--entrypoint", "python", runtime_digest,
-        "-m", "sentinel", "identity", "--require-certified"])
+        "-m", "sentinel", "identity", "--require-environment-compatible"])
     identity_hash = None
     if identity.returncode == 0:
         try:
@@ -1122,12 +1122,14 @@ finally:
 
 def probe_prevalidation_preparation(
         runner: CommandRunner, *, env: Mapping[str, str],
-        runtime_ref: Optional[str],
+        runtime_ref: Optional[str], commit: Optional[str],
         monotonic: Callable[[], float] = time.monotonic) -> PreparationSummary:
     """Prepare only schema + bounded Sharadar tail, before read-only review."""
     prerequisites = (
         bool(str(env.get("SHARADAR_API_KEY") or "").strip())
         and bool(env.get("SENTINEL_POSTGRES_PASSWORD"))
+        and commit is not None
+        and _HEX40.fullmatch(str(commit)) is not None
         and runtime_ref is not None
         and _IMAGE_DIGEST.fullmatch(str(runtime_ref)) is not None)
     if not prerequisites:
@@ -1152,6 +1154,14 @@ def probe_prevalidation_preparation(
             evidence_sha256=_evidence_digest({
                 "reason": "PREPARATION_COMPOSE_GRAPH_UNAVAILABLE"}))
     run_env["SENTINEL_RUNTIME_IMAGE_REF"] = str(runtime_ref)
+    run_env.update({
+        "SENTINEL_GIT_COMMIT": str(commit),
+        "SENTINEL_RUNTIME_IMAGE_DIGEST": str(runtime_ref),
+        "SENTINEL_FEED_AUTHORIZED": "DEPLOYED_REVIEWED_IMAGE_V1",
+        "SENTINEL_FEED_SERVICE_MODE": "GO_VALIDATION",
+        "SENTINEL_FEED_GIT_COMMIT": str(commit),
+        "SENTINEL_FEED_RUNTIME_IMAGE_DIGEST": str(runtime_ref),
+    })
     started = monotonic()
     completed = runner.run([
         "docker", "compose", *compose_args, "--profile", "cli", "run",
@@ -1285,7 +1295,7 @@ def probe_active_wealth_parity(
     )
     certified_environment = (
         isinstance(environment, dict)
-        and environment.get("certified") is True
+        and environment.get("compatible") is True
         and environment.get("pins_match") is True
         and environment.get("sources_known") is True
         and environment.get("lock_present") is True
@@ -1855,7 +1865,7 @@ def run_production_probes(*, runner: Optional[CommandRunner] = None,
             {"reason": "CERTIFIED_SUITE_NOT_RUN"})
     preparation = probe_prevalidation_preparation(
         runner, env=resolved_env,
-        runtime_ref=tests.runtime_image_digest)
+        runtime_ref=tests.runtime_image_digest, commit=git.commit)
     subjects: Dict[str, str] = {}
     timing_values: Dict[str, int] = {}
     parity = probe_active_wealth_parity(

@@ -26,7 +26,7 @@ def _corpus_components(version: int) -> dict:
 def runtime_environment(*, sentinel_source: str,
                         wealth_core_source: str) -> dict:
     return {
-        "certified": True,
+        "compatible": True,
         "pins_match": True,
         "sources_known": True,
         "lock_present": True,

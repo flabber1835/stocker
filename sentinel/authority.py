@@ -291,7 +291,7 @@ def bind_current_immutable_identities(
     bindings["test_image_digest"] = artifacts["test_image_digest"]
     environment = _mapping(
         runtime_identity.get("environment"), label="current runtime environment")
-    if (environment.get("certified") is not True
+    if (environment.get("compatible") is not True
             or environment.get("pins_match") is not True
             or environment.get("sources_known") is not True
             or environment.get("pin_drift") != {}):
@@ -1841,7 +1841,7 @@ def _validate_manifest(
 
     environment = _mapping(
         runtime_identity.get("environment"), label="runtime environment")
-    if (environment.get("certified") is not True
+    if (environment.get("compatible") is not True
             or environment.get("pins_match") is not True
             or environment.get("sources_known") is not True
             or environment.get("pin_drift") != {}):

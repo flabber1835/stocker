@@ -986,7 +986,8 @@ corpus_publications
     previous_version  the chain; a gap means rows were written but never published
     run_id            which ingest produced it
     published_at
-    evidence          row counts, window, digests
+    evidence          row counts, window, digests, producing Git commit and
+                      selected immutable runtime-image digest
 ```
 
 Rules:
@@ -996,7 +997,18 @@ the row is written ONLY after validation passes
 readers resolve "current version" through this table, never by observing rows
 the engine PINS a version at session start and treats the corpus as frozen
 ingest MUST NOT publish while a session is being processed
+every new run-backed publication requires the same non-blank producer binding
+on its feed_ingest_runs row; publication copies it into immutable evidence
 ```
+
+Producer identity is authorization as well as attribution. The supported host
+wrapper admits a feed mutation only when the selected image's OCI revision
+equals a clean repository `HEAD`, resolves the exact selected digest, and
+injects both facts. The container checks its baked source revision against the
+injected commit before database contact. Thus an old immutable image remains a
+valid object for inspection but cannot publish after the source advances.
+Environment compatibility and deployment certification are separate verdicts;
+the former cannot authorize a corpus writer.
 
 The last two matter more than they look. Without them a decision stamped `v52` is
 only approximately true, and approximately-true provenance is worse than none —

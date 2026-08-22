@@ -543,6 +543,21 @@ def cmd_check_data(config: SentinelConfig, today: str | None) -> int:
     return EXIT_NOT_ESTABLISHED
 
 
+def _feed_producer_or_refuse() -> dict | None:
+    """Require the one-invocation host/container feed deployment binding."""
+    from sentinel import identity as runtime_identity
+
+    try:
+        producer = runtime_identity.require_feed_producer_identity()
+    except RuntimeError as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return None
+    logging.getLogger("sentinel").info(
+        "sentinel: feed producer %s / %s",
+        producer["git_commit"][:12], producer["runtime_image_digest"][:19])
+    return producer
+
+
 def cmd_feed_repair(config: SentinelConfig, args) -> int:
     """Stored split ratios that contradict ACTIONS — and, with --apply, the fix.
 
@@ -556,6 +571,8 @@ def cmd_feed_repair(config: SentinelConfig, args) -> int:
     from sentinel.feed import repair as feed_repair
     from sentinel.feed import store as feed_store
 
+    if args.apply and _feed_producer_or_refuse() is None:
+        return EXIT_NOT_ESTABLISHED
     if not config.database_url:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
         return EXIT_CONFIG
@@ -580,11 +597,10 @@ def cmd_feed_repair(config: SentinelConfig, args) -> int:
 def cmd_identity(config: SentinelConfig, args) -> int:
     """What this environment and corpus ARE. Read-only; no broker, no writes.
 
-    Exit code is the point: `--require-certified` returns non-zero when the
-    interpreter or any pin differs from the certified one, so a rehearsal script
-    can refuse to produce evidence from an environment it cannot name. Without
-    the flag it simply describes, because the moment you most want to compare
-    two environments is when one of them is wrong.
+    Exit code is the point: `--require-environment-compatible` checks the
+    computational environment used before promotion; `--require-certified`
+    additionally requires installed commit/image binding. Without either flag it
+    simply describes, because comparison is most useful when one side is wrong.
     """
     from sentinel import identity as ident
     from sentinel.feed import store as feed_store
@@ -600,12 +616,24 @@ def cmd_identity(config: SentinelConfig, args) -> int:
             conn.close()
 
     print(json.dumps(rec, indent=2, default=str))
-    if args.require_certified and not rec["environment"]["certified"]:
+    require_environment = bool(getattr(
+        args, "require_environment_compatible", False))
+    if (args.require_certified or require_environment) \
+            and not rec["environment"]["compatible"]:
         drift = rec["environment"]["pin_drift"]
-        print(f"REFUSED: this is not the certified environment — python "
+        print(f"REFUSED: this is not the compatible reviewed environment — python "
               f"{rec['environment']['python']} (certified "
               f"{ident.CERTIFIED_PYTHON}), {len(drift)} pin(s) adrift: "
               f"{sorted(drift)}", file=sys.stderr)
+        return EXIT_NOT_ESTABLISHED
+    if args.require_certified \
+            and not (rec.get("certification") or {}).get("certified"):
+        verdict = rec.get("certification") or {}
+        print(
+            "REFUSED: environment compatibility is not deployment "
+            "certification — " + ", ".join(
+                verdict.get("failures") or ["deployment identity is unbound"]),
+            file=sys.stderr)
         return EXIT_NOT_ESTABLISHED
     # THE DATABASE IS PART OF THE CERTIFIED ENVIRONMENT, so a wrong server is a
     # REFUSAL rather than a printed warning. The corpus digests in this record
@@ -714,6 +742,11 @@ def cmd_feed(config: SentinelConfig, args) -> int:
     from sentinel.feed import ingest
     from sentinel.feed import store as feed_store
 
+    # BEFORE database construction.  A stale image is allowed to describe
+    # itself, but it must not reclaim a run, open a new run row, or touch one
+    # corpus row merely because its immutable digest resolved successfully.
+    if _feed_producer_or_refuse() is None:
+        return EXIT_NOT_ESTABLISHED
     if not config.database_url:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
         return EXIT_CONFIG
@@ -2184,8 +2217,12 @@ def main(argv: list[str] | None = None) -> int:
                      help="hash the corpus over this window (with --end)")
     idp.add_argument("--end", default=None)
     idp.add_argument("--require-certified", action="store_true",
-                     help="exit non-zero unless the interpreter and every "
-                          "dependency pin are the certified ones")
+                     help="exit non-zero unless both the environment and "
+                          "installed deployment identity are certified")
+    idp.add_argument(
+        "--require-environment-compatible", action="store_true",
+        help="build/rehearsal-only gate: require the reviewed interpreter, "
+             "dependencies and sources without claiming deployment binding")
     sub.add_parser("plan", help="retired; refuses and names safe replacements")
     inspect = sub.add_parser(
         "inspect-paper-account",

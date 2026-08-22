@@ -331,7 +331,7 @@ def certification_producer_inputs(tmp_path, *, xfailed=0):
             "canonical_loader_sha256": hashlib.sha256(
                 loader.read_bytes()).hexdigest(),
             "runtime_environment": {
-                "certified": True, "pins_match": True,
+                "compatible": True, "pins_match": True,
                 "sources_known": True, "pin_drift": {},
                 "lock_present": True, "image_lock_sha256": "5" * 64},
         },

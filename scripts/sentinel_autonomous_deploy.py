@@ -914,7 +914,7 @@ def verify_reviewed_validation_environment(
     identity = _read_only_command(invoke, [
         "docker", "run", "--rm", "--network", "none",
         "--entrypoint", "python", reviewed.runtime_image_digest,
-        "-m", "sentinel", "identity", "--require-certified",
+        "-m", "sentinel", "identity", "--require-environment-compatible",
     ])
     if identity.returncode != 0:
         raise DeployRefused(
@@ -1548,7 +1548,7 @@ class AutonomousDeploy:
         self.runner.run([
             "docker", "run", "--rm", "--network", "none",
             "--entrypoint", "python", "sentinel-authorized:latest",
-            "-m", "sentinel", "identity", "--require-certified"])
+            "-m", "sentinel", "identity", "--require-environment-compatible"])
         self.runner.run([
             sys.executable, "scripts/sentinel_certification_state.py", "verify-build",
             "--record", str(build_record)])
@@ -1582,6 +1582,10 @@ class AutonomousDeploy:
             "SENTINEL_RUNTIME_IMAGE_REPOSITORY": self.cfg.runtime_repository,
             "SENTINEL_RUNTIME_IMAGE_DIGEST": self.runtime_digest,
             "SENTINEL_TEST_IMAGE_DIGEST": self.test_digest,
+            "SENTINEL_FEED_AUTHORIZED": "DEPLOYED_REVIEWED_IMAGE_V1",
+            "SENTINEL_FEED_SERVICE_MODE": "DEPLOY",
+            "SENTINEL_FEED_GIT_COMMIT": self.commit,
+            "SENTINEL_FEED_RUNTIME_IMAGE_DIGEST": self.runtime_digest,
             "SENTINEL_AUTHORITY_ARTIFACTS_DIR": str(self.cfg.authority_dir),
         })
         self.runner.env.update(self.env)

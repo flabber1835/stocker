@@ -422,7 +422,7 @@ def _validated_runtime_identity(
     sentinel_sha = str(sentinel_source.get("hash") or "")
     wealth_sha = str(wealth_source.get("hash") or "")
     if (actual != expected
-            or environment.get("certified") is not True
+            or environment.get("compatible") is not True
             or not _GIT_OBJECT.fullmatch(git_commit)
             or not _IMAGE_DIGEST.fullmatch(runtime_image_digest)
             or not _HEX64.fullmatch(sentinel_sha)
