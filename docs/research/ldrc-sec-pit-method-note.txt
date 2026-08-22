@@ -1,1 +1,0 @@
-Method note: corrected Sharadar economics were held fixed; SEC filing PIT issuer identity used the PR #208 causal resolver; optimization stopped at 2025-12-31 to prevent the 2026 SNDK episode from selecting parameters; the interaction grid contained 6,750 configurations. Production strategy code was not changed by this research branch.
