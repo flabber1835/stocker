@@ -445,10 +445,20 @@ Walk every branch and the corpus settles nothing:
 sentinel unfixed              CONVERSION -> MISSING_DELIVERED_SECURITY  -> blocks
 sentinel fixed, PRIVATE buyer CASH_MERGER, per-share cash unknown
                                          -> MISSING_CASH_PER_SHARE      -> blocks
-sentinel fixed, PUBLIC buyer  CONVERSION, real delivered security, but
-                              `value` is a deal size not a ratio
-                                         -> MISSING_EXCHANGE_RATIO      -> blocks
+sentinel fixed, PUBLIC buyer  incomplete terminal economics; the public buyer
+                              identifies the acquirer, not consideration
+                                         -> MISSING_CASH_PER_SHARE      -> carries
+                                            through the settlement waterfall
 ```
+
+The public-buyer distinction is load-bearing.  ACTIONS can carry several
+``acquisitionby`` rows for one consortium transaction (for example Air Lease
+Corporation with SMBC Aviation Capital, Sumitomo, Brookfield and Apollo named
+across sibling rows).  Treating every public ``contraticker`` as delivered
+shares invents several mutually exclusive conversions from one acquisition.
+The mapping therefore retains buyer ticker/name as provenance only and never
+sets a delivered security, exchange ratio, or consideration type from those
+fields.
 
 So a terminal settlement policy is not an optional fallback for rare cases. It is
 the ONLY path by which any of the 19,216 delisted securities can leave the book.

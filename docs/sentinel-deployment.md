@@ -1695,10 +1695,13 @@ rewrite or discard the baseline.
 
 Economic consumers remain deliberately narrower than source storage.  Positive
 cash distributions on one ticker/effective session sum once per distinct source
-row.  More than one distinct split row on one ticker/effective session has no
-vendor-defined composition order: Sentinel applies no ACTIONS multiplier and
-publishes ``AMBIGUOUS_SPLIT_MULTIPLICITY`` certification evidence.  It may not
-pick the first/last row.
+row.  Split siblings are first reduced through the shared orientation rule.
+Rows such as ``0.1`` and ``10`` that have exactly one common canonical economic
+ratio describe one reverse split and are corroborating source evidence, not two
+events.  If the intersection of every sibling's possible direct/reciprocal
+interpretations is empty or contains more than one ratio, Sentinel applies no
+ACTIONS multiplier and publishes ``AMBIGUOUS_SPLIT_MULTIPLICITY`` certification
+evidence.  It may not pick the first/last row or multiply sibling values.
 
 Terminal consumers map every distinct source row before coalescing.  The
 economic key is ``(effective exchange session, permanent security id)`` -- not
@@ -1709,6 +1712,12 @@ richest supported mapped record; Sentinel and the backtester now call the same
 shared selector.  Richness comes only from supported terminal fields.  ACTIONS
 ``value`` remains transaction-size provenance and never makes a record richer
 as cash per share, an exchange ratio, or any other settlement term.
+
+``contraticker`` and ``contraname`` identify acquiring counterparties.  They do
+not state what holders received.  A public buyer therefore does not manufacture
+a conversion or delivered security, and multiple buyers in a consortium do not
+become conflicting settlement terms.  Every such row maps to the same incomplete
+terminal economics; buyer identities survive only in source-row provenance.
 
 Selection is deterministic and independent of source-row order.  A less
 informative generic row may be subsumed by a reason-specific row.  Candidates

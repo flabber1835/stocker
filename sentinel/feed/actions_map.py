@@ -62,6 +62,7 @@ from stock_strategy_shared.split_reconciliation import (
     SPLIT_CORROBORATED_DIRECT,
     SPLIT_CORROBORATED_RECIPROCAL,
     SPLIT_UNRESOLVED,
+    coalesce_split_sibling_values,
     resolve_split_orientation,
 )
 
@@ -118,12 +119,16 @@ def split_rows_from_actions(rows: Iterable[Mapping],
             if values[0] is not None:
                 out[key] = values[0]
         else:
-            ambiguous.append({
-                "ticker": key[0], "session": key[1],
-                "distinct_rows": len(identities),
-                "distinct_values": sorted({v for v in values if v is not None}),
-                "invalid_value_rows": sum(v is None for v in values),
-            })
+            canonical = coalesce_split_sibling_values(values)
+            if canonical is not None:
+                out[key] = canonical
+            else:
+                ambiguous.append({
+                    "ticker": key[0], "session": key[1],
+                    "distinct_rows": len(identities),
+                    "distinct_values": sorted({v for v in values if v is not None}),
+                    "invalid_value_rows": sum(v is None for v in values),
+                })
     return out, ambiguous
 
 

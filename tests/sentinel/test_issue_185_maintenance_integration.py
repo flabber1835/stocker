@@ -87,6 +87,9 @@ def test_actions_split_correction_replays_against_candidate_before_publication(
         maintenance, "_failed_action_reconcile_bar_footprint",
         lambda conn, **kwargs: ([], False))
     monkeypatch.setattr(
+        maintenance, "_semantic_upgrade_replay_dates",
+        lambda conn, **kwargs: [])
+    monkeypatch.setattr(
         renormalize, "correction_windows",
         lambda dates, **kwargs: [("2019-12-31", "2020-01-03")])
     monkeypatch.setattr(
@@ -167,6 +170,9 @@ def test_full_actions_history_does_not_expand_a_short_price_seed(monkeypatch):
         maintenance, "_failed_action_reconcile_bar_footprint",
         lambda conn, **kwargs: ([], False))
     monkeypatch.setattr(
+        maintenance, "_semantic_upgrade_replay_dates",
+        lambda conn, **kwargs: [])
+    monkeypatch.setattr(
         "sentinel.feed.recovery.retire_failed_action_reconcile_bars_outside_market",
         lambda conn, **kwargs: 0)
     monkeypatch.setattr(
@@ -193,6 +199,69 @@ def test_full_actions_history_does_not_expand_a_short_price_seed(monkeypatch):
     assert evidence["affected_bar_dates"] == 1
     assert evidence["retained_market_window"] == ["2025-07-01", "2026-08-21"]
     assert evidence["replay_windows"] == []
+
+
+def test_semantic_cursor_upgrade_replays_old_blockers_with_unchanged_source(
+        monkeypatch):
+    events = []
+    row = {
+        "ticker": "AAA", "date": "2026-08-14", "action": "split",
+        "name": None, "value": 0.1, "contraticker": None,
+        "contraname": None,
+    }
+    identity = "source-row"
+    monkeypatch.setattr(store, "_assert_corpus_locked", lambda conn: None)
+    monkeypatch.setattr(store, "IngestRun", _Run)
+    monkeypatch.setattr(maintenance, "load_actions_cursor", lambda conn: None)
+    monkeypatch.setattr(
+        maintenance, "_stable_rows", lambda fetch, table, params: [row])
+    monkeypatch.setattr(
+        maintenance.action_source, "distinct_rows",
+        lambda rows: [(identity, {}, row)])
+    monkeypatch.setattr(
+        maintenance, "_active_action_rows", lambda conn: {identity: {}})
+    monkeypatch.setattr(
+        maintenance, "_action_change_dates", lambda conn, rows: [])
+    monkeypatch.setattr(
+        maintenance, "_retained_market_bounds",
+        lambda conn: ("2025-07-01", "2026-08-21"))
+    monkeypatch.setattr(
+        maintenance, "_failed_action_reconcile_bar_footprint",
+        lambda conn, **kwargs: ([], False))
+    monkeypatch.setattr(
+        maintenance, "_semantic_upgrade_replay_dates",
+        lambda conn, **kwargs: ["2026-08-14"])
+    monkeypatch.setattr(
+        renormalize, "correction_windows",
+        lambda dates, **kwargs: [("2026-08-12", "2026-08-17")])
+    monkeypatch.setattr(
+        "sentinel.feed.recovery.retire_failed_action_reconcile_bars_outside_market",
+        lambda conn, **kwargs: 0)
+    monkeypatch.setattr(store, "write_actions", lambda *args, **kwargs: 1)
+
+    def replay(conn, *, dates, **kwargs):
+        events.append(("replay", list(dates)))
+        return []
+
+    monkeypatch.setattr(renormalize, "renormalize", replay)
+    monkeypatch.setattr(
+        publication, "publish",
+        lambda conn, *, run_id, **kwargs: events.append(
+            ("publish", kwargs["evidence"]["semantic_upgrade_dates"]))
+        or _pub(run_id))
+    monkeypatch.setattr(
+        maintenance, "_write_cursor",
+        lambda conn, **kwargs: maintenance.SourceCursor(
+            kind=kwargs["kind"], processed_through=kwargs["through"],
+            publication_version=kwargs["publication_version"]))
+
+    maintenance.reconcile_actions_if_due(
+        object(), fetch=object(), through="2026-08-21", force=True)
+
+    assert events == [
+        ("replay", ["2026-08-14"]),
+        ("publish", 1),
+    ]
 
 
 def test_sep_mutation_cursor_moves_only_after_bounded_replay_publication(monkeypatch):

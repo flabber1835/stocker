@@ -34,14 +34,18 @@ from typing import Iterable, Mapping, Optional
 
 from sentinel.core.terminal import DIVIDEND_ACTIONS, SPLIT_ACTIONS
 from sentinel.feed import (
-    action_source, authority, calendar, publication, recovery, renormalize,
-    sharadar, snapshot_export, store, universe)
+    action_source, anomalies, authority, calendar, publication, recovery,
+    renormalize, sharadar, snapshot_export, store, universe)
 
 SEP_CURSOR_NAME = "sharadar-sep-lastupdated:v1"
 # New name on purpose: a pre-fix v1 cursor was earned by two paginated reads and
 # must not authorize operation after this stronger negative-space contract lands.
-ACTIONS_CURSOR_NAME = "sharadar-actions-export-reconcile:v2"
-ACTIONS_CURSOR_KIND = "sharadar-actions-export-reconcile/v2"
+# v3 re-earns action authority under complete-row terminal semantics and
+# reciprocal-sibling split coalescing.  A v2 cursor proved source bytes only;
+# it cannot prove that an upgraded normalizer replayed already-published
+# blocking dispositions under the reviewed interpretation.
+ACTIONS_CURSOR_NAME = "sharadar-actions-export-reconcile:v3"
+ACTIONS_CURSOR_KIND = "sharadar-actions-export-reconcile/v3"
 # Full ACTIONS authority must cover the decision frontier itself.  A 7-day
 # cadence allowed a same-day omitted dividend/terminal action to coexist with a
 # READY frontier.  One vendor export per decision day is intentionally stronger.
@@ -509,6 +513,19 @@ def _failed_action_reconcile_bar_footprint(
     return dates, bool(row and row[0])
 
 
+def _semantic_upgrade_replay_dates(
+        conn, *, market_start: str, market_end: str) -> list[str]:
+    """Published split questions that an upgraded normalizer must re-answer."""
+    rows = anomalies.active_rows(
+        conn, start=str(market_start), end=str(market_end), kinds=(
+            "SPLIT_DISAGREEMENT",
+            "SPLIT_ONLY_DERIVED",
+            "SEAM_SPLIT_UNCORROBORATED",
+            "AMBIGUOUS_SPLIT_MULTIPLICITY",
+        ))
+    return sorted({str(row["session"]) for row in rows})
+
+
 def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
                              through: str, force: bool = False
                              ) -> Optional[SourceCursor]:
@@ -555,11 +572,16 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
     recovery_dates, has_outside_failed_bars = (
         _failed_action_reconcile_bar_footprint(
             conn, market_start=market_start, market_end=market_end))
-    replay_dates = sorted(set(changed_dates) | set(recovery_dates))
+    semantic_dates = (_semantic_upgrade_replay_dates(
+        conn, market_start=market_start, market_end=market_end)
+        if prior_cursor is None else [])
+    replay_dates = sorted(
+        set(changed_dates) | set(recovery_dates) | set(semantic_dates))
 
     current_ids = {identity for identity, _payload, _row in distinct}
     if (current_ids == set(prior_active)
-            and not recovery_dates and not has_outside_failed_bars):
+            and not recovery_dates and not semantic_dates
+            and not has_outside_failed_bars):
         current = publication.require_current(conn)
         return _write_cursor(
             conn, name=ACTIONS_CURSOR_NAME, kind=ACTIONS_CURSOR_KIND,
@@ -598,6 +620,7 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
             "changed_source_rows": len(set(prior_active).symmetric_difference(current_ids)),
             "changed_action_dates": len(set(changed_dates)),
             "recovery_bar_dates": len(set(recovery_dates)),
+            "semantic_upgrade_dates": len(set(semantic_dates)),
             "affected_bar_dates": len(set(replay_dates)),
             "retained_market_window": [market_start, market_end],
             "retired_failed_bars_outside_market": retired_outside,

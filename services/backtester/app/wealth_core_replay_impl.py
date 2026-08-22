@@ -55,6 +55,7 @@ from stock_strategy_shared.split_reconciliation import (
     SPLIT_AUTHORITATIVE_APPLIED,
     SPLIT_CORROBORATED_DIRECT,
     SPLIT_CORROBORATED_RECIPROCAL,
+    coalesce_split_sibling_values,
     resolve_split_orientation,
 )
 from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
@@ -423,13 +424,14 @@ def snap_to_session(day: str, sessions_sorted: Sequence[str]) -> str | None:
 def split_ratios_from_actions(rows: Iterable[dict],
                               sessions_sorted: Sequence[str]
                               ) -> dict[tuple[str, str], float]:
-    """(ticker, session) -> authoritative share ratio.
+    """(ticker, session) -> one source-supported stated share ratio.
 
     Sharadar states a forward 2:1 as `value = 2.0`, which is already the share
     multiplier `apply_splits` wants — shares_after = shares_before x ratio. No
-    inversion, and that is worth stating because the DERIVED ratio required one:
-    the adjustment factor FALLS through a forward split, so `before/after` is
-    the share ratio there and `after/before` would halve a position on a 2:1.
+    inversion, and that is worth stating because the DERIVED ratio required one.
+    Distinct sibling rows are reduced by the shared production rule only when
+    every row supports one common direct/reciprocal economics. Otherwise the
+    canonical replay refuses instead of picking or multiplying rows.
     """
     grouped: dict[tuple[str, str], list[dict]] = {}
     for r in rows:
@@ -443,16 +445,27 @@ def split_ratios_from_actions(rows: Iterable[dict],
     out: dict[tuple[str, str], float] = {}
     for key in sorted(grouped):
         siblings = grouped[key]
+        values = []
+        for row in siblings:
+            value = row.get("value")
+            try:
+                values.append(None if value is None or float(value) <= 0
+                              else float(value))
+            except (TypeError, ValueError):
+                values.append(None)
         if len(siblings) > 1:
+            canonical = coalesce_split_sibling_values(values)
+            if canonical is not None:
+                out[key] = canonical
+                continue
             identities = sorted(str(row.get("source_row_id") or "<unknown>")
                                 for row in siblings)
             raise CorporateActionsAmbiguous(
                 "ambiguous split ACTIONS multiplicity for "
                 f"{key[0]} on {key[1]}: {', '.join(identities)}")
-        v = siblings[0].get("value")
-        if v is None or float(v) <= 0:
+        if values[0] is None:
             continue
-        out[key] = float(v)
+        out[key] = float(values[0])
     return out
 
 
@@ -538,13 +551,10 @@ def terminal_from_action(row: dict, session: str, *,
     applying a terminal event to a security nobody can name is worse than
     missing one.
 
-    THE ONE THING ACTIONS CANNOT EXPRESS is mixed consideration. There is a
-    single `value` column, so a cash-plus-stock deal states one leg and the
-    other is unrecoverable. `contraticker` is the discriminator — its presence
-    means the value is an exchange RATIO, its absence means cash per share —
-    and a genuinely mixed deal is therefore modelled as whichever leg the
-    vendor stated. That is a stated limitation in CAVEATS rather than an
-    invented second leg.
+    ACTIONS CANNOT EXPRESS consideration type or settlement terms.  Its
+    `contraticker` identifies a buyer, not a security delivered to holders, and
+    `value` is aggregate transaction size.  Neither field may manufacture a
+    cash price, exchange ratio, or conversion.
     """
     action = (row.get("action") or "").lower()
     if action not in TERMINAL_ACTIONS:
@@ -573,6 +583,8 @@ def terminal_from_action(row: dict, session: str, *,
     ref = f"actions/{action}"
     if deal_value_musd is not None:
         ref += f" deal_value_musd={deal_value_musd:g}"
+    if contra:
+        ref += f" counterparty_ticker={contra}"
     if contra_name:
         ref += f" counterparty={contra_name}"
 
@@ -589,25 +601,6 @@ def terminal_from_action(row: dict, session: str, *,
     # holding blocks — but it now blocks for the true reason, with the deal value
     # and counterparty in the audit trail instead of a market cap masquerading as
     # an exchange ratio.
-    if contra:
-        # A PUBLIC acquirer: the delivered security is nameable, but the ratio
-        # that would size the delivery is not in the table. `exchange_ratio` is
-        # left None rather than filled with the deal value, so `completeness()`
-        # refuses with MISSING_EXCHANGE_RATIO — the honest reason.
-        return TerminalTerms(
-            session=session, security_id=sid,
-            kind=TerminalKind.CONVERSION,
-            delivered_security_id=delivered_security_id,
-            delivered_ticker=contra,
-            delivered_issuer_id=delivered_issuer_id,
-            exchange_ratio=None,
-            # A fractional entitlement needs a settlement price and ACTIONS does
-            # not carry one. Left None so `completeness()` blocks the deal that
-            # actually produces a fraction, rather than silently dropping the
-            # stub — which is real money leaving the book with no record.
-            cash_in_lieu_price_per_delivered_share=None,
-            reference=ref)
-
     # THE STATED-ZERO WRITE-OFF IS REMOVED, and its removal is the point of D2.
     # It read `value == 0.0` as "the vendor says holders received nothing". With
     # `value` being a transaction size, a zero is a statement about DEAL SIZE and
@@ -647,12 +640,11 @@ def terminal_events_from_actions(rows: Iterable[dict],
     `terminal_results`. Resolution therefore happens FIRST and filtering happens
     against the resolved id.
 
-    Both sides are resolved point-in-time: the source ticker AND the
-    `contraticker` of a stock deal, at the action's effective session. A source
-    that cannot be attributed is DROPPED and counted — applying a terminal event
-    to a security nobody can name is worse than missing one. An unresolvable
-    DELIVERED security is left None, which `completeness()` refuses, so the deal
-    BLOCKS rather than delivering shares under a guessed identity.
+    The source ticker is resolved point-in-time.  `contraticker` is deliberately
+    not resolved as delivered consideration: Sharadar documents it as the
+    acquiring company, and consortium acquisitions carry several such rows.
+    A source that cannot be attributed is DROPPED and counted — applying a
+    terminal event to a security nobody can name is worse than missing one.
 
     `known_securities` holds PERMANENT ids — the securities this run could
     actually hold. An action on a security absent from the universe cannot
@@ -685,31 +677,8 @@ def terminal_events_from_actions(rows: Iterable[dict],
         if known_securities is not None and sid not in known_securities:
             continue
 
-        delivered_sid = delivered_issuer = None
-        # DEFECT D1: `or None` does not catch 'N/A'. See `vendor_symbol`.
-        contra = vendor_symbol(r.get("contraticker"))
-        if contra:
-            delivered_sid = (identity.resolve(contra, session)
-                             if identity is not None else contra)
-            if delivered_sid is None:
-                _count("terminal_delivered_unresolved")
-            else:
-                # The delivered security's OWN issuer key, from its metadata —
-                # never `"P:" + contra`, which prefixes a TICKER with the
-                # permanent-id namespace and produces an identifier that names
-                # nothing. Absent metadata falls back to the delivered permanent
-                # id, matching what the feed does for a security whose issuer
-                # cannot be established.
-                m = (metadata_timeline.metadata_for(session, delivered_sid)
-                     if metadata_timeline is not None
-                     else (meta or {}).get(delivered_sid))
-                key = m.issuer_key()[0] if m is not None else None
-                delivered_issuer = key or f"S:{delivered_sid}"
-
         t = terminal_from_action(
-            r, session, security_id=sid,
-            delivered_security_id=delivered_sid,
-            delivered_issuer_id=delivered_issuer)
+            r, session, security_id=sid)
         if t is not None:
             candidates.append(TerminalCandidate(
                 terms=t,
@@ -1280,14 +1249,13 @@ ACTIONS_CAVEATS: tuple[str, ...] = (
     "stated multiplier; reciprocal evidence applies its reciprocal; unresolved "
     "disagreement applies no share transformation and is counted in "
     "`split_reconciliation`.",
-    "mixed consideration cannot be expressed by a single ACTIONS row: there is "
-    "one `value` column, so a cash-plus-stock deal is modelled as whichever leg "
-    "the vendor stated (contraticker present => the value is an exchange ratio; "
-    "absent => cash per share).",
-    "a conversion's fractional entitlement has no settlement price in ACTIONS, "
-    "so a deal that leaves a fraction BLOCKS rather than dropping the stub.",
-    "terminal actions carrying no economic terms BLOCK admissions rather than "
-    "being written off — absence of terms is not a confirmed zero.",
+    "ACTIONS identifies acquisition counterparties and aggregate deal value but "
+    "does not state holder consideration. Public buyer tickers are provenance, "
+    "not delivered securities; cash, stock, mixed, and zero consideration are "
+    "never inferred from those fields.",
+    "terminal actions carrying no economic terms enter the disclosed settlement "
+    "waterfall rather than being written off — absence of terms is not a "
+    "confirmed zero.",
 )
 
 

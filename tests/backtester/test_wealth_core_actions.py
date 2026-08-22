@@ -167,6 +167,26 @@ class TestAuthoritativeSplits:
                                match="ambiguous split ACTIONS multiplicity"):
                 split_ratios_from_actions(ordered, SESSIONS)
 
+    def test_reciprocal_split_siblings_are_one_reverse_event(self):
+        rows = [
+            action(action="split", value=0.1, source_row_id="a" * 64),
+            action(action="adrratiosplit", value=10.0,
+                   source_row_id="b" * 64),
+        ]
+        expected = {("AAA", "2022-03-02"): 0.1}
+        assert split_ratios_from_actions(rows, SESSIONS) == expected
+        assert split_ratios_from_actions(list(reversed(rows)), SESSIONS) == expected
+
+    def test_identical_greater_than_one_siblings_preserve_orientation_question(self):
+        rows = [
+            action(action="split", value=2.0, source_row_id="a" * 64),
+            action(action="adrratiosplit", value=2.0,
+                   source_row_id="b" * 64),
+        ]
+        assert split_ratios_from_actions(rows, SESSIONS) == {
+            ("AAA", "2022-03-02"): 2.0,
+        }
+
 
 class TestAuthoritativeDividends:
 
@@ -283,32 +303,27 @@ class TestTerminalMapping:
         complete, why = t.completeness(100)
         assert complete is False and why == "MISSING_CASH_PER_SHARE"
 
-    def test_a_DEAL_VALUE_never_becomes_an_EXCHANGE_RATIO(self):
-        """The same number on the stock-deal route. Nothing broke before only
-        because completeness refused for an unrelated reason; had identity
-        resolution succeeded, a TMHC holder would have received 6,768.8 shares
-        per share held."""
+    def test_a_PUBLIC_buyer_does_not_create_a_stock_deal(self):
+        """A buyer ticker names a counterparty, not holder consideration."""
         t = terminal_from_action(
             action(action="acquisitionby", value=6768.8, contraticker="BRK.B"),
             "2022-03-02", security_id="P:1", delivered_security_id="P:2",
             delivered_issuer_id="ISS_2")
-        assert t.kind is TerminalKind.CONVERSION
-        assert t.exchange_ratio is None, "a deal size became a share ratio"
+        assert t.kind is TerminalKind.CASH_MERGER
+        assert t.delivered_security_id is None
+        assert t.delivered_ticker is None
+        assert "counterparty_ticker=BRK.B" in t.reference
         complete, why = t.completeness(100)
-        assert complete is False and why == "MISSING_EXCHANGE_RATIO"
+        assert complete is False and why == "MISSING_CASH_PER_SHARE"
 
-    def test_the_delivered_security_is_still_a_PERMANENT_id(self):
-        """UNCHANGED by D1/D2: when the acquirer is public its identity is
-        resolved and carried, even though the ratio that would size the delivery
-        is not available."""
+    def test_explicit_buyer_identity_still_does_not_prove_consideration(self):
         t = terminal_from_action(
             action(action="acquisitionby", value=None, contraticker="BRK.B"),
             "2022-03-02", security_id="P:1", delivered_security_id="P:2",
             delivered_issuer_id="ISS_2")
-        assert t.delivered_security_id == "P:2", (
-            "a ticker here puts shares in the book under a security that may "
-            "not be the acquirer")
-        assert t.delivered_issuer_id == "ISS_2"
+        assert t.delivered_security_id is None
+        assert t.delivered_issuer_id is None
+        assert t.delivered_ticker is None
 
     def test_the_NA_SENTINEL_is_ABSENCE_not_a_counterparty(self):
         """DEFECT D1, at the layer that failed.
@@ -421,14 +436,13 @@ class TestTerminalMapping:
         assert complete is False
         assert why == "MISSING_CASH_PER_SHARE"
 
-    def test_a_stock_deal_with_NO_RATIO_also_blocks(self):
-        """The delivered share count is not something to guess."""
+    def test_a_buyer_ticker_with_NO_terms_blocks_as_unknown_consideration(self):
         t = terminal_from_action(
             action(action="acquisitionby", value=None, contraticker="BBB"),
             "2022-03-02", security_id="P:1", delivered_security_id="P:2",
             delivered_issuer_id="ISS_2")
         complete, why = t.completeness(100)
-        assert complete is False and why == "MISSING_EXCHANGE_RATIO"
+        assert complete is False and why == "MISSING_CASH_PER_SHARE"
 
     def test_the_ORIGINAL_action_survives_in_the_reference(self):
         """A terms-less bankruptcy is emitted in the shape of a CASH_MERGER
@@ -573,7 +587,7 @@ class TestTheEventStream:
         assert forward[0].kind is not TerminalKind.WRITE_OFF
         assert counts == {"terminal_duplicate_rows_collapsed": 1}
 
-    def test_equally_rich_conflicting_terminal_evidence_refuses(self):
+    def test_multiple_public_buyers_coalesce_as_one_unknown_consideration(self):
         sessions = sessions_index(["2025-08-13"])
         rows = [
             action(ticker="IGMS", date="2025-08-13",
@@ -582,13 +596,13 @@ class TestTheEventStream:
                    action="acquisitionby", contraticker="CCC"),
         ]
         counts: dict[str, int] = {}
-        with pytest.raises(
-                ValueError,
-                match="conflicting terminal evidence.*110543.*2025-08-13"):
-            terminal_events_from_actions(
-                rows, sessions, {"110543"}, identity=self._IGMSIdentity(),
-                unresolved=counts)
-        assert counts == {"terminal_conflicting_rows": 2}
+        events = terminal_events_from_actions(
+            rows, sessions, {"110543"}, identity=self._IGMSIdentity(),
+            unresolved=counts)
+        assert len(events) == 1
+        assert events[0].kind is TerminalKind.CASH_MERGER
+        assert events[0].delivered_ticker is None
+        assert counts == {"terminal_duplicate_rows_collapsed": 1}
 
     def test_actions_on_unknown_tickers_are_excluded(self):
         """An action on a security the run cannot hold is not a run event, and
@@ -644,7 +658,8 @@ def test_the_two_caveat_sets_say_opposite_things_about_certification():
     assert "authoritative" in actions
     # ...and must still describe what the terms-less case does, since that is
     # the behaviour a reader is most likely to be surprised by.
-    assert "block" in actions
+    assert "settlement waterfall" in actions
+    assert "public buyer tickers are provenance" in actions
 
 
 # ── permanent identity (item 7) ─────────────────────────────────────────────
@@ -782,9 +797,7 @@ class TestTerminalActionsCrossTheIdentityBoundary:
             "without resolution a ticker cannot match a permanent-id universe; "
             "if this ever returns an event the filter is not doing its job")
 
-    def test_the_delivered_security_is_ALSO_resolved(self):
-        """`P:` + a ticker is not a permanent id — it is a ticker wearing the
-        permanent-id namespace's prefix, and it names nothing."""
+    def test_the_buyer_security_is_not_mistaken_for_consideration(self):
         from stock_strategy_shared.wealth_core.feed import SecurityMeta
         meta = {"P:456": SecurityMeta(security_id="P:456", ticker="ACQ",
                                       permaticker="456")}
@@ -795,13 +808,13 @@ class TestTerminalActionsCrossTheIdentityBoundary:
         assert len(got) == 1
         t = got[0]
         assert t.security_id == "P:123"
-        assert t.delivered_security_id == "P:456"
-        assert t.delivered_ticker == "ACQ", "the label survives for execution"
-        assert t.delivered_issuer_id and not t.delivered_issuer_id.startswith("P:ACQ")
+        assert t.kind is TerminalKind.CASH_MERGER
+        assert t.delivered_security_id is None
+        assert t.delivered_ticker is None
+        assert t.delivered_issuer_id is None
+        assert "counterparty_ticker=ACQ" in t.reference
 
-    def test_an_UNRESOLVABLE_delivered_security_BLOCKS_rather_than_guesses(self):
-        """Delivering shares under a guessed identity puts a position in the
-        book under a security that may not be the acquirer."""
+    def test_an_UNRESOLVABLE_buyer_is_provenance_not_delivered_identity(self):
         counts: dict = {}
         got = terminal_events_from_actions(
             [action(ticker="OLD", action="acquisitionby", value=0.757,
@@ -811,8 +824,8 @@ class TestTerminalActionsCrossTheIdentityBoundary:
         assert len(got) == 1
         assert got[0].delivered_security_id is None
         complete, why = got[0].completeness(100)
-        assert complete is False and why == "MISSING_DELIVERED_SECURITY"
-        assert counts.get("terminal_delivered_unresolved") == 1
+        assert complete is False and why == "MISSING_CASH_PER_SHARE"
+        assert counts == {}
 
     def test_an_UNRESOLVABLE_SOURCE_is_dropped_and_counted(self):
         counts: dict = {}

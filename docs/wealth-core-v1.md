@@ -410,11 +410,13 @@ rolls the replacement back and leaves the corpus generation unreadable.
 
 Exact semantic redeliveries collapse by `source_row_id`; distinct siblings
 coexist. Readers order by that identity. Dividends sum every distinct usable
-source row deterministically. More than one distinct split row at one effective
-ticker/session is unresolved ambiguity, never first-row, last-row, or product
-semantics. Terminal rows continue through the shared deterministic coalescer,
-using source identity as provenance and refusing equally rich conflicting
-economics.
+source row deterministically. Split siblings reduce through the one shared
+direct/reciprocal orientation rule: values such as `0.1` and `10` resolve only
+because every row has the same unique canonical `0.1` economics. An empty or
+multi-valued intersection remains unresolved ambiguity, never first-row,
+last-row, or product semantics. Terminal rows continue through the shared
+deterministic coalescer, using source identity as provenance and refusing
+equally rich conflicting economics.
 
 The backtester used to derive everything it knew about corporate actions from
 the price series itself. That was the right call while ACTIONS was un-ingested —
@@ -481,11 +483,14 @@ consideration.
 
 | ACTIONS row | mapped to |
 |---|---|
-| `merger` / `acquisition` with a cash value, no contraticker | `CASH_MERGER` |
-| with a contraticker and a ratio | `CONVERSION` |
-| with both | `CASH_PLUS_STOCK` |
-| stating a zero consideration | `WRITE_OFF` |
-| `delisted` / `bankruptcy` with no terms | **incomplete — blocks** |
+| target-side acquisition / merger / delisting | incomplete `CASH_MERGER` economics |
+| public or private acquiring counterparty | provenance only; never delivered consideration |
+| any `value`, including zero | aggregate deal-size provenance only |
+
+No ACTIONS terminal row can produce exact cash, stock, mixed, or zero
+consideration. The mapping intentionally chooses one incomplete terminal shape
+so the settlement waterfall can carry and resolve the known termination without
+inventing holder terms.
 
 ### The identity boundary an audit found (2026-08-06)
 
@@ -499,11 +504,12 @@ TICKER as `security_id`, which matches no episode, and fabricated
 `delivered_issuer_id` as `"P:" + contraticker` — a ticker wearing the
 permanent-id namespace's prefix, naming nothing.
 
-Both sides are now resolved point-in-time before filtering: the source ticker
-AND the `contraticker`. An unresolvable SOURCE is dropped and counted (applying
-a terminal event to a security nobody can name is worse than missing one); an
-unresolvable DELIVERED security leaves `delivered_security_id` None, so
-`completeness()` blocks the deal rather than delivering shares under a guess.
+The source ticker is now resolved point-in-time before filtering. An
+unresolvable SOURCE is dropped and counted (applying a terminal event to a
+security nobody can name is worse than missing one). `contraticker` is not
+resolved as a delivered security: it identifies a buyer and supplies no holder
+consideration. Buyer ticker/name remain in provenance while
+`delivered_security_id` and exchange terms remain unset.
 
 **Why the unit tests missed it.** They call `terminal_events_from_actions` with a
 TICKER-keyed universe — a coherent contract in isolation and the wrong one at the
@@ -709,8 +715,8 @@ volatility dispersion.
 | dividends in the backtester | **applied** from ACTIONS on the ex-date as a receivable, settling after `dividend_settlement_lag_sessions` |
 | dividend PAYMENT dates | **unobservable** — ACTIONS carries no pay date, so the lag is an adopted convention in the config hash |
 | splits in the backtester | ACTIONS presence is required for certified provenance; independent price-domain evidence selects a direct multiplier or reciprocal reverse denominator, and unresolved orientation is not applied; **derived** only when `bt_actions` is empty |
-| terminal actions in the backtester | **modelled** from ACTIONS — cash merger, conversion and write-off, with terms-less events BLOCKING |
-| mixed consideration in the backtester | **unsupported** — one `value` column per ACTIONS row, so a cash-plus-stock deal is modelled as the leg the vendor stated |
+| terminal actions in the backtester | **detected** from ACTIONS; holder consideration is unavailable, so source rows enter the incomplete-terms settlement waterfall |
+| mixed consideration in the backtester | **unsupported and never inferred** — ACTIONS identifies buyers and aggregate deal value, not holder cash/share legs |
 | a conversion's fractional stub in the backtester | **blocks** — ACTIONS carries no cash-in-lieu price |
 | `security_id` in the backtester | the **ticker**; a reused ticker reads as one continuous security |
 | security-for-security where the delivered security is absent from the corpus | unsupported — the converted episode would have no closes |

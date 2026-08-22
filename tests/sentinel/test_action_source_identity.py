@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import pytest
+
 from sentinel.feed import action_source, actions_map
 
 
@@ -63,3 +65,47 @@ def test_exact_duplicate_split_is_one_source_row():
         [split, split.copy()], ["2026-08-14"])
     assert ratios == {("AAA", "2026-08-14"): 2.0}
     assert ambiguous == []
+
+
+def test_reciprocal_split_siblings_are_one_canonical_reverse_event():
+    ratios, ambiguous = actions_map.split_rows_from_actions([
+        row(ticker="AAA", action="split", value=0.1),
+        row(ticker="AAA", action="adrratiosplit", value=10.0),
+    ], ["2026-08-14"])
+    assert ratios == {("AAA", "2026-08-14"): 0.1}
+    assert ambiguous == []
+
+
+def test_noisy_reciprocal_split_siblings_preserve_vendor_subunit_value():
+    ratios, ambiguous = actions_map.split_rows_from_actions([
+        row(ticker="AAA", action="split", value=0.03333),
+        row(ticker="AAA", action="adrratiosplit", value=30.00300030003),
+    ], ["2026-08-14"])
+    assert ratios == {("AAA", "2026-08-14"): 0.03333}
+    assert ambiguous == []
+
+
+def test_identical_greater_than_one_siblings_preserve_orientation_question():
+    ratios, ambiguous = actions_map.split_rows_from_actions([
+        row(ticker="AAA", action="split", value=2.0),
+        row(ticker="AAA", action="adrratiosplit", value=2.0),
+    ], ["2026-08-14"])
+    assert ratios == {("AAA", "2026-08-14"): 2.0}
+    assert ambiguous == []
+
+
+@pytest.mark.parametrize("values", [
+    (0.1, 0.5),
+    (0.00666666666666667, 0.9375),
+    (0.0066, 0.05),
+])
+def test_nonreciprocal_split_siblings_remain_ambiguous(values):
+    ratios, ambiguous = actions_map.split_rows_from_actions([
+        row(ticker="AAA", action="split", value=values[0]),
+        row(ticker="AAA", action="adrratiosplit", value=values[1]),
+    ], ["2026-08-14"])
+    assert ratios == {}
+    assert ambiguous == [{
+        "ticker": "AAA", "session": "2026-08-14", "distinct_rows": 2,
+        "distinct_values": sorted(values), "invalid_value_rows": 0,
+    }]

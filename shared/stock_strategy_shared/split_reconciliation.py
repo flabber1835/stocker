@@ -11,6 +11,8 @@ different economic decisions from identical source rows.
 """
 from __future__ import annotations
 
+import math
+
 
 # Clean split fractions agree well inside one percent.  A larger discrepancy
 # is conflicting share-count evidence, not rounding noise.
@@ -30,6 +32,56 @@ def _ratios_close(left: float, right: float) -> bool:
     return abs(float(left) - float(right)) <= (
         SPLIT_AGREEMENT_TOLERANCE
         * max(abs(float(left)), abs(float(right)), 1e-12))
+
+
+def coalesce_split_sibling_values(
+        values: list[float | None],
+) -> float | None:
+    """Return one stated ratio when every source sibling describes it.
+
+    Sharadar can publish the same reverse event in both canonical multiplier
+    and denominator form, for example ``0.1`` and ``10``. A sub-unit value is
+    already canonical. A value above one remains orientation-ambiguous until
+    the independent price domains are consulted, so identical ``10`` siblings
+    preserve ``10`` rather than guessing ``0.1``.
+
+    Distinct reciprocal spellings resolve only when their possible economics
+    have exactly one common ratio. Non-equivalent rows, multiple distinct
+    sub-unit spellings, invalid values, and any multi-valued intersection stay
+    unresolved. The rule is deliberately shared by production normalization
+    and canonical replay.
+    """
+    if not values or any(value is None for value in values):
+        return None
+    usable = [float(value) for value in values if value is not None]
+    if any(value <= 0 or not math.isfinite(value) for value in usable):
+        return None
+    if len(set(usable)) == 1:
+        return usable[0]
+
+    possibilities = [
+        (value,) if value <= 1.0 else (value, 1.0 / value)
+        for value in usable
+    ]
+    common: list[float] = []
+    for candidate in (item for group in possibilities for item in group):
+        if not all(any(_ratios_close(candidate, item) for item in group)
+                   for group in possibilities):
+            continue
+        if not any(_ratios_close(candidate, item) for item in common):
+            common.append(candidate)
+    if len(common) != 1:
+        return None
+
+    matching_subunits = {
+        value for value in usable
+        if value <= 1.0 and _ratios_close(value, common[0])
+    }
+    if len(matching_subunits) != 1:
+        return None
+    # Preserve the source's canonical sub-unit spelling. This avoids replacing
+    # 0.03333 with a computed reciprocal carrying representation noise.
+    return matching_subunits.pop()
 
 
 def split_price_evidence(derived: float | None) -> float | None:
@@ -105,6 +157,7 @@ __all__ = [
     "SPLIT_CORROBORATED_DIRECT",
     "SPLIT_CORROBORATED_RECIPROCAL",
     "SPLIT_UNRESOLVED",
+    "coalesce_split_sibling_values",
     "resolve_split_orientation",
     "split_price_evidence",
 ]

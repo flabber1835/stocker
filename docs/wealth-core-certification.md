@@ -806,10 +806,9 @@ found clean. **It means the branch was never exercised at all**, and it cannot
 be, because the corpus does not carry what it needs:
 
 ```text
-terminal_from_action   public acquirer -> CONVERSION, exchange_ratio = None
-                       everything else -> CASH_MERGER, cash_per_share = None
-completeness()         refuses BOTH: MISSING_EXCHANGE_RATIO /
-                                     MISSING_CASH_PER_SHARE
+terminal_from_action   every target-side terminal row -> incomplete CASH_MERGER
+                       buyer ticker/name remain provenance only
+completeness()         refuses: MISSING_CASH_PER_SHARE
 ```
 
 SHARADAR/ACTIONS supplies **no per-share consideration**. Its `value` column is
