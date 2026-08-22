@@ -4,6 +4,18 @@
 **Recovery date:** 2026-08-19.
 **Reason for this document:** the original corrected research harness was ephemeral. The implementation was reconstructed from the original experiment lineage and accepted only after reproducing multiple retained historical fingerprints exactly.
 
+## Post-volume-fix parent invariant
+
+**The corrected-volume Simplified LD-RC lineage uses the 30 percentage-point five-session damaged-breadth acceleration threshold, and only that threshold.** This is not an optional parameter sweep or a tuning choice. After the Sharadar volume-domain correction changed Wealth Core eligibility and therefore the controller's breadth path, the 30pp hardened native parent is the compatibility-restoring parent for the retained corrected LD-RC fingerprints.
+
+Concretely:
+
+```text
+min_damaged_breadth_delta5 = 0.30
+```
+
+The versioned implementation is `sentinel_concordance_parent_30pp_v1` in `sentinel/controller/concordance_parent.py`. The old frozen Sentinel 1.1 source artefact still contains 40pp and is preserved unchanged for provenance, but **a post-volume-fix LD-RC replay using 40pp is a different lineage and must not be presented as Simplified LD-RC evidence**. Historical A/B tests of issuer identity must hold the full 30pp Simplified LD-RC strategy invariant and change only issuer authority.
+
 ## What was recovered
 
 The prior PR #199 implementation over-formalized recovery as a durable certificate. That is **not** the research strategy.
