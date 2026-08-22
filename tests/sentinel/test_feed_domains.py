@@ -53,6 +53,10 @@ CLOSEADJ_PERMITTED = (
     "sentinel/feed/coherence.py",
     # The sole composition that hands the published series to the sensor.
     "sentinel/core/production.py",
+    # Commitment-only forward observer: hashes the exact already-composed
+    # PublishedSession input but never exposes the SPY series to holdings,
+    # marks, sizing, or execution.
+    "sentinel/shadow_observation.py",
 )
 
 
@@ -142,6 +146,7 @@ class TestTheForbiddenColumn:
             "sentinel/feed/schema.py",
             "sentinel/feed/coherence.py",
             "sentinel/core/production.py",
+            "sentinel/shadow_observation.py",
         )
 
     def test_the_SPY_sensor_is_the_only_strategy_reader(self):
@@ -157,8 +162,9 @@ class TestTheForbiddenColumn:
         """`sentinel/regime/` is not blanket-exempt. A second module added there
         inherits the prohibition — which is the difference between a narrowing
         and a hole."""
-        assert not any(p.endswith("/") or p.count("/") < 2
-                       for p in CLOSEADJ_PERMITTED)
+        assert all(
+            p.startswith("sentinel/") and p.endswith(".py")
+            for p in CLOSEADJ_PERMITTED)
         assert "sentinel/regime" not in CLOSEADJ_PERMITTED
         assert "sentinel/regime/" not in CLOSEADJ_PERMITTED
 

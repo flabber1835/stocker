@@ -64,6 +64,12 @@ TRIAL_ROW_KEYS = frozenset({
     "trial_drawdown", "trial_annualized", "trial_intent",
 })
 
+SHADOW_ROW_KEYS = frozenset({
+    "shadow_verification", "shadow_nav", "shadow_return",
+})
+
+FINANCIAL_AUTHORITY_ROW_KEYS = TRIAL_ROW_KEYS | SHADOW_ROW_KEYS
+
 
 @dataclass(frozen=True)
 class Row:
@@ -142,7 +148,8 @@ class Panel:
         non-runtime capability is not an outage.
         """
         live = [r.effective_status(self.now) for r in self.rows
-                if r.key not in TRIAL_ROW_KEYS and r.status is not PENDING]
+                if (r.key not in FINANCIAL_AUTHORITY_ROW_KEYS
+                    and r.status is not PENDING)]
         if self.source_errors:
             live.append(FAIL)
         return max(live, key=lambda s: _STATUS_RANK[s]) if live else OK
@@ -181,6 +188,83 @@ def trial_metric_row(key: str, label: str, value: Optional[str], *,
         return Row(key, label, "UNAVAILABLE", UNKNOWN, detail, as_of)
     return Row(key, label, value, OK if verified else WARN,
                detail if verified else f"UNVERIFIED · {detail}", as_of)
+
+
+def shadow_verification_row(
+        *, verdict: Optional[str], verification: Optional[str],
+        session: Optional[str], sessions_lag: Optional[int] = None,
+        error: Optional[str] = None, unreadable: bool = False) -> Row:
+    """The broker-free performance authority used by reviewed dual mode."""
+    if unreadable:
+        return Row(
+            "shadow_verification", "Certified shadow strategy",
+            "SHADOW NOT VERIFIED — EVIDENCE UNREADABLE", UNKNOWN,
+            error or "the certified shadow ledger could not be read")
+    if error:
+        return Row(
+            "shadow_verification", "Certified shadow strategy",
+            "SHADOW NOT VERIFIED — VERIFICATION WITHDRAWN", FAIL, error)
+    lag = int(sessions_lag or 0)
+    if (verdict != "SHADOW_GO" or verification != "VERIFIED"
+            or not session or lag != 0):
+        reason = (f"{lag} SESSION(S) BEHIND" if lag else
+                  "NO CURRENT VERIFIED SESSION")
+        return Row(
+            "shadow_verification", "Certified shadow strategy",
+            f"SHADOW NOT VERIFIED — {reason}", FAIL,
+            "strategy performance is authoritative only while the complete "
+            "broker-free lineage and current Sharadar corpus revalidate")
+    return Row(
+        "shadow_verification", "Certified shadow strategy",
+        f"SHADOW VERIFIED THROUGH {session}", OK,
+        "sole strategy-performance authority · canonical Wealth Core plus "
+        "accepted Sharadar inputs · independent of Alpaca PAPER accounting")
+
+
+def shadow_metric_row(
+        key: str, label: str, value: Optional[str], *, verified: bool,
+        detail: str) -> Row:
+    if value is None:
+        return Row(key, label, "UNAVAILABLE", UNKNOWN, detail)
+    return Row(
+        key, label, value, OK if verified else WARN,
+        detail if verified else f"NOT CURRENT · {detail}")
+
+
+def paper_reconciliation_row(
+        *, state: str, cycle_state: Optional[str] = None,
+        detail: str = "", error: Optional[str] = None) -> Row:
+    """Operational PAPER transport; never a performance authority."""
+    if error:
+        return Row(
+            "paper_reconciliation", "Alpaca PAPER mirror",
+            "PAPER NOT VERIFIED · STATUS UNREADABLE", UNKNOWN, error)
+    normalized = str(state or "").upper()
+    cycle = str(cycle_state or "").upper()
+    suffix = f" · cycle {cycle}" if cycle else ""
+    if normalized == "MISMATCH":
+        return Row(
+            "paper_reconciliation", "Alpaca PAPER mirror",
+            "PAPER NOT VERIFIED · MISMATCH · BLOCKED", FAIL,
+            (detail or "a durable PAPER discrepancy blocks future mutations")
+            + suffix)
+    if normalized == "CLEAN":
+        return Row(
+            "paper_reconciliation", "Alpaca PAPER mirror",
+            "PAPER NOT VERIFIED · MIRROR CLEAN", OK,
+            (detail or "orders and positions match the informational plan")
+            + suffix)
+    if normalized == "NOT_STARTED":
+        return Row(
+            "paper_reconciliation", "Alpaca PAPER mirror",
+            "PAPER NOT VERIFIED · NOT STARTED", WARN,
+            (detail or "no informational PAPER plan has been transported")
+            + suffix)
+    return Row(
+        "paper_reconciliation", "Alpaca PAPER mirror",
+        "PAPER NOT VERIFIED · PENDING", WARN,
+        (detail or "ordinary order/fill or post-close unit evidence is pending")
+        + suffix)
 
 def ownership_row(*, state: Optional[str], at: Optional[datetime],
                   error: Optional[str] = None) -> Row:
@@ -765,9 +849,11 @@ def execution_authority_row(
                freshness=timedelta(minutes=5))
 
 
-__all__ = ["FAIL", "NO_PERFORMANCE_HERE", "OK", "PENDING", "Panel", "Row",
-           "UNKNOWN", "WARN", "automation_alerts_row",
+__all__ = ["FAIL", "FINANCIAL_AUTHORITY_ROW_KEYS", "NO_PERFORMANCE_HERE",
+           "OK", "PENDING", "Panel", "Row", "SHADOW_ROW_KEYS",
+           "TRIAL_ROW_KEYS", "UNKNOWN", "WARN", "automation_alerts_row",
            "automation_cycle_row", "automation_leader_row", "automation_row",
            "book_row", "broker_row",
            "execution_authority_row", "exposure_row", "feed_row", "ingest_row",
-           "ownership_row", "terminals_row"]
+           "ownership_row", "paper_reconciliation_row",
+           "shadow_metric_row", "shadow_verification_row", "terminals_row"]

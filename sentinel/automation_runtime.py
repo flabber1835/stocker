@@ -58,6 +58,37 @@ PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE = \
 TARGET_PROJECTION_REFUSED = "TARGET_PROJECTION_REFUSED"
 
 
+def shadow_config_from_env(
+        env: Mapping[str, str] | None = None) -> tuple[bool, str, Decimal]:
+    """Parse the explicit broker-free observation mode.
+
+    This setting grants no execution authority. It is consumed only while the
+    ordinary automation control remains disabled and killed.
+    """
+    source = os.environ if env is None else env
+    raw = str(source.get("SENTINEL_SHADOW_OBSERVATION_ENABLED", "0")).strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        enabled = True
+    elif raw in {"0", "false", "no", "off", ""}:
+        enabled = False
+    else:
+        raise ValueError(
+            "SENTINEL_SHADOW_OBSERVATION_ENABLED must be true or false")
+    observation_id = str(source.get(
+        "SENTINEL_SHADOW_OBSERVATION_ID", "primary")).strip()
+    try:
+        starting_cash = Decimal(str(source.get(
+            "SENTINEL_SHADOW_STARTING_CASH", "100000")).strip())
+    except Exception as exc:  # Decimal accepts several non-string objects
+        raise ValueError(
+            "SENTINEL_SHADOW_STARTING_CASH must be a positive decimal") from exc
+    if (not observation_id or not starting_cash.is_finite()
+            or starting_cash <= 0):
+        raise ValueError(
+            "shadow observation id and positive finite starting cash are required")
+    return enabled, observation_id, starting_cash
+
+
 def config_from_env(env: Mapping[str, str] | None = None) -> AutomationConfig:
     source = os.environ if env is None else env
     mapping = {
@@ -73,6 +104,10 @@ def config_from_env(env: Mapping[str, str] | None = None) -> AutomationConfig:
     }
     values = {field: int(source[name]) for field, name in mapping.items()
               if str(source.get(name, "")).strip()}
+    timing_policy = str(source.get(
+        "SENTINEL_AUTOMATION_PUBLICATION_TIMING_POLICY", "")).strip()
+    if timing_policy:
+        values["publication_timing_policy"] = timing_policy
     return AutomationConfig(**values)
 
 
@@ -203,6 +238,14 @@ class ProductionAutomation:
         # inject only an already-constructed typed adapter; there is no
         # environment import-string loader that can execute arbitrary code.
         self.alert_adapter = alert_adapter or outbox.LogAlertAdapter()
+        (self._shadow_observation_enabled,
+         self._shadow_observation_id,
+         self._shadow_starting_cash) = shadow_config_from_env()
+        reviewed_mode = str(os.environ.get(
+            "SENTINEL_REVIEWED_DEPLOYMENT_MODE", "")).strip().lower()
+        if reviewed_mode not in {"", "shadow", "dual", "paper"}:
+            raise ValueError("SENTINEL_REVIEWED_DEPLOYMENT_MODE is invalid")
+        self._dual_run_enabled = reviewed_mode == "dual"
         # Fenced installs may advance only the canonical corpus path. The timer
         # is deliberately process-local: restart may cause one extra safe probe,
         # never broker authority or a duplicate trading command.
@@ -316,9 +359,84 @@ class ProductionAutomation:
         return cycle, control
 
     def _broker(self, conn, session: str):
+        if getattr(self, "_shadow_observation_enabled", False):
+            raise NonRetryableCallbackRefused(
+                "broker construction is forbidden while broker-free shadow "
+                "observation mode is enabled")
         resolver = paper.build_security_resolver(conn, session)
         return build_execution_broker(
             self.sentinel_config, resolve_security_id=resolver)
+
+    def _require_dual_plan_shadow_match(
+            self, conn, plan, *, pending_is_retryable: bool) -> Mapping:
+        """Read-only bridge; PAPER may transport only certified shadow intent."""
+        if not self._dual_run_enabled:
+            return {}
+        from sentinel import dual_reconciliation
+
+        try:
+            return dual_reconciliation.require_plan_matches_verified_shadow(
+                conn, plan=plan,
+                observation_id=self._shadow_observation_id,
+                starting_cash=self._shadow_starting_cash)
+        except dual_reconciliation.DualReconciliationPending as exc:
+            if pending_is_retryable:
+                raise paper.PaperRetryableRefused(str(exc)) from exc
+            raise NonRetryableCallbackRefused(
+                "dual-run execution has no current certified shadow intent: "
+                f"{exc}") from exc
+        except dual_reconciliation.DualReconciliationRefused as exc:
+            raise NonRetryableCallbackRefused(
+                f"dual-run plan/shadow reconciliation refused: {exc}") from exc
+
+    def _actionable_current_plan_deltas(
+            self, conn, *, plan, effective_session, observation,
+            minimum_quantity_increment) -> tuple:
+        """Use strict projections normally; exact raw mirror units only in dual."""
+        if not self._dual_run_enabled:
+            return _actionable_projection_deltas(
+                conn, plan=plan, effective_session=effective_session,
+                observation=observation,
+                minimum_quantity_increment=minimum_quantity_increment)
+
+        from sentinel import informational_paper_mirror
+
+        proof = self._require_dual_plan_shadow_match(
+            conn, plan, pending_is_retryable=False)
+        current = publication.require_current(conn)
+        frontier = feed_store.latest_visible_session(conn)
+        try:
+            informational_paper_mirror.require_transport_permitted(
+                conn, current_frontier=frontier,
+                current_publication_version=current.version)
+            informational_paper_mirror.require_pending_for_plan(
+                conn, plan=plan,
+                sizing_authority_sha256=proof["sizing_authority_sha256"],
+                shadow_record_sha256=proof["shadow_record_sha256"])
+        except informational_paper_mirror.InformationalPaperMirrorPending as exc:
+            raise paper.PaperRetryableRefused(
+                f"dual raw-plan convergence evidence is pending: {exc}") from exc
+        except informational_paper_mirror.InformationalPaperMirrorRefused as exc:
+            raise NonRetryableCallbackRefused(
+                f"dual raw-plan convergence authority refused: {exc}") from exc
+        observation.require_complete("dual raw-plan convergence")
+        if any(order.is_working for order in observation.orders):
+            raise NonRetryableCallbackRefused(
+                "dual raw-plan convergence still has a working broker order")
+        if any(getattr(order, "external_replacement", False)
+               for order in observation.orders):
+            raise NonRetryableCallbackRefused(
+                "dual raw-plan convergence observed an externally replaced order")
+        unexpected = sorted(
+            set(observation.positions_by_security()) - set(plan.target_basket))
+        if unexpected:
+            raise NonRetryableCallbackRefused(
+                "dual raw-plan convergence observed foreign position identities")
+        return tuple(
+            delta for delta in _all_target_deltas(
+                plan.target_basket, observation,
+                minimum_quantity_increment=minimum_quantity_increment)
+            if delta.classification is not execution_commands.DeltaClass.NONE)
 
     async def refresh(self, context: CycleContext) -> RefreshResult:
         conn = self.connect()
@@ -341,6 +459,16 @@ class ProductionAutomation:
                     already_published=True, data_version=str(current.version),
                     publication_fingerprint=publication_fingerprint(current),
                     diagnostic={"frontier": visible})
+            if self._dual_run_enabled:
+                # The dedicated broker-free shadow service is the sole
+                # Sharadar publisher in dual mode. Two writers that both saw a
+                # stale frontier can serialize yet still publish the same
+                # session twice, invalidating the shadow record's exact
+                # publication version before PAPER sizing. Wait for that one
+                # authority; never race it from the broker-capable service.
+                raise RuntimeError(
+                    "dual refresh is waiting for the dedicated shadow data "
+                    "publisher to publish the exact decision close")
             progress = ingest.daily(
                 conn, today=cycle.decision_session.isoformat())
             current = publication.require_current(conn)
@@ -372,14 +500,19 @@ class ProductionAutomation:
             schema.require_runtime_schema(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="PREPARE")
-            prior = catchup.last_processed_session(conn)
             missed = ()
-            if prior is not None and prior < cycle.decision_session:
-                first = calendar.next_session(prior)
-                missed = tuple(
-                    session for session in calendar.sessions_in_range(
-                        first, cycle.decision_session.isoformat())
-                    if session != cycle.decision_session.isoformat())
+            if not self._dual_run_enabled:
+                # Reviewed dual mode adopts the exact current shadow-produced
+                # plan.  Its broker-free shadow chain is the only historical
+                # lineage authority, so legacy PAPER catch-up obligations must
+                # neither be discovered nor synthesized during an upgrade.
+                prior = catchup.last_processed_session(conn)
+                if prior is not None and prior < cycle.decision_session:
+                    first = calendar.next_session(prior)
+                    missed = tuple(
+                        session for session in calendar.sessions_in_range(
+                            first, cycle.decision_session.isoformat())
+                        if session != cycle.decision_session.isoformat())
             # Audit obligations precede the canonical state commit.  If the
             # process dies after paper preparation durably advances/adopts but
             # before the service records its callback result, these DISCOVERED
@@ -421,13 +554,21 @@ class ProductionAutomation:
                     automation_grant=_grant(
                         context, "PREPARE", binding=control.binding),
                     automation_config_sha256=
-                        self.automation_config.fingerprint)
+                        self.automation_config.fingerprint,
+                    dual_shadow_observation_id=(
+                        self._shadow_observation_id
+                        if self._dual_run_enabled else None),
+                    dual_shadow_starting_cash=(
+                        self._shadow_starting_cash
+                        if self._dual_run_enabled else None))
             except paper.PaperRetryableRefused:
                 raise
             except (AuthorityRefused, BrokerAuthorityRefused,
                     paper.PaperActivationRefused) as exc:
                 raise NonRetryableCallbackRefused(
                     f"automation preparation refused: {exc}") from exc
+            dual_reconciliation = self._require_dual_plan_shadow_match(
+                conn, result.plan, pending_is_retryable=True)
             return PrepareResult(
                 plan_id=result.plan.plan_id,
                 data_version=str(result.plan.data_version),
@@ -440,6 +581,7 @@ class ProductionAutomation:
                     "sessions_replayed": result.sessions_replayed,
                     "warmup_sessions": result.warmup_sessions,
                     "superseded_plans": result.superseded_plans,
+                    "dual_plan_shadow_reconciliation": dual_reconciliation,
                 })
         finally:
             conn.close()
@@ -459,7 +601,13 @@ class ProductionAutomation:
                     grant=_grant(
                         context, "RECOVER", binding=control.binding),
                     automation_config_sha256=
-                        self.automation_config.fingerprint)
+                        self.automation_config.fingerprint,
+                    dual_shadow_observation_id=(
+                        self._shadow_observation_id
+                        if self._dual_run_enabled else None),
+                    dual_shadow_starting_cash=(
+                        self._shadow_starting_cash
+                        if self._dual_run_enabled else None))
             except paper.PreOpenShareUnitAuthorityUnavailable as exc:
                 detail = str(exc)
                 return ExecuteResult(
@@ -550,7 +698,7 @@ class ProductionAutomation:
                                 "name the durable current plan"),
                             diagnostic=result.to_dict())
                     try:
-                        actionable = _actionable_projection_deltas(
+                        actionable = self._actionable_current_plan_deltas(
                             conn, plan=plan,
                             effective_session=cycle.effective_session,
                             observation=result.observation,
@@ -630,6 +778,17 @@ class ProductionAutomation:
             schema.require_runtime_schema(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="EXECUTE")
+            if self._dual_run_enabled:
+                current_plan = journal.latest_plan(conn)
+                if (current_plan is None
+                        or current_plan.plan_id != cycle.plan_id
+                        or current_plan.fingerprint()
+                        != cycle.plan_fingerprint):
+                    raise NonRetryableCallbackRefused(
+                        "automation execution cycle does not name the durable "
+                        "current PAPER plan")
+                self._require_dual_plan_shadow_match(
+                    conn, current_plan, pending_is_retryable=False)
             broker = self._broker(conn, cycle.effective_session.isoformat())
             try:
                 result = await paper.execute_automated_paper_plan(
@@ -638,7 +797,13 @@ class ProductionAutomation:
                     grant=_grant(
                         context, "EXECUTE", binding=control.binding),
                     automation_config_sha256=
-                        self.automation_config.fingerprint)
+                        self.automation_config.fingerprint,
+                    dual_shadow_observation_id=(
+                        self._shadow_observation_id
+                        if self._dual_run_enabled else None),
+                    dual_shadow_starting_cash=(
+                        self._shadow_starting_cash
+                        if self._dual_run_enabled else None))
             except paper.PreOpenShareUnitAuthorityUnavailable as exc:
                 detail = str(exc)
                 return ExecuteResult(
@@ -704,7 +869,7 @@ class ProductionAutomation:
             else:
                 if reconciliation_id is not None:
                     try:
-                        actionable = _actionable_projection_deltas(
+                        actionable = self._actionable_current_plan_deltas(
                             conn, plan=result.plan,
                             effective_session=cycle.effective_session,
                             observation=final_reconciliation.observation,
@@ -834,7 +999,8 @@ class ProductionAutomation:
             feed_store.require_feed_schema(conn)
             schema.require_runtime_schema(conn)
             visible = feed_store.latest_visible_session(conn)
-            if visible != target:
+            if (visible != target
+                    and not getattr(self, "_dual_run_enabled", False)):
                 ingest.daily(conn, today=target)
                 visible = feed_store.latest_visible_session(conn)
             report = readiness.check_readiness(
@@ -862,6 +1028,42 @@ class ProductionAutomation:
                 },
                 max_attempts=self.automation_config.alert_max_attempts)
             return next_wake
+        shadow_result = None
+        if getattr(self, "_shadow_observation_enabled", False):
+            try:
+                from sentinel import shadow_runtime
+                shadow_result = shadow_runtime.advance_ready_shadow(
+                    conn, through=target,
+                    observation_id=self._shadow_observation_id,
+                    starting_cash=self._shadow_starting_cash)
+            except Exception as exc:                          # noqa: BLE001
+                conn.rollback()
+                detail = f"{type(exc).__name__}: {exc}"[:4000]
+                digest = hashlib.sha256(
+                    detail.encode("utf-8")).hexdigest()[:16]
+                outbox.enqueue(
+                    conn,
+                    idempotency_key=(
+                        f"shadow-observation:{target}:not-verified:{digest}"),
+                    event_type="SHADOW_OBSERVATION_NOT_VERIFIED",
+                    severity="CRITICAL",
+                    payload={
+                        "decision_session": target,
+                        "state": "DEPLOYED_FENCED_SHADOW",
+                        "verification": "NOT_VERIFIED",
+                        "detail": detail,
+                    },
+                    max_attempts=self.automation_config.alert_max_attempts)
+                return next_wake
+            outbox.enqueue(
+                conn,
+                idempotency_key=(
+                    f"shadow-observation:{target}:"
+                    f"{shadow_result.record_sha256}"),
+                event_type="SHADOW_OBSERVATION_VERIFIED",
+                severity="INFO",
+                payload=shadow_result.to_dict(),
+                max_attempts=self.automation_config.alert_max_attempts)
         outbox.enqueue(
             conn,
             idempotency_key=f"fenced-data:{target}:ready",
@@ -872,6 +1074,8 @@ class ProductionAutomation:
                 "state": "DEPLOYED_FENCED",
                 "readiness": "DATA_READY",
                 "frontier": target,
+                "shadow_observation": (
+                    shadow_result.to_dict() if shadow_result is not None else None),
             },
             max_attempts=self.automation_config.alert_max_attempts)
         return next_wake
@@ -955,5 +1159,5 @@ class ProductionAutomation:
 __all__ = [
     "PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE",
     "TARGET_PROJECTION_REFUSED",
-    "ProductionAutomation", "config_from_env",
+    "ProductionAutomation", "config_from_env", "shadow_config_from_env",
 ]

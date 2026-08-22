@@ -203,6 +203,16 @@ second module added beside it inherits the prohibition rather than the
 exemption. It declares the column as `SPY_PRICE_COLUMN` and that declaration is
 the entire surface of the carve-out.
 
+The source-domain guard separately names a closed transport/commit allowlist;
+those files are not additional strategy readers. In particular,
+`sentinel/shadow_observation.py` transports the already-composed
+`PublishedSession.spy_closeadj` values into the canonical input commitment so a
+restart can prove the SPY sensor saw the same source. It never interprets that
+series, feeds it to security selection/marking/execution, or reads Sharadar's
+raw `closeadj` column. The only strategy interpretation remains
+`sentinel/regime/spy.py`; the equality-pinned transport allowlist prevents this
+commitment-only exception from widening into a second reader.
+
 **2. Why total return is CORRECT here.** SPY in this rule is not a holding. It
 is a market-regime sensor, and the frozen specification defines both of its
 predicates on a total-return series (`standalone:176-178`). A dividend paid by

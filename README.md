@@ -18,6 +18,7 @@ Start with the operational ground truth:
 
 - `docs/sentinel-deployment.md`
 - `docs/sentinel-paper-activation.md`
+- `docs/sentinel-nas-go-validation.md`
 - `docs/sentinel-architecture.md`
 - `docs/sentinel-execution-contract.md`
 

@@ -24,7 +24,7 @@ is a long seed the operator will interrupt.
 sentinel_bars          one row per (security, session). The corpus
 sentinel_actions       SHARADAR/ACTIONS, the authoritative corporate-action stream
 sentinel_universe      SHARADAR/TICKERS snapshots, for identity and eligibility
-sentinel_defensive_bars fixed-identity raw BIL execution marks from SFP
+sentinel_defensive_bars fixed-identity BIL execution/return fields from SFP
 feed_ingest_runs       progress and history, committed per chunk
 ```
 """
@@ -65,27 +65,78 @@ DDL = [
         ON sentinel_spy_total_return (last_written_run_id)
         WHERE last_written_run_id IS NOT NULL""",
     # BIL is an execution instrument, not an SEP company.  Keep the fixed
-    # Sentinel identity and the two SFP price domains outside Wealth Core's
-    # equity corpus. ``close_unadjusted`` is the tradable broker mark;
-    # ``close_signal`` is retained only to translate ACTIONS dividends from the
-    # split-adjusted source basis onto raw paper shares.
+    # Sentinel identity and the four consumed SFP price fields outside Wealth
+    # Core's equity corpus. ``open_signal * close_adjusted / close_signal`` is
+    # the canonical total-return adjusted open used by next-open scalar
+    # accounting. ``close_unadjusted`` remains the tradable broker mark;
+    # ``close_signal`` also translates ACTIONS dividends from the split-adjusted
+    # source basis onto raw paper shares.
     """CREATE TABLE IF NOT EXISTS sentinel_defensive_bars (
         security_id         TEXT NOT NULL DEFAULT 'SENTINEL:BIL'
                             CHECK (security_id = 'SENTINEL:BIL'),
         session             DATE PRIMARY KEY,
         ticker              TEXT NOT NULL DEFAULT 'BIL'
                             CHECK (ticker = 'BIL'),
+        open_signal         DOUBLE PRECISION
+                            CONSTRAINT sentinel_defensive_bars_open_signal_valid
+                            CHECK (open_signal IS NULL OR
+                                   (open_signal > 0
+                                    AND open_signal NOT IN
+                                        ('NaN'::DOUBLE PRECISION,
+                                         'Infinity'::DOUBLE PRECISION))),
         close_signal        DOUBLE PRECISION NOT NULL
                             CHECK (close_signal > 0
                                    AND close_signal NOT IN
                                        ('NaN'::DOUBLE PRECISION,
                                         'Infinity'::DOUBLE PRECISION)),
+        close_adjusted      DOUBLE PRECISION
+                            CONSTRAINT sentinel_defensive_bars_close_adjusted_valid
+                            CHECK (close_adjusted IS NULL OR
+                                   (close_adjusted > 0
+                                    AND close_adjusted NOT IN
+                                        ('NaN'::DOUBLE PRECISION,
+                                         'Infinity'::DOUBLE PRECISION))),
         close_unadjusted    DOUBLE PRECISION NOT NULL
                             CHECK (close_unadjusted > 0
                                    AND close_unadjusted NOT IN
                                        ('NaN'::DOUBLE PRECISION,
                                         'Infinity'::DOUBLE PRECISION)),
         last_written_run_id UUID)""",
+    # Existing appliances already hold published BIL marks. Neither of these
+    # source fields can be reconstructed honestly from the two retained closes,
+    # so the explicit migration adds nullable columns and readiness refuses the
+    # legacy NULL tail until a bounded SFP ingest rewrites it. A synthetic
+    # backfill would make historical scalar returns look authoritative when they
+    # are not.
+    """ALTER TABLE sentinel_defensive_bars
+        ADD COLUMN IF NOT EXISTS open_signal DOUBLE PRECISION""",
+    """ALTER TABLE sentinel_defensive_bars
+        ADD COLUMN IF NOT EXISTS close_adjusted DOUBLE PRECISION""",
+    """DO $$
+        BEGIN
+          IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+               WHERE conrelid = 'sentinel_defensive_bars'::regclass
+                 AND conname = 'sentinel_defensive_bars_open_signal_valid') THEN
+            ALTER TABLE sentinel_defensive_bars
+              ADD CONSTRAINT sentinel_defensive_bars_open_signal_valid
+              CHECK (open_signal IS NULL OR
+                     (open_signal > 0 AND open_signal NOT IN
+                         ('NaN'::DOUBLE PRECISION,
+                          'Infinity'::DOUBLE PRECISION)));
+          END IF;
+          IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+               WHERE conrelid = 'sentinel_defensive_bars'::regclass
+                 AND conname = 'sentinel_defensive_bars_close_adjusted_valid') THEN
+            ALTER TABLE sentinel_defensive_bars
+              ADD CONSTRAINT sentinel_defensive_bars_close_adjusted_valid
+              CHECK (close_adjusted IS NULL OR
+                     (close_adjusted > 0 AND close_adjusted NOT IN
+                         ('NaN'::DOUBLE PRECISION,
+                          'Infinity'::DOUBLE PRECISION)));
+          END IF;
+        END $$""",
     """CREATE INDEX IF NOT EXISTS idx_sentinel_defensive_bars_written_by
         ON sentinel_defensive_bars (last_written_run_id)
         WHERE last_written_run_id IS NOT NULL""",

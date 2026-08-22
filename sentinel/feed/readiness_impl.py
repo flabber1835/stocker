@@ -435,11 +435,13 @@ def check_readiness(conn, *, today: Optional[str] = None,
         conn, expected_spy[0], frontier)
     valid_defensive: list[str] = []
     invalid_defensive: list[str] = []
-    for session, security_id, ticker, close_signal, close_unadjusted in defensive_rows:
+    for (session, security_id, ticker, open_signal, close_signal,
+         close_adjusted, close_unadjusted) in defensive_rows:
         try:
             values_valid = all(
                 math.isfinite(float(value)) and float(value) > 0
-                for value in (close_signal, close_unadjusted))
+                for value in (open_signal, close_signal, close_adjusted,
+                              close_unadjusted))
         except (TypeError, ValueError, OverflowError):
             values_valid = False
         if (security_id == "SENTINEL:BIL" and ticker == "BIL"
@@ -462,14 +464,16 @@ def check_readiness(conn, *, today: Optional[str] = None,
         r.add(
             "defensive fund marks", FAIL,
             f"frontier {frontier} requires the exact published "
-            f"{REQUIRED_SPY_SESSIONS}-session raw BIL mark tail under "
+            f"{REQUIRED_SPY_SESSIONS}-session BIL open/close/total-return/raw "
+            f"mark tail under "
             f"SENTINEL:BIL; missing={missing_defensive}, "
             f"unexpected={unexpected_defensive}, invalid={invalid_defensive}",
             defensive_value)
     else:
         r.add(
             "defensive fund marks", PASS,
-            f"raw BIL mark tail is complete through {frontier}",
+            f"BIL open/close/total-return/raw mark tail is complete through "
+            f"{frontier}",
             defensive_value)
 
     # ── continuity, against an INDEPENDENT calendar ──────────────────────────

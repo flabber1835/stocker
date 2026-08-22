@@ -170,6 +170,11 @@ def _table(headers, rows) -> str:
 
 
 def _detail_sections(panel: Panel) -> str:
+    if panel.row("shadow_verification") is not None:
+        # The retained trial tables are broker-account evidence.  In reviewed
+        # dual mode they are intentionally not shown beside certified shadow
+        # performance, because visual proximity would imply equal authority.
+        return ""
     latest = panel.trial_details or {}
     reconciliation = latest.get("reconciliation") or {}
     positions = reconciliation.get("positions") or {}
@@ -277,30 +282,60 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
         f'<div class="err">source unreadable — {_esc(e)}</div>'
         for e in panel.source_errors)
     details = _detail_sections(panel)
-    trial = panel.row("trial_verification")
-    trial_status = trial.effective_status(now) if trial is not None else FAIL
-    trial_headline = (trial.value if trial is not None
-                      else "TRIAL NOT VERIFIED — NO CERTIFICATE")
-    trial_authoritative = trial_status == OK and operational == OK
+    shadow = panel.row("shadow_verification")
     rendered_rows = panel.rows
-    if not trial_authoritative:
-        if trial_status == OK:
+    if shadow is not None:
+        # A PAPER mismatch makes the overall operation red, but it must never
+        # relabel an independently current shadow result.  The green shadow row
+        # remains visible directly below the red operational badge.
+        shadow_status = shadow.effective_status(now)
+        if overall in {FAIL, UNKNOWN}:
             trial_status = FAIL
-            trial_headline = (
-                "TRIAL NOT VERIFIED — CURRENT OPERATIONAL CONDITION "
-                f"{operational.upper()}")
-        rendered_rows = [
-            (replace(
-                row,
-                value=(trial_headline if row.key == "trial_verification"
-                       else row.value),
-                status=(FAIL if row.key == "trial_verification" else WARN),
-                detail=(
-                    "UNVERIFIED · current operational authority is not fully OK; "
-                    + row.detail.removeprefix("UNVERIFIED · ")))
-             if row.key in TRIAL_ROW_KEYS and row.status == OK else row)
-            for row in panel.rows
-        ]
+            trial_headline = "OPERATIONAL RED — REVIEW REQUIRED"
+        elif overall == WARN:
+            trial_status = WARN
+            trial_headline = "OPERATIONAL AMBER — PAPER EVIDENCE PENDING"
+        elif shadow_status == OK:
+            trial_status = OK
+            trial_headline = "SHADOW VERIFIED · PAPER MONITORED"
+        else:
+            trial_status = FAIL
+            trial_headline = shadow.value
+        page_name = "Sentinel Strategy"
+        page_heading = "SENTINEL STRATEGY"
+        footer_authority = (
+            "certified shadow is performance authority · Alpaca PAPER is "
+            "informational only")
+        stale_headline = "OPERATIONAL STATUS NOT CURRENT"
+    else:
+        trial = panel.row("trial_verification")
+        trial_status = trial.effective_status(now) if trial is not None else FAIL
+        trial_headline = (trial.value if trial is not None
+                          else "TRIAL NOT VERIFIED — NO CERTIFICATE")
+        trial_authoritative = trial_status == OK and operational == OK
+        if not trial_authoritative:
+            if trial_status == OK:
+                trial_status = FAIL
+                trial_headline = (
+                    "TRIAL NOT VERIFIED — CURRENT OPERATIONAL CONDITION "
+                    f"{operational.upper()}")
+            rendered_rows = [
+                (replace(
+                    row,
+                    value=(trial_headline if row.key == "trial_verification"
+                           else row.value),
+                    status=(FAIL if row.key == "trial_verification" else WARN),
+                    detail=(
+                        "UNVERIFIED · current operational authority is not fully OK; "
+                        + row.detail.removeprefix("UNVERIFIED · ")))
+                 if row.key in TRIAL_ROW_KEYS and row.status == OK else row)
+                for row in panel.rows
+            ]
+        page_name = "Sentinel Trial"
+        page_heading = "SENTINEL TRIAL"
+        footer_authority = (
+            "paper account · performance is explicitly verified or unverified")
+        stale_headline = "TRIAL NOT VERIFIED — NOT CURRENT"
     rows = "".join(_row_html(r, now) for r in rendered_rows)
     stamp = now.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
     generated = now.astimezone(timezone.utc).isoformat()
@@ -311,21 +346,21 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
 <meta name="color-scheme" content="light dark">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Sentinel Trial">
+<meta name="apple-mobile-web-app-title" content="{_esc(page_name)}">
 <meta http-equiv="Cache-Control" content="no-store, max-age=0">
-<title>Sentinel Trial</title>
+<title>{_esc(page_name)}</title>
 <style>{CSS}</style>
 </head><body data-generated-at="{_esc(generated)}"
              data-max-age-seconds="{PRESENTATION_MAX_AGE_SECONDS}">
 <div class="wrap">
 <header>
-  <h1>SENTINEL TRIAL</h1>
+  <h1>{_esc(page_heading)}</h1>
   <span id="trial-state" class="state {trial_status}">{_esc(trial_headline)}</span>
 </header>
 {errs}{rows}{details}
 <footer>
   as of {_esc(stamp)} · refreshes every {refresh_seconds}s<br>
-  read-only · paper account · performance is explicitly verified or unverified<br>
+  read-only · {_esc(footer_authority)}<br>
   operational condition: {_esc(operational)} · all-row condition: {_esc(overall)}
 </footer>
 </div>
@@ -342,7 +377,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
       invalidated = true;
       document.documentElement.classList.add("not-current");
       badge.className = "state fail";
-      badge.textContent = "TRIAL NOT VERIFIED — NOT CURRENT";
+      badge.textContent = "{_esc(stale_headline)}";
     }}
     if (andReload && navigator.onLine){{ location.reload(); }}
   }}

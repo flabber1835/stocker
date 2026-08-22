@@ -64,6 +64,20 @@ def run(state, bars, marks=None, session="2026-08-03"):
                   strategy_id=SID, strategy_version=VER)
 
 
+@pytest.mark.parametrize("mutation", ["empty", "gap", "identity"])
+def test_persisted_slot_domain_cannot_be_silently_removed_or_relabelled(mutation):
+    raw = PortfolioState.fresh(10_000.0, n_slots=2).to_dict()
+    if mutation == "empty":
+        raw["slots"] = {}
+    elif mutation == "gap":
+        raw["slots"].pop("0")
+    else:
+        raw["slots"]["0"]["slot_id"] = 1
+
+    with pytest.raises(ValueError, match="slot"):
+        PortfolioState.from_dict(raw)
+
+
 def ops_of(d, kind):
     return [o for o in d.operations if o.operation == kind]
 
@@ -473,6 +487,22 @@ class TestAdmissions:
         assert whole_shares(100_000.0, 100.0, 100_000.0, CFG) == 39   # 4000/100.1
         assert whole_shares(100_000.0, 100.0, 500.0, CFG) == 4        # cash-bound
         assert whole_shares(100_000.0, 0.0, 100_000.0, CFG) == 0
+
+    def test_unsettled_receivable_is_equity_but_cannot_fund_an_order(self):
+        st = PortfolioState.fresh(0.0)
+        candidates = [bar(i, step=1.0 + i * 0.05) for i in range(60)]
+        marks = cur(**{
+            row.security_id: row.closes[-1] for row in candidates})
+
+        d = decide(
+            session="s", state=st, bars=candidates, marks=marks, cfg=CFG,
+            strategy_id=SID, strategy_version=VER,
+            noncash_assets=1_000_000.0)
+
+        assert st.equity_view(
+            marks, noncash_assets=1_000_000.0).resolved_equity == 1_000_000.0
+        assert not ops_of(d, Operation.OPEN_SLOT_POSITION)
+        assert st.cash == 0.0
 
     def test_an_already_held_issuer_is_not_admitted_twice(self):
         """Spec §1: one position per economic issuer, so two share classes of

@@ -36,6 +36,9 @@ _INSTALLED = False
 # any possible Alpaca account activity; the stream's 2026-02-11 availability
 # date is not a safe business-time lower bound.
 _ACTIVITY_BUSINESS_TIME_FLOOR = datetime(1970, 1, 1, tzinfo=timezone.utc)
+ACTIVITY_FILL_INTERVAL_SOURCE = "alpaca_trading_activity_sse_candidate"
+ACTIVITY_FILL_INTERVAL_SEMANTICS = (
+    "ALPACA_ACCOUNT_ACTIVITY_FIXED_EVENT_FRONTIER_UNACCEPTED_V1")
 _OBSERVATION_PREFIX = "broker-observation:v2:"
 _WITNESS_PREFIX = "terminal-recovery-witness:v2:"
 _DB_INCARCERATION_CURSOR = "broker-recovery-db-incarnation:v1"
@@ -163,12 +166,15 @@ def install() -> None:
         )
         restore_grade_order_recovery = False
         account_snapshot_freshness = False
-        # Candidate parser only. Activity SSE is a Broker API surface with a
-        # different endpoint/auth/account model from this Trading/Paper adapter.
-        # Keep both capability claims false until a real reachable account-bound
-        # integration passes acceptance; production guards cannot call it.
+        # Candidate parser only. Alpaca's current changelog lists Activity SSE
+        # for the Trading API, but method presence and documentation cannot
+        # prove that this paper account's APCA credentials can reach the stream.
+        # Keep every authority claim false until a real reachable account-bound
+        # NAS integration passes acceptance; production guards cannot call it.
         financial_activity_sse = False
         candidate_financial_activity_sse = True
+        candidate_account_fill_interval_evidence = True
+        account_fill_interval_nas_accepted = False
 
         async def submit(
                 self, *, client_key: str,
@@ -222,10 +228,7 @@ def install() -> None:
                         state=CommandState.UNKNOWN,
                         broker_order_id=broker_order_id or None,
                         detail=f"incomplete 2xx acknowledgement: {exc}")
-                return contract.CommandOutcome(
-                    state=CommandState.ACKNOWLEDGED,
-                    broker_order_id=order.broker_order_id,
-                    detail="accepted by durable asset_id; lifecycle reconciles separately")
+                return alpaca._submit_outcome(order)
             if resp.status_code in (401, 403):
                 raise alpaca.AlpacaCredentialsRefused(
                     f"Alpaca submit authority refused with HTTP "
@@ -261,7 +264,8 @@ def install() -> None:
         async def _bounded_activity_events(
                 self, *, after: datetime,
                 through: datetime,
-                since_event_id: Optional[str] = None) -> tuple[dict, ...]:
+                since_event_id: Optional[str] = None,
+                verify_fixed_frontier: bool = False) -> tuple[dict, ...]:
             floor = alpaca._required_aware_ts(
                 after, where="Activity SSE lower boundary")
             upper = alpaca._required_aware_ts(
@@ -367,6 +371,25 @@ def install() -> None:
             snapshot = await request({
                 "since": floor.isoformat(), "until": upper.isoformat()})
             if since_event_id is None:
+                if verify_fixed_frontier:
+                    # Freeze the discovery response at its native publication
+                    # frontier, then demand a byte-for-byte equivalent replay.
+                    # For an empty account there is no event id to name, so the
+                    # exact bounded empty query is repeated instead.  Neither
+                    # case claims that a later backfill cannot append after the
+                    # captured frontier.
+                    if snapshot:
+                        replay = await request({
+                            "until_id": str(snapshot[-1]["event_id"])})
+                    else:
+                        replay = await request({
+                            "since": floor.isoformat(),
+                            "until": upper.isoformat(),
+                        })
+                    if replay != snapshot:
+                        raise alpaca.MalformedBrokerPayload(
+                            "Activity SSE fixed-frontier replay disagreed with "
+                            "its exhaustive discovery snapshot")
                 return snapshot
             cursor = str(since_event_id).strip()
             if not cursor:
@@ -505,6 +528,167 @@ def install() -> None:
                                if events else since_event_id),
             )
 
+        async def account_fill_interval_evidence(
+                self, *, session: date,
+                interval_start: datetime
+                ) -> contract.BrokerFillIntervalEvidence:
+            """Return a fixed-frontier, account-wide NAS acceptance candidate.
+
+            ``Completeness.COMPLETE`` describes the terminated, exhaustively
+            replayed snapshot through the captured boundary.  It is not cash or
+            late-publication finality: the deliberately non-certified semantics
+            and false capability bit prevent trial persistence until the paper
+            endpoint and its correction/finality behavior pass NAS acceptance.
+            """
+            if type(session) is not date:
+                raise alpaca.MalformedBrokerPayload(
+                    "fill interval requested session must be a date")
+            requested_floor = alpaca._required_aware_ts(
+                interval_start, where="fill interval lower boundary")
+            from sentinel.feed import calendar  # noqa: PLC0415
+
+            _opened, official_close = calendar.session_window(session)
+            close_utc = official_close.astimezone(timezone.utc)
+            if requested_floor > close_utc:
+                raise alpaca.MalformedBrokerPayload(
+                    "fill interval begins after the requested official XNYS "
+                    "close")
+
+            request_started_at = self._now()
+            processed_through = request_started_at
+            if processed_through < close_utc:
+                raise alpaca.MalformedBrokerPayload(
+                    "fill interval cannot be observed before the requested "
+                    "official XNYS close")
+
+            identity_before = await self.identify_account()
+            native_before = str(
+                identity_before.raw.get("id") or "").strip()
+            if not native_before:
+                raise alpaca.MalformedBrokerPayload(
+                    "Alpaca account payload has no UUID for fill-interval "
+                    "identity bracketing")
+            events = await self._bounded_activity_events(
+                after=_ACTIVITY_BUSINESS_TIME_FLOOR,
+                through=processed_through,
+                verify_fixed_frontier=True)
+            identity_after = await self.identify_account()
+            native_after = str(identity_after.raw.get("id") or "").strip()
+            request_completed_at = self._now()
+            if request_completed_at < request_started_at:
+                raise alpaca.MalformedBrokerPayload(
+                    "Alpaca observation clock regressed during fill interval")
+            if ((identity_before.broker, identity_before.account_id,
+                 native_before)
+                    != (identity_after.broker, identity_after.account_id,
+                        native_after)):
+                raise alpaca.MalformedBrokerPayload(
+                    "Alpaca account identity changed around Activity SSE "
+                    "fill-interval read")
+
+            fills: list[contract.BrokerAccountFill] = []
+            for event in events:
+                details = event["details"]
+                previous_id = str(event.get("previous_id") or "").strip()
+                execution_type = str(
+                    details.get("execution_type") or "").strip().lower()
+                if (previous_id
+                        or execution_type in {"trade_correct", "trade_bust"}):
+                    raise ActivityCorrectionRequiresRecovery(
+                        "Activity SSE reported a correction/bust inside the "
+                        "account history; append-only fill evidence is refused")
+                if str(event.get("activity_type") or "").upper() != "TRD":
+                    continue
+                if execution_type != "fill":
+                    raise alpaca.MalformedBrokerPayload(
+                        "TRD Activity SSE event has an unsupported or missing "
+                        f"execution_type {execution_type or '<missing>'!r}")
+
+                event_id = str(event["event_id"])
+                ref_id = str(event["ref_id"])
+                order_id = str(details.get("order_id") or "").strip()
+                asset_id = str(details.get("asset_id") or "").strip()
+                symbol = str(details.get("symbol") or "").strip()
+                side = str(details.get("side") or "").strip().lower()
+                if not order_id:
+                    raise alpaca.MalformedBrokerPayload(
+                        f"TRD Activity SSE {event_id} omitted details.order_id")
+                if not asset_id or not symbol or side not in {"buy", "sell"}:
+                    raise alpaca.MalformedBrokerPayload(
+                        f"TRD Activity SSE {event_id} omitted native asset/"
+                        "symbol/side identity")
+                client_value = details.get("client_order_id")
+                client_key = (None if client_value is None else
+                              str(client_value).strip())
+                if client_value is not None and not client_key:
+                    raise alpaca.MalformedBrokerPayload(
+                        f"TRD Activity SSE {event_id} has an empty "
+                        "details.client_order_id")
+
+                quantity = alpaca._required_dec(
+                    event.get("qty"), where=f"TRD {event_id} qty")
+                price = alpaca._required_dec(
+                    event.get("price"), where=f"TRD {event_id} price")
+                if quantity <= 0 or price <= 0:
+                    raise alpaca.MalformedBrokerPayload(
+                        f"TRD Activity SSE {event_id} quantity and price must "
+                        "be positive")
+                executed_at = alpaca._required_aware_ts(
+                    event.get("executed_at"),
+                    where=f"TRD {event_id} executed_at")
+                if executed_at > processed_through:
+                    raise alpaca.MalformedBrokerPayload(
+                        f"TRD Activity SSE {event_id} executes after the "
+                        "fixed processed-through boundary")
+                if executed_at < requested_floor:
+                    continue
+                fills.append(contract.BrokerAccountFill(
+                    activity_id=ref_id,
+                    broker_order_id=order_id,
+                    client_key=client_key,
+                    quantity=quantity,
+                    price=price,
+                    filled_at=executed_at,
+                    raw=dict(event),
+                ))
+
+            fills.sort(key=lambda fill: (fill.filled_at, fill.activity_id))
+            upper_event_id = (
+                str(events[-1]["event_id"]) if events else "<EMPTY>")
+            return contract.BrokerFillIntervalEvidence(
+                identity=identity_before,
+                requested_session=session,
+                interval_start=requested_floor,
+                processed_through=processed_through,
+                fills=tuple(fills),
+                completeness=contract.Completeness.COMPLETE,
+                source=ACTIVITY_FILL_INTERVAL_SOURCE,
+                semantics=ACTIVITY_FILL_INTERVAL_SEMANTICS,
+                request_started_at=request_started_at,
+                request_completed_at=request_completed_at,
+                query=(
+                    ("endpoint", "/v2beta1/events/activities"),
+                    ("since", _ACTIVITY_BUSINESS_TIME_FLOOR.isoformat()),
+                    ("until", processed_through.isoformat()),
+                    ("upper_event_id", upper_event_id),
+                ),
+                raw={
+                    "events": [dict(event) for event in events],
+                    "upper_event_id": upper_event_id,
+                    "fixed_frontier_replayed": True,
+                    "late_publication_finality": False,
+                    "nas_acceptance_required": True,
+                },
+            )
+
+        async def candidate_fill_interval_evidence(
+                self, *, session: date,
+                interval_start: datetime
+                ) -> contract.BrokerFillIntervalEvidence:
+            """Explicit acceptance-harness spelling for the guarded method."""
+            return await self.account_fill_interval_evidence(
+                session=session, interval_start=interval_start)
+
         async def _recent_fills_bounded(
                 self, since: datetime,
                 through: Optional[datetime]) -> Sequence[contract.BrokerFill]:
@@ -564,6 +748,11 @@ def install() -> None:
             # produces an explicit refusal rather than a lossy accounting row.
             return await self._recent_fills_bounded(
                 since, datetime.now(timezone.utc))
+
+        async def legacy_rest_recent_fills_probe(
+                self, since: datetime) -> Sequence[contract.BrokerFill]:
+            """Raw Account Activities REST fallback, diagnostic only."""
+            return await super().recent_fills(since)
 
     alpaca.AlpacaExecutionBroker = FinancialGradeAlpacaExecutionBroker
 

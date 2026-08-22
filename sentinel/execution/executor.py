@@ -249,6 +249,7 @@ async def execute_session(*, broker: ExecutionBroker, conn,
                           min_increment: Decimal = Decimal(1),
                           settle_cycles: int = DEFAULT_SETTLE_CYCLES,
                           increase_authority=None,
+                          mutation_authority=None,
                           ) -> SessionResult:
     """TWO PHASES: reduce, settle, re-observe, re-size, increase.
 
@@ -352,7 +353,8 @@ async def execute_session(*, broker: ExecutionBroker, conn,
             instruments=instruments, today=today, actions=actions,
             target_projection=target_projection,
             min_increment=min_increment, settle_cycles=settle_cycles,
-            increase_authority=increase_authority)
+            increase_authority=increase_authority,
+            mutation_authority=mutation_authority)
 
 
 async def _execute_session_locked(*, broker: ExecutionBroker, conn,
@@ -365,6 +367,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                                   min_increment: Decimal,
                                   settle_cycles: int = DEFAULT_SETTLE_CYCLES,
                                   increase_authority=None,
+                                  mutation_authority=None,
                                   ) -> SessionResult:
     desired = (target_projection.target_basket
                if target_projection is not None else plan.target_basket)
@@ -453,7 +456,15 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     async def submit_all(candidates, obs, commands):
         """Authorize and send, against the observation `candidates` were sized
         from. Returns the commands now outstanding."""
-        for delta in await authorized(candidates, obs, commands):
+        authorized_candidates = await authorized(candidates, obs, commands)
+        if authorized_candidates and mutation_authority is not None:
+            # Dual informational transport is stricter than the general
+            # exposure asymmetry: foreign activity or an externally replaced
+            # order blocks reductions as well as increases. Invoke this on the
+            # executor's own fresh reconciliation, not only the caller's older
+            # preflight.
+            await mutation_authority(rec)
+        for index, delta in enumerate(authorized_candidates):
             command, already_planned = _command_for_delta(
                 conn=conn, deployment=deployment, plan_id=plan.plan_id,
                 delta=delta, instrument=instruments[delta.security_id])
@@ -461,6 +472,17 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                 conn, broker, command, already_planned=already_planned)
             submitted.append(sent)
             commands = commands + (sent,)
+            if sent.state is not CommandState.ACKNOWLEDGED:
+                # A basket is a sequence of independently acknowledged broker
+                # promises.  Once one promise is rejected or indeterminate,
+                # sending later names would manufacture a partial basket on
+                # evidence that already says the batch did not proceed as
+                # planned.  Durable recovery owns UNKNOWN; a later cycle may
+                # re-size deferred names only after reconciliation.
+                deferred.extend(
+                    item.security_id
+                    for item in authorized_candidates[index + 1:])
+                break
         return commands
 
     # 3. PHASE ONE — REDUCTIONS. A purchase that fails must never prevent a

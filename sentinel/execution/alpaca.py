@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Optional, Sequence
 from urllib.parse import quote
@@ -34,6 +34,15 @@ ACTIVITY_PAGE_SIZE = 100
 MAX_ACTIVITY_PAGES = 20
 PORTFOLIO_HISTORY_SOURCE = "alpaca_portfolio_history"
 PORTFOLIO_HISTORY_QUARANTINE_SEMANTICS = "UNVALIDATED_1D_LEFT_LABEL"
+ACCOUNT_LAST_EQUITY_SOURCE = "alpaca_trading_account_last_equity"
+ACCOUNT_LAST_EQUITY_SEMANTICS = (
+    "ALPACA_PREVIOUS_TRADING_DAY_1600_ET_LAST_EQUITY_T1_WINDOW_V1")
+ACCOUNT_LAST_EQUITY_TIMESTAMP_UNIT = (
+    "DERIVED_OFFICIAL_XNYS_CLOSE_EPOCH_SECONDS_NOT_A_WIRE_TIMESTAMP")
+# Alpaca documents its beginning-of-day account synchronization as completing
+# by 02:30 ET.  A half-hour margin makes the candidate's temporal interpretation
+# explicit instead of racing the documented processing interval.
+ACCOUNT_LAST_EQUITY_READY_ET = time(3, 0)
 
 _STATUS = {
     "new": S.ACKNOWLEDGED,
@@ -108,6 +117,32 @@ def map_status(raw: str) -> S:
             f"Alpaca status {raw!r} has no certified mapping. Refusing to "
             "guess whether an order can still trade.")
     return _STATUS[key]
+
+
+def _submit_outcome(order: BrokerOrder) -> CommandOutcome:
+    """Translate the *returned* lifecycle, not merely HTTP 2xx, to authority."""
+    raw_status = str(order.raw.get("status") or "").strip().lower()
+    if order.state is S.REJECTED:
+        return CommandOutcome(
+            state=S.REJECTED, broker_order_id=order.broker_order_id,
+            detail=f"broker rejected submitted order ({raw_status})")
+    # A create response that is already cancelled, cancellation-pending,
+    # stopped/suspended, or externally replaced is not acknowledgement that
+    # the requested order remains under Sentinel's lifecycle.  UNKNOWN forces
+    # exact-key recovery and stops the rest of the basket.
+    acknowledged_statuses = frozenset({
+        "new", "accepted", "pending_new", "accepted_for_bidding", "held",
+        "partially_filled", "filled",
+    })
+    if order.external_replacement or raw_status not in acknowledged_statuses:
+        return CommandOutcome(
+            state=S.UNKNOWN, broker_order_id=order.broker_order_id,
+            detail=("2xx submit returned a non-acknowledging lifecycle "
+                    f"status {raw_status!r}; exact-key recovery required"))
+    return CommandOutcome(
+        state=S.ACKNOWLEDGED,
+        broker_order_id=order.broker_order_id,
+        detail="accepted; lifecycle reconciles separately")
 
 
 def _side(raw, *, where: str) -> Side:
@@ -265,16 +300,25 @@ class AlpacaExecutionBroker(ExecutionBroker):
         minimum_quantity_increment=Decimal("0.000000001"),
         market_on_open=False,
     )
+    # Method presence is deliberately not production authority.  These flags
+    # let the NAS acceptance harness distinguish an implemented read-only
+    # candidate from a capability that has actually passed the bound paper
+    # account test and may cross the production guard.
+    candidate_previous_session_close_valuation = True
+    previous_session_close_nas_accepted = False
 
     def __init__(self, *, api_key: str, secret_key: str, base_url: str,
                  resolve_security_id=None, to_broker_symbol=None,
-                 from_broker_symbol=None, http_provider=None) -> None:
+                 from_broker_symbol=None, http_provider=None,
+                 clock_provider=None) -> None:
         from sentinel.config import assert_paper_url
         assert_paper_url(base_url)
         self.api_key = api_key
         self.secret_key = secret_key
         self.base_url = base_url.rstrip("/")
         self._http_provider = http_provider
+        self._clock_provider = (
+            clock_provider or (lambda: datetime.now(timezone.utc)))
         self._resolve = resolve_security_id or (lambda symbol: symbol)
         self._to_symbol = to_broker_symbol or (lambda s: s.replace("-", "."))
         self._from_symbol = (from_broker_symbol
@@ -290,6 +334,10 @@ class AlpacaExecutionBroker(ExecutionBroker):
     def _headers(self) -> dict:
         return {"APCA-API-KEY-ID": self.api_key,
                 "APCA-API-SECRET-KEY": self.secret_key}
+
+    def _now(self) -> datetime:
+        return _required_aware_ts(
+            self._clock_provider(), where="Alpaca observation clock")
 
     async def _get(self, path: str, params: Optional[dict] = None):
         async with self._httpx.AsyncClient(timeout=20.0) as client:
@@ -328,12 +376,126 @@ class AlpacaExecutionBroker(ExecutionBroker):
 
     async def account_close_valuation(
             self, *, session: date) -> BrokerCloseValuation:
-        """Fetch one raw 1D Portfolio History point for acceptance testing.
+        """Read the official previous-session close field as a NAS candidate.
 
-        This method intentionally exists while
-        ``capabilities.account_close_valuation`` remains false.  Production
-        guarded callers therefore cannot consume it.  It is a read-only seam
-        for validating the real paper endpoint's wire/session semantics.
+        Alpaca defines ``/v2/account.last_equity`` as the previous trading
+        day's equity at 16:00 ET.  That definition identifies one XNYS close
+        only while ``session`` is the session immediately before the next XNYS
+        session.  The read is therefore accepted only from 03:00 ET on that
+        next session date (after the documented BOD synchronization window)
+        until, but not including, that session's own official close.  Both
+        account reads must preserve native identity and the exact field value.
+
+        The account field carries no native timestamp.  ``source_timestamp``
+        is consequently the explicitly labelled *derived* official XNYS close,
+        never represented as an Alpaca wire label.  Capability remains false
+        until this candidate passes the bound paper-account NAS acceptance.
+        """
+        if type(session) is not date:
+            raise MalformedBrokerPayload(
+                "last-equity requested session must be a date")
+        from sentinel.feed import calendar  # noqa: PLC0415
+        from zoneinfo import ZoneInfo       # noqa: PLC0415
+
+        _opened, official_close = calendar.session_window(session)
+        official_close_et = official_close.astimezone(
+            ZoneInfo(calendar.EXCHANGE_TZ))
+        if official_close_et.timetz().replace(tzinfo=None) != time(16, 0):
+            raise MalformedBrokerPayload(
+                "Alpaca documents last_equity at 16:00 ET, which does not "
+                "establish the official close NAV for an XNYS half-day")
+        next_session = date.fromisoformat(calendar.next_session(session))
+        _next_open, next_close = calendar.session_window(next_session)
+        ready_at = datetime.combine(
+            next_session, ACCOUNT_LAST_EQUITY_READY_ET,
+            tzinfo=ZoneInfo(calendar.EXCHANGE_TZ))
+
+        def require_read_window(observed_at: datetime, *, where: str) -> None:
+            observed = _required_aware_ts(observed_at, where=where)
+            if observed < ready_at.astimezone(timezone.utc):
+                raise MalformedBrokerPayload(
+                    "Alpaca last_equity is not mature for the requested "
+                    f"session until {ready_at.isoformat()}")
+            if observed >= next_close.astimezone(timezone.utc):
+                raise MalformedBrokerPayload(
+                    "Alpaca last_equity no longer has an unambiguous T+1 "
+                    "mapping to the requested session; read before the next "
+                    f"XNYS close {next_close.isoformat()}")
+
+        request_started_at = self._now()
+        require_read_window(
+            request_started_at, where="last-equity request start")
+        before = await self._get("/v2/account")
+        identity_before = self._account_identity(before)
+        native_before = str(before.get("id") or "").strip()
+        if not native_before:
+            raise MalformedBrokerPayload(
+                "Alpaca account payload has no native id for last-equity "
+                "identity bracketing")
+        equity_before = _required_dec(
+            before.get("last_equity"), where="account last_equity")
+        if equity_before <= 0:
+            raise MalformedBrokerPayload(
+                "account last_equity must be positive")
+
+        after = await self._get("/v2/account")
+        identity_after = self._account_identity(after)
+        native_after = str(after.get("id") or "").strip()
+        equity_after = _required_dec(
+            after.get("last_equity"), where="account last_equity")
+        request_completed_at = self._now()
+        require_read_window(
+            request_completed_at, where="last-equity request completion")
+        if ((identity_before.broker, identity_before.account_id, native_before)
+                != (identity_after.broker, identity_after.account_id,
+                    native_after)):
+            raise MalformedBrokerPayload(
+                "Alpaca account identity changed around last-equity read")
+        if equity_before != equity_after:
+            raise MalformedBrokerPayload(
+                "Alpaca last_equity changed inside the identity-stable read "
+                f"bracket: {equity_before} -> {equity_after}")
+
+        official_close_utc = official_close.astimezone(timezone.utc)
+        query = (
+            ("endpoint", "/v2/account"),
+            ("field", "last_equity"),
+            ("read_not_before", ready_at.isoformat()),
+            ("read_before", next_close.isoformat()),
+            ("source_session", session.isoformat()),
+        )
+        try:
+            return BrokerCloseValuation(
+                identity=identity_before,
+                requested_session=session,
+                equity=equity_before,
+                source_timestamp=int(official_close_utc.timestamp()),
+                source_timeframe="PREVIOUS_TRADING_DAY_1600_ET",
+                source=ACCOUNT_LAST_EQUITY_SOURCE,
+                semantics=ACCOUNT_LAST_EQUITY_SEMANTICS,
+                request_started_at=request_started_at,
+                request_completed_at=request_completed_at,
+                query=query,
+                source_timestamp_unit=ACCOUNT_LAST_EQUITY_TIMESTAMP_UNIT,
+                valuation_at=official_close_utc,
+                raw={
+                    "before": dict(before),
+                    "after": dict(after),
+                    "native_source_timestamp": None,
+                    "derived_valuation_at": official_close_utc.isoformat(),
+                },
+            )
+        except (TypeError, ValueError) as exc:
+            raise MalformedBrokerPayload(
+                f"last-equity typed evidence is invalid: {exc}") from exc
+
+    async def portfolio_history_close_probe(
+            self, *, session: date) -> BrokerCloseValuation:
+        """Retain the raw 1D REST fallback as a diagnostic-only probe.
+
+        Its integer label remains intentionally opaque and the result has no
+        accepted valuation time.  This endpoint is not silently substituted
+        for ``last_equity`` when the explicit T+1 window is unavailable.
         """
         if type(session) is not date:
             raise MalformedBrokerPayload(
@@ -352,9 +514,9 @@ class AlpacaExecutionBroker(ExecutionBroker):
                              for key, value in params.items()))
 
         identity_before = await self.identify_account()
-        request_started_at = datetime.now(timezone.utc)
+        request_started_at = self._now()
         payload = await self._get("/v2/account/portfolio/history", params)
-        request_completed_at = datetime.now(timezone.utc)
+        request_completed_at = self._now()
         identity_after = await self.identify_account()
         if ((identity_before.broker, identity_before.account_id)
                 != (identity_after.broker, identity_after.account_id)):
@@ -546,18 +708,25 @@ class AlpacaExecutionBroker(ExecutionBroker):
             terminal_a, complete_terminal_a = await self._list_closed_orders(
                 floor=terminal_floor, through=recovery_through)
         account_after_orders = await self.identify_account()
-        positions = await self._list_positions()
-        account_after_positions = await self.identify_account()
+        positions_a = await self._list_positions()
+        account_after_positions_a = await self.identify_account()
         reopened, complete_open_b = await self._list_open_orders()
         terminal_b: list[BrokerOrder] = []
         complete_terminal_b = True
         if terminal_floor is not None:
             terminal_b, complete_terminal_b = await self._list_closed_orders(
                 floor=terminal_floor, through=recovery_through)
-        account_after = await self.identify_account()
+        account_after_orders_b = await self.identify_account()
+        # Alpaca's position view may lag a partial-fill update already visible
+        # in both order reads.  Re-read positions after the stable order pair;
+        # disagreement is an amber inconsistent snapshot, never unexplained
+        # foreign activity or permission to mutate.
+        positions_b = await self._list_positions()
+        account_after_positions_b = await self.identify_account()
         accounts = (
             account_before, account_after_orders,
-            account_after_positions, account_after)
+            account_after_positions_a, account_after_orders_b,
+            account_after_positions_b)
         identity_keys = {(item.broker, item.account_id) for item in accounts}
         if len(identity_keys) != 1:
             raise MalformedBrokerPayload(
@@ -570,12 +739,14 @@ class AlpacaExecutionBroker(ExecutionBroker):
                 and complete_terminal_a and complete_terminal_b):
             completeness = Completeness.TRUNCATED
         elif (not merged_a or not merged_b
-              or _fingerprint(recheck) != _fingerprint(orders)):
+              or _fingerprint(recheck) != _fingerprint(orders)
+              or _position_fingerprint(positions_b)
+              != _position_fingerprint(positions_a)):
             completeness = Completeness.INCONSISTENT
         return BrokerObservation(
             observed_at=datetime.now(timezone.utc),
             started_at=observation_started_at, orders=tuple(recheck),
-            positions=tuple(positions), completeness=completeness,
+            positions=tuple(positions_b), completeness=completeness,
             terminal_recovery_through=recovery_through,
             account_identity=account_before)
 
@@ -762,6 +933,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
                     where=f"order {payload.get('id')} filled_avg_price")
                 if payload.get("filled_avg_price") not in (None, "") else None),
             submitted_at=_parse_ts(payload.get("submitted_at")),
+            external_replacement=is_anomalous_status(raw_status),
             raw=payload)
 
     async def find_by_client_key(self, client_key: str) -> Optional[BrokerOrder]:
@@ -888,10 +1060,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
                     state=S.UNKNOWN,
                     broker_order_id=broker_order_id or None,
                     detail=f"incomplete 2xx acknowledgement: {exc}")
-            return CommandOutcome(
-                state=S.ACKNOWLEDGED,
-                broker_order_id=order.broker_order_id,
-                detail="accepted; lifecycle reconciles separately")
+            return _submit_outcome(order)
         if resp.status_code in (401, 403):
             raise AlpacaCredentialsRefused(
                 f"Alpaca submit authority refused with HTTP {resp.status_code}: "
@@ -969,6 +1138,15 @@ def _fingerprint(orders) -> tuple:
         (order.submitted_at.isoformat()
          if order.submitted_at is not None else ""),
     ) for order in orders))
+
+
+def _position_fingerprint(positions) -> tuple:
+    return tuple(sorted((
+        position.instrument.security_id,
+        position.instrument.symbol,
+        position.instrument.broker_id or "",
+        str(position.quantity),
+    ) for position in positions))
 
 
 def _merge_order_sets(opened, closed) -> tuple[list, bool]:

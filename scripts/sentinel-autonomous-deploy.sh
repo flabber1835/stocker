@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fully autonomous, fail-closed Alpaca PAPER deployment entrypoint.
+# Fail-closed Sentinel fenced-installation entrypoint.
 #
 # A host-global lock is acquired before Git can move, so a second invocation
 # cannot fast-forward the checkout underneath an active deployment. The lock FD

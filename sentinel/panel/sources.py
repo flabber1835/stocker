@@ -90,6 +90,7 @@ _AUTOMATION_COLUMNS = {
         "heartbeat_at", "expires_at"},
     "sentinel_automation_cycles": {
         "cycle_id", "state", "decision_session", "effective_session",
+        "plan_id", "plan_fingerprint",
         "last_clean_reconciliation_id", "next_wake_at", "failure_code",
         "failure_detail", "updated_at", "created_at"},
     "sentinel_alert_outbox": {
@@ -698,11 +699,8 @@ def _latest_automation_cycle(conn) -> dict | None:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT cycle_id,state,decision_session,effective_session,"
-            " next_wake_at,"
-            " (SELECT prior.last_clean_reconciliation_id"
-            "    FROM sentinel_automation_cycles prior"
-            "   WHERE prior.last_clean_reconciliation_id IS NOT NULL"
-            "   ORDER BY prior.updated_at DESC,prior.created_at DESC LIMIT 1),"
+            " plan_id,plan_fingerprint,next_wake_at,"
+            " last_clean_reconciliation_id,"
             " failure_code,"
             " failure_detail,updated_at"
             " FROM sentinel_automation_cycles"
@@ -710,12 +708,16 @@ def _latest_automation_cycle(conn) -> dict | None:
         row = cur.fetchone()
     if row is None:
         return None
-    (cycle_id, state, decision_session, effective_session, next_wake,
-     clean, failure_code, failure_detail, updated_at) = row
+    (cycle_id, state, decision_session, effective_session, plan_id,
+     plan_fingerprint, next_wake, clean, failure_code, failure_detail,
+     updated_at) = row
     return {
         "cycle_id": str(cycle_id), "state": str(state),
         "decision_session": str(decision_session),
         "effective_session": str(effective_session),
+        "plan_id": str(plan_id) if plan_id else None,
+        "plan_fingerprint": (
+            str(plan_fingerprint) if plan_fingerprint else None),
         "next_wake_at": _utc(next_wake),
         "clean_reconciliation_id": clean,
         "failure_code": failure_code, "failure_detail": failure_detail,
@@ -1129,6 +1131,235 @@ def _latest_verified_chain(history: list[dict]) -> list[dict]:
             if row.get("verdict") == "VERIFIED"]
 
 
+def _informational_mirror_count(conn) -> int:
+    from sentinel import informational_paper_mirror
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) FROM sentinel_processed_sessions"
+            " WHERE cursor_name LIKE %s",
+            (f"{informational_paper_mirror.CURSOR_PREFIX}%:pending",))
+        row = cur.fetchone()
+    if row is None:
+        raise ValueError("informational PAPER mirror count returned no row")
+    return max(0, int(row[0]))
+
+
+def _dual_paper_row(conn, *, informational_paper_mirror, publication,
+                    feed_store) -> model.Row:
+    """Project PAPER independently of an already-proven shadow result."""
+    mirror_count = _informational_mirror_count(conn)
+    cycle = _latest_automation_cycle(conn)
+    cycle_state = str((cycle or {}).get("state") or "").upper()
+    if cycle_state in {"BLOCKED", "MISSED_STATE_ONLY", "SUPERSEDED"}:
+        return model.paper_reconciliation_row(
+            state="MISMATCH", cycle_state=cycle_state,
+            detail=(str((cycle or {}).get("failure_code") or
+                        "the latest PAPER cycle did not converge")))
+    if cycle is None and mirror_count == 0:
+        return model.paper_reconciliation_row(
+            state="NOT_STARTED", cycle_state=cycle_state)
+    if cycle is None:
+        return model.paper_reconciliation_row(
+            state="MISMATCH", detail=(
+                "informational mirror evidence is not bound to a current "
+                "automation cycle"))
+    if mirror_count == 0:
+        state = "MISMATCH" if cycle_state == "SUCCEEDED" else "PENDING"
+        return model.paper_reconciliation_row(
+            state=state, cycle_state=cycle_state,
+            detail=("a completed PAPER cycle has no informational stamp"
+                    if state == "MISMATCH" else
+                    "the current PAPER cycle has not transported a plan"))
+    active_publication = publication.current(conn)
+    frontier = feed_store.latest_visible_session(conn)
+    if active_publication is None or not isinstance(frontier, str):
+        return model.paper_reconciliation_row(
+            state="UNKNOWN", error="current publication/frontier is unavailable")
+    try:
+        mirror = informational_paper_mirror.require_transport_permitted(
+            conn, current_frontier=frontier,
+            current_publication_version=active_publication.version)
+        if (not cycle.get("plan_id") or not cycle.get("plan_fingerprint")):
+            if cycle_state in {
+                    "DISCOVERED", "REFRESHING_DATA", "PREPARING",
+                    "RETRY_WAIT"}:
+                return model.paper_reconciliation_row(
+                    state="PENDING", cycle_state=cycle_state,
+                    detail="the current PAPER cycle has not prepared its plan")
+            return model.paper_reconciliation_row(
+                state="MISMATCH", cycle_state=cycle_state,
+                detail="the current PAPER cycle has no durable plan identity")
+        plan = informational_paper_mirror.require_current_plan_status(
+            conn,
+            plan_id=str(cycle.get("plan_id") or ""),
+            plan_fingerprint=str(cycle.get("plan_fingerprint") or ""),
+            current_frontier=frontier,
+            current_publication_version=active_publication.version)
+        mirror_state = str(mirror.get("status") or "")
+        plan_state = str(plan.get("status") or "")
+        active = cycle_state in {
+            "DISCOVERED", "REFRESHING_DATA", "PREPARING", "PLAN_READY",
+            "WAITING_OPEN", "EXECUTING", "RECONCILING", "RETRY_WAIT"}
+        if cycle_state != "SUCCEEDED" and not active:
+            return model.paper_reconciliation_row(
+                state="MISMATCH", cycle_state=cycle_state,
+                detail="the current PAPER cycle has an invalid lifecycle state")
+        pending = (active
+                   or mirror_state == informational_paper_mirror.PENDING
+                   or plan_state == informational_paper_mirror.PENDING)
+        if (cycle_state == "SUCCEEDED"
+                and not cycle.get("clean_reconciliation_id")):
+            return model.paper_reconciliation_row(
+                state="MISMATCH", cycle_state=cycle_state,
+                detail=("the completed PAPER cycle has no exact durable clean "
+                        "reconciliation"))
+        return model.paper_reconciliation_row(
+            state="PENDING" if pending else "CLEAN",
+            cycle_state=cycle_state,
+            detail=(
+                "raw plan remains pre-open unproven; post-close Sharadar "
+                "unit check is pending" if pending else
+                "post-close unit evidence and durable broker reconciliation "
+                "are clean; P/L remains informational"))
+    except informational_paper_mirror.InformationalPaperMirrorMismatch as exc:
+        return model.paper_reconciliation_row(
+            state="MISMATCH", cycle_state=cycle_state, detail=_short(exc))
+    except informational_paper_mirror.InformationalPaperMirrorUnstamped as exc:
+        return model.paper_reconciliation_row(
+            state=("MISMATCH" if cycle_state == "SUCCEEDED" else "PENDING"),
+            cycle_state=cycle_state, detail=_short(exc))
+    except informational_paper_mirror.InformationalPaperMirrorPending as exc:
+        return model.paper_reconciliation_row(
+            state="PENDING", cycle_state=cycle_state, detail=_short(exc))
+    except informational_paper_mirror.InformationalPaperMirrorRefused as exc:
+        return model.paper_reconciliation_row(
+            state="MISMATCH", cycle_state=cycle_state,
+            detail=f"integrity refusal: {_short(exc)}")
+
+
+def _dual_authority_rows(
+        database_url: str, *, now: datetime
+        ) -> tuple[list[model.Row], dict, list[dict], list[str]]:
+    """Project the sole shadow authority and separate PAPER transport state.
+
+    This path is selected only by a reviewed ``dual`` deployment.  It never
+    reads a legacy broker trial certificate, so Alpaca accounting cannot be
+    promoted to strategy performance by an old retained row.
+    """
+    if not database_url:
+        shadow = model.shadow_verification_row(
+            verdict=None, verification=None, session=None,
+            error="SENTINEL_DATABASE_URL is unset", unreadable=True)
+        paper = model.paper_reconciliation_row(
+            state="UNKNOWN", error="SENTINEL_DATABASE_URL is unset")
+        return [shadow, paper], {}, [], [
+            "dual authority database: SENTINEL_DATABASE_URL is unset"]
+
+    observation_id = os.environ.get(
+        "SENTINEL_SHADOW_OBSERVATION_ID", "primary").strip()
+    starting_cash = os.environ.get(
+        "SENTINEL_SHADOW_STARTING_CASH", "100000").strip()
+    if not observation_id or not starting_cash:
+        detail = "reviewed shadow observation id/capital is not configured"
+        return ([
+            model.shadow_verification_row(
+                verdict=None, verification=None, session=None, error=detail),
+            model.paper_reconciliation_row(state="UNKNOWN", error=detail),
+        ], {}, [], [])
+
+    from sentinel import informational_paper_mirror, shadow_runtime
+    from sentinel.feed import publication
+    from sentinel.feed import store as feed_store
+
+    conn = None
+    try:
+        conn = feed_store.connect(_bounded_dsn(database_url))
+        _set_statement_timeout(conn, STATEMENT_TIMEOUT_MS)
+
+        result = None
+        shadow_error = None
+        try:
+            result = shadow_runtime.verified_shadow_status(
+                conn, observation_id=observation_id,
+                starting_cash=starting_cash)
+        except shadow_runtime.ShadowRuntimeRefused as exc:
+            shadow_error = _short(exc)
+
+        current = result is not None and result.sessions_lag == 0
+        shadow = model.shadow_verification_row(
+            verdict=(result.shadow_verdict if result is not None else None),
+            verification=(result.verification if result is not None else None),
+            session=(result.session if result is not None else None),
+            sessions_lag=(result.sessions_lag if result is not None else None),
+            error=shadow_error)
+        verified = shadow.status == model.OK and current
+
+        nav_value = None
+        return_value = None
+        if result is not None:
+            try:
+                nav = Decimal(str(result.strategy_nav))
+                cumulative = Decimal(str(result.strategy_cumulative_return))
+                if not nav.is_finite() or nav <= 0 or not cumulative.is_finite():
+                    raise ValueError("shadow performance is non-finite")
+                nav_value = f"${nav:,.2f}"
+                return_value = f"{cumulative * Decimal(100):+.2f}%"
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                shadow_error = _short(exc)
+                shadow = model.shadow_verification_row(
+                    verdict=None, verification=None, session=None,
+                    error=shadow_error)
+                verified = False
+        rows = [
+            shadow,
+            model.shadow_metric_row(
+                "shadow_nav", "Certified shadow NAV", nav_value,
+                verified=verified,
+                detail="broker-free strategy NAV; not Alpaca account equity"),
+            model.shadow_metric_row(
+                "shadow_return", "Certified strategy return", return_value,
+                verified=verified,
+                detail="cumulative return from the certified shadow ledger"),
+        ]
+
+        paper_errors: list[str] = []
+        try:
+            paper = _dual_paper_row(
+                conn,
+                informational_paper_mirror=informational_paper_mirror,
+                publication=publication, feed_store=feed_store)
+        except Exception as exc:                             # noqa: BLE001
+            # PAPER evidence cannot erase a shadow result that already passed
+            # its independent full-corpus verification above.
+            detail = _short(exc)
+            paper = model.paper_reconciliation_row(
+                state="UNKNOWN", error=detail)
+            paper_errors.append(f"PAPER mirror database: {detail}")
+        rows.append(paper)
+        return rows, {}, [], paper_errors
+    except Exception as exc:                                 # noqa: BLE001
+        detail = _short(exc)
+        return ([
+            model.shadow_verification_row(
+                verdict=None, verification=None, session=None,
+                error=detail, unreadable=True),
+            model.shadow_metric_row(
+                "shadow_nav", "Certified shadow NAV", None,
+                verified=False, detail=detail),
+            model.shadow_metric_row(
+                "shadow_return", "Certified strategy return", None,
+                verified=False, detail=detail),
+            model.paper_reconciliation_row(state="UNKNOWN", error=detail),
+        ], {}, [], [f"dual authority database: {detail}"])
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:                                # noqa: BLE001
+                pass
+
+
 def _trial_rows(database_url: str, *, now: datetime
                 ) -> tuple[list[model.Row], dict, list[dict], list[str]]:
     """Project immutable trial certificates; never contact or repair a broker."""
@@ -1499,25 +1730,36 @@ def build_panel(*, state_dir: Path, database_url: str,
     now = now or datetime.now(timezone.utc)
     errors: list[str] = []
 
-    trial_rows, trial_details, trial_history, trial_errs = _trial_rows(
-        database_url, now=now)
-    errors.extend(trial_errs)
+    dual_mode = os.environ.get(
+        "SENTINEL_REVIEWED_DEPLOYMENT_MODE", "").strip().lower() == "dual"
+    if dual_mode:
+        financial_rows, trial_details, trial_history, financial_errs = (
+            _dual_authority_rows(database_url, now=now))
+    else:
+        financial_rows, trial_details, trial_history, financial_errs = (
+            _trial_rows(database_url, now=now))
+    errors.extend(financial_errs)
 
     own = _ownership(Path(state_dir), database_url)
     if own.status is model.UNKNOWN:
         errors.append("ownership binding")
     feed_rows, feed_errs = _feed_rows(database_url)
     errors.extend(feed_errs)
-    runtime_rows, runtime_errs = _runtime_rows(database_url)
+    # The legacy runtime projection treats every RECONCILING observation as a
+    # hard failure because it was designed for finalized broker-trial evidence.
+    # In informational dual mode ordinary partial fills are amber and the
+    # dedicated PAPER row above owns that distinction.
+    runtime_rows, runtime_errs = (
+        ([], []) if dual_mode else _runtime_rows(database_url))
     errors.extend(runtime_errs)
     automation_rows, automation_errs = _automation_rows(database_url)
     errors.extend(automation_errs)
 
     rows = [
-        *trial_rows,
+        *financial_rows,
         own,
         automation_rows[0],
-        runtime_rows[0],
+        *runtime_rows[:1],
         *feed_rows,
         *runtime_rows[1:],
         *automation_rows[1:],

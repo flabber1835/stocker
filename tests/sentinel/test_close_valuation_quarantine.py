@@ -156,7 +156,7 @@ def test_alpaca_uses_exact_query_and_identity_sandwich(session):
         accounts=[account(), account()], history=history_payload())
     broker = alpaca(http)
 
-    result = run(broker.account_close_valuation(session=session))
+    result = run(broker.portfolio_history_close_probe(session=session))
 
     opened, closed = calendar.session_window(session)
     assert http.calls == [
@@ -184,7 +184,7 @@ def test_alpaca_refuses_account_flip_around_history_read():
     broker = alpaca(http)
 
     with pytest.raises(MalformedBrokerPayload, match="identity changed"):
-        run(broker.account_close_valuation(session=SESSION))
+        run(broker.portfolio_history_close_probe(session=SESSION))
 
 
 def test_alpaca_parser_exists_but_guarded_production_capability_is_false():

@@ -22,7 +22,7 @@ from stock_strategy_shared.wealth_core.feed import (
 from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
 from stock_strategy_shared.wealth_core.live import plan_session
 from stock_strategy_shared.wealth_core.signals import REQUIRED_CLOSES
-from stock_strategy_shared.wealth_core.state import PortfolioState
+from stock_strategy_shared.wealth_core.state import DEFAULT_SLOTS, PortfolioState
 from stock_strategy_shared.wealth_core.terminal import TerminalTerms
 
 from sentinel.breadth.classifier import Holding, session_breadth
@@ -57,7 +57,8 @@ _SERIES_FIELDS = (
     "sessions", "session_indices", "signal_closes", "raw_closes", "volumes")
 _PLAN_EVIDENCE_FIELDS = (
     "execution_model", "session", "intents", "blocked", "block_reason",
-    "resolved_equity", "estimated_equity", "hashes", "warnings")
+    "resolved_equity", "estimated_equity", "resolved_open_equity",
+    "open_unresolved_security_ids", "hashes", "warnings")
 
 
 def _hash(value) -> str:
@@ -339,6 +340,11 @@ class SessionState:
         migrated["version"] = ENVELOPE_VERSION
         json.dumps(migrated, sort_keys=True, allow_nan=False)
         state = cls(**migrated)
+        portfolio = PortfolioState.from_dict(state.wealth_core)
+        if sorted(portfolio.slots) != list(range(DEFAULT_SLOTS)):
+            raise ValueError(
+                f"production Wealth Core state requires exactly {DEFAULT_SLOTS} "
+                "canonical slots")
         missing = REQUIRED_IDENTITY_FIELDS - set(state.strategy_identity)
         if missing:
             raise ValueError("persisted strategy identity is incomplete: "
@@ -371,6 +377,46 @@ class FeedAnchor:
 
 
 @dataclass(frozen=True)
+class DefensiveBar:
+    """Exact published Sharadar SFP fields consumed by Core/BIL accounting."""
+
+    session: str
+    security_id: str
+    ticker: str
+    open_signal: float
+    close_signal: float
+    close_adjusted: float
+    close_unadjusted: float
+
+    def __post_init__(self) -> None:
+        if self.security_id != "SENTINEL:BIL" or self.ticker != "BIL":
+            raise ValueError("defensive bar is not the fixed SENTINEL:BIL identity")
+        if not isinstance(self.session, str) or not self.session:
+            raise ValueError("defensive bar session is required")
+        for name in (
+                "open_signal", "close_signal", "close_adjusted",
+                "close_unadjusted"):
+            try:
+                value = float(getattr(self, name))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"defensive bar {name} is not a positive finite value"
+                ) from exc
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(
+                    f"defensive bar {name} is not a positive finite value")
+
+    @property
+    def adjusted_open(self) -> float:
+        """Retained reference formula: SFP open * closeadj / close."""
+        value = (float(self.open_signal) * float(self.close_adjusted)
+                 / float(self.close_signal))
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError("defensive adjusted open is not positive and finite")
+        return value
+
+
+@dataclass(frozen=True)
 class PublishedSession:
     session: str
     data_version: int
@@ -382,6 +428,12 @@ class PublishedSession:
     spy_expected_sessions: Sequence[str] = ()
     terminal_events: Sequence[TerminalTerms] = ()
     feed_anchors: Mapping[str, FeedAnchor] = field(default_factory=dict)
+    defensive_bar: DefensiveBar | None = None
+    # The denominator must come from the SAME held publication as the current
+    # row. SFP adjusted-close history may be rescaled when a distribution
+    # lands; carrying yesterday's old-publication value into today's numerator
+    # would turn a harmless scale revision into artificial strategy P/L.
+    defensive_previous_bar: DefensiveBar | None = None
 
 
 def warm_session_state(state: SessionState | Mapping, window, *,
@@ -528,6 +580,14 @@ def load_published_session(conn, session: str, *, spy_sessions: int = 41,
         spy_rows = list(reversed(cur.fetchall()))
         actual_spy_sessions = [str(row[0]) for row in spy_rows]
         spy = [float(row[1]) for row in spy_rows]
+        defensive_previous_session = expected_spy_sessions[-2]
+        cur.execute(
+            "SELECT session,security_id,ticker,open_signal,close_signal,"
+            " close_adjusted,close_unadjusted"
+            " FROM sentinel_defensive_bars d WHERE session=ANY(%s::date[]) AND "
+            f"{visible_predicate('d')} ORDER BY session",
+            ([defensive_previous_session, session],))
+        defensive_rows = cur.fetchall()
         sectors = load_sectors(conn, as_of=session)
     if not bars:
         raise RuntimeError(f"no published bars for {session}")
@@ -536,6 +596,21 @@ def load_published_session(conn, session: str, *, spy_sessions: int = 41,
             "published SPY closeadj rows are not the exact dated XNYS tail "
             f"ending {session}: expected {expected_spy_sessions}, got "
             f"{actual_spy_sessions}")
+    if len(defensive_rows) != 2:
+        raise RuntimeError(
+            f"expected adjacent published SENTINEL:BIL rows for "
+            f"{defensive_previous_session} and {session}, got "
+            f"{len(defensive_rows)}")
+    defensive_bars = [DefensiveBar(
+        session=str(row[0]), security_id=str(row[1]), ticker=str(row[2]),
+        open_signal=row[3], close_signal=row[4], close_adjusted=row[5],
+        close_unadjusted=row[6]) for row in defensive_rows]
+    defensive_previous, defensive = defensive_bars
+    if (defensive_previous.session != defensive_previous_session
+            or defensive.session != session):
+        raise RuntimeError(
+            "published defensive rows are not the exact adjacent XNYS "
+            f"sessions {defensive_previous_session}, {session}")
     resolver = load_resolver(conn)
     terminal_result = load_terminal_events(
         conn, start=session, end=session,
@@ -599,7 +674,9 @@ def load_published_session(conn, session: str, *, spy_sessions: int = 41,
         spy_sessions=actual_spy_sessions,
         spy_expected_sessions=expected_spy_sessions,
         terminal_events=terminals,
-        feed_anchors=anchors)
+        feed_anchors=anchors,
+        defensive_bar=defensive,
+        defensive_previous_bar=defensive_previous)
 
 
 def _feed_from_dict(raw: Mapping, meta, elig) -> Feed:
@@ -607,8 +684,19 @@ def _feed_from_dict(raw: Mapping, meta, elig) -> Feed:
     feed._session_index = int(raw.get("session_index", -1))
     feed._seen_sessions = {str(k): int(v) for k, v in
                            (raw.get("seen_sessions") or {}).items()}
-    feed.series = {sid: SecuritySeries(**series) for sid, series in
-                   (raw.get("series") or {}).items()}
+    # `Feed.update()` appends to every SecuritySeries array.  Constructing the
+    # dataclass directly from persisted mappings aliases those nested lists and
+    # mutates the caller's supposedly immutable prior SessionState.  Copy every
+    # mutable column at this boundary so `advance_state` remains a pure
+    # transition and a pre-transition commitment cannot change under its own
+    # verifier.
+    feed.series = {
+        sid: SecuritySeries(**{
+            **dict(series),
+            **{name: list(series.get(name) or []) for name in _SERIES_FIELDS},
+        })
+        for sid, series in (raw.get("series") or {}).items()
+    }
     return feed
 
 
@@ -884,7 +972,8 @@ def advance_and_persist(conn, session: str, prior: SessionState | Mapping, *,
         return result.to_dict()
 
 
-__all__ = ["FeedAnchor", "PublishedSession", "REQUIRED_IDENTITY_FIELDS", "SessionState",
+__all__ = ["DefensiveBar", "FeedAnchor", "PublishedSession",
+           "REQUIRED_IDENTITY_FIELDS", "SessionState",
            "advance_and_persist",
            "advance_state", "holdings_from_shadow", "load_published_session",
            "warm_session_state"]

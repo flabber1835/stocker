@@ -184,7 +184,9 @@ and the existing explicit restored-account takeover ceremony remain mandatory.
 All stored wake instants are UTC. Session decisions come only from the pinned
 XNYS calendar:
 
-- preparation: actual session close plus configured publication delay;
+- preparation: fixed reviewed 23:45 `America/New_York` source-finality
+  boundary on the decision session (15 minutes after Sharadar's second 23:30
+  SEP/SFP update), never a close-relative delay;
 - execution: actual next-session open plus configured execution delay;
 - final boundary: the actual effective-session close, including 13:00 ET
   half-days;

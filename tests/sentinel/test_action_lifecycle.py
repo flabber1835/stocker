@@ -635,7 +635,8 @@ def test_later_daily_retry_rewrites_failed_bar_spy_and_bil_owners(conn):
             run_id=failed.progress.run_id, require_lock=True)
         S.write_defensive_bars(
             conn, [{"ticker": "BIL", "date": "2026-08-14",
-                    "close": 91.0, "closeunadj": 91.0}],
+                    "open": 90.9, "close": 91.0, "closeadj": 91.1,
+                    "closeunadj": 91.0}],
             run_id=failed.progress.run_id, require_lock=True)
         failed.finish("failed", "fixture stopped after destructive writes")
     assert P.coherence(conn).unpublished_rows == 3
@@ -657,7 +658,9 @@ def test_later_daily_retry_rewrites_failed_bar_spy_and_bil_owners(conn):
                         {"ticker": "SPY", "date": day,
                          "closeadj": 600.0 + i},
                         {"ticker": "BIL", "date": day,
+                         "open": 90.9 + i / 100,
                          "close": 91.0 + i / 100,
+                         "closeadj": 91.1 + i / 100,
                          "closeunadj": 91.0 + i / 100},
                     )]
         if table == sharadar.SEP:

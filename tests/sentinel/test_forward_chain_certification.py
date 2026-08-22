@@ -424,7 +424,8 @@ class TestReadOnlyProvenanceBoundary:
             rows=(_row(FC.REFERENCE_START),), sha256="r" * 64,
             path="reference.csv",
         )
-        held = SimpleNamespace(version=7)
+        held = SimpleNamespace(
+            version=7, to_dict=lambda: {"version": 7, "label": "held"})
         events = []
 
         @contextmanager
@@ -481,6 +482,8 @@ class TestReadOnlyProvenanceBoundary:
                 to_dict=lambda: {"coherent": True, "exhaustive": exhaustive}
             ),
         )
+        monkeypatch.setattr(
+            FC, "latest_visible_session", lambda _conn: FC.REFERENCE_END)
 
         def fake_corpus(_conn, *, start, end, publication_record):
             assert events == ["pin-enter"]
@@ -506,6 +509,10 @@ class TestReadOnlyProvenanceBoundary:
         assert report["corpus_identity"]["corpus_hash"] == "c" * 64
         assert report["source_identity"]["runner_sha256"] == "s" * 64
         assert report["reference"]["sha256"] == "r" * 64
+        assert report["held_publication"] == {
+            "publication_fingerprint": FC.publication_fingerprint(held),
+            "visible_frontier": FC.REFERENCE_END,
+        }
         assert report["alignment"]["full_pass_allocation_coverage"] == {
             "effective_allocations": 5_032,
             "effective_decision_window": ["2006-07-28", "2026-07-30"],

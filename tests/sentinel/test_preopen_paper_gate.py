@@ -10,7 +10,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from sentinel import handover, paper, schema, trial
+from sentinel import (
+    dual_plan_authority,
+    dual_reconciliation,
+    handover,
+    informational_paper_mirror,
+    paper,
+    schema,
+    shadow_runtime,
+    trial,
+)
 from sentinel.core import catchup
 from sentinel.execution import journal, preopen_authority
 from sentinel.execution import reconcile as reconciliation
@@ -132,12 +141,25 @@ def _install_recovery_harness(
         paper, "_target_action_lookup", lambda *_: target_base)
     monkeypatch.setattr(
         journal, "load_plan", load_plan or (lambda *_: plan))
-    monkeypatch.setattr(journal, "load_commands", lambda *_: tuple(commands))
+    def load_commands(*_args, states=None, **_kwargs):
+        if states is None:
+            return tuple(commands)
+        permitted = set(states)
+        return tuple(command for command in commands
+                     if command.state in permitted)
+
+    monkeypatch.setattr(journal, "load_commands", load_commands)
     monkeypatch.setattr(
         preopen_authority, "load_authority", lambda *_args, **_kwargs: authority)
     monkeypatch.setattr(reconciliation, "reconcile", reconcile)
     monkeypatch.setattr(paper, "_account_or_refuse", lambda *_: None)
     monkeypatch.setattr(paper, "_cash_authority_or_refuse", lambda *_args, **_kwargs: None)
+
+    async def evidence_bracket(**kwargs):
+        return kwargs["initial_result"], object(), object(), NOW, NOW
+
+    monkeypatch.setattr(
+        paper, "_settled_account_evidence_bracket", evidence_bracket)
     monkeypatch.setattr(
         trial, "record_account_evidence",
         lambda *_args, **kwargs: recorded.append(kwargs))
@@ -490,6 +512,63 @@ def test_recovery_all_zero_domain_is_the_only_authority_bypass(monkeypatch):
 
     assert result.clean
     assert len(calls) == 1
+
+
+def test_dual_recovery_earns_due_mirror_check_before_transport_gate(
+        monkeypatch):
+    """A partial cycle crossing close cannot deadlock on a missing check."""
+    plan = _plan(basket={"SEC-A": Decimal(10)})
+    events = []
+
+    async def clean_reconcile(**_kwargs):
+        events.append("reconcile")
+        return reconciliation.ReconciliationResult(
+            runtime_state=RuntimeState.RUNNING,
+            observation=_observation(), observation_id=None)
+
+    grant, broker, _recorded = _install_recovery_harness(
+        monkeypatch, plan=plan, authority=None, commands=[],
+        reconcile=clean_reconcile)
+    shadow_result = SimpleNamespace(
+        state=SimpleNamespace(to_dict=lambda: {}))
+    monkeypatch.setattr(
+        dual_reconciliation, "verified_shadow_intent",
+        lambda *_args, **_kwargs: shadow_result)
+    monkeypatch.setattr(
+        dual_plan_authority, "rederive_plan",
+        lambda *_args, **_kwargs: {"authority_sha256": "a" * 64})
+    monkeypatch.setattr(
+        publication, "pinned",
+        lambda *_args, **_kwargs: nullcontext(SimpleNamespace(version=1)))
+    monkeypatch.setattr(
+        paper.feed_store, "latest_visible_session",
+        lambda *_args, **_kwargs: plan.effective_session)
+    monkeypatch.setattr(
+        shadow_runtime, "publication_not_before",
+        lambda *_args, **_kwargs: NOW.replace(year=2020))
+
+    def revalidate(*_args, **_kwargs):
+        events.append("revalidate")
+        return {"status": informational_paper_mirror.NO_UNIT_CHANGE}
+
+    def require(*_args, **_kwargs):
+        events.append("require")
+        assert "revalidate" in events
+        return {"status": informational_paper_mirror.NO_UNIT_CHANGE}
+
+    monkeypatch.setattr(
+        informational_paper_mirror, "revalidate_all", revalidate)
+    monkeypatch.setattr(
+        informational_paper_mirror, "require_transport_permitted", require)
+
+    result = asyncio.run(paper.recover_automated_paper_cycle(
+        conn=object(), broker=broker, base_url="https://paper.example",
+        grant=grant, automation_config_sha256="config",
+        dual_shadow_observation_id="obs-year-end",
+        dual_shadow_starting_cash=Decimal("100000")))
+
+    assert result.clean
+    assert events[:3] == ["revalidate", "require", "reconcile"]
 
 
 def test_old_generation_recovery_never_loads_stale_plan_economics(monkeypatch):

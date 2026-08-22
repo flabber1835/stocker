@@ -323,6 +323,19 @@ def _digest_rows(rows) -> dict:
     return {"rows": n, "hash": h.hexdigest() if n else None}
 
 
+def _defensive_bars_identity(conn, start: str, end: str) -> dict:
+    """Hash every retained BIL scalar-accounting source field.
+
+    ``published_defensive_bars`` deliberately returns source ``open``, source
+    ``close``, total-return ``closeadj`` and broker-mark ``closeunadj``. Keeping
+    the identity call at this named seam makes it explicit that a restatement of
+    any input to ``open * closeadj / close`` changes the certified corpus.
+    """
+    from sentinel.feed.store import published_defensive_bars
+
+    return _digest_rows(published_defensive_bars(conn, start, end))
+
+
 def _corpus_pinned(conn, *, start: str, end: str, publication_record) -> dict:
     """Identity of the data over [start, end] — the interval being certified.
 
@@ -367,11 +380,10 @@ def _corpus_pinned(conn, *, start: str, end: str, publication_record) -> dict:
         " FROM sentinel_universe u"
         f" WHERE {visible_predicate('u')}"
         " ORDER BY permaticker, ticker, snapshot_date", ())
-    from sentinel.feed.store import (
-        published_defensive_bars, published_spy_total_return)
+    from sentinel.feed.store import published_spy_total_return
 
     spy = _digest_rows(published_spy_total_return(conn, start, end))
-    defensive = _digest_rows(published_defensive_bars(conn, start, end))
+    defensive = _defensive_bars_identity(conn, start, end)
     repairs = _digest_query(
         conn,
         "SELECT rr.security_id, rr.session, rr.prior_split_ratio,"

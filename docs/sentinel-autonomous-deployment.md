@@ -1,11 +1,27 @@
-# Autonomous Sentinel ALPACA PAPER deployment
+# Autonomous Sentinel deployment
 
-This is the supported one-command deployment path for the risk-contained Alpaca
-paper environment:
+> **Current implementation status:** no arguments retain the conservative
+> `DEPLOYED/FENCED` installation. An exact reviewed `DUAL_RUN_GO` bundle may
+> run the certified broker-free ledger and reconciled Alpaca PAPER transport in
+> parallel. The present two-source evidence remains `PAPER_EXECUTION_NO_GO`, so
+> Alpaca account P/L is never promoted to certified strategy performance.
+
+This is the supported one-command fenced installation path for the
+risk-contained environment:
 
 ```bash
 cd /path/to/stocker
 bash scripts/sentinel-autonomous-deploy.sh
+```
+
+After `bash scripts/sentinel-go-validate.sh` produces a reviewed bundle, the
+supported year-end observation activation is:
+
+```bash
+bash scripts/sentinel-autonomous-deploy.sh \
+  --mode dual \
+  --validation-bundle artifacts/<bundle>.zip \
+  --confirm-reviewed-go <exact-bundle-sha256>
 ```
 
 Running `git pull --ff-only` first is harmless but not required. The launcher
@@ -80,19 +96,22 @@ still uses a dedicated signed `ADMIN_BIND_EMPTY` certificate and requires a
 complete empty-account observation with zero positions and zero working orders.
 There is deliberately no automatic inherited-book migration.
 
-## What the deployer does
+## What the deployer does now
 
-Before disturbing the running system it verifies Git, performs a read-only
-Alpaca paper-account identity/cash check, builds the exact Sentinel ordinary,
-authorized, and test images, runs the complete Sentinel test suite with skips
-refused, freezes the image build identity, pushes runtime/test images, resolves
-immutable registry RepoDigests, and proves the actual private signing key maps
-to a valid ACTIVE trust root. A registry/build/test/signing-key failure at this
-stage leaves the existing deployment untouched.
+The validation command may already have applied the bundle's explicitly
+reported, exact-candidate schema migration and bounded Sharadar daily ingest.
+That closes the old-schema/BIL-tail upgrade gap before the read-only parity and
+readiness evidence is produced. With a reviewed bundle, before disturbing the
+running services the deployer verifies the
+bundle allowlist, canonical JSON, manifest/checksums, secret scan, freshness,
+verdict, zero-mutation counters, clean exact HEAD, all four recorded image IDs,
+runtime source identity, current publication/frontier, shadow model digest, and
+existing shadow lineage. Those checks are read-only and run before tagging,
+pushing, fencing, schema migration, or service changes.
 
 Only then does it enter the fail-closed transition boundary. From that point any
 exception or Ctrl-C attempts the minimal emergency kill and directly stops any
-running Sentinel automation container. The deployer then:
+running Sentinel automation container. Its current `run()` path then:
 
 1. fences/stops old automation;
 2. starts only the preserved behavioral PostgreSQL volume;
@@ -100,41 +119,46 @@ running Sentinel automation container. The deployer then:
    explicit schema migration;
 4. runs schema migration while automation is stopped and requires the durable
    kill fence afterward;
-5. deactivates the prior automation generation if one exists;
-6. runs `feed-daily` and the complete data-readiness contract;
-7. verifies the canonical PostgreSQL account binding (or performs the opt-in
-   strict-empty first enrollment);
-8. derives the next issuer generation from the maximum of active authority and
-   **all installed certificates**, so an abandoned STAGED certificate from a
-   failed earlier deploy cannot trap a rerun;
-9. creates the current 253-session `PAPER_OBSERVATION_ONLY` candidate and
-   confirms its exact active predecessor;
-10. signs inside the exact new test image with `--network none` and the private
-    key mounted read-only;
-11. installs the new certificate as STAGED, waits for `not_before` only when
-    needed, and activates/rotates the exact predecessor;
-12. optionally revokes the predecessor signing key only after the new
-    certificate is active;
-13. prepares the current durable paper plan and re-reads it, requiring the same
-    plan id, decision session, and matching database authorities;
-14. activates automation while its kill switch is still engaged;
-15. starts the digest-pinned unattended service;
-16. verifies the service is still behind the expected kill and certificate;
-17. releases the kill switch;
-18. requires `LEADER_ACTIVE`, current PASS authority, no latched failure or
-    dead-letter alert, then waits through another heartbeat and proves the same
-    generation/holder/fence has advanced its heartbeat;
-19. persists only non-secret Git/image digest facts back to `.env`;
-20. takes a post-deployment base backup and retains a JSON deployment receipt.
+5. while writers remain stopped, rechecks the exact reviewed publication,
+   visible frontier, shadow configuration, and lineage; any migration or
+   transition-time corpus change refuses;
+6. persists the reviewed source/config/data-publication/bundle facts while
+   still fenced;
+7. starts `sentinel-shadow` with no Alpaca credential/account environment and
+   waits for the current decision-close attestation;
+8. in dual mode, proves the exact PAPER account, signed observation authority,
+   and current plan-to-shadow session/state/data/allocation match, then starts
+   automation behind the kill fence and explicitly releases it;
+9. persists non-secret Git/image/review facts and a deployment receipt.
 
-On PASS the terminal ends with:
+The shadow service independently recomputes the reviewed publication subject
+inside the held genesis publication pin, closing the final recheck-to-container
+start window. It also refuses to trust or ingest a decision-session frontier
+before 23:45 `America/New_York`, 15 minutes after the documented second daily
+updates for [Sharadar SEP](https://data.nasdaq.com/databases/SEP) and
+[Sharadar SFP](https://data.nasdaq.com/databases/SFP), while retaining the
+strict following-XNYS-open cutoff.
+
+On no-argument success the terminal ends with:
 
 ```text
-DEPLOYMENT PASS: autonomous Alpaca PAPER trading is authorized and operational
+DEPLOYED/FENCED
 ```
 
-Anything else is a failed deployment. Do not infer success from container
-presence alone.
+This is not a financial GO and not active strategy observation. Do not infer
+success from container presence alone. The remaining activation transaction is
+allowed only after a fresh, reviewed NAS validation bundle for the selected
+mode; see `sentinel-nas-go-validation.md`.
+
+On reviewed dual success, PAPER orders, positions, and informational P/L are
+visible in the external Snowball iOS app connected to Alpaca, but certified
+return remains the broker-free shadow series. Snowball is not Sentinel's status
+UI; Sentinel's separate mobile web panel shows certified shadow return, PAPER
+reconciliation, and combined operational red/green status. Every execution
+cycle separately reconciles expected commands and projected target positions
+against Alpaca. A material discrepancy makes operational status red/`BLOCKED`,
+queues a critical alert, and prevents subsequent strategy orders until an
+explicit review/reactivation. It never auto-liquidates the existing PAPER book.
 
 ## Synology and the deployment failure modes this closes
 

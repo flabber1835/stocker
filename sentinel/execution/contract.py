@@ -448,9 +448,14 @@ class BrokerOrder:
     filled_quantity: Decimal = Decimal(0)
     filled_average_price: Optional[Decimal] = None
     submitted_at: Optional[datetime] = None
+    #: Sentinel never issues replacements. A broker replacement status is a
+    #: typed external-economics anomaly, not merely another working spelling.
+    external_replacement: bool = False
     raw: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if type(self.external_replacement) is not bool:
+            raise TypeError("BrokerOrder.external_replacement must be boolean")
         _require_decimal("BrokerOrder.quantity", self.quantity)
         _require_decimal("BrokerOrder.filled_quantity", self.filled_quantity)
         if not self.quantity.is_finite() or self.quantity <= 0:

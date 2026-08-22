@@ -40,7 +40,7 @@ from typing import Callable, Mapping, Sequence
 from sentinel import identity
 from sentinel.controller.frozen_rule import load as load_controller
 from sentinel.controller.machine import Controller
-from sentinel.core.decision import runtime_strategy_identity
+from sentinel.core.decision import publication_fingerprint, runtime_strategy_identity
 from sentinel.core.loader import load_window
 from sentinel.core.production import (
     SessionState,
@@ -50,7 +50,7 @@ from sentinel.core.production import (
 )
 from sentinel.feed import calendar, publication
 from sentinel.feed.readiness import REQUIRED_SPY_SESSIONS
-from sentinel.feed.store import connect
+from sentinel.feed.store import connect, latest_visible_session
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -711,6 +711,10 @@ def run_certification(
             coherence = publication.assert_coherent(
                 conn, exhaustive=True
             ).to_dict()
+            held_publication = {
+                "publication_fingerprint": publication_fingerprint(held),
+                "visible_frontier": latest_visible_session(conn),
+            }
             # This is the canonical corpus identity implementation, called
             # inside the already-held pin so identity and transitions cannot
             # name different generations.  The public identity.corpus wrapper
@@ -774,6 +778,7 @@ def run_certification(
             },
             "transaction": transaction,
             "publication_coherence": coherence,
+            "held_publication": held_publication,
             "corpus_identity": corpus,
             "source_identity": source,
         }

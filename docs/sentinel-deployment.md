@@ -1213,6 +1213,18 @@ backfill will arrive for an ended interval. Missing/future evidence remains pend
 false economic failure. This preserves honest observation but means the
 multi-month performance chain is not deployable as `VERIFIED` yet.
 
+**Two-source observation decision:** the blocked paper boundary does not require
+discarding broker-free forward observation. With Sharadar and Alpaca as the only
+configured sources, deployment exposes two independent verdicts. `SHADOW_GO`
+authorizes only the canonical Wealth Core observer: decisions are made from a
+published close, pending quantities are applied at the next published session's
+open, and NAV/action/dividend economics remain in the Sharadar-backed state
+machine. It performs zero broker mutations and never treats Alpaca paper P/L as
+the economic book. `PAPER_EXECUTION_GO` retains every pre-open, close-NAV,
+fill-interval and close-cash requirement above. A `SHADOW_GO` result cannot be
+promoted into paper execution. The NAS evidence and review contract is defined
+in `sentinel-nas-go-validation.md`.
+
 `SPLIT_ONLY_DERIVED` and `SEAM_SPLIT_UNCORROBORATED` gate certification unless
 full-interval counterfactual evidence proves that every plausible split
 treatment produces identical eligibility, rankings, selections, holdings,

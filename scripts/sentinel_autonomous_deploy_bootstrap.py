@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Zero-guess bootstrap for the autonomous Sentinel paper deployer.
+"""Zero-guess bootstrap for the Sentinel fenced installer.
 
 For an existing owned deployment this recovers facts that are already durable or
 observable instead of requiring the operator to duplicate them into .env:
@@ -333,6 +333,7 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
         self.phase("transition: fence and stop old automation")
         first_kill = self._try_emergency_kill()
         self._direct_stop_automation()
+        self._direct_stop_shadow()
         self.phase("transition: start only behavioral PostgreSQL on preserved volume")
         self.runner.run(self.base_compose + ["up", "-d", "sentinel-postgres"])
 
@@ -391,18 +392,37 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
             "operational_ready": health.get("operational_ready"),
             "post_deploy_backup": post_backup,
         }
-        path = self.attempt_dir / "deployment-receipt.json"
-        pending = self.attempt_dir / "deployment-receipt.pending.json"
-        pending.write_text(
-            json.dumps(receipt, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8")
-        _safe_update_dotenv(core.ENV_PATH, {
+        managed = {
             "SENTINEL_GIT_COMMIT": self.commit,
             "SENTINEL_RUNTIME_IMAGE_REPOSITORY": self.cfg.runtime_repository,
             "SENTINEL_RUNTIME_IMAGE_DIGEST": self.runtime_digest,
             "SENTINEL_TEST_IMAGE_REPOSITORY": self.cfg.test_repository,
             "SENTINEL_TEST_IMAGE_DIGEST": self.test_digest,
-        })
+        }
+        if self.reviewed_validation is not None:
+            managed.update({
+                "SENTINEL_SHADOW_OBSERVATION_ENABLED": "0",
+                "SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256": (
+                    self.reviewed_validation.source_identity_sha256),
+                "SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256": (
+                    self.reviewed_validation.bundle_sha256),
+                "SENTINEL_REVIEWED_DEPLOYMENT_MODE": "paper",
+                "SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256": "",
+                "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256": "",
+            })
+            receipt.update({
+                "activation_mode": "paper",
+                "reviewed_validation_bundle_sha256": (
+                    self.reviewed_validation.bundle_sha256),
+                "validated_source_identity_sha256": (
+                    self.reviewed_validation.source_identity_sha256),
+            })
+        path = self.attempt_dir / "deployment-receipt.json"
+        pending = self.attempt_dir / "deployment-receipt.pending.json"
+        pending.write_text(
+            json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8")
+        _safe_update_dotenv(core.ENV_PATH, managed)
         os.replace(str(pending), str(path))
         print("\nDEPLOYMENT PASS: autonomous Alpaca PAPER trading is authorized and operational")
         print("receipt: %s" % path)
@@ -443,8 +463,11 @@ print(actual)
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = core.argparse.ArgumentParser(
-        description="Bootstrap and fully deploy Sentinel ALPACA PAPER")
+        description="Bootstrap and deploy reviewed Sentinel observation modes")
     parser.add_argument("--explain", action="store_true")
+    parser.add_argument("--mode", choices=("shadow", "dual", "paper"))
+    parser.add_argument("--validation-bundle", type=Path)
+    parser.add_argument("--confirm-reviewed-go")
     args = parser.parse_args(argv)
     if args.explain:
         print(
@@ -453,11 +476,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "persist DEPLOYED/FENCED; runtime owns later readiness progression")
         return 0
     try:
-        env = discover(core.merged_environment())
+        initial_env = core.merged_environment()
+        reviewed = core.deployment_request(
+            mode=args.mode, validation_bundle=args.validation_bundle,
+            confirmation=args.confirm_reviewed_go, env=initial_env)
+        # Discovery is read-only but still consults live deployment state. The
+        # complete reviewed byte/Git/image gate above intentionally runs first.
+        env = discover(initial_env)
         # Process environment is authoritative to the underlying core/driver;
         # do not write discovered facts to .env until the final PASS receipt.
         os.environ.update(env)
         cfg = hardened.Config(env)
+        if reviewed is not None:
+            core.verify_reviewed_account_binding(reviewed, cfg.account_id)
         if not (core.ROOT / ".git").exists():
             raise core.DeployRefused(
                 "autonomous deploy must run from a Git checkout")
@@ -467,7 +498,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         runner = core.Runner(env, attempt / "commands.log")
         with core.DeploymentLock(
                 cfg.authority_dir / "autonomous-deploy.lock"):
-            BootstrapDeploy(cfg, runner, attempt).run()
+            BootstrapDeploy(
+                cfg, runner, attempt,
+                reviewed_validation=reviewed).run()
         return 0
     except core.DeployRefused as exc:
         print("REFUSED: %s" % exc, file=sys.stderr)

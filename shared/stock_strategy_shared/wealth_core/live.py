@@ -115,6 +115,8 @@ class LiveSessionPlan:
     block_reason: str | None = None
     resolved_equity: float | None = None
     estimated_equity: float = 0.0
+    resolved_open_equity: float | None = None
+    open_unresolved_security_ids: tuple[str, ...] = ()
     hashes: dict = field(default_factory=dict)
     state_after: dict = field(default_factory=dict)
     pending_after: list[dict] = field(default_factory=list)
@@ -136,6 +138,17 @@ class LiveSessionPlan:
                 "resolved_equity": (None if self.resolved_equity is None
                                     else round(self.resolved_equity, 2)),
                 "estimated_equity": round(self.estimated_equity, 2),
+                "resolved_open_equity": (
+                    None if self.resolved_open_equity is None
+                    # This new field feeds multiplicative Core/BIL interval
+                    # accounting. Preserve the canonical float rather than
+                    # rounding away up to half a cent on every daily factor.
+                    # The older close evidence remains cents for compatibility;
+                    # its exact canonical close also lives in SessionState's
+                    # shadow_nav_history and is cross-checked by the observer.
+                    else self.resolved_open_equity),
+                "open_unresolved_security_ids": list(
+                    self.open_unresolved_security_ids),
                 "hashes": dict(self.hashes),
                 "state_after": self.state_after,
                 "pending_after": list(self.pending_after),
@@ -195,6 +208,8 @@ def plan_session(*, session: str,
         session=session, blocked=sr.blocked,
         resolved_equity=sr.resolved_equity,
         estimated_equity=sr.estimated_equity,
+        resolved_open_equity=sr.resolved_open_equity,
+        open_unresolved_security_ids=sr.open_unresolved_security_ids,
         hashes=hashes.to_dict(),
         state_after=state.to_dict(),
         pending_after=[p.to_dict() for p in pending],

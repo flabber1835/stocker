@@ -276,6 +276,26 @@ class TestExecuteSession:
         assert [c.state for c in stored] == [S.UNKNOWN]
         assert blocked_securities(stored) == {"SEC-AAA"}
 
+    @pytest.mark.parametrize(
+        ("fault", "state"),
+        [(F.REJECT, S.REJECTED),
+         (F.ACCEPT_THEN_TIMEOUT, S.UNKNOWN)],
+        ids=["rejected", "unknown"])
+    def test_a_non_ack_stops_the_rest_of_the_same_buy_batch(
+            self, conn, fault, state):
+        """A failed first name cannot leave an avoidable partial basket."""
+        b = broker()
+        b.schedule_submit(fault)
+
+        result = go(
+            b, conn, {"SEC-AAA": D(10), "SEC-BBB": D(10)})
+
+        assert [(item.security_id, item.state)
+                for item in result.submitted] == [("SEC-AAA", state)]
+        assert "SEC-BBB" in result.deferred
+        assert len([call for call in b.calls
+                    if call.startswith("submit:")]) == 1
+
     def test_the_NEXT_session_resolves_it_rather_than_double_submitting(self, conn):
         """The safety property that matters more than the block itself.
 

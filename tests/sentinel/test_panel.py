@@ -1079,6 +1079,443 @@ class TestItCannotAct:
         assert seen == ["postgresql://first/db", "postgresql://second/db"]
 
 
+class TestReviewedDualAuthority:
+
+    def test_a_paper_mismatch_turns_the_header_red_without_erasing_shadow_go(self):
+        panel = _panel(
+            model.shadow_verification_row(
+                verdict="SHADOW_GO", verification="VERIFIED",
+                session="2026-08-20"),
+            model.shadow_metric_row(
+                "shadow_return", "Certified strategy return", "+1.25%",
+                verified=True, detail="broker-free"),
+            model.paper_reconciliation_row(
+                state="MISMATCH", cycle_state="BLOCKED"))
+
+        html = render(panel)
+
+        assert "OPERATIONAL RED — REVIEW REQUIRED" in html
+        assert "SHADOW VERIFIED THROUGH 2026-08-20" in html
+        assert ('data-key="shadow_verification" data-status="ok"' in html)
+        assert "PAPER NOT VERIFIED · MISMATCH · BLOCKED" in html
+        assert "Sentinel Strategy" in html
+
+    def test_ordinary_paper_pending_is_amber_and_never_strategy_performance(self):
+        panel = _panel(
+            model.shadow_verification_row(
+                verdict="SHADOW_GO", verification="VERIFIED",
+                session="2026-08-20"),
+            model.paper_reconciliation_row(
+                state="PENDING", cycle_state="RETRY_WAIT"))
+
+        html = render(panel)
+
+        assert "OPERATIONAL AMBER — PAPER EVIDENCE PENDING" in html
+        assert "PAPER NOT VERIFIED · PENDING" in html
+        assert "TRIAL VERIFIED" not in html
+
+    def test_paper_not_started_is_operationally_amber(self):
+        panel = _panel(
+            model.shadow_verification_row(
+                verdict="SHADOW_GO", verification="VERIFIED",
+                session="2026-08-20"),
+            model.paper_reconciliation_row(state="NOT_STARTED"))
+
+        assert panel.overall == model.WARN
+        assert "OPERATIONAL AMBER" in render(panel)
+
+    def test_dual_source_uses_current_shadow_and_clean_mirror(
+            self, monkeypatch):
+        from types import SimpleNamespace
+
+        from sentinel import informational_paper_mirror, shadow_runtime
+        from sentinel.feed import publication
+        from sentinel.feed import store as feed_store
+        from sentinel.panel import sources
+
+        class Conn:
+            def close(self):
+                self.closed = True
+
+        conn = Conn()
+        monkeypatch.setenv("SENTINEL_SHADOW_OBSERVATION_ID", "primary")
+        monkeypatch.setenv("SENTINEL_SHADOW_STARTING_CASH", "100000")
+        monkeypatch.setattr(feed_store, "connect", lambda _dsn: conn)
+        monkeypatch.setattr(sources, "_set_statement_timeout", lambda *_: None)
+        monkeypatch.setattr(
+            shadow_runtime, "verified_shadow_status",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                shadow_verdict="SHADOW_GO", verification="VERIFIED",
+                session="2026-08-20", sessions_lag=0,
+                strategy_nav="101250", strategy_cumulative_return="0.0125"))
+        monkeypatch.setattr(sources, "_informational_mirror_count", lambda _c: 1)
+        monkeypatch.setattr(
+            sources, "_latest_automation_cycle",
+            lambda _c: {
+                "state": "SUCCEEDED", "plan_id": "current-plan",
+                "plan_fingerprint": "a" * 64,
+                "clean_reconciliation_id": "reconciliation-1"})
+        monkeypatch.setattr(
+            publication, "current", lambda _c: SimpleNamespace(version=7))
+        monkeypatch.setattr(
+            feed_store, "latest_visible_session", lambda _c: "2026-08-20")
+        monkeypatch.setattr(
+            informational_paper_mirror, "require_transport_permitted",
+            lambda *_args, **_kwargs: {
+                "status": informational_paper_mirror.NO_UNIT_CHANGE})
+        monkeypatch.setattr(
+            informational_paper_mirror, "require_current_plan_status",
+            lambda *_args, **_kwargs: {
+                "status": informational_paper_mirror.NO_UNIT_CHANGE,
+                "plan_id": "current-plan"})
+
+        rows, details, history, errors = sources._dual_authority_rows(
+            "postgresql://panel@db/sentinel", now=NOW)
+
+        assert errors == [] and details == {} and history == []
+        assert rows[0].status == model.OK
+        assert rows[1].value == "$101,250.00"
+        assert rows[2].value == "+1.25%"
+        assert rows[3].status == model.OK
+        assert "NOT VERIFIED" in rows[3].value
+        assert getattr(conn, "closed", False)
+
+    @pytest.mark.parametrize("cycle_state", ["PLAN_READY", "WAITING_OPEN"])
+    def test_historical_clean_mirror_cannot_green_an_active_cycle(
+            self, monkeypatch, cycle_state):
+        from types import SimpleNamespace
+
+        from sentinel import informational_paper_mirror
+        from sentinel.feed import publication
+        from sentinel.feed import store as feed_store
+        from sentinel.panel import sources
+
+        monkeypatch.setattr(sources, "_informational_mirror_count", lambda _c: 1)
+        monkeypatch.setattr(
+            sources, "_latest_automation_cycle", lambda _c: {
+                "state": cycle_state, "plan_id": "current-plan",
+                "plan_fingerprint": "a" * 64,
+                "clean_reconciliation_id": None})
+        monkeypatch.setattr(
+            publication, "current", lambda _c: SimpleNamespace(version=7))
+        monkeypatch.setattr(
+            feed_store, "latest_visible_session", lambda _c: "2026-08-20")
+        monkeypatch.setattr(
+            informational_paper_mirror, "require_transport_permitted",
+            lambda *_args, **_kwargs: {
+                "status": informational_paper_mirror.NO_UNIT_CHANGE})
+        monkeypatch.setattr(
+            informational_paper_mirror, "require_current_plan_status",
+            lambda *_args, **_kwargs: {
+                "status": informational_paper_mirror.NO_UNIT_CHANGE,
+                "plan_id": "current-plan"})
+
+        row = sources._dual_paper_row(
+            object(), informational_paper_mirror=informational_paper_mirror,
+            publication=publication, feed_store=feed_store)
+
+        assert row.status == model.WARN
+        assert "PENDING" in row.value
+
+    @pytest.mark.parametrize(
+        "cycle_state", ["PLAN_READY", "WAITING_OPEN", "EXECUTING", "RETRY_WAIT"])
+    def test_current_plan_not_yet_stamped_is_normal_amber_before_transport(
+            self, monkeypatch, cycle_state):
+        from types import SimpleNamespace
+
+        from sentinel import informational_paper_mirror
+        from sentinel.feed import publication
+        from sentinel.feed import store as feed_store
+        from sentinel.panel import sources
+
+        monkeypatch.setattr(sources, "_informational_mirror_count", lambda _c: 1)
+        monkeypatch.setattr(
+            sources, "_latest_automation_cycle", lambda _c: {
+                "state": cycle_state, "plan_id": "current-plan",
+                "plan_fingerprint": "a" * 64,
+                "clean_reconciliation_id": None})
+        monkeypatch.setattr(
+            publication, "current", lambda _c: SimpleNamespace(version=7))
+        monkeypatch.setattr(
+            feed_store, "latest_visible_session", lambda _c: "2026-08-20")
+        monkeypatch.setattr(
+            informational_paper_mirror, "require_transport_permitted",
+            lambda *_args, **_kwargs: {
+                "status": informational_paper_mirror.NO_UNIT_CHANGE})
+        monkeypatch.setattr(
+            informational_paper_mirror, "require_current_plan_status",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                informational_paper_mirror.InformationalPaperMirrorUnstamped(
+                    "not transported yet")))
+
+        row = sources._dual_paper_row(
+            object(), informational_paper_mirror=informational_paper_mirror,
+            publication=publication, feed_store=feed_store)
+
+        assert row.status == model.WARN
+        assert "PENDING" in row.value
+
+    def test_retry_wait_before_plan_creation_is_amber(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from sentinel import informational_paper_mirror
+        from sentinel.feed import publication
+        from sentinel.feed import store as feed_store
+        from sentinel.panel import sources
+
+        monkeypatch.setattr(sources, "_informational_mirror_count", lambda _c: 1)
+        monkeypatch.setattr(
+            sources, "_latest_automation_cycle",
+            lambda _c: {"state": "RETRY_WAIT", "plan_id": None,
+                        "plan_fingerprint": None})
+        monkeypatch.setattr(
+            publication, "current", lambda _c: SimpleNamespace(version=7))
+        monkeypatch.setattr(
+            feed_store, "latest_visible_session", lambda _c: "2026-08-20")
+        monkeypatch.setattr(
+            informational_paper_mirror, "require_transport_permitted",
+            lambda *_args, **_kwargs: {
+                "status": informational_paper_mirror.NO_UNIT_CHANGE})
+
+        row = sources._dual_paper_row(
+            object(), informational_paper_mirror=informational_paper_mirror,
+            publication=publication, feed_store=feed_store)
+
+        assert row.status == model.WARN
+        assert "PENDING" in row.value
+
+    def test_latched_old_mismatch_outranks_new_cycle_without_plan(
+            self, monkeypatch):
+        from types import SimpleNamespace
+
+        from sentinel import informational_paper_mirror
+        from sentinel.feed import publication
+        from sentinel.feed import store as feed_store
+        from sentinel.panel import sources
+
+        monkeypatch.setattr(sources, "_informational_mirror_count", lambda _c: 1)
+        monkeypatch.setattr(
+            sources, "_latest_automation_cycle",
+            lambda _c: {"state": "PREPARING", "plan_id": None,
+                        "plan_fingerprint": None})
+        monkeypatch.setattr(
+            publication, "current", lambda _c: SimpleNamespace(version=7))
+        monkeypatch.setattr(
+            feed_store, "latest_visible_session", lambda _c: "2026-08-20")
+        monkeypatch.setattr(
+            informational_paper_mirror, "require_transport_permitted",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                informational_paper_mirror.InformationalPaperMirrorMismatch(
+                    "older mismatch remains latched")))
+
+        row = sources._dual_paper_row(
+            object(), informational_paper_mirror=informational_paper_mirror,
+            publication=publication, feed_store=feed_store)
+
+        assert row.status == model.FAIL
+        assert "older mismatch remains latched" in row.detail
+
+    def test_succeeded_current_plan_without_stamp_is_red(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from sentinel import informational_paper_mirror
+        from sentinel.feed import publication
+        from sentinel.feed import store as feed_store
+        from sentinel.panel import sources
+
+        monkeypatch.setattr(sources, "_informational_mirror_count", lambda _c: 1)
+        monkeypatch.setattr(
+            sources, "_latest_automation_cycle", lambda _c: {
+                "state": "SUCCEEDED", "plan_id": "current-plan",
+                "plan_fingerprint": "a" * 64,
+                "clean_reconciliation_id": "reconciliation-1"})
+        monkeypatch.setattr(
+            publication, "current", lambda _c: SimpleNamespace(version=7))
+        monkeypatch.setattr(
+            feed_store, "latest_visible_session", lambda _c: "2026-08-20")
+        monkeypatch.setattr(
+            informational_paper_mirror, "require_transport_permitted",
+            lambda *_args, **_kwargs: {
+                "status": informational_paper_mirror.NO_UNIT_CHANGE})
+        monkeypatch.setattr(
+            informational_paper_mirror, "require_current_plan_status",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                informational_paper_mirror.InformationalPaperMirrorUnstamped(
+                    "missing stamp")))
+
+        row = sources._dual_paper_row(
+            object(), informational_paper_mirror=informational_paper_mirror,
+            publication=publication, feed_store=feed_store)
+
+        assert row.status == model.FAIL
+        assert "MISMATCH" in row.value
+
+    def test_superseded_cycle_is_red_even_with_historical_clean_mirror(
+            self, monkeypatch):
+        from sentinel import informational_paper_mirror
+        from sentinel.feed import publication
+        from sentinel.feed import store as feed_store
+        from sentinel.panel import sources
+
+        monkeypatch.setattr(sources, "_informational_mirror_count", lambda _c: 1)
+        monkeypatch.setattr(
+            sources, "_latest_automation_cycle",
+            lambda _c: {"state": "SUPERSEDED"})
+
+        row = sources._dual_paper_row(
+            object(), informational_paper_mirror=informational_paper_mirror,
+            publication=publication, feed_store=feed_store)
+
+        assert row.status == model.FAIL
+        assert "MISMATCH" in row.value
+
+    def test_completed_cycle_without_its_clean_reconciliation_is_red(
+            self, monkeypatch):
+        from types import SimpleNamespace
+
+        from sentinel import informational_paper_mirror
+        from sentinel.feed import publication
+        from sentinel.feed import store as feed_store
+        from sentinel.panel import sources
+
+        monkeypatch.setattr(sources, "_informational_mirror_count", lambda _c: 1)
+        monkeypatch.setattr(
+            sources, "_latest_automation_cycle", lambda _c: {
+                "state": "SUCCEEDED", "plan_id": "current-plan",
+                "plan_fingerprint": "a" * 64,
+                "clean_reconciliation_id": None})
+        monkeypatch.setattr(
+            publication, "current", lambda _c: SimpleNamespace(version=7))
+        monkeypatch.setattr(
+            feed_store, "latest_visible_session", lambda _c: "2026-08-20")
+        monkeypatch.setattr(
+            informational_paper_mirror, "require_transport_permitted",
+            lambda *_args, **_kwargs: {
+                "status": informational_paper_mirror.NO_UNIT_CHANGE})
+        monkeypatch.setattr(
+            informational_paper_mirror, "require_current_plan_status",
+            lambda *_args, **_kwargs: {
+                "status": informational_paper_mirror.NO_UNIT_CHANGE,
+                "plan_id": "current-plan"})
+
+        row = sources._dual_paper_row(
+            object(), informational_paper_mirror=informational_paper_mirror,
+            publication=publication, feed_store=feed_store)
+
+        assert row.status == model.FAIL
+        assert "no exact durable clean reconciliation" in row.detail
+
+    def test_unreadable_paper_evidence_does_not_erase_verified_shadow(
+            self, monkeypatch):
+        from types import SimpleNamespace
+
+        from sentinel import shadow_runtime
+        from sentinel.feed import store as feed_store
+        from sentinel.panel import sources
+
+        class Conn:
+            def close(self):
+                self.closed = True
+
+        conn = Conn()
+        monkeypatch.setenv("SENTINEL_SHADOW_OBSERVATION_ID", "primary")
+        monkeypatch.setenv("SENTINEL_SHADOW_STARTING_CASH", "100000")
+        monkeypatch.setattr(feed_store, "connect", lambda _dsn: conn)
+        monkeypatch.setattr(sources, "_set_statement_timeout", lambda *_: None)
+        monkeypatch.setattr(
+            shadow_runtime, "verified_shadow_status",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                shadow_verdict="SHADOW_GO", verification="VERIFIED",
+                session="2026-08-20", sessions_lag=0,
+                strategy_nav="101250", strategy_cumulative_return="0.0125"))
+        monkeypatch.setattr(
+            sources, "_informational_mirror_count",
+            lambda _c: (_ for _ in ()).throw(RuntimeError("paper row corrupt")))
+
+        rows, _details, _history, errors = sources._dual_authority_rows(
+            "postgresql://panel@db/sentinel", now=NOW)
+
+        assert rows[0].status == model.OK
+        assert rows[1].value == "$101,250.00"
+        assert rows[2].value == "+1.25%"
+        assert rows[3].status == model.UNKNOWN
+        assert errors and "PAPER mirror" in errors[0]
+
+    def test_mirror_integrity_refusal_is_red_not_pending(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from sentinel import informational_paper_mirror
+        from sentinel.feed import publication
+        from sentinel.feed import store as feed_store
+        from sentinel.panel import sources
+
+        monkeypatch.setattr(sources, "_informational_mirror_count", lambda _c: 1)
+        monkeypatch.setattr(
+            sources, "_latest_automation_cycle",
+            lambda _c: {
+                "state": "SUCCEEDED", "plan_id": "current-plan",
+                "plan_fingerprint": "a" * 64,
+                "clean_reconciliation_id": "reconciliation-1"})
+        monkeypatch.setattr(
+            publication, "current", lambda _c: SimpleNamespace(version=7))
+        monkeypatch.setattr(
+            feed_store, "latest_visible_session", lambda _c: "2026-08-20")
+        monkeypatch.setattr(
+            informational_paper_mirror, "require_transport_permitted",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                informational_paper_mirror.InformationalPaperMirrorRefused(
+                    "record digest changed")))
+
+        row = sources._dual_paper_row(
+            object(), informational_paper_mirror=informational_paper_mirror,
+            publication=publication, feed_store=feed_store)
+
+        assert row.status == model.FAIL
+        assert "MISMATCH" in row.value
+        assert "integrity refusal" in row.detail
+
+    def test_dual_build_never_loads_legacy_trial_or_paper_catchup_rows(
+            self, monkeypatch):
+        from sentinel.panel import sources
+
+        monkeypatch.setenv("SENTINEL_REVIEWED_DEPLOYMENT_MODE", "dual")
+        shadow = model.shadow_verification_row(
+            verdict="SHADOW_GO", verification="VERIFIED",
+            session="2026-08-20")
+        paper = model.paper_reconciliation_row(state="CLEAN")
+        monkeypatch.setattr(
+            sources, "_dual_authority_rows",
+            lambda *_args, **_kwargs: ([shadow, paper], {}, [], []))
+        monkeypatch.setattr(
+            sources, "_trial_rows",
+            lambda *_args, **_kwargs: pytest.fail(
+                "dual mode read a legacy broker trial certificate"))
+        monkeypatch.setattr(
+            sources, "_ownership",
+            lambda *_args, **_kwargs: model.Row(
+                "ownership", "Ownership", "SENTINEL OWNED"))
+        monkeypatch.setattr(
+            sources, "_feed_rows", lambda *_args, **_kwargs: ([], []))
+        monkeypatch.setattr(
+            sources, "_runtime_rows",
+            lambda *_args, **_kwargs: pytest.fail(
+                "dual mode read the legacy finalized-trial runtime projection"))
+        monkeypatch.setattr(
+            sources, "_automation_rows", lambda *_args, **_kwargs: ([
+                model.Row("authority", "Authority", "PASS"),
+                model.Row("automation", "Automation", "RUNNING"),
+            ], []))
+
+        panel = sources.build_panel(
+            state_dir="/nonexistent", database_url="postgresql://db", now=NOW)
+
+        assert panel.row("shadow_verification") is not None
+        assert panel.row("paper_reconciliation") is not None
+        assert panel.row("trial_verification") is None
+        assert panel.row("broker") is None
+        assert panel.row("book") is None
+
+
 # ── 6. it renders ────────────────────────────────────────────────────────────
 
 class TestItRenders:

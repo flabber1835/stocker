@@ -365,6 +365,215 @@ class TestReconciliation:
                 "ORDER BY seq DESC LIMIT 1")
             assert cur.fetchone()[0] == RuntimeState.RUNNING.value
 
+    def test_an_expected_holding_missing_from_broker_is_foreign(self, conn):
+        """The comparison is a union; broker omission is not a clean flat."""
+        journal.save_command(conn, cmd(state=S.FILLED, filled="10"))
+        b = self._broker()
+
+        result = run(R.reconcile(
+            broker=b, conn=conn, binding=None, deployment=DEPLOY))
+
+        assert result.runtime_state is RuntimeState.FOREIGN_ACTIVITY
+        assert result.foreign_positions == ("SEC-AAA",)
+
+    def test_recognized_partial_fill_position_lag_is_amber_then_converges(
+            self, conn):
+        durable = replace(
+            cmd(state=S.ACKNOWLEDGED), broker_order_id="broker-partial")
+        journal.save_command(conn, durable)
+        b = self._broker()
+        partial = BrokerOrder(
+            broker_order_id="broker-partial",
+            client_key=durable.client_key, instrument=AAA,
+            side=Side.BUY, state=S.PARTIALLY_FILLED,
+            quantity=Decimal(10), filled_quantity=Decimal(4),
+            filled_average_price=Decimal(100), submitted_at=b.now)
+        current_order = {"value": partial}
+        current_positions = {"value": ()}
+
+        async def snapshot(**_kwargs):
+            return BrokerObservation(
+                observed_at=b.now, orders=(current_order["value"],),
+                positions=current_positions["value"],
+                terminal_recovery_through=b.now,
+                account_identity=b.account)
+
+        b.observe_with_terminal_recovery = snapshot
+
+        first = run(R.reconcile(
+            broker=b, conn=conn, binding=None, deployment=DEPLOY))
+        assert first.runtime_state is RuntimeState.RECONCILING
+        assert first.foreign_positions == ()
+        assert "position endpoint" in first.detail
+        # A dual caller converts amber into a retryable exception inside its
+        # writer lock, whose exception path rolls back. Fill progress and the
+        # first-seen lag clock must already have crossed a durable boundary.
+        conn.rollback()
+
+        # The order endpoint may remain ahead for more than one poll.  The
+        # immutable first-seen evidence keeps this amber briefly; it must not
+        # depend on observing another fill delta on every poll.
+        from sentinel.execution.contract import BrokerPosition
+        current_positions["value"] = (
+            BrokerPosition(instrument=AAA, quantity=Decimal(2)),)
+        b.now += timedelta(seconds=30)
+        second_stale = run(R.reconcile(
+            broker=b, conn=conn, binding=None, deployment=DEPLOY))
+        assert second_stale.runtime_state is RuntimeState.RECONCILING
+        assert second_stale.foreign_positions == ()
+
+        # The order endpoint can then move again while the position endpoint
+        # remains at 2. The old 0->4 episode retains its unreflected remainder
+        # and the new 4->6 generation contributes only its additional 2.
+        current_order["value"] = replace(
+            partial, filled_quantity=Decimal(6))
+        b.now += timedelta(seconds=30)
+        growing_fill = run(R.reconcile(
+            broker=b, conn=conn, binding=None, deployment=DEPLOY))
+        assert growing_fill.runtime_state is RuntimeState.RECONCILING
+        assert growing_fill.foreign_positions == ()
+
+        current_positions["value"] = (
+            BrokerPosition(instrument=AAA, quantity=Decimal(6)),)
+        b.now += timedelta(seconds=30)
+        converged = run(R.reconcile(
+            broker=b, conn=conn, binding=None, deployment=DEPLOY))
+        assert converged.runtime_state is RuntimeState.RUNNING
+        assert converged.foreign_positions == ()
+
+        # The ambiguity cannot be renewed forever.  Once the same holding
+        # disappears after the bounded endpoint window, it is manual/foreign
+        # activity and must fence further risk.
+        current_positions["value"] = ()
+        b.now += timedelta(seconds=121)
+        expired = run(R.reconcile(
+            broker=b, conn=conn, binding=None, deployment=DEPLOY))
+        assert expired.runtime_state is RuntimeState.FOREIGN_ACTIVITY
+        assert expired.foreign_positions == ("SEC-AAA",)
+
+    def test_position_endpoint_may_lead_exact_working_order_briefly(self, conn):
+        durable = replace(
+            cmd(state=S.ACKNOWLEDGED), broker_order_id="broker-leading")
+        journal.save_command(conn, durable)
+        b = self._broker()
+        order = {"value": BrokerOrder(
+            broker_order_id="broker-leading",
+            client_key=durable.client_key, instrument=AAA,
+            side=Side.BUY, state=S.ACKNOWLEDGED,
+            quantity=Decimal(10), filled_quantity=Decimal(0),
+            submitted_at=b.now)}
+        from sentinel.execution.contract import BrokerPosition
+        position = BrokerPosition(instrument=AAA, quantity=Decimal(4))
+
+        async def snapshot(**_kwargs):
+            return BrokerObservation(
+                observed_at=b.now, orders=(order["value"],),
+                positions=(position,), terminal_recovery_through=b.now,
+                account_identity=b.account)
+
+        b.observe_with_terminal_recovery = snapshot
+        leading = run(R.reconcile(
+            broker=b, conn=conn, binding=None, deployment=DEPLOY))
+        assert leading.runtime_state is RuntimeState.RECONCILING
+        assert leading.foreign_positions == ()
+
+        order["value"] = replace(
+            order["value"], state=S.PARTIALLY_FILLED,
+            filled_quantity=Decimal(4),
+            filled_average_price=Decimal(100))
+        b.now += timedelta(seconds=30)
+        caught_up = run(R.reconcile(
+            broker=b, conn=conn, binding=None, deployment=DEPLOY))
+        assert caught_up.runtime_state is RuntimeState.RUNNING
+        assert caught_up.foreign_positions == ()
+
+    def test_order_leading_position_lag_uses_post_split_share_units(self, conn):
+        durable = replace(
+            cmd(state=S.ACKNOWLEDGED), broker_order_id="broker-split-fill")
+        journal.save_command(conn, durable)
+        b = self._broker()
+        observed_order = BrokerOrder(
+            broker_order_id="broker-split-fill",
+            client_key=durable.client_key, instrument=AAA,
+            side=Side.BUY, state=S.FILLED,
+            quantity=Decimal(10), filled_quantity=Decimal(10),
+            filled_average_price=Decimal(50), submitted_at=b.now)
+
+        async def snapshot(**_kwargs):
+            return BrokerObservation(
+                observed_at=b.now, orders=(observed_order,), positions=(),
+                terminal_recovery_through=b.now,
+                account_identity=b.account)
+
+        b.observe_with_terminal_recovery = snapshot
+        result = run(R.reconcile(
+            broker=b, conn=conn, binding=None, deployment=DEPLOY,
+            actions=lambda _sid, _since=None: Decimal(2)))
+        assert result.expected == {"SEC-AAA": Decimal(20)}
+        assert result.runtime_state is RuntimeState.RECONCILING
+        assert result.foreign_positions == ()
+
+    def test_position_leading_order_lag_uses_post_split_share_units(self, conn):
+        durable = replace(
+            cmd(state=S.ACKNOWLEDGED), broker_order_id="broker-split-leading")
+        journal.save_command(conn, durable)
+        b = self._broker()
+        observed_order = BrokerOrder(
+            broker_order_id="broker-split-leading",
+            client_key=durable.client_key, instrument=AAA,
+            side=Side.BUY, state=S.ACKNOWLEDGED,
+            quantity=Decimal(10), filled_quantity=Decimal(0),
+            submitted_at=b.now)
+        from sentinel.execution.contract import BrokerPosition
+        post_split_position = BrokerPosition(
+            instrument=AAA, quantity=Decimal(20))
+
+        async def snapshot(**_kwargs):
+            return BrokerObservation(
+                observed_at=b.now, orders=(observed_order,),
+                positions=(post_split_position,),
+                terminal_recovery_through=b.now,
+                account_identity=b.account)
+
+        b.observe_with_terminal_recovery = snapshot
+        result = run(R.reconcile(
+            broker=b, conn=conn, binding=None, deployment=DEPLOY,
+            actions=lambda _sid, _since=None: Decimal(2)))
+        assert result.runtime_state is RuntimeState.RECONCILING
+        assert result.foreign_positions == ()
+
+    def test_new_command_generation_does_not_reuse_expired_lag_episode(
+            self, conn):
+        b = self._broker()
+        old = {
+            "kind": "ORDER_LEADS_POSITION",
+            "client_key": "sntl-old-generation",
+            "generation": {
+                "side": "BUY", "filled_before": "0", "filled_after": "4",
+                "action_multiplier": "1"},
+            "signed_capacity": Decimal(4),
+        }
+        first = R._live_position_lag_capacity(  # noqa: SLF001
+            conn, deployment=DEPLOY, security_id="SEC-AAA",
+            observed_at=b.now, new_episodes=(old,))
+        assert first == (Decimal(4),)
+        conn.commit()
+
+        newer = {
+            **old,
+            "client_key": "sntl-new-generation",
+        }
+        later = R._live_position_lag_capacity(  # noqa: SLF001
+            conn, deployment=DEPLOY, security_id="SEC-AAA",
+            observed_at=b.now + timedelta(seconds=121),
+            new_episodes=(newer,))
+        assert later == (Decimal(4),)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM sentinel_processed_sessions"
+                " WHERE cursor_name LIKE 'broker-position-lag:v2:%'")
+            assert cur.fetchone()[0] == 2
+
     def test_a_WRONG_ACCOUNT_is_refused_before_anything_is_compared(self, conn):
         b = SimulatedBroker(account=BrokerAccountIdentity("sim", "SOMEONE-ELSE"))
         with pytest.raises(B.AccountMismatch):
