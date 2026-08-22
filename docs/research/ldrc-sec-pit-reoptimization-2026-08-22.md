@@ -89,7 +89,7 @@ One-at-a-time sensitivity was run around all six Simplified LD-RC parameters:
 - recovery persistence sessions;
 - SPY V-rebound threshold.
 
-A 6,750-configuration interaction grid was also evaluated around plausible neighborhoods. The raw one-at-a-time sweep, rolling-window table, and representative top grid outcomes are committed beside this note.
+A 6,750-configuration interaction grid was also evaluated around plausible neighborhoods. Compact summaries of the one-at-a-time sweep, rolling-window table, and top distinct grid outcomes are committed beside this note.
 
 The current fast damaged-breadth delta threshold from the earlier volume-fix retune was also revisited separately. The current `0.30` remains on a broad stable plateau; moving it back toward `0.40` materially degrades CAGR and drawdown. No reversal is recommended.
 
@@ -119,7 +119,7 @@ Do **not** promote this configuration from this evidence. The additional gain de
 ## Evidence files
 
 - `ldrc-sec-pit-reoptimization-windows.csv` — current vs recommended vs aggressive across trailing windows.
-- `ldrc-sec-pit-oat.csv` — one-at-a-time parameter sweep.
-- `ldrc-sec-pit-grid-representative-top250.csv` — representative top economic outcomes from the 6,750-case interaction grid (duplicate parameter combinations that produced identical outcomes are collapsed).
+- `ldrc-sec-pit-oat-summary.csv` — best observed one-at-a-time result for each LD-RC parameter.
+- `ldrc-sec-pit-grid-top30.csv` — top distinct economic outcomes from the 6,750-case interaction grid.
 
 The study is research evidence only. It does **not** change production strategy parameters by itself.
