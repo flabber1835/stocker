@@ -65,12 +65,13 @@ def test_fractional_reverse_split_uses_broker_certified_increment_exactly():
     assert projected.target_basket == {"SEC-A": Decimal("0.3")}
 
 
-def _reverse_denominator_evidence():
+def _direct_reverse_split_evidence():
     return ({
         "security_id": "SEC-A", "session": "2026-08-21",
-        "action": "split", "value": "30", "source_row_id": "action-30",
+        "action": "split", "value": "0.03333", "source_row_id": "action-30",
         "canonical_multiplier": "0.03333333333333333",
         "split_disposition": "published_canonical_equity_ratio",
+        "canonical_numerator": 1, "canonical_denominator": 30,
     },)
 
 
@@ -80,7 +81,7 @@ def test_repeating_reverse_ratio_reconstructs_exact_increment_from_evidence():
         through_session=date(2026, 8, 21),
         action_multipliers={
             "SEC-A": Decimal("0.03333333333333333")},
-        action_evidence=_reverse_denominator_evidence(),
+        action_evidence=_direct_reverse_split_evidence(),
         minimum_quantity_increment=Decimal("1"))
 
     assert projected.target_basket == {"SEC-A": Decimal("10")}
@@ -93,7 +94,7 @@ def test_repeating_reverse_ratio_never_rounds_a_fractional_entitlement():
             through_session=date(2026, 8, 21),
             action_multipliers={
                 "SEC-A": Decimal("0.03333333333333333")},
-            action_evidence=_reverse_denominator_evidence(),
+            action_evidence=_direct_reverse_split_evidence(),
             minimum_quantity_increment=Decimal("1"))
 
 

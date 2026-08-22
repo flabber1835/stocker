@@ -42,6 +42,7 @@ import logging
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
+from fractions import Fraction
 from typing import Callable, Mapping, Optional
 
 from sentinel.execution.contract import (
@@ -880,7 +881,7 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
 #: cannot describe, so they are deliberately NOT handled here and fall through
 #: to foreign-activity classification — visible, blocking increases, awaiting a
 #: human. The prose elsewhere describes them; this is what is IMPLEMENTED.
-SUPPORTED_ACTIONS = ("split", "adrratiosplit")
+SUPPORTED_ACTIONS = ("split",)
 
 # These ACTIONS rows do not themselves change the security/share identity of a
 # held book.  Everything else that is not a supported scalar is treated as a
@@ -889,7 +890,7 @@ SUPPORTED_ACTIONS = ("split", "adrratiosplit")
 # merely because another company was acquired.
 SAFE_NON_BOOK_ACTIONS = frozenset({
     "listed", "relation", "dividend", "specialdividend", "spinoffdividend",
-    "acquisitionof", "mergerfrom"})
+    "acquisitionof", "mergerfrom", "adrratiosplit"})
 
 
 @dataclass(frozen=True)
@@ -980,20 +981,15 @@ def _safe_non_book_action(verb: str) -> bool:
 
 def _canonical_rational_terms(
         ratio: Decimal) -> tuple[Optional[int], Optional[int]]:
-    """Recognise only integral ratios and their floating-point reciprocals."""
+    """Recover exact simple rational terms for broker-unit projection."""
     if not ratio.is_finite() or ratio <= 0:
         return None, None
-    tolerance = Decimal("1e-12")
-    if ratio >= 1:
-        numerator = ratio.to_integral_value()
-        if abs(ratio - numerator) <= tolerance * max(abs(ratio), Decimal(1)):
-            return int(numerator), 1
-        return None, None
-    reciprocal = Decimal(1) / ratio
-    denominator = reciprocal.to_integral_value()
-    if abs(reciprocal - denominator) <= (
-            tolerance * max(abs(reciprocal), Decimal(1))):
-        return 1, int(denominator)
+    exact = Fraction(ratio)
+    rational = exact.limit_denominator(10_000)
+    tolerance = Fraction(1, 10**12)
+    scale = max(abs(exact), abs(rational), Fraction(1, 10**30))
+    if abs(exact - rational) <= tolerance * scale:
+        return rational.numerator, rational.denominator
     return None, None
 
 
@@ -1007,12 +1003,14 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
     join both handles weekend/holiday ex-dates and prevents ticker reuse from
     attaching an old company's action to a later holder of the symbol.
 
+    Only ACTIONS ``split`` is listed-share authority. ``adrratiosplit`` is
+    depositary-ratio metadata and never independently resizes a broker holding.
     ACTIONS ``value`` is evidence, not an executable multiplier.  For equities,
     the multiplier is the published bar's effective split ratio, including any
     published repair overlay.  BIL has no stored split column, so its canonical
     multiplier is resolved from ACTIONS and the immediately preceding XNYS
-    session's published defensive price domains.  A sub-unit ACTIONS value is
-    already canonical; a value greater than one needs that price witness.
+    session's published defensive price domains.  The ``split`` value is the
+    direct new-float/old-float multiplier and is never inverted.
     Missing, contradictory, or non-positive required evidence remains a typed
     blocking event; execution never guesses an orientation.
     """
@@ -1270,12 +1268,17 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
         disposition = "published_canonical_equity_ratio"
         if event.ticker == "BIL":
             canonical, disposition = resolve_split_orientation(
-                float(stated), derived_ratio)
+                float(stated), derived_ratio,
+                # Unlike the ingest seam, execution requires the immediately
+                # preceding published XNYS observation. A missing predecessor
+                # is therefore blocking evidence, not permission to apply an
+                # otherwise uncorroborated ACTIONS multiplier.
+                explicit_no_event=(split_price_evidence(derived_ratio) is None))
             ratio = Decimal(str(canonical))
             if disposition == SPLIT_UNRESOLVED:
                 unresolved.append(replace(
                     event,
-                    reason=("BIL split orientation is unresolved from "
+                    reason=("BIL split corroboration is unresolved from "
                             "immediately consecutive published defensive "
                             "price domains")))
                 continue

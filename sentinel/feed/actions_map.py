@@ -30,15 +30,15 @@ made fractional entitlement exact and canonical, so an approximate ratio is now
 the largest remaining source of share-count error, and the vendor states the
 exact figure in a column the ingest was already reading.
 
-## The orientation rule that is easy to get backwards
+## The share-multiplier rule that is easy to get backwards
 
 ```text
-ACTIONS `value` IS NOT BY ITSELF AN ORIENTATION WITNESS
-    Sharadar has emitted both canonical share multipliers and reverse-split
-    denominators. A value greater than one can therefore mean either a forward
-    multiplier or the denominator of a reverse event. The independently
-    derived price-domain ratio decides between `value` and `1/value`. If it
-    agrees with neither, the event is unresolved and is not applied.
+ONLY `split` IS LISTED-SHARE AUTHORITY
+    Sharadar documents `split` as new-float/old-float, already the direct share
+    multiplier. `adrratiosplit` describes depositary-ratio metadata and never
+    resizes the listed holding. The independently derived price-domain ratio
+    corroborates the direct value; a reciprocal is disagreement, not permission
+    to invert the vendor value.
 
 THE ACTIONS DATE IS THE EX-DATE, AND IT IS A CALENDAR DATE
     It can land on a weekend or a holiday. An event dated on a non-session
@@ -55,14 +55,21 @@ from __future__ import annotations
 import bisect
 from typing import Iterable, Mapping, Sequence
 
-from sentinel.core.terminal import DIVIDEND_ACTIONS, SPLIT_ACTIONS
+from sentinel.core.terminal import DIVIDEND_ACTIONS, SHARE_SPLIT_ACTIONS
 from stock_strategy_shared.split_reconciliation import (
     SPLIT_AGREEMENT_TOLERANCE,
     SPLIT_AUTHORITATIVE_APPLIED,
+    SPLIT_CORROBORATED_BRIDGED,
     SPLIT_CORROBORATED_DIRECT,
-    SPLIT_CORROBORATED_RECIPROCAL,
+    SPLIT_CORROBORATED_QUANTIZED,
+    SPLIT_CORROBORATED_SHIFTED,
+    SPLIT_DERIVED_ONLY,
+    SPLIT_PENDING_BRIDGE,
+    SPLIT_RESOLVED_NO_EVENT,
     SPLIT_UNRESOLVED,
+    SplitAuthority,
     resolve_split_orientation,
+    split_price_evidence,
 )
 
 
@@ -77,9 +84,9 @@ def split_ratios_from_actions(rows: Iterable[Mapping],
                               ) -> dict[tuple[str, str], float]:
     """(ticker, session) -> raw positive ACTIONS value.
 
-    Orientation is deliberately deferred until the normaliser has the
-    independent price-domain ratio. Treating this map as canonical is the
-    historical defect that multiplied a 1-for-30 holding by 30.
+    The direct value is corroborated later against the independent price-domain
+    ratio. ``adrratiosplit`` rows are not included because they describe the
+    depositary ratio rather than a listed-share transformation.
     """
     out, _ambiguous = split_rows_from_actions(rows, sessions_sorted)
     return out
@@ -90,15 +97,16 @@ def split_rows_from_actions(rows: Iterable[Mapping],
                             ) -> tuple[dict[tuple[str, str], float], list[dict]]:
     """Return unambiguous split values plus explicit multiplicity evidence.
 
-    Sharadar defines no composition order for sibling split rows.  Picking the
-    first/last row or multiplying them would invent economics.  The caller can
-    therefore suppress application and persist the returned evidence.
+    Only Sharadar ``split`` rows are listed-instrument share authority.
+    ``adrratiosplit`` is a distinct depositary-ratio action and remains source
+    provenance. Picking the first/last of distinct stock-split rows or
+    multiplying them would invent economics, so those remain explicit.
     """
     from sentinel.feed.action_source import source_row_id
 
     grouped: dict[tuple[str, str], dict[str, float | None]] = {}
     for r in rows:
-        if (r.get("action") or "").lower() not in SPLIT_ACTIONS:
+        if (r.get("action") or "").lower() not in SHARE_SPLIT_ACTIONS:
             continue
         v = r.get("value")
         session = snap_to_session(str(r["date"]), sessions_sorted)
@@ -114,17 +122,34 @@ def split_rows_from_actions(rows: Iterable[Mapping],
     ambiguous = []
     for key, identities in sorted(grouped.items()):
         values = list(identities.values())
-        if len(identities) == 1:
-            if values[0] is not None:
-                out[key] = values[0]
+        distinct = {value for value in values if value is not None}
+        if (not any(value is None for value in values)
+                and len(distinct) == 1):
+            out[key] = distinct.pop()
         else:
             ambiguous.append({
                 "ticker": key[0], "session": key[1],
                 "distinct_rows": len(identities),
-                "distinct_values": sorted({v for v in values if v is not None}),
+                "distinct_values": sorted(distinct),
                 "invalid_value_rows": sum(v is None for v in values),
             })
-    return out, ambiguous
+
+    session_index = {str(session): i
+                     for i, session in enumerate(sessions_sorted)}
+    previous = {}
+    collisions = set()
+    for key, value in sorted(out.items()):
+        i = session_index.get(key[1])
+        if i is None or i == 0:
+            continue
+        probe = (key[0], str(sessions_sorted[i - 1]))
+        if probe in previous:
+            collisions.add(probe)
+        previous[probe] = (key, value)
+    for probe in collisions:
+        previous.pop(probe, None)
+    return SplitAuthority(
+        out, previous_session_candidates=previous), ambiguous
 
 
 def dividends_from_actions(rows: Iterable[Mapping],
@@ -181,8 +206,8 @@ def split_disagreements(report, authoritative: Mapping[tuple[str, str], float]
     """Where the DERIVED ratio and the STATED one describe different events.
 
     Reported, never silently resolved. Neither value wins: ACTIONS states the
-    corporate action while the price domains independently orient it, and a
-    material disagreement means one input is wrong about this security.  The
+    direct listed-share multiplier while the price domains independently
+    corroborate it, and a material disagreement means one input is wrong. The
     shared resolver applies no transformation and this function makes the
     disagreement durable instead of turning it into a share count nobody
     questions.
@@ -199,19 +224,29 @@ def split_disagreements(report, authoritative: Mapping[tuple[str, str], float]
     out = []
     unsnapped = getattr(report, "derived_splits_unsnapped", None) or {}
     snapped = getattr(report, "derived_splits", None) or {}
+    dispositions = getattr(report, "split_dispositions", None) or {}
     for (ticker, session), stated in sorted(authoritative.items()):
+        item = dispositions.get((ticker, session))
+        if item is not None and item.get("disposition") != SPLIT_UNRESOLVED:
+            continue
         derived = unsnapped.get((ticker, session))
         source = "unsnapped"
         if derived is None:
             derived, source = snapped.get((ticker, session)), "snapped"
+        if derived is None and item is not None:
+            derived, source = item.get("derived"), "stream"
         if derived is None:
             continue
-        _canonical, disposition = resolve_split_orientation(
-            float(stated), float(derived))
-        if disposition == SPLIT_UNRESOLVED:
-            out.append({"ticker": ticker, "session": session,
-                        "stated": float(stated), "derived": float(derived),
-                        "derived_source": source})
+        if item is None:
+            _ratio, disposition = resolve_split_orientation(
+                float(stated), float(derived),
+                explicit_no_event=(split_price_evidence(float(derived))
+                                   is None))
+            if disposition != SPLIT_UNRESOLVED:
+                continue
+        out.append({"ticker": ticker, "session": session,
+                    "stated": float(stated), "derived": float(derived),
+                    "derived_source": source})
     return out
 
 
@@ -228,14 +263,21 @@ def splits_only_derived(report, authoritative: Mapping[tuple[str, str], float]
     them together would let a thin actions feed read as agreement.
     """
     seam = getattr(report, "seam_splits_uncorroborated", None) or {}
+    dispositions = getattr(report, "split_dispositions", None) or {}
     return [{"ticker": t, "session": s, "derived": float(v)}
             for (t, s), v in sorted((report.derived_splits or {}).items())
-            if (t, s) not in authoritative and (t, s) not in seam]
+            if (t, s) not in authoritative and (t, s) not in seam
+            and ((t, s) not in dispositions
+                 or dispositions[(t, s)].get("disposition")
+                 == SPLIT_DERIVED_ONLY)]
 
 
 __all__ = ["SPLIT_AGREEMENT_TOLERANCE", "SPLIT_AUTHORITATIVE_APPLIED",
-           "SPLIT_CORROBORATED_DIRECT", "SPLIT_CORROBORATED_RECIPROCAL",
-           "SPLIT_UNRESOLVED", "dividends_from_actions",
+           "SPLIT_CORROBORATED_BRIDGED", "SPLIT_CORROBORATED_DIRECT",
+           "SPLIT_CORROBORATED_QUANTIZED", "SPLIT_CORROBORATED_SHIFTED",
+           "SPLIT_DERIVED_ONLY", "SPLIT_PENDING_BRIDGE",
+           "SPLIT_RESOLVED_NO_EVENT", "SPLIT_UNRESOLVED",
+           "dividends_from_actions",
            "resolve_split_orientation",
            "snap_to_session", "split_disagreements", "split_ratios_from_actions",
            "split_rows_from_actions",

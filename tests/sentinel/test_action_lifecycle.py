@@ -377,7 +377,7 @@ def test_source_row_siblings_disappearance_restatement_and_dividends(conn):
         ("XRTXF", None)]
 
 
-def test_conflicting_terminal_siblings_fail_closed_with_complete_evidence(conn):
+def test_multiple_public_buyers_are_provenance_not_delivered_securities(conn):
     day = "2026-08-14"
     rows = [
         {"ticker": "AAA", "date": day, "action": "acquisitionby",
@@ -389,16 +389,52 @@ def test_conflicting_terminal_siblings_fail_closed_with_complete_evidence(conn):
     result = terminal.load_terminal_events(
         conn, start=day, end=day,
         resolve_identity=lambda ticker, session: "SEC-AAA")
-    assert result.events == []
+    assert len(result.events) == 1
     assert len(result.rows) == 2
-    assert result.resolved == [] and result.excluded == []
-    assert {row.reason for row in result.unresolved} == {
-        terminal.CONFLICTING_TERMINAL_TERMS}
-    assert len({row.source_row_id for row in result.unresolved}) == 2
+    assert len(result.resolved) == 1 and len(result.collapsed) == 1
+    assert result.unresolved == [] and result.excluded == []
+    assert result.events[0].kind.value == "CASH_MERGER"
+    assert result.events[0].delivered_ticker is None
+    assert result.events[0].cash_per_share is None
     assert result.conservation_holds()
     active = actions.active_rows(conn, start=day, end=day)
     assert {(row["contraticker"], row["contraname"]) for row in active} == {
         ("BBB", "Buyer One"), ("CCC", "Buyer Two")}
+
+
+def test_AL_consortium_and_delisting_rows_coalesce_to_one_terminal_event(conn):
+    day = "2026-04-07"
+    rows = [
+        {"ticker": "AL", "date": day, "action": "acquisitionby",
+         "name": "AIR LEASE CORP", "value": 7282.3,
+         "contraticker": "N/A", "contraname": "SMBC Aviation Capital Limited"},
+        {"ticker": "AL", "date": day, "action": "acquisitionby",
+         "name": "AIR LEASE CORP", "value": 7282.3,
+         "contraticker": "SSUMY", "contraname": "SUMITOMO CORP"},
+        {"ticker": "AL", "date": day, "action": "acquisitionby",
+         "name": "AIR LEASE CORP", "value": 7282.3,
+         "contraticker": "BAM",
+         "contraname": "BROOKFIELD ASSET MANAGEMENT LTD"},
+        {"ticker": "AL", "date": day, "action": "acquisitionby",
+         "name": "AIR LEASE CORP", "value": 7282.3,
+         "contraticker": "APO", "contraname": "APOLLO GLOBAL MANAGEMENT INC"},
+        {"ticker": "AL", "date": day, "action": "delisted",
+         "name": "AIR LEASE CORP", "value": 7282.3,
+         "contraticker": "N/A", "contraname": "N/A"},
+    ]
+    _publish_actions(conn, rows, lo=day, hi=day)
+    result = terminal.load_terminal_events(
+        conn, start=day, end=day,
+        resolve_identity=lambda ticker, session: "192978")
+    assert len(result.events) == 1
+    assert result.events[0].security_id == "192978"
+    assert result.events[0].kind.value == "CASH_MERGER"
+    assert result.events[0].cash_per_share is None
+    assert result.events[0].delivered_ticker is None
+    assert len(result.resolved) == 1
+    assert len(result.collapsed) == 4
+    assert result.unresolved == [] and result.excluded == []
+    assert result.conservation_holds()
 
 
 def test_economically_equivalent_terminal_siblings_apply_once_and_stay_audited(

@@ -68,12 +68,13 @@ class TestTheRulesAndWhatTheyCost:
         silently return NOT_HELD."""
         assert T.terminal_from_action(row(), S, security_id=None) is None
 
-    def test_a_PUBLIC_acquirer_names_the_delivered_security(self):
+    def test_a_PUBLIC_buyer_does_not_prove_delivered_consideration(self):
         t = T.terminal_from_action(row(action="mergerto", contraticker="XYZ"),
                                    S, security_id="P1")
-        assert t.kind is TerminalKind.CONVERSION
-        assert t.delivered_ticker == "XYZ"
-        assert t.exchange_ratio is None, "the ratio is not in the table"
+        assert t.kind is TerminalKind.CASH_MERGER
+        assert t.delivered_ticker is None
+        assert t.exchange_ratio is None
+        assert "counterparty_ticker=XYZ" in t.reference
 
     def test_the_ACQUIRER_side_is_NOT_terminal_for_this_security(self):
         """A false termination destroys a live holding."""

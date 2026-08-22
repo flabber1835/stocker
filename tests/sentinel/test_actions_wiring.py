@@ -132,11 +132,11 @@ def bars(conn, session=None):
         return cur.fetchall()
 
 
-def test_pure_1_for_30_orientation_cannot_expand_shares():
+def test_direct_1_for_30_multiplier_cannot_expand_shares():
     from stock_strategy_shared.wealth_core.shares import split_shares
 
-    ratio, disposition = A.resolve_split_orientation(30.0, 1 / 30)
-    assert disposition == A.SPLIT_CORROBORATED_RECIPROCAL
+    ratio, disposition = A.resolve_split_orientation(1 / 30, 1 / 30)
+    assert disposition == A.SPLIT_CORROBORATED_DIRECT
     assert ratio == pytest.approx(1 / 30)
     assert split_shares(300, ratio) == pytest.approx(10)
 
@@ -156,13 +156,14 @@ class TestTheCorpusCarriesTheAUTHORITATIVEValues:
         ]))
         ratio, _ = bars(conn, day)
         assert float(ratio) == 1.0
-        with conn.cursor() as cur:
-            cur.execute("SELECT kind,detail FROM sentinel_corpus_anomalies"
-                        " WHERE ticker='AAA' AND session=%s", (day,))
-            evidence = cur.fetchall()
+        from sentinel.feed import anomalies
+
+        evidence = anomalies.active_rows(
+            conn, start=day, end=day,
+            kinds=("AMBIGUOUS_SPLIT_MULTIPLICITY",))
         assert len(evidence) == 1
-        assert evidence[0][0] == "AMBIGUOUS_SPLIT_MULTIPLICITY"
-        assert "no ACTIONS multiplier applied" in evidence[0][1]
+        assert evidence[0]["kind"] == "AMBIGUOUS_SPLIT_MULTIPLICITY"
+        assert "no ACTIONS multiplier applied" in evidence[0]["detail"]
 
     def test_a_3_for_2_split_lands_as_1_point_5(self, conn):
         """THE case the derived inference cannot be trusted on: 1.5 sits exactly
@@ -216,28 +217,32 @@ class TestTheCorpusCarriesTheAUTHORITATIVEValues:
         ratio, _ = bars(conn, day)
         assert float(ratio) == pytest.approx(2.0)
 
-    @pytest.mark.parametrize(("stated", "derived"), [
-        pytest.param(30.003, 1 / 30.003, id="JZ-1-for-30"),
-        pytest.param(9.00009, 1 / 9.00009, id="LGHL-1-for-9"),
-        pytest.param(6.99986, 1 / 6.99986, id="SLAI-1-for-7"),
+    @pytest.mark.parametrize(("stated", "adr_ratio"), [
+        pytest.param(0.03333, 30.00300030003, id="JZ-1-for-30"),
+        pytest.param(0.11111, 9.0000900009, id="LGHL-1-for-9"),
+        pytest.param(0.14286, 6.9998600028, id="SLAI-1-for-7"),
     ])
-    def test_production_reverse_denominators_become_post_pre_multipliers(
-            self, conn, stated, derived):
+    def test_stock_split_is_direct_and_adr_ratio_metadata_is_ignored(
+            self, conn, stated, adr_ratio):
         day = sess()[15]
-        base = vendor(split_at=day, ratio=derived, actions=[
+        base = vendor(split_at=day, ratio=stated, actions=[
             {"ticker": "AAA", "date": day, "action": "split",
-             "value": stated, "contraticker": None}])
+             "value": stated, "contraticker": None},
+            {"ticker": "AAA", "date": day, "action": "adrratiosplit",
+             "value": adr_ratio, "contraticker": None}])
         load(conn, base)
         ratio, _ = bars(conn, day)
-        assert float(ratio) == pytest.approx(1 / round(stated))
+        assert float(ratio) == pytest.approx(1 / round(1 / stated))
 
     def test_a_1_for_30_can_never_multiply_a_holding_by_30(self, conn):
         from stock_strategy_shared.wealth_core.shares import split_shares
 
         day = sess()[15]
         load(conn, vendor(split_at=day, ratio=1 / 30, actions=[
-            {"ticker": "AAA", "date": day, "action": "split", "value": 30,
-             "contraticker": None}]))
+            {"ticker": "AAA", "date": day, "action": "split",
+             "value": 1 / 30, "contraticker": None},
+            {"ticker": "AAA", "date": day, "action": "adrratiosplit",
+             "value": 30, "contraticker": None}]))
         ratio, _ = bars(conn, day)
         after = split_shares(300, float(ratio))
         assert float(ratio) == pytest.approx(1 / 30)
@@ -275,12 +280,12 @@ class TestTheExDateIsSnappedForward:
 
 class TestDisagreementIsReported:
 
-    def test_reciprocal_evidence_is_orientation_not_disagreement(self):
+    def test_reciprocal_price_evidence_is_a_disagreement(self):
         class Rep:
             derived_splits_unsnapped = {("JZ", "2026-07-06"): 1 / 30}
             derived_splits = {("JZ", "2026-07-06"): 1 / 30}
         assert A.split_disagreements(
-            Rep(), {("JZ", "2026-07-06"): 30.003}) == []
+            Rep(), {("JZ", "2026-07-06"): 30.003})
 
     def test_a_material_disagreement_is_reported(self):
         class Rep:
@@ -320,7 +325,7 @@ class TestDisagreementIsReported:
         assert float(ratio) == pytest.approx(2.0)
 
     def test_neither_source_wins_an_unresolved_disagreement(self, conn):
-        """ACTIONS 1.5 and price evidence 2 are neither equal nor reciprocal."""
+        """ACTIONS 1.5 and price evidence 2 do not describe one event."""
         day = sess()[15]
         load(conn, vendor(split_at=day, ratio=2.0, actions=[
             {"ticker": "AAA", "date": day, "action": "split", "value": 1.5,
@@ -370,7 +375,6 @@ class TestItMatchesTheCarriedForwardMapping:
         [{"ticker": "AAA", "date": "2024-06-03", "action": "split", "value": 2.0},
          {"ticker": "BBB", "date": "2024-06-04", "action": "adrratiosplit",
           "value": 0.5}],
-        [{"ticker": "AAA", "date": "2024-06-03", "action": "split", "value": None}],
         [{"ticker": "AAA", "date": "2024-06-03", "action": "delisted", "value": 9}],
     ])
     def test_split_maps_agree(self, rows):
@@ -378,6 +382,21 @@ class TestItMatchesTheCarriedForwardMapping:
         s = ["2024-06-03", "2024-06-04", "2024-06-05"]
         assert (A.split_ratios_from_actions(rows, s)
                 == bt.split_ratios_from_actions(rows, s))
+
+    def test_invalid_split_terms_fail_closed_on_both_paths(self):
+        bt = self._bt()
+        rows = [{"ticker": "AAA", "date": "2024-06-03",
+                 "action": "split", "value": None}]
+        sessions = ["2024-06-03", "2024-06-04", "2024-06-05"]
+
+        ratios, ambiguous = A.split_rows_from_actions(rows, sessions)
+        assert ratios == {}
+        assert ambiguous == [{
+            "ticker": "AAA", "session": "2024-06-03", "distinct_rows": 1,
+            "distinct_values": [], "invalid_value_rows": 1,
+        }]
+        with pytest.raises(bt.CorporateActionsAmbiguous):
+            bt.split_ratios_from_actions(rows, sessions)
 
     @pytest.mark.parametrize("rows", [
         [{"ticker": "AAA", "date": "2024-06-03", "action": "dividend", "value": 0.3}],

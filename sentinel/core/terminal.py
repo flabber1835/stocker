@@ -81,7 +81,11 @@ TERMINAL_ACTION_SIDES: dict[str, ActionSide] = {
 TERMINAL_ACTIONS = frozenset(
     k for k, v in TERMINAL_ACTION_SIDES.items() if v is ActionSide.TARGET)
 
-SPLIT_ACTIONS = frozenset({"split", "adrratiosplit"})
+SHARE_SPLIT_ACTIONS = frozenset({"split"})
+ADR_RATIO_ACTIONS = frozenset({"adrratiosplit"})
+# The union remains the maintenance/source-change family. Economic consumers
+# must choose the narrower class explicitly.
+SPLIT_ACTIONS = SHARE_SPLIT_ACTIONS | ADR_RATIO_ACTIONS
 DIVIDEND_ACTIONS = frozenset({"dividend", "specialdividend", "spinoffdividend"})
 
 #: Vendor placeholders that mean ABSENCE. `contraticker` carries the literal
@@ -128,27 +132,18 @@ def terminal_from_action(row: Mapping, session: str, *,
         ref += f" vendor_date={vendor_session} effective_session={session}"
     if deal_value_musd is not None:
         ref += f" deal_value_musd={deal_value_musd:g}"
+    if contra:
+        ref += f" counterparty_ticker={contra}"
     if contra_name:
         ref += f" counterparty={contra_name}"
 
-    if contra:
-        # A PUBLIC acquirer: the delivered security is nameable, the ratio that
-        # would size the delivery is not in the table. `exchange_ratio` stays
-        # None rather than being filled with the deal value, so `completeness()`
-        # refuses with MISSING_EXCHANGE_RATIO — the honest reason.
-        return TerminalTerms(
-            session=session, security_id=sid,
-            kind=TerminalKind.CONVERSION,
-            delivered_security_id=delivered_security_id,
-            delivered_ticker=contra,
-            delivered_issuer_id=delivered_issuer_id,
-            exchange_ratio=None,
-            # A fractional entitlement needs a settlement price and ACTIONS does
-            # not carry one. Left None so `completeness()` blocks the deal that
-            # actually produces a fraction, rather than silently dropping the
-            # stub — real money leaving the book with no record.
-            cash_in_lieu_price_per_delivered_share=None,
-            reference=ref)
+    # `contraticker` identifies a buyer; it does NOT state that shareholders
+    # received that buyer's shares.  Cash acquisitions by public consortia carry
+    # one acquisitionby row per buyer (AL/2026-04-07 has SSUMY, BAM and APO), so
+    # treating each buyer as delivered consideration invents several mutually
+    # exclusive conversions from one cash deal.  ACTIONS supplies neither a
+    # consideration type nor an exchange ratio.  Keep every buyer in provenance
+    # and emit the same incomplete terminal economics for every sibling.
 
     # No stated-zero write-off route. `value == 0.0` is a statement about DEAL
     # SIZE and says nothing about consideration, so reading it as "holders
@@ -483,8 +478,8 @@ def load_terminal_events(conn, *, start: str, end: str,
 
         # `TerminalTerms` directly. `run.TerminalEvent` READS like a wrapper
         # type and is a back-compat FACTORY over TerminalTerms for the two
-        # original kinds — it cannot express CONVERSION at all, which is
-        # exactly what a public acquirer produces.
+        # original kinds. ACTIONS buyer identity is provenance only, so every
+        # source terminal row remains representable as incomplete cash terms.
         terminal_candidates.append(TerminalCandidate(
             terms=terms,
             source_key=str(source_row_id),

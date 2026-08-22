@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import pytest
+
 from sentinel.feed import action_source, actions_map
 
 
@@ -62,4 +64,45 @@ def test_exact_duplicate_split_is_one_source_row():
     ratios, ambiguous = actions_map.split_rows_from_actions(
         [split, split.copy()], ["2026-08-14"])
     assert ratios == {("AAA", "2026-08-14"): 2.0}
+    assert ambiguous == []
+
+
+def test_stock_split_wins_without_combining_adr_ratio_metadata():
+    ratios, ambiguous = actions_map.split_rows_from_actions([
+        row(ticker="AAA", action="split", value=0.1),
+        row(ticker="AAA", action="adrratiosplit", value=10.0),
+    ], ["2026-08-14"])
+    assert ratios == {("AAA", "2026-08-14"): 0.1}
+    assert ambiguous == []
+
+
+def test_stock_split_preserves_vendor_subunit_value_when_adr_ratio_is_noisy():
+    ratios, ambiguous = actions_map.split_rows_from_actions([
+        row(ticker="AAA", action="split", value=0.03333),
+        row(ticker="AAA", action="adrratiosplit", value=30.00300030003),
+    ], ["2026-08-14"])
+    assert ratios == {("AAA", "2026-08-14"): 0.03333}
+    assert ambiguous == []
+
+
+def test_identical_adr_metadata_does_not_create_split_multiplicity():
+    ratios, ambiguous = actions_map.split_rows_from_actions([
+        row(ticker="AAA", action="split", value=2.0),
+        row(ticker="AAA", action="adrratiosplit", value=2.0),
+    ], ["2026-08-14"])
+    assert ratios == {("AAA", "2026-08-14"): 2.0}
+    assert ambiguous == []
+
+
+@pytest.mark.parametrize("stock_split,adr_ratio", [
+    (0.1, 0.5),
+    (0.9375, 0.00666666666666667),
+    (0.05, 0.0066),
+])
+def test_adr_ratio_never_makes_a_stock_split_ambiguous(stock_split, adr_ratio):
+    ratios, ambiguous = actions_map.split_rows_from_actions([
+        row(ticker="AAA", action="split", value=stock_split),
+        row(ticker="AAA", action="adrratiosplit", value=adr_ratio),
+    ], ["2026-08-14"])
+    assert ratios == {("AAA", "2026-08-14"): stock_split}
     assert ambiguous == []
