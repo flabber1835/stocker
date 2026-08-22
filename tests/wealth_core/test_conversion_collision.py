@@ -32,6 +32,7 @@ import pathlib
 
 import pytest
 
+import stock_strategy_shared.wealth_core.state as state_module
 from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
 from stock_strategy_shared.wealth_core.ledger import Ledger
 from stock_strategy_shared.wealth_core.marks import Mark, MarkStatus
@@ -44,8 +45,10 @@ from stock_strategy_shared.wealth_core.terminal import (
 )
 
 CFG = WealthCoreConfig()
-STATE_PY = (pathlib.Path(__file__).resolve().parents[2] / "shared"
-            / "stock_strategy_shared" / "wealth_core" / "state.py")
+# Inspect the exact module imported by the test.  Certification images install
+# Wealth Core into site-packages while retaining tests under /work, so deriving
+# a source path from __file__ would inspect a directory that does not exist.
+STATE_PY = pathlib.Path(state_module.__file__).resolve()
 
 ACQUIRER = "SEC_ACQ"
 ACQ_TICKER = "ACQ"

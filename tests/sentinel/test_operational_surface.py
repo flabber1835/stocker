@@ -146,8 +146,17 @@ def test_ci_compiles_python_and_syntax_checks_every_tracked_shell_script():
 
 def test_ci_pytest_logs_are_pipefail_safe_and_distinguish_skip_from_xfail():
     workflow = _read(".github/workflows/sentinel-safety.yml")
+    protected_logs = (
+        "/tmp/sentinel-complete.txt",
+        "/tmp/wealth-core-prospective.txt",
+        "/tmp/backtester-focused.txt",
+        "/tmp/bt-data-focused.txt",
+        "/tmp/bt-engine-focused.txt",
+    )
     assert workflow.count("set -euo pipefail") >= 4
-    assert workflow.count("-q -ra 2>&1 | tee") == 4
+    assert workflow.count("-q -ra 2>&1 | tee") == len(protected_logs)
+    for log in protected_logs:
+        assert f"-q -ra 2>&1 | tee {log}" in workflow
     assert workflow.count("[0-9]+ skipped") == 3
 
     # The gate is intentionally specific to ordinary skips. Strict xfails are
