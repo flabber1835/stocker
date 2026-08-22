@@ -21,7 +21,9 @@ from tests.support.postgres import _EphemeralPostgres
 
 
 UTC = timezone.utc
-AFTER_WEDNESDAY_CLOSE = datetime(2026, 8, 12, 20, 1, tzinfo=UTC)
+# First instant used by the lifecycle tests is after the reviewed fixed 23:45
+# America/New_York Sharadar publication boundary and before Thursday's open.
+AFTER_WEDNESDAY_CLOSE = datetime(2026, 8, 13, 3, 46, tzinfo=UTC)
 THURSDAY_BEFORE_EXECUTE = datetime(2026, 8, 13, 13, 30, 30, tzinfo=UTC)
 THURSDAY_EXECUTE = datetime(2026, 8, 13, 13, 31, tzinfo=UTC)
 
@@ -54,6 +56,7 @@ def conn(pg):
 
 def config(**changes) -> AutomationConfig:
     base = AutomationConfig(
+        # Retained identity field; fixed 23:45 ET policy is authoritative.
         publication_delay_seconds=0,
         execution_delay_seconds=60,
         maximum_execution_lateness_seconds=60,

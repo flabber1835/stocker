@@ -88,6 +88,15 @@ def conn(pg):
     feed_store.ensure_schema(c)
     B.bind(c, deployment_id="nas-1", broker="sim",
            broker_account_id="SIM-ACCOUNT")
+    # The deterministic broker's complete terminal-recovery boundary is EPOCH.
+    # Production can never observe broker history before its real binding time;
+    # align this historical simulator fixture to the same invariant instead of
+    # letting the wall-clock INSERT timestamp postdate every simulated read.
+    with c.cursor() as cur:
+        cur.execute(
+            "UPDATE sentinel_account_binding SET established_at=%s WHERE id=1",
+            (SimulatedBroker().now,))
+    c.commit()
     yield c
     c.close()
 

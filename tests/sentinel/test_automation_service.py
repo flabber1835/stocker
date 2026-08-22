@@ -21,10 +21,13 @@ from tests.support.postgres import _EphemeralPostgres
 
 
 UTC = timezone.utc
-AFTER_WEDNESDAY_CLOSE = datetime(2026, 8, 12, 20, 1, tzinfo=UTC)
+# The reviewed Sharadar boundary is fixed at 23:45 America/New_York, not the
+# former close+delay schedule.  These service tests start just after that exact
+# source-finality wake while still remaining before Thursday's open.
+AFTER_WEDNESDAY_CLOSE = datetime(2026, 8, 13, 3, 46, tzinfo=UTC)
 THURSDAY_BEFORE_OPEN = datetime(2026, 8, 13, 13, 29, tzinfo=UTC)
 THURSDAY_AFTER_OPEN = datetime(2026, 8, 13, 13, 31, tzinfo=UTC)
-THURSDAY_AFTER_CLOSE = datetime(2026, 8, 13, 20, 1, tzinfo=UTC)
+THURSDAY_AFTER_CLOSE = datetime(2026, 8, 14, 3, 46, tzinfo=UTC)
 FRIDAY_AFTER_OPEN = datetime(2026, 8, 14, 13, 31, tzinfo=UTC)
 
 
@@ -58,6 +61,7 @@ def config() -> AutomationConfig:
     # This module drives deterministic 2026 historical clocks through run().
     # Clock-skew enforcement itself is covered separately by the #201 tests.
     return AutomationConfig(
+        # Retained identity field; fixed 23:45 ET policy is authoritative.
         publication_delay_seconds=0,
         execution_delay_seconds=60,
         maximum_clock_skew_seconds=1_000_000,
