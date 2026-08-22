@@ -1,7 +1,0 @@
-Evidence files in this directory:
-- ldrc-sec-pit-reoptimization-2026-08-22.md
-- ldrc-sec-pit-reoptimization-windows.csv
-- ldrc-sec-pit-oat-summary.csv
-- ldrc-sec-pit-grid-top30.csv
-- ldrc-sec-pit-recommendation.txt
-- ldrc-sec-pit-method-note.txt
