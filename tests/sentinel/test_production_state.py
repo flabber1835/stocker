@@ -15,7 +15,7 @@ from stock_strategy_shared.wealth_core.state import HoldingEpisode, PortfolioSta
 from sentinel.controller.frozen_rule import load
 from sentinel.controller.machine import Controller
 from sentinel.core.production import (
-    FeedAnchor, PublishedSession, SessionState, advance_state,
+    DefensiveBar, FeedAnchor, PublishedSession, SessionState, advance_state,
     load_published_session)
 from sentinel.core import production
 from sentinel.core.terminal import TerminalLoadResult
@@ -116,6 +116,20 @@ def _run_synthetic(count: int, *, reload_every: int | None = None):
         if number in (256, 1_000):
             measurements[number] = _serialized_size(state)
     return state, decisions, plan_hashes, measurements
+
+
+def test_advance_state_does_not_mutate_its_prior_session_envelope():
+    """A pure transition must not rewrite the commitment it consumes."""
+    config, seed = _fresh()
+    prior = _advance(seed, _synthetic_published(1), config)
+    prior_value = deepcopy(prior.to_dict())
+    prior_hash = prior.state_hash
+
+    result = _advance(prior, _synthetic_published(2), config)
+
+    assert result.last_processed_session == "S0002"
+    assert prior.to_dict() == prior_value
+    assert prior.state_hash == prior_hash
 
 
 def _run_turnover(count: int, *, reload_every: int | None = None):
@@ -263,6 +277,15 @@ def test_persisted_identity_must_match_running_source():
         assert "differs from running identity" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("source identity drift was accepted")
+
+
+def test_production_state_refuses_a_noncanonical_slot_domain():
+    _, state = _fresh()
+    raw = state.to_dict()
+    raw["wealth_core"]["slots"].pop("24")
+
+    with pytest.raises(ValueError, match="exactly 25"):
+        SessionState.from_dict(raw)
 
 
 def test_session_calculation_remains_inside_one_publication_pin(monkeypatch):
@@ -618,6 +641,13 @@ def test_published_loader_reconstructs_prior_split_factor_from_pinned_rows(
             executed.append(sql)
 
         def fetchall(self):
+            if "FROM sentinel_defensive_bars d" in self.sql:
+                return [
+                    (spy_tail[-2], "SENTINEL:BIL", "BIL", 90.0, 90.1,
+                     90.2, 90.1),
+                    ("S0200", "SENTINEL:BIL", "BIL", 91.0, 91.1,
+                     91.2, 91.1),
+                ]
             if "SELECT security_id,ticker" in self.sql:
                 return [("1", "AAA", 5.0, 5.0, 1_000_000, 1.0, 0.0)]
             if "SELECT session,closeadj" in self.sql:
@@ -662,6 +692,14 @@ def test_published_loader_reconstructs_prior_split_factor_from_pinned_rows(
         if (session, count) == ("S0200", 41) else [])
 
     published = load_published_session(Connection(), "S0200")
+    assert published.defensive_bar == DefensiveBar(
+        session="S0200", security_id="SENTINEL:BIL", ticker="BIL",
+        open_signal=91.0, close_signal=91.1, close_adjusted=91.2,
+        close_unadjusted=91.1)
+    assert published.defensive_bar.adjusted_open == pytest.approx(
+        91.0 * 91.2 / 91.1)
+    assert published.defensive_previous_bar.session == spy_tail[-2]
+    assert published.defensive_previous_bar.close_adjusted == 90.2
     anchor = published.feed_anchors["1"]
     assert anchor.prior_split_factor == 6.0
     assert anchor.issuer_id == "P:1"

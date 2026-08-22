@@ -20,6 +20,7 @@ from sentinel.execution.alpaca import (
     IncompleteBrokerPayload,
     MalformedBrokerPayload,
     RetryableCommandOutcome,
+    _submit_outcome,
     _retry_after_seconds,
 )
 from sentinel.execution.contract import (
@@ -105,11 +106,7 @@ class AssetIdAlpacaExecutionBroker(AlpacaExecutionBroker):
                     broker_order_id=broker_order_id or None,
                     detail=f"incomplete 2xx acknowledgement: {exc}",
                 )
-            return CommandOutcome(
-                state=S.ACKNOWLEDGED,
-                broker_order_id=order.broker_order_id,
-                detail="accepted; lifecycle reconciles separately",
-            )
+            return _submit_outcome(order)
 
         if resp.status_code in (401, 403):
             raise AlpacaCredentialsRefused(

@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from sentinel.automation.model import AutomationConfig, SessionSchedule
 from sentinel.feed import calendar
+from sentinel.shadow_runtime import publication_not_before
 
 
 UTC = timezone.utc
@@ -35,8 +36,11 @@ def for_decision_session(
         decision_session=decision,
         effective_session=effective,
         decision_close_at=close_utc,
-        prepare_at=(close_utc
-                    + timedelta(seconds=config.publication_delay_seconds)),
+        # Sharadar SEP/SFP publish again at 23:30 ET. A close-relative delay
+        # (the former default was close+15m) can freeze provisional data and is
+        # especially wrong on half-days. PAPER transport and certified shadow
+        # therefore share the reviewed fixed 23:45 America/New_York boundary.
+        prepare_at=publication_not_before(decision.isoformat()),
         execution_open_at=open_utc,
         execute_at=(open_utc
                     + timedelta(seconds=config.execution_delay_seconds)),

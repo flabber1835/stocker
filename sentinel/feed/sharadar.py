@@ -50,7 +50,8 @@ _REQUIRED_COLUMNS = {
         "ticker", "date", "open", "close", "closeunadj", "volume",
         "lastupdated",
     }),
-    SFP: frozenset({"ticker", "date", "close", "closeadj", "closeunadj"}),
+    SFP: frozenset({
+        "ticker", "date", "open", "close", "closeadj", "closeunadj"}),
     ACTIONS: frozenset({
         "date", "action", "ticker", "name", "value", "contraticker",
         "contraname",

@@ -216,6 +216,7 @@ def test_run_post_transition_install_failure_always_fail_closes(tmp_path):
     obj.build_promote = lambda: events.append("build")
     obj.quiesce_backup_and_migrate = lambda: events.append("quiesce")
     obj.check_durable_deployment_integrity = lambda: events.append("durable-integrity")
+    obj.configure_reviewed_mode_while_fenced = lambda: events.append("mode")
 
     def fail_install():
         events.append("install")
@@ -227,7 +228,56 @@ def test_run_post_transition_install_failure_always_fail_closes(tmp_path):
         obj.run()
     assert events == [
         "git", "broker-integrity", "build", "quiesce",
-        "durable-integrity", "install", "fenced"]
+        "durable-integrity", "mode", "install", "fenced"]
+
+
+def test_reviewed_dual_starts_shadow_and_attests_before_paper_release(tmp_path):
+    events = []
+
+    class Runner:
+        env = {}
+
+        def run(self, argv, **_kwargs):
+            events.append("panel" if "sentinel-panel" in argv else "runner")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    reviewed = SimpleNamespace(mode="dual")
+    obj = deploy.AutonomousDeploy(
+        SimpleNamespace(), Runner(), tmp_path,
+        reviewed_validation=reviewed)
+    obj.git_preflight = lambda: events.append("git")
+    obj.verify_reviewed_preflight = lambda: events.append("review")
+    obj.check_paper_account_deployment_integrity = \
+        lambda: events.append("broker-integrity")
+    obj.build_promote = lambda: events.append("build")
+    obj.quiesce_backup_and_migrate = lambda: events.append("quiesce")
+    obj.check_durable_deployment_integrity = \
+        lambda: events.append("durable-integrity")
+    obj.verify_reviewed_shadow_bindings_quiesced = \
+        lambda: events.append("quiesced-review")
+    obj.configure_reviewed_mode_while_fenced = lambda: events.append("mode")
+    obj.start_fenced_runtime = lambda: events.append("shadow-start")
+    obj.read_paper_account = lambda: events.append("paper-read")
+    obj.ensure_ownership = lambda: events.append("ownership")
+    obj.rotate_observation_authority = lambda: (
+        events.append("authority") or ("c" * 64, "2026-08-20"))
+    obj._wait_for_dual_shadow_session = \
+        lambda session: events.append("shadow-attested:" + session)
+    obj.prepare_activate_start = \
+        lambda cert, session: events.append("paper-released:" + session)
+    obj.verify_operational = \
+        lambda cert: events.append("operational") or {"ok": True}
+    obj.persist_success = lambda health: events.append("receipt")
+
+    obj.run()
+
+    assert events == [
+        "git", "review", "broker-integrity", "build", "quiesce",
+        "durable-integrity", "quiesced-review", "mode", "shadow-start",
+        "paper-read", "ownership", "authority",
+        "shadow-attested:2026-08-20", "paper-released:2026-08-20",
+        "operational", "panel", "receipt",
+    ]
 
 
 class _AccountResponse:

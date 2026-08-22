@@ -163,6 +163,22 @@ def test_fast_fill_post_is_only_acknowledgement(status, filled):
     assert outcome.broker_order_id == "order-1"
 
 
+def test_2xx_rejected_payload_is_rejected_not_acknowledged():
+    """HTTP success does not turn broker economic rejection into an ACK."""
+    outcome, _ = submit(Response(full_order(status="rejected"), 200))
+    assert outcome.state is S.REJECTED
+    assert outcome.broker_order_id == "order-1"
+
+
+@pytest.mark.parametrize(
+    "status", ["canceled", "expired", "pending_cancel", "pending_replace",
+               "replaced", "stopped", "suspended", "done_for_day"])
+def test_2xx_non_acknowledging_lifecycle_requires_exact_recovery(status):
+    outcome, _ = submit(Response(full_order(status=status), 200))
+    assert outcome.state is S.UNKNOWN
+    assert outcome.broker_order_id == "order-1"
+
+
 @pytest.mark.parametrize("field,value", [
     ("client_order_id", "another-key"),
     ("side", "sell"),

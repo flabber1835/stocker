@@ -117,6 +117,16 @@ class SessionResult:
     fills: list[dict] = field(default_factory=list)
     resolved_equity: float | None = None
     estimated_equity: float = 0.0
+    # Portfolio value at this session's raw open, after effective splits,
+    # ex-date entitlements, and terminal consideration/identity transformations
+    # of the prior-close book, but before pending fills. The controller itself
+    # does not consume this number. It exists so Sentinel can split Core's
+    # close-to-close return into the causal overnight and open-to-close legs
+    # required by its next-open allocation model. Everything contractually
+    # owned through the prior close therefore lands in the old allocation;
+    # orders executed at this open receive only their post-action security.
+    resolved_open_equity: float | None = None
+    open_unresolved_security_ids: tuple[str, ...] = ()
     blocked: bool = False
     # Orders that reached a tradeable open but could not be paid for. Reported
     # rather than silently dropped: a cancelled entry leaves a slot empty for
@@ -683,6 +693,40 @@ def apply_dividends(state: PortfolioState, bars: Sequence[DailyBar],
     state.cash, _ = ledger.settle_due(session=session, cash=state.cash)
 
 
+def _resolved_open_equity(
+        state: PortfolioState, bars: Sequence[DailyBar], ledger: Ledger,
+        ) -> tuple[float | None, tuple[str, ...]]:
+    """Value the ex-date-entitled, pre-fill Core book at the raw open.
+
+    Dividends and terminal actions must run before this function. Their
+    entitlements are read from the prior-close holdings before any pending
+    order fills, so today's distribution, cash consideration, write-off, or
+    delivered shares belong in the overnight leg. Every already-earned
+    receivable is likewise an asset whether or not it settles on this session.
+    A converted episode is valued only from a positive raw open keyed by its
+    delivered permanent security id. A missing current open is never replaced
+    by a predecessor or prior close here:
+    that fallback is useful for diagnostics, but it cannot prove the
+    overnight/intraday split used to report verified full-strategy performance.
+    """
+    by_security = {bar.security_id: bar for bar in bars}
+    value = float(state.cash) + ledger.receivable_total()
+    unresolved: list[str] = []
+    for slot_id in sorted(state.episodes):
+        episode = state.episodes[slot_id]
+        bar = by_security.get(episode.security_id)
+        raw_open = None if bar is None else bar.raw_open
+        if not _positive(raw_open):
+            unresolved.append(str(episode.security_id))
+            continue
+        value += float(episode.current_shares) * float(raw_open)
+    if unresolved:
+        return None, tuple(sorted(set(unresolved)))
+    if not _positive(value):
+        return None, ("__PORTFOLIO_OPEN_EQUITY__",)
+    return value, ()
+
+
 def write_off(state: PortfolioState, *, security_id: str, ledger: Ledger,
               session: str) -> None:
     """Confirmed worthlessness — and ONLY here does the value become zero.
@@ -780,6 +824,12 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
 
     order_transformations.extend(apply_splits(
         state, bars, ledger, session, pending=pending))
+    # The ex-date claim belongs to the shares held through the prior close.
+    # Accrue it before terminal transformations and pending fills, so an order
+    # buying at this open receives no claim.
+    # With the canonical positive settlement lag the claim remains a
+    # non-spendable receivable; already-due claims may move to cash here without
+    # changing total open equity.
     apply_dividends(state, bars, ledger, session, cfg)
 
     # ── 3. terminal actions, HERE and not before ─────────────────────────────
@@ -834,6 +884,16 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     res_cancelled.extend(_cancel_pending_issuer_conflicts(
         session=session, state=state, pending=pending,
         reason="ISSUER_CONFLICT_BEFORE_FILL"))
+
+    # This is the allocation-change boundary. Exact terminal consideration is
+    # an entitlement of the prior-close holding, not of an order that executes
+    # at this open: cash mergers/write-offs are already in cash/equity and a
+    # conversion is already represented by its delivered permanent security.
+    # The latter must have its own positive current raw open; `_resolved...`
+    # returns unresolved rather than valuing it on the dead predecessor or a
+    # prior close. Pending fills still occur strictly after this witness.
+    resolved_open_equity, open_unresolved = _resolved_open_equity(
+        state, bars, ledger)
 
     # ── 4. execute orders decided BEFORE this session ────────────────────────
     fills: list[dict] = []
@@ -1018,7 +1078,8 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     # here from `last_known` — that dict holds RAW mark closes, a different
     # price domain, and reusing it would be exactly the cross-domain error
     # prices.py exists to prevent.
-    ev = state.equity_view(marks)
+    receivable_assets = ledger.receivable_total()
+    ev = state.equity_view(marks, noncash_assets=receivable_assets)
 
     # ── 7c. A SECURITY THAT TERMINATED TODAY CANNOT BE ADMITTED TODAY ────────
     # THE INVARIANT, enforced HERE so every caller inherits it rather than
@@ -1047,7 +1108,8 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     # across 6 golden sessions. See engine.decide's veto branch.
     d = decide(session=session, state=state, bars=list(security_bars), marks=marks,
                cfg=cfg, strategy_id=strategy_id, strategy_version=strategy_version,
-               admission_veto_security_ids=terminated)
+               admission_veto_security_ids=terminated,
+               noncash_assets=receivable_assets)
 
     # ── 8. queue for the NEXT open ───────────────────────────────────────────
     for op in d.operations:
@@ -1063,6 +1125,8 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     return SessionResult(session=session, decision=d, fills=fills,
                          resolved_equity=ev.resolved_equity,
                          estimated_equity=ev.estimated_equity_including_stale_marks,
+                         resolved_open_equity=resolved_open_equity,
+                         open_unresolved_security_ids=open_unresolved,
                          blocked=not ev.is_resolved, cancelled=res_cancelled,
                          terminal_results=terminal_results,
                          relabelled=relabelled,

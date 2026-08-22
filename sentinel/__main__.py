@@ -1153,6 +1153,7 @@ async def _bind_empty_paper_account(config: SentinelConfig, args) -> int:
 async def _prepare_paper_plan(config: SentinelConfig, args) -> int:
     """Prepare and adopt the current durable plan; never mutate the broker."""
     from sentinel import paper, schema
+    from sentinel.automation_runtime import shadow_config_from_env
     from sentinel.feed import store as feed_store
 
     if not config.database_url:
@@ -1166,10 +1167,25 @@ async def _prepare_paper_plan(config: SentinelConfig, args) -> int:
         resolve_security_id = paper.build_security_resolver(conn, args.through)
         broker = build_execution_broker(
             config, resolve_security_id=resolve_security_id)
+        dual_kwargs = {}
+        if getattr(args, "reviewed_informational_dual", False):
+            if os.environ.get("SENTINEL_REVIEWED_DEPLOYMENT_MODE") != "dual":
+                raise paper.PaperActivationRefused(
+                    "reviewed informational dual preparation requires the "
+                    "persisted dual deployment mode")
+            enabled, observation_id, starting_cash = shadow_config_from_env()
+            if not enabled:
+                raise paper.PaperActivationRefused(
+                    "reviewed informational dual preparation requires the "
+                    "validated broker-free shadow service configuration")
+            dual_kwargs = {
+                "dual_shadow_observation_id": observation_id,
+                "dual_shadow_starting_cash": starting_cash,
+            }
         result = await paper.prepare_paper_plan(
             conn=conn, broker=broker, base_url=config.base_url,
             through=args.through, expected_account=args.expect_account,
-            warmup_sessions=args.warmup_sessions)
+            warmup_sessions=args.warmup_sessions, **dual_kwargs)
     except _paper_refusal_types() as exc:
         return _paper_refused(exc)
     finally:
@@ -1182,6 +1198,7 @@ async def _prepare_paper_plan(config: SentinelConfig, args) -> int:
 async def _current_paper_plan(config: SentinelConfig) -> int:
     """Print the durable current plan without constructing a broker client."""
     from sentinel import paper, schema
+    from sentinel.automation_runtime import shadow_config_from_env
     from sentinel.feed import store as feed_store
 
     if not config.database_url:
@@ -1192,7 +1209,21 @@ async def _current_paper_plan(config: SentinelConfig) -> int:
     try:
         feed_store.ensure_schema(conn)
         schema.require_runtime_schema(conn)
-        result = paper.current_paper_plan(conn, base_url=config.base_url)
+        dual_kwargs = {}
+        if str(os.environ.get(
+                "SENTINEL_REVIEWED_DEPLOYMENT_MODE", "")).strip().lower() \
+                == "dual":
+            enabled, observation_id, starting_cash = shadow_config_from_env()
+            if not enabled:
+                raise ValueError(
+                    "reviewed dual plan inspection requires enabled certified "
+                    "shadow configuration")
+            dual_kwargs = {
+                "dual_shadow_observation_id": observation_id,
+                "dual_shadow_starting_cash": starting_cash,
+            }
+        result = paper.current_paper_plan(
+            conn, base_url=config.base_url, **dual_kwargs)
     except _paper_refusal_types() as exc:
         return _paper_refused(exc)
     finally:
@@ -1996,6 +2027,45 @@ async def _automation_run(config: SentinelConfig) -> int:
     return EXIT_OK
 
 
+def cmd_shadow_status(config: SentinelConfig) -> int:
+    """Verify and print only the broker-free performance chain."""
+    from sentinel import schema, shadow_runtime
+    from sentinel.automation_runtime import shadow_config_from_env
+    from sentinel.feed import store as feed_store
+
+    if not config.database_url:
+        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        return EXIT_CONFIG
+    try:
+        _enabled, observation_id, starting_cash = shadow_config_from_env()
+        conn = feed_store.connect(config.database_url)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("BEGIN TRANSACTION READ ONLY")
+            schema.require_runtime_schema(conn)
+            result = shadow_runtime.verified_shadow_status(
+                conn, observation_id=observation_id,
+                starting_cash=starting_cash)
+        finally:
+            conn.rollback()
+            conn.close()
+    except (ValueError, shadow_runtime.ShadowRuntimeRefused) as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return EXIT_NOT_ESTABLISHED
+    if result is None:
+        print(json.dumps({
+            "mode": "BROKER_FREE_SHADOW", "status": "NOT_STARTED",
+            "broker_mutations_authorized": False,
+        }, indent=2, sort_keys=True))
+        return EXIT_NOT_ESTABLISHED
+    print(json.dumps({
+        "mode": "BROKER_FREE_SHADOW",
+        "broker_mutations_authorized": False,
+        **result.to_dict(),
+    }, indent=2, sort_keys=True))
+    return EXIT_OK
+
+
 async def _establish(config: SentinelConfig) -> int:
     """RETIRED. Kept so the old invocation fails loudly rather than mysteriously.
 
@@ -2021,6 +2091,14 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser(
         "status", help="print canonical binding and audit status; no broker")
+    sub.add_parser(
+        "shadow-status",
+        help="verify and print broker-free shadow NAV/return; no broker")
+    shadow_run = sub.add_parser(
+        "shadow-run",
+        help="dedicated broker-free reviewed shadow service")
+    shadow_run.add_argument("--preflight", action="store_true")
+    shadow_run.add_argument("--once", action="store_true")
     fs = sub.add_parser("feed-status", help="ingest progress, readable MID-RUN")
     fs.add_argument("--limit", type=int, default=5)
     sd = sub.add_parser("feed-seed", help="load the full Sharadar history (hours)")
@@ -2131,6 +2209,9 @@ def main(argv: list[str] | None = None) -> int:
     prep.add_argument("--through", required=True)
     prep.add_argument("--warmup-sessions", type=int, default=252)
     prep.add_argument("--expect-account", required=True)
+    prep.add_argument(
+        "--reviewed-informational-dual", action="store_true",
+        help="size only from the exact reviewed shadow state; no broker mutation")
     sub.add_parser(
         "current-paper-plan",
         help="inspect the durable current paper plan; contacts no broker")
@@ -2328,6 +2409,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     _setup_logging(args.verbose)
 
+    if args.command == "shadow-run":
+        from sentinel import shadow_service
+        forwarded = []
+        if args.preflight:
+            forwarded.append("--preflight")
+        if args.once:
+            forwarded.append("--once")
+        return shadow_service.main(forwarded)
+
     surface_refusal = _require_authorized_runtime(args.command)
     if surface_refusal is not None:
         return surface_refusal
@@ -2348,6 +2438,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "status":
             return cmd_status(config)
+        if args.command == "shadow-status":
+            return cmd_shadow_status(config)
         if args.command == "feed-status":
             return cmd_feed_status(config, args.limit)
         if args.command in ("feed-seed", "feed-daily"):

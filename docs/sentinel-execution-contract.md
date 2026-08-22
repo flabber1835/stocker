@@ -1326,6 +1326,16 @@ negative-space/completeness authority, and an explicit trust/acceptance boundary
 is integrated. This closes the unsafe execution path; it does not turn missing
 market information into a deployment GO.
 
+This refusal is scoped to broker execution. A broker-free forward observer has
+no broker share-unit domain: it advances the canonical strategy state only
+after the next session's open, close, and action data have been published. Such
+an observer may receive `SHADOW_GO` when the NAS corpus, canonical engine,
+freshness, exact tests, and zero-mutation boundary pass. It may not submit,
+cancel, or replace orders; may not read an Alpaca holding as its economic book;
+and may not translate dual-source silence into a multiplier. The independent
+`PAPER_EXECUTION_GO` verdict continues to require this entire affirmative
+pre-open contract. See `sentinel-nas-go-validation.md`.
+
 Non-scalar events are different. A spinoff, stock/cash merger, rename,
 reorganization, or terms-less terminal event can add an instrument, remove one,
 or add cash. Sharadar ACTIONS is sufficient to detect those event classes but
@@ -1948,6 +1958,10 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
     stays bound to the old plan's effective session during manual or delayed
     preparation. Complete evidence that economically disagrees freezes an
     immutable `NOT_VERIFIED` verdict.
+61  Shadow observation and paper execution have separate machine verdicts.
+    SHADOW_GO authorizes only a broker-free canonical state transition after
+    source publication. It never implies PAPER_EXECUTION_GO, never authorizes a
+    broker mutation, and never makes Alpaca dashboard P/L a verified result.
 ```
 
 Every one of these is falsifiable, and each should fail a test when violated.

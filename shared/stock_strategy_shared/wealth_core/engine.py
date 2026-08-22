@@ -353,7 +353,8 @@ def affordable_shares(cash: float, price: float | None,
 def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
            marks: Mapping[str, "Mark"], cfg: WealthCoreConfig,
            strategy_id: str, strategy_version: int,
-           admission_veto_security_ids: frozenset | set | None = None) -> Decision:
+           admission_veto_security_ids: frozenset | set | None = None,
+           noncash_assets: float = 0.0) -> Decision:
     """One session's decisions, on information available after session t closes.
 
     The caller has ALREADY aged the state for this session (see
@@ -482,7 +483,7 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
     # cooldown must still tick. But an ADMISSION is 4% of equity, and 4% of an
     # unknown is not a number. Blocking is the only treatment that does not
     # silently invent one.
-    ev = state.equity_view(marks)
+    ev = state.equity_view(marks, noncash_assets=noncash_assets)
     if not ev.is_resolved:
         d.operations.append(Op(
             Operation.BLOCK_NEW_ADMISSIONS_UNRESOLVED_EQUITY,

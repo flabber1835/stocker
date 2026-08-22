@@ -257,6 +257,36 @@ def test_current_plan_never_constructs_a_broker(monkeypatch, capsys):
     assert conn.closed
 
 
+def test_current_plan_uses_reviewed_shadow_in_dual_without_catchup(
+        monkeypatch, capsys):
+    calls = []
+    conn = _wire_database(monkeypatch, calls)
+    monkeypatch.setenv("SENTINEL_REVIEWED_DEPLOYMENT_MODE", "dual")
+    monkeypatch.setenv("SENTINEL_SHADOW_OBSERVATION_ENABLED", "1")
+    monkeypatch.setenv("SENTINEL_SHADOW_OBSERVATION_ID", "year-end")
+    monkeypatch.setenv("SENTINEL_SHADOW_STARTING_CASH", "123456.78")
+
+    def inspect(actual, **kwargs):
+        calls.append(("current", actual, kwargs))
+        return {
+            "mode": "INFORMATIONAL_PAPER_MIRROR",
+            "database_authorities_match": True,
+            "broker_contacted": False,
+        }
+
+    monkeypatch.setattr(paper, "current_paper_plan", inspect)
+
+    assert asyncio.run(cli._current_paper_plan(_config())) == cli.EXIT_OK
+    assert calls[-1] == (
+        "current", conn,
+        {"base_url": DEFAULT_BASE_URL,
+         "dual_shadow_observation_id": "year-end",
+         "dual_shadow_starting_cash": Decimal("123456.78")})
+    assert json.loads(capsys.readouterr().out)["mode"] \
+        == "INFORMATIONAL_PAPER_MIRROR"
+    assert conn.closed
+
+
 @pytest.mark.parametrize(
     "command", ["prepare", "current", "execute"])
 def test_schema_migration_refusal_stops_paper_startup_before_broker(

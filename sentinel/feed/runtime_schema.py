@@ -80,7 +80,9 @@ _COLUMNS = {
     "sentinel_defensive_bars": {
         "security_id": ("text", True), "session": ("date", True),
         "ticker": ("text", True),
+        "open_signal": ("double precision", False),
         "close_signal": ("double precision", True),
+        "close_adjusted": ("double precision", False),
         "close_unadjusted": ("double precision", True),
         "last_written_run_id": ("uuid", False),
     },
@@ -236,7 +238,9 @@ _CONSTRAINT_WITNESSES = {
     "sentinel_defensive_bars": (
         ("c", ("security_id", "sentinel:bil")),
         ("c", ("ticker", "bil")),
+        ("c", ("open_signal", ">", "0", "nan", "infinity")),
         ("c", ("close_signal", ">", "0", "nan", "infinity")),
+        ("c", ("close_adjusted", ">", "0", "nan", "infinity")),
         ("c", ("close_unadjusted", ">", "0", "nan", "infinity")),
     ),
     "sentinel_bar_split_repairs": (

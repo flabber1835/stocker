@@ -80,6 +80,45 @@ def test_explicit_migration_is_idempotent_and_runtime_valid(migrated):
     assert second == first
 
 
+def test_legacy_defensive_rows_gain_source_columns_without_fabrication(pg):
+    """Migration installs the seam; only a later SFP ingest may fill it."""
+    connection = feed_store.connect(pg.sync_dsn)
+    try:
+        feed_store.migrate_schema(connection)
+        with connection.cursor() as cur:
+            cur.execute("DROP TABLE sentinel_defensive_bars")
+            cur.execute(
+                "CREATE TABLE sentinel_defensive_bars ("
+                " security_id TEXT NOT NULL DEFAULT 'SENTINEL:BIL'"
+                "   CHECK (security_id='SENTINEL:BIL'),"
+                " session DATE PRIMARY KEY,"
+                " ticker TEXT NOT NULL DEFAULT 'BIL' CHECK (ticker='BIL'),"
+                " close_signal DOUBLE PRECISION NOT NULL"
+                "   CHECK (close_signal > 0 AND close_signal NOT IN"
+                "     ('NaN'::DOUBLE PRECISION,'Infinity'::DOUBLE PRECISION)),"
+                " close_unadjusted DOUBLE PRECISION NOT NULL"
+                "   CHECK (close_unadjusted > 0 AND close_unadjusted NOT IN"
+                "     ('NaN'::DOUBLE PRECISION,'Infinity'::DOUBLE PRECISION)),"
+                " last_written_run_id UUID)")
+            cur.execute(
+                "INSERT INTO sentinel_defensive_bars"
+                " (session,close_signal,close_unadjusted)"
+                " VALUES ('2026-08-20',91.25,91.24)")
+        connection.commit()
+
+        feed_store.migrate_schema(connection)
+        feed_store.require_feed_schema(connection)
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT open_signal,close_signal,close_adjusted,"
+                " close_unadjusted FROM sentinel_defensive_bars"
+                " WHERE session='2026-08-20'")
+            assert cur.fetchone() == (None, 91.25, None, 91.24)
+        connection.rollback()
+    finally:
+        connection.close()
+
+
 def test_runtime_validation_does_not_wait_on_a_normal_feed_writer(migrated, pg):
     """The former CREATE INDEX path blocks here; catalog validation must not."""
     writer = feed_store.connect(pg.sync_dsn)

@@ -93,9 +93,11 @@ def load(conn, n_sessions=300, *, open_=99.0, volume=1e6, actions=True,
              session_axis[-R.REQUIRED_SPY_SESSIONS:]])
         cur.executemany(
             "INSERT INTO sentinel_defensive_bars"
-            " (session,close_signal,close_unadjusted)"
-            " VALUES (%s,91,91) ON CONFLICT (session) DO UPDATE SET"
-            " close_signal=91,close_unadjusted=91",
+            " (session,open_signal,close_signal,close_adjusted,close_unadjusted)"
+            " VALUES (%s,90.9,91,91.1,91)"
+            " ON CONFLICT (session) DO UPDATE SET"
+            " open_signal=90.9,close_signal=91,close_adjusted=91.1,"
+            " close_unadjusted=91",
             [(session,) for session in
              session_axis[-R.REQUIRED_SPY_SESSIONS:]])
     conn.commit()
@@ -369,6 +371,22 @@ class TestWhatARowCountWouldMiss:
         c = by_name(R.check_readiness(conn, today=TODAY))["defensive fund marks"]
         assert c.status == R.FAIL
         assert missing in c.value["missing"]
+
+    @pytest.mark.parametrize(
+        "field", ["open_signal", "close_adjusted"])
+    def test_a_legacy_BIL_row_missing_a_scalar_return_field_fails(
+            self, conn, field):
+        load(conn)
+        missing_source = sessions(300)[-10]
+        with conn.cursor() as cur:
+            cur.execute(
+                f"UPDATE sentinel_defensive_bars SET {field}=NULL "
+                "WHERE session=%s", (missing_source,))
+        conn.commit()
+
+        c = by_name(R.check_readiness(conn, today=TODAY))["defensive fund marks"]
+        assert c.status == R.FAIL
+        assert missing_source in c.value["invalid"]
 
 
 class TestTheReportItself:

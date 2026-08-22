@@ -92,11 +92,13 @@ _SPY_TOTAL_RETURN_UPSERT = """
 
 _DEFENSIVE_BAR_UPSERT = """
     INSERT INTO sentinel_defensive_bars
-        (security_id, session, ticker, close_signal, close_unadjusted,
-         last_written_run_id)
-    VALUES ('SENTINEL:BIL', %s, 'BIL', %s, %s, %s)
+        (security_id, session, ticker, open_signal, close_signal,
+         close_adjusted, close_unadjusted, last_written_run_id)
+    VALUES ('SENTINEL:BIL', %s, 'BIL', %s, %s, %s, %s, %s)
     ON CONFLICT (session) DO UPDATE SET
+        open_signal = EXCLUDED.open_signal,
         close_signal = EXCLUDED.close_signal,
+        close_adjusted = EXCLUDED.close_adjusted,
         close_unadjusted = EXCLUDED.close_unadjusted,
         last_written_run_id = EXCLUDED.last_written_run_id
 """
@@ -551,7 +553,13 @@ def write_spy_total_return(conn, rows: Iterable[Any], *, run_id=None,
 def write_defensive_bars(conn, rows: Iterable[Any], *, run_id=None,
                          batch_size: int = 0,
                          require_lock: bool = False) -> int:
-    """Persist only raw BIL SFP marks under Sentinel's fixed identity."""
+    """Persist the exact consumed BIL SFP fields under its fixed identity.
+
+    The canonical adjusted open is intentionally not stored as another source
+    fact. Consumers derive it as ``open * closeadj / close`` from these retained
+    fields, preserving the source seam and making every input to next-open
+    scalar accounting independently hashable.
+    """
     if require_lock:
         _assert_corpus_locked(conn)
     size = batch_size or WRITE_BATCH
@@ -573,17 +581,22 @@ def write_defensive_bars(conn, rows: Iterable[Any], *, run_id=None,
             raise ValueError("the defensive SFP ingest accepts only ticker=BIL")
         session = str(row.get("date") or "")
         try:
+            open_signal = float(row.get("open"))
             close_signal = float(row.get("close"))
+            close_adjusted = float(row.get("closeadj"))
             close_unadjusted = float(row.get("closeunadj"))
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError(
-                f"BIL SFP row {session!r} lacks valid close/closeunadj") from exc
-        if (not session or close_signal <= 0 or close_unadjusted <= 0
-                or not math.isfinite(close_signal)
-                or not math.isfinite(close_unadjusted)):
+                f"BIL SFP row {session!r} lacks valid "
+                "open/close/closeadj/closeunadj") from exc
+        values = (open_signal, close_signal, close_adjusted, close_unadjusted)
+        if (not session or any(value <= 0 or not math.isfinite(value)
+                               for value in values)):
             raise ValueError(
-                f"BIL SFP row {session!r} lacks valid close/closeunadj")
-        payload.append((session, close_signal, close_unadjusted,
+                f"BIL SFP row {session!r} lacks valid "
+                "open/close/closeadj/closeunadj")
+        payload.append((session, open_signal, close_signal, close_adjusted,
+                        close_unadjusted,
                         str(run_id) if run_id else None))
         if len(payload) >= size:
             flush()
@@ -945,18 +958,19 @@ def published_spy_total_return(conn, start: str, end: str) -> list[tuple]:
 
 
 def published_defensive_bars(conn, start: str, end: str) -> list[tuple]:
-    """Published BIL price-domain evidence in an inclusive dated window."""
+    """Published BIL source fields in an inclusive dated window."""
     from sentinel.feed.publication import visible_predicate
 
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT session, security_id, ticker, close_signal,"
-            " close_unadjusted FROM sentinel_defensive_bars b"
+            "SELECT session, security_id, ticker, open_signal, close_signal,"
+            " close_adjusted, close_unadjusted FROM sentinel_defensive_bars b"
             " WHERE session BETWEEN %s AND %s"
             f" AND {visible_predicate('b')} ORDER BY session", (start, end))
-        return [(str(session), security_id, ticker, close_signal, raw_close)
-                for session, security_id, ticker, close_signal, raw_close
-                in cur.fetchall()]
+        return [(str(session), security_id, ticker, open_signal, close_signal,
+                 close_adjusted, raw_close)
+                for session, security_id, ticker, open_signal, close_signal,
+                close_adjusted, raw_close in cur.fetchall()]
 
 
 def run_status(conn, limit: int = 5) -> list[dict]:

@@ -36,7 +36,7 @@ TICKERS_AUTHORITY_FIELDS = (
     "isdelisted",
 )
 SFP_AUTHORITY_FIELDS = (
-    "date", "ticker", "close", "closeadj", "closeunadj")
+    "date", "ticker", "open", "close", "closeadj", "closeunadj")
 
 # Calibrated from the retained TICKERS table=SEP bulk snapshot. Fields that were
 # complete in ground truth are exact rather than sharing a generic 99% escape

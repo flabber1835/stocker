@@ -243,7 +243,8 @@ def _full_reseed_fixture(monkeypatch, *, actions_rows):
                 {"ticker": "SPY", "date": params["date.lte"],
                  "closeadj": 600.0},
                 {"ticker": "BIL", "date": params["date.lte"],
-                 "close": 91.0, "closeunadj": 91.0},
+                 "open": 90.9, "close": 91.0, "closeadj": 91.1,
+                 "closeunadj": 91.0},
             ]
         return []
 

@@ -26,6 +26,7 @@ is invisible in aggregate performance and changes every holding period.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 import hashlib
 import json
 from dataclasses import asdict, dataclass, field
@@ -408,7 +409,9 @@ class PortfolioState:
             out[e.security_id] = out.get(e.security_id, 0) + e.current_shares
         return out
 
-    def equity_view(self, marks: Mapping[str, "Mark"]) -> "EquityView":
+    def equity_view(
+            self, marks: Mapping[str, "Mark"], *,
+            noncash_assets: float = 0.0) -> "EquityView":
         """Portfolio value split into the trustworthy part and the estimate.
 
         Replaces a plain `equity()` deliberately. A single float cannot express
@@ -417,7 +420,9 @@ class PortfolioState:
         prevent.
         """
         from stock_strategy_shared.wealth_core.marks import build_equity_view
-        return build_equity_view(self.cash, self.shares_by_security(), marks)
+        return build_equity_view(
+            self.cash, self.shares_by_security(), marks,
+            noncash_assets=noncash_assets)
 
     # ── session advance ──────────────────────────────────────────────────────
 
@@ -455,14 +460,14 @@ class PortfolioState:
             "terminal_pending_sessions": dict(
                 sorted(self.terminal_pending_sessions.items())),
             "terminal_pending_terms": {
-                k: self.terminal_pending_terms[k]
+                k: deepcopy(self.terminal_pending_terms[k])
                 for k in sorted(self.terminal_pending_terms)},
             # AUDIT-ONLY, and excluded from `state_hash` by
             # `_AUDIT_ONLY_STATE_KEYS`. Present HERE because to_dict is also the
             # persistence format, and a carry that outlives a restart must keep
             # its provenance.
             "terminal_carry_audit": {
-                k: self.terminal_carry_audit[k]
+                k: deepcopy(self.terminal_carry_audit[k])
                 for k in sorted(self.terminal_carry_audit)},
             "last_valid_mark_session": dict(
                 sorted(self.last_valid_mark_session.items())),
@@ -470,8 +475,29 @@ class PortfolioState:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "PortfolioState":
+        raw_slots = d.get("slots")
+        if not isinstance(raw_slots, Mapping) or not raw_slots:
+            raise ValueError("persisted Wealth Core state has no slot domain")
+        try:
+            slot_ids = sorted(int(key) for key in raw_slots)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "persisted Wealth Core slot keys are not integer identities") from exc
+        if slot_ids != list(range(len(slot_ids))):
+            raise ValueError(
+                "persisted Wealth Core slots are not a contiguous zero-based domain")
+        for key, value in raw_slots.items():
+            try:
+                slot_id = value.get("slot_id") if isinstance(value, Mapping) else None
+                valid_slot = (
+                    not isinstance(slot_id, bool) and int(slot_id) == int(key))
+            except (TypeError, ValueError):
+                valid_slot = False
+            if not valid_slot:
+                raise ValueError(
+                    "persisted Wealth Core slot key and slot_id disagree")
         return cls(
-            slots={int(k): SlotState(**v) for k, v in (d.get("slots") or {}).items()},
+            slots={int(k): SlotState(**v) for k, v in raw_slots.items()},
             episodes={int(k): HoldingEpisode(**v)
                       for k, v in (d.get("episodes") or {}).items()},
             # No fallback to the old `ticker_cooldowns` key, deliberately. Its
@@ -493,12 +519,13 @@ class PortfolioState:
                 d.get("sessions_since_valid_mark") or {}),
             terminal_pending_sessions=dict(
                 d.get("terminal_pending_sessions") or {}),
-            terminal_pending_terms=dict(
-                d.get("terminal_pending_terms") or {}),
+            terminal_pending_terms=deepcopy(dict(
+                d.get("terminal_pending_terms") or {})),
             # Absent for the same reason as above, and additionally for every
             # blob written before the audit existed. An empty audit is the
             # correct reading of a run that never recorded one.
-            terminal_carry_audit=dict(d.get("terminal_carry_audit") or {}),
+            terminal_carry_audit=deepcopy(dict(
+                d.get("terminal_carry_audit") or {})),
             last_valid_mark_session=dict(d.get("last_valid_mark_session") or {}),
         )
 

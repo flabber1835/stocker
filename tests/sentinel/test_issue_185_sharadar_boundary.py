@@ -153,9 +153,10 @@ def test_schema_cannot_change_mid_traversal():
             expected_schema=columns)
 
 
-def test_required_table_column_cannot_disappear():
-    columns = sorted(sharadar._REQUIRED_COLUMNS[sharadar.SFP] - {"closeadj"})
-    with pytest.raises(sharadar.SharadarProtocolError, match="closeadj"):
+@pytest.mark.parametrize("required", ["open", "closeadj"])
+def test_required_table_column_cannot_disappear(required):
+    columns = sorted(sharadar._REQUIRED_COLUMNS[sharadar.SFP] - {required})
+    with pytest.raises(sharadar.SharadarProtocolError, match=required):
         sharadar._decode_page(
             _page(sharadar.SFP, columns=columns),
             table=sharadar.SFP, expected_schema=None)

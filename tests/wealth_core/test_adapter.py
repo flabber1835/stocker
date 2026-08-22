@@ -14,6 +14,8 @@ which is exactly why they are written.
 """
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 
 from stock_strategy_shared.wealth_core.adapter import (
@@ -57,13 +59,123 @@ def rising(n=127, start=100.0, step=1.0):
 
 
 def step(st, bars, pending=None, ledger=None, last_known=None, session="d1",
-         windows=None):
+         windows=None, terminal_terms=()):
     return step_session(session=session, state=st, bars=bars,
                         pending=pending if pending is not None else [],
                         ledger=ledger or Ledger(),
                         last_known=last_known if last_known is not None else {},
                         cfg=CFG, strategy_id=SID, strategy_version=VER,
-                        security_bars=tradeability_only_bars(bars, windows))
+                        security_bars=tradeability_only_bars(bars, windows),
+                        terminal_terms=terminal_terms)
+
+
+class TestResolvedOpenEquity:
+    def test_values_the_pre_fill_book_in_the_raw_open_domain(self):
+        st = seated(cash=10_000.0, shares=10)
+        result = step(st, [db("S1", open_=99.0, mark=101.0)])
+        assert result.resolved_open_equity == 10_990.0
+        assert result.open_unresolved_security_ids == ()
+
+    def test_missing_current_open_is_named_and_never_carried_as_verified(self):
+        st = seated(cash=10_000.0, shares=10)
+        result = step(
+            st, [db("S1", open_=None, mark=101.0)],
+            last_known={"S1": 98.0})
+        assert result.resolved_open_equity is None
+        assert result.open_unresolved_security_ids == ("S1",)
+
+    def test_effective_split_precedes_the_open_valuation(self):
+        st = seated(cash=10_000.0, shares=10)
+        result = step(
+            st, [db("S1", open_=50.0, mark=50.0, signal=50.0, split=2.0)])
+        assert st.episodes[0].current_shares == 20
+        assert result.resolved_open_equity == 11_000.0
+
+    def test_current_dividend_belongs_to_the_pre_rebalance_open_book(self):
+        st = seated(cash=10_000.0, shares=10)
+        ledger = Ledger()
+        ledger.accrue_dividend(
+            session="d0", security_id="S1", ticker="T1", shares=10,
+            per_share=Decimal("0.5"), cash=st.cash, due_in=0)
+        result = step(
+            st, [db("S1", open_=100.0, mark=100.0, div=1.0)],
+            ledger=ledger)
+        # The already-earned, due $5 receivable settles before open fills.
+        # Today's $10 ex-date entitlement belongs to the prior-close shares as
+        # well, so it is in open equity but remains outside spendable cash.
+        assert result.resolved_open_equity == 11_015.0
+        assert st.cash == 10_005.0
+        assert ledger.receivable_total() == 10.0
+
+    def test_later_due_receivable_is_an_open_asset_but_not_cash(self):
+        st = seated(cash=10_000.0, shares=10)
+        ledger = Ledger()
+        ledger.accrue_dividend(
+            session="d0", security_id="S1", ticker="T1", shares=10,
+            per_share=Decimal("0.5"), cash=st.cash, due_in=2)
+        result = step(
+            st, [db("S1", open_=100.0, mark=100.0)], ledger=ledger)
+        assert result.resolved_open_equity == 11_005.0
+        assert st.cash == 10_000.0
+
+    def test_cash_merger_consideration_is_in_the_pre_fill_open_book(self):
+        from stock_strategy_shared.wealth_core.terminal import (
+            TerminalKind, TerminalTerms)
+
+        st = seated(cash=1_000.0, shares=10)
+        result = step(
+            st, [],
+            terminal_terms=[TerminalTerms(
+                session="d1", security_id="S1",
+                kind=TerminalKind.CASH_MERGER, cash_per_share=120.0,
+                reference="test/open-boundary-cash")])
+
+        assert 0 not in st.episodes
+        assert st.cash == 2_200.0
+        assert result.resolved_open_equity == 2_200.0
+        assert result.open_unresolved_security_ids == ()
+
+    def test_conversion_uses_the_delivered_security_open_before_a_fill(self):
+        from stock_strategy_shared.wealth_core.terminal import (
+            TerminalKind, TerminalTerms)
+
+        st = seated(cash=1_000.0, shares=10)
+        pending = [PendingOrder(
+            Operation.CLOSE_POSITION, "S1", "T1", 0, 10, "d0", "EXIT")]
+        result = step(
+            st, [db("S2", open_=55.0, mark=55.0, signal=55.0)],
+            pending=pending,
+            terminal_terms=[TerminalTerms(
+                session="d1", security_id="S1",
+                kind=TerminalKind.CONVERSION,
+                delivered_security_id="S2", delivered_ticker="T2",
+                delivered_issuer_id="I2", exchange_ratio=2.0,
+                reference="test/open-boundary-conversion")])
+
+        # Cash 1,000 + 20 delivered shares at their own $55 open. The pending
+        # close is transformed and fills only after this pre-rebalance witness.
+        assert result.resolved_open_equity == 2_100.0
+        assert result.open_unresolved_security_ids == ()
+        assert result.fills[0]["security_id"] == "S2"
+        assert result.fills[0]["shares"] == 20
+
+    def test_conversion_without_delivered_open_evidence_refuses_open_value(self):
+        from stock_strategy_shared.wealth_core.terminal import (
+            TerminalKind, TerminalTerms)
+
+        st = seated(cash=1_000.0, shares=10)
+        result = step(
+            st, [],
+            terminal_terms=[TerminalTerms(
+                session="d1", security_id="S1",
+                kind=TerminalKind.CONVERSION,
+                delivered_security_id="S2", delivered_ticker="T2",
+                delivered_issuer_id="I2", exchange_ratio=2.0,
+                reference="test/missing-delivered-open")])
+
+        assert st.episodes[0].security_id == "S2"
+        assert result.resolved_open_equity is None
+        assert result.open_unresolved_security_ids == ("S2",)
 
 
 # ── the unmarkable-holding rule ─────────────────────────────────────────────
@@ -577,12 +689,15 @@ class TestCorporateActions:
         """
         st = seated(cash=1_000.0, shares=10)
         led = Ledger()
-        step(st, [db("S1", div=0.50, mark=100.0, signal=100.0)], ledger=led,
-             session="d1")
+        result = step(
+            st, [db("S1", div=0.50, mark=100.0, signal=100.0)],
+            ledger=led, session="d1")
 
         assert [e.event_type for e in led.events] == [EventType.DIVIDEND_ACCRUED]
         assert st.cash == 1_000.0, "cash must NOT move on the ex-date"
         assert led.receivable_total() == 5.0
+        assert result.resolved_equity == 2_005.0
+        assert result.estimated_equity == 2_005.0
         assert led.receivables[0]["accrued_session"] == "d1"
 
         # ...and becomes cash on the next session, once.

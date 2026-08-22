@@ -36,10 +36,12 @@ until a human acknowledges, while continuing to allow reductions — never to
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from dataclasses import dataclass, field, replace
-from datetime import date, timezone
-from decimal import Decimal
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Callable, Mapping, Optional
 
 from sentinel.execution.contract import (
@@ -55,6 +57,9 @@ log = logging.getLogger(__name__)
 #: Injected rather than queried inline so the rule can be tested without a
 #: corpus, and so the caller decides which window "the gap" means.
 ActionLookup = Callable[..., Decimal]
+POSITION_LAG_GRACE = timedelta(seconds=120)
+_POSITION_LAG_SCHEMA = "sentinel.broker-position-lag/2"
+_POSITION_LAG_PREFIX = "broker-position-lag:v2:"
 
 
 @dataclass
@@ -91,6 +96,128 @@ class ReconciliationResult:
             "detail": self.detail,
             "observation_id": self.observation_id,
         }
+
+
+def _position_lag_scope(
+        *, deployment: DeploymentIdentity, security_id: str) -> dict:
+    return {
+        "deployment": deployment.to_dict(),
+        "security_id": security_id,
+    }
+
+
+def _position_lag_digest(identity: Mapping[str, object]) -> str:
+    encoded = json.dumps(
+        identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _live_position_lag_capacity(
+        conn, *, deployment: DeploymentIdentity, security_id: str,
+        observed_at: datetime, new_episodes: tuple[Mapping, ...]) -> tuple:
+    """Persist new fill generations and return live signed lag envelopes.
+
+    Each broker fill progression gets its own immutable first-seen clock.  A
+    position endpoint may catch up partially without changing that generation,
+    and a later fill adds only its own capacity rather than resetting the old
+    clock.  A new command/revision has a different deterministic client key and
+    therefore earns a distinct bounded episode.
+    """
+    scope = _position_lag_scope(
+        deployment=deployment, security_id=security_id)
+    scope_prefix = _POSITION_LAG_PREFIX + _position_lag_digest(scope) + ":"
+    with conn.cursor() as cur:
+        for episode in new_episodes:
+            identity = {
+                "schema": _POSITION_LAG_SCHEMA,
+                **scope,
+                "kind": str(episode["kind"]),
+                "client_key": str(episode["client_key"]),
+                "generation": dict(episode["generation"]),
+                "signed_capacity": str(episode["signed_capacity"]),
+            }
+            cursor = scope_prefix + _position_lag_digest(identity)
+            candidate = dict(
+                identity, first_observed_at=observed_at.isoformat())
+            cur.execute(
+                "INSERT INTO sentinel_processed_sessions"
+                " (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)"
+                " ON CONFLICT (cursor_name) DO NOTHING",
+                (cursor, observed_at.date(), json.dumps(
+                    candidate, sort_keys=True, separators=(",", ":"))))
+        cur.execute(
+            "SELECT cursor_name,state FROM sentinel_processed_sessions"
+            " WHERE cursor_name LIKE %s ORDER BY cursor_name",
+            (scope_prefix + "%",))
+        rows = cur.fetchall()
+    live: list[Decimal] = []
+    expected_keys = {
+        "schema", "deployment", "security_id", "kind", "client_key",
+        "generation", "signed_capacity", "first_observed_at"}
+    for cursor, raw in rows:
+        value = raw if isinstance(raw, Mapping) else json.loads(str(raw))
+        if (set(value) != expected_keys
+                or value.get("schema") != _POSITION_LAG_SCHEMA
+                or value.get("deployment") != scope["deployment"]
+                or value.get("security_id") != security_id
+                or value.get("kind") not in {
+                    "ORDER_LEADS_POSITION", "POSITION_LEADS_ORDER"}
+                or not isinstance(value.get("generation"), Mapping)
+                or not str(value.get("client_key") or "")):
+            raise RuntimeError("broker position-lag evidence is malformed")
+        identity = dict(value)
+        identity.pop("first_observed_at")
+        if str(cursor) != scope_prefix + _position_lag_digest(identity):
+            raise RuntimeError("broker position-lag evidence cursor changed")
+        try:
+            capacity = Decimal(str(value["signed_capacity"]))
+            first_observed_at = datetime.fromisoformat(
+                str(value["first_observed_at"]))
+        except (InvalidOperation, KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "broker position-lag evidence value is malformed") from exc
+        if (not capacity.is_finite() or capacity == 0
+                or first_observed_at.tzinfo is None):
+            raise RuntimeError(
+                "broker position-lag evidence value is invalid")
+        generation = value["generation"]
+        try:
+            if value["kind"] == "ORDER_LEADS_POSITION":
+                if set(generation) != {
+                        "side", "filled_before", "filled_after",
+                        "action_multiplier"}:
+                    raise ValueError("unknown order-leading generation shape")
+                before = Decimal(str(generation["filled_before"]))
+                after = Decimal(str(generation["filled_after"]))
+                multiplier = Decimal(str(generation["action_multiplier"]))
+                magnitude = (after - before) * multiplier
+                expected_sign = Decimal(1) if generation["side"] == "BUY" \
+                    else Decimal(-1) if generation["side"] == "SELL" else None
+            else:
+                if set(generation) != {
+                        "side", "ordered_quantity",
+                        "order_filled_authority", "action_multiplier"}:
+                    raise ValueError("unknown position-leading generation shape")
+                ordered = Decimal(str(generation["ordered_quantity"]))
+                filled = Decimal(str(generation["order_filled_authority"]))
+                multiplier = Decimal(str(generation["action_multiplier"]))
+                magnitude = (ordered - filled) * multiplier
+                # Position-leading evidence is opposite the eventual signed
+                # fill: BUY shares appear as negative expected-observed gap.
+                expected_sign = Decimal(-1) if generation["side"] == "BUY" \
+                    else Decimal(1) if generation["side"] == "SELL" else None
+        except (InvalidOperation, KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "broker position-lag generation is malformed") from exc
+        if (expected_sign is None or not multiplier.is_finite()
+                or multiplier <= 0 or not magnitude.is_finite()
+                or magnitude <= 0 or capacity != expected_sign * magnitude):
+            raise RuntimeError(
+                "broker position-lag generation capacity is invalid")
+        age = observed_at - first_observed_at
+        if timedelta(0) <= age <= POSITION_LAG_GRACE:
+            live.append(capacity)
+    return tuple(live)
 
 
 def _validate_recovery_observation(
@@ -220,6 +347,21 @@ def age_book_through_actions(expected: Mapping[str, Decimal],
     return aged
 
 
+def _command_action_multiplier(command, actions: Optional[ActionLookup]) -> Decimal:
+    """The exact per-command share-unit transform used by belief and lag."""
+    if actions is None:
+        return Decimal(1)
+    try:
+        since = (command.created_at.date()
+                 if command.created_at is not None else None)
+        ratio = actions(command.security_id, since)
+    except TypeError:
+        # Compatibility for the deliberately tiny one-argument pure lookup
+        # used by component tests and non-corpus callers.
+        ratio = actions(command.security_id)
+    return ratio if ratio and ratio > 0 else Decimal(1)
+
+
 def expected_book_from_commands(commands, actions: Optional[ActionLookup] = None
                                 ) -> dict:
     """What Sentinel believes it holds, from its own filled commands.
@@ -239,17 +381,8 @@ def expected_book_from_commands(commands, actions: Optional[ActionLookup] = None
             continue
         if command.filled_quantity == 0:
             continue
-        quantity = command.filled_quantity
-        if actions is not None:
-            try:
-                since = (command.created_at.date()
-                         if command.created_at is not None else None)
-                ratio = actions(command.security_id, since)
-            except TypeError:
-                # Compatibility for the deliberately tiny one-argument pure
-                # lookup used by component tests and non-corpus callers.
-                ratio = actions(command.security_id)
-            quantity *= ratio if ratio and ratio > 0 else Decimal(1)
+        quantity = command.filled_quantity * _command_action_multiplier(
+            command, actions)
         signed = quantity if command.side.value == "BUY" else -quantity
         book[command.security_id] = book.get(command.security_id,
                                              Decimal(0)) + signed
@@ -419,6 +552,7 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     #     PERSISTED — an in-memory sync would be forgotten by the next restart
     #     and the accusation would return.
     resolved = []
+    recognized_fill_episodes: dict[str, list[dict]] = {}
     for command in stored:
         before_state = command.state
         before_filled = command.filled_quantity
@@ -590,6 +724,23 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
                 or command.filled_average_price != before_average
                 or command.broker_order_id != before_broker_order_id):
             journal.save_command(conn, command, previous=before_state)
+        fill_delta = command.filled_quantity - before_filled
+        if fill_delta > 0:
+            action_multiplier = _command_action_multiplier(command, actions)
+            signed_delta = fill_delta * action_multiplier * (
+                Decimal(1) if command.side.value == "BUY" else Decimal(-1))
+            recognized_fill_episodes.setdefault(
+                command.security_id, []).append({
+                    "kind": "ORDER_LEADS_POSITION",
+                    "client_key": command.client_key,
+                    "generation": {
+                        "side": command.side.value,
+                        "filled_before": str(before_filled),
+                        "filled_after": str(command.filled_quantity),
+                        "action_multiplier": str(action_multiplier),
+                    },
+                    "signed_capacity": signed_delta,
+                })
         resolved.append(command)
 
     unresolved = tuple(c for c in resolved if c.state is CommandState.UNKNOWN)
@@ -606,9 +757,69 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
 
     # 6. CLASSIFY WHAT SURVIVES.
     observed = observation.positions_by_security()
+    mismatched_positions = {
+        sid for sid in set(expected) | set(observed)
+        if abs(observed.get(sid, Decimal(0))
+               - expected.get(sid, Decimal(0))) > tolerance
+    }
+    lagging_fill_positions_list: list[str] = []
+    for sid in sorted(mismatched_positions):
+        expected_quantity = expected.get(sid, Decimal(0))
+        observed_quantity = observed.get(sid, Decimal(0))
+        gap = expected_quantity - observed_quantity
+        new_episodes = [
+            episode for episode in recognized_fill_episodes.get(sid, ())
+            if gap * Decimal(str(episode["signed_capacity"])) > 0]
+
+        # The inverse API race is possible too: both order reads can still say
+        # filled=0 while both position reads already show the shares.  Only an
+        # exact, working Sentinel command may supply this opposite-direction
+        # envelope, and the whole unexplained gap must fit inside its remaining
+        # quantity before the bounded episode is born.
+        position_leading = []
+        for command in resolved:
+            if command.security_id != sid:
+                continue
+            broker_order = observation.by_client_key(command.client_key)
+            if broker_order is None or not broker_order.is_working:
+                continue
+            remaining = command.quantity - command.filled_quantity
+            if remaining <= tolerance:
+                continue
+            action_multiplier = _command_action_multiplier(command, actions)
+            capacity = remaining * action_multiplier * (
+                Decimal(-1) if command.side.value == "BUY" else Decimal(1))
+            if gap * capacity <= 0:
+                continue
+            position_leading.append({
+                "kind": "POSITION_LEADS_ORDER",
+                "client_key": command.client_key,
+                "generation": {
+                    "side": command.side.value,
+                    "ordered_quantity": str(command.quantity),
+                    "order_filled_authority": str(command.filled_quantity),
+                    "action_multiplier": str(action_multiplier),
+                },
+                "signed_capacity": capacity,
+            })
+        leading_capacity = sum(
+            (abs(Decimal(str(item["signed_capacity"])))
+             for item in position_leading), Decimal(0))
+        if abs(gap) <= leading_capacity + tolerance:
+            new_episodes.extend(position_leading)
+
+        live_capacities = _live_position_lag_capacity(
+            conn, deployment=deployment, security_id=sid,
+            observed_at=observation.observed_at,
+            new_episodes=tuple(new_episodes))
+        available = sum(
+            (abs(capacity) for capacity in live_capacities
+             if gap * capacity > 0), Decimal(0))
+        if abs(gap) <= available + tolerance:
+            lagging_fill_positions_list.append(sid)
+    lagging_fill_positions = tuple(lagging_fill_positions_list)
     foreign_positions = tuple(sorted(
-        sid for sid, qty in observed.items()
-        if abs(qty - expected.get(sid, Decimal(0))) > tolerance))
+        mismatched_positions - set(lagging_fill_positions)))
     foreign_orders = tuple(o for o in observation.orders
                            if o.is_working and not is_sentinel_key(o.client_key))
 
@@ -631,6 +842,11 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
             if action_mismatches else "")
         detail = (f"{len(foreign_positions)} unexplained position(s), "
                   f"{len(foreign_orders)} foreign order(s){action_note}")
+    elif lagging_fill_positions:
+        state = RuntimeState.RECONCILING
+        detail = (
+            f"{len(lagging_fill_positions)} position endpoint value(s) lag "
+            "broker-confirmed in-flight fill progress; re-observation required")
 
     if applied:
         log.info("sentinel: aged %d holding(s) through corporate actions "

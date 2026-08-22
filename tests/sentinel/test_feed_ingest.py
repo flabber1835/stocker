@@ -263,9 +263,10 @@ class TestDaily:
             frontier, readiness.REQUIRED_SPY_SESSIONS)
         sfp = [row for i, session in enumerate(spy_sessions) for row in (
             {"ticker": "SPY", "date": session, "close": 400.0 + i,
-             "closeadj": 400.0 + i, "closeunadj": 400.0 + i},
-            {"ticker": "BIL", "date": session, "close": 91.0,
-             "closeadj": 91.0, "closeunadj": 91.0},
+             "open": 399.0 + i, "closeadj": 400.0 + i,
+             "closeunadj": 400.0 + i},
+            {"ticker": "BIL", "date": session, "open": 90.9,
+             "close": 91.0, "closeadj": 91.1, "closeunadj": 91.0},
         )]
         equity_rows = [
             sep_row("AAA", session, close=100.0, raw=100.0, open_=99.0)
@@ -295,9 +296,10 @@ class TestDaily:
                         " FROM sentinel_spy_total_return")
             assert cur.fetchone() == (41, 41, 1)
             cur.execute("SELECT COUNT(*), COUNT(DISTINCT session),"
-                        " COUNT(DISTINCT last_written_run_id)"
+                        " COUNT(DISTINCT last_written_run_id),"
+                        " COUNT(open_signal), COUNT(close_adjusted)"
                         " FROM sentinel_defensive_bars")
-            assert cur.fetchone() == (41, 41, 1)
+            assert cur.fetchone() == (41, 41, 1, 41, 41)
             cur.execute("SELECT COUNT(*) FROM sentinel_bars WHERE ticker='SPY'")
             assert cur.fetchone()[0] == 0
             cur.execute("SELECT COUNT(*) FROM sentinel_universe WHERE ticker='SPY'")

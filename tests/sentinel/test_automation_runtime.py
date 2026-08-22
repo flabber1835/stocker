@@ -17,7 +17,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from sentinel import authority, automation_runtime, paper
+from sentinel import (
+    authority, automation_runtime, informational_paper_mirror, paper)
 from sentinel.automation import store
 from sentinel.automation.model import (
     AutomationConfig,
@@ -332,6 +333,93 @@ def install_durable_projection(monkeypatch, current_plan, *, multiplier="1"):
     return projection
 
 
+@async_test
+async def test_dual_refresh_never_races_the_shadow_publication_writer(
+        monkeypatch) -> None:
+    cfg = config()
+    ctx = context(cfg, state=CycleState.REFRESHING_DATA)
+    conn = FakeConnection()
+    runtime = production(cfg)
+    runtime._dual_run_enabled = True  # noqa: SLF001 - reviewed-mode seam
+    monkeypatch.setattr(runtime, "connect", lambda: conn)
+    monkeypatch.setattr(
+        runtime, "_assert_cycle_authority",
+        lambda _conn, _context, *, operation_scope: (
+            ctx.cycle, control(cfg)))
+    monkeypatch.setattr(
+        automation_runtime.feed_store, "require_feed_schema",
+        lambda _conn: None)
+    monkeypatch.setattr(
+        automation_runtime.schema, "require_runtime_schema",
+        lambda _conn: None)
+    monkeypatch.setattr(
+        automation_runtime.feed_store, "latest_visible_session",
+        lambda _conn: "2026-08-11")
+    monkeypatch.setattr(
+        automation_runtime.ingest, "daily",
+        lambda *_args, **_kwargs: pytest.fail(
+            "broker-capable dual runtime raced the shadow publisher"))
+
+    with pytest.raises(RuntimeError, match="dedicated shadow data publisher"):
+        await runtime.refresh(ctx)
+
+    assert conn.closed == 1
+
+
+@async_test
+async def test_dual_prepare_bypasses_legacy_paper_catchup_lineage(
+        monkeypatch) -> None:
+    """An upgraded dual NAS must not synthesize legacy PAPER gap cycles."""
+    cfg = config()
+    ctx = context(cfg, state=CycleState.PREPARING)
+    conn = FakeConnection()
+    runtime = production(cfg)
+    runtime._dual_run_enabled = True  # noqa: SLF001 - reviewed-mode seam
+    runtime._shadow_observation_id = "shadow-observation"  # noqa: SLF001
+    runtime._shadow_starting_cash = Decimal("1000")  # noqa: SLF001
+    monkeypatch.setattr(runtime, "connect", lambda: conn)
+    monkeypatch.setattr(
+        runtime, "_assert_cycle_authority",
+        lambda _conn, _context, *, operation_scope: (
+            ctx.cycle, control(cfg)))
+    monkeypatch.setattr(
+        automation_runtime.feed_store, "require_feed_schema",
+        lambda _conn: None)
+    monkeypatch.setattr(
+        automation_runtime.schema, "require_runtime_schema",
+        lambda _conn: None)
+    monkeypatch.setattr(
+        automation_runtime.catchup, "last_processed_session",
+        lambda _conn: pytest.fail("dual mode read the legacy PAPER cursor"))
+    monkeypatch.setattr(
+        store, "ensure_historical_cycles",
+        lambda *_args, **_kwargs: pytest.fail(
+            "dual mode synthesized legacy PAPER history"))
+    monkeypatch.setattr(runtime, "_broker", lambda *_args: SimulatedBroker())
+    current_plan = plan()
+    calls = []
+
+    async def prepare_current(**kwargs):
+        calls.append(kwargs)
+        return paper.PreparationResult(
+            plan=current_plan, sessions_replayed=0, warmup_sessions=0,
+            state_fingerprint="state", publication_version=1,
+            frontier=DECISION.isoformat(), reconciliation=DictEvidence())
+
+    monkeypatch.setattr(paper, "prepare_paper_plan", prepare_current)
+    monkeypatch.setattr(
+        runtime, "_require_dual_plan_shadow_match",
+        lambda *_args, **_kwargs: {"status": "MATCHED"})
+
+    result = await runtime.prepare(ctx)
+
+    assert result.plan_id == current_plan.plan_id
+    assert result.missed_sessions == ()
+    assert calls[0]["dual_shadow_observation_id"] == "shadow-observation"
+    assert calls[0]["dual_shadow_starting_cash"] == Decimal("1000")
+    assert conn.closed == 1
+
+
 def permissive_guard() -> ExecutionBrokerGuard:
     async def before_read(_grant, _operation):
         return None
@@ -405,6 +493,127 @@ async def test_accepted_submit_needs_restart_reobservation_and_final_fill(
     completed = await runtime.recover(ctx)
     assert completed.disposition is ExecuteDisposition.SUCCEEDED
     assert completed.last_clean_reconciliation_id == "12"
+
+
+@async_test
+async def test_dual_raw_buy_ack_fill_recovery_converges_without_projection(
+        monkeypatch) -> None:
+    """The informational raw plan still needs a later exact filled-book read."""
+    cfg = config()
+    current_plan = plan()
+    ctx = context(cfg, plan=current_plan)
+    conn = FakeConnection()
+    inner = SimulatedBroker()
+    grant = automation_runtime._grant(  # noqa: SLF001
+        ctx, "EXECUTE", binding=control(cfg).binding)
+    guarded = GuardedExecutionBroker(
+        inner=inner, grant=grant, guard=permissive_guard())
+    runtime = production(cfg)
+    runtime._dual_run_enabled = True  # noqa: SLF001 - reviewed-mode seam
+    install_runtime_seams(monkeypatch, runtime, conn, ctx, guarded)
+    submitted = command(current_plan.plan_id)
+    in_flight = [submitted]
+    proof = {
+        "sizing_authority_sha256": "d" * 64,
+        "shadow_record_sha256": "e" * 64,
+    }
+    monkeypatch.setattr(
+        runtime, "_require_dual_plan_shadow_match",
+        lambda *_args, **_kwargs: proof)
+    monkeypatch.setattr(
+        automation_runtime.publication, "require_current",
+        lambda _conn: SimpleNamespace(version=7))
+    monkeypatch.setattr(
+        automation_runtime.feed_store, "latest_visible_session",
+        lambda _conn: DECISION.isoformat())
+    monkeypatch.setattr(
+        informational_paper_mirror, "require_transport_permitted",
+        lambda *_args, **_kwargs: {"status": "PREOPEN_UNPROVEN_PENDING"})
+    pending_calls = []
+    monkeypatch.setattr(
+        informational_paper_mirror, "require_pending_for_plan",
+        lambda *_args, **kwargs: pending_calls.append(kwargs) or {})
+    monkeypatch.setattr(
+        target_reprojection, "load_projection",
+        lambda *_args, **_kwargs: pytest.fail(
+            "dual raw convergence loaded strict target projection"))
+
+    async def execute_through_membrane(**kwargs):
+        outcome = await kwargs["broker"].submit(
+            client_key=submitted.client_key, instrument=INSTRUMENT,
+            side=Side.BUY, quantity=Decimal("1"))
+        assert outcome.state is CommandState.ACKNOWLEDGED
+        return paper.ExecutionResult(
+            plan=current_plan,
+            preflight=reconciliation(
+                await kwargs["broker"].observe(), observation_id=10),
+            session=SessionResult(
+                runtime_state=RuntimeState.RUNNING,
+                reconciliation=reconciliation(
+                    await kwargs["broker"].observe()),
+                submitted=(submitted,), detail="accepted"))
+
+    async def recover_through_membrane(**kwargs):
+        return reconciliation(
+            await kwargs["broker"].observe(), observation_id=12)
+
+    monkeypatch.setattr(
+        paper, "execute_automated_paper_plan", execute_through_membrane)
+    monkeypatch.setattr(
+        paper, "recover_automated_paper_cycle", recover_through_membrane)
+    monkeypatch.setattr(
+        journal, "in_flight_commands", lambda *_args: tuple(in_flight))
+    monkeypatch.setattr(journal, "latest_plan", lambda _conn: current_plan)
+
+    accepted = await runtime.execute(ctx)
+    assert accepted.disposition is ExecuteDisposition.RECONCILE
+    still_open = await runtime.recover(ctx)
+    assert still_open.disposition is ExecuteDisposition.RECONCILE
+
+    inner.fill(submitted.client_key)
+    in_flight.clear()
+    completed = await runtime.recover(ctx)
+
+    assert completed.disposition is ExecuteDisposition.SUCCEEDED
+    assert completed.last_clean_reconciliation_id == "12"
+    assert pending_calls[-1]["sizing_authority_sha256"] == "d" * 64
+
+
+@async_test
+async def test_dual_run_refuses_before_broker_construction_when_shadow_differs(
+        monkeypatch) -> None:
+    cfg = config()
+    current_plan = plan()
+    ctx = context(cfg, plan=current_plan)
+    conn = FakeConnection()
+    runtime = production(cfg)
+    runtime._dual_run_enabled = True  # noqa: SLF001 - explicit mode seam
+    monkeypatch.setattr(runtime, "connect", lambda: conn)
+    monkeypatch.setattr(
+        runtime, "_assert_cycle_authority",
+        lambda _conn, _context, *, operation_scope: (
+            ctx.cycle, control(runtime.automation_config)))
+    monkeypatch.setattr(
+        automation_runtime.feed_store, "require_feed_schema",
+        lambda _conn: None)
+    monkeypatch.setattr(
+        automation_runtime.schema, "require_runtime_schema", lambda _conn: None)
+    monkeypatch.setattr(journal, "latest_plan", lambda _conn: current_plan)
+    broker_builds = []
+    monkeypatch.setattr(
+        runtime, "_broker",
+        lambda *_args, **_kwargs: broker_builds.append(True))
+
+    def mismatch(*_args, **_kwargs):
+        raise NonRetryableCallbackRefused(
+            "dual-run plan/shadow reconciliation refused")
+
+    monkeypatch.setattr(runtime, "_require_dual_plan_shadow_match", mismatch)
+
+    with pytest.raises(
+            NonRetryableCallbackRefused, match="plan/shadow"):
+        await runtime.execute(ctx)
+    assert broker_builds == []
 
 
 @async_test

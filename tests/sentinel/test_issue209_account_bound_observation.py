@@ -28,6 +28,7 @@ def test_alpaca_observation_refuses_a_b_a_account_flip():
         BrokerAccountIdentity("alpaca", "B"),
         BrokerAccountIdentity("alpaca", "A"),
         BrokerAccountIdentity("alpaca", "A"),
+        BrokerAccountIdentity("alpaca", "A"),
     ])
 
     async def identity():

@@ -171,13 +171,14 @@ class TestAlpacaStatusMapping:
 
 
 class TestAlpacaObservation:
-    def test_it_reads_orders_positions_orders(self):
+    def test_it_reads_orders_positions_orders_positions(self):
         broker, http = alpaca({"/v2/orders": [order_payload()],
                                "/v2/positions": []})
         run(broker.observe())
         assert [c[1] for c in http.calls] == [
             "/v2/account", "/v2/orders", "/v2/account", "/v2/positions",
-            "/v2/account", "/v2/orders", "/v2/account"]
+            "/v2/account", "/v2/orders", "/v2/account", "/v2/positions",
+            "/v2/account"]
 
     def test_a_consistent_read_is_COMPLETE(self):
         broker, _ = alpaca({"/v2/orders": [order_payload()],
@@ -238,6 +239,28 @@ class TestAlpacaObservation:
 
         broker, _ = alpaca({"/v2/orders": orders, "/v2/positions": []})
         assert run(broker.observe()).completeness is Completeness.INCONSISTENT
+
+    def test_partial_fill_with_lagging_positions_stays_amber_then_converges(self):
+        state = {"positions": 0}
+
+        def positions(_params):
+            state["positions"] += 1
+            if state["positions"] == 1:
+                return []
+            return [{"symbol": "AAA", "asset_id": "asset-1", "qty": "40"}]
+
+        partial = order_payload(
+            status="partially_filled", qty="100", filled="40")
+        broker, _ = alpaca({
+            "/v2/orders": [partial], "/v2/positions": positions})
+
+        first = run(broker.observe())
+        assert first.completeness is Completeness.INCONSISTENT
+        assert first.positions[0].quantity == D(40)
+
+        second = run(broker.observe())
+        assert second.completeness is Completeness.COMPLETE
+        assert second.positions[0].quantity == D(40)
 
     def test_hitting_the_page_cap_reports_TRUNCATED_not_COMPLETE(
             self, monkeypatch):

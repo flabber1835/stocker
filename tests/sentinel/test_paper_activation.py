@@ -949,7 +949,9 @@ def test_supported_current_only_seed_produces_the_first_plan_without_backdating(
     feed_store.write_defensive_bars(
         conn,
         ({"ticker": "BIL", "date": session,
+          "open": 90.9 + index / 100.0,
           "close": 91.0 + index / 100.0,
+          "closeadj": 91.1 + index / 100.0,
           "closeunadj": 91.0 + index / 100.0}
          for index, session in enumerate(spy_sessions)),
         run_id=run_id)
@@ -1398,6 +1400,142 @@ def test_restart_cash_authority_uses_durable_average_fill_price(conn, pg):
         restarted.close()
 
 
+def test_stable_account_endpoint_lag_is_bounded_then_permanent(conn):
+    """A stale post-fill cash read is amber briefly, never forever."""
+    bound, _pinned, _state_value, durable_plan = \
+        _install_current_authorities(conn)
+    observed_at = dt.datetime(2026, 8, 12, 14, tzinfo=dt.timezone.utc)
+    observation = BrokerObservation(
+        observed_at=observed_at, orders=(), positions=(),
+        account_identity=BrokerAccountIdentity("sim", ACCOUNT))
+    def stale(cash):
+        return BrokerAccountSnapshot(
+            identity=BrokerAccountIdentity("sim", ACCOUNT),
+            equity=D("1000"), cash=D(cash), buying_power=D(cash),
+            multiplier=D(1), status="ACTIVE")
+
+    for offset, cash in ((0, "998"), (30, "997")):
+        with pytest.raises(
+                paper.PaperRetryableRefused,
+                match="bounded 120s re-observation"):
+            paper._cash_authority_or_refuse(  # noqa: SLF001
+                conn, plan=durable_plan, deployment=bound.identity,
+                account=stale(cash), observation=observation,
+                endpoint_lag_observed_at=(
+                    observed_at + dt.timedelta(seconds=offset)))
+        # This is what the surrounding writer lock does when the retryable
+        # exception escapes. The first-seen clock must already be durable.
+        conn.rollback()
+
+    with pytest.raises(
+            paper.PaperActivationRefused, match="fresh account cash") as error:
+        paper._cash_authority_or_refuse(  # noqa: SLF001
+            conn, plan=durable_plan, deployment=bound.identity,
+            account=stale("996"), observation=observation,
+            endpoint_lag_observed_at=(
+                observed_at + dt.timedelta(seconds=121)))
+    assert not isinstance(error.value, paper.PaperRetryableRefused)
+
+
+def test_account_change_inside_settled_book_bracket_is_retryable(
+        conn, monkeypatch):
+    """A fill/account endpoint race never becomes terminal cash evidence."""
+    bound, _pinned, _state_value, _plan_value = \
+        _install_current_authorities(conn)
+    now = dt.datetime(2026, 8, 12, 14, tzinfo=dt.timezone.utc)
+    observation = BrokerObservation(
+        observed_at=now, orders=(), positions=(),
+        account_identity=BrokerAccountIdentity("sim", ACCOUNT))
+    result = paper.reconciliation.ReconciliationResult(
+        runtime_state=RuntimeState.RUNNING, observation=observation,
+        observation_id=1)
+
+    async def confirmation(**_kwargs):
+        return paper.reconciliation.ReconciliationResult(
+            runtime_state=RuntimeState.RUNNING, observation=observation,
+            observation_id=2)
+
+    snapshots = iter((
+        BrokerAccountSnapshot(
+            identity=BrokerAccountIdentity("sim", ACCOUNT),
+            equity=D("1000"), cash=D("1000"), buying_power=D("1000"),
+            multiplier=D(1), status="ACTIVE"),
+        BrokerAccountSnapshot(
+            identity=BrokerAccountIdentity("sim", ACCOUNT),
+            equity=D("900"), cash=D("900"), buying_power=D("900"),
+            multiplier=D(1), status="ACTIVE"),
+    ))
+
+    class Broker:
+        async def account_snapshot(self):
+            return next(snapshots)
+
+    monkeypatch.setattr(paper.reconciliation, "reconcile", confirmation)
+    monkeypatch.setattr(journal, "in_flight_commands", lambda *_a, **_k: [])
+
+    with pytest.raises(
+            paper.PaperRetryableRefused,
+            match="account endpoint changed inside"):
+        asyncio.run(paper._settled_account_evidence_bracket(  # noqa: SLF001
+            conn=conn, broker=Broker(), binding=bound,
+            expected_account=ACCOUNT, deployment=bound.identity,
+            initial_result=result, actions=None, dual_mode=False,
+            clock=lambda: now))
+
+
+def test_mark_to_market_ticks_do_not_destabilize_cash_bracket(
+        conn, monkeypatch):
+    bound, _pinned, _state_value, _plan_value = \
+        _install_current_authorities(conn)
+    now = dt.datetime(2026, 8, 12, 14, tzinfo=dt.timezone.utc)
+    observation = BrokerObservation(
+        observed_at=now, orders=(), positions=(),
+        account_identity=BrokerAccountIdentity("sim", ACCOUNT))
+    result = paper.reconciliation.ReconciliationResult(
+        runtime_state=RuntimeState.RUNNING, observation=observation,
+        observation_id=1)
+
+    async def confirmation(**_kwargs):
+        return paper.reconciliation.ReconciliationResult(
+            runtime_state=RuntimeState.RUNNING, observation=observation,
+            observation_id=2)
+
+    snapshots = iter((
+        BrokerAccountSnapshot(
+            identity=BrokerAccountIdentity("sim", ACCOUNT),
+            equity=D("1000"), cash=D("1000"), buying_power=D("1000"),
+            multiplier=D(1), status="ACTIVE"),
+        BrokerAccountSnapshot(
+            identity=BrokerAccountIdentity("sim", ACCOUNT),
+            equity=D("1001.25"), cash=D("1000"),
+            buying_power=D("999.50"), multiplier=D(1), status="ACTIVE"),
+    ))
+
+    class Broker:
+        async def account_snapshot(self):
+            return next(snapshots)
+
+    activity = object()
+
+    async def cash_state(*_args, **_kwargs):
+        return activity
+
+    monkeypatch.setattr(paper.reconciliation, "reconcile", confirmation)
+    monkeypatch.setattr(journal, "in_flight_commands", lambda *_a, **_k: [])
+    monkeypatch.setattr(paper, "_broker_cash_state_or_refuse", cash_state)
+
+    confirmed, account, returned_activity, *_times = asyncio.run(
+        paper._settled_account_evidence_bracket(  # noqa: SLF001
+            conn=conn, broker=Broker(), binding=bound,
+            expected_account=ACCOUNT, deployment=bound.identity,
+            initial_result=result, actions=None, dual_mode=False,
+            clock=lambda: now))
+
+    assert confirmed.observation_id == 2
+    assert account.cash == D("1000")
+    assert returned_activity is activity
+
+
 class TestStrictExecutionGate:
     def test_missing_preopen_authority_blocks_actionable_cycle_before_projection(
             self, conn, monkeypatch):
@@ -1669,13 +1807,15 @@ class TestStrictExecutionGate:
         assert len(_mutations(broker)) == first_submit_count
 
     @pytest.mark.parametrize("cash", ["998", "1002"], ids=["lower", "higher"])
-    def test_unexplained_cash_mismatch_refuses_after_read_before_mutation(
+    def test_unexplained_cash_mismatch_waits_bounded_after_read_before_mutation(
             self, conn, monkeypatch, cash):
         _install_current_authorities(conn)
         _ready(monkeypatch)
         broker = _broker(cash=cash)
 
-        with pytest.raises(paper.PaperActivationRefused, match="account cash"):
+        with pytest.raises(
+                paper.PaperRetryableRefused,
+                match="bounded 120s re-observation"):
             _execute(conn, broker)
 
         assert "get_positions" in broker.calls

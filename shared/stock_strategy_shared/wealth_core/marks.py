@@ -169,15 +169,21 @@ class EquityView:
 
 
 def build_equity_view(cash: float, shares_by_security: Mapping[str, int],
-                      marks: Mapping[str, Mark]) -> EquityView:
+                      marks: Mapping[str, Mark], *,
+                      noncash_assets: float = 0.0) -> EquityView:
     """Split portfolio value into the trustworthy part and the estimate.
 
     A holding with NO mark at all is treated as UNRESOLVED rather than absent.
     Silently skipping it is the zero-treatment failure by another route: the
     position vanishes from equity while remaining in the book.
     """
-    resolved = float(cash)
-    estimated = float(cash)
+    assets = float(noncash_assets)
+    if not math.isfinite(assets) or assets < 0:
+        raise ValueError("non-cash portfolio assets must be finite/nonnegative")
+    # An earned dividend claim is equity, but it is deliberately not cash: it
+    # increases NAV/sizing value without becoming spendable before settlement.
+    resolved = float(cash) + assets
+    estimated = float(cash) + assets
     unresolved: list[str] = []
 
     for sec in sorted(shares_by_security):

@@ -1,3 +1,5 @@
+import pytest
+
 from stock_strategy_shared.wealth_core.sharadar_domains import raw_dividend_per_share
 
 
@@ -11,7 +13,11 @@ def test_dividend_domain_recovers_historical_aapl_pre_split_amount():
 def test_dividend_domain_spans_multiple_later_splits():
     # A cumulative factor of 28 (7:1 then later 4:1) converts the same current
     # share-basis value back to the historical as-traded share basis.
-    assert raw_dividend_per_share(21.0, 588.0, 0.1175) == 3.29
+    # The production path deliberately preserves the source calculation; do
+    # not require one particular binary-float spelling of the exact $3.29
+    # economic result.
+    assert raw_dividend_per_share(21.0, 588.0, 0.1175) == pytest.approx(
+        3.29, rel=0, abs=1e-12)
 
 
 def test_dividend_domain_is_identity_without_split_adjustment():

@@ -7,10 +7,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from sentinel import paper, trial
+from sentinel import identity, paper, trial
 from sentinel.execution.projection import project
 from sentinel.execution import reconcile
 from sentinel.feed import coherence, ingest_impl
+from sentinel.feed import runtime_schema
 from sentinel.feed import store as feed_store
 
 
@@ -67,9 +68,11 @@ def test_bounded_sfp_observation_is_partitioned_without_broadening_sep(
 
     written = ingest_impl._write_sfp_reference_rows(  # noqa: SLF001
         object(), [
-            {"ticker": "SPY", "date": "2026-08-20", "closeadj": 700},
+            {"ticker": "SPY", "date": "2026-08-20", "open": 699,
+             "close": 700, "closeadj": 700, "closeunadj": 700},
             {"ticker": "BIL", "date": "2026-08-20",
-             "close": 91.4, "closeunadj": 91.4},
+             "open": 91.3, "close": 91.4, "closeadj": 91.5,
+             "closeunadj": 91.4},
         ], run_id="run-223")
 
     assert written == 2
@@ -89,33 +92,114 @@ def test_bounded_sfp_observation_refuses_an_unrequested_fund(monkeypatch):
             run_id="run-223")
 
 
-def test_defensive_writer_pins_identity_and_requires_raw_mark():
+def test_defensive_writer_pins_identity_and_retains_scalar_source_fields():
     conn = _Connection()
 
     assert feed_store.write_defensive_bars(conn, [{
         "ticker": "bil", "date": "2026-08-20",
-        "close": "91.25", "closeunadj": "91.24",
+        "open": "91.20", "close": "91.25", "closeadj": "91.30",
+        "closeunadj": "91.24",
     }], run_id="4f1d3021-8700-42b5-9866-ad7f6a4af014") == 1
 
     statement, payload = conn.statements[0]
     assert "sentinel_defensive_bars" in statement
     assert "'SENTINEL:BIL'" in statement and "'BIL'" in statement
     assert payload == [(
-        "2026-08-20", 91.25, 91.24,
+        "2026-08-20", 91.20, 91.25, 91.30, 91.24,
         "4f1d3021-8700-42b5-9866-ad7f6a4af014")]
-    with pytest.raises(ValueError, match="close/closeunadj"):
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("open", None), ("close", 0), ("closeadj", float("nan")),
+     ("closeunadj", float("inf"))],
+)
+def test_defensive_writer_refuses_missing_nonpositive_or_nonfinite_source_field(
+        field, value):
+    row = {
+        "ticker": "BIL", "date": "2026-08-20", "open": 91.20,
+        "close": 91.25, "closeadj": 91.30, "closeunadj": 91.24,
+    }
+    row[field] = value
+    with pytest.raises(
+            ValueError, match="open/close/closeadj/closeunadj"):
         feed_store.write_defensive_bars(
-            _Connection(), [{"ticker": "BIL", "date": "2026-08-20",
-                             "close": 91.25, "closeunadj": None}])
+            _Connection(), [row])
+
+
+def test_defensive_runtime_schema_names_every_scalar_source_field():
+    columns = runtime_schema._COLUMNS["sentinel_defensive_bars"]  # noqa: SLF001
+    assert set(columns) >= {
+        "open_signal", "close_signal", "close_adjusted", "close_unadjusted"}
+    witnesses = runtime_schema._CONSTRAINT_WITNESSES[  # noqa: SLF001
+        "sentinel_defensive_bars"]
+    for field in (
+            "open_signal", "close_signal", "close_adjusted",
+            "close_unadjusted"):
+        assert any(field in tokens and ">" in tokens
+                   for kind, tokens in witnesses if kind == "c")
+
+
+def test_published_defensive_reader_exposes_every_scalar_identity_input():
+    conn = _Connection([(
+        date(2026, 8, 20), "SENTINEL:BIL", "BIL",
+        91.20, 91.25, 91.30, 91.24,
+    )])
+
+    assert feed_store.published_defensive_bars(
+        conn, "2026-08-20", "2026-08-20") == [(
+            "2026-08-20", "SENTINEL:BIL", "BIL",
+            91.20, 91.25, 91.30, 91.24)]
+    statement, _params = conn.statements[0]
+    assert all(field in statement for field in (
+        "open_signal", "close_signal", "close_adjusted", "close_unadjusted"))
+
+
+@pytest.mark.parametrize(("field_index", "restated"), [
+    (3, 91.19),  # source open
+    (4, 91.26),  # source close
+    (5, 91.31),  # total-return closeadj
+    (6, 91.23),  # broker-mark closeunadj
+])
+def test_publication_identity_changes_for_every_retained_bil_field(
+        monkeypatch, field_index, restated):
+    baseline = (
+        "2026-08-20", "SENTINEL:BIL", "BIL",
+        91.20, 91.25, 91.30, 91.24,
+    )
+    rows = [baseline]
+    monkeypatch.setattr(
+        feed_store, "published_defensive_bars",
+        lambda *_args, **_kwargs: list(rows))
+    first = identity._defensive_bars_identity(  # noqa: SLF001
+        object(), "2026-08-20", "2026-08-20")
+    changed = list(baseline)
+    changed[field_index] = restated
+    rows[:] = [tuple(changed)]
+
+    assert identity._defensive_bars_identity(  # noqa: SLF001
+        object(), "2026-08-20", "2026-08-20") != first
 
 
 def test_sfp_stability_identity_includes_the_raw_bil_mark():
     common = {"ticker": "BIL", "date": "2026-08-20",
-              "close": 91.25, "closeadj": 91.30}
+              "open": 91.20, "close": 91.25, "closeadj": 91.30}
     first = coherence.observe_sfp([{**common, "closeunadj": 91.24}])
     restated = coherence.observe_sfp([{**common, "closeunadj": 91.23}])
 
     assert first.digest != restated.digest
+
+
+@pytest.mark.parametrize(("field", "restated"), [
+    ("open", 91.19), ("closeadj", 91.31),
+])
+def test_sfp_stability_identity_includes_scalar_return_fields(field, restated):
+    row = {"ticker": "BIL", "date": "2026-08-20", "open": 91.20,
+           "close": 91.25, "closeadj": 91.30, "closeunadj": 91.24}
+    first = coherence.observe_sfp([row])
+    changed = coherence.observe_sfp([{**row, field: restated}])
+
+    assert first.digest != changed.digest
 
 
 def test_paper_planning_resolves_fixed_bil_mark_and_sizes_the_sleeve(

@@ -96,6 +96,27 @@ def run(*, mid_grace_bars=(), carry_mark=90.0, shares=10):
     return st, led, counters, audits
 
 
+def test_terminal_audit_serialization_has_no_nested_mutable_aliases():
+    state = PortfolioState.fresh(10_000.0)
+    state.terminal_carry_audit["S1"] = {
+        "carry_session": "d1", "shares_at_carry": 10,
+        "carry_price": 90.0, "last_trustworthy_print_session": "d0",
+        "grace_prints": [], "grace_split_multiplier": 1.0,
+        "grace_splits": [],
+    }
+    encoded = state.to_dict()
+    restored = PortfolioState.from_dict(encoded)
+
+    restored.terminal_carry_audit["S1"]["grace_prints"].append(
+        {"session": "d2", "price": 91.0})
+    assert encoded["terminal_carry_audit"]["S1"]["grace_prints"] == []
+    assert state.terminal_carry_audit["S1"]["grace_prints"] == []
+
+    encoded["terminal_carry_audit"]["S1"]["grace_splits"].append(
+        {"session": "d3", "ratio": 2.0})
+    assert state.terminal_carry_audit["S1"]["grace_splits"] == []
+
+
 # ── 1. the reconciliation identity ───────────────────────────────────────────
 
 class TestTheReconciliationIdentity:

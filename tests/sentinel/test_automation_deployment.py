@@ -75,6 +75,16 @@ def test_only_authorized_services_receive_broker_and_artifact_authority():
     authorized_environment = services["sentinel-authorized-cli"]["environment"]
 
     assert not any(name.startswith("ALPACA_") for name in panel_environment)
+    assert {
+        "SENTINEL_REVIEWED_DEPLOYMENT_MODE",
+        "SENTINEL_SHADOW_OBSERVATION_ID",
+        "SENTINEL_SHADOW_STARTING_CASH",
+        "SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256",
+        "SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256",
+        "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256",
+        "SENTINEL_GIT_COMMIT",
+        "SENTINEL_RUNTIME_IMAGE_DIGEST",
+    }.issubset(panel_environment)
     assert "ALPACA_API_KEY" not in manual_environment
     assert "ALPACA_SECRET_KEY" not in manual_environment
     assert "SENTINEL_AUTHORIZED_RUNTIME" not in manual_environment

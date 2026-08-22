@@ -12,13 +12,15 @@ import json
 import math
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Mapping, Optional
 from zoneinfo import ZoneInfo
 
 from sentinel import (
     binding as binding_mod,
+    dual_plan_authority,
     identity as system_identity,
+    informational_paper_mirror,
     schema,
     trial,
     trial_close,
@@ -93,6 +95,9 @@ from sentinel.feed import calendar, publication, readiness, store as feed_store
 DEFENSIVE_SYMBOL = "BIL"
 SIMPLIFIED_LDRC_STRATEGY_ID = "sentinel-concordance-simplified-ldrc"
 SIMPLIFIED_LDRC_STRATEGY_VERSION = 3
+ACCOUNT_ENDPOINT_LAG_GRACE = timedelta(seconds=120)
+_ACCOUNT_ENDPOINT_LAG_SCHEMA = "sentinel.broker-account-lag/1"
+_ACCOUNT_ENDPOINT_LAG_PREFIX = "broker-account-lag:v1:"
 
 
 def _assert_concordance_witness_authority(
@@ -500,6 +505,219 @@ def _clean_or_refuse(result, *, purpose: str) -> BrokerObservation:
     return observation
 
 
+def _dual_mutation_observation_or_refuse(result) -> BrokerObservation:
+    """Dual PAPER never mutates an unexplained or externally replaced book."""
+    observation = result.observation
+    # Replacement is a permanent authority divergence even when generic
+    # reconciliation quite reasonably labels changed quantity/id as an amber
+    # in-flight book.  Classify it before the clean/retry branch so the durable
+    # automation cycle becomes BLOCKED instead of retrying forever.
+    replaced = sorted(
+        order.broker_order_id
+        for order in (() if observation is None else observation.orders)
+        if getattr(order, "external_replacement", False))
+    if replaced:
+        raise PaperActivationRefused(
+            "informational dual PAPER observed an externally replaced or "
+            "pending-replace order; all broker mutations are blocked")
+    return _clean_or_refuse(
+        result, purpose="informational dual PAPER mutation")
+
+
+def _account_evidence_is_quiescent(
+        conn, *, deployment, observation: BrokerObservation) -> bool:
+    """Only a settled book can bind a later account snapshot to this read."""
+    if observation is None or not observation.is_complete:
+        return False
+    if any(order.is_working for order in observation.orders):
+        return False
+    return not journal.in_flight_commands(conn, deployment)
+
+
+def _observation_economics(observation: BrokerObservation) -> dict:
+    """Canonical broker book facts, excluding transport timestamps."""
+    positions = [{
+        "security_id": item.instrument.security_id,
+        "broker_id": item.instrument.broker_id,
+        "quantity": str(item.quantity),
+    } for item in observation.positions]
+    positions.sort(key=lambda item: (
+        item["security_id"], item["broker_id"] or "", item["quantity"]))
+    orders = [{
+        "broker_order_id": item.broker_order_id,
+        "client_key": item.client_key,
+        "security_id": item.instrument.security_id,
+        "broker_id": item.instrument.broker_id,
+        "side": item.side.value,
+        "state": item.state.value,
+        "quantity": str(item.quantity),
+        "filled_quantity": str(item.filled_quantity),
+        "filled_average_price": (
+            None if item.filled_average_price is None
+            else str(item.filled_average_price)),
+        "external_replacement": bool(item.external_replacement),
+    } for item in observation.orders if item.is_working]
+    orders.sort(key=lambda item: (
+        item["broker_order_id"], item["client_key"] or ""))
+    return {
+        "completeness": observation.completeness.value,
+        "account": (
+            None if observation.account_identity is None else {
+                "broker": observation.account_identity.broker,
+                "account_id": observation.account_identity.account_id,
+            }),
+        "positions": positions,
+        "orders": orders,
+    }
+
+
+def _account_economics(snapshot: BrokerAccountSnapshot) -> dict:
+    """Facts that must remain stable around a settled cash observation.
+
+    Equity is mark-to-market and can tick with no broker activity. Buying power
+    can be recomputed from those marks as well; each endpoint payload is still
+    validated as cash-only by ``_account_or_refuse``, but neither value is a
+    stable cross-request identity. Cash and the account's permission/status
+    fields are the relevant evidence for cash certification.
+    """
+    return {
+        "broker": snapshot.identity.broker,
+        "account_id": snapshot.identity.account_id,
+        "cash": str(snapshot.cash),
+        "multiplier": (None if snapshot.multiplier is None
+                       else str(snapshot.multiplier)),
+        "status": snapshot.status,
+        "trading_blocked": snapshot.trading_blocked,
+        "account_blocked": snapshot.account_blocked,
+        "trade_suspended_by_user": snapshot.trade_suspended_by_user,
+    }
+
+
+def _account_endpoint_lag_is_live(
+        conn, *, plan: ExecutionPlan, deployment,
+        account: BrokerAccountSnapshot, expected_cash: Decimal,
+        observation: BrokerObservation, observed_at: datetime) -> bool:
+    """Create/read one non-renewable grace for a stable cash mismatch."""
+    if observed_at.tzinfo is None:
+        raise PaperActivationRefused(
+            "account endpoint evidence time must be timezone-aware")
+    durable_commands = [{
+        "client_key": command.client_key,
+        "security_id": command.security_id,
+        "broker_order_id": command.broker_order_id,
+        "side": command.side.value,
+        "state": command.state.value,
+        "quantity": str(command.quantity),
+        "filled_quantity": str(command.filled_quantity),
+        "filled_average_price": (
+            None if command.filled_average_price is None
+            else str(command.filled_average_price)),
+    } for command in journal.load_commands(
+        conn, deployment, plan_id=plan.plan_id)]
+    durable_commands.sort(key=lambda item: item["client_key"])
+    observation_value = _observation_economics(observation)
+    settled_book_identity = {
+        # Terminal order rows may age out of the next recovery window after the
+        # first retry. The durable command journal is their stable authority;
+        # working orders cannot reach this quiescent evidence path at all.
+        "durable_commands": durable_commands,
+        "positions": observation_value["positions"],
+        "account": observation_value["account"],
+    }
+    identity = {
+        "schema": _ACCOUNT_ENDPOINT_LAG_SCHEMA,
+        "deployment": deployment.to_dict(),
+        "plan_id": plan.plan_id,
+        "plan_fingerprint": plan.fingerprint(),
+        "expected_cash": str(expected_cash),
+        "settled_book_sha256": _hash(settled_book_identity),
+    }
+    cursor = _ACCOUNT_ENDPOINT_LAG_PREFIX + _hash(identity)
+    candidate = dict(
+        identity, first_observed_cash=str(account.cash),
+        first_observed_at=observed_at.isoformat())
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_processed_sessions"
+            " (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)"
+            " ON CONFLICT (cursor_name) DO NOTHING",
+            (cursor, observed_at.date(), json.dumps(
+                candidate, sort_keys=True, separators=(",", ":"))))
+        cur.execute(
+            "SELECT state FROM sentinel_processed_sessions"
+            " WHERE cursor_name=%s", (cursor,))
+        row = cur.fetchone()
+    if row is None:
+        raise PaperActivationRefused(
+            "account endpoint-lag evidence was not retained")
+    stored = row[0] if isinstance(row[0], Mapping) else json.loads(str(row[0]))
+    if (set(stored) != set(identity) | {
+            "first_observed_cash", "first_observed_at"}
+            or any(stored.get(key) != value
+                   for key, value in identity.items())):
+        raise PaperActivationRefused(
+            "account endpoint-lag evidence identity changed")
+    try:
+        first = datetime.fromisoformat(str(stored["first_observed_at"]))
+        first_cash = Decimal(str(stored["first_observed_cash"]))
+    except (InvalidOperation, KeyError, TypeError, ValueError) as exc:
+        raise PaperActivationRefused(
+            "account endpoint-lag evidence time is malformed") from exc
+    if first.tzinfo is None or not first_cash.is_finite():
+        raise PaperActivationRefused(
+            "account endpoint-lag evidence value is invalid")
+    # The surrounding writer lock rolls back on the retryable refusal this
+    # function intentionally triggers.  Commit the immutable first-seen clock
+    # now so a restart/retry cannot manufacture a fresh 120-second grace
+    # forever.  Reconciliation writes preceding this point are also positive
+    # broker evidence and are safe (and necessary) to retain.
+    conn.commit()
+    age = observed_at - first
+    return timedelta(0) <= age <= ACCOUNT_ENDPOINT_LAG_GRACE
+
+
+async def _settled_account_evidence_bracket(
+        *, conn, broker: ExecutionBroker, binding, expected_account: str,
+        deployment, initial_result, actions, dual_mode: bool, clock):
+    """Bracket a second complete book read with stable account snapshots."""
+    initial_observation = initial_result.observation
+    if not _account_evidence_is_quiescent(
+            conn, deployment=deployment, observation=initial_observation):
+        raise PaperRetryableRefused(
+            "account evidence remains pending while broker work is in flight")
+    started_at = clock()
+    before = await broker.account_snapshot()
+    _account_or_refuse(before, binding, expected_account)
+    confirmation = await reconciliation.reconcile(
+        broker=broker, conn=conn, binding=None,
+        deployment=deployment, actions=actions)
+    confirmed_observation = (
+        _dual_mutation_observation_or_refuse(confirmation)
+        if dual_mode else
+        _clean_or_refuse(
+            confirmation, purpose="settled account evidence bracket"))
+    if not _account_evidence_is_quiescent(
+            conn, deployment=deployment,
+            observation=confirmed_observation):
+        raise PaperRetryableRefused(
+            "account evidence bracket observed broker work in flight")
+    after = await broker.account_snapshot()
+    observed_at = clock()
+    _account_or_refuse(after, binding, expected_account)
+    if (_observation_economics(initial_observation)
+            != _observation_economics(confirmed_observation)):
+        raise PaperRetryableRefused(
+            "order/position endpoints changed inside the account evidence "
+            "bracket; re-observation is required")
+    if _account_economics(before) != _account_economics(after):
+        raise PaperRetryableRefused(
+            "account endpoint changed inside the order/position evidence "
+            "bracket; re-observation is required")
+    activity = await _broker_cash_state_or_refuse(
+        conn, broker=broker, binding=binding, through=observed_at)
+    return confirmation, after, activity, started_at, observed_at
+
+
 def _account_or_refuse(snapshot: BrokerAccountSnapshot, binding,
                        expected_account: Optional[str]) -> None:
     if not binding.identity.matches_account(snapshot.identity):
@@ -791,7 +1009,8 @@ def _cash_authority_or_refuse(
         conn, *, plan: ExecutionPlan, deployment,
         account: BrokerAccountSnapshot, observation: BrokerObservation,
         activity_state: broker_cash.CashActivityState | None = None,
-        permit_new_activity: bool = False) -> None:
+        permit_new_activity: bool = False,
+        endpoint_lag_observed_at: datetime | None = None) -> None:
     """Reconcile immutable plan cash to fills plus durable broker activities.
 
     The account balance is never its own explanation.  Native Account Activity
@@ -852,6 +1071,17 @@ def _cash_authority_or_refuse(
 
     expected = expected_without_activity + activity_delta
     if abs(account.cash - expected) > Decimal("1.00"):
+        if (endpoint_lag_observed_at is not None
+                and _account_endpoint_lag_is_live(
+                    conn, plan=plan, deployment=deployment,
+                    account=account, expected_cash=expected,
+                    observation=observation,
+                    observed_at=endpoint_lag_observed_at)):
+            raise PaperRetryableRefused(
+                "account cash endpoint is not yet coherent with the stable "
+                "order/position bracket; no mutation is permitted during the "
+                f"bounded {int(ACCOUNT_ENDPOINT_LAG_GRACE.total_seconds())}s "
+                "re-observation window")
         raise PaperActivationRefused(
             f"fresh account cash {account.cash} is not explained by plan "
             f"baseline {plan.account_cash}, durable fills and broker-native "
@@ -1055,8 +1285,10 @@ def _validate_automation_grant(conn, grant: AutomationExecutionGrant):
     return control, cycle
 
 
-def _validate_broker_grant(conn, grant, _operation: BrokerOperation,
-                           result, *, now_provider, strategy_provider) -> None:
+def _validate_broker_grant(
+        conn, grant, _operation: BrokerOperation, result, *, now_provider,
+        strategy_provider, dual_shadow_observation_id: str | None = None,
+        dual_shadow_starting_cash: Decimal | str | None = None) -> None:
     """Fresh database-only grant proof run before and after every broker read."""
     from sentinel.handover import assert_no_legacy_path
 
@@ -1083,7 +1315,36 @@ def _validate_broker_grant(conn, grant, _operation: BrokerOperation,
                 "automation grant account/takeover identity is stale")
         decision_session = cycle.decision_session
         if grant.operation_scope == "EXECUTE":
-            state, plan, _cursor = _state_and_plan_or_refuse(conn)
+            dual_mode = (
+                dual_shadow_observation_id is not None
+                and dual_shadow_starting_cash is not None)
+            if dual_mode:
+                plan = journal.latest_plan(conn)
+                if plan is None:
+                    raise PaperActivationRefused(
+                        "dual broker guard has no current PAPER plan")
+                from sentinel import dual_reconciliation
+                try:
+                    shadow = dual_reconciliation.verified_shadow_intent(
+                        conn, decision_session=plan.decision_session,
+                        observation_id=str(dual_shadow_observation_id),
+                        starting_cash=dual_shadow_starting_cash)
+                except (
+                        dual_reconciliation.DualReconciliationPending,
+                        dual_reconciliation.DualReconciliationRefused) as exc:
+                    raise PaperActivationRefused(
+                        f"dual broker guard shadow authority refused: {exc}") from exc
+                state = SessionState.from_dict(shadow.state.to_dict())
+                try:
+                    dual_plan_authority.rederive_plan(
+                        conn, plan=plan, binding=binding,
+                        rollout_state=rollout,
+                        expected_shadow_result=shadow)
+                except dual_plan_authority.DualPlanAuthorityRefused as exc:
+                    raise PaperActivationRefused(
+                        f"dual broker guard sizing authority refused: {exc}") from exc
+            else:
+                state, plan, _cursor = _state_and_plan_or_refuse(conn)
             if (cycle.plan_id != plan.plan_id
                     or cycle.plan_fingerprint != plan.fingerprint()):
                 raise PaperActivationRefused(
@@ -1135,7 +1396,9 @@ def _validate_broker_grant(conn, grant, _operation: BrokerOperation,
 
 def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
                   now_provider, strategy_provider,
-                  automation_config_sha256: str | None = None
+                  automation_config_sha256: str | None = None,
+                  dual_shadow_observation_id: str | None = None,
+                  dual_shadow_starting_cash: Decimal | str | None = None
                   ) -> GuardedExecutionBroker:
     guard = build_fresh_execution_guard(
         connection_factory=_fresh_connection_factory(conn),
@@ -1146,7 +1409,9 @@ def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
             _validate_broker_grant(
                 fresh, current_grant, operation, result,
                 now_provider=now_provider,
-                strategy_provider=strategy_provider)),
+                strategy_provider=strategy_provider,
+                dual_shadow_observation_id=dual_shadow_observation_id,
+                dual_shadow_starting_cash=dual_shadow_starting_cash)),
         automation_config_sha256=automation_config_sha256,
         authority_check=require_current_authority)
     return GuardedExecutionBroker(inner=broker, grant=grant, guard=guard)
@@ -1161,6 +1426,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                              now_et: datetime | None = None,
                              automation_grant: AutomationExecutionGrant | None = None,
                              automation_config_sha256: str | None = None,
+                             dual_shadow_observation_id: str | None = None,
+                             dual_shadow_starting_cash: Decimal | str | None = None,
                              ) -> PreparationResult:
     """Advance and adopt one current plan without any broker mutation."""
     assert_paper_url(base_url)
@@ -1176,6 +1443,18 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             and automation_grant.operation_scope != "PREPARE"):
         raise PaperActivationRefused(
             "automation preparation requires a PREPARE-scoped grant")
+    dual_values = (
+        dual_shadow_observation_id, dual_shadow_starting_cash)
+    if any(value is not None for value in dual_values) \
+            and not all(value is not None for value in dual_values):
+        raise PaperActivationRefused(
+            "dual PAPER preparation requires both reviewed shadow identity "
+            "and starting-capital configuration")
+    dual_mode = all(value is not None for value in dual_values)
+    # A reviewed deploy may perform this preparation through the read-only
+    # PaperPreparationGrant while automation remains killed. That grant cannot
+    # cross any broker mutation method. Actual informational transport remains
+    # automation-only in `_execute_current_paper_plan`.
     if controller_config is None and strategy_identity is None:
         config, identity = _default_paper_strategy()
     else:
@@ -1249,17 +1528,112 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             broker = _guard_broker(
                 conn=conn, broker=broker, grant=grant, base_url=base_url,
                 now_provider=clock, strategy_provider=strategy_provider,
-                automation_config_sha256=automation_config_sha256)
+                automation_config_sha256=automation_config_sha256,
+                dual_shadow_observation_id=dual_shadow_observation_id,
+                dual_shadow_starting_cash=dual_shadow_starting_cash)
 
-            existing_raw = catchup.resume_state(conn)
-            existing_cursor = catchup.last_processed_session(conn)
             existing_plan = journal.latest_plan(conn)
-            if (existing_raw is not None
-                    and existing_cursor == through_date
-                    and existing_plan is not None):
+            dual_result = None
+            dual_state = None
+            if dual_mode:
+                # Dual mode has one strategy lineage: the independently
+                # attested shadow ledger.  Never even read the legacy PAPER
+                # catch-up cursor, because a second path-dependent state could
+                # drift while still producing plausible exposure numbers.
+                from sentinel import dual_reconciliation
+                try:
+                    dual_result = dual_reconciliation.verified_shadow_intent(
+                        conn, decision_session=through_date,
+                        observation_id=str(dual_shadow_observation_id),
+                        starting_cash=dual_shadow_starting_cash)
+                except dual_reconciliation.DualReconciliationPending as exc:
+                    raise PaperRetryableRefused(str(exc)) from exc
+                except dual_reconciliation.DualReconciliationRefused as exc:
+                    raise PaperActivationRefused(str(exc)) from exc
+                dual_state = SessionState.from_dict(
+                    dual_result.state.to_dict())
+                if dual_state.strategy_identity != identity:
+                    raise PaperActivationRefused(
+                        "verified shadow strategy/config/source identity "
+                        "differs from the PAPER adapter")
+                if dual_state.data_version != pinned.version:
+                    raise PaperRetryableRefused(
+                        "verified shadow state does not name the exact pinned "
+                        "publication used for PAPER account sizing")
+                from sentinel import shadow_runtime
+                not_before = shadow_runtime.publication_not_before(through_text)
+                if observation_time < not_before:
+                    raise PaperRetryableRefused(
+                        "informational PAPER unit revalidation waits for the "
+                        "reviewed source-final 23:45 New York boundary")
+                try:
+                    informational_paper_mirror.revalidate_all(
+                        conn, checked_through=through_date,
+                        publication_version=pinned.version, commit=True)
+                    informational_paper_mirror.require_transport_permitted(
+                        conn, current_frontier=through_date,
+                        current_publication_version=pinned.version)
+                except informational_paper_mirror.InformationalPaperMirrorMismatch as exc:
+                    raise PaperActivationRefused(
+                        f"informational PAPER mirror is blocked: {exc}") from exc
+                except informational_paper_mirror.InformationalPaperMirrorPending as exc:
+                    raise PaperRetryableRefused(
+                        f"informational PAPER mirror is pending: {exc}") from exc
+                except informational_paper_mirror.InformationalPaperMirrorRefused as exc:
+                    raise PaperActivationRefused(
+                        f"informational PAPER mirror is not current: {exc}") from exc
+                existing_raw = None
+                existing_cursor = None
+            else:
+                existing_raw = catchup.resume_state(conn)
+                existing_cursor = catchup.last_processed_session(conn)
+            if (existing_plan is not None
+                    and existing_plan.decision_session == through_date):
                 # Restart validation may return this plan unchanged. Prove its
                 # economics still derive its id before contacting the broker.
                 _assert_deterministic_plan_id(existing_plan)
+
+            if (dual_mode and existing_plan is not None
+                    and existing_plan.decision_session == through_date):
+                state = dual_state
+                _assert_concordance_witness_authority(
+                    state, certificate.authorization_mode)
+                _assert_plan_authorities(
+                    conn, state=state, plan=existing_plan, binding=binding,
+                    pinned=pinned, frontier=through_text,
+                    today=date.fromisoformat(
+                        calendar.next_session(through_text)),
+                    runtime_identity=identity, rollout=rollout,
+                    require_effective_today=False)
+                try:
+                    dual_plan_authority.rederive_plan(
+                        conn, plan=existing_plan, binding=binding,
+                        rollout_state=rollout,
+                        expected_shadow_result=dual_result)
+                except dual_plan_authority.DualPlanAuthorityRefused as exc:
+                    raise PaperActivationRefused(
+                        f"dual sizing authority refused restart: {exc}") from exc
+                rec = await reconciliation.reconcile(
+                    broker=broker, conn=conn, binding=None,
+                    deployment=binding.identity,
+                    actions=_action_lookup(conn, state, through_date))
+                observation = _clean_or_refuse(
+                    rec, purpose="dual PAPER preparation restart")
+                account = await broker.account_snapshot()
+                _account_or_refuse(account, binding, expected_account)
+                activity_state = await _broker_cash_state_or_refuse(
+                    conn, broker=broker, binding=binding,
+                    through=observation_time)
+                _cash_authority_or_refuse(
+                    conn, plan=existing_plan, deployment=binding.identity,
+                    account=account, observation=observation,
+                    activity_state=activity_state)
+                journal.adopt_current_plan(conn, existing_plan)
+                return PreparationResult(
+                    plan=existing_plan, sessions_replayed=0,
+                    warmup_sessions=0, state_fingerprint=state.state_hash,
+                    publication_version=pinned.version, frontier=through_text,
+                    reconciliation=rec, superseded_plans=0)
 
             # Same-session preparation is restart validation, not a second
             # sizing decision. Re-reading a later NAV and replacing the plan
@@ -1310,8 +1684,11 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     publication_version=pinned.version, frontier=through_text,
                     reconciliation=rec, superseded_plans=0)
 
-            actions = (_action_lookup(
-                conn, SessionState.from_dict(existing_raw), through_date)
+            actions = (
+                _action_lookup(conn, dual_state, through_date)
+                if dual_mode else
+                _action_lookup(
+                    conn, SessionState.from_dict(existing_raw), through_date)
                 if existing_raw is not None else None)
             due_existing_cycle = (
                 existing_plan is not None
@@ -1331,7 +1708,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 commands = journal.load_commands(conn, binding.identity)
                 active_security_ids = _preopen_active_security_ids(
                     plan=existing_plan, commands=commands, actions=actions)
-                if active_security_ids:
+                if active_security_ids and not dual_mode:
                     official_open = _official_preopen_cutoff(existing_plan)
                     due_authority, actions, due_target_actions = (
                         _preopen_views_or_none(
@@ -1360,7 +1737,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 current_security_ids = _preopen_active_security_ids(
                     plan=existing_plan, commands=current_commands,
                     actions=actions)
-                if due_authority is None and current_security_ids:
+                if (not dual_mode and due_authority is None
+                        and current_security_ids):
                     raise PreOpenShareUnitAuthorityUnavailable(
                         "pre-open share-unit authority is absent after "
                         "succeeded-cycle reconciliation adopted a nonempty "
@@ -1385,7 +1763,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     account=account, observation=observation,
                     activity_state=activity_state,
                     permit_new_activity=True)
-                if due_existing_cycle:
+                if due_existing_cycle and not dual_mode:
                     await _finalize_due_succeeded_cycle_or_refuse(
                         conn, broker=broker, deployment=binding.identity,
                         plan=existing_plan, reconciliation=rec,
@@ -1397,11 +1775,66 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                         observation_target_actions=(
                             due_observation_target_actions),
                         clock=clock)
+                # Informational dual PAPER deliberately has no PAPER trial-P/L
+                # authority.  Its prior succeeded cycle therefore creates no
+                # official-close/fill-finality debt before the next account-
+                # sized plan.  The complete live account/reconciliation and
+                # cash explanation above still gate sizing; certified return
+                # remains solely in the independently verified shadow chain.
             if any(order.is_working for order in observation.orders):
                 raise PaperActivationRefused(
                     "initial plan adoption requires no working broker order; "
                     "settle or explicitly resolve the prior durable command "
                     "before establishing the account-cash baseline")
+
+            if dual_mode:
+                # The shadow record has already advanced the only strategy
+                # state.  This branch performs account sizing and plan adoption
+                # only; it never reads or writes the PAPER catch-up cursor.
+                state = dual_state
+                _assert_concordance_witness_authority(
+                    state, certificate.authorization_mode)
+                marks, tickers = _load_marks_and_tickers(
+                    conn, state, through_text)
+                decision = build_execution_plan(
+                    state=state, binding=binding, publication=pinned,
+                    account_snapshot=account, observation=observation,
+                    marks=marks, tickers=tickers,
+                    decision_session=through_date,
+                    effective_session=date.fromisoformat(
+                        calendar.next_session(through_text)),
+                    rollout_state=rollout)
+                authority = dual_plan_authority.build_authority(
+                    plan=decision.plan, shadow_result=dual_result,
+                    publication=pinned, account_snapshot=account,
+                    observation=observation, marks=marks, tickers=tickers)
+                superseded = int(
+                    existing_plan is not None
+                    and existing_plan.plan_id != decision.plan.plan_id)
+                latest = journal.adopt_current_plan(
+                    conn, decision.plan, commit=False)
+                dual_plan_authority.record_authority(
+                    conn, authority, commit=False)
+                dual_plan_authority.rederive_plan(
+                    conn, plan=latest, binding=binding,
+                    rollout_state=rollout,
+                    expected_shadow_result=dual_result)
+                if activity_state is not None:
+                    try:
+                        broker_cash.record_plan_baseline(
+                            conn, plan_id=latest.plan_id,
+                            decision_session=latest.decision_session,
+                            activity_state=activity_state)
+                    except broker_cash.BrokerCashAuthorityRefused as exc:
+                        raise PaperActivationRefused(
+                            "cannot establish immutable dual plan cash "
+                            f"baseline: {exc}") from exc
+                conn.commit()
+                return PreparationResult(
+                    plan=latest, sessions_replayed=0, warmup_sessions=0,
+                    state_fingerprint=state.state_hash,
+                    publication_version=pinned.version, frontier=through_text,
+                    reconciliation=rec, superseded_plans=superseded)
 
             raw = existing_raw
             cursor = existing_cursor
@@ -1623,6 +2056,43 @@ def _preopen_active_security_ids(
         str(command.security_id) for command in commands
         if blocks_overlapping(command.state) or command.is_recovered)
     return tuple(sorted(identities))
+
+
+def _informational_active_symbols(
+        *, active_security_ids, commands, observation: BrokerObservation,
+        sizing_proof: Mapping) -> dict[str, str]:
+    """Bind every active permanent id to one canonical transport symbol."""
+    symbols: dict[str, str] = {}
+
+    def add(security_id, symbol) -> None:
+        sid = str(security_id)
+        value = str(symbol or "").strip().upper()
+        if not value or sid not in active_security_ids:
+            return
+        prior = symbols.get(sid)
+        if prior is not None and prior != value:
+            raise PaperActivationRefused(
+                f"active security {sid} has conflicting canonical symbols")
+        symbols[sid] = value
+
+    canonical = sizing_proof.get("canonical_symbols") or {}
+    if not isinstance(canonical, Mapping):
+        raise PaperActivationRefused(
+            "dual sizing authority has no canonical symbol mapping")
+    for security_id, symbol in canonical.items():
+        add(security_id, symbol)
+    for command in commands:
+        add(command.security_id, command.instrument.symbol)
+    for position in observation.positions:
+        add(position.instrument.security_id, position.instrument.symbol)
+    for order in observation.orders:
+        add(order.instrument.security_id, order.instrument.symbol)
+    missing = sorted(set(active_security_ids) - set(symbols))
+    if missing:
+        raise PaperActivationRefused(
+            "informational mirror lacks a canonical symbol for active "
+            "security identities: " + ", ".join(missing))
+    return dict(sorted(symbols.items()))
 
 
 def _plan_deltas(
@@ -1871,7 +2341,10 @@ async def _execute_current_paper_plan(
         *, conn, broker: ExecutionBroker, base_url: str,
         grant: ManualExecutionGrant | AutomationExecutionGrant,
         today: date | datetime | None = None,
-        automation_config_sha256: str | None = None) -> ExecutionResult:
+        automation_config_sha256: str | None = None,
+        dual_shadow_observation_id: str | None = None,
+        dual_shadow_starting_cash: Decimal | str | None = None
+        ) -> ExecutionResult:
     """One durable-plan gateway shared by manual and automation grants."""
     assert_paper_url(base_url)
     _require_certified_paper_broker(broker)
@@ -1879,6 +2352,17 @@ async def _execute_current_paper_plan(
             and grant.operation_scope != "EXECUTE"):
         raise PaperActivationRefused(
             "automation execution requires an EXECUTE-scoped grant")
+    dual_values = (
+        dual_shadow_observation_id, dual_shadow_starting_cash)
+    if any(value is not None for value in dual_values) \
+            and not all(value is not None for value in dual_values):
+        raise PaperActivationRefused(
+            "dual PAPER execution requires both reviewed shadow identity and "
+            "starting-capital configuration")
+    dual_mode = all(value is not None for value in dual_values)
+    if dual_mode and not isinstance(grant, AutomationExecutionGrant):
+        raise PaperActivationRefused(
+            "informational dual transport is automation-only")
     real_clock = today is None
     now_et = _execution_observation_time(today)
     today = now_et.date()
@@ -1892,7 +2376,28 @@ async def _execute_current_paper_plan(
         with publication.pinned(conn, commit=False) as pinned:
             _readiness_or_refuse(conn, now_et=now_et)
             frontier = feed_store.latest_visible_session(conn)
-            state, plan, _cursor = _state_and_plan_or_refuse(conn)
+            dual_result = None
+            if dual_mode:
+                plan = journal.latest_plan(conn)
+                if plan is None:
+                    raise PaperActivationRefused(
+                        "there is no durable current dual PAPER plan")
+                _assert_deterministic_plan_id(plan)
+                from sentinel import dual_reconciliation
+                try:
+                    dual_result = dual_reconciliation.verified_shadow_intent(
+                        conn, decision_session=plan.decision_session,
+                        observation_id=str(dual_shadow_observation_id),
+                        starting_cash=dual_shadow_starting_cash)
+                except dual_reconciliation.DualReconciliationPending as exc:
+                    raise PaperRetryableRefused(str(exc)) from exc
+                except dual_reconciliation.DualReconciliationRefused as exc:
+                    raise PaperActivationRefused(str(exc)) from exc
+                state = SessionState.from_dict(
+                    dual_result.state.to_dict())
+                _cursor = plan.decision_session
+            else:
+                state, plan, _cursor = _state_and_plan_or_refuse(conn)
             if isinstance(grant, ManualExecutionGrant):
                 if grant.confirm_paper_account != binding.broker_account_id:
                     raise PaperActivationRefused(
@@ -1914,6 +2419,26 @@ async def _execute_current_paper_plan(
                 conn, state=state, plan=plan, binding=binding, pinned=pinned,
                 frontier=str(frontier), today=today,
                 runtime_identity=strategy_identity, rollout=rollout)
+            dual_sizing_proof = None
+            if dual_mode:
+                try:
+                    dual_sizing_proof = dual_plan_authority.rederive_plan(
+                        conn, plan=plan, binding=binding,
+                        rollout_state=rollout,
+                        expected_shadow_result=dual_result)
+                except dual_plan_authority.DualPlanAuthorityRefused as exc:
+                    raise PaperActivationRefused(
+                        f"dual sizing authority refused execution: {exc}") from exc
+                try:
+                    informational_paper_mirror.require_transport_permitted(
+                        conn, current_frontier=str(frontier),
+                        current_publication_version=pinned.version)
+                except informational_paper_mirror.InformationalPaperMirrorPending as exc:
+                    raise PaperRetryableRefused(
+                        f"informational PAPER transport is pending: {exc}") from exc
+                except informational_paper_mirror.InformationalPaperMirrorRefused as exc:
+                    raise PaperActivationRefused(
+                        f"informational PAPER transport is blocked: {exc}") from exc
             authority_kwargs = dict(
                 runtime_identity=system_identity.rehearsal_identity(),
                 strategy_identity=strategy_identity,
@@ -1959,7 +2484,9 @@ async def _execute_current_paper_plan(
                 conn=conn, broker=broker, grant=grant, base_url=base_url,
                 now_provider=clock,
                 strategy_provider=lambda: _default_paper_strategy()[1],
-                automation_config_sha256=automation_config_sha256)
+                automation_config_sha256=automation_config_sha256,
+                dual_shadow_observation_id=dual_shadow_observation_id,
+                dual_shadow_starting_cash=dual_shadow_starting_cash)
 
             account = await broker.account_snapshot()
             _account_or_refuse(account, binding, confirmed_account)
@@ -1998,12 +2525,28 @@ async def _execute_current_paper_plan(
             preflight = await reconciliation.reconcile(
                 broker=broker, conn=conn, binding=None,
                 deployment=binding.identity, actions=actions)
-            observation = _clean_or_refuse(
-                preflight, purpose="paper execution")
-            _cash_authority_or_refuse(
-                conn, plan=plan, deployment=binding.identity,
-                account=account, observation=observation,
-                activity_state=activity_state)
+            observation = (
+                _dual_mutation_observation_or_refuse(preflight)
+                if dual_mode else
+                _clean_or_refuse(preflight, purpose="paper execution"))
+            if _account_evidence_is_quiescent(
+                    conn, deployment=binding.identity,
+                    observation=observation):
+                # The earlier account read established identity/availability,
+                # but cannot be paired with a later reconciliation: a fill may
+                # have landed between them. Re-read only after the observation
+                # proves there is no working or durable in-flight command.
+                account = await broker.account_snapshot()
+                cash_evidence_at = clock()
+                _account_or_refuse(account, binding, confirmed_account)
+                activity_state = await _broker_cash_state_or_refuse(
+                    conn, broker=broker, binding=binding,
+                    through=cash_evidence_at)
+                _cash_authority_or_refuse(
+                    conn, plan=plan, deployment=binding.identity,
+                    account=account, observation=observation,
+                    activity_state=activity_state,
+                    endpoint_lag_observed_at=cash_evidence_at)
             current_commands = journal.load_commands(conn, binding.identity)
             _revalidate_preopen_authority_or_refuse(
                 authority=authority, plan=plan, commands=current_commands,
@@ -2015,7 +2558,33 @@ async def _execute_current_paper_plan(
                 target_basket=plan.target_basket,
                 observation=observation,
                 minimum_quantity_increment=minimum_increment)
-            if authority is None:
+            if authority is None and dual_mode:
+                # This is explicitly informational transport, not affirmative
+                # pre-open unit authority. The exact close-unit basket remains
+                # immutable and a post-close source-final check can only block
+                # later mutations; it never rewrites these quantities.
+                target_projection = None
+                projected_deltas = preopen_deltas
+                trial_target_actions = {}
+                pending_ids = _preopen_active_security_ids(
+                    plan=plan, commands=current_commands, actions=actions)
+                pending_symbols = _informational_active_symbols(
+                    active_security_ids=pending_ids,
+                    commands=current_commands, observation=observation,
+                    sizing_proof=dual_sizing_proof)
+                informational_paper_mirror.record_pending(
+                    conn, plan=plan, active_security_ids=pending_ids,
+                    active_symbols=pending_symbols,
+                    sizing_authority_sha256=(
+                        dual_sizing_proof["authority_sha256"]),
+                    shadow_record_sha256=(
+                        dual_sizing_proof["shadow_record_sha256"]),
+                    publication_version=pinned.version,
+                    # Commit the PENDING stamp before the first possible
+                    # broker call. A later outer rollback must not erase the
+                    # fact that a crashed submit may have landed.
+                    commit=True)
+            elif authority is None:
                 if not _provably_clean_empty_noop(
                         deltas=preopen_deltas, commands=current_commands,
                         observation=observation):
@@ -2053,58 +2622,80 @@ async def _execute_current_paper_plan(
             else:
                 # The branch is unreachable without a validated authority:
                 # dust is not a true no-op, even when no broker can fill it.
-                if target_projection is None:                 # pragma: no cover
+                if target_projection is None and not dual_mode:  # pragma: no cover
                     raise PreOpenShareUnitAuthorityUnavailable(
                         "pre-open authority is required before command sizing")
                 instruments = await _instrument_map(
                     conn, broker, state, plan, observation,
-                    target_basket=target_projection.target_basket)
+                    target_basket=(
+                        plan.target_basket if target_projection is None
+                        else target_projection.target_basket))
 
                 async def authorize_increases(fresh_observation):
+                    if not _account_evidence_is_quiescent(
+                            conn, deployment=binding.identity,
+                            observation=fresh_observation):
+                        raise PaperRetryableRefused(
+                            "account cash remains PENDING while an order or "
+                            "durable command is in flight")
                     fresh_account = await broker.account_snapshot()
+                    fresh_cash_at = clock()
                     _account_or_refuse(
                         fresh_account, binding, confirmed_account)
                     fresh_activity_state = await _broker_cash_state_or_refuse(
-                        conn, broker=broker, binding=binding, through=clock())
+                        conn, broker=broker, binding=binding,
+                        through=fresh_cash_at)
                     _cash_authority_or_refuse(
                         conn, plan=plan, deployment=binding.identity,
                         account=fresh_account,
                         observation=fresh_observation,
-                        activity_state=fresh_activity_state)
+                        activity_state=fresh_activity_state,
+                        endpoint_lag_observed_at=fresh_cash_at)
+
+                async def authorize_dual_mutations(fresh_reconciliation):
+                    _dual_mutation_observation_or_refuse(
+                        fresh_reconciliation)
 
                 session = await executor.execute_session(
                     broker=broker, conn=conn, deployment=binding.identity,
                     plan=plan, instruments=instruments, today=today,
                     actions=actions, target_projection=target_projection,
                     min_increment=minimum_increment,
-                    increase_authority=authorize_increases)
+                    increase_authority=authorize_increases,
+                    mutation_authority=(
+                        authorize_dual_mutations
+                        if dual_mode else None))
             final_reconciliation = session.reconciliation
             if (final_reconciliation is not None
                     and final_reconciliation.runtime_state is RuntimeState.RUNNING
                     and final_reconciliation.clean
                     and final_reconciliation.observation is not None
                     and final_reconciliation.observation.is_complete
-                    and final_reconciliation.observation_id is not None):
-                evidence_started_at = clock()
-                evidence_account = await broker.account_snapshot()
-                evidence_at = clock()
-                _account_or_refuse(
-                    evidence_account, binding, confirmed_account)
-                evidence_activity = await _broker_cash_state_or_refuse(
-                    conn, broker=broker, binding=binding,
-                    through=evidence_at)
+                    and final_reconciliation.observation_id is not None
+                    and _account_evidence_is_quiescent(
+                        conn, deployment=binding.identity,
+                        observation=final_reconciliation.observation)):
+                (confirmed_reconciliation, evidence_account,
+                 evidence_activity, evidence_started_at, evidence_at) = (
+                    await _settled_account_evidence_bracket(
+                        conn=conn, broker=broker, binding=binding,
+                        expected_account=confirmed_account,
+                        deployment=binding.identity,
+                        initial_result=final_reconciliation,
+                        actions=actions, dual_mode=dual_mode, clock=clock))
                 _cash_authority_or_refuse(
                     conn, plan=plan, deployment=binding.identity,
                     account=evidence_account,
-                    observation=final_reconciliation.observation,
-                    activity_state=evidence_activity)
+                    observation=confirmed_reconciliation.observation,
+                    activity_state=evidence_activity,
+                    endpoint_lag_observed_at=evidence_at)
                 trial.record_account_evidence(
                     conn, session=plan.effective_session,
-                    observation_id=final_reconciliation.observation_id,
+                    observation_id=confirmed_reconciliation.observation_id,
                     observation_started_at=evidence_started_at,
                     observed_at=evidence_at, snapshot=evidence_account,
                     deployment=binding.identity,
-                    reconciliation=final_reconciliation,
+                    reconciliation=confirmed_reconciliation,
                     activity_state=evidence_activity,
                     plan_target=plan.target_basket,
                     target_actions=trial_target_actions,
@@ -2139,21 +2730,36 @@ async def execute_automated_paper_plan(
         *, conn, broker: ExecutionBroker, base_url: str,
         grant: AutomationExecutionGrant,
         automation_config_sha256: str,
-        today: date | datetime | None = None) -> ExecutionResult:
+        today: date | datetime | None = None,
+        dual_shadow_observation_id: str | None = None,
+        dual_shadow_starting_cash: Decimal | str | None = None
+        ) -> ExecutionResult:
     """Execute the same current plan through a fenced automation grant."""
     return await _execute_current_paper_plan(
         conn=conn, broker=broker, base_url=base_url, grant=grant,
-        today=today, automation_config_sha256=automation_config_sha256)
+        today=today, automation_config_sha256=automation_config_sha256,
+        dual_shadow_observation_id=dual_shadow_observation_id,
+        dual_shadow_starting_cash=dual_shadow_starting_cash)
 
 
 async def recover_automated_paper_cycle(
         *, conn, broker: ExecutionBroker, base_url: str,
         grant: AutomationExecutionGrant,
-        automation_config_sha256: str):
+        automation_config_sha256: str,
+        dual_shadow_observation_id: str | None = None,
+        dual_shadow_starting_cash: Decimal | str | None = None):
     """Read-only reconciliation for restart/pre-publication automation recovery."""
     if grant.operation_scope != "RECOVER":
         raise PaperActivationRefused(
             "automation recovery requires a RECOVER-scoped grant")
+    dual_values = (
+        dual_shadow_observation_id, dual_shadow_starting_cash)
+    if any(value is not None for value in dual_values) \
+            and not all(value is not None for value in dual_values):
+        raise PaperActivationRefused(
+            "dual PAPER recovery requires both reviewed shadow identity and "
+            "starting-capital configuration")
+    dual_mode = all(value is not None for value in dual_values)
     assert_paper_url(base_url)
     _require_certified_paper_broker(broker)
     schema.require_runtime_schema(conn)
@@ -2190,13 +2796,18 @@ async def recover_automated_paper_cycle(
             conn=conn, broker=broker, grant=grant, base_url=base_url,
             now_provider=clock,
             strategy_provider=lambda: _default_paper_strategy()[1],
-            automation_config_sha256=automation_config_sha256)
+            automation_config_sha256=automation_config_sha256,
+            dual_shadow_observation_id=dual_shadow_observation_id,
+            dual_shadow_starting_cash=dual_shadow_starting_cash)
         account = await broker.account_snapshot()
         _recovery_account_identity_or_refuse(
             account, binding, grant.broker_account_id)
         activity_state = await _broker_cash_state_or_refuse(
             conn, broker=broker, binding=binding, through=clock())
-        raw = catchup.resume_state(conn)
+        # A dual recovery never consults the separate PAPER catch-up lineage.
+        # Its exact shadow state is loaded after the current-generation plan is
+        # identified below.
+        raw = None if dual_mode else catchup.resume_state(conn)
         state = SessionState.from_dict(raw) if raw is not None else None
 
         # An adopted old-generation obligation may be reconciled under the
@@ -2216,6 +2827,58 @@ async def recover_automated_paper_cycle(
                 _assert_deterministic_plan_id(candidate)
                 plan = candidate
 
+        dual_result = None
+        if dual_mode and plan is not None:
+            from sentinel import dual_reconciliation
+            try:
+                dual_result = dual_reconciliation.verified_shadow_intent(
+                    conn, decision_session=plan.decision_session,
+                    observation_id=str(dual_shadow_observation_id),
+                    starting_cash=dual_shadow_starting_cash)
+            except dual_reconciliation.DualReconciliationPending as exc:
+                raise PaperRetryableRefused(str(exc)) from exc
+            except dual_reconciliation.DualReconciliationRefused as exc:
+                raise PaperActivationRefused(str(exc)) from exc
+            state = SessionState.from_dict(dual_result.state.to_dict())
+            try:
+                dual_plan_authority.rederive_plan(
+                    conn, plan=plan, binding=binding,
+                    rollout_state=rollout,
+                    expected_shadow_result=dual_result)
+            except dual_plan_authority.DualPlanAuthorityRefused as exc:
+                    raise PaperActivationRefused(
+                        f"dual sizing authority refused recovery: {exc}") from exc
+            try:
+                # A cycle can remain RECONCILING across the next close.  Its
+                # due post-close unit check must be earned here before the
+                # transport fence is consulted; otherwise require_transport
+                # reports PENDING forever and successor preparation (the other
+                # caller of revalidate_all) is unreachable.
+                with publication.pinned(conn, commit=False) as mirror_pin:
+                    if mirror_pin.version != current.version:
+                        raise PaperRetryableRefused(
+                            "corpus publication advanced while dual recovery "
+                            "authority was being established")
+                    current_frontier = feed_store.latest_visible_session(conn)
+                    from sentinel import shadow_runtime
+                    if clock() < shadow_runtime.publication_not_before(
+                            str(current_frontier)):
+                        raise informational_paper_mirror.InformationalPaperMirrorPending(
+                            "current publication has not reached the reviewed "
+                            "23:45 New York source-final boundary")
+                    informational_paper_mirror.revalidate_all(
+                        conn, checked_through=current_frontier,
+                        publication_version=mirror_pin.version, commit=True)
+                    informational_paper_mirror.require_transport_permitted(
+                        conn, current_frontier=current_frontier,
+                        current_publication_version=mirror_pin.version)
+            except informational_paper_mirror.InformationalPaperMirrorPending as exc:
+                raise PaperRetryableRefused(
+                    f"informational PAPER recovery is pending: {exc}") from exc
+            except informational_paper_mirror.InformationalPaperMirrorRefused as exc:
+                raise PaperActivationRefused(
+                    f"informational PAPER recovery is blocked: {exc}") from exc
+
         actions = (_action_lookup(conn, state, clock().date())
                    if state is not None else None)
         authority = None
@@ -2229,7 +2892,7 @@ async def recover_automated_paper_cycle(
             commands = journal.load_commands(conn, binding.identity)
             active_security_ids = _preopen_active_security_ids(
                 plan=plan, commands=commands, actions=actions)
-            if active_security_ids:
+            if active_security_ids and not dual_mode:
                 official_open = _official_preopen_cutoff(plan)
                 authority, actions, target_actions = _preopen_views_or_none(
                     conn, plan=plan,
@@ -2254,7 +2917,8 @@ async def recover_automated_paper_cycle(
             current_commands = journal.load_commands(conn, binding.identity)
             current_security_ids = _preopen_active_security_ids(
                 plan=plan, commands=current_commands, actions=actions)
-            if authority is None and current_security_ids:
+            if (not dual_mode and authority is None
+                    and current_security_ids):
                 raise PreOpenShareUnitAuthorityUnavailable(
                     "pre-open share-unit authority is absent after recovery "
                     "adopted a nonempty share-unit identity; Sentinel will "
@@ -2276,34 +2940,44 @@ async def recover_automated_paper_cycle(
                     actions=actions, target_actions=target_actions,
                     require_existing=True)
 
+        if dual_mode:
+            _dual_mutation_observation_or_refuse(result)
+
         if (plan is not None
                 and result.runtime_state is RuntimeState.RUNNING
                 and result.clean
                 and result.observation is not None
                 and result.observation.is_complete
-                and result.observation_id is not None):
-            evidence_started_at = clock()
-            account = await broker.account_snapshot()
-            evidence_at = clock()
-            _account_or_refuse(account, binding, grant.broker_account_id)
-            activity_state = await _broker_cash_state_or_refuse(
-                conn, broker=broker, binding=binding,
-                through=evidence_at)
+                and result.observation_id is not None
+                and _account_evidence_is_quiescent(
+                    conn, deployment=binding.identity,
+                    observation=result.observation)):
+            (confirmed_result, account, activity_state,
+             evidence_started_at, evidence_at) = (
+                await _settled_account_evidence_bracket(
+                    conn=conn, broker=broker, binding=binding,
+                    expected_account=grant.broker_account_id,
+                    deployment=binding.identity,
+                    initial_result=result, actions=actions,
+                    dual_mode=dual_mode, clock=clock))
             _cash_authority_or_refuse(
                 conn, plan=plan, deployment=binding.identity,
-                account=account, observation=result.observation,
+                account=account,
+                observation=confirmed_result.observation,
                 activity_state=activity_state,
                 # Recovery submits nothing. A recognized post-plan
                 # dividend/interest/fee is legitimate realized economics;
                 # it may be certified after the book is clean even though
                 # it would refuse a stale plan's new BUY authorization.
-                permit_new_activity=True)
+                permit_new_activity=True,
+                endpoint_lag_observed_at=evidence_at)
             trial.record_account_evidence(
                 conn, session=plan.effective_session,
-                observation_id=result.observation_id,
+                observation_id=confirmed_result.observation_id,
                 observation_started_at=evidence_started_at,
                 observed_at=evidence_at, snapshot=account,
-                deployment=binding.identity, reconciliation=result,
+                deployment=binding.identity,
+                reconciliation=confirmed_result,
                 activity_state=activity_state,
                 plan_target=plan.target_basket,
                 target_actions=_target_action_multipliers(
@@ -2313,9 +2987,51 @@ async def recover_automated_paper_cycle(
         return result
 
 
-def current_paper_plan(conn, *, base_url: str = DEFAULT_BASE_URL) -> dict:
-    """Inspect current durable authorities without contacting the broker."""
-    state, plan, cursor = _state_and_plan_or_refuse(conn)
+def current_paper_plan(
+        conn, *, base_url: str = DEFAULT_BASE_URL,
+        dual_shadow_observation_id: str | None = None,
+        dual_shadow_starting_cash: Decimal | str | None = None) -> dict:
+    """Inspect current durable authorities without contacting the broker.
+
+    Informational dual plans deliberately have no PAPER catch-up cursor: their
+    only strategy state is the independently attested shadow record.  The dual
+    inspection path therefore re-earns that record against the current corpus
+    and re-derives the immutable account-sizing authority.  Ordinary PAPER
+    keeps the historical strict catch-up-state inspection unchanged.
+    """
+    dual_values = (
+        dual_shadow_observation_id, dual_shadow_starting_cash)
+    if any(value is not None for value in dual_values) \
+            and not all(value is not None for value in dual_values):
+        raise PaperActivationRefused(
+            "dual PAPER inspection requires both reviewed shadow identity "
+            "and starting-capital configuration")
+    dual_mode = all(value is not None for value in dual_values)
+    dual_match = None
+    if dual_mode:
+        plan = journal.latest_plan(conn)
+        if plan is None:
+            raise PaperActivationRefused(
+                "there is no durable current dual PAPER plan")
+        _assert_deterministic_plan_id(plan)
+        from sentinel import dual_reconciliation
+        try:
+            dual_match = dual_reconciliation.require_plan_matches_verified_shadow(
+                conn, plan=plan,
+                observation_id=str(dual_shadow_observation_id),
+                starting_cash=dual_shadow_starting_cash)
+            result = dual_reconciliation.verified_shadow_intent(
+                conn, decision_session=plan.decision_session,
+                observation_id=str(dual_shadow_observation_id),
+                starting_cash=dual_shadow_starting_cash)
+        except dual_reconciliation.DualReconciliationPending as exc:
+            raise PaperRetryableRefused(str(exc)) from exc
+        except dual_reconciliation.DualReconciliationRefused as exc:
+            raise PaperActivationRefused(str(exc)) from exc
+        state = SessionState.from_dict(result.state.to_dict())
+        cursor = plan.decision_session
+    else:
+        state, plan, cursor = _state_and_plan_or_refuse(conn)
     from sentinel.handover import assert_no_legacy_path
     binding = assert_no_legacy_path(conn)
     current = publication.require_current(conn)
@@ -2328,18 +3044,24 @@ def current_paper_plan(conn, *, base_url: str = DEFAULT_BASE_URL) -> dict:
         "controller_transition_matches_plan": (
             _hash(state.last_decision) == plan.sentinel_transition_hash),
         "publication_matches_plan": (
-            state.data_version == plan.data_version == current.version
-            and plan.publication_fingerprint
-            == publication_fingerprint(current)),
+            (dual_mode and dual_match is not None
+             and state.data_version == plan.data_version)
+            or (not dual_mode
+                and state.data_version == plan.data_version == current.version
+                and plan.publication_fingerprint
+                == publication_fingerprint(current))),
         "account_matches_plan": (
             plan.deployment_id == binding.deployment_id
             and plan.broker == binding.broker
             and plan.broker_account_id == binding.broker_account_id
             and plan.takeover_epoch == binding.takeover_epoch),
         "strategy_matches_runtime": (
-            state.strategy_identity == runtime_identity
-            and _hash(state.strategy_identity)
-            == plan.strategy_fingerprint),
+            (dual_mode and dual_match is not None
+             and dual_match["state_sha256"] == state.state_hash)
+            or (not dual_mode
+                and state.strategy_identity == runtime_identity
+                and _hash(state.strategy_identity)
+                == plan.strategy_fingerprint)),
         "decision_matches_frontier": (
             state.last_processed_session
             == plan.decision_session.isoformat()
@@ -2355,6 +3077,17 @@ def current_paper_plan(conn, *, base_url: str = DEFAULT_BASE_URL) -> dict:
             and (rollout.mode is not RolloutMode.PINNED_1_00
                  or plan.target_exposure == Decimal(1))),
     }
+    if dual_mode:
+        checks.update({
+            "current_corpus_shadow_revalidated": dual_match is not None,
+            "dual_sizing_authority_matches": (
+                dual_match is not None
+                and dual_match.get("verdict") == "MATCH"),
+            "dual_plan_fingerprint_matches": (
+                dual_match is not None
+                and dual_match.get("plan_fingerprint")
+                == plan.fingerprint()),
+        })
     try:
         certificate = require_current_authority(
             conn, runtime_identity=system_identity.rehearsal_identity(),
@@ -2373,6 +3106,10 @@ def current_paper_plan(conn, *, base_url: str = DEFAULT_BASE_URL) -> dict:
         # and asset tradability are intentionally rechecked only by execution.
         "execution_authorized": False,
         "database_authorities_match": all(checks.values()),
+        "mode": "INFORMATIONAL_PAPER_MIRROR" if dual_mode else "PAPER",
+        "performance_authority": (
+            "CERTIFIED_SHADOW" if dual_mode else "PAPER_TRIAL"),
+        "dual_reconciliation": dual_match,
         "cursor": cursor.isoformat(),
         "frontier": frontier,
         "binding": binding.to_dict(),
