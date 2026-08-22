@@ -221,13 +221,31 @@ class HistoricalIdentityMutation(RuntimeError):
     """A TICKERS correction would reinterpret already-published bar identity."""
 
 
+class PublishedSnapshotMutation(RuntimeError):
+    """A same-day TICKERS retry differs from immutable published evidence."""
+
+
 def _clipped_listing(first, last, corpus_lo: str, corpus_hi: str):
     lo = max(str(first) if first is not None else corpus_lo, corpus_lo)
     hi = min(str(last) if last is not None else corpus_hi, corpus_hi)
     return (lo, hi) if lo <= hi else None
 
 
-def assert_candidate_listing_history_safe(conn, *, run_id: str) -> None:
+def _candidate_listing_projection(payload):
+    """Latest non-null listing bounds from one complete source snapshot."""
+    candidate = {}
+    for row in payload:
+        key = (str(row[0]), str(row[1]))
+        prior = candidate.get(key, (None, None))
+        candidate[key] = (
+            row[5] if row[5] is not None else prior[0],
+            row[6] if row[6] is not None else prior[1],
+        )
+    return candidate
+
+
+def assert_candidate_listing_history_safe(
+        conn, *, payload=None, run_id: str | None = None) -> None:
     """Refuse a full TICKERS snapshot that changes identity over published bars.
 
     `sentinel_bars` is keyed by ``(security_id, session)``. Updating the current
@@ -260,30 +278,62 @@ def assert_candidate_listing_history_safe(conn, *, run_id: str) -> None:
         return
     corpus_lo, corpus_hi = str(bounds[0]), str(bounds[1])
 
-    with conn.cursor() as cur:
-        cur.execute(
-            "WITH candidate AS ("
-            " SELECT u.permaticker,u.ticker,"
-            "   (ARRAY_REMOVE(ARRAY_AGG(u.first_price_date"
-            "      ORDER BY u.snapshot_date DESC),NULL))[1] AS first_price_date,"
-            "   (ARRAY_REMOVE(ARRAY_AGG(u.last_price_date"
-            "      ORDER BY u.snapshot_date DESC),NULL))[1] AS last_price_date"
-            " FROM sentinel_universe u"
-            " WHERE u.last_written_run_id=%s"
-            " GROUP BY u.permaticker,u.ticker)"
-            " SELECT COALESCE(c.permaticker,p.permaticker),"
-            "        COALESCE(c.ticker,p.ticker),"
-            "        p.permaticker IS NOT NULL AS had_prior,"
-            "        c.permaticker IS NOT NULL AS has_candidate,"
-            "        p.first_price_date,p.last_price_date,"
-            "        CASE WHEN c.permaticker IS NULL THEN NULL"
-            "             ELSE COALESCE(c.first_price_date,p.first_price_date) END,"
-            "        CASE WHEN c.permaticker IS NULL THEN NULL"
-            "             ELSE COALESCE(c.last_price_date,p.last_price_date) END"
-            " FROM candidate c FULL OUTER JOIN feed_universe_current p"
-            "   ON p.permaticker=c.permaticker AND p.ticker=c.ticker",
-            (str(run_id),))
-        candidates = cur.fetchall()
+    if payload is None:
+        if run_id is None:
+            raise TypeError("payload or run_id is required")
+        # Compatibility for focused guard tests and non-writer callers. The
+        # writer passes the fetched payload so immutable same-day rows cannot
+        # disappear merely because they retain the earlier publication's id.
+        with conn.cursor() as cur:
+            cur.execute(
+                "WITH candidate AS ("
+                " SELECT u.permaticker,u.ticker,"
+                "   (ARRAY_REMOVE(ARRAY_AGG(u.first_price_date"
+                "      ORDER BY u.snapshot_date DESC),NULL))[1]"
+                "      AS first_price_date,"
+                "   (ARRAY_REMOVE(ARRAY_AGG(u.last_price_date"
+                "      ORDER BY u.snapshot_date DESC),NULL))[1]"
+                "      AS last_price_date"
+                " FROM sentinel_universe u"
+                " WHERE u.last_written_run_id=%s"
+                " GROUP BY u.permaticker,u.ticker)"
+                " SELECT COALESCE(c.permaticker,p.permaticker),"
+                "        COALESCE(c.ticker,p.ticker),"
+                "        p.permaticker IS NOT NULL,"
+                "        c.permaticker IS NOT NULL,"
+                "        p.first_price_date,p.last_price_date,"
+                "        CASE WHEN c.permaticker IS NULL THEN NULL"
+                "          ELSE COALESCE(c.first_price_date,p.first_price_date)"
+                "        END,"
+                "        CASE WHEN c.permaticker IS NULL THEN NULL"
+                "          ELSE COALESCE(c.last_price_date,p.last_price_date)"
+                "        END"
+                " FROM candidate c FULL OUTER JOIN feed_universe_current p"
+                "   ON p.permaticker=c.permaticker AND p.ticker=c.ticker",
+                (str(run_id),))
+            candidates = cur.fetchall()
+    else:
+        candidate = _candidate_listing_projection(payload)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT permaticker,ticker,first_price_date,last_price_date"
+                " FROM feed_universe_current")
+            prior = {
+                (str(p), str(t)): (f, l) for p, t, f, l in cur.fetchall()}
+        candidates = []
+        for permaticker, ticker in sorted(set(prior) | set(candidate)):
+            had_prior = (permaticker, ticker) in prior
+            has_candidate = (permaticker, ticker) in candidate
+            old_first, old_last = prior.get(
+                (permaticker, ticker), (None, None))
+            new_first, new_last = candidate.get(
+                (permaticker, ticker), (None, None))
+            if has_candidate and had_prior:
+                new_first = new_first if new_first is not None else old_first
+                new_last = new_last if new_last is not None else old_last
+            candidates.append((
+                permaticker, ticker, had_prior, has_candidate,
+                old_first, old_last, new_first, new_last))
 
     changed = []
     for (permaticker, ticker, had_prior, has_candidate,
@@ -311,6 +361,55 @@ def assert_candidate_listing_history_safe(conn, *, run_id: str) -> None:
             "(security_id,session) bars authoritative under a resolver that no "
             "longer names them. Refusing until a complete identity-aware source "
             "rebuild can re-key/tombstone the affected bars atomically.")
+
+
+def assert_published_snapshot_reusable(conn, *, payload) -> None:
+    """Permit an exact same-day retry without rewriting published evidence.
+
+    The raw TICKERS key contains ``snapshot_date`` rather than ``run_id``. An
+    identical retry must therefore reuse a row already named by a publication;
+    changing that row would rewrite the prior publication in place. A genuinely
+    changed source generation waits for a later snapshot date, where it can be
+    appended normally.
+    """
+    by_date = {}
+    for row in payload:
+        by_date.setdefault(str(row[8]), {})[(str(row[0]), str(row[1]))] = tuple(
+            row[2:8])
+
+    changed = []
+    with conn.cursor() as cur:
+        for snapshot_date, candidate in by_date.items():
+            cur.execute(
+                "SELECT u.permaticker,u.ticker,u.category,u.sector,"
+                " u.related_tickers,u.first_price_date,u.last_price_date,"
+                " u.is_delisted FROM sentinel_universe u"
+                " WHERE u.snapshot_date=%s AND EXISTS ("
+                "   SELECT 1 FROM sentinel_corpus_publications p"
+                "    WHERE p.run_id=u.last_written_run_id)",
+                (snapshot_date,))
+            for (permaticker, ticker, category, sector, related,
+                 first, last, is_delisted) in cur.fetchall():
+                key = (str(permaticker), str(ticker))
+                if key not in candidate:
+                    continue
+                published = (
+                    category, sector, related,
+                    None if first is None else str(first),
+                    None if last is None else str(last), is_delisted)
+                if published != candidate[key]:
+                    changed.append((snapshot_date, key, published, candidate[key]))
+
+    if changed:
+        shown = "; ".join(
+            f"{ticker}/{permaticker}@{snapshot}"
+            for snapshot, (permaticker, ticker), _old, _new in changed[:8])
+        suffix = f" (+{len(changed) - 8} more)" if len(changed) > 8 else ""
+        raise PublishedSnapshotMutation(
+            f"stable TICKERS retry changes {len(changed)} row(s) already named "
+            f"by a same-day corpus publication: {shown}{suffix}. Refusing to "
+            "rewrite immutable source evidence; retry with the next complete "
+            "snapshot date.")
 
 
 _UNIVERSE_UPSERT = """
@@ -385,10 +484,16 @@ def write_universe(conn, rows: Sequence[Mapping], snapshot_date: str, *,
         ))
     if not payload:
         return 0
+    if run_id is not None and complete_sep_snapshot:
+        # Validate the fetched source payload, not only rows written by this
+        # run. A published same-day row is immutable and the UPSERT below
+        # intentionally leaves it owned by the earlier publication. Looking
+        # only for the new run_id made an exact retry appear to omit the whole
+        # securities master.
+        assert_candidate_listing_history_safe(conn, payload=payload)
+        assert_published_snapshot_reusable(conn, payload=payload)
     with conn.cursor() as cur:
         cur.executemany(_UNIVERSE_UPSERT, payload)
-    if run_id is not None and complete_sep_snapshot:
-        assert_candidate_listing_history_safe(conn, run_id=str(run_id))
     if run_id is None:
         from sentinel.feed.universe_projection import project_legacy_snapshot
 

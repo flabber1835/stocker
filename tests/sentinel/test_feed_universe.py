@@ -181,6 +181,104 @@ class TestTheResolverDrivesTheFeed:
 
 
 class TestUniversePublication:
+    @staticmethod
+    def _publish_complete_snapshot_with_bar(conn, rows):
+        ingest = S.IngestRun(conn, "daily")
+        run_id = ingest.progress.run_id
+        U.write_universe(conn, rows, "2024-01-02", run_id=run_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_bars"
+                " (security_id,session,ticker,close_signal,close_unadjusted,"
+                "  open_unadjusted,volume,last_written_run_id)"
+                " VALUES (%s,'2024-01-02',%s,10,10,10,1000,%s)",
+                (rows[0]["permaticker"], rows[0]["ticker"], run_id))
+        conn.commit()
+        ingest.finish("success")
+        P.publish(conn, run_id=run_id)
+        return run_id
+
+    def test_identical_complete_snapshot_can_retry_on_same_day(self, conn):
+        """NAS falsifier: immutable same-day rows belong to the earlier run.
+
+        The retry must validate the fetched snapshot itself. Looking only for
+        rows owned by the retry made every published listing appear omitted.
+        """
+        row = {
+            "table": "SEP", "ticker": "ABC", "permaticker": "P1",
+            "category": "Domestic Common Stock", "sector": "Technology",
+            "relatedtickers": "ABC.A", "firstpricedate": "2000-01-01",
+            "lastpricedate": "2024-01-02", "isdelisted": "N",
+        }
+        first_run = self._publish_complete_snapshot_with_bar(conn, [row])
+
+        retry = S.IngestRun(conn, "daily")
+        retry_run = retry.progress.run_id
+        assert U.write_universe(
+            conn, [row], "2024-01-02", run_id=retry_run) == 1
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*),MIN(last_written_run_id::text)"
+                " FROM sentinel_universe"
+                " WHERE permaticker='P1' AND ticker='ABC'"
+                "   AND snapshot_date='2024-01-02'")
+            count, owner = cur.fetchone()
+        assert count == 1
+        assert owner == first_run, "retry rewrote immutable published evidence"
+        assert U.load_resolver(
+            conn, include_run_id=retry_run).resolve(
+                "ABC", "2024-01-02") == "P1"
+
+    def test_same_day_retry_still_refuses_a_complete_snapshot_omission(self, conn):
+        rows = [
+            {"table": "SEP", "ticker": "ABC", "permaticker": "P1",
+             "firstpricedate": "2000-01-01", "lastpricedate": "2024-01-02"},
+            {"table": "SEP", "ticker": "XYZ", "permaticker": "P2",
+             "firstpricedate": "2000-01-01", "lastpricedate": "2024-01-02"},
+        ]
+        self._publish_complete_snapshot_with_bar(conn, rows)
+
+        retry = S.IngestRun(conn, "daily")
+        with pytest.raises(U.HistoricalIdentityMutation, match="omits 1"):
+            U.write_universe(
+                conn, [rows[1]], "2024-01-02",
+                run_id=retry.progress.run_id)
+
+    def test_same_day_retry_refuses_changed_published_metadata(self, conn):
+        row = {
+            "table": "SEP", "ticker": "ABC", "permaticker": "P1",
+            "category": "Domestic Common Stock",
+            "firstpricedate": "2000-01-01", "lastpricedate": "2024-01-02",
+        }
+        self._publish_complete_snapshot_with_bar(conn, [row])
+        changed = dict(row, category="ADR Common Stock")
+
+        retry = S.IngestRun(conn, "daily")
+        with pytest.raises(U.PublishedSnapshotMutation, match="same-day"):
+            U.write_universe(
+                conn, [changed], "2024-01-02",
+                run_id=retry.progress.run_id)
+
+    def test_same_day_retry_can_append_a_genuinely_new_listing(self, conn):
+        prior = {
+            "table": "SEP", "ticker": "ABC", "permaticker": "P1",
+            "firstpricedate": "2000-01-01", "lastpricedate": "2024-01-02",
+        }
+        self._publish_complete_snapshot_with_bar(conn, [prior])
+        new = {
+            "table": "SEP", "ticker": "NEW", "permaticker": "P2",
+            "firstpricedate": "2024-01-03", "lastpricedate": "2024-01-03",
+        }
+
+        retry = S.IngestRun(conn, "daily")
+        run_id = retry.progress.run_id
+        assert U.write_universe(
+            conn, [prior, new], "2024-01-02", run_id=run_id) == 2
+        candidate = U.load_resolver(conn, include_run_id=run_id)
+        assert candidate.resolve("ABC", "2024-01-02") == "P1"
+        assert candidate.resolve("NEW", "2024-01-03") == "P2"
+
     def test_an_unpublished_snapshot_cannot_change_identity_resolution(self, conn):
         first = S.IngestRun(conn, "seed")
         run1 = first.progress.run_id
