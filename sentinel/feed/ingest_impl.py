@@ -73,9 +73,10 @@ def _write_sfp_reference_rows(conn, rows: Iterable[dict], *, run_id) -> int:
 def _report_split_disagreements(report, authoritative, *, ignore_keys=()) -> list:
     """LOUD when the stated and derived split ratios describe different events.
 
-    Equal or reciprocal evidence is oriented deterministically. Anything else
-    is not applied: silently preferring either source would turn a data problem
-    into a share count nobody questions.
+    The direct stock-split multiplier is corroborated against exact or
+    finite-price-interval evidence. Anything else is not applied: silently
+    preferring either source would turn a data problem into a share count
+    nobody questions.
     """
     from sentinel.feed import actions_map
 
@@ -85,7 +86,7 @@ def _report_split_disagreements(report, authoritative, *, ignore_keys=()) -> lis
     for d in bad[:20]:
         log.warning(
             "sentinel: SPLIT DISAGREEMENT %s %s stated=%.6g derived=%.6g — "
-            "NOT APPLIED; ACTIONS is neither equal nor reciprocal to the "
+            "NOT APPLIED; ACTIONS does not agree with the finite-precision "
             "price-domain ratio", d["ticker"], d["session"], d["stated"],
             d["derived"])
     if len(bad) > 20:
@@ -335,6 +336,9 @@ def _persist_chunk_evidence(conn, run, chunk: str, lo: str, hi: str,
     ambiguous_keys = {(d["ticker"], d["session"]) for d in ambiguous_splits}
     reported_disagreements = _report_split_disagreements(
         report, splits, ignore_keys=ambiguous_keys)
+    reported_disagreement_keys = {
+        (item["ticker"], item["session"])
+        for item in reported_disagreements}
     for d in reported_disagreements:
         anomalies.append({
             "kind": "SPLIT_DISAGREEMENT", "ticker": d["ticker"],
@@ -358,11 +362,13 @@ def _persist_chunk_evidence(conn, run, chunk: str, lo: str, hi: str,
         disposition = item["disposition"]
         if disposition in {
                 actions_map.SPLIT_CORROBORATED_DIRECT,
-                actions_map.SPLIT_CORROBORATED_RECIPROCAL}:
+                actions_map.SPLIT_CORROBORATED_QUANTIZED,
+                actions_map.SPLIT_CORROBORATED_SHIFTED,
+                actions_map.SPLIT_CORROBORATED_BRIDGED}:
             anomalies.append({
                 "kind": "SPLIT_CORROBORATED_DERIVED", "ticker": tkr,
                 "session": sess,
-                "detail": f"orientation={disposition} "
+                "detail": f"reconciliation={disposition} "
                           f"stated={item['stated']:.12g} "
                           f"derived={item['derived']:.12g} "
                           f"applied={item['applied_ratio']:.12g}"})
@@ -372,15 +378,20 @@ def _persist_chunk_evidence(conn, run, chunk: str, lo: str, hi: str,
                 "session": sess,
                 "detail": f"stated={item['stated']:.12g} "
                           f"applied={item['applied_ratio']:.12g}"})
-        elif (disposition == actions_map.SPLIT_UNRESOLVED
-              and item["derived"] is None):
-            # A disagreement with price evidence was already recorded above.
-            # This branch covers the equally unsafe action-only denominator,
-            # without emitting the same anomaly/log record twice.
+        elif disposition == actions_map.SPLIT_RESOLVED_NO_EVENT:
+            anomalies.append({
+                "kind": "SPLIT_RESOLVED_NO_EVENT", "ticker": tkr,
+                "session": sess,
+                "detail": f"stated={item['stated']:.12g} "
+                          f"derived={item['derived']:.12g}; listed-share "
+                          "transformation resolved to exactly 1.0"})
+        elif (disposition in {actions_map.SPLIT_UNRESOLVED,
+                              actions_map.SPLIT_PENDING_BRIDGE}
+              and (tkr, sess) not in reported_disagreement_keys):
             derived = item["derived"]
             detail = (f"stated={item['stated']:.12g} derived="
                       f"{derived if derived is not None else 'unavailable'}; "
-                      "NOT applied because orientation is unresolved")
+                      "NOT applied because stock-split evidence is unresolved")
             anomalies.append({
                 "kind": "SPLIT_DISAGREEMENT", "ticker": tkr,
                 "session": sess, "detail": detail})

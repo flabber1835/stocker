@@ -422,9 +422,11 @@ add the counterparty identity (`contraname`, and `contraticker` when public), no
 the fact of termination and not the terms. Fixing the names is worth doing for
 provenance and for the audit diagnostic below; it resolves nothing on its own.
 
-Also unconsumed, same class: `adrratiosplit` (386) is absent from
-`SPLIT_ACTIONS`, so those ADR share-ratio changes never adjust the split factor —
-a genuine correctness gap, since it IS a share-count change.
+The initial audit also treated `adrratiosplit` (386) as a missing split verb.
+That interpretation was later rejected after comparing the documented action
+classes with same-date SEP domains: it is depositary-ratio metadata, not a
+second listed-share multiplier. It is intentionally absent from
+`SHARE_SPLIT_ACTIONS`.
 `spinoffdividend` (497) is absent from `DIVIDEND_ACTIONS`; `specialdividend` is
 IN the code and matches zero rows; `tickerchangeto` / `tickerchangefrom` (13,437
 each) are 26,874 rows of the vendor stating that a symbol moved, directly
@@ -445,10 +447,38 @@ Walk every branch and the corpus settles nothing:
 sentinel unfixed              CONVERSION -> MISSING_DELIVERED_SECURITY  -> blocks
 sentinel fixed, PRIVATE buyer CASH_MERGER, per-share cash unknown
                                          -> MISSING_CASH_PER_SHARE      -> blocks
-sentinel fixed, PUBLIC buyer  CONVERSION, real delivered security, but
-                              `value` is a deal size not a ratio
-                                         -> MISSING_EXCHANGE_RATIO      -> blocks
+sentinel fixed, PUBLIC buyer  incomplete terminal economics; the public buyer
+                              identifies the acquirer, not consideration
+                                         -> MISSING_CASH_PER_SHARE      -> carries
+                                            through the settlement waterfall
 ```
+
+The public-buyer distinction is load-bearing.  ACTIONS can carry several
+``acquisitionby`` rows for one consortium transaction (for example Air Lease
+Corporation with SMBC Aviation Capital, Sumitomo, Brookfield and Apollo named
+across sibling rows).  Treating every public ``contraticker`` as delivered
+shares invents several mutually exclusive conversions from one acquisition.
+The mapping therefore retains buyer ticker/name as provenance only and never
+sets a delivered security, exchange ratio, or consideration type from those
+fields.
+
+The same source-narrowing rule applies to split-like rows.  Sharadar lists stock
+splits and ADR ratio changes as separate ACTIONS categories.  A ``split`` value
+is the listed instrument's new-float/old-float share multiplier and may enter
+the book after SEP cross-checking.  An ``adrratiosplit`` row describes the
+depositary relationship and remains provenance only.  Treating both as broker
+share transformations caused same-date pairs such as ``0.1`` and ``10`` to look
+ambiguous and caused ADR-only changes with unchanged SEP domains to look like
+unresolved stock splits.
+
+SEP prices are finite-precision observations.  The split cross-check therefore
+propagates the observed half-mill price interval through
+``(prior_raw/prior_close)/(current_raw/current_close)``.  This accepts only a
+stated multiplier that the rounded source values can actually represent; it
+does not replace the fixed relative tolerance with a broad micro-cap exception.
+For a corroborated sub-unit ``split`` rounded to five decimals, a simple
+``1/N`` is reconstructed only inside that same strict band so the canonical
+share entitlement agrees exactly with broker units.
 
 So a terminal settlement policy is not an optional fallback for rare cases. It is
 the ONLY path by which any of the 19,216 delisted securities can leave the book.
