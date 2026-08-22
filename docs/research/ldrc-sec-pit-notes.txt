@@ -1,0 +1,1 @@
+This branch intentionally contains documentation/evidence only. Strategy changes require a separate reviewed change after challenger/certification.
