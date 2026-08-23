@@ -127,7 +127,7 @@ def test_action_change_dates_replay_only_bar_affecting_actions(monkeypatch):
     assert dates == ["2020-01-02", "2020-03-04"]
 
 
-def test_v5_semantic_reearn_includes_accepted_resolved_direct_and_adr_dates(
+def test_semantic_reearn_includes_accepted_resolved_direct_and_adr_dates(
         monkeypatch):
     observed = {}
 
@@ -171,10 +171,11 @@ def test_v5_semantic_reearn_includes_accepted_resolved_direct_and_adr_dates(
     }
 
 
-def test_shipped_v4_cursor_cannot_bypass_v5_semantic_reearn():
-    old_name = "sharadar-actions-export-reconcile:v4"
+@pytest.mark.parametrize("old_epoch", ["v4", "v5"])
+def test_legacy_cursor_cannot_bypass_v6_semantic_reearn(old_epoch):
+    old_name = f"sharadar-actions-export-reconcile:{old_epoch}"
     old_state = {
-        "kind": "sharadar-actions-export-reconcile/v4",
+        "kind": f"sharadar-actions-export-reconcile/{old_epoch}",
         "processed_through": "2026-08-21",
         "publication_version": 41,
     }
@@ -209,4 +210,4 @@ def test_shipped_v4_cursor_cannot_bypass_v5_semantic_reearn():
 
     conn = Conn()
     assert maintenance.load_actions_cursor(conn) is None
-    assert conn.requested == ["sharadar-actions-export-reconcile:v5"]
+    assert conn.requested == ["sharadar-actions-export-reconcile:v6"]
