@@ -393,10 +393,14 @@ def test_due_cycle_finalization_uses_old_plan_effective_session_everywhere(
             required_through))
         return {}
 
-    certified_target_actions = lambda security_id: (  # noqa: E731
+    certified_target_actions = lambda security_id, since=None: (  # noqa: E731
         Decimal(2) if security_id == "SEC-A" else None)
-    observation_target_actions = lambda security_id: (  # noqa: E731
-        Decimal(4) if security_id == "SEC-A" else None)
+    observation_target_actions = lambda security_id, since=None: (  # noqa: E731
+        Decimal(2 if since == SESSION else 4)
+        if security_id == "SEC-A" else None)
+    target_projection = SimpleNamespace(
+        action_multipliers={"SEC-A": Decimal(2)},
+        target_basket={"SEC-A": Decimal(10)}, through_session=SESSION)
 
     def account_evidence(_conn, **kwargs):
         calls.append(("account", _conn, kwargs))
@@ -414,6 +418,12 @@ def test_due_cycle_finalization_uses_old_plan_effective_session_everywhere(
         "close_cash_finality_authoritative", property(lambda _self: True))
     monkeypatch.setattr(paper, "_record_due_close_nav_or_refuse", close)
     monkeypatch.setattr(paper, "_record_due_fill_interval_or_refuse", fills)
+    monkeypatch.setattr(
+        paper.target_reprojection, "load_projection",
+        lambda *_args, **_kwargs: target_projection)
+    monkeypatch.setattr(
+        paper.target_reprojection, "assert_projection",
+        lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         paper, "_target_action_lookup",
         lambda *_: pytest.fail(
@@ -441,9 +451,9 @@ def test_due_cycle_finalization_uses_old_plan_effective_session_everywhere(
         "fills", conn, broker, DEPLOYMENT, PLAN, SESSION, observed_at)
     assert calls[3][0:2] == ("account", conn)
     assert calls[3][2]["session"] == SESSION
-    assert calls[3][2]["target_actions"] == {"SEC-A": Decimal(2)}
-    assert calls[3][2]["observation_target_actions"] == {
-        "SEC-A": Decimal(4)}
+    assert calls[3][2]["target_projection"] is target_projection
+    assert calls[3][2]["observation_post_projection_actions"] == {
+        "SEC-A": Decimal(2)}
     assert calls[4] == (
         "verification", conn,
         {"cycle_id": "cycle-old", "observation_id": 73,

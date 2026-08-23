@@ -186,6 +186,17 @@ def _resolution_tombstones(conn, run, *, lo: str, hi: str, report,
              + anomaly_store.DIVIDEND_DISPOSITION_KINDS)
     targets = anomaly_store.active_rows(conn, start=lo, end=hi, kinds=kinds)
     targets.extend(anomaly_store.pending_rows(conn, start=lo, end=hi))
+    # A pre-v5 effective non-unit ratio can survive without a disposition (for
+    # example, a derived-only legacy bar or a published repair whose observation
+    # history was never written). Treat the published economic row itself as a
+    # split question. The ordinary resolution guards below still require a
+    # complete covering ACTIONS generation and explicit predecessor-based SEP
+    # no-event evidence before an append-only repair to 1.0 is allowed.
+    targets.extend({
+        "kind": "SPLIT_AUTHORITATIVE_APPLIED",
+        "ticker": row["ticker"], "session": row["session"],
+    } for row in publication.effective_nonunit_split_rows(
+        conn, start=lo, end=hi))
 
     emitted_keys = set()
     for item in emitted:

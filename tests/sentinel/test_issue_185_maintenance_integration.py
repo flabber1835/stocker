@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from sentinel.feed import maintenance, publication, renormalize, store
+from sentinel.feed import maintenance, publication, recovery, renormalize, store
 
 
 class _Run:
@@ -92,10 +92,6 @@ def test_actions_split_correction_replays_against_candidate_before_publication(
     monkeypatch.setattr(
         renormalize, "correction_windows",
         lambda dates, **kwargs: [("2019-12-31", "2020-01-03")])
-    monkeypatch.setattr(
-        "sentinel.feed.recovery.retire_failed_action_reconcile_bars_outside_market",
-        lambda conn, **kwargs: 0)
-
     def write_actions(conn, current, *, run_id, window_start, window_end):
         events.append(("actions", run_id))
         return len(current)
@@ -103,14 +99,17 @@ def test_actions_split_correction_replays_against_candidate_before_publication(
     monkeypatch.setattr(store, "write_actions", write_actions)
 
     def replay(conn, *, fetch, run, dates, include_action_run_id, chunk_prefix,
-               market_start, market_end, retire_failed_action_candidates):
+               market_start, market_end):
         events.append(("replay", run.progress.run_id, include_action_run_id))
         assert include_action_run_id == run.progress.run_id
         assert (market_start, market_end) == ("2019-01-02", "2026-08-18")
-        assert retire_failed_action_candidates is True
         return []
 
     monkeypatch.setattr(renormalize, "renormalize", replay)
+    monkeypatch.setattr(
+        recovery, "record_action_reconcile_retirement_plan",
+        lambda conn, *, run_id, plan: events.append(
+            ("retirement-plan", run_id, plan.replay_windows)))
 
     def publish(conn, *, run_id, **kwargs):
         events.append(("publish", run_id))
@@ -134,6 +133,8 @@ def test_actions_split_correction_replays_against_candidate_before_publication(
     assert events == [
         ("actions", "actions_reconcile-run"),
         ("replay", "actions_reconcile-run", "actions_reconcile-run"),
+        ("retirement-plan", "actions_reconcile-run",
+         (("2019-12-31", "2020-01-03"),)),
         ("publish", "actions_reconcile-run"),
         ("cursor", 12),
     ]
@@ -173,8 +174,8 @@ def test_full_actions_history_does_not_expand_a_short_price_seed(monkeypatch):
         maintenance, "_semantic_upgrade_replay_dates",
         lambda conn, **kwargs: [])
     monkeypatch.setattr(
-        "sentinel.feed.recovery.retire_failed_action_reconcile_bars_outside_market",
-        lambda conn, **kwargs: 0)
+        recovery, "record_action_reconcile_retirement_plan",
+        lambda *args, **kwargs: None)
     monkeypatch.setattr(
         store, "write_actions", lambda *args, **kwargs: 2)
     monkeypatch.setattr(
@@ -235,8 +236,8 @@ def test_semantic_cursor_upgrade_replays_old_blockers_with_unchanged_source(
         renormalize, "correction_windows",
         lambda dates, **kwargs: [("2026-08-12", "2026-08-17")])
     monkeypatch.setattr(
-        "sentinel.feed.recovery.retire_failed_action_reconcile_bars_outside_market",
-        lambda conn, **kwargs: 0)
+        recovery, "record_action_reconcile_retirement_plan",
+        lambda *args, **kwargs: None)
     monkeypatch.setattr(store, "write_actions", lambda *args, **kwargs: 1)
 
     def replay(conn, *, dates, **kwargs):

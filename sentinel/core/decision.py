@@ -7,8 +7,9 @@ it does not read a broker, persist a plan, or submit an order.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from pathlib import Path
@@ -32,14 +33,77 @@ from sentinel.feed import calendar
 
 
 DEFENSIVE_SECURITY_ID = "SENTINEL:BIL"
+DATA_SEMANTICS_IDENTITY_SCHEMA = "sentinel-sharadar-book-semantics/v1"
+_DATA_SEMANTICS_MODULES = (
+    "sentinel.breadth.classifier",
+    "sentinel.breadth.returns",
+    "sentinel.controller.concordance",
+    "sentinel.controller.concordance_parent",
+    "sentinel.controller.frozen_rule",
+    "sentinel.controller.ldrc",
+    "sentinel.controller.machine",
+    "sentinel.controller.recent_leadership",
+    "sentinel.core.bootstrap",
+    "sentinel.core.catchup",
+    "sentinel.core.decision",
+    "sentinel.core.loader",
+    "sentinel.core.production",
+    "sentinel.core.terminal",
+    "sentinel.execution.plan",
+    "sentinel.execution.projection",
+    "sentinel.execution.reconcile",
+    "sentinel.execution.target_reprojection",
+    "sentinel.feed.action_source",
+    "sentinel.feed.actions",
+    "sentinel.feed.actions_map",
+    "sentinel.feed.anomalies",
+    "sentinel.feed.calendar",
+    "sentinel.feed.domains",
+    "sentinel.feed.ingest",
+    "sentinel.feed.ingest_impl",
+    "sentinel.feed.maintenance",
+    "sentinel.feed.publication",
+    "sentinel.feed.repair",
+    "sentinel.feed.recovery",
+    "sentinel.feed.renormalize",
+    "sentinel.feed.reseed",
+    "sentinel.feed.sep_reconciliation",
+    "sentinel.feed.sharadar",
+    "sentinel.feed.snapshot_export",
+    "sentinel.feed.snapshot_source",
+    "sentinel.feed.staging",
+    "sentinel.feed.store",
+    "sentinel.feed.universe",
+    "sentinel.feed.universe_projection",
+    "sentinel.paper",
+    "sentinel.regime.spy",
+    "sentinel.shadow_observation",
+    "sentinel.shadow_runtime",
+    "stock_strategy_shared.split_reconciliation",
+    "stock_strategy_shared.terminal_coalescing",
+    "stock_strategy_shared.wealth_core.sharadar_domains",
+)
 
 
 @dataclass(frozen=True)
 class ShadowTarget:
-    """Canonical Wealth Core shares after its queued next-open operations."""
+    """Canonical Wealth Core shares and the intent lineage that produced them.
+
+    The aggregate is sufficient at the decision close, but it is not sufficient
+    across an overnight corporate action.  Held shares and pending closes keep
+    fractional split entitlements; a pending open is still a whole-share entry
+    and Wealth Core cancels it if the transformed quantity is fractional.  Keep
+    those components bound to the canonical state so execution cannot flatten
+    away the distinction and resurrect a cancelled entry.
+    """
 
     shares: Mapping[str, Decimal]
     tickers: Mapping[str, str]
+    held_shares: Mapping[str, Decimal] = field(default_factory=dict)
+    pending_open_shares: Mapping[str, tuple[Decimal, ...]] = field(
+        default_factory=dict)
+    pending_close_shares: Mapping[str, tuple[Decimal, ...]] = field(
+        default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -59,6 +123,37 @@ def _canonical_hash(value) -> str:
     blob = json.dumps(
         value, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def data_semantics_source_identity() -> dict[str, object]:
+    """Hash every reviewed source boundary that turns Sharadar into a book.
+
+    A corpus version names the published rows, not the decoder that assigned
+    their economic domains. Keep this bundle deliberately explicit so a
+    split-orientation, effective-date, price-domain, overlay, terminal, or
+    loader change makes persisted path-dependent state stale instead of
+    silently advancing it under new semantics.
+    """
+    files = []
+    for module_name in _DATA_SEMANTICS_MODULES:
+        module = importlib.import_module(module_name)
+        module_file = getattr(module, "__file__", None)
+        if not module_file:
+            raise RuntimeError(
+                f"data-semantics module {module_name} has no source path")
+        path = Path(module_file).resolve()
+        if not path.is_file():
+            raise RuntimeError(
+                f"data-semantics source {module_name} is not a file: {path}")
+        files.append({
+            "module": module_name,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        })
+    payload = {
+        "schema": DATA_SEMANTICS_IDENTITY_SCHEMA,
+        "files": files,
+    }
+    return {**payload, "sha256": _canonical_hash(payload)}
 
 
 def _as_mapping(value, *, label: str) -> Mapping:
@@ -108,6 +203,8 @@ def runtime_strategy_identity(
         "strategy": str(controller_config.strategy_id),
         "controller_rule_sha256": str(controller_config.digest),
         "wealth_core_source_sha256": str(source_digest),
+        "data_semantics_source_sha256": str(
+            data_semantics_source_identity()["sha256"]),
     }
     if not concordance:
         return result
@@ -159,6 +256,9 @@ def shadow_target(state: SessionState | Mapping) -> ShadowTarget:
     portfolio = PortfolioState.from_dict(canonical.wealth_core)
     shares: dict[str, Decimal] = {}
     tickers: dict[str, str] = {}
+    held_shares: dict[str, Decimal] = {}
+    pending_opens: dict[str, list[Decimal]] = {}
+    pending_closes: dict[str, list[Decimal]] = {}
 
     for slot_id in sorted(portfolio.episodes):
         episode = portfolio.episodes[slot_id]
@@ -170,6 +270,8 @@ def shadow_target(state: SessionState | Mapping) -> ShadowTarget:
             raise ValueError(
                 f"episode {slot_id} has invalid long-only shares {quantity}")
         shares[security_id] = shares.get(security_id, Decimal(0)) + quantity
+        held_shares[security_id] = (
+            held_shares.get(security_id, Decimal(0)) + quantity)
         _record_ticker(tickers, security_id, episode.ticker)
 
     for raw in canonical.pending:
@@ -184,8 +286,10 @@ def shadow_target(state: SessionState | Mapping) -> ShadowTarget:
                 f"{quantity}")
         if pending.operation is Operation.OPEN_SLOT_POSITION:
             signed = quantity
+            pending_opens.setdefault(security_id, []).append(quantity)
         elif pending.operation is Operation.CLOSE_POSITION:
             signed = -quantity
+            pending_closes.setdefault(security_id, []).append(quantity)
         else:
             raise ValueError(
                 f"pending operation {pending.operation.value!r} is not a "
@@ -204,7 +308,14 @@ def shadow_target(state: SessionState | Mapping) -> ShadowTarget:
         shares={security_id: quantity
                 for security_id, quantity in sorted(shares.items())
                 if quantity > 0},
-        tickers=dict(sorted(tickers.items())))
+        tickers=dict(sorted(tickers.items())),
+        held_shares=dict(sorted(held_shares.items())),
+        pending_open_shares={
+            security_id: tuple(quantities)
+            for security_id, quantities in sorted(pending_opens.items())},
+        pending_close_shares={
+            security_id: tuple(quantities)
+            for security_id, quantities in sorted(pending_closes.items())})
 
 
 def _publication_version(publication) -> int:
@@ -505,7 +616,9 @@ def build_execution_plan(
 
 
 __all__ = [
-    "DEFENSIVE_SECURITY_ID", "DecisionResult", "ProductionDecision",
+    "DATA_SEMANTICS_IDENTITY_SCHEMA", "DEFENSIVE_SECURITY_ID",
+    "DecisionResult", "ProductionDecision",
     "ShadowTarget", "build_execution_plan", "publication_fingerprint",
-    "runtime_strategy_identity", "shadow_target",
+    "data_semantics_source_identity", "runtime_strategy_identity",
+    "shadow_target",
 ]

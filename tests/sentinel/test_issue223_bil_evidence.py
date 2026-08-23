@@ -265,7 +265,7 @@ def test_corporate_action_mapping_resolves_bil_to_the_fixed_identity():
                for statement, _params in conn.statements)
 
 
-def test_execution_uses_published_reverse_split_multiplier_not_raw_denominator(
+def test_execution_uses_sharadar_direct_reverse_split_multiplier_without_inversion(
         monkeypatch):
     from sentinel.feed import calendar
 
@@ -274,8 +274,10 @@ def test_execution_uses_published_reverse_split_multiplier_not_raw_denominator(
     monkeypatch.setattr(calendar, "session_on_or_after", lambda *_: "2026-08-20")
     canonical = Decimal(1) / Decimal(30)
     conn = _Connection(
-        [(date(2026, 8, 20), Decimal(30), "action-split", "split", "AAA", None)],
-        [], [], [],
+        [(date(2026, 8, 20), canonical, "action-split", "split", "AAA", None)],
+        [], [],
+        [(1, "SPLIT_AUTHORITATIVE_APPLIED", "AAA", date(2026, 8, 20),
+          f"stated={canonical} applied={canonical}", None, None, 0)],
         [("SEC-A", canonical, "legacy", 0)],
     )
 
@@ -283,8 +285,77 @@ def test_execution_uses_published_reverse_split_multiplier_not_raw_denominator(
         conn, start=date(2026, 8, 19), end=date(2026, 8, 20))
 
     assert lookup("SEC-A") == canonical
-    assert lookup("SEC-A") != Decimal(30)
+    assert lookup("SEC-A") != Decimal(30), "Sharadar split is never inverted"
     assert "sentinel_bar_split_repairs" in conn.statements[1][0]
+
+
+def test_execution_refuses_accepted_disposition_that_conflicts_with_raw_terms(
+        monkeypatch):
+    from sentinel.feed import calendar
+
+    monkeypatch.setattr(
+        calendar, "action_date_window", lambda *_: ("2026-08-20", "2026-08-20"))
+    monkeypatch.setattr(calendar, "session_on_or_after", lambda *_: "2026-08-20")
+    conn = _Connection(
+        [(date(2026, 8, 20), Decimal(3), "action-split", "split", "AAA", None)],
+        [], [],
+        [(1, "SPLIT_AUTHORITATIVE_APPLIED", "AAA", date(2026, 8, 20),
+          "stated=2 applied=2", None, None, 0)],
+        [("SEC-A", Decimal(2), "legacy", 0)],
+    )
+
+    lookup = reconcile.corpus_action_lookup(
+        conn, start=date(2026, 8, 19), end=date(2026, 8, 20))
+
+    assert lookup("SEC-A") == Decimal(1)
+    material = lookup.material_events_for(security_ids={"SEC-A"})
+    assert len(material) == 1
+    assert "conflicts with ACTIONS terms" in material[0].reason
+
+
+def test_disposition_requires_one_exact_applied_evidence_token(monkeypatch):
+    from sentinel.feed import calendar
+
+    monkeypatch.setattr(
+        calendar, "action_date_window", lambda *_: ("2026-08-20", "2026-08-20"))
+    monkeypatch.setattr(calendar, "session_on_or_after", lambda *_: "2026-08-20")
+    conn = _Connection(
+        [(date(2026, 8, 20), Decimal(2), "action-split", "split", "AAA", None)],
+        [], [],
+        [(1, "SPLIT_AUTHORITATIVE_APPLIED", "AAA", date(2026, 8, 20),
+          "stated=2 not_applied=2", None, None, 0)],
+        [("SEC-A", Decimal(2), "legacy", 0)],
+    )
+
+    lookup = reconcile.corpus_action_lookup(
+        conn, start=date(2026, 8, 19), end=date(2026, 8, 20))
+
+    assert lookup("SEC-A") == Decimal(1)
+    material, = lookup.material_events_for(security_ids={"SEC-A"})
+    assert "accepted published split disposition conflicts" in material.reason
+
+
+def test_ticker_level_disposition_cannot_fan_out_to_two_security_ids():
+    session = date(2026, 8, 20)
+    conn = _Connection(
+        [],
+        [
+            ("SEC-A", session, "AAA", Decimal(2), "run-a", 7),
+            ("SEC-B", session, "AAA", Decimal(2), "run-b", 7),
+        ],
+        [],
+        [(1, "SPLIT_CORROBORATED_DERIVED", "AAA", session,
+          "stated=2 derived=2 applied=2", None, "run-a", 7)],
+    )
+
+    lookup = reconcile.corpus_action_lookup(
+        conn, start=date(2026, 8, 19), end=session)
+
+    assert lookup("SEC-A") == lookup("SEC-B") == Decimal(1)
+    for security_id in ("SEC-A", "SEC-B"):
+        material = lookup.material_events_for(security_ids={security_id})
+        assert len(material) == 1
+        assert "ambiguous ticker/session security mapping" in material[0].reason
 
 
 def test_execution_corroborates_bil_direct_reverse_multiplier_from_price_domains(
@@ -367,7 +438,9 @@ def test_fresh_bil_target_is_fenced_by_ticker_only_unresolved_action(
 
     monkeypatch.setattr(
         paper, "shadow_target",
-        lambda _state: SimpleNamespace(shares={}, tickers={}))
+        lambda _state: SimpleNamespace(
+            shares={}, tickers={}, pending_open_shares={}, held_shares={},
+            pending_close_shares={}))
     monkeypatch.setattr(paper.journal, "load_commands", lambda *_: [])
     monkeypatch.setattr(
         paper.reconciliation, "expected_book_from_commands", lambda *_args, **_kw: {})
@@ -381,7 +454,8 @@ def test_fresh_bil_target_is_fenced_by_ticker_only_unresolved_action(
 
     with pytest.raises(paper.PaperActivationRefused, match="corporate action"):
         paper._target_projection_or_refuse(  # noqa: SLF001
-            object(), state=object(), plan=plan, binding=binding,
+            object(), state=SimpleNamespace(state_hash=plan.shadow_snapshot_hash),
+            plan=plan, binding=binding,
             broker=broker, through=date(2026, 8, 20),
             actions=_Lookup(), target_actions=_Lookup())
 

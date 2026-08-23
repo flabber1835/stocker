@@ -317,7 +317,9 @@ def test_recovery_overlays_open_split_before_book_classification_and_evidence(
 
     def require_authority_projection(_conn, **kwargs):
         projection_calls.append(kwargs)
-        return object()
+        return SimpleNamespace(
+            target_basket={"SEC-A": Decimal(20)},
+            through_session=effective)
 
     monkeypatch.setattr(
         paper, "_target_projection_or_refuse", require_authority_projection)
@@ -331,7 +333,9 @@ def test_recovery_overlays_open_split_before_book_classification_and_evidence(
     assert result.clean
     assert result.foreign_positions == ()
     assert result.expected == {"SEC-A": Decimal(20)}
-    assert recorded[0]["target_actions"] == {"SEC-A": Decimal(2)}
+    assert recorded[0]["target_projection"].target_basket == {
+        "SEC-A": Decimal(20)}
+    assert recorded[0]["observation_post_projection_actions"] == {}
     assert len(projection_calls) == 1
     assert projection_calls[0]["require_existing"] is True
     assert projection_calls[0]["target_actions"]("SEC-A") == Decimal(2)
@@ -347,7 +351,9 @@ def test_recovery_refuses_stale_projection_from_before_current_authority(
 
     monkeypatch.setattr(
         paper, "shadow_target",
-        lambda _state: SimpleNamespace(shares={}, tickers={}))
+        lambda _state: SimpleNamespace(
+            shares={}, tickers={}, pending_open_shares={}, held_shares={},
+            pending_close_shares={}))
     monkeypatch.setattr(journal, "load_commands", lambda *_: ())
     monkeypatch.setattr(
         reconciliation, "expected_book_from_commands", lambda *_args, **_kw: {})
@@ -366,7 +372,8 @@ def test_recovery_refuses_stale_projection_from_before_current_authority(
             paper.PaperActivationRefused,
             match="authority-derived target projection.*differs"):
         paper._target_projection_or_refuse(  # noqa: SLF001
-            object(), state=object(), plan=plan, binding=binding,
+            object(), state=SimpleNamespace(state_hash=plan.shadow_snapshot_hash),
+            plan=plan, binding=binding,
             broker=broker, through=plan.effective_session,
             actions=empty, target_actions=empty, require_existing=True)
 
@@ -381,7 +388,9 @@ def test_target_projection_preview_does_not_persist(monkeypatch):
 
     monkeypatch.setattr(
         paper, "shadow_target",
-        lambda _state: SimpleNamespace(shares={}, tickers={}))
+        lambda _state: SimpleNamespace(
+            shares={}, tickers={}, pending_open_shares={}, held_shares={},
+            pending_close_shares={}))
     monkeypatch.setattr(journal, "load_commands", lambda *_: ())
     monkeypatch.setattr(
         reconciliation, "expected_book_from_commands", lambda *_args, **_kw: {})
@@ -395,7 +404,8 @@ def test_target_projection_preview_does_not_persist(monkeypatch):
         minimum_quantity_increment=Decimal(1)))
 
     result = paper._target_projection_or_refuse(  # noqa: SLF001
-        object(), state=object(), plan=plan,
+        object(), state=SimpleNamespace(state_hash=plan.shadow_snapshot_hash),
+        plan=plan,
         binding=SimpleNamespace(identity=DEPLOYMENT), broker=broker,
         through=plan.effective_session, actions=empty,
         target_actions=empty, persist_projection=False)
@@ -411,7 +421,9 @@ def test_target_projection_preview_mismatch_refuses_before_persist(monkeypatch):
 
     monkeypatch.setattr(
         paper, "shadow_target",
-        lambda _state: SimpleNamespace(shares={}, tickers={}))
+        lambda _state: SimpleNamespace(
+            shares={}, tickers={}, pending_open_shares={}, held_shares={},
+            pending_close_shares={}))
     monkeypatch.setattr(journal, "load_commands", lambda *_: ())
     monkeypatch.setattr(
         reconciliation, "expected_book_from_commands", lambda *_args, **_kw: {})
@@ -428,7 +440,8 @@ def test_target_projection_preview_mismatch_refuses_before_persist(monkeypatch):
             paper.PaperActivationRefused,
             match="post-reconciliation.*differs"):
         paper._target_projection_or_refuse(  # noqa: SLF001
-            object(), state=object(), plan=plan,
+            object(), state=SimpleNamespace(state_hash=plan.shadow_snapshot_hash),
+            plan=plan,
             binding=SimpleNamespace(identity=DEPLOYMENT), broker=broker,
             through=plan.effective_session, actions=empty,
             target_actions=empty, expected_projection=object())

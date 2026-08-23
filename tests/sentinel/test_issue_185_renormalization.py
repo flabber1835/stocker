@@ -1,11 +1,13 @@
 """Historical SEP/ACTIONS corrections must replay canonical session boundaries."""
 from __future__ import annotations
 
+import datetime as dt
 from types import SimpleNamespace
 
 import pytest
 
-from sentinel.feed import maintenance, renormalize, universe
+from sentinel.feed import (
+    anomalies, maintenance, publication, renormalize, universe)
 
 
 def test_weekend_action_replays_prior_effective_and_following_session():
@@ -123,3 +125,88 @@ def test_action_change_dates_replay_only_bar_affecting_actions(monkeypatch):
     ]
     dates = maintenance._action_change_dates(object(), current)
     assert dates == ["2020-01-02", "2020-03-04"]
+
+
+def test_v5_semantic_reearn_includes_accepted_resolved_direct_and_adr_dates(
+        monkeypatch):
+    observed = {}
+
+    def active_rows(conn, *, start, end, kinds):
+        observed.update(start=start, end=end, kinds=kinds)
+        return [
+            {"kind": "SPLIT_CORROBORATED_DERIVED", "session": "2026-08-14"},
+            {"kind": "SPLIT_AUTHORITATIVE_APPLIED", "session": "2026-08-17"},
+            {"kind": "SPLIT_RESOLVED_NO_EVENT", "session": "2026-08-18"},
+            {"kind": "SPLIT_DISAGREEMENT", "session": "2026-08-19"},
+        ]
+
+    monkeypatch.setattr(anomalies, "active_rows", active_rows)
+    monkeypatch.setattr(
+        publication, "effective_nonunit_split_rows",
+        lambda conn, *, start, end: [{
+            "ticker": "LEGACY", "session": "2026-08-16",
+            "split_ratio": 2.0,
+        }])
+    current = [
+        {"action": "split", "date": "2026-08-20"},
+        {"action": "adrratiosplit", "date": "2026-08-21"},
+        {"action": "split", "date": "2024-01-02"},
+        {"action": "dividend", "date": "2026-08-13"},
+    ]
+    prior = [
+        # Removed now, but legacy code could already have resized the stored
+        # book from it without leaving a blocking disposition.
+        {"action": "adrratiosplit", "date": "2026-08-15"},
+    ]
+
+    assert maintenance._semantic_upgrade_replay_dates(
+        object(), market_start="2026-08-14", market_end="2026-08-21",
+        current_action_rows=current, prior_action_rows=prior) == [
+            "2026-08-14", "2026-08-15", "2026-08-16", "2026-08-17",
+            "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21",
+        ]
+    assert observed == {
+        "start": "2026-08-14", "end": "2026-08-21",
+        "kinds": anomalies.SPLIT_DISPOSITION_KINDS,
+    }
+
+
+def test_shipped_v4_cursor_cannot_bypass_v5_semantic_reearn():
+    old_name = "sharadar-actions-export-reconcile:v4"
+    old_state = {
+        "kind": "sharadar-actions-export-reconcile/v4",
+        "processed_through": "2026-08-21",
+        "publication_version": 41,
+    }
+
+    class Cursor:
+        def __init__(self, conn):
+            self.conn = conn
+            self.row = None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, sql, params=()):
+            if "WHERE cursor_name=%s" in sql:
+                self.conn.requested.append(params[0])
+                self.row = self.conn.rows.get(params[0])
+
+        def fetchone(self):
+            return self.row
+
+    class Conn:
+        rows = {old_name: (dt.date(2026, 8, 21), old_state)}
+
+        def __init__(self):
+            self.requested = []
+
+        def cursor(self):
+            return Cursor(self)
+
+    conn = Conn()
+    assert maintenance.load_actions_cursor(conn) is None
+    assert conn.requested == ["sharadar-actions-export-reconcile:v5"]

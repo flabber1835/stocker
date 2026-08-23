@@ -23,6 +23,7 @@ from sentinel import authority, binding, schema  # noqa: E402
 from sentinel.feed import store as feed_store  # noqa: E402
 from tools import sentinel_certificate_issuer as issuer  # noqa: E402
 from tools import sentinel_authority_evidence as evidence  # noqa: E402
+from tools import wealth_core_expected_hashes as expected_hash_tool  # noqa: E402
 
 
 NOW = datetime(2026, 8, 13, 12, tzinfo=timezone.utc)
@@ -500,7 +501,10 @@ def test_operation_gate_requires_independent_config_and_publication_hashes(conn)
         "schema": "sentinel.runtime-artifacts/1", "git_commit": "a" * 40,
         "runtime_image_digest": "sha256:" + sha("d"),
         "test_image_digest": "sha256:" + sha("e")}}
-    strategy = {"strategy": "exact"}
+    strategy = {
+        "strategy": "exact",
+        "data_semantics_source_sha256": sha("a"),
+    }
     # The claims intentionally name different hashes; independently observed
     # values must refuse even though the signature itself is valid.
     with pytest.raises(authority.AuthorityRefused, match="runtime identity"):
@@ -518,7 +522,10 @@ def test_operation_gate_accepts_only_exact_operation_and_independent_hashes(conn
         "schema": "sentinel.runtime-artifacts/1", "git_commit": "a" * 40,
         "runtime_image_digest": "sha256:" + sha("d"),
         "test_image_digest": "sha256:" + sha("e")}}
-    strategy = {"strategy": "exact"}
+    strategy = {
+        "strategy": "exact",
+        "data_semantics_source_sha256": sha("a"),
+    }
     document = claims()
     document["bindings"]["runtime_identity_sha256"] = runtime["identity_hash"]
     document["bindings"]["strategy_identity_sha256"] = \
@@ -540,6 +547,18 @@ def test_operation_gate_accepts_only_exact_operation_and_independent_hashes(conn
         publication_chain_root_sha256=sha("9"), now=NOW,
         trust_roots=ROOTS)
     assert accepted.certificate_sha256 == digest
+    semantics_drifted = dict(
+        strategy, data_semantics_source_sha256=sha("b"))
+    with pytest.raises(authority.AuthorityRefused,
+                       match="strategy identity"):
+        authority.require_execution_authority(
+            conn, runtime_identity=runtime,
+            strategy_identity=semantics_drifted,
+            required_mode=authority.RolloutMode.CONTROLLER,
+            required_operation="SUBMIT", execution_config_sha256=sha("3"),
+            publication_policy_implementation_sha256=sha("8"),
+            publication_chain_root_sha256=sha("9"), now=NOW,
+            trust_roots=ROOTS)
     drifted = json.loads(json.dumps(runtime))
     drifted["deployment_artifacts"]["runtime_image_digest"] = \
         "sha256:" + sha("f")
@@ -698,10 +717,9 @@ def issuer_fixture(tmp_path: Path, *, wealth_verdict="GO", strict_xfails=0,
             "producer_sha256": hashlib.sha256((
                 ROOT / "tools/wealth_core_expected_hashes.py").read_bytes()
             ).hexdigest(),
-            "canonical_loader": "services/backtester/app/wealth_core_replay.py",
-            "canonical_loader_sha256": hashlib.sha256((
-                ROOT / "services/backtester/app/wealth_core_replay.py"
-            ).read_bytes()).hexdigest(),
+            "canonical_loader_bundle":
+                expected_hash_tool.canonical_loader_bundle_from_repository(
+                    ROOT),
             "runtime_environment": {
                 "compatible": True, "pins_match": True,
                 "sources_known": True, "pin_drift": {},
@@ -945,6 +963,26 @@ def test_offline_issuer_validates_every_digest_and_never_emits_private_key(tmp_p
     (index.parent / index_value["artifacts"]["reference_artifact"][
         "path"]).write_bytes(b"tampered")
     with pytest.raises(issuer.IssuanceRefused, match="digest mismatch"):
+        issuer.validate_evidence(document, index)
+
+
+def test_issuer_recomputes_the_complete_loader_bundle(tmp_path, monkeypatch):
+    document, _claims_path, index, _key_path = issuer_fixture(tmp_path)
+    changed = expected_hash_tool.canonical_loader_bundle_from_repository(ROOT)
+    changed = json.loads(json.dumps(changed))
+    replay_impl = "services/backtester/app/wealth_core_replay_impl.py"
+    changed["sources"][replay_impl] = "0" * 64
+    changed["sha256"] = hashlib.sha256(json.dumps({
+        "schema": changed["schema"], "sources": changed["sources"],
+    }, sort_keys=True, separators=(",", ":"),
+        ensure_ascii=True, allow_nan=False).encode("ascii")).hexdigest()
+    monkeypatch.setattr(
+        issuer, "_canonical_loader_bundle_from_repository",
+        lambda _root: changed)
+
+    with pytest.raises(
+            issuer.IssuanceRefused,
+            match="repository producer/replay"):
         issuer.validate_evidence(document, index)
 
 

@@ -479,7 +479,8 @@ DDL = [
         current_chunk TEXT,
         error_message TEXT,
         source_git_commit TEXT,
-        runtime_image_digest TEXT)""",
+        runtime_image_digest TEXT,
+        publication_recovery JSONB NOT NULL DEFAULT '{}'::jsonb)""",
     # Existing ingest history predates deployment binding and remains readable
     # as explicitly unbound NULL provenance. Every new IngestRun supplies both
     # fields and every new run-backed publication refuses their absence.
@@ -487,6 +488,12 @@ DDL = [
         ADD COLUMN IF NOT EXISTS source_git_commit TEXT""",
     """ALTER TABLE feed_ingest_runs
         ADD COLUMN IF NOT EXISTS runtime_image_digest TEXT""",
+    # Publication-time cleanup scope is evidence, not transient process state.
+    # The ACTIONS retry records it before SUCCESS so crash-resumed publication
+    # can perform exactly the same covered retirement transaction.
+    """ALTER TABLE feed_ingest_runs
+        ADD COLUMN IF NOT EXISTS publication_recovery JSONB
+        NOT NULL DEFAULT '{}'::jsonb""",
     """CREATE INDEX IF NOT EXISTS idx_feed_ingest_runs_started
         ON feed_ingest_runs (started_at DESC)""",
 

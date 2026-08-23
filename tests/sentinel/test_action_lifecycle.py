@@ -14,7 +14,9 @@ sys.path.insert(0, str(ROOT / "shared"))
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
 from sentinel.core import terminal  # noqa: E402
-from sentinel.feed import actions, calendar, ingest, maintenance, publication as P  # noqa: E402
+from sentinel.feed import actions, anomalies, calendar, ingest, maintenance  # noqa: E402
+from sentinel.feed import publication as P  # noqa: E402
+from sentinel.feed import recovery  # noqa: E402
 from sentinel.feed import readiness  # noqa: E402
 from sentinel.feed import rejection_audit as RA  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
@@ -80,6 +82,17 @@ def _bar(session, ratio=1.0, close=50.0):
     return domains.NormalisedBar(close_signal=close, vendor=vendor)
 
 
+def _domain_bar(session, *, close_signal, raw_close, ratio):
+    from sentinel.feed import domains
+
+    return domains.NormalisedBar(
+        close_signal=close_signal,
+        vendor=VendorBar(
+            session=session, security_id="SEC-AAA", ticker="AAA",
+            raw_close=raw_close, raw_open=raw_close, volume=1_000_000,
+            split_ratio=ratio, dividend_per_share=0.0))
+
+
 def _establish_sep_cursor(conn, through: str):
     published = P.require_current(conn)
     return maintenance.establish_sep_cursor_after_complete_reconciliation(
@@ -142,6 +155,157 @@ def _active_split_ratio(conn):
             " AND session=%s AND " + P.visible_predicate("b"), (EVENT,))
         row = cur.fetchone()
     return None if row is None else float(row[0])
+
+
+@pytest.mark.parametrize(
+    ("action", "value", "old_ratio", "source_prices", "expected_ratio",
+     "expected_disposition"),
+    [
+        ("adrratiosplit", 2.0, 2.0,
+         ((50.0, 50.0), (51.0, 51.0)), 1.0,
+         "SPLIT_RESOLVED_NO_EVENT"),
+        ("split", 4.0, 0.25,
+         ((25.0, 100.0), (25.0, 25.0)), 4.0,
+         "SPLIT_CORROBORATED_DERIVED"),
+    ],
+)
+def test_v5_semantic_reearn_repairs_unchanged_accepted_legacy_split_economics(
+        conn, action, value, old_ratio, source_prices, expected_ratio,
+        expected_disposition):
+    source_actions = [
+        CONTROL_ACTION,
+        {"ticker": "AAA", "date": EVENT, "action": action,
+         "name": None, "value": value, "contraticker": None,
+         "contraname": None},
+    ]
+    (prior_signal, prior_raw), (event_signal, event_raw) = source_prices
+    old = S.IngestRun(
+        conn, "legacy-v3-actions", date_from=PRIOR, date_to=END)
+    with S.corpus_write_lock(conn):
+        S.write_actions(
+            conn, source_actions, run_id=old.progress.run_id,
+            window_start=maintenance.ACTIONS_FULL_WINDOW_START,
+            window_end=END)
+        S.write_bars(
+            conn, [
+                _domain_bar(
+                    PRIOR, close_signal=prior_signal, raw_close=prior_raw,
+                    ratio=1.0),
+                _domain_bar(
+                    EVENT, close_signal=event_signal, raw_close=event_raw,
+                    ratio=old_ratio),
+            ], run_id=old.progress.run_id, require_lock=True)
+        # Accepted evidence is intentionally non-blocking. This is the class
+        # omitted by the shipped v4 migration selector.
+        S.write_anomalies(
+            conn, [{
+                "kind": "SPLIT_CORROBORATED_DERIVED", "ticker": "AAA",
+                "session": EVENT, "detail": "legacy accepted semantics",
+            }], run_id=old.progress.run_id, require_lock=True)
+        old.finish("success")
+        P.publish(
+            conn, run_id=old.progress.run_id,
+            window_start=PRIOR, window_end=END)
+
+    before_ids = {
+        row["source_row_id"]
+        for row in actions.active_rows(
+            conn, start=maintenance.ACTIONS_FULL_WINDOW_START, end=END)}
+
+    def unchanged_fetch(table, params=None):
+        from sentinel.feed import sharadar
+
+        if table == sharadar.ACTIONS:
+            return [dict(row) for row in source_actions]
+        if table == sharadar.SEP:
+            rows = [
+                {"ticker": "AAA", "date": PRIOR, "close": prior_signal,
+                 "closeunadj": prior_raw, "open": prior_signal,
+                 "volume": 1_000_000},
+                {"ticker": "AAA", "date": EVENT, "close": event_signal,
+                 "closeunadj": event_raw, "open": event_signal,
+                 "volume": 1_000_000},
+            ]
+            bounds = dict(params or {})
+            return [row for row in rows
+                    if bounds.get("date.gte", "0000-00-00") <= row["date"]
+                    <= bounds.get("date.lte", "9999-99-99")]
+        raise AssertionError(table)
+
+    with S.corpus_write_lock(conn):
+        cursor = maintenance.reconcile_actions_if_due(
+            conn, fetch=unchanged_fetch, through=END, force=True)
+
+    assert cursor is not None and cursor.kind == maintenance.ACTIONS_CURSOR_KIND
+    assert _active_split_ratio(conn) == pytest.approx(expected_ratio)
+    active_ids = {
+        row["source_row_id"]
+        for row in actions.active_rows(
+            conn, start=maintenance.ACTIONS_FULL_WINDOW_START, end=END)}
+    assert active_ids == before_ids, "the source identities were unchanged"
+    publication = P.require_current(conn)
+    assert publication.evidence["changed_action_dates"] == 0
+    assert publication.evidence["semantic_upgrade_dates"] >= 1
+    dispositions = {
+        row["kind"] for row in anomalies.active_rows(
+            conn, start=PRIOR, end=END,
+            kinds=(expected_disposition,))}
+    assert dispositions == {expected_disposition}
+
+
+def test_v5_reearns_a_legacy_nonunit_bar_with_no_action_or_disposition(conn):
+    source_actions = [CONTROL_ACTION]
+    old = S.IngestRun(
+        conn, "legacy-derived-split", date_from=PRIOR, date_to=END)
+    with S.corpus_write_lock(conn):
+        S.write_actions(
+            conn, source_actions, run_id=old.progress.run_id,
+            window_start=maintenance.ACTIONS_FULL_WINDOW_START,
+            window_end=END)
+        S.write_bars(
+            conn, [
+                _domain_bar(
+                    PRIOR, close_signal=50.0, raw_close=50.0, ratio=1.0),
+                _domain_bar(
+                    EVENT, close_signal=51.0, raw_close=51.0, ratio=2.0),
+            ], run_id=old.progress.run_id, require_lock=True)
+        old.finish("success")
+        P.publish(
+            conn, run_id=old.progress.run_id,
+            window_start=PRIOR, window_end=END)
+
+    assert anomalies.active_rows(
+        conn, start=PRIOR, end=END,
+        kinds=anomalies.SPLIT_DISPOSITION_KINDS) == []
+
+    def unchanged_fetch(table, params=None):
+        from sentinel.feed import sharadar
+
+        if table == sharadar.ACTIONS:
+            return [dict(row) for row in source_actions]
+        if table == sharadar.SEP:
+            rows = [
+                {"ticker": "AAA", "date": PRIOR, "close": 50.0,
+                 "closeunadj": 50.0, "open": 50.0, "volume": 1_000_000},
+                {"ticker": "AAA", "date": EVENT, "close": 51.0,
+                 "closeunadj": 51.0, "open": 51.0, "volume": 1_000_000},
+            ]
+            bounds = dict(params or {})
+            return [row for row in rows
+                    if bounds.get("date.gte", "0000-00-00") <= row["date"]
+                    <= bounds.get("date.lte", "9999-99-99")]
+        raise AssertionError(table)
+
+    with S.corpus_write_lock(conn):
+        cursor = maintenance.reconcile_actions_if_due(
+            conn, fetch=unchanged_fetch, through=END, force=True)
+
+    assert cursor is not None and cursor.kind == maintenance.ACTIONS_CURSOR_KIND
+    assert _active_split_ratio(conn) == 1.0
+    assert {row["kind"] for row in anomalies.active_rows(
+        conn, start=PRIOR, end=END,
+        kinds=anomalies.SPLIT_DISPOSITION_KINDS)} == {
+            "SPLIT_RESOLVED_NO_EVENT"}
 
 
 class TestPublishedActionReconciliation:
@@ -283,6 +447,79 @@ class TestUnpublishedAndFailedCorrections:
         ingest.daily(conn, fetch=_corrective_fetch, today=END)
         assert actions.active_rows(conn, start=PRIOR, end=END) == []
         assert _active_split_ratio(conn) == 1.0
+        assert P.coherence(conn).coherent
+
+    def test_failed_actions_retry_cleanup_rolls_back_before_publication_commit(
+            self, conn, monkeypatch):
+        # v1 contains this economic key. A failed destructive replay takes
+        # physical ownership of it, so the failed-owner row is the only remaining
+        # witness that the published corpus is currently incoherent.
+        S.write_bars(conn, [_bar(EVENT)])
+        old_publication = P.publish(
+            conn, window_start=PRIOR, window_end=END)
+        failed = S.IngestRun(
+            conn, "actions_reconcile", date_from=PRIOR, date_to=END)
+        with S.corpus_write_lock(conn):
+            S.write_bars(
+                conn, [_bar(EVENT, ratio=2.0)],
+                run_id=failed.progress.run_id, require_lock=True)
+            failed.finish("failed", "fixture failed after destructive upsert")
+
+        retry = S.IngestRun(
+            conn, "actions_reconcile", date_from=PRIOR, date_to=END)
+        plan = recovery.ActionReconcileRetirementPlan(
+            market_start=PRIOR, market_end=END,
+            replay_windows=((PRIOR, END),))
+        with S.corpus_write_lock(conn):
+            recovery.record_action_reconcile_retirement_plan(
+                conn, run_id=retry.progress.run_id, plan=plan)
+            retry.finish("success")
+
+            real_assert = P.assert_retry_superseded_prior_candidates
+
+            def fail_after_retirement(conn, *, run_id):
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT COUNT(*) FROM sentinel_bars"
+                        " WHERE last_written_run_id=%s",
+                        (failed.progress.run_id,))
+                    assert cur.fetchone()[0] == 0, (
+                        "fault must occur after publication-time retirement")
+                raise RuntimeError("injected failure before publication row")
+
+            monkeypatch.setattr(
+                P, "assert_retry_superseded_prior_candidates",
+                fail_after_retirement)
+            with pytest.raises(RuntimeError, match="injected failure"):
+                P.publish(
+                    conn, run_id=retry.progress.run_id,
+                    window_start=PRIOR, window_end=END)
+
+            # publish() rolled the retirement back. The old failed owner still
+            # exists, the version did not move, and coherence remains blocked.
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM sentinel_bars"
+                    " WHERE last_written_run_id=%s",
+                    (failed.progress.run_id,))
+                assert cur.fetchone()[0] == 1
+            assert P.require_current(conn).version == old_publication.version
+            assert P.coherence(conn).unpublished_bars == 1
+
+            monkeypatch.setattr(
+                P, "assert_retry_superseded_prior_candidates", real_assert)
+            published = P.publish(
+                conn, run_id=retry.progress.run_id,
+                window_start=PRIOR, window_end=END)
+
+        assert published.version == old_publication.version + 1
+        assert published.evidence["retired_failed_bars_in_replay"] == 1
+        assert published.evidence["retired_failed_bars_outside_market"] == 0
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM sentinel_bars"
+                " WHERE last_written_run_id=%s", (failed.progress.run_id,))
+            assert cur.fetchone()[0] == 0
         assert P.coherence(conn).coherent
 
     def test_same_run_retry_is_immutable_and_idempotent(self, conn):

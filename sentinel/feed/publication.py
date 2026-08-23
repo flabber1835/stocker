@@ -155,6 +155,49 @@ def effective_split_ratio(alias: str = "b") -> str:
     )
 
 
+def effective_nonunit_split_rows(conn, *, start: str, end: str) -> list[dict]:
+    """Published bars whose effective split ratio is not one.
+
+    V5 semantic re-earn cannot derive its entire migration set from ACTIONS and
+    anomaly history: a legacy base ratio or append-only repair may have no
+    surviving disposition.  Candidate keys come from non-unit base rows and
+    published non-unit repairs, then the outer query applies the *newest*
+    published repair.  This avoids evaluating the correlated repair overlay for
+    every retained bar while still excluding a base 2.0 superseded by a repair
+    to 1.0 and including a base 1.0 superseded by a repair to 2.0.
+    """
+    visible = visible_predicate("b")
+    effective = effective_split_ratio("b")
+    with conn.cursor() as cur:
+        cur.execute(
+            "WITH candidate_keys AS ("
+            " SELECT b.security_id,b.session FROM sentinel_bars b"
+            " WHERE b.session BETWEEN %s AND %s"
+            "   AND b.split_ratio<>1.0 AND " + visible +
+            " UNION"
+            " SELECT rr.security_id,rr.session"
+            " FROM sentinel_bar_split_repairs rr"
+            " JOIN sentinel_corpus_publications rp"
+            "   ON rp.run_id=rr.last_written_run_id"
+            " WHERE rr.session BETWEEN %s AND %s"
+            "   AND rr.split_ratio<>1.0"
+            "), effective_rows AS ("
+            " SELECT b.security_id,b.ticker,b.session," + effective +
+            " AS split_ratio FROM candidate_keys k"
+            " JOIN sentinel_bars b"
+            "   ON b.security_id=k.security_id AND b.session=k.session"
+            " WHERE " + visible +
+            ") SELECT security_id,ticker,session,split_ratio"
+            " FROM effective_rows WHERE split_ratio<>1.0"
+            " ORDER BY session,ticker,security_id",
+            (str(start), str(end), str(start), str(end)))
+        rows = list(cur.fetchall())
+    return [{
+        "security_id": str(row[0]), "ticker": str(row[1]),
+        "session": str(row[2]), "split_ratio": float(row[3]),
+    } for row in rows]
+
+
 @dataclass(frozen=True)
 class CoherenceReport:
     """Whether the physical corpus and the published version agree."""
@@ -604,6 +647,17 @@ def publish(conn, *, run_id: Optional[str] = None,
             producer = _run_producer_identity(conn, str(run_id))
             retired_universe = retire_failed_universe_candidates(
                 conn, run_id=str(run_id))
+            from sentinel.feed import recovery
+            action_reconcile_retirement = (
+                recovery.load_action_reconcile_retirement_plan(
+                    conn, run_id=str(run_id)))
+            if action_reconcile_retirement is not None:
+                retired_action_bars = (
+                    recovery.retire_failed_action_reconcile_bars_for_publication(
+                        conn, run_id=str(run_id),
+                        plan=action_reconcile_retirement))
+            else:
+                retired_action_bars = None
             assert_retry_superseded_prior_candidates(conn, run_id=str(run_id))
             from sentinel.feed import actions as action_store
             action_store.publish_run(conn, run_id=str(run_id))
@@ -618,6 +672,7 @@ def publish(conn, *, run_id: Optional[str] = None,
             project_run(conn, run_id=str(run_id))
         else:
             retired_universe = {}
+            retired_action_bars = None
         previous = current(conn)
         publication_evidence = dict(evidence or {})
         if run_id is not None:
@@ -631,6 +686,11 @@ def publish(conn, *, run_id: Optional[str] = None,
             publication_evidence["retired_failed_universe_candidates"] = [
                 {"run_id": candidate, "rows": retired_universe[candidate]}
                 for candidate in sorted(retired_universe)]
+        if retired_action_bars is not None:
+            publication_evidence["retired_failed_bars_in_replay"] = (
+                retired_action_bars["inside_replay"])
+            publication_evidence["retired_failed_bars_outside_market"] = (
+                retired_action_bars["outside_market"])
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO sentinel_corpus_publications (previous_version,"

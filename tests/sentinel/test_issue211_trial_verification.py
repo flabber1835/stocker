@@ -11,7 +11,7 @@ import pytest
 
 from sentinel import trial, trial_close, trial_fills
 from sentinel.automation.model import CycleState
-from sentinel.execution import broker_cash
+from sentinel.execution import broker_cash, target_reprojection
 from sentinel.execution.contract import (
     BrokerAccountIdentity,
     BrokerAccountSnapshot,
@@ -153,26 +153,40 @@ def _clean_account_evidence():
     return deployment, reconciliation, snapshot, activity
 
 
+def _account_plan_projection(conn, *, target=Decimal("10"),
+                             multiplier=Decimal("2")):
+    plan = ExecutionPlan(
+        plan_id="trial-account-plan", decision_session=date(2026, 8, 19),
+        effective_session=date(2026, 8, 20),
+        target_exposure=Decimal(1), target_basket={"SEC-A": target})
+    projection = target_reprojection.project_target(
+        plan, through_session=plan.effective_session,
+        action_multipliers={"SEC-A": multiplier})
+    conn.rows[
+        f"{target_reprojection.CURSOR_PREFIX}{plan.plan_id}"] = (
+            projection.through_session, projection.payload())
+    return plan, projection
+
+
 def test_account_evidence_is_observation_bound_and_immutable():
     conn = JsonStateConnection()
     deployment, reconciliation, snapshot, activity = _clean_account_evidence()
+    plan, projection = _account_plan_projection(conn)
 
     first = trial.record_account_evidence(
         conn, session=date(2026, 8, 20), observation_id=17,
         observation_started_at=NOW, observed_at=NOW,
         snapshot=snapshot, deployment=deployment,
         reconciliation=reconciliation, activity_state=activity,
-        plan_target={"SEC-A": Decimal("10")},
-        target_actions={"SEC-A": Decimal("2")},
-        observation_target_actions={"SEC-A": Decimal("2")})
+        plan=plan, target_projection=projection,
+        observation_post_projection_actions={})
     again = trial.record_account_evidence(
         conn, session=date(2026, 8, 20), observation_id=17,
         observation_started_at=NOW, observed_at=NOW,
         snapshot=snapshot, deployment=deployment,
         reconciliation=reconciliation, activity_state=activity,
-        plan_target={"SEC-A": Decimal("10")},
-        target_actions={"SEC-A": Decimal("2")},
-        observation_target_actions={"SEC-A": Decimal("2")})
+        plan=plan, target_projection=projection,
+        observation_post_projection_actions={})
 
     assert first == again
     assert first["account"] == {
@@ -183,13 +197,15 @@ def test_account_evidence_is_observation_bound_and_immutable():
     assert first["reconciliation"]["expected"] == {"SEC-A": "20"}
     assert first["reconciliation"]["corporate_actions"] == {"SEC-A": "2"}
     assert first["reconciliation"]["plan_target"] == {"SEC-A": "10"}
+    assert first["reconciliation"]["target_projection"] == \
+        projection.payload()
     assert first["reconciliation"]["target"] == {"SEC-A": "20"}
     assert first["reconciliation"]["target_corporate_actions"] == {
         "SEC-A": "2"}
     assert first["reconciliation"]["observation_target"] == {
         "SEC-A": "20"}
     assert first["reconciliation"][
-        "observation_target_corporate_actions"] == {"SEC-A": "2"}
+        "observation_target_corporate_actions"] == {}
     assert first["cash_activity"] == {
         "processed_through": NOW.isoformat(),
         "last_activity_id": "activity-9",
@@ -205,26 +221,72 @@ def test_account_evidence_is_observation_bound_and_immutable():
             observation_started_at=NOW, observed_at=NOW,
             snapshot=changed, deployment=deployment,
             reconciliation=reconciliation, activity_state=activity,
-            plan_target={"SEC-A": Decimal("10")},
-            target_actions={"SEC-A": Decimal("2")},
-            observation_target_actions={"SEC-A": Decimal("2")})
+            plan=plan, target_projection=projection,
+            observation_post_projection_actions={})
 
 
 def test_account_evidence_fingerprint_corruption_is_not_read_as_truth():
     conn = JsonStateConnection()
     deployment, reconciliation, snapshot, activity = _clean_account_evidence()
+    plan, projection = _account_plan_projection(conn)
     trial.record_account_evidence(
         conn, session=date(2026, 8, 20), observation_id=17,
         observation_started_at=NOW, observed_at=NOW,
         snapshot=snapshot, deployment=deployment,
         reconciliation=reconciliation, activity_state=activity,
-        plan_target={"SEC-A": Decimal("10")},
-        target_actions={"SEC-A": Decimal("2")},
-        observation_target_actions={"SEC-A": Decimal("2")})
+        plan=plan, target_projection=projection,
+        observation_post_projection_actions={})
     conn.rows[f"{trial.ACCOUNT_PREFIX}17"][1]["account"]["cash"] = "999999"
 
     with pytest.raises(trial.TrialEvidenceRefused, match="fingerprint"):
         trial.load_account_evidence(conn, 17)
+
+
+def test_account_evidence_uses_projected_pending_open_cancellation():
+    conn = JsonStateConnection()
+    deployment, reconciliation, snapshot, activity = _clean_account_evidence()
+    plan = ExecutionPlan(
+        plan_id="trial-cancelled-open",
+        decision_session=date(2026, 8, 19),
+        effective_session=date(2026, 8, 20),
+        target_exposure=Decimal(1),
+        target_basket={"SEC-A": Decimal("3")})
+    projection = target_reprojection.project_target(
+        plan, through_session=plan.effective_session,
+        action_multipliers={"SEC-A": Decimal("0.1")},
+        action_evidence=({
+            "security_id": "SEC-A", "session": "2026-08-20",
+            "action": "split", "value": "0.1",
+            "canonical_multiplier": "0.1",
+            "source_row_id": "pending-open-split",
+        },),
+        canonical_target_shares={"SEC-A": Decimal("3")},
+        pending_open_shares={"SEC-A": (Decimal("3"),)},
+        minimum_quantity_increment=Decimal("0.000000001"))
+    conn.rows[
+        f"{target_reprojection.CURSOR_PREFIX}{plan.plan_id}"] = (
+            projection.through_session, projection.payload())
+    cancelled_reconciliation = ReconciliationResult(
+        runtime_state=RuntimeState.RUNNING,
+        observation=reconciliation.observation, expected={},
+        corporate_actions={"SEC-A": Decimal("0.1")}, observation_id=17)
+
+    evidence = trial.record_account_evidence(
+        conn, session=plan.effective_session, observation_id=17,
+        observation_started_at=NOW, observed_at=NOW,
+        snapshot=snapshot, deployment=deployment,
+        reconciliation=cancelled_reconciliation, activity_state=activity,
+        plan=plan, target_projection=projection,
+        observation_post_projection_actions={})
+
+    retained = evidence["reconciliation"]
+    assert retained["plan_target"] == {"SEC-A": "3"}
+    assert retained["target"] == {"SEC-A": "0"}
+    assert retained["observation_target"] == {"SEC-A": "0"}
+    assert retained["target_projection"]["cancelled_pending_opens"] == {
+        "SEC-A": ["3"]}
+    assert retained["target_projection"]["projection_fingerprint"] == \
+        projection.fingerprint()
 
 
 def test_plan_cash_baseline_v3_retains_certified_native_activity_identity():
@@ -838,6 +900,9 @@ def test_success_certificate_binds_strategy_evidence_and_split_target(
         broker_account_id="PA-1", takeover_epoch=4,
         publication_fingerprint="decision-publication",
         account_nav=Decimal("100"), account_cash=Decimal("0"))
+    target_projection = target_reprojection.project_target(
+        plan, through_session=effective_session,
+        action_multipliers={"SEC-A": Decimal("2")})
     cycle = SimpleNamespace(
         cycle_id="cycle-211", state=CycleState.SUCCEEDED,
         plan_id=plan.plan_id, plan_fingerprint=plan.fingerprint(),
@@ -875,9 +940,10 @@ def test_success_certificate_binds_strategy_evidence_and_split_target(
                     "trade_suspended_by_user": False},
         "reconciliation": {
             "plan_target": {"SEC-A": "10"}, "target": {"SEC-A": "20"},
+            "target_projection": target_projection.payload(),
             "target_corporate_actions": {"SEC-A": "2"},
             "observation_target": {"SEC-A": "20"},
-            "observation_target_corporate_actions": {"SEC-A": "2"},
+            "observation_target_corporate_actions": {},
             "expected": {"SEC-A": "20"},
             "corporate_actions": {"SEC-A": "2"}},
         "cash_activity": {"processed_through": NOW.isoformat(),
@@ -941,6 +1007,9 @@ def test_success_certificate_binds_strategy_evidence_and_split_target(
 
     monkeypatch.setattr(automation_store, "load_cycle", lambda *_: cycle)
     monkeypatch.setattr(journal, "load_plan", lambda *_: plan)
+    monkeypatch.setattr(
+        target_reprojection, "load_projection",
+        lambda *_args, **_kwargs: target_projection)
     monkeypatch.setattr(trial, "_read_binding", lambda *_: {
         "deployment_id": "trial-appliance", "broker": "alpaca",
         "broker_account_id": "PA-1", "takeover_epoch": 4,
@@ -1049,7 +1118,7 @@ def test_success_certificate_binds_strategy_evidence_and_split_target(
         "reconciliation": {
             **account["reconciliation"],
             "observation_target": {"SEC-A": "40"},
-            "observation_target_corporate_actions": {"SEC-A": "4"},
+            "observation_target_corporate_actions": {"SEC-A": "2"},
             "expected": {"SEC-A": "40"},
             "corporate_actions": {"SEC-A": "4"},
         },

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -471,7 +472,13 @@ def test_real_load_corpus_to_artifact_reports_timeline_population(monkeypatch):
         hashes["normalized_input"]
     assert len(out["corpus"]["causal_input_sha256"]) == 64
     assert out["provenance"]["wealth_core_source_hash"] == "b" * 64
-    assert len(out["provenance"]["canonical_loader_sha256"]) == 64
+    loader_bundle = out["provenance"]["canonical_loader_bundle"]
+    assert loader_bundle == TOOL.canonical_loader_bundle_from_runtime(bt)
+    assert loader_bundle["schema"] == \
+        "wealth_core.canonical-loader-bundle/1"
+    assert tuple(loader_bundle["sources"]) == \
+        TOOL.CANONICAL_LOADER_BUNDLE_SOURCES
+    assert len(loader_bundle["sha256"]) == 64
     assert len(out["provenance"]["producer_sha256"]) == 64
     assert out["provenance"]["runtime_identity_hash"] == "d" * 64
     assert out["provenance"]["runtime_environment"]["compatible"] is True
@@ -488,6 +495,35 @@ def test_real_load_corpus_to_artifact_reports_timeline_population(monkeypatch):
     for mutation in ("INSERT ", "UPDATE ", "DELETE ", "TRUNCATE ",
                      "CREATE ", "ALTER ", "DROP "):
         assert mutation not in sql
+
+
+@pytest.mark.parametrize(
+    "mutated_source", TOOL.CANONICAL_LOADER_BUNDLE_SOURCES,
+    ids=("facade", "replay_impl", "split_reconciliation"),
+)
+def test_canonical_loader_bundle_moves_when_any_component_moves(
+        tmp_path, mutated_source):
+    for logical_path in TOOL.CANONICAL_LOADER_BUNDLE_SOURCES:
+        source = REPO / logical_path
+        target = tmp_path / logical_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+
+    before = TOOL.canonical_loader_bundle_from_repository(tmp_path)
+    mutated_path = tmp_path / mutated_source
+    mutated_path.write_bytes(
+        mutated_path.read_bytes() + b"\n# mutation falsifier\n")
+    after = TOOL.canonical_loader_bundle_from_repository(tmp_path)
+
+    assert before["schema"] == after["schema"]
+    for logical_path in TOOL.CANONICAL_LOADER_BUNDLE_SOURCES:
+        if logical_path == mutated_source:
+            assert before["sources"][logical_path] != \
+                after["sources"][logical_path]
+        else:
+            assert before["sources"][logical_path] == \
+                after["sources"][logical_path]
+    assert before["sha256"] != after["sha256"]
 
 
 def test_nonempty_static_meta_cannot_conceal_missing_timeline_population():
@@ -661,6 +697,10 @@ def test_the_tool_stays_out_of_the_broker_facing_runtime():
 def test_the_producer_is_copied_and_bound_as_a_certification_input():
     dockerfile = (REPO / "Dockerfile.sentinel-test").read_text()
     assert "COPY tools/ /work/tools/" in dockerfile
+    assert (
+        "COPY shared/stock_strategy_shared/split_reconciliation.py "
+        "/work/shared/stock_strategy_shared/split_reconciliation.py"
+    ) in dockerfile
 
     import importlib.util
     manifest_path = REPO / "scripts" / "sentinel_manifest.py"

@@ -1016,7 +1016,8 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
     """
     from sentinel.feed import anomalies, calendar, domains, publication
     from stock_strategy_shared.split_reconciliation import (
-        SPLIT_UNRESOLVED, resolve_split_orientation, split_price_evidence)
+        SPLIT_UNRESOLVED, resolve_split_orientation, split_price_evidence,
+        split_ratio_matches)
 
     raw_start, raw_end = calendar.action_date_window(start, end)
     with conn.cursor() as cur:
@@ -1092,20 +1093,63 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
             " ORDER BY d.session", (start, end))
         defensive_rows = list(cur.fetchall())
 
-    unsafe_dispositions = {
-        (str(row["ticker"]).upper(), date.fromisoformat(str(row["session"]))): row
-        for row in anomalies.active_rows(
+    active_split_dispositions: dict[tuple[str, date], list[dict]] = {}
+    for row in anomalies.active_rows(
             conn, start=str(start), end=str(end),
-            kinds=("SPLIT_DISAGREEMENT", "SEAM_SPLIT_UNCORROBORATED",
-                   "AMBIGUOUS_SPLIT_MULTIPLICITY"))
-    }
+            kinds=anomalies.SPLIT_DISPOSITION_KINDS):
+        key = (str(row["ticker"]).upper(),
+               date.fromisoformat(str(row["session"])))
+        active_split_dispositions.setdefault(key, []).append(row)
+
+    accepted_split_dispositions = frozenset({
+        "SPLIT_AUTHORITATIVE_APPLIED",
+        "SPLIT_CORROBORATED_DERIVED",
+        "SPLIT_RESOLVED_NO_EVENT",
+    })
+
+    def published_disposition(
+            ticker: str, session: date
+            ) -> tuple[Optional[str], Optional[str], Optional[dict]]:
+        """Return the unique active row and any fail-closed conflict."""
+        rows = active_split_dispositions.get((ticker, session), ())
+        kinds = sorted({str(row["kind"]) for row in rows})
+        if not kinds:
+            return None, None, None
+        if len(kinds) != 1 or len(rows) != 1:
+            return (None,
+                    "CONFLICTING_ACTIVE_SPLIT_DISPOSITIONS:" + ",".join(kinds),
+                    None)
+        kind = kinds[0]
+        if kind not in accepted_split_dispositions:
+            return kind, kind, rows[0]
+        return kind, None, rows[0]
+
+    def disposition_applied_ratio(row: Optional[dict]) -> Decimal:
+        """Read the normalizer's published scalar from its disposition."""
+        detail = "" if row is None else str(row.get("detail") or "")
+        tokens = [
+            token.rstrip(";,)")
+            for token in detail.replace(",", " ").replace(";", " ").split()
+            if token.startswith("applied=")
+        ]
+        if len(tokens) != 1:
+            return Decimal("NaN")
+        raw = tokens[0].removeprefix("applied=")
+        try:
+            return Decimal(raw)
+        except (ArithmeticError, ValueError):
+            return Decimal("NaN")
 
     published_equity: dict[tuple[str, date], CorporateActionEvent] = {}
+    published_equity_coordinate_counts: dict[tuple[str, date], int] = {}
     for (sid, session, ticker, raw_ratio, source_run,
          source_version) in published_equity_rows:
         ratio = Decimal(str(raw_ratio))
         numerator, denominator = _canonical_rational_terms(ratio)
         symbol = str(ticker).upper()
+        coordinate = (symbol, session)
+        published_equity_coordinate_counts[coordinate] = (
+            published_equity_coordinate_counts.get(coordinate, 0) + 1)
         published_equity[(str(sid), session)] = CorporateActionEvent(
             security_id=str(sid), ticker=symbol, session=session,
             action="split", value=ratio, contraticker=None,
@@ -1143,10 +1187,15 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
             int(prior_version))
 
     # Candidate payload is (source event, published equity ratio, BIL derived
-    # ratio).  Exactly one of the latter two is populated.
+    # ratio, disposition conflict, active disposition, disposition row).
+    # Exactly one of the two ratios is populated. The disposition is
+    # publication-scoped authority;
+    # execution does not independently reinterpret a disposition ingest has
+    # already resolved.
     source_rows: dict[
         tuple[str, date],
-        list[tuple[CorporateActionEvent, object, object, Optional[str]]],
+        list[tuple[CorporateActionEvent, object, object, Optional[str],
+                   Optional[str], Optional[dict]]],
     ] = {}
     unsupported: list[CorporateActionEvent] = []
     unresolved: list[CorporateActionEvent] = []
@@ -1225,10 +1274,17 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
                     reason=("scalar action has " + qualifier +
                             " published effective-session security mapping")))
             else:
-                unsafe = unsafe_dispositions.get((symbol, effective))
+                (disposition_kind, disposition_conflict,
+                 disposition_row) = \
+                    published_disposition(symbol, effective)
+                if (symbol != "BIL" and disposition_kind is None
+                        and disposition_conflict is None):
+                    disposition_conflict = \
+                        "MISSING_ACTIVE_SPLIT_DISPOSITION"
                 source_rows.setdefault((sid, effective), []).append(
                     (event, published_ratio, derived_ratio,
-                     None if unsafe is None else str(unsafe["kind"])))
+                     disposition_conflict, disposition_kind,
+                     disposition_row))
         elif not _safe_non_book_action(verb):
             unsupported.append(replace(
                 event, reason="non-scalar book change has no certified projection"))
@@ -1247,12 +1303,13 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
     scalar_events: list[CorporateActionEvent] = []
     action_scalar_keys = set(source_rows)
     for (sid, session), rows in source_rows.items():
-        event, published_ratio, derived_ratio, unsafe_kind = rows[0]
-        if unsafe_kind is not None:
+        (event, published_ratio, derived_ratio, disposition_conflict,
+         disposition_kind, disposition_row) = rows[0]
+        if disposition_conflict is not None:
             unresolved.append(replace(
                 event,
                 reason=("published split disposition remains unsafe: "
-                        f"{unsafe_kind}")))
+                        f"{disposition_conflict}")))
             continue
         try:
             stated = Decimal(str(event.value))
@@ -1265,7 +1322,8 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
                         "non-positive ACTIONS terms")))
             continue
 
-        disposition = "published_canonical_equity_ratio"
+        disposition = (disposition_kind
+                       or "published_canonical_equity_ratio")
         if event.ticker == "BIL":
             canonical, disposition = resolve_split_orientation(
                 float(stated), derived_ratio,
@@ -1287,12 +1345,33 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
                 ratio = Decimal(str(published_ratio))
             except (ArithmeticError, TypeError, ValueError):
                 ratio = Decimal("NaN")
-            if (not ratio.is_finite() or ratio <= 0
-                    or (ratio == 1 and stated != 1)):
+            if disposition_kind == "SPLIT_RESOLVED_NO_EVENT":
+                if ratio.is_finite() and ratio == 1:
+                    # The current published corpus proves that the raw issuer
+                    # action did not change listed shares on this coordinate.
+                    # A shifted event has already been emitted from its prior
+                    # non-1 canonical bar, so this must contribute no second
+                    # scalar or material event.
+                    continue
                 unresolved.append(replace(
                     event,
-                    reason=("published effective equity bar has no positive "
-                            "canonical multiplier for the material action")))
+                    reason=("published no-event split disposition conflicts "
+                            "with the effective equity bar multiplier")))
+                continue
+            applied = disposition_applied_ratio(disposition_row)
+            applied_matches, _quantized = split_ratio_matches(
+                float(applied) if applied.is_finite() else float("nan"),
+                float(ratio) if ratio.is_finite() else None)
+            matches_stated, _quantized = split_ratio_matches(
+                float(stated), float(ratio) if ratio.is_finite() else None)
+            if (not ratio.is_finite() or ratio <= 0
+                    or not applied.is_finite() or applied <= 0
+                    or not applied_matches or not matches_stated):
+                unresolved.append(replace(
+                    event,
+                    reason=("accepted published split disposition conflicts "
+                            "with ACTIONS terms or the effective equity bar "
+                            "canonical multiplier")))
                 continue
 
         numerator, denominator = _canonical_rational_terms(ratio)
@@ -1312,19 +1391,56 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
             # as unresolved evidence. Do not bypass that contradiction by
             # relabelling the same bar as derived-only authority.
             continue
-        unsafe = unsafe_dispositions.get((event.ticker, session))
-        if unsafe is not None:
+        if published_equity_coordinate_counts.get(
+                (event.ticker, session), 0) != 1:
+            unresolved.append(replace(
+                event,
+                reason=("published split disposition has an ambiguous "
+                        "ticker/session security mapping")))
+            continue
+        (disposition_kind, disposition_conflict,
+         disposition_row) = published_disposition(event.ticker, session)
+        if disposition_kind is None and disposition_conflict is None:
+            disposition_conflict = "MISSING_ACTIVE_SPLIT_DISPOSITION"
+        if disposition_conflict is not None:
             unresolved.append(replace(
                 event,
                 reason=("published split disposition remains unsafe: "
-                        f"{unsafe['kind']}")))
+                        f"{disposition_conflict}")))
+            continue
+        if disposition_kind == "SPLIT_RESOLVED_NO_EVENT":
+            unresolved.append(replace(
+                event,
+                reason=("published no-event split disposition conflicts "
+                        "with a non-1 effective equity bar multiplier")))
             continue
         ratio = event.canonical_multiplier
         if ratio is None or not ratio.is_finite() or ratio <= 0:
             unresolved.append(replace(
                 event, reason="published equity bar has invalid split authority"))
             continue
+        applied = disposition_applied_ratio(disposition_row)
+        applied_matches, _quantized = split_ratio_matches(
+            float(applied) if applied.is_finite() else float("nan"),
+            float(ratio))
+        if not applied.is_finite() or applied <= 0 or not applied_matches:
+            unresolved.append(replace(
+                event,
+                reason=("accepted published split disposition has no "
+                        "matching applied canonical multiplier")))
+            continue
         events.setdefault(sid, []).append((session, ratio))
+        if disposition_kind is not None:
+            event = replace(
+                event,
+                source_row_id=(
+                    f"{event.source_row_id}:disposition:"
+                    f"{disposition_row['observation_id']}:"
+                    f"v{disposition_row['publication_version']}:"
+                    f"{disposition_row['last_written_run_id'] or 'legacy'}"),
+                split_disposition=disposition_kind,
+                reason=("published canonical equity split; active "
+                        f"disposition={disposition_kind}"))
         scalar_events.append(event)
 
     bil_action_sessions = {

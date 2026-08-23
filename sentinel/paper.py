@@ -970,6 +970,28 @@ async def _finalize_due_succeeded_cycle_or_refuse(
             "finality or publication watermark; the succeeded cycle remains "
             "pending and no successor plan will be adopted")
 
+    try:
+        target_projection = target_reprojection.load_projection(
+            conn, plan_id=plan.plan_id)
+        if target_projection is None:
+            raise target_reprojection.TargetProjectionRefused(
+                "the succeeded plan has no durable target projection")
+        target_reprojection.assert_projection(
+            conn, plan=plan, projection=target_projection,
+            through_session=plan.effective_session)
+        current_target_actions = _target_action_multipliers(
+            plan, target_actions)
+        if current_target_actions != dict(
+                target_projection.action_multipliers):
+            raise target_reprojection.TargetProjectionRefused(
+                "current close action authority differs from the target "
+                "projection used by execution")
+        post_projection_actions = _post_projection_action_multipliers(
+            target_projection, observation_target_actions)
+    except target_reprojection.TargetProjectionRefused as exc:
+        raise PaperActivationRefused(
+            f"the due cycle target projection is invalid: {exc}") from exc
+
     # A later live account snapshot cannot stand in for the official close.
     # Retain both account-wide historical sources before account evidence or a
     # verdict is frozen, and before the caller may adopt a successor plan.
@@ -990,10 +1012,9 @@ async def _finalize_due_succeeded_cycle_or_refuse(
         deployment=deployment,
         reconciliation=reconciliation,
         activity_state=activity_state,
-        plan_target=plan.target_basket,
-        target_actions=_target_action_multipliers(plan, target_actions),
-        observation_target_actions=_target_action_multipliers(
-            plan, observation_target_actions),
+        plan=plan,
+        target_projection=target_projection,
+        observation_post_projection_actions=post_projection_actions,
     )
     return trial.record_cycle_verification(
         conn,
@@ -2021,12 +2042,40 @@ def _target_action_lookup(conn, plan: ExecutionPlan, through: date):
 
 
 def _target_action_multipliers(plan: ExecutionPlan, actions) -> dict[str, Decimal]:
-    """Material supported share changes in the exact target-validity window."""
+    """Supported share changes in the exact target-validity window.
+
+    Preserve an evidenced action sequence even when its aggregate multiplier is
+    one.  Pending Wealth Core entries are action-aged once per effective
+    session, so an intermediate fractional result may already have cancelled
+    the entry and cannot be treated as an uneventful x1 target later.
+    """
+    target_ids = tuple(
+        security_id for security_id, target
+        in sorted(plan.target_basket.items()) if target != 0)
+    evidence_reader = getattr(actions, "scalar_evidence_for", None)
+    evidenced_ids = (
+        {str(event.security_id) for event in evidence_reader(target_ids)}
+        if callable(evidence_reader) else set())
     result = {}
-    for security_id, target in sorted(plan.target_basket.items()):
+    for security_id in target_ids:
+        multiplier = actions(security_id)
+        if (multiplier is not None
+                and (multiplier != Decimal(1)
+                     or security_id in evidenced_ids)):
+            result[security_id] = multiplier
+    return result
+
+
+def _post_projection_action_multipliers(
+        projection: target_reprojection.TargetProjection,
+        actions) -> dict[str, Decimal]:
+    """Age only shares that survived the immutable execution projection."""
+    result = {}
+    for security_id, target in sorted(projection.target_basket.items()):
         if target == 0:
             continue
-        multiplier = actions(security_id)
+        multiplier = actions(
+            security_id, since=projection.through_session)
         if multiplier not in (None, Decimal(1)):
             result[security_id] = multiplier
     return result
@@ -2185,6 +2234,10 @@ def _target_projection_or_refuse(
         expected_projection: Optional[
             target_reprojection.TargetProjection] = None):
     """Derive the exact unit projection and bind it to durable plan state."""
+    if state.state_hash != plan.shadow_snapshot_hash:
+        raise PaperActivationRefused(
+            "target projection canonical state differs from the immutable "
+            "plan snapshot")
     target = shadow_target(state)
     commands = journal.load_commands(conn, binding.identity)
     expected_book = reconciliation.expected_book_from_commands(
@@ -2239,6 +2292,10 @@ def _target_projection_or_refuse(
             plan, through_session=through,
             action_multipliers=multipliers,
             action_evidence=action_evidence,
+            canonical_target_shares=target.shares,
+            pending_open_shares=target.pending_open_shares,
+            held_shares=target.held_shares,
+            pending_close_shares=target.pending_close_shares,
             minimum_quantity_increment=(
                 broker.capabilities.minimum_quantity_increment))
         if (expected_projection is not None
@@ -2509,7 +2566,6 @@ async def _execute_current_paper_plan(
                 evaluated_at=clock(), actions=actions,
                 target_actions=target_actions)
             target_projection = None
-            trial_target_actions = {}
             if authority is not None:
                 # Refuse unsupported/non-scalar corporate actions before the
                 # broker book can be consulted.  Reconciliation may still
@@ -2520,8 +2576,6 @@ async def _execute_current_paper_plan(
                     broker=broker, through=today, actions=actions,
                     target_actions=target_actions,
                     persist_projection=False)
-                trial_target_actions = _target_action_multipliers(
-                    plan, target_actions)
             preflight = await reconciliation.reconcile(
                 broker=broker, conn=conn, binding=None,
                 deployment=binding.identity, actions=actions)
@@ -2565,7 +2619,6 @@ async def _execute_current_paper_plan(
                 # later mutations; it never rewrites these quantities.
                 target_projection = None
                 projected_deltas = preopen_deltas
-                trial_target_actions = {}
                 pending_ids = _preopen_active_security_ids(
                     plan=plan, commands=current_commands, actions=actions)
                 pending_symbols = _informational_active_symbols(
@@ -2597,7 +2650,6 @@ async def _execute_current_paper_plan(
                         "or submit a command")
                 target_projection = None
                 projected_deltas = preopen_deltas
-                trial_target_actions = {}
             else:
                 # Reconciliation can durably adopt a broker order that was not
                 # present at the first projection boundary.  Re-run all
@@ -2672,6 +2724,7 @@ async def _execute_current_paper_plan(
                     and final_reconciliation.observation is not None
                     and final_reconciliation.observation.is_complete
                     and final_reconciliation.observation_id is not None
+                    and target_projection is not None
                     and _account_evidence_is_quiescent(
                         conn, deployment=binding.identity,
                         observation=final_reconciliation.observation)):
@@ -2697,9 +2750,11 @@ async def _execute_current_paper_plan(
                     deployment=binding.identity,
                     reconciliation=confirmed_reconciliation,
                     activity_state=evidence_activity,
-                    plan_target=plan.target_basket,
-                    target_actions=trial_target_actions,
-                    observation_target_actions=trial_target_actions)
+                    plan=plan,
+                    target_projection=target_projection,
+                    observation_post_projection_actions=(
+                        _post_projection_action_multipliers(
+                            target_projection, target_actions)))
             return ExecutionResult(plan=plan, preflight=preflight,
                                    session=session)
 
@@ -2882,6 +2937,7 @@ async def recover_automated_paper_cycle(
         actions = (_action_lookup(conn, state, clock().date())
                    if state is not None else None)
         authority = None
+        target_projection = None
         target_actions = None
         observation_target_actions = None
         if plan is not None:
@@ -2934,7 +2990,7 @@ async def recover_automated_paper_cycle(
                     raise PaperActivationRefused(
                         "current-generation recovery cannot revalidate its "
                         "target projection without canonical strategy state")
-                _target_projection_or_refuse(
+                target_projection = _target_projection_or_refuse(
                     conn, state=state, plan=plan, binding=binding,
                     broker=broker, through=plan.effective_session,
                     actions=actions, target_actions=target_actions,
@@ -2949,6 +3005,7 @@ async def recover_automated_paper_cycle(
                 and result.observation is not None
                 and result.observation.is_complete
                 and result.observation_id is not None
+                and target_projection is not None
                 and _account_evidence_is_quiescent(
                     conn, deployment=binding.identity,
                     observation=result.observation)):
@@ -2979,11 +3036,11 @@ async def recover_automated_paper_cycle(
                 deployment=binding.identity,
                 reconciliation=confirmed_result,
                 activity_state=activity_state,
-                plan_target=plan.target_basket,
-                target_actions=_target_action_multipliers(
-                    plan, target_actions),
-                observation_target_actions=_target_action_multipliers(
-                    plan, observation_target_actions))
+                plan=plan,
+                target_projection=target_projection,
+                observation_post_projection_actions=(
+                    _post_projection_action_multipliers(
+                        target_projection, observation_target_actions)))
         return result
 
 

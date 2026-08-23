@@ -27,12 +27,82 @@ from tools.corpus_parity import BT_CORPUS_LOCK_KEY, _add_backtester_to_path
 
 
 SCHEMA = "wealth_core_expected_hashes.v1"
+CANONICAL_LOADER_BUNDLE_SCHEMA = "wealth_core.canonical-loader-bundle/1"
+CANONICAL_LOADER_BUNDLE_SOURCES = (
+    "services/backtester/app/wealth_core_replay.py",
+    "services/backtester/app/wealth_core_replay_impl.py",
+    "shared/stock_strategy_shared/split_reconciliation.py",
+)
 WARMUP_CALENDAR_DAYS = 400
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 class ExpectedHashesRefused(RuntimeError):
     """The command could not produce a citable certification artifact."""
+
+
+def _canonical_loader_bundle(
+        source_files: Mapping[str, Path]) -> dict[str, Any]:
+    """Return the versioned identity of every economic loader source.
+
+    Logical repository paths, rather than absolute runtime paths, make the
+    identity portable between the reviewed checkout and the installed image.
+    Each component hash remains visible for diagnosis; the bundle digest pins
+    the exact schema and complete source map so an omitted component cannot be
+    mistaken for an older spelling of the same identity.
+    """
+    if set(source_files) != set(CANONICAL_LOADER_BUNDLE_SOURCES):
+        raise ExpectedHashesRefused(
+            "canonical loader bundle source set is incomplete")
+    sources: dict[str, str] = {}
+    for logical_path in CANONICAL_LOADER_BUNDLE_SOURCES:
+        source = Path(source_files[logical_path]).resolve()
+        if not source.is_file():
+            raise ExpectedHashesRefused(
+                "canonical loader bundle source cannot be hashed: "
+                f"{logical_path}")
+        sources[logical_path] = hashlib.sha256(source.read_bytes()).hexdigest()
+    payload = {
+        "schema": CANONICAL_LOADER_BUNDLE_SCHEMA,
+        "sources": sources,
+    }
+    digest = hashlib.sha256(json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+        allow_nan=False).encode("ascii")).hexdigest()
+    return {**payload, "sha256": digest}
+
+
+def canonical_loader_bundle_from_repository(root: Path) -> dict[str, Any]:
+    """Hash the canonical loader bundle in a reviewed repository checkout."""
+    root = Path(root).resolve()
+    return _canonical_loader_bundle({
+        logical_path: root / logical_path
+        for logical_path in CANONICAL_LOADER_BUNDLE_SOURCES
+    })
+
+
+def canonical_loader_bundle_from_runtime(bt) -> dict[str, Any]:
+    """Hash the loader modules that the expected-hash producer actually uses."""
+    facade_value = getattr(bt, "__file__", None)
+    if not facade_value:
+        raise ExpectedHashesRefused(
+            "the imported canonical loader facade has no source path")
+    facade = Path(facade_value).resolve()
+    replay_impl_module = getattr(bt, "_impl", None)
+    replay_impl_value = getattr(replay_impl_module, "__file__", None)
+    replay_impl = (Path(replay_impl_value).resolve()
+                   if replay_impl_value
+                   else facade.with_name("wealth_core_replay_impl.py"))
+    from stock_strategy_shared import split_reconciliation
+    split_value = getattr(split_reconciliation, "__file__", None)
+    if not split_value:
+        raise ExpectedHashesRefused(
+            "the imported split reconciliation module has no source path")
+    return _canonical_loader_bundle({
+        CANONICAL_LOADER_BUNDLE_SOURCES[0]: facade,
+        CANONICAL_LOADER_BUNDLE_SOURCES[1]: replay_impl,
+        CANONICAL_LOADER_BUNDLE_SOURCES[2]: Path(split_value).resolve(),
+    })
 
 
 @dataclass(frozen=True)
@@ -442,12 +512,11 @@ def produce(conn, *, start: str, end: str, bt=None) -> dict[str, Any]:
     from stock_strategy_shared.wealth_core.run import STRATEGY_ID, STRATEGY_VERSION
 
     wealth_core_hash = identity_hashes.wealth_core_source_hash()
-    loader_file = Path(bt.__file__).resolve()
-    if not wealth_core_hash or not loader_file.is_file():
+    if not wealth_core_hash:
         raise ExpectedHashesRefused(
-            "the imported Wealth Core or canonical loader source cannot be "
-            "hashed; the output would not identify its producer")
-    loader_hash = hashlib.sha256(loader_file.read_bytes()).hexdigest()
+            "the imported Wealth Core source cannot be hashed; the output "
+            "would not identify its producer")
+    loader_bundle = canonical_loader_bundle_from_runtime(bt)
     producer_file = Path(__file__).resolve()
     if not producer_file.is_file():
         raise ExpectedHashesRefused(
@@ -518,9 +587,7 @@ def produce(conn, *, start: str, end: str, bt=None) -> dict[str, Any]:
             "hash_mode": "streaming",
             "python": platform.python_version(),
             "wealth_core_source_hash": wealth_core_hash,
-            "canonical_loader":
-                "services/backtester/app/wealth_core_replay.py",
-            "canonical_loader_sha256": loader_hash,
+            "canonical_loader_bundle": loader_bundle,
             "producer": "tools/wealth_core_expected_hashes.py",
             "producer_sha256": producer_hash,
             "runtime_identity_hash": runtime_hash,

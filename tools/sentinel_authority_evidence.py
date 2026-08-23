@@ -37,6 +37,12 @@ RESOURCE_MEASUREMENT_SCHEMA = "sentinel.resource-measurement/1"
 TEST_RUN_SCHEMA = "sentinel.certification-test-run/1"
 HEX = re.compile(r"[0-9a-f]{64}\Z")
 RESOURCE_MEASUREMENT_PRODUCER = "scripts/sentinel-measure.sh"
+_CANONICAL_LOADER_BUNDLE_SCHEMA = "wealth_core.canonical-loader-bundle/1"
+_CANONICAL_LOADER_SOURCES = (
+    "services/backtester/app/wealth_core_replay.py",
+    "services/backtester/app/wealth_core_replay_impl.py",
+    "shared/stock_strategy_shared/split_reconciliation.py",
+)
 COMPLETED_CHECK_IDS = (
     "base_manifest_finalized",
     "formal_test_run",
@@ -59,6 +65,27 @@ class EvidenceRefused(RuntimeError):
 
 def sha(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def _canonical_loader_bundle_from_repository(root: Path) -> dict:
+    """Independently recompute the reviewed loader source identity."""
+    sources = {}
+    for logical_path in _CANONICAL_LOADER_SOURCES:
+        path = Path(root).resolve() / logical_path
+        if not path.is_file():
+            raise EvidenceRefused(
+                f"repository canonical loader source is missing: {logical_path}")
+        sources[logical_path] = sha(path.read_bytes())
+    payload = {
+        "schema": _CANONICAL_LOADER_BUNDLE_SCHEMA,
+        "sources": sources,
+    }
+    return {
+        **payload,
+        "sha256": sha(json.dumps(
+            payload, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=True, allow_nan=False).encode("ascii")),
+    }
 
 
 def _source_config_sha256(value: Mapping) -> str:
@@ -844,17 +871,15 @@ def produce_certification_decisions(
         raise EvidenceRefused("expected-hash producer output is incomplete")
     producer_path = Path(__file__).resolve().with_name(
         "wealth_core_expected_hashes.py")
-    loader_path = Path(__file__).resolve().parents[1] / (
-        "services/backtester/app/wealth_core_replay.py")
+    loader_bundle = _canonical_loader_bundle_from_repository(
+        Path(__file__).resolve().parents[1])
     runtime_environment = expected_provenance.get("runtime_environment")
     if (expected_provenance.get("producer")
             != "tools/wealth_core_expected_hashes.py"
             or expected_provenance.get("producer_sha256")
             != sha(producer_path.read_bytes())
-            or expected_provenance.get("canonical_loader")
-            != "services/backtester/app/wealth_core_replay.py"
-            or expected_provenance.get("canonical_loader_sha256")
-            != sha(loader_path.read_bytes())
+            or expected_provenance.get("canonical_loader_bundle")
+            != loader_bundle
             or not isinstance(runtime_environment, Mapping)
             or runtime_environment.get("compatible") is not True
             or runtime_environment.get("pins_match") is not True

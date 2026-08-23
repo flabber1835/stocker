@@ -4,16 +4,20 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 
+from sentinel.core import decision as decision_module
 from sentinel.binding import AccountBinding, AccountMismatch, AccountNotBound
 from sentinel.authority import RolloutMode, RolloutState
 from sentinel.controller import frozen_rule
 from sentinel.controller.machine import Controller
 from sentinel.core.decision import (
+    DATA_SEMANTICS_IDENTITY_SCHEMA,
     DEFENSIVE_SECURITY_ID,
     build_execution_plan,
+    data_semantics_source_identity,
     publication_fingerprint,
     runtime_strategy_identity,
     shadow_target,
@@ -84,6 +88,7 @@ def _state(*, episodes=(), pending=(), equity="2000",
             "strategy": "sentinel-test",
             "controller_rule_sha256": "controller-hash",
             "wealth_core_source_sha256": "wealth-hash",
+            "data_semantics_source_sha256": "data-hash",
         },
         last_decision={
             "session": DECISION_SESSION.isoformat(),
@@ -185,6 +190,12 @@ def test_shadow_target_aggregates_episodes_and_signed_pending_entries():
 
     assert target.shares == {"returning": Decimal("12")}
     assert target.tickers == {"closing": "CLS", "returning": "RET"}
+    assert target.held_shares == {
+        "closing": Decimal("5"), "returning": Decimal("10")}
+    assert target.pending_open_shares == {
+        "returning": (Decimal("2"),)}
+    assert target.pending_close_shares == {
+        "closing": (Decimal("5"),)}
 
 
 def test_decision_refuses_a_noncanonical_controller_snapshot():
@@ -393,8 +404,54 @@ def test_publication_and_runtime_strategy_identity_are_complete():
     assert strategy["strategy"] == "sentinel-test"
     assert strategy["controller_rule_sha256"] == "controller-rule"
     assert len(strategy["wealth_core_source_sha256"]) == 64
+    assert len(strategy["data_semantics_source_sha256"]) == 64
     assert publication_fingerprint(_publication()) == publication_fingerprint(
         deepcopy(_publication().to_dict()))
+
+
+def test_data_semantics_identity_moves_when_only_a_decoder_source_moves(
+        monkeypatch, tmp_path):
+    facade = tmp_path / "facade.py"
+    decoder = tmp_path / "decoder.py"
+    facade.write_text("VALUE = 1\n")
+    decoder.write_text("VALUE = 1\n")
+    modules = {
+        "test.facade": SimpleNamespace(__file__=str(facade)),
+        "test.decoder": SimpleNamespace(__file__=str(decoder)),
+    }
+    monkeypatch.setattr(
+        decision_module, "_DATA_SEMANTICS_MODULES", tuple(modules))
+    monkeypatch.setattr(
+        decision_module.importlib, "import_module", modules.__getitem__)
+
+    before = data_semantics_source_identity()
+    decoder.write_text("VALUE = 2\n")
+    after = data_semantics_source_identity()
+
+    assert before["schema"] == DATA_SEMANTICS_IDENTITY_SCHEMA
+    assert before["sha256"] != after["sha256"]
+    assert before["files"][0] == after["files"][0]
+    assert before["files"][1]["sha256"] != after["files"][1]["sha256"]
+
+
+def test_data_semantics_bundle_names_transitive_book_dependencies():
+    required = {
+        "sentinel.breadth.classifier",
+        "sentinel.controller.machine",
+        "sentinel.core.catchup",
+        "sentinel.execution.target_reprojection",
+        "sentinel.feed.actions_map",
+        "sentinel.feed.domains",
+        "sentinel.feed.staging",
+        "sentinel.paper",
+        "sentinel.regime.spy",
+        "stock_strategy_shared.split_reconciliation",
+        "stock_strategy_shared.terminal_coalescing",
+        "stock_strategy_shared.wealth_core.sharadar_domains",
+    }
+
+    assert required <= set(decision_module._DATA_SEMANTICS_MODULES)  # noqa: SLF001
+
 
 def test_concordance_identity_refuses_pinned_one_rollout():
     state = _state(episodes=[_episode(0, "sec-a", "AAA", 10)])

@@ -37,6 +37,12 @@ from sentinel.execution.authority_gate import (
 
 EVIDENCE_INDEX_SCHEMA = "sentinel.certificate_evidence_index/1"
 RESOURCE_MEASUREMENT_PRODUCER = "scripts/sentinel-measure.sh"
+_CANONICAL_LOADER_BUNDLE_SCHEMA = "wealth_core.canonical-loader-bundle/1"
+_CANONICAL_LOADER_SOURCES = (
+    "services/backtester/app/wealth_core_replay.py",
+    "services/backtester/app/wealth_core_replay_impl.py",
+    "shared/stock_strategy_shared/split_reconciliation.py",
+)
 REQUIRED_EVIDENCE = frozenset({
     "certification_manifest", "wealth_core", "controller", "forward_chain",
     "resource_envelope", "publication_policy", "reference_artifact",
@@ -54,6 +60,27 @@ class IssuanceRefused(RuntimeError):
 
 def _sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def _canonical_loader_bundle_from_repository(root: Path) -> dict:
+    """Independently recompute the reviewed loader source identity."""
+    sources = {}
+    for logical_path in _CANONICAL_LOADER_SOURCES:
+        path = Path(root).resolve() / logical_path
+        if not path.is_file():
+            raise IssuanceRefused(
+                f"repository canonical loader source is missing: {logical_path}")
+        sources[logical_path] = _sha256(path.read_bytes())
+    payload = {
+        "schema": _CANONICAL_LOADER_BUNDLE_SCHEMA,
+        "sources": sources,
+    }
+    return {
+        **payload,
+        "sha256": _sha256(json.dumps(
+            payload, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=True, allow_nan=False).encode("ascii")),
+    }
 
 
 def _strict_json(payload: bytes, *, label: str,
@@ -644,8 +671,8 @@ def validate_evidence(claims: Mapping, index_path: Path) -> None:
     from stock_strategy_shared.wealth_core.hashes import HASH_ORDER
     producer_path = Path(__file__).resolve().with_name(
         "wealth_core_expected_hashes.py")
-    loader_path = Path(__file__).resolve().parents[1] / (
-        "services/backtester/app/wealth_core_replay.py")
+    loader_bundle = _canonical_loader_bundle_from_repository(
+        Path(__file__).resolve().parents[1])
     population_fields = (
         "distinct_securities", "first_session_securities",
         "last_session_securities", "maximum_session_securities")
@@ -666,10 +693,8 @@ def validate_evidence(claims: Mapping, index_path: Path) -> None:
             != "tools/wealth_core_expected_hashes.py"
             or expected_provenance.get("producer_sha256")
             != _sha256(producer_path.read_bytes())
-            or expected_provenance.get("canonical_loader")
-            != "services/backtester/app/wealth_core_replay.py"
-            or expected_provenance.get("canonical_loader_sha256")
-            != _sha256(loader_path.read_bytes())
+            or expected_provenance.get("canonical_loader_bundle")
+            != loader_bundle
             or not isinstance(baseline, Mapping)
             or baseline.get("mode") != "baseline_replay"
             or baseline.get("status") != "success"

@@ -99,6 +99,7 @@ IDENTITY = {
     "strategy": "paper-activation-test",
     "controller_rule_sha256": "controller-test-sha",
     "wealth_core_source_sha256": "wealth-core-test-sha",
+    "data_semantics_source_sha256": "data-semantics-test-sha",
     "allocation_overlay": "sentinel-concordance-simplified-ldrc",
     "allocation_overlay_version": "3",
 }
@@ -415,6 +416,16 @@ def _execute(conn, broker, **overrides):
 def _mutations(broker):
     return [call for call in broker.calls
             if call.startswith("submit:") or call.startswith("cancel:")]
+
+
+def _record_accepted_split(conn, *, session, ratio) -> None:
+    """Give a legacy fixture the publication decision execution consumes."""
+    feed_store.write_anomalies(conn, [{
+        "kind": "SPLIT_AUTHORITATIVE_APPLIED",
+        "ticker": AAA.symbol,
+        "session": session,
+        "detail": f"paper fixture; applied={D(ratio)}",
+    }], commit=False)
 
 
 class TestPaperAccountInspection:
@@ -747,7 +758,7 @@ def test_fresh_boot_warms_exactly_252_feature_sessions_without_path_history(
         publication_version=7)
 
     portfolio = PortfolioState.from_dict(state.wealth_core)
-    assert state.version == 4
+    assert state.version == 5
     assert state.data_version == 7
     assert state.feed["session_index"] == 251
     assert len(state.feed["series"][AAA.security_id]["sessions"]) == 127
@@ -1092,7 +1103,7 @@ def test_real_fresh_boot_pipeline_is_restart_equivalent_and_adopts_one_plan(
 
     assert first.sessions_replayed == 1
     assert first.warmup_sessions == 252
-    assert canonical.version == 4
+    assert canonical.version == 5
     assert canonical.last_processed_session == DECISION.isoformat()
     assert canonical.feed["session_index"] == 252
     assert first.plan.shadow_snapshot_hash == canonical.state_hash
@@ -1116,7 +1127,7 @@ def test_real_fresh_boot_pipeline_is_restart_equivalent_and_adopts_one_plan(
         assert second.warmup_sessions == 0
         assert catchup.resume_state(restarted) == first_state
         assert SessionState.from_dict(
-            catchup.resume_state(restarted)).version == 4
+            catchup.resume_state(restarted)).version == 5
         assert second.plan == first.plan
         assert journal.latest_plan(restarted) == first.plan
         with restarted.cursor() as cur:
@@ -1157,7 +1168,7 @@ def test_prepare_resumes_v3_across_missed_sessions_and_restart_is_equivalent(
 
     assert first.sessions_replayed == 2
     assert first.superseded_plans == 1
-    assert SessionState.from_dict(state_after_first).version == 4
+    assert SessionState.from_dict(state_after_first).version == 5
     assert catchup.last_processed_session(conn) == DECISION
     assert restarted.sessions_replayed == 0
     assert catchup.resume_state(conn) == state_after_first
@@ -1888,6 +1899,7 @@ class TestStrictExecutionGate:
                 "INSERT INTO sentinel_actions (ticker,session,action,value)"
                 " VALUES (%s,%s,'split',2)",
                 (AAA.symbol, EFFECTIVE))
+        _record_accepted_split(conn, session=EFFECTIVE, ratio=2)
         conn.commit()
         broker = _broker()
 
@@ -1985,6 +1997,7 @@ class TestStrictExecutionGate:
                 "INSERT INTO sentinel_actions (ticker,session,action,value)"
                 " VALUES (%s,%s,'split',2)",
                 (AAA.symbol, action_session))
+        _record_accepted_split(conn, session=action_session, ratio=2)
         conn.commit()
         broker = _broker()
         broker.seed_position(AAA, "20")

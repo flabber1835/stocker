@@ -41,8 +41,8 @@ from sentinel.controller.machine import (
     Controller, Observation, validate_controller_state)
 from sentinel.regime.spy import MIN_CLOSES, dated_spy_regime
 
-ENVELOPE_VERSION = 4
-LEGACY_ENVELOPE_VERSIONS = frozenset({2, 3})
+ENVELOPE_VERSION = 5
+LEGACY_ENVELOPE_VERSIONS = frozenset({2, 3, 4})
 FEED_RESTART_SESSIONS = REQUIRED_CLOSES
 CONCORDANCE_WITNESS_HISTORICAL = "HISTORICAL_CAUSAL_METADATA"
 CONCORDANCE_WITNESS_PROSPECTIVE = "PROSPECTIVE_PAPER_OBSERVATION"
@@ -51,7 +51,8 @@ _CONCORDANCE_WITNESS_ORIGINS = frozenset({
     CONCORDANCE_WITNESS_PROSPECTIVE,
 })
 REQUIRED_IDENTITY_FIELDS = frozenset({
-    "strategy", "controller_rule_sha256", "wealth_core_source_sha256"})
+    "strategy", "controller_rule_sha256", "wealth_core_source_sha256",
+    "data_semantics_source_sha256"})
 
 _SERIES_FIELDS = (
     "sessions", "session_indices", "signal_closes", "raw_closes", "volumes")
@@ -275,8 +276,10 @@ class SessionState:
         concordance = is_concordance_identity(self.strategy_identity)
         origin = self.concordance_witness_origin
         if concordance and origin is None:
-            # Hand-built/current pre-field v4 objects have the same unambiguous
-            # meaning as a persisted missing field: historical formation.
+            # Pre-field v4 objects have the same unambiguous meaning as a
+            # persisted missing field: historical formation. They still cannot
+            # cross the v5 data-semantics identity boundary unless that required
+            # identity is explicitly present.
             origin = CONCORDANCE_WITNESS_HISTORICAL
         if concordance:
             if origin not in _CONCORDANCE_WITNESS_ORIGINS:
@@ -288,9 +291,9 @@ class SessionState:
         raw = asdict(self)
         # Backward-compatible discriminated encoding: absence is the only
         # historical formation that pre-dates this field; prospective
-        # formation is always explicit.  Omitting the historical/irrelevant
-        # default preserves every already-committed v4 state fingerprint while
-        # still making the weaker formation mode durable and hash-bound.
+        # formation is always explicit. Omitting the historical/irrelevant
+        # default keeps the discriminated encoding stable while v5 separately
+        # invalidates state that lacks the required data-semantics identity.
         if origin != CONCORDANCE_WITNESS_PROSPECTIVE:
             raw.pop("concordance_witness_origin", None)
         else:

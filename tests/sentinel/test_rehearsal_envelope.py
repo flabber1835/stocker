@@ -19,6 +19,8 @@ coverage       `if cov is None: fail` proves the field exists. The historical
 from __future__ import annotations
 
 import json
+import shlex
+import shutil
 import subprocess
 import sys
 import os
@@ -388,6 +390,40 @@ class TestTheEngineIsFrozenNotJustSelfReported:
         assert not any("services/pipeline" in path or
                        "services/portfolio-builder" in path
                        for path in sources)
+
+    def test_assembled_loader_spec_matches_the_exact_Docker_COPY_tree(
+            self, tmp_path):
+        """A retained loader file cannot be present in the image but unbound."""
+        app_tree = tmp_path / "app"
+        app_tree.mkdir()
+        dockerfile = (
+            REPO / "services" / "bt-engine" / "Dockerfile").read_text()
+        copied = 0
+        for line in dockerfile.splitlines():
+            if not line.startswith("COPY ") or line.rstrip().endswith("\\"):
+                continue
+            fields = shlex.split(line)
+            sources, destination = fields[1:-1], fields[-1]
+            if not destination.startswith("./app/"):
+                continue
+            destination_root = app_tree / destination.removeprefix("./app/")
+            for source_text in sources:
+                source = REPO / source_text
+                if source.is_dir():
+                    shutil.copytree(source, destination_root,
+                                    dirs_exist_ok=True)
+                else:
+                    destination_root.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source, destination_root / source.name)
+                copied += 1
+
+        assert copied
+        docker_copy_hash = manifest_module.bundle_source_hash(
+            [(app_tree, "")], python_only=True)
+        checkout_hash = manifest_module.bundle_source_hash(
+            manifest_module._assembled_bt_engine_spec(REPO),
+            python_only=True)
+        assert checkout_hash == docker_copy_hash
 
     def test_backtest_compose_has_no_erased_service_or_public_bind(self):
         body = (REPO / "docker-compose.backtest.yml").read_text()
