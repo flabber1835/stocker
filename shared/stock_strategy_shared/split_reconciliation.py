@@ -21,9 +21,8 @@ SPLIT_AGREEMENT_TOLERANCE = 0.01
 # maximum rounding displacement of each observed endpoint.
 SPLIT_PRICE_QUANTUM = 0.001
 # Used only to decide whether price-only evidence constitutes a split event.
-# An explicit ACTIONS split is compared with the unsnapped price-domain ratio
-# before this threshold is consulted; otherwise legitimate small consolidations
-# such as TRI 2026-05-04 (0.984560) are misclassified as "no event".
+# An explicit ACTIONS split is compared with the finite-precision price interval
+# before this threshold is allowed to classify the observation as "no event".
 SPLIT_PRICE_EVENT_THRESHOLD = 0.02
 # Resolve an issuer-level action as not affecting the listed instrument only
 # when its raw-price move is over an order of magnitude from the split-implied
@@ -113,8 +112,8 @@ def split_price_evidence(derived: float | None) -> float | None:
     """Return usable price-only event evidence, or ``None`` for no event.
 
     This threshold is intentionally for event DISCOVERY when price domains are
-    the only witness. It must not erase an unsnapped ratio that independently
-    corroborates an explicit ACTIONS split.
+    the only witness. It must not erase finite-precision corroboration of an
+    explicit ACTIONS split.
     """
     if derived is None:
         return None
@@ -150,29 +149,32 @@ def resolve_split_orientation(
     proves the issuer action did not affect the listed instrument (when traded
     prices also decisively refute it) or remains a source conflict.
 
-    An explicit ACTIONS split is compared against the UNSNAPPED price-domain
-    ratio before the generic price-only event threshold is applied. This matters
-    for real sub-2% consolidations: TRI 2026-05-04 states 0.984560 and SEP
-    independently derives about 0.984555 from mill-rounded prices. Treating that
-    derived value as "no event" before comparison turns corroboration into a
-    false disagreement.
+    Large price-domain events retain the ordinary direct/quantized agreement
+    test. For a derived ratio inside the generic 2% "no event" band, an explicit
+    ACTIONS split is accepted only when its stated ratio falls inside the exact
+    finite-precision interval implied by the four mill-rounded SEP prices. That
+    resolves TRI 2026-05-04 (0.984560 stated, ~0.984555 derived) without turning
+    the broad 1% agreement tolerance into permission for arbitrary tiny splits.
     """
     value = float(stated)
     if value <= 0 or not math.isfinite(value):
         return 1.0, SPLIT_UNRESOLVED
 
-    # Explicit source authority gets the strongest available independent check
-    # first. The 2% threshold below is an event-discovery heuristic, not a reason
-    # to discard a close numerical match to a stated split.
-    matches, quantized = split_ratio_matches(value, derived, bounds)
-    if matches:
-        return canonical_split_multiplier(value), (
-            SPLIT_CORROBORATED_QUANTIZED
-            if quantized else SPLIT_CORROBORATED_DIRECT)
-
     evidence = split_price_evidence(derived)
     if evidence is not None:
+        matches, quantized = split_ratio_matches(value, evidence, bounds)
+        if matches:
+            return canonical_split_multiplier(value), (
+                SPLIT_CORROBORATED_QUANTIZED
+                if quantized else SPLIT_CORROBORATED_DIRECT)
         return 1.0, SPLIT_UNRESOLVED
+
+    # Small explicit actions need stronger proof than the generic 1% ratio
+    # tolerance: the stated ratio must be physically possible given SEP's known
+    # mill rounding on all four prices.
+    if (derived is not None and bounds is not None
+            and bounds[0] <= value <= bounds[1]):
+        return canonical_split_multiplier(value), SPLIT_CORROBORATED_QUANTIZED
 
     if explicit_no_event:
         if raw_refutes_event:
