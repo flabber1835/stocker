@@ -1,0 +1,18 @@
+{
+  "label": "Causal PIT research variant: category-free SEP quantitative universe, latest-date SEC PIT issuer identity, strict-before SEC SIC->frozen FF12 sector, corrected raw-dollar-volume economics",
+  "IMPORTANT": "This retained result used the old 40pp damaged-breadth acceleration sensitivity. It is NOT the authoritative current corrected-volume 30pp parent result.",
+  "metrics": {
+    "5": {"start":"2021-08-02","end":"2026-07-31","cagr":0.2652041855864633,"sharpe":1.2137375453925179,"max_drawdown":-0.2264283034790341,"multiple":3.237309709534245},
+    "10": {"start":"2016-08-01","end":"2026-07-31","cagr":0.2073040606458747,"sharpe":1.0455745688134124,"max_drawdown":-0.27287530670982363,"multiple":6.574268002305629},
+    "15": {"start":"2011-08-01","end":"2026-07-31","cagr":0.16356367170860464,"sharpe":0.9382364137369686,"max_drawdown":-0.27287530670982363,"multiple":9.699234741050109},
+    "20": {"start":"2006-07-31","end":"2026-07-31","cagr":0.17987745816941003,"sharpe":1.011476339362731,"max_drawdown":-0.27287530670982363,"multiple":27.33805297036404}
+  },
+  "sector_control_20y_cagr": 0.19975674641838714,
+  "sector_pit_20y_cagr": 0.17987745816941003,
+  "sector_delta_pp": -1.9879288248977112,
+  "notes": [
+    "Exact historical Sharadar sector taxonomy is not reconstructible from current TICKERS; FF12 is a causal replacement taxonomy, not byte-identical Sharadar history.",
+    "The formerly missing 2011Q2 SEC SUB quarter was later supplied and changes no fast/native/LD/NAV decision in this path.",
+    "Category removal changed witness values but produced no economic path change in the tested 40pp path."
+  ]
+}
