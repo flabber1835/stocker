@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 from stock_strategy_shared.split_reconciliation import (
-    SPLIT_CORROBORATED_DIRECT,
+    SPLIT_CORROBORATED_QUANTIZED,
     SplitAuthority,
     SplitStreamReconciler,
     resolve_split_orientation,
@@ -27,7 +27,7 @@ def test_tri_unsnapped_sep_ratio_corroborates_explicit_split():
     ratio, disposition = resolve_split_orientation(
         stated, derived, bounds=bounds, explicit_no_event=True)
     assert ratio == pytest.approx(stated)
-    assert disposition == SPLIT_CORROBORATED_DIRECT
+    assert disposition == SPLIT_CORROBORATED_QUANTIZED
 
 
 def test_tri_stream_path_does_not_turn_small_real_split_into_no_event():
@@ -42,5 +42,5 @@ def test_tri_stream_path_does_not_turn_small_real_split_into_no_event():
     )
 
     assert decision.ratio == pytest.approx(0.98456)
-    assert decision.disposition == SPLIT_CORROBORATED_DIRECT
+    assert decision.disposition == SPLIT_CORROBORATED_QUANTIZED
     assert decision.derived == pytest.approx(0.9845553805883762)
