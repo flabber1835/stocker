@@ -5,6 +5,7 @@ import pytest
 
 from stock_strategy_shared.split_reconciliation import (
     SPLIT_CORROBORATED_QUANTIZED,
+    SPLIT_UNRESOLVED,
     SplitAuthority,
     SplitStreamReconciler,
     resolve_split_orientation,
@@ -44,3 +45,16 @@ def test_tri_stream_path_does_not_turn_small_real_split_into_no_event():
     assert decision.ratio == pytest.approx(0.98456)
     assert decision.disposition == SPLIT_CORROBORATED_QUANTIZED
     assert decision.derived == pytest.approx(0.9845553805883762)
+
+
+def test_small_explicit_split_outside_rounding_bounds_still_fails_closed():
+    derived = split_ratio_from_prices(100.0, 99.5, 100.0, 100.0)
+    bounds = split_ratio_bounds(100.0, 99.5, 100.0, 100.0)
+    assert derived == pytest.approx(0.995)
+    assert bounds is not None
+    assert not (bounds[0] <= 0.98456 <= bounds[1])
+
+    ratio, disposition = resolve_split_orientation(
+        0.98456, derived, bounds=bounds, explicit_no_event=True)
+    assert ratio == 1.0
+    assert disposition == SPLIT_UNRESOLVED
