@@ -38,14 +38,13 @@ from sentinel.feed import (
     renormalize, sharadar, snapshot_export, store, universe)
 
 SEP_CURSOR_NAME = "sharadar-sep-lastupdated:v1"
-# New name on purpose: a pre-fix v1 cursor was earned by two paginated reads and
-# must not authorize operation after this stronger negative-space contract lands.
-# v5 re-earns action authority over every accepted/resolved/blocking split
-# disposition, both raw split vocabularies, and every retained published
-# effective non-unit ratio. The shipped v4 selector covered blockers only, so
-# v4 cannot prove the current economic interpretation.
-ACTIONS_CURSOR_NAME = "sharadar-actions-export-reconcile:v5"
-ACTIONS_CURSOR_KIND = "sharadar-actions-export-reconcile/v5"
+# New name on purpose whenever split semantics change: a cursor earned under an
+# older resolver must never suppress replay under newer economic semantics.
+# v6 re-earns every retained split disposition after the sub-2% explicit split
+# corroboration fix introduced for TRI 2026-05-04.  v5 remains historical
+# evidence only and cannot authorize the corrected interpretation.
+ACTIONS_CURSOR_NAME = "sharadar-actions-export-reconcile:v6"
+ACTIONS_CURSOR_KIND = "sharadar-actions-export-reconcile/v6"
 # Full ACTIONS authority must cover the decision frontier itself.  A 7-day
 # cadence allowed a same-day omitted dividend/terminal action to coexist with a
 # READY frontier.  One vendor export per decision day is intentionally stronger.
@@ -518,13 +517,14 @@ def _semantic_upgrade_replay_dates(
         conn, *, market_start: str, market_end: str,
         current_action_rows: Iterable[Mapping],
         prior_action_rows: Iterable[Mapping]) -> list[str]:
-    """Every retained split date whose pre-v5 economics must be re-earned.
+    """Every retained split date whose pre-v6 economics must be re-earned.
 
-    Blocking evidence is not enough: pre-v5 code could publish an accepted ADR
-    resize or reciprocal stock-split orientation.  Include every active split
-    disposition, every current or previously active raw source row from either
-    side of the split/ADR semantic boundary, and every published effective
-    non-unit ratio.  The corpus selector covers a legacy derived or repaired bar
+    Blocking evidence is not enough: older code could publish an accepted ADR
+    resize, reciprocal stock-split orientation, or suppress a real sub-2% split
+    before comparing it with explicit ACTIONS authority. Include every active
+    split disposition, every current or previously active raw source row from
+    either side of the split/ADR semantic boundary, and every published effective
+    non-unit ratio. The corpus selector covers a legacy derived or repaired bar
     with no surviving disposition or source row.
     """
     rows = anomalies.active_rows(
