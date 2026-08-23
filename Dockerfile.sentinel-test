@@ -81,6 +81,11 @@ COPY tests/ /work/tests/
 # `services` package in the runtime image.
 COPY services/backtester/ /work/services/backtester/
 COPY tools/ /work/tools/
+# The expected-hash producer and the two independent authority validators hash
+# the shared split resolver by its portable repository path.  Copy only that
+# reviewed source into their /work inspection bundle.  /work/shared is not on
+# PYTHONPATH, so this cannot shadow the resolver installed in the runtime image.
+COPY shared/stock_strategy_shared/split_reconciliation.py /work/shared/stock_strategy_shared/split_reconciliation.py
 # The formal evidence and deployment-provenance suites import these selected
 # invocation producers and host-boundary helpers.
 # Keep the rest of scripts/ inspection-only under /work/repo: copying the whole

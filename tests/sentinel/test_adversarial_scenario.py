@@ -159,6 +159,15 @@ def record_split(conn, ratio="2", when="2026-08-12"):
     conn.commit()
     feed_store.write_actions(conn, [{"ticker": "AAA", "date": when,
                                      "action": "split", "value": float(ratio)}])
+    # Execution consumes the published disposition, not an independent
+    # reinterpretation of ACTIONS.  This legacy fixture therefore needs the
+    # same explicit accepted authority that a current ingest publication emits.
+    feed_store.write_anomalies(conn, [{
+        "kind": "SPLIT_AUTHORITATIVE_APPLIED",
+        "ticker": "AAA",
+        "session": when,
+        "detail": f"adversarial fixture; applied={D(ratio)}",
+    }])
 
 
 class TestTheWholeThingAtOnce:

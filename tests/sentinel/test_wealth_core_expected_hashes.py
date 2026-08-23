@@ -697,6 +697,10 @@ def test_the_tool_stays_out_of_the_broker_facing_runtime():
 def test_the_producer_is_copied_and_bound_as_a_certification_input():
     dockerfile = (REPO / "Dockerfile.sentinel-test").read_text()
     assert "COPY tools/ /work/tools/" in dockerfile
+    assert (
+        "COPY shared/stock_strategy_shared/split_reconciliation.py "
+        "/work/shared/stock_strategy_shared/split_reconciliation.py"
+    ) in dockerfile
 
     import importlib.util
     manifest_path = REPO / "scripts" / "sentinel_manifest.py"

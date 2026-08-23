@@ -418,6 +418,16 @@ def _mutations(broker):
             if call.startswith("submit:") or call.startswith("cancel:")]
 
 
+def _record_accepted_split(conn, *, session, ratio) -> None:
+    """Give a legacy fixture the publication decision execution consumes."""
+    feed_store.write_anomalies(conn, [{
+        "kind": "SPLIT_AUTHORITATIVE_APPLIED",
+        "ticker": AAA.symbol,
+        "session": session,
+        "detail": f"paper fixture; applied={D(ratio)}",
+    }], commit=False)
+
+
 class TestPaperAccountInspection:
     def test_complete_unbound_inherited_book_is_visible_without_mutation(
             self, conn):
@@ -1889,6 +1899,7 @@ class TestStrictExecutionGate:
                 "INSERT INTO sentinel_actions (ticker,session,action,value)"
                 " VALUES (%s,%s,'split',2)",
                 (AAA.symbol, EFFECTIVE))
+        _record_accepted_split(conn, session=EFFECTIVE, ratio=2)
         conn.commit()
         broker = _broker()
 
@@ -1986,6 +1997,7 @@ class TestStrictExecutionGate:
                 "INSERT INTO sentinel_actions (ticker,session,action,value)"
                 " VALUES (%s,%s,'split',2)",
                 (AAA.symbol, action_session))
+        _record_accepted_split(conn, session=action_session, ratio=2)
         conn.commit()
         broker = _broker()
         broker.seed_position(AAA, "20")
