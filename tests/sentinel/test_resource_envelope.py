@@ -12,10 +12,12 @@ bounded, there was no oom-kill to point at and no measured peak to compare
 against. The same shape produced Stocker's pipeline crash-loop, which is why
 `PIPELINE_MEM_LIMIT` exists there.
 
-Limits are set EARLY and GENEROUSLY and tightened once the real envelope has been
-measured. A test that demanded specific values now would either be wrong or would
-have to be edited every time a measurement improved; this one demands that a
-ceiling EXISTS and that the ordering between services is sane.
+Limits are set EARLY AND GENEROUSLY and tightened once the real envelope has been
+measured. A test that demanded arbitrary values would be wrong; a value backed by
+a reproduced production OOM is different. On 2026-08-23 the full ACTIONS v5
+reconciliation was cgroup-killed just above the former 2 GiB engine ceiling and
+completed when that same run was raised to 4 GiB, so 4 GiB is now the reviewed
+minimum until issue #235 makes the path memory-bounded and re-measures it.
 
 Contract: docs/sentinel-execution-contract.md §15.4.
 """
@@ -80,6 +82,14 @@ def test_the_read_only_panel_is_smaller_than_the_engine():
     services = _compose()["services"]
     assert _bytes(services["sentinel-panel"]["mem_limit"]) \
         < _bytes(services["sentinel"]["mem_limit"])
+
+
+def test_engine_covers_measured_actions_reconciliation_peak():
+    """The former 2 GiB ceiling killed the real full ACTIONS v5 reconciliation.
+    The same NAS run completed at 4 GiB, so do not regress below that measured
+    operational envelope until the streaming remediation in issue #235 lands."""
+    services = _compose()["services"]
+    assert _bytes(services["sentinel"]["mem_limit"]) >= 4 * 1024 ** 3
 
 
 def test_the_engine_is_bounded_below_a_plausible_NAS():
