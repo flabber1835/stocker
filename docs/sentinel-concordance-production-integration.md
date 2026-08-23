@@ -121,7 +121,8 @@ historically certified certificate cannot request it.  If a complete causal
 timeline is present, both authority modes use it; the prospective start is a
 fallback for the current-only seed, not a competing implementation.
 
-The durable v4 state binds the witness origin.  A current-only start is stored
+The durable v5 state binds the witness origin and the complete Sharadar-to-book
+semantics identity. A current-only start is stored
 as `PROSPECTIVE_PAPER_OBSERVATION` and survives every restart; absence of the
 new field on a legacy state means the historical path, preserving its existing
 state hash.  Authority rotation cannot silently promote prospective evidence:
@@ -134,11 +135,13 @@ universes.
 
 ## Production state
 
-The Sentinel production envelope is versioned forward to v4. Existing
-non-Concordance v2/v3 state migrates with `recent_leadership=null` and
-`ldrc=null`; behavior is unchanged. A strategy identity that names the
-Concordance overlay requires both strict states to be present. Hidden overlay
-state under a non-Concordance identity is refused.
+The Sentinel production envelope is versioned forward to v5. Existing v2-v4
+state can be decoded only when it already carries the complete required
+strategy/data-semantics identity; pre-v5 deployed state does not, so it refuses
+and requires reviewed reconstruction rather than inheriting corrected Sharadar
+meaning. A strategy identity that names the Concordance overlay requires both
+strict states to be present. Hidden overlay state under a non-Concordance
+identity is refused.
 
 The one-session production sequence is:
 

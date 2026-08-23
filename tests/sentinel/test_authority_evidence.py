@@ -12,6 +12,7 @@ import pytest
 from sentinel import authority
 from tests.support import formal_baseline, formal_forward
 from tools import sentinel_authority_evidence as evidence
+from tools import wealth_core_expected_hashes as expected_hash_tool
 
 
 ROOT = Path(os.environ.get(
@@ -306,7 +307,6 @@ def certification_producer_inputs(tmp_path, *, xfailed=0):
     summary = tmp_path / "summary.json"
     evidence.summarize_test_run(run, pre, base, summary)
     expected_tool = ROOT / "tools/wealth_core_expected_hashes.py"
-    loader = ROOT / "services/backtester/app/wealth_core_replay.py"
     from stock_strategy_shared.wealth_core.hashes import HASH_ORDER
     hashes = {name: f"{index:x}" * 64
               for index, name in enumerate(HASH_ORDER, start=1)}
@@ -327,9 +327,9 @@ def certification_producer_inputs(tmp_path, *, xfailed=0):
             "producer": "tools/wealth_core_expected_hashes.py",
             "producer_sha256": hashlib.sha256(
                 expected_tool.read_bytes()).hexdigest(),
-            "canonical_loader": "services/backtester/app/wealth_core_replay.py",
-            "canonical_loader_sha256": hashlib.sha256(
-                loader.read_bytes()).hexdigest(),
+            "canonical_loader_bundle":
+                expected_hash_tool.canonical_loader_bundle_from_repository(
+                    ROOT),
             "runtime_environment": {
                 "compatible": True, "pins_match": True,
                 "sources_known": True, "pin_drift": {},
@@ -423,6 +423,36 @@ def test_actual_producers_reach_issuer_decision_schemas_and_tamper_refuses(
             reference_artifact=values["reference"],
             confirm_inputs_sha256=authority.canonical_sha256(bindings),
             reviewer="alice", ticket="CERT-3",
+            reviewed_at="2026-08-13T12:00:00Z")
+
+
+def test_authority_recomputes_the_complete_loader_bundle(
+        tmp_path, monkeypatch):
+    values = certification_producer_inputs(tmp_path)
+    changed = expected_hash_tool.canonical_loader_bundle_from_repository(ROOT)
+    changed = json.loads(json.dumps(changed))
+    replay_impl = "services/backtester/app/wealth_core_replay_impl.py"
+    changed["sources"][replay_impl] = "0" * 64
+    changed["sha256"] = hashlib.sha256(json.dumps({
+        "schema": changed["schema"], "sources": changed["sources"],
+    }, sort_keys=True, separators=(",", ":"),
+        ensure_ascii=True, allow_nan=False).encode("ascii")).hexdigest()
+    monkeypatch.setattr(
+        evidence, "_canonical_loader_bundle_from_repository",
+        lambda _root: changed)
+
+    with pytest.raises(
+            evidence.EvidenceRefused,
+            match="expected hashes do not bind the repository producer/runtime"):
+        evidence.produce_certification_decisions(
+            output=tmp_path / "loader-drift-decisions",
+            base_manifest=values["base"], test_summary=values["summary"],
+            expected_hashes=values["expected"],
+            baseline_run=values["baseline"], forward_run=values["raw"],
+            forward_reviewed=values["reviewed"],
+            reference_artifact=values["reference"],
+            confirm_inputs_sha256=values["confirm"], reviewer="alice",
+            ticket="CERT-loader-drift",
             reviewed_at="2026-08-13T12:00:00Z")
 
 

@@ -83,6 +83,9 @@ class _Cursor:
         self.conn.sql.append((" ".join(str(sql).split()), params))
         self.rowcount = 2
 
+    def fetchone(self):
+        return ("actions_reconcile", "success")
+
 
 class _Conn:
     def __init__(self):
@@ -137,21 +140,21 @@ def test_prepare_full_reseed_widens_to_candidate_rows_and_retires_no_publication
     assert conn.commits == 1
 
 
-def test_failed_actions_replay_cleanup_is_scoped_by_kind_and_market_boundary(
+def test_failed_actions_replay_cleanup_is_scoped_and_does_not_commit(
         monkeypatch):
     conn = _Conn()
     monkeypatch.setattr(
         "sentinel.feed.store._assert_corpus_locked", lambda conn: None)
 
-    outside = recovery.retire_failed_action_reconcile_bars_outside_market(
-        conn, run_id="new-run", market_start="2025-07-01",
-        market_end="2026-08-21")
-    inside = recovery.retire_failed_action_reconcile_bars_in_window(
-        conn, run_id="new-run", start="2025-07-01", end="2025-07-03")
+    counts = recovery.retire_failed_action_reconcile_bars_for_publication(
+        conn, run_id="new-run",
+        plan=recovery.ActionReconcileRetirementPlan(
+            market_start="2025-07-01", market_end="2026-08-21",
+            replay_windows=(("2025-07-01", "2025-07-03"),)))
 
-    assert (outside, inside) == (2, 2)
-    outside_sql, outside_params = conn.sql[-2]
-    inside_sql, inside_params = conn.sql[-1]
+    assert counts == {"inside_replay": 2, "outside_market": 2}
+    inside_sql, inside_params = conn.sql[-2]
+    outside_sql, outside_params = conn.sql[-1]
     for sql in (outside_sql, inside_sql):
         assert "r.kind='actions_reconcile'" in sql
         assert "r.status='failed'" in sql
@@ -160,7 +163,7 @@ def test_failed_actions_replay_cleanup_is_scoped_by_kind_and_market_boundary(
     assert outside_params == ("new-run", "2025-07-01", "2026-08-21")
     assert "b.session BETWEEN %s AND %s" in inside_sql
     assert inside_params == ("new-run", "2025-07-01", "2025-07-03")
-    assert conn.commits == 2
+    assert conn.commits == 0, "cleanup belongs to the caller's publication transaction"
 
 
 class _Progress:

@@ -43,7 +43,7 @@ JSON store for independent cursors and immutable plan cash baselines.  Trial
 evidence uses the same deliberate mechanism:
 
 ```text
-trial-account:v1:<observation id>
+trial-account:v2:<observation id>
 trial-close-nav:v1:<effective session>
 trial-fill-interval:v1:<effective session>
 trial-verification:v3:<effective session>
@@ -227,13 +227,20 @@ proves all of the following:
 5. The readiness PASS was computed after that exact valuation publication was published
    and before any later publication, and every stored readiness clause passed.
 6. The named broker observation is COMPLETE and RUNNING; its observed positions
-   equal the reconciled expected book. Account evidence retains two exact
-   action-aged targets: the close target through the effective session and the
-   observation target through the later evidence session. The reconciled/live
+   equal the reconciled expected book. Account evidence retains the exact
+   durable v2 target-projection payload used by execution, including its plan
+   fingerprint, projection fingerprint, action sources, and cancelled pending
+   OPENs. The close target is the projection's effective-session basket, never
+   a fresh scalar aging of the flat immutable plan target. The observation
+   target starts from that projected basket and applies only supported scalar
+   events strictly after the projection's through-session. The reconciled/live
    book must equal the observation target; only the close target is valued at
-   the historical close. This prevents a supported post-close split from
-   creating a false mismatch while also preventing later share units from being
-   multiplied by old close prices. An explicit
+   the historical close. This prevents a canonical fractional-entry
+   cancellation from becoming a false fractional target, prevents a supported
+   post-close split from creating a false mismatch, and prevents later share
+   units from being multiplied by old close prices. A missing, corrupt,
+   cross-plan, or account-evidence-mismatched target projection is
+   `NOT_VERIFIED`. An explicit
    zero-quantity sleeve in the plan and its omission from the command-derived
    book are economically identical; all other union-of-identity differences
    retain the share tolerance. It has no foreign

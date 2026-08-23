@@ -849,10 +849,27 @@ would not catch because Wealth Core had not moved.
 
 The loader hash is read OUT OF THE BUILT IMAGE, not from the checkout. The
 bt-engine Dockerfile assembles `/app/app` from its certification app plus the
-two surviving backtester corpus adapters. Deleted Stocker pipeline,
-portfolio-builder and scheduler sources are not certification dependencies.
-A digest of `services/bt-engine/app` alone is still different from the image
-tree, so the artefact itself remains the hashing authority.
+backtester facade, its retained replay implementation, and the benchmark
+adapter. Deleted Stocker pipeline, portfolio-builder and scheduler sources are
+not certification dependencies. The checkout-side assembled-app specification
+must describe that exact Docker COPY expansion; adding, removing or moving a
+Python source in the image without making the same change to the specification
+is a freeze refusal. A digest of `services/bt-engine/app` alone is still
+different from the image tree, so the artefact itself remains the hashing
+authority.
+
+The expected-hash artifact has a second, deliberately narrower code identity:
+`wealth_core.canonical-loader-bundle/1`. It binds the canonical loader facade,
+`wealth_core_replay_impl.py`, and the shared `split_reconciliation.py` module as
+three separately named source digests plus one canonical bundle digest. Those
+are the complete code surfaces that turn Sharadar price/ACTIONS rows into the
+economic inputs consumed by the replay. A facade-only digest is not loader
+provenance: the facade can stay byte-identical while either the retained replay
+or the shared split resolver changes. The expected-hash producer records the
+versioned bundle, and both the authority-evidence producer and certificate
+issuer independently enumerate, recompute, and require the exact object from
+the reviewed repository. Neither validator calls the expected-hash producer's
+bundle calculator; an omission there therefore cannot validate itself.
 
 Finalization also re-checks `git HEAD == manifest.git_commit` and a clean tree.
 Everything else binds images and hashes; this binds the CHECKOUT — without it

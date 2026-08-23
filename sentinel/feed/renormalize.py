@@ -30,7 +30,6 @@ class RenormalizedWindow:
     source_rows: int
     bars_written: int
     rows_dropped: int
-    failed_rows_retired: int = 0
 
 
 def _window_for_date(day: str) -> tuple[str, str]:
@@ -114,7 +113,6 @@ def renormalize(
         chunk_prefix: str = "historical",
         market_start: str | None = None,
         market_end: str | None = None,
-        retire_failed_action_candidates: bool = False,
         ) -> list[RenormalizedWindow]:
     """Replay bounded affected windows into ``run`` using canonical ingest logic.
 
@@ -154,18 +152,12 @@ def renormalize(
             ingest_impl._persist_chunk_evidence(
                 conn, run, label, start, end, report, splits,
                 action_rows, action_rows, ambiguous)
-            retired = 0
-            if retire_failed_action_candidates:
-                from sentinel.feed import recovery
-                retired = recovery.retire_failed_action_reconcile_bars_in_window(
-                    conn, run_id=run.progress.run_id, start=start, end=end)
             dropped = report.dropped_no_raw_close + report.dropped_no_identity
             run.progress.rows_written += written
             run.progress.rows_dropped += dropped
             results.append(RenormalizedWindow(
                 start=start, end=end, source_rows=report.rows,
-                bars_written=written, rows_dropped=dropped,
-                failed_rows_retired=retired))
+                bars_written=written, rows_dropped=dropped))
     return results
 
 

@@ -975,6 +975,24 @@ history and is a much larger build; it is deferred to the end of the sequence.
 
 The DETECTION tier is implemented; the RECONSTRUCTION tier remains deferred.
 
+`data_version` identifies the published facts, but it cannot by itself identify
+the code that interpreted those facts into a path-dependent book. Production's
+strategy identity therefore also binds a versioned Sharadar book-semantics
+source bundle: ACTIONS classification/effective dating, SEP price/share-domain
+normalisation and its durable staging order, raw-action and anomaly generations,
+historical replay/recovery, published overlays, security/session mapping, the
+production corpus loader/session adapter, breadth/regime/controller transitions,
+catch-up and shadow orchestration, terminal-action mapping, canonical target
+extraction, account sizing, paper pre-open orchestration, execution-time split
+projection, expected-book reconciliation, and the shared split/dividend and
+terminal-coalescing helpers. The exact identity is
+persisted in every canonical state and plan and is covered by activation
+authority. If any bundled source changes, an older state is not migrated in
+place or advanced under a new corpus version; startup refuses until a reviewed
+reconstruction establishes a new state. This is deliberately stronger than
+recording the deployment commit: an immutable old book cannot silently inherit
+corrected data semantics merely because the next session exists.
+
 ### 8.2 The publication record
 
 An ingest *run* is not a corpus *version*. A run that fails halfway has a
@@ -1047,9 +1065,15 @@ actions trigger price re-normalization only when their effective XNYS session
 falls inside the already-published market corpus, and the prior/effective/next
 replay is clipped at that corpus boundary. This keeps historical action
 negative-space complete without silently expanding a short operational price
-seed. On retry, stable source replay first reclaims failed in-range bar keys;
-failed ACTIONS-reconciliation bars outside the published market boundary are
-candidate-only rows and are retired before publication. SEP `lastupdated`
+seed. On retry, stable source replay first reclaims failed in-range bar keys and
+durably records the retained market boundary and exact replay windows that can
+prove current-source absence. Residual failed ACTIONS-reconciliation bars in
+those windows, plus candidate-only rows outside the published market boundary,
+remain untouched during candidate construction and are retired only by the
+replacement publication transaction. A crash after ingest success can therefore
+resume that same publication transaction without reconstructing coverage from
+process memory.
+SEP `lastupdated`
 maintenance is bounded on both sides by the same retained horizon; a current
 revision outside it belongs to a deliberately wider complete seed, not to
 incremental corpus expansion.
@@ -1064,15 +1088,23 @@ publication evidence records each retired run and row count. A published row,
 a future-dated candidate, or a candidate not durably failed is never retired by
 this rule, and rollback restores the candidate if publication fails.
 
-This retirement rule does not extend to destructive economic-key tables.
-`sentinel_bars`, `sentinel_spy_total_return`, and the legacy
+This retirement rule normally does not extend to destructive economic-key
+tables. `sentinel_bars`, `sentinel_spy_total_return`, and the legacy
 `sentinel_actions` surface may have overwritten a key that an earlier
-publication named; deleting the failed owner would then delete corpus history
-rather than restore it. The ordinary daily price overlap and required
-41-session SPY fetch must rewrite those keys under the retry run, and
-publication refuses while any older unpublished owner remains. Production
-ACTIONS, anomalies and split repairs use their append-only lifecycle rules
-instead of destructive retirement.
+publication named; deleting a failed owner during candidate construction would
+then delete corpus history rather than restore it. The ordinary daily price
+overlap and required 41-session SPY fetch must rewrite those keys under the
+retry run, and publication refuses while any older unpublished owner remains.
+
+The one bounded exception is a failed `actions_reconcile` bar that remains after
+the replacement run has stably replayed the complete prior/effective/following
+SEP window containing it. The surviving old owner is then an authoritative
+source absence. Even in that case deletion is deferred to the replacement
+publication transaction; the exact replay windows are explicit inputs, the
+retired count is publication evidence, and any later failure rolls the deletion
+back. Candidate-only failed ACTIONS bars outside the retained market boundary
+follow the same transaction rule. Production ACTIONS, anomalies and split
+repairs retain their append-only lifecycle rules.
 
 ### 8.3 Published is not enough on its own — the pin must freeze the ROWS
 
@@ -1263,8 +1295,21 @@ Only an ACTIONS `split` row is listed-share authority; `adrratiosplit` is
 depositary-ratio metadata and cannot independently resize a broker holding.
 The `split` value is the direct new-float/old-float multiplier. The raw calendar
 ex-date is snapped forward to its first XNYS session. For an equity, execution
-then reads the canonical `effective_split_ratio` from that session's published
-bar, including the latest published repair overlay.
+consumes the active published split disposition together with the canonical
+`effective_split_ratio`, including the latest published repair overlay. It does
+not reinterpret the raw ACTIONS date from that date's bar alone. When the
+published stream proves that the price/share transition occurred one session
+before the raw ACTIONS date, the prior non-1 bar is the one and only scalar
+event and the raw-date `SPLIT_RESOLVED_NO_EVENT` disposition contributes no
+second event. A `SPLIT_RESOLVED_NO_EVENT` that proves the issuer action did not
+change the listed instrument likewise contributes multiplier 1 and no material
+execution event. A missing, contradicted, or unsafe disposition remains
+blocking; a resolved disposition is never permission to suppress conflicting
+current published evidence.
+Because a disposition is observed at ticker/session grain, it may authorize a
+permanent-security holding only when that published coordinate maps to exactly
+one security id. A duplicate coordinate is blocking evidence; the disposition
+cannot fan out into two books.
 For the fixed `SENTINEL:BIL` defensive identity, which intentionally has no
 stored split column, execution derives the independent ratio from the
 immediately preceding XNYS session's published adjusted/as-traded domains and
@@ -1291,6 +1336,30 @@ certified quantity increment is `0.000000001`; a reverse split residual is
 submitted exactly in that domain. Any target outside an adapter's declared
 increment refuses rather than rounding into a new economic intent. An ambiguous,
 unmapped, non-positive, or non-finite scalar action also refuses.
+
+That broker increment applies only after the strategy's own pending-order
+semantics have been preserved.  The immutable plan fingerprint binds the exact
+canonical `SessionState`, and target reprojection must recover from that state
+which shares are already held, which are pending closes, and which are pending
+opens.  Held shares and pending closes retain the exact fractional entitlement
+created by a split.  A pending open remains an entry trade, however: Wealth Core
+cancels it when the action-aged quantity is non-positive or non-integral, before
+examining broker tradeability.  Reprojection must therefore remove the matching
+account-sized target contribution and record the cancellation; a broker's
+ability to buy fractional shares is not authority to resurrect an entry the
+strategy cancelled.  The check is performed at every effective action session,
+not merely on the aggregate ratio: two material actions whose product is one
+cannot resurrect an entry cancelled at the first boundary.  Applying one scalar
+to an aggregate target without this intent lineage is forbidden.
+
+Trial account evidence consumes that exact durable v2 target projection; it
+does not independently action-age the flat immutable plan basket.  The
+effective-session close target is the projection's target basket, and the
+evidence binds its projection fingerprint and cancelled pending OPENs.  A
+later observation target starts from that projected basket and applies only
+scalar events strictly after the projection's through-session.  Reapplying the
+decision-to-execution multiplier, or omitting the durable projection, is a
+verification refusal.
 
 Published market ratios are stored as binary floating point, so a repeating
 ratio such as `1/30` is represented approximately even when the entitlement is
@@ -1984,6 +2053,20 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
     SHADOW_GO authorizes only a broker-free canonical state transition after
     source publication. It never implies PAPER_EXECUTION_GO, never authorizes a
     broker mutation, and never makes Alpaca dashboard P/L a verified result.
+62  Decision-close target reprojection preserves canonical order provenance.
+    Splits may create fractional held or pending-close entitlements, subject to
+    the broker's certified increment, but a pending OPEN that Wealth Core would
+    cancel as non-integral contributes exactly zero to the executable target.
+    Fractional-order support can never turn that cancelled entry into a buy.
+63  Trial account evidence binds the exact durable v2 target projection used by
+    execution. Its close target equals that projected basket, including pending
+    OPEN cancellations, and later observation aging begins strictly after the
+    projection boundary; flat plan-target aging cannot earn verification.
+64  A canonical book cannot cross a Sharadar interpretation change. Its exact
+    strategy identity binds the versioned data-semantics source bundle as well
+    as Wealth Core/controller code. Missing or changed semantics identity
+    refuses state restore, catch-up, planning and execution; a later
+    `data_version` is not permission to launder an older path-dependent book.
 ```
 
 Every one of these is falsifiable, and each should fail a test when violated.

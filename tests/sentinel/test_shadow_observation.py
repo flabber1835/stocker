@@ -91,6 +91,7 @@ def _identity(config):
         "strategy": config.strategy_id,
         "controller_rule_sha256": config.digest,
         "wealth_core_source_sha256": "canonical-test-source",
+        "data_semantics_source_sha256": "canonical-data-semantics-source",
     }
 
 

@@ -279,6 +279,8 @@ def _assembled_bt_engine_spec(root: Path):
         (root / "services" / "bt-engine" / "app", ""),
         (root / "services" / "backtester" / "app" / "wealth_core_replay.py",
          "live"),
+        (root / "services" / "backtester" / "app" /
+         "wealth_core_replay_impl.py", "live"),
         (root / "services" / "backtester" / "app" / "wealth_core_benchmark.py",
          "live"),
     ]

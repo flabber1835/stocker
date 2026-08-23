@@ -268,7 +268,8 @@ def repair(conn, *, start: str, end: str, dry_run: bool = True) -> dict:
                             applied += cur.rowcount
                             detail = (f"run={run.progress.run_id} "
                                       f"stored={d.stored:.6g} -> "
-                                      f"ACTIONS={d.authoritative:.6g}")
+                                      f"ACTIONS={d.authoritative:.6g} "
+                                      f"applied={d.authoritative:.12g}")
                             anomaly_rows.extend((
                                 {"kind": "SPLIT_RATIO_REPAIRED",
                                  "ticker": d.ticker, "session": d.session,

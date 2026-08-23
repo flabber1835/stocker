@@ -678,12 +678,20 @@ ACTIONS ingestion-run marker, a digest of the ACTIONS rows actually consumed,
 the normalised measured-input source, and a supplemental causal-input digest
 covering all 126 feature warm-up sessions plus the measured sessions.  The
 supplemental digest does not become an eighth parity hash; the seven-hash
-contract remains unchanged.  Producer, Wealth Core, canonical-loader, and full
-runtime-environment identities are recorded separately, so a result never
-identifies only two of the three code paths that made it. The producer refuses
-unless that environment reports the certified interpreter, exact package pins,
-both source trees, and the in-image lock digest; a developer environment may
-inspect inputs but cannot emit a `ready` certification artifact.
+contract remains unchanged. Producer, Wealth Core, canonical-loader bundle, and
+full runtime-environment identities are recorded separately, so a result never
+identifies only two of the three code paths that made it. The canonical-loader
+identity is `wealth_core.canonical-loader-bundle/1`: an exact source map and
+canonical digest covering the facade, the retained replay implementation, and
+the shared split-reconciliation module. Hashing the facade alone is explicitly
+insufficient because its bytes can remain fixed while either economic loader
+surface changes. The authority-evidence producer and certificate issuer each
+independently enumerate and recompute the complete versioned bundle from the
+reviewed repository; neither trusts the expected-hash producer's calculator.
+They reject old or partial provenance. The producer refuses unless that environment reports
+the certified interpreter, exact package pins, both source trees, and the
+in-image lock digest; a developer environment may inspect inputs but cannot emit
+a `ready` certification artifact.
 
 `--output` is the evidence path: it writes a same-directory temporary file,
 fsyncs it, installs it with an atomic no-clobber hard link, and fsyncs the

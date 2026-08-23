@@ -125,15 +125,28 @@ latest reported table refresh.
 The stronger contract deliberately uses a new cursor:
 
 ```text
-sharadar-actions-export-reconcile:v4
+sharadar-actions-export-reconcile:v5
 ```
 
-A pre-fix v1/v2/v3 cursor cannot satisfy v4 readiness. V4 retains the same fresh
-whole-export negative-space authority and additionally replays every active
-blocking split disposition inside the retained market window through the
-reviewed stock-split/ADR boundary, finite-price interval, and one-session
-effective-date reconciliation. This semantic re-earn is required even when the
-export's source-row identities are unchanged. The default cadence is one
+A pre-fix v1/v2/v3/v4 cursor cannot satisfy v5 readiness. V5 retains the same fresh
+whole-export negative-space authority and additionally replays **every** active
+split disposition inside the retained market window, not only dispositions that
+currently block readiness. It also replays every current **or previously active**
+raw `split` and `adrratiosplit` source date in that window, plus every retained
+published bar whose effective ratio (the base row overlaid by its newest
+published repair) is not one. The corpus-derived selector is required because a
+legacy derived or repaired non-unit ratio may survive without any disposition or
+currently active source row. A non-unit bar supplies the legacy split question,
+but is repaired to one only when a complete covering ACTIONS generation contains
+no authoritative stock split and SEP supplies explicit predecessor-based
+no-event evidence; missing predecessors, source silence, and current split rows
+cannot earn that repair. Together these selectors catch a legacy run that
+accepted an ADR-ratio change as a listed-share resize, accepted the reciprocal of
+a direct stock-split value, or left an otherwise orphaned economic adjustment.
+Replaying this evidence is the migration proof that no non-blocking pre-v5 ratio
+survives the reviewed stock-split/ADR boundary, finite-price interval, and
+one-session effective-date reconciliation. This semantic re-earn is required even
+when the export's source-row identities are unchanged. The default cadence is one
 decision day.
 
 The existing PRESENT/REMOVED candidate-generation machinery remains unchanged.
@@ -144,6 +157,17 @@ inside the already-published market horizon participate, and replay is clipped
 to that horizon. The complete 1900 ACTIONS scope is metadata/negative-space
 authority, never permission to widen a short SEP seed. One publication activates
 both. Terminal-only changes remain candidate state until publication.
+
+An ACTIONS retry may encounter a bar still owned by an older failed
+`actions_reconcile` run after the retry has stably replayed its complete bounded
+SEP window. That residual key is a current-source absence, but replay does not
+delete it while building the candidate. The retry durably records the retained
+market boundary and covered replay windows on the run before it can finish;
+only the replacement run's publication transaction may retire residual failed
+owners in those windows (and candidate-only residue outside the retained market
+boundary). Action/anomaly activation, any split-repair overlay, the retirements,
+and the new corpus-publication row commit together. If validation or publication
+fails, rollback preserves every failed-owner row and its corpus-coherence alarm.
 
 A suspicious empty export or material mass shrink is refused rather than
 interpreted as authoritative removal. Credential-bearing download URLs are never

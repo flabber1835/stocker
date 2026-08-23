@@ -40,16 +40,18 @@ from sentinel.feed import (
 SEP_CURSOR_NAME = "sharadar-sep-lastupdated:v1"
 # New name on purpose: a pre-fix v1 cursor was earned by two paginated reads and
 # must not authorize operation after this stronger negative-space contract lands.
-# v4 re-earns action authority under the listed-stock-split/ADR boundary,
-# finite-price interval, and one-session date reconciliation. An older cursor
-# proved source bytes under a different economic interpretation.
-ACTIONS_CURSOR_NAME = "sharadar-actions-export-reconcile:v4"
-ACTIONS_CURSOR_KIND = "sharadar-actions-export-reconcile/v4"
+# v5 re-earns action authority over every accepted/resolved/blocking split
+# disposition, both raw split vocabularies, and every retained published
+# effective non-unit ratio. The shipped v4 selector covered blockers only, so
+# v4 cannot prove the current economic interpretation.
+ACTIONS_CURSOR_NAME = "sharadar-actions-export-reconcile:v5"
+ACTIONS_CURSOR_KIND = "sharadar-actions-export-reconcile/v5"
 # Full ACTIONS authority must cover the decision frontier itself.  A 7-day
 # cadence allowed a same-day omitted dividend/terminal action to coexist with a
 # READY frontier.  One vendor export per decision day is intentionally stronger.
 ACTIONS_RECONCILE_DAYS = int(os.getenv("SHARADAR_ACTIONS_RECONCILE_DAYS", "1"))
 ACTIONS_FULL_WINDOW_START = "1900-01-01"
+_SPLIT_SEMANTIC_ACTIONS = frozenset(SHARE_SPLIT_ACTIONS) | {"adrratiosplit"}
 
 
 class MutationCursorUnavailable(RuntimeError):
@@ -513,16 +515,36 @@ def _failed_action_reconcile_bar_footprint(
 
 
 def _semantic_upgrade_replay_dates(
-        conn, *, market_start: str, market_end: str) -> list[str]:
-    """Published split questions that an upgraded normalizer must re-answer."""
+        conn, *, market_start: str, market_end: str,
+        current_action_rows: Iterable[Mapping],
+        prior_action_rows: Iterable[Mapping]) -> list[str]:
+    """Every retained split date whose pre-v5 economics must be re-earned.
+
+    Blocking evidence is not enough: pre-v5 code could publish an accepted ADR
+    resize or reciprocal stock-split orientation.  Include every active split
+    disposition, every current or previously active raw source row from either
+    side of the split/ADR semantic boundary, and every published effective
+    non-unit ratio.  The corpus selector covers a legacy derived or repaired bar
+    with no surviving disposition or source row.
+    """
     rows = anomalies.active_rows(
-        conn, start=str(market_start), end=str(market_end), kinds=(
-            "SPLIT_DISAGREEMENT",
-            "SPLIT_ONLY_DERIVED",
-            "SEAM_SPLIT_UNCORROBORATED",
-            "AMBIGUOUS_SPLIT_MULTIPLICITY",
-        ))
-    return sorted({str(row["session"]) for row in rows})
+        conn, start=str(market_start), end=str(market_end),
+        kinds=anomalies.SPLIT_DISPOSITION_KINDS)
+    dates = {str(row["session"]) for row in rows}
+    dates.update(
+        str(row["session"])
+        for row in publication.effective_nonunit_split_rows(
+            conn, start=str(market_start), end=str(market_end)))
+    for action_rows in (current_action_rows, prior_action_rows):
+        for row in action_rows:
+            if str(row.get("action") or "").lower() not in (
+                    _SPLIT_SEMANTIC_ACTIONS):
+                continue
+            day = str(row.get("date") or "")
+            effective = calendar.session_on_or_after(day)
+            if str(market_start) <= effective <= str(market_end):
+                dates.add(day)
+    return sorted(dates)
 
 
 def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
@@ -572,7 +594,8 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
         _failed_action_reconcile_bar_footprint(
             conn, market_start=market_start, market_end=market_end))
     semantic_dates = (_semantic_upgrade_replay_dates(
-        conn, market_start=market_start, market_end=market_end)
+        conn, market_start=market_start, market_end=market_end,
+        current_action_rows=rows, prior_action_rows=prior_active.values())
         if prior_cursor is None else [])
     replay_dates = sorted(
         set(changed_dates) | set(recovery_dates) | set(semantic_dates))
@@ -591,23 +614,23 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
     run = store.IngestRun(
         conn, "actions_reconcile",
         date_from=ACTIONS_FULL_WINDOW_START, date_to=hi.isoformat(),
-        chunks_total=1 + len(windows))
-    retired_outside = 0
+        chunks_total=2 + len(windows))
     with run.chunk("actions_full"):
         run.progress.rows_written += store.write_actions(
             conn, rows, run_id=run.progress.run_id,
             window_start=ACTIONS_FULL_WINDOW_START, window_end=hi.isoformat())
-        retired_outside = (
-            recovery.retire_failed_action_reconcile_bars_outside_market(
-                conn, run_id=run.progress.run_id,
-                market_start=market_start, market_end=market_end))
-    replayed = []
     if windows:
-        replayed = renormalize.renormalize(
+        renormalize.renormalize(
             conn, fetch=fetch, run=run, dates=replay_dates,
             include_action_run_id=run.progress.run_id,
             chunk_prefix="actions", market_start=market_start,
-            market_end=market_end, retire_failed_action_candidates=True)
+            market_end=market_end)
+    with run.chunk("publication_recovery"):
+        recovery.record_action_reconcile_retirement_plan(
+            conn, run_id=run.progress.run_id,
+            plan=recovery.ActionReconcileRetirementPlan(
+                market_start=market_start, market_end=market_end,
+                replay_windows=tuple(windows)))
     run.finish("success")
     published = publication.publish(
         conn, run_id=run.progress.run_id,
@@ -622,9 +645,6 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
             "semantic_upgrade_dates": len(set(semantic_dates)),
             "affected_bar_dates": len(set(replay_dates)),
             "retained_market_window": [market_start, market_end],
-            "retired_failed_bars_outside_market": retired_outside,
-            "retired_failed_bars_in_replay": sum(
-                item.failed_rows_retired for item in replayed),
             "replay_windows": [list(w) for w in windows],
         })
     return _write_cursor(

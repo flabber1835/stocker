@@ -54,7 +54,8 @@ def _fresh():
         starting_cash=100_000, controller=Controller(config),
         strategy_identity={"strategy": config.strategy_id,
                            "controller_rule_sha256": config.digest,
-                           "wealth_core_source_sha256": "test-source"})
+                           "wealth_core_source_sha256": "test-source",
+                           "data_semantics_source_sha256": "data-source"})
 
 
 def _advance(state, published, config):
@@ -219,7 +220,7 @@ def test_version_three_migrates_without_activating_concordance():
     raw.pop("recent_leadership", None)
     raw.pop("ldrc", None)
     restored = SessionState.from_dict(raw)
-    assert restored.version == 4
+    assert restored.version == 5
     assert restored.recent_leadership is None
     assert restored.ldrc is None
 
@@ -277,6 +278,25 @@ def test_persisted_identity_must_match_running_source():
         assert "differs from running identity" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("source identity drift was accepted")
+
+
+def test_persisted_book_cannot_cross_data_semantics_identity():
+    config, before = _fresh()
+    wrong = {**before.strategy_identity,
+             "data_semantics_source_sha256": "different-data-semantics"}
+
+    with pytest.raises(ValueError, match="differs from running identity"):
+        advance_state(before, _published(), controller_config=config,
+                      strategy_identity=wrong)
+
+    compatible_v4 = before.to_dict()
+    compatible_v4["version"] = 4
+    assert SessionState.from_dict(compatible_v4).version == 5
+
+    legacy = deepcopy(compatible_v4)
+    legacy["strategy_identity"].pop("data_semantics_source_sha256")
+    with pytest.raises(ValueError, match="data_semantics_source_sha256"):
+        SessionState.from_dict(legacy)
 
 
 def test_production_state_refuses_a_noncanonical_slot_domain():
@@ -772,7 +792,7 @@ def test_version_two_envelope_migrates_by_pruning_only_redundant_history():
 
     migrated = SessionState.from_dict(legacy)
     plan_evidence = migrated.last_evidence["wealth_core"]
-    assert migrated.version == 4
+    assert migrated.version == 5
     assert migrated.feed == current.feed
     assert "dormant" not in migrated.feed["series"]
     assert "dormant" not in migrated.last_known

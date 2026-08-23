@@ -65,17 +65,33 @@ complete reconciliation therefore uses a fresh whole-table export over the
 explicit `1900-01-01..decision-frontier` window. The stronger durable cursor is:
 
 ```text
-sharadar-actions-export-reconcile:v4
+sharadar-actions-export-reconcile:v5
 ```
 
-A legacy v1/v2/v3 cursor cannot satisfy v4 readiness. V4 re-earns the unchanged
-whole-export authority and replays active blocking split dispositions inside
-the retained market window through the reviewed stock-split/ADR boundary,
-finite-price interval, and one-session effective-date rule, even when no
-source-row identity changed. The default complete-export cadence is one
-decision day. Split/dividend changes re-normalize the affected SEP windows
-against the candidate action generation before one publication activates both
-action and bar economics.
+A legacy v1/v2/v3/v4 cursor cannot satisfy v5 readiness. V5 re-earns the unchanged
+whole-export authority and replays every active split disposition, every current
+or previously active `split` and `adrratiosplit` source date, and every retained
+published bar whose effective ratio (base plus newest published repair) is not
+one. Accepted and resolved dispositions are included alongside blockers, while
+the corpus selector covers legacy derived or repaired economics with no surviving
+disposition. Otherwise a legacy ADR resize, reciprocal stock-split orientation,
+or orphaned non-unit ratio can remain economically stale while an unchanged
+export earns the new cursor. Such an orphan is repaired to one only under a
+complete covering ACTIONS generation with no authoritative stock split and
+explicit predecessor-based SEP no-event evidence. The replay uses the reviewed
+stock-split/ADR boundary, finite-price interval, and one-session effective-date
+rule even when no source-row identity changed. The default complete-export
+cadence is one decision day. Split/dividend changes re-normalize the affected SEP
+windows against the candidate action generation before one publication activates
+both action and bar economics.
+
+Failed ACTIONS-replay bars are never retired during candidate construction.
+Stable replay only establishes a bounded retirement scope, which is persisted
+with the run so crash-resumed publication uses the same proof. Residual failed
+owners are deleted, if current-source absence requires it, inside the same
+transaction that activates the candidate actions/anomalies/repairs and inserts
+the replacement corpus publication. A failure before publication commit rolls
+the deletion back and leaves corpus coherence blocking on the old failed owner.
 
 ## Historical TICKERS identity correction
 

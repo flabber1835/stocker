@@ -22,11 +22,13 @@ if TYPE_CHECKING:
     from sentinel.execution.broker_cash import CashActivityState
     from sentinel.execution.contract import BrokerAccountSnapshot
     from sentinel.execution.identity import DeploymentIdentity
+    from sentinel.execution.plan import ExecutionPlan
+    from sentinel.execution.target_reprojection import TargetProjection
 
 
-ACCOUNT_PREFIX = "trial-account:v1:"
+ACCOUNT_PREFIX = "trial-account:v2:"
 VERIFICATION_PREFIX = "trial-verification:v3:"
-ACCOUNT_KIND = "sentinel-trial-account/v1"
+ACCOUNT_KIND = "sentinel-trial-account/v2"
 VERIFICATION_KIND = "sentinel-trial-verification/v3"
 FINANCIAL_TOLERANCE = Decimal("1.00")
 SHARE_TOLERANCE = Decimal("0.000001")
@@ -132,9 +134,8 @@ def record_account_evidence(
         observed_at: datetime, snapshot: "BrokerAccountSnapshot",
         deployment: "DeploymentIdentity", reconciliation,
         activity_state: "CashActivityState | None",
-        plan_target: Mapping[str, object],
-        target_actions: Mapping[str, object],
-        observation_target_actions: Mapping[str, object],
+        plan: "ExecutionPlan", target_projection: "TargetProjection",
+        observation_post_projection_actions: Mapping[str, object],
         observation_started_at: datetime | None = None) -> dict:
     """Bind actual account equity/cash to one clean reconciliation row."""
     if observation_id < 1:
@@ -165,15 +166,30 @@ def record_account_evidence(
         where="reconciliation observation completion")
     equity = _decimal(snapshot.equity, where="actual account equity", positive=True)
     cash = _decimal(snapshot.cash, where="actual account cash")
-    durable_target = _quantity_map(plan_target, where="plan target")
+    from sentinel.execution import target_reprojection
+    try:
+        target_reprojection.assert_projection(
+            conn, plan=plan, projection=target_projection,
+            through_session=session)
+    except target_reprojection.TargetProjectionRefused as exc:
+        raise TrialEvidenceRefused(
+            f"account evidence target projection is invalid: {exc}") from exc
+    if target_projection.through_session != plan.effective_session:
+        raise TrialEvidenceRefused(
+            "account evidence target projection is not the plan's effective "
+            "session projection")
+    durable_target = _quantity_map(plan.target_basket, where="plan target")
+    effective_target = _quantity_map(
+        target_projection.target_basket, where="durable target projection")
     exact_target_actions = _quantity_map(
-        target_actions, where="target corporate-action multiplier")
-    effective_target = _age_plan_target(durable_target, exact_target_actions)
+        target_projection.action_multipliers,
+        where="target-projection corporate-action multiplier")
     exact_observation_target_actions = _quantity_map(
-        observation_target_actions,
-        where="observation-target corporate-action multiplier")
+        observation_post_projection_actions,
+        where="post-projection corporate-action multiplier")
     observation_target = _age_plan_target(
-        durable_target, exact_observation_target_actions)
+        effective_target, exact_observation_target_actions)
+    projection_payload = target_projection.payload()
     activity = None
     if activity_state is not None:
         if (activity_state.broker != deployment.broker
@@ -219,15 +235,16 @@ def record_account_evidence(
             "completeness": reconciliation.observation.completeness.value,
             "plan_target": {
                 key: str(value) for key, value in sorted(durable_target.items())},
+            "target_projection": projection_payload,
             "target": {
                 key: str(value) for key, value in sorted(effective_target.items())},
             "target_corporate_actions": {
                 key: str(value) for key, value in
                 sorted(exact_target_actions.items())},
-            # Verification can be delayed beyond this plan's close.  Retain a
-            # second, explicitly action-aged book for comparison with the
-            # later live reconciliation; the close target above remains the
-            # only book used with historical close marks.
+            # Verification can be delayed beyond this plan's close. Retain a
+            # second book aged only from the exact execution projection for
+            # comparison with the later live reconciliation; the projected
+            # close target above remains the only historical-close mark book.
             "observation_target": {
                 key: str(value) for key, value in
                 sorted(observation_target.items())},
@@ -1135,7 +1152,7 @@ def build_cycle_verification(conn, *, cycle_id: str,
     from sentinel.automation.model import CycleState
     from sentinel import trial_close, trial_evidence, trial_fills
     from sentinel.core.decision import publication_fingerprint
-    from sentinel.execution import broker_cash, journal
+    from sentinel.execution import broker_cash, journal, target_reprojection
     from sentinel.execution.identity import DeploymentIdentity
     from sentinel.feed import calendar, publication
     from sentinel.feed import store as feed_store
@@ -1151,6 +1168,22 @@ def build_cycle_verification(conn, *, cycle_id: str,
     latest_allowed = now + timedelta(seconds=MAXIMUM_CLOCK_SKEW_SECONDS)
     plan = journal.load_plan(conn, cycle.plan_id) if cycle.plan_id else None
     _reason(reasons, plan is not None, "PLAN_MISSING")
+    target_projection = None
+    if plan is not None:
+        try:
+            target_projection = target_reprojection.load_projection(
+                conn, plan_id=plan.plan_id)
+        except target_reprojection.TargetProjectionRefused:
+            reasons.append("TARGET_PROJECTION_INVALID")
+        if target_projection is None:
+            reasons.append("TARGET_PROJECTION_MISSING")
+        else:
+            _reason(
+                reasons,
+                target_projection.plan_fingerprint == plan.fingerprint()
+                and target_projection.through_session
+                == plan.effective_session,
+                "TARGET_PROJECTION_PLAN_MISMATCH")
     binding = _read_binding(conn)
     _reason(reasons, binding is not None, "BINDING_MISSING")
     state, cursor, state_at = _read_state(conn)
@@ -1410,8 +1443,26 @@ def build_cycle_verification(conn, *, cycle_id: str,
         current_plan_target = _quantity_map(plan_target, where="plan target")
         _reason(reasons, retained_plan_target == current_plan_target,
                 "ACCOUNT_PLAN_TARGET_MISMATCH")
-        effective_target = _age_plan_target(
-            plan_target, close_corporate_actions)
+        if target_projection is None:
+            raise TrialEvidenceRefused(
+                "durable target projection is unavailable")
+        retained_projection = _mapping(
+            account_reconciliation.get("target_projection"),
+            where="account-evidence target projection")
+        _reason(
+            reasons, retained_projection == target_projection.payload(),
+            "ACCOUNT_TARGET_PROJECTION_MISMATCH")
+        effective_target = _quantity_map(
+            target_projection.target_basket,
+            where="durable target projection")
+        retained_close_actions = _quantity_map(
+            close_corporate_actions,
+            where="account-evidence target-projection actions")
+        _reason(
+            reasons,
+            retained_close_actions == dict(
+                target_projection.action_multipliers),
+            "ACCOUNT_TARGET_ACTION_MISMATCH")
         retained_target = _quantity_map(
             account_reconciliation.get("target") or {},
             where="account-evidence effective target")
@@ -1419,7 +1470,7 @@ def build_cycle_verification(conn, *, cycle_id: str,
                 "ACCOUNT_EFFECTIVE_TARGET_MISMATCH")
         target = {key: str(value) for key, value in effective_target.items()}
         observation_target = _age_plan_target(
-            plan_target, observation_corporate_actions)
+            effective_target, observation_corporate_actions)
         retained_observation_target = _quantity_map(
             account_reconciliation.get("observation_target") or {},
             where="account-evidence observation target")

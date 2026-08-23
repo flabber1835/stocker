@@ -15,17 +15,12 @@ import json
 from dataclasses import asdict
 from datetime import datetime, time as datetime_time, timezone
 from decimal import Decimal, InvalidOperation
-from pathlib import Path
 from typing import Mapping
 from zoneinfo import ZoneInfo
 
-import stock_strategy_shared.wealth_core as wealth_core_package
-
 from sentinel import identity as system_identity
 from sentinel.controller import ldrc as ldrc_module
-from sentinel.controller import recent_leadership as leadership_module
-from sentinel.controller.concordance import (
-    IDENTITY_OVERLAY_FIELD, is_concordance_identity)
+from sentinel.controller.concordance import is_concordance_identity
 from sentinel.controller.concordance_parent import (
     STRATEGY_ID as CONCORDANCE_PARENT_STRATEGY_ID,
     load as load_concordance_parent,
@@ -37,7 +32,10 @@ from sentinel.core.loader import (
     load_causal_meta_history,
     load_window,
 )
-from sentinel.core.decision import publication_fingerprint
+from sentinel.core.decision import (
+    publication_fingerprint,
+    runtime_strategy_identity,
+)
 from sentinel.core.production import (
     SessionState,
     warm_session_state,
@@ -378,26 +376,12 @@ def _strategy():
     if controller.strategy_id != CONCORDANCE_PARENT_STRATEGY_ID:
         raise ShadowRuntimeRefused(
             "shadow controller differs from the hardened Concordance parent")
-    package_file = getattr(wealth_core_package, "__file__", None)
-    package_root = Path(package_file).resolve().parent if package_file else None
-    source = system_identity.source_hash(package_root)
-    source_digest = source.get("hash")
-    if not source_digest or not source.get("files"):
+    try:
+        identity = runtime_strategy_identity(controller, concordance=True)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
         raise ShadowRuntimeRefused(
-            "the imported Wealth Core source cannot be fingerprinted")
-
-    def module_sha(module) -> str:
-        return hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
-
-    identity = {
-        "strategy": controller.strategy_id,
-        "controller_rule_sha256": controller.digest,
-        "wealth_core_source_sha256": str(source_digest),
-        IDENTITY_OVERLAY_FIELD: ldrc_module.STRATEGY_ID,
-        "allocation_overlay_version": str(ldrc_module.STRATEGY_VERSION),
-        "allocation_overlay_source_sha256": module_sha(ldrc_module),
-        "recent_leadership_source_sha256": module_sha(leadership_module),
-    }
+            "the complete shadow strategy/data semantics source bundle cannot "
+            "be fingerprinted") from exc
     return controller, identity
 
 

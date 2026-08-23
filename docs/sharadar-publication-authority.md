@@ -171,9 +171,20 @@ bracket around SEP so new splits/dividends can normalize the candidate prices.
 It **does not** earn negative-space/removal authority.
 
 Complete ACTIONS reconciliation now uses a fresh filtered Tables Exporter
-snapshot for `1900-01-01..decision_frontier`. A new v2 cursor is deliberately
-separate from the pre-fix double-pagination cursor so an upgraded database must
-earn the stronger authority before readiness can pass.
+snapshot for `1900-01-01..decision_frontier`. The current v5 cursor is
+deliberately separate from the pre-fix v1/v2/v3/v4 cursors so an upgraded database
+must earn both complete-source authority and the reviewed split-semantics
+migration before readiness can pass. That migration replays all active split
+dispositions, including accepted/resolved dispositions, and all current or
+previously active `split`/`adrratiosplit` source dates within retained SEP history.
+It also replays every retained published bar whose effective ratio, after the
+newest published repair is overlaid, is not one. This corpus selector covers
+legacy derived or repaired economics that have no surviving disposition or raw
+source row. Such a non-unit bar may be repaired to one only when the complete
+covering ACTIONS generation has no authoritative stock split and SEP provides
+explicit predecessor-based no-event evidence. Restricting replay to active
+blockers or source rows would leave previously accepted ADR, reciprocal
+stock-split, or orphaned non-unit economics untouched.
 
 The default reconciliation cadence is one decision day. The cursor must cover
 the published decision frontier itself. This does not invalidate a Friday-close
@@ -186,6 +197,12 @@ prior/effective/following SEP window is re-normalized against that candidate.
 One corpus publication activates both the corporate-action generation and the
 corrected bar economics. Terminal-only changes require no price rewrite but
 remain candidate state until publication.
+
+If retry replay proves that a bar left by an older failed ACTIONS reconciliation
+is absent from the complete bounded SEP response, the residual physical row is
+not deleted during replay. Its covered retirement is applied only inside the
+replacement publication transaction. Publication failure rolls that retirement
+back, preserving both the row and the unpublished-owner coherence witness.
 
 A suspicious zero-row export or material mass shrink still refuses rather than
 turning an upstream outage into mass authoritative removals.
