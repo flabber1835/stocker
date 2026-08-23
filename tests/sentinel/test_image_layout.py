@@ -595,6 +595,7 @@ class TestTheCleanCertificationImageInspectionBundle:
     }
     WORK_INPUTS = {
         "scripts/sentinel-measure.sh": "/work/scripts/sentinel-measure.sh",
+        "scripts/sentinel_feed_gate.py": "/work/scripts/sentinel_feed_gate.py",
         "scripts/sentinel_forward_run.py": "/work/scripts/sentinel_forward_run.py",
         "scripts/sentinel_test_run.py": "/work/scripts/sentinel_test_run.py",
         "services/backtester/": "/work/services/backtester/",
