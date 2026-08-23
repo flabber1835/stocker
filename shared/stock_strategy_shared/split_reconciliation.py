@@ -20,6 +20,9 @@ SPLIT_AGREEMENT_TOLERANCE = 0.01
 # Sharadar SEP prices are delivered to a mill. Half a mill is therefore the
 # maximum rounding displacement of each observed endpoint.
 SPLIT_PRICE_QUANTUM = 0.001
+# Used only to decide whether price-only evidence constitutes a split event.
+# An explicit ACTIONS split is compared with the finite-precision price interval
+# before this threshold is allowed to classify the observation as "no event".
 SPLIT_PRICE_EVENT_THRESHOLD = 0.02
 # Resolve an issuer-level action as not affecting the listed instrument only
 # when its raw-price move is over an order of magnitude from the split-implied
@@ -106,7 +109,12 @@ def split_ratio_matches(
 
 
 def split_price_evidence(derived: float | None) -> float | None:
-    """Return usable price-domain event evidence, or ``None`` for no event."""
+    """Return usable price-only event evidence, or ``None`` for no event.
+
+    This threshold is intentionally for event DISCOVERY when price domains are
+    the only witness. It must not erase finite-precision corroboration of an
+    explicit ACTIONS split.
+    """
     if derived is None:
         return None
     value = float(derived)
@@ -140,6 +148,13 @@ def resolve_split_orientation(
     predecessor that explicitly shows no adjustment is different: it either
     proves the issuer action did not affect the listed instrument (when traded
     prices also decisively refute it) or remains a source conflict.
+
+    Large price-domain events retain the ordinary direct/quantized agreement
+    test. For a derived ratio inside the generic 2% "no event" band, an explicit
+    ACTIONS split is accepted only when its stated ratio falls inside the exact
+    finite-precision interval implied by the four mill-rounded SEP prices. That
+    resolves TRI 2026-05-04 (0.984560 stated, ~0.984555 derived) without turning
+    the broad 1% agreement tolerance into permission for arbitrary tiny splits.
     """
     value = float(stated)
     if value <= 0 or not math.isfinite(value):
@@ -153,6 +168,13 @@ def resolve_split_orientation(
                 SPLIT_CORROBORATED_QUANTIZED
                 if quantized else SPLIT_CORROBORATED_DIRECT)
         return 1.0, SPLIT_UNRESOLVED
+
+    # Small explicit actions need stronger proof than the generic 1% ratio
+    # tolerance: the stated ratio must be physically possible given SEP's known
+    # mill rounding on all four prices.
+    if (derived is not None and bounds is not None
+            and bounds[0] <= value <= bounds[1]):
+        return canonical_split_multiplier(value), SPLIT_CORROBORATED_QUANTIZED
 
     if explicit_no_event:
         if raw_refutes_event:
@@ -232,7 +254,7 @@ class SplitStreamReconciler:
 
             explicit_no_event = derived is not None and evidence is None
             ratio, disposition = resolve_split_orientation(
-                stated, evidence, bounds=bounds,
+                stated, derived, bounds=bounds,
                 explicit_no_event=explicit_no_event,
                 raw_refutes_event=raw_prices_refute_listed_split(
                     stated, prev_raw, raw))

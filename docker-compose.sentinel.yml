@@ -108,11 +108,14 @@ services:
     image: ${SENTINEL_RUNTIME_IMAGE_REF:-sentinel:latest}
     # run-only: `docker compose up` must not prepare, migrate, or execute.
     profiles: ["cli"]
-    # The engine's own ceiling. Deliberately LARGER than the panel's and
-    # SMALLER than the host, so a certification or backfill run cannot starve
-    # the live process — the reservation only means something if the greedy
-    # neighbour is bounded too.
-    mem_limit: 2g
+    # The engine's own ceiling. The former 2 GiB limit was measured too low on
+    # the production NAS: the complete ACTIONS v5 reconciliation was cgroup-
+    # killed at ~2.09 GiB RSS on 2026-08-23. Raising this reviewed envelope to
+    # 4 GiB is the immediate operational correction proven by the successful
+    # retry on the same NAS. Issue #235 retains the longer-term requirement to
+    # make the full export/reconciliation path memory-bounded and tighten this
+    # ceiling again after measurement.
+    mem_limit: 4g
     cpus: 2.0
     environment:
       # PAPER URL ONLY. The ordinary service deliberately has no broker or
