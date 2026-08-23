@@ -76,7 +76,7 @@ class TestTheIdentityRecordFindsBothSourceTrees:
         interpreter version and the pin drift, so 'we could not find Wealth
         Core' and 'here is Wealth Core's hash' both answered PASS."""
         env = ident.environment()
-        assert env["certified"] is (env["python_certified"]
+        assert env["compatible"] is (env["python_certified"]
                                     and env["pins_match"]
                                     and env["sources_known"])
 
@@ -84,7 +84,7 @@ class TestTheIdentityRecordFindsBothSourceTrees:
         monkeypatch.setattr(ident, "_imported_package_root", lambda name: None)
         env = ident.environment()
         assert env["sources_known"] is False
-        assert env["certified"] is False
+        assert env["compatible"] is False
 
     def test_the_source_hash_of_an_ABSENT_path_is_None_not_an_error(self):
         assert ident.source_hash(Path("/nonexistent/xyz"))["hash"] is None
@@ -146,9 +146,9 @@ class TestPytestImportsTheRUNTIMECode:
             f"the pip install is stale, and the rehearsal would run different "
             f"economics than the source under review")
 
-    def test_the_environment_reports_itself_CERTIFIED(self):
+    def test_the_environment_reports_itself_COMPATIBLE(self):
         env = ident.environment()
-        assert env["certified"] is True, env["pin_drift"] or env
+        assert env["compatible"] is True, env["pin_drift"] or env
 
 
 # ── 3. and outside it, the same tests must not silently pass ─────────────────

@@ -71,6 +71,66 @@ fi
 if [ "$RUN" -eq 1 ]; then
   . scripts/sentinel-backup-lib.sh
   sentinel_backup_root >/dev/null
+
+  # A digest makes an image immutable; it does not authorize that image to
+  # mutate the CURRENT checkout's corpus.  Resolve the image exactly as Compose
+  # will, then bind feed writers to clean HEAD before the container or database
+  # is touched.  Dedicated feed variables are never inherited accidentally by
+  # a non-feed command.
+  unset SENTINEL_FEED_AUTHORIZED SENTINEL_FEED_SERVICE_MODE \
+    SENTINEL_FEED_GIT_COMMIT \
+    SENTINEL_FEED_RUNTIME_IMAGE_DIGEST
+  set +e
+  "$PYTHON" scripts/sentinel_feed_gate.py classify -- "$@" >/dev/null
+  FEED_CLASSIFICATION=$?
+  set -e
+  if [ "$FEED_CLASSIFICATION" -eq 0 ]; then
+    COMPOSE_MODEL="$(
+      docker compose "${COMPOSE_ARGS[@]}" --profile cli config --format json
+    )" || {
+      echo "REFUSED: Compose could not resolve the selected Sentinel image" >&2
+      exit 2
+    }
+    RESOLVED_IMAGE="$(printf '%s' "$COMPOSE_MODEL" | "$PYTHON" -c \
+      'import json,sys
+model=json.load(sys.stdin)
+service=(model.get("services") or {}).get("sentinel") or {}
+image=service.get("image")
+if not isinstance(image,str) or not image.strip():
+    raise SystemExit("REFUSED: Compose model has no exact sentinel image")
+print(image.strip())')" || exit 2
+    mapfile -t FEED_BINDING < <(
+      "$PYTHON" scripts/sentinel_feed_gate.py bind \
+        --repo "$(pwd -P)" --image "$RESOLVED_IMAGE"
+    )
+    [ "${#FEED_BINDING[@]}" -eq 2 ] || {
+      echo "REFUSED: feed image/source binding was not established" >&2
+      exit 2
+    }
+    SENTINEL_GIT_COMMIT="${FEED_BINDING[0]}"
+    SENTINEL_RUNTIME_IMAGE_DIGEST="${FEED_BINDING[1]}"
+    SENTINEL_FEED_AUTHORIZED="CLEAN_HEAD_IMAGE_V1"
+    SENTINEL_FEED_GIT_COMMIT="$SENTINEL_GIT_COMMIT"
+    SENTINEL_FEED_RUNTIME_IMAGE_DIGEST="$SENTINEL_RUNTIME_IMAGE_DIGEST"
+    export SENTINEL_GIT_COMMIT SENTINEL_RUNTIME_IMAGE_DIGEST
+    export SENTINEL_FEED_AUTHORIZED SENTINEL_FEED_GIT_COMMIT
+    export SENTINEL_FEED_RUNTIME_IMAGE_DIGEST
+    # Keep the ordinary Compose service free of standing artifact authority.
+    # These five values cross the membrane only on this already-classified,
+    # host-authorized `compose run` invocation.
+    RUN_ARGS=(
+      run
+      --env SENTINEL_GIT_COMMIT
+      --env SENTINEL_RUNTIME_IMAGE_DIGEST
+      --env SENTINEL_FEED_AUTHORIZED
+      --env SENTINEL_FEED_GIT_COMMIT
+      --env SENTINEL_FEED_RUNTIME_IMAGE_DIGEST
+      "${@:2}"
+    )
+    exec docker compose "${COMPOSE_ARGS[@]}" "${RUN_ARGS[@]}"
+  elif [ "$FEED_CLASSIFICATION" -ne 1 ]; then
+    exit "$FEED_CLASSIFICATION"
+  fi
   exec docker compose "${COMPOSE_ARGS[@]}" "$@"
 fi
 

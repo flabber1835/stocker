@@ -172,13 +172,13 @@ class TestTheRecordDescribesTHISEnvironment:
         for k, v in drift.items():
             assert set(v) == {"pinned", "installed"}, k
 
-    def test_certified_requires_interpreter_AND_pins_AND_located_sources(self):
+    def test_compatible_requires_interpreter_AND_pins_AND_located_sources(self):
         """Three conditions, not two. The third was added after `identity` was
         found returning `files: 0, hash: None` for Wealth Core inside the
         runtime image while still answering --require-certified with PASS — see
         tests/sentinel/test_runtime_is_the_artifact.py."""
         env = ident.environment()
-        assert env["certified"] == (env["python_certified"]
+        assert env["compatible"] == (env["python_certified"]
                                     and env["pins_match"]
                                     and env["sources_known"])
 
@@ -231,13 +231,14 @@ class TestInsideTheCertifiedImage:
     They are skipped in a developer checkout ON PURPOSE — an identity record
     that cannot be produced outside the image is useless exactly when you want
     to compare the two — and the rehearsal runbook asserts them by running
-    `sentinel identity --require-certified`, which does not skip."""
+    `sentinel identity --require-environment-compatible`, which does not
+    skip."""
 
     def test_every_pin_is_satisfied(self):
         assert ident.pin_drift() == {}
 
-    def test_the_environment_reports_itself_CERTIFIED(self):
-        assert ident.environment()["certified"] is True
+    def test_the_environment_reports_itself_COMPATIBLE(self):
+        assert ident.environment()["compatible"] is True
 
 
 class TestTheWHOLECLOSUREIsFingerprinted:

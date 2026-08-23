@@ -38,9 +38,9 @@ machine, which is a different finding.
 Nothing here raises because the interpreter is not 3.12.13. This code has to run
 in a developer's checkout, and an identity record that cannot be produced
 outside the certified image is useless exactly when you want to compare the two.
-`certified` is a FIELD; refusing on it is a decision for the caller that is
-about to produce certification evidence, not for the module that describes the
-environment.
+`environment.compatible` and `certification.certified` are fields; refusing on
+either is a decision for the caller that is about to produce evidence or mutate
+state, not for the module that describes what it found.
 
 ## The corpus hash is a full scan, and is meant to be
 
@@ -135,6 +135,11 @@ def _imported_package_root(module_name: str) -> Optional[Path]:
 #: `psycopg[binary]==3.3.4` -> ("psycopg", "3.3.4"). The extra is part of what
 #: is installed, not part of the distribution name that reports its version.
 _PIN = re.compile(r"^\s*([A-Za-z0-9_.\-]+)\s*(?:\[[^\]]*\])?\s*==\s*([^\s#]+)")
+_GIT_OBJECT = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
+_IMAGE_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+FEED_AUTHORIZATION_VALUE = "CLEAN_HEAD_IMAGE_V1"
+DEPLOYED_FEED_AUTHORIZATION_VALUE = "DEPLOYED_REVIEWED_IMAGE_V1"
+_DEPLOYED_FEED_MODES = {"AUTOMATION", "DEPLOY", "SHADOW", "GO_VALIDATION"}
 
 
 def _sha(payload: bytes) -> str:
@@ -296,7 +301,103 @@ def environment() -> dict:
         # image was built FROM, and nothing in a running process can attest to
         # that — so this is a necessary condition, never a sufficient one. The
         # build is what makes it sufficient.
-        "certified": (py == CERTIFIED_PYTHON) and not drift and sources_known,
+        # Compatibility is a computational-environment statement.  It is not
+        # deployment authorization: an old immutable image may satisfy every
+        # condition here while being the wrong revision for the current host.
+        "compatible": (py == CERTIFIED_PYTHON) and not drift and sources_known,
+    }
+
+
+def deployment_artifacts() -> dict:
+    """Non-computational facts injected by the deployment/Compose boundary."""
+    return {
+        "schema": "sentinel.runtime-artifacts/1",
+        "git_commit": os.environ.get("SENTINEL_GIT_COMMIT", "").strip(),
+        "runtime_image_digest": os.environ.get(
+            "SENTINEL_RUNTIME_IMAGE_DIGEST", "").strip(),
+        "test_image_digest": os.environ.get(
+            "SENTINEL_TEST_IMAGE_DIGEST", "").strip(),
+    }
+
+
+def certification_verdict(environment_record: dict,
+                          artifacts: dict) -> dict:
+    """Separate compatible bytes from an authorized installed deployment."""
+    commit = str(artifacts.get("git_commit") or "")
+    digest = str(artifacts.get("runtime_image_digest") or "")
+    image_revision = os.environ.get(
+        "SENTINEL_IMAGE_SOURCE_REVISION", "").strip()
+    failures: list[str] = []
+    compatible = environment_record.get("compatible") is True
+    if not compatible:
+        failures.append("ENVIRONMENT_INCOMPATIBLE")
+    if _GIT_OBJECT.fullmatch(commit) is None:
+        failures.append("GIT_COMMIT_MISSING_OR_MALFORMED")
+    if _IMAGE_DIGEST.fullmatch(digest) is None:
+        failures.append("RUNTIME_IMAGE_DIGEST_MISSING_OR_MALFORMED")
+    if _GIT_OBJECT.fullmatch(image_revision) is None:
+        failures.append("IMAGE_SOURCE_REVISION_MISSING_OR_MALFORMED")
+    elif _GIT_OBJECT.fullmatch(commit) is not None and image_revision != commit:
+        failures.append("IMAGE_SOURCE_REVISION_DIFFERS_FROM_GIT_COMMIT")
+    deployment_certified = not any(failure != "ENVIRONMENT_INCOMPATIBLE"
+                                   for failure in failures)
+    return {
+        "schema": "sentinel.certification-verdict/1",
+        "environment_compatible": compatible,
+        "deployment_certified": deployment_certified,
+        "certified": compatible and deployment_certified,
+        "image_source_revision": image_revision,
+        "failures": failures,
+    }
+
+
+def require_feed_producer_identity() -> dict:
+    """Return the host-authorized producer binding or refuse before a write.
+
+    The host proves clean HEAD against the OCI label.  This process proves the
+    same commit against its independently baked revision and requires the
+    dedicated one-invocation marker, so generic/stale deployment variables are
+    insufficient to open an ingest run.
+    """
+    artifacts = deployment_artifacts()
+    commit = os.environ.get("SENTINEL_FEED_GIT_COMMIT", "").strip()
+    digest = os.environ.get(
+        "SENTINEL_FEED_RUNTIME_IMAGE_DIGEST", "").strip()
+    revision = os.environ.get("SENTINEL_IMAGE_SOURCE_REVISION", "").strip()
+    failures: list[str] = []
+    authorization = os.environ.get("SENTINEL_FEED_AUTHORIZED")
+    service_mode = os.environ.get("SENTINEL_FEED_SERVICE_MODE", "").strip()
+    attended = authorization == FEED_AUTHORIZATION_VALUE and not service_mode
+    deployed = (authorization == DEPLOYED_FEED_AUTHORIZATION_VALUE
+                and service_mode in _DEPLOYED_FEED_MODES)
+    if not (attended or deployed):
+        failures.append("dedicated clean-HEAD feed authorization is absent")
+    if _GIT_OBJECT.fullmatch(commit) is None:
+        failures.append("feed Git commit is missing or malformed")
+    if _IMAGE_DIGEST.fullmatch(digest) is None:
+        failures.append("feed runtime image digest is missing or malformed")
+    if _GIT_OBJECT.fullmatch(revision) is None:
+        failures.append("baked image source revision is missing or malformed")
+    elif _GIT_OBJECT.fullmatch(commit) is not None and revision != commit:
+        failures.append("baked image source revision differs from feed Git commit")
+    if artifacts["git_commit"] != commit:
+        failures.append("deployment Git commit differs from feed authorization")
+    if artifacts["runtime_image_digest"] != digest:
+        failures.append("deployment image digest differs from feed authorization")
+    verdict = certification_verdict(environment(), artifacts)
+    if verdict["certified"] is not True:
+        failures.append(
+            "runtime is not fully deployment-certified ("
+            + ", ".join(verdict["failures"])
+            + ")")
+    if failures:
+        raise RuntimeError(
+            "feed mutation is not deployment-certified: " + "; ".join(failures))
+    return {
+        "schema": "sentinel.feed-producer/1",
+        "git_commit": commit,
+        "runtime_image_digest": digest,
+        "image_source_revision": revision,
     }
 
 
@@ -479,6 +580,7 @@ def rehearsal_identity(conn=None, *, start: Optional[str] = None,
                        end: Optional[str] = None) -> dict:
     """The whole record. `conn` omitted describes the environment alone."""
     env = environment()
+    artifacts = deployment_artifacts()
     rec = {"environment": env,
            "identity_hash": _sha(json.dumps(env, sort_keys=True).encode()),
            # These are deployment facts, not computational-environment inputs.
@@ -486,14 +588,8 @@ def rehearsal_identity(conn=None, *, start: Optional[str] = None,
            # record its environment before a registry digest exists, while the
            # installed runtime must still independently present the exact
            # commit and image digests signed later by the offline decision.
-           "deployment_artifacts": {
-               "schema": "sentinel.runtime-artifacts/1",
-               "git_commit": os.environ.get("SENTINEL_GIT_COMMIT", "").strip(),
-               "runtime_image_digest": os.environ.get(
-                   "SENTINEL_RUNTIME_IMAGE_DIGEST", "").strip(),
-               "test_image_digest": os.environ.get(
-                   "SENTINEL_TEST_IMAGE_DIGEST", "").strip(),
-           }}
+           "deployment_artifacts": artifacts,
+           "certification": certification_verdict(env, artifacts)}
     if conn is not None and start and end:
         rec["corpus"] = corpus(conn, start=start, end=end)
     return rec
@@ -501,5 +597,7 @@ def rehearsal_identity(conn=None, *, start: Optional[str] = None,
 
 __all__ = ["CERTIFIED_BASE_DIGEST", "CERTIFIED_POSTGRES_DIGEST",
            "CERTIFIED_POSTGRES_VERSION", "CERTIFIED_PYTHON", "corpus",
-           "environment", "installed_versions", "pin_drift",
-           "pinned_requirements", "rehearsal_identity", "source_hash"]
+           "certification_verdict", "deployment_artifacts", "environment",
+           "installed_versions", "pin_drift", "pinned_requirements",
+           "rehearsal_identity", "require_feed_producer_identity",
+           "source_hash"]

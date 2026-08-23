@@ -703,7 +703,7 @@ def issuer_fixture(tmp_path: Path, *, wealth_verdict="GO", strict_xfails=0,
                 ROOT / "services/backtester/app/wealth_core_replay.py"
             ).read_bytes()).hexdigest(),
             "runtime_environment": {
-                "certified": True, "pins_match": True,
+                "compatible": True, "pins_match": True,
                 "sources_known": True, "pin_drift": {},
                 "lock_present": True, "image_lock_sha256": sha("5")},
         },

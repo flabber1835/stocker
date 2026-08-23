@@ -125,7 +125,7 @@ ${COMPOSE} run --rm -T -v "${PWD}/${BOOK}:/tmp/certified-book.json:ro" \
 
 # ── 3. and 4. close the manifest ─────────────────────────────────────────────
 FINAL_IDENTITY="${ART}/identity-final-${RUNSTAMP}.json"
-${RUN} identity --require-certified --start "${START}" --end "${END}" \
+${RUN} identity --require-environment-compatible --start "${START}" --end "${END}" \
   > "${FINAL_IDENTITY}" \
   || fail "the final Sentinel environment/corpus identity could not be read"
 

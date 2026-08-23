@@ -856,7 +856,7 @@ def produce_certification_decisions(
             or expected_provenance.get("canonical_loader_sha256")
             != sha(loader_path.read_bytes())
             or not isinstance(runtime_environment, Mapping)
-            or runtime_environment.get("certified") is not True
+            or runtime_environment.get("compatible") is not True
             or runtime_environment.get("pins_match") is not True
             or runtime_environment.get("sources_known") is not True
             or runtime_environment.get("pin_drift") != {}

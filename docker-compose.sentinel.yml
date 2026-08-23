@@ -115,9 +115,11 @@ services:
     mem_limit: 2g
     cpus: 2.0
     environment:
-      # PAPER URL ONLY. The ordinary service deliberately has no broker
-      # credentials or artifact identity. Broker/admin commands are restricted
-      # to the marker-bearing, digest-qualified authorized overlay.
+      # PAPER URL ONLY. The ordinary service deliberately has no broker or
+      # standing artifact authority. The host wrapper injects non-secret feed
+      # identity with per-invocation `compose run --env` flags only after it has
+      # bound the selected image to clean HEAD; broker/admin commands remain
+      # restricted to the marker-bearing, digest-qualified authorized overlay.
       ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
       SENTINEL_STATE_DIR: /var/lib/sentinel
       SENTINEL_MAX_CYCLES: ${SENTINEL_MAX_CYCLES:-40}

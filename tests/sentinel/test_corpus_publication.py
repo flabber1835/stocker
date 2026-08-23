@@ -96,6 +96,24 @@ def fetcher(sep_rows, action_rows=None):
 
 
 class TestARunIsNotAVersion:
+    def test_run_and_publication_record_the_exact_producer_binding(self, conn):
+        run = S.IngestRun(conn, "daily")
+        run.finish("success")
+        published = P.publish(conn, run_id=run.progress.run_id)
+        expected = {
+            "schema": "sentinel.feed-producer/1",
+            "git_commit": "a" * 40,
+            "runtime_image_digest": "sha256:" + "b" * 64,
+        }
+        assert published.evidence["producer"] == expected
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT source_git_commit,runtime_image_digest"
+                " FROM feed_ingest_runs WHERE run_id=%s",
+                (run.progress.run_id,))
+            assert cur.fetchone() == (
+                expected["git_commit"], expected["runtime_image_digest"])
+
     def test_an_unpublished_corpus_REFUSES_to_supply_a_version(self, conn):
         """Treating 'no version' as version 0 would let a decision record
         provenance that does not exist — the silent approximation this module

@@ -646,11 +646,65 @@ normalised corpus hash            sentinel_bars over the certified interval
 
 ```bash
 $COMPOSE run --rm sentinel \
-  identity --require-certified --start 2021-01-04 --end 2023-12-29
+  identity --require-environment-compatible --start 2021-01-04 --end 2023-12-29
 ```
 
+`identity` has two deliberately separate verdicts. `environment.compatible`
+means the interpreter, dependency pins, lock and imported source trees are the
+reviewed computational environment. `certification.deployment_certified` means
+the running image is also bound to a non-blank Git commit and immutable runtime
+digest, and its baked OCI source revision equals that commit. The unqualified
+`certification.certified` verdict requires both. Build/rehearsal tooling that is
+intentionally running before registry promotion asks only for
+`--require-environment-compatible`; an installed deployment asks for
+`--require-certified`. Blank deployment artifacts can never produce the latter
+verdict.
+
+### 10aa. A feed writer is authorized by the current clean checkout
+
+An immutable image is reproducible; immutability alone does not make it the
+image authorized to mutate the current deployment. Every supported
+`feed-seed`, `feed-daily`, and applying `feed-repair` invocation therefore passes
+through the Compose wrapper's host-side feed gate before database construction:
+
+```text
+repository worktree is clean
+repository HEAD is an exact Git object id
+Compose-selected Sentinel image exists locally
+image org.opencontainers.image.revision == repository HEAD
+selected immutable image digest is resolved from that exact image
+        |
+        v
+inject exact HEAD + selected digest into the one feed container
+        |
+        v
+container requires its baked source revision == injected HEAD
+        |
+        v
+open feed_ingest_runs row carrying both facts
+        |
+        v
+publish only with the same producer binding in publication evidence
+```
+
+The wrapper clears its dedicated feed-authorization variables for non-feed
+commands, so a stale shell environment cannot accidentally authorize a writer.
+Long-lived automation/shadow processes and the GO/deploy workflow use a distinct
+service-mode marker whose commit/digest pair was frozen by their reviewed clean
+checkout promotion; that marker is not present on the generic authorized CLI.
+The container gate remains in front of database connection and the `IngestRun`
+constructor enforces provenance again, so bypassing one call site does not
+create an unbound run. Existing pre-upgrade rows remain readable with NULL
+provenance; every new run-backed publication refuses missing or malformed
+producer identity.
+
+The regression boundary is image A versus source B: after the checkout advances
+from A to B, image A may still be inspected by digest, but it cannot run a feed
+mutation. It becomes eligible only by returning the checkout to clean A or by
+building/selecting an image whose revision is B.
+
 **The database is part of the certified environment.** With a corpus requested,
-`--require-certified` REFUSES a Postgres that is not the pinned 16.14 — the
+either identity gate REFUSES a Postgres that is not the pinned 16.14 — the
 corpus digests are produced by reading rows back out of that server, so a minor
 upgrade can move `corpus_hash` without a single row changing. A warning would
 have been the wrong shape: it prints, and then the run proceeds.
@@ -997,9 +1051,11 @@ A MISSING field fails the same way a violated one does: absent and `== []` are
 different statements, and only one of them is a reconciliation. On failure the
 evidence is still written and the run ends `FINALIZATION BLOCKED`.
 
-`--require-certified` exits non-zero when the interpreter or any pin differs, so
-a rehearsal script refuses to produce evidence from an environment it cannot
-name. `identity_hash` covers the environment and the source; `corpus_hash`
+`--require-environment-compatible` exits non-zero when the interpreter or any
+pin differs, so a pre-promotion rehearsal script refuses to produce evidence
+from an environment it cannot name. `--require-certified` additionally requires
+the installed deployment binding. `identity_hash` covers the environment and
+the source; `corpus_hash`
 covers the data. They are separate on purpose — the same environment with a
 different corpus is a data finding, the same corpus on a different environment
 is a machine finding, and one combined hash cannot tell them apart.

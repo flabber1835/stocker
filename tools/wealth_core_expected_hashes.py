@@ -462,7 +462,7 @@ def produce(conn, *, start: str, end: str, bt=None) -> dict[str, Any]:
             or not isinstance(runtime_environment, dict)):
         raise ExpectedHashesRefused(
             "the certification runtime could not produce a complete identity")
-    if (runtime_environment.get("certified") is not True
+    if (runtime_environment.get("compatible") is not True
             or runtime_environment.get("pins_match") is not True
             or runtime_environment.get("sources_known") is not True
             or runtime_environment.get("pin_drift") != {}

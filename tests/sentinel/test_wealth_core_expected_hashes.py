@@ -448,7 +448,7 @@ def test_real_load_corpus_to_artifact_reports_timeline_population(monkeypatch):
     monkeypatch.setattr(sentinel_identity, "rehearsal_identity", lambda: {
         "identity_hash": "d" * 64,
         "environment": {
-            "python": "3.12.13", "certified": True,
+            "python": "3.12.13", "compatible": True,
             "pins_match": True, "sources_known": True, "pin_drift": {},
             "lock_present": True, "image_lock_sha256": "e" * 64,
         },
@@ -474,7 +474,7 @@ def test_real_load_corpus_to_artifact_reports_timeline_population(monkeypatch):
     assert len(out["provenance"]["canonical_loader_sha256"]) == 64
     assert len(out["provenance"]["producer_sha256"]) == 64
     assert out["provenance"]["runtime_identity_hash"] == "d" * 64
-    assert out["provenance"]["runtime_environment"]["certified"] is True
+    assert out["provenance"]["runtime_environment"]["compatible"] is True
     assert out["provenance"]["transaction_read_only"] is True
     behavior = out["run"]["behavior_identity"]
     assert behavior["starting_cash"] == out["run"]["starting_cash"]
@@ -548,7 +548,7 @@ def test_uncertified_runtime_cannot_emit_a_ready_artifact(monkeypatch):
     monkeypatch.setattr(sentinel_identity, "rehearsal_identity", lambda: {
         "identity_hash": "d" * 64,
         "environment": {
-            "certified": False, "pins_match": False,
+            "compatible": False, "pins_match": False,
             "sources_known": True, "pin_drift": {"changed": {}},
             "lock_present": True, "image_lock_sha256": "e" * 64,
         },

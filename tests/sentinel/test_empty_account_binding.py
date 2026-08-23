@@ -534,7 +534,7 @@ def runtime_identity() -> dict:
         },
         "identity_hash": sha("1"),
         "environment": {
-            "certified": True, "pins_match": True, "sources_known": True,
+            "compatible": True, "pins_match": True, "sources_known": True,
             "pin_drift": {}, "sentinel_source": {"hash": sha("b")},
             "wealth_core_source": {"hash": sha("c")},
             "image_lock_sha256": sha("f"),

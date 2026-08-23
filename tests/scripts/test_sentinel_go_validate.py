@@ -658,7 +658,7 @@ def _forward_report():
         },
         "corpus_identity": {"postgres_certified": True},
         "source_identity": {"environment": {
-            "certified": True,
+            "compatible": True,
             "pins_match": True,
             "sources_known": True,
             "lock_present": True,
@@ -786,7 +786,8 @@ def test_upgrade_preparation_uses_exact_runtime_without_broker_authority():
             "ALPACA_API_KEY": "must-not-enter-preparation",
             "ALPACA_SECRET_KEY": "must-not-enter-preparation",
             "SENTINEL_PAPER_ACCOUNT_ID": "must-not-enter-preparation",
-        }, runtime_ref=DIGEST_B, monotonic=lambda: next(ticks))
+        }, runtime_ref=DIGEST_B, commit=COMMIT,
+        monotonic=lambda: next(ticks))
 
     assert summary.complete is True
     assert summary.elapsed_milliseconds == 1_500
@@ -798,6 +799,9 @@ def test_upgrade_preparation_uses_exact_runtime_without_broker_authority():
     assert "now < execution_open" in command[-1]
     assert "visible == target" in command[-1]
     assert prepared_env["SENTINEL_RUNTIME_IMAGE_REF"] == DIGEST_B
+    assert prepared_env["SENTINEL_FEED_GIT_COMMIT"] == COMMIT
+    assert prepared_env["SENTINEL_FEED_RUNTIME_IMAGE_DIGEST"] == DIGEST_B
+    assert prepared_env["SENTINEL_FEED_SERVICE_MODE"] == "GO_VALIDATION"
     assert not go._BROKER_AUTH_ENV.intersection(prepared_env)
     assert "after.version >" not in go._PREPARATION_CODE
 
@@ -806,7 +810,7 @@ def test_upgrade_preparation_without_sharadar_is_not_proven():
     summary = go.probe_prevalidation_preparation(
         go.CommandRunner(), env={
             "SENTINEL_POSTGRES_PASSWORD": "private",
-        }, runtime_ref=DIGEST_B)
+        }, runtime_ref=DIGEST_B, commit=COMMIT)
     assert summary.status == go.NOT_PROVEN
     assert summary.complete is False
 

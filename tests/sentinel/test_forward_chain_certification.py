@@ -526,7 +526,7 @@ class TestReadOnlyProvenanceBoundary:
     def test_source_identity_contains_runner_production_and_reference_hashes(
             self, monkeypatch):
         monkeypatch.setattr(
-            FC.identity, "environment", lambda: {"certified": False, "x": 1}
+            FC.identity, "environment", lambda: {"compatible": False, "x": 1}
         )
         tape = FC.ReferenceTape(
             rows=(_row(FC.REFERENCE_START),), sha256="r" * 64,

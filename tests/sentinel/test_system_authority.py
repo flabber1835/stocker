@@ -27,7 +27,7 @@ WEALTH_HASH = "w" * 64
 RUNTIME = {
     "identity_hash": RUNTIME_HASH,
     "environment": {
-        "certified": True,
+        "compatible": True,
         "pins_match": True,
         "sources_known": True,
         "pin_drift": {},
@@ -208,7 +208,7 @@ def test_matching_manifest_cannot_authorize_an_uncertified_runtime(conn):
     payload = manifest()
     drifted = {
         **RUNTIME,
-        "environment": {**RUNTIME["environment"], "certified": False,
+        "environment": {**RUNTIME["environment"], "compatible": False,
                         "pins_match": False,
                         "pin_drift": {"psycopg": {
                             "pinned": "3.2", "installed": "3.3"}}},

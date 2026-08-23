@@ -372,14 +372,19 @@ class IngestRun:
 
     def __init__(self, conn, kind: str, *, date_from=None, date_to=None,
                  chunks_total: int = 0) -> None:
+        from sentinel.identity import require_feed_producer_identity
+
+        producer = require_feed_producer_identity()
         self.conn = conn
         self.progress = IngestProgress(run_id=str(uuid.uuid4()), kind=kind,
                                        chunks_total=chunks_total)
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO feed_ingest_runs (run_id, kind, date_from, date_to,"
-                " chunks_total) VALUES (%s, %s, %s, %s, %s)",
-                (self.progress.run_id, kind, date_from, date_to, chunks_total))
+                " chunks_total, source_git_commit, runtime_image_digest)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (self.progress.run_id, kind, date_from, date_to, chunks_total,
+                 producer["git_commit"], producer["runtime_image_digest"]))
         conn.commit()
 
     def publish(self) -> None:
@@ -980,7 +985,8 @@ def run_status(conn, limit: int = 5) -> list[dict]:
         cur.execute(
             "SELECT run_id, kind, status, started_at, updated_at, completed_at,"
             " date_from, date_to, chunks_total, chunks_done, rows_written,"
-            " rows_dropped, current_chunk, error_message"
+            " rows_dropped, current_chunk, error_message, source_git_commit,"
+            " runtime_image_digest"
             " FROM feed_ingest_runs ORDER BY started_at DESC LIMIT %s", (limit,))
         cols = [d[0] for d in cur.description]
         return [dict(zip(cols, r)) for r in cur.fetchall()]
