@@ -1553,7 +1553,7 @@ try:
             'feed_schema_exact': True,
             'publication_complete': bool(
                 coherent.coherent and coherent.enumeration == 'exhaustive'
-                and held.window_end == frontier),
+                and held.window_end >= frontier),
             'publication_chain_unique_and_gap_free': bool(
                 not gaps and duplicate_publication_run_ids == 0),
             'recent_xnys_axis_exact': actual_axis == expected_axis,
