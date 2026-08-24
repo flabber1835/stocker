@@ -17,26 +17,28 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - name: Install Datapond SEC mirror client
-        run: python -m pip install --disable-pip-version-check --quiet datapond pandas
+      - name: Install DuckDB client
+        run: python -m pip install --disable-pip-version-check --quiet duckdb pandas
 
       - name: Export SEC submissions SIC evidence
         run: |
           python - <<'PY'
           from pathlib import Path
           import hashlib
-          import datapond
+          import duckdb
           import pandas as pd
 
           out=Path('/tmp/sec-sic-tape'); out.mkdir(parents=True,exist_ok=True)
-          con=datapond.connect('sec_edgar')
+          con=duckdb.connect()
+          con.execute('INSTALL httpfs; LOAD httpfs;')
+          url='https://huggingface.co/datasets/erlenbusch/sec-edgar/resolve/main/sec_edgar.duckdb'
+          con.execute(f"ATTACH '{url}' AS sec (READ_ONLY)")
           df=con.execute("""
               SELECT adsh, cik, sic, filed, accepted
-              FROM submissions
+              FROM sec.submissions
               WHERE filed >= DATE '2009-04-01'
                 AND filed <= DATE '2026-03-31'
                 AND sic IS NOT NULL
-                AND trim(sic) <> ''
               ORDER BY filed, cik, accepted, adsh
           """).df()
           df['filed']=pd.to_datetime(df['filed']).dt.date.astype(str)
@@ -46,8 +48,6 @@ jobs:
           df=df[df.sic.notna() & (df.sic>0)].copy(); df['sic']=df.sic.astype(int)
           df=df.drop_duplicates(['adsh','cik','sic','filed','accepted']).reset_index(drop=True)
 
-          # Prior official-download research established that adding the missing
-          # 2011Q2 file contributed 1,695 unique dated CIK/SIC observations.
           q2=df[(df.filed>='2011-04-01')&(df.filed<='2011-06-30')]
           q2_unique=q2[['filed','cik','sic']].drop_duplicates()
           print('2011Q2 unique dated CIK/SIC observations:',len(q2_unique),flush=True)
@@ -57,7 +57,7 @@ jobs:
           prov=(
               'upstream=U.S. SEC Financial Statement Data Sets submissions table\n'
               'transport_mirror=https://huggingface.co/datasets/erlenbusch/sec-edgar\n'
-              'transport_format=Datapond DuckDB sec_edgar/submissions\n'
+              'transport_file_sha256=fdfd9c5807dac4725a1fb0b84b42a547be75f9a70d3568280a45930d1776a044\n'
               f'rows={len(df)}\n'
               f'2011Q2_unique_dated_cik_sic={len(q2_unique)}\n'
               f'sha256={digest}\n'
