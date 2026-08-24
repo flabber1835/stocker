@@ -1,0 +1,135 @@
+"""#246 provenance transfer and scoped obsolete-bar retirement."""
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import pytest
+
+from sentinel.feed import identity_rebuild as IR
+from sentinel.feed import identity_rebuild_writer as W
+from sentinel.feed import publication as P
+from sentinel.feed import store as S
+from tests.support.postgres import _EphemeralPostgres
+
+
+@pytest.fixture(scope="module")
+def pg():
+    try:
+        server = _EphemeralPostgres()
+        server.start()
+    except Exception as exc:                                  # noqa: BLE001
+        pytest.skip(f"ephemeral Postgres unavailable: {exc}")
+    try:
+        yield server
+    finally:
+        server.stop()
+
+
+@pytest.fixture()
+def conn(pg):
+    connection = S.connect(pg.sync_dsn)
+    with connection.cursor() as cur:
+        cur.execute("SELECT tablename FROM pg_tables WHERE schemaname='public'")
+        for (table,) in cur.fetchall():
+            cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
+    connection.commit()
+    S.migrate_schema(connection)
+    yield connection
+    connection.close()
+
+
+def _bar(security_id: str = "P1", ticker: str = "KEEP"):
+    vendor = SimpleNamespace(
+        security_id=security_id, session="2026-08-21", ticker=ticker,
+        raw_close=10.0, raw_open=9.9, volume=1000.0,
+        split_ratio=1.0, dividend_per_share=0.0)
+    return SimpleNamespace(vendor=vendor, close_signal=10.0)
+
+
+def _insert_bar(conn, *, security_id: str, ticker: str, owner: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_bars"
+            " (security_id,session,ticker,close_signal,close_unadjusted,"
+            "  open_unadjusted,volume,split_ratio,dividend_per_share,"
+            "  last_written_run_id)"
+            " VALUES (%s,'2026-08-21',%s,10,10,9.9,1000,1,0,%s)",
+            (security_id, ticker, owner))
+    conn.commit()
+
+
+def test_writer_claims_an_economically_unchanged_published_row(conn):
+    published = S.IngestRun(conn, "seed")
+    old_run = published.progress.run_id
+    _insert_bar(conn, security_id="P1", ticker="KEEP", owner=old_run)
+    published.finish("success")
+    P.publish(conn, run_id=old_run)
+
+    replacement = S.IngestRun(conn, "seed")
+    with S.corpus_write_lock(conn):
+        assert W.write_bars_claiming(
+            conn, [_bar()], run_id=replacement.progress.run_id,
+            batch_size=1) == 1
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT ticker,close_unadjusted,last_written_run_id::text"
+            " FROM sentinel_bars WHERE security_id='P1'"
+            "   AND session='2026-08-21'")
+        ticker, close, owner = cur.fetchone()
+    assert ticker == "KEEP" and close == 10.0
+    assert owner == replacement.progress.run_id
+
+
+def test_writer_leaves_unaffected_unchanged_row_on_published_owner(conn):
+    published = S.IngestRun(conn, "seed")
+    old_run = published.progress.run_id
+    _insert_bar(conn, security_id="CHANGED", ticker="OLD", owner=old_run)
+    _insert_bar(conn, security_id="UNRELATED", ticker="KEEP", owner=old_run)
+    published.finish("success")
+    P.publish(conn, run_id=old_run)
+
+    replacement = S.IngestRun(conn, "seed")
+    with S.corpus_write_lock(conn):
+        assert W.write_bars_claiming(
+            conn,
+            [_bar("CHANGED", "NEW"), _bar("UNRELATED", "KEEP")],
+            run_id=replacement.progress.run_id,
+            claim_security_ids=("CHANGED",), batch_size=2) == 2
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT security_id,last_written_run_id::text"
+            " FROM sentinel_bars ORDER BY security_id")
+        owners = {str(security_id): str(owner)
+                  for security_id, owner in cur.fetchall()}
+    assert owners == {
+        "CHANGED": replacement.progress.run_id,
+        "UNRELATED": old_run,
+    }
+
+
+def test_retirement_never_deletes_an_unaffected_missing_source_row(conn):
+    old = S.IngestRun(conn, "seed")
+    _insert_bar(conn, security_id="CHANGED", ticker="OLD", owner=old.progress.run_id)
+    _insert_bar(conn, security_id="UNRELATED", ticker="KEEP", owner=old.progress.run_id)
+    old.finish("success")
+    P.publish(conn, run_id=old.progress.run_id)
+
+    replacement = S.IngestRun(conn, "seed")
+    plan = IR.IdentityRebuildPlan(
+        market_start="2026-08-21", market_end="2026-08-21",
+        base_version=P.require_current(conn).version,
+        base_visible_start="2026-08-21", base_visible_end="2026-08-21",
+        snapshot_date="2026-08-24")
+    with S.corpus_write_lock(conn):
+        assert IR._retire_obsolete_bars(
+            conn, run_id=replacement.progress.run_id,
+            plan=plan, affected=("CHANGED",)) == 1
+        conn.commit()
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT security_id FROM sentinel_bars ORDER BY security_id")
+        remaining = [str(row[0]) for row in cur.fetchall()]
+    assert remaining == ["UNRELATED"]

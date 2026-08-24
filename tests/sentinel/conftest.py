@@ -67,6 +67,19 @@ def _runtime_schema_test_double_compat(request, monkeypatch):
 
     module_name = request.module.__name__.rsplit(".", 1)[-1]
 
+    # This module deliberately drives a fixed August 2026 scheduling tape. Its
+    # run-loop tests also open fresh PostgreSQL connections, so bind the database
+    # wall clock to that same deterministic tape instead of letting the fixture
+    # expire as real calendar time advances. Dedicated issue-201 tests exercise
+    # the actual host/database skew refusal outside this compatibility module.
+    if module_name == "test_automation_service":
+        from sentinel.automation import integrity as automation_integrity
+
+        deterministic_now = request.module.AFTER_WEDNESDAY_CLOSE
+        monkeypatch.setattr(
+            automation_integrity, "database_now",
+            lambda _conn: deterministic_now)
+
     # Production IngestRun now refuses to exist without the deployment binding
     # established by sentinel-compose.sh. Most unit modules construct runs
     # directly because they test SQL/economic behavior rather than host Docker
