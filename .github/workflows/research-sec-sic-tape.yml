@@ -1,0 +1,99 @@
+name: Research SEC PIT SIC tape
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/research-sec-sic-tape.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-sic-tape:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Build compact as-filed SEC SIC tape
+        run: |
+          python - <<'PY'
+          from concurrent.futures import ThreadPoolExecutor
+          from pathlib import Path
+          import csv, hashlib, io, os, tempfile, time, urllib.request, zipfile
+
+          quarters=[]
+          for y in range(2009, 2027):
+              for q in range(1,5):
+                  if (y,q) < (2009,2) or (y,q) > (2026,1):
+                      continue
+                  quarters.append((y,q))
+
+          outdir=Path('/tmp/sec-sic-tape'); outdir.mkdir(parents=True,exist_ok=True)
+          rows=[]
+          ua={'User-Agent':'Sentinel-PIT-research/1.0 contact=repository-owner'}
+
+          def fetch_one(yq):
+              y,q=yq
+              name=f'{y}q{q}.zip'
+              url=f'https://www.sec.gov/files/dera/data/financial-statement-data-sets/{name}'
+              target=outdir/name
+              last=None
+              for attempt in range(5):
+                  try:
+                      req=urllib.request.Request(url,headers=ua)
+                      with urllib.request.urlopen(req,timeout=180) as src, target.open('wb') as dst:
+                          while True:
+                              b=src.read(1024*1024)
+                              if not b: break
+                              dst.write(b)
+                      return y,q,target
+                  except Exception as exc:
+                      last=exc; time.sleep(2*(attempt+1))
+              raise RuntimeError(f'failed {url}: {last}')
+
+          # Download in bounded batches; process and delete each batch immediately.
+          for start in range(0,len(quarters),4):
+              batch=quarters[start:start+4]
+              with ThreadPoolExecutor(max_workers=4) as pool:
+                  fetched=list(pool.map(fetch_one,batch))
+              for y,q,path in fetched:
+                  with zipfile.ZipFile(path) as z:
+                      members=[n for n in z.namelist() if Path(n).name.lower() in ('sub.txt','sub.tsv')]
+                      if len(members)!=1:
+                          raise RuntimeError(f'{path.name}: expected one SUB file, got {members}')
+                      raw=z.read(members[0])
+                  text=raw.decode('utf-8-sig',errors='replace')
+                  rdr=csv.DictReader(io.StringIO(text),delimiter='\t')
+                  required={'adsh','cik','sic','filed'}
+                  if not required.issubset(set(rdr.fieldnames or [])):
+                      raise RuntimeError(f'{path.name}: missing fields {required-set(rdr.fieldnames or [])}')
+                  n=0
+                  for r in rdr:
+                      filed=(r.get('filed') or '').strip(); cik=(r.get('cik') or '').strip(); sic=(r.get('sic') or '').strip(); adsh=(r.get('adsh') or '').strip()
+                      if not filed or not cik or not sic: continue
+                      try:
+                          sic_i=int(float(sic)); cik_i=int(float(cik))
+                      except ValueError:
+                          continue
+                      if sic_i<=0 or cik_i<=0: continue
+                      rows.append((filed,f'{cik_i:010d}',sic_i,adsh,f'{y}Q{q}'))
+                      n+=1
+                  print(f'{y}Q{q}: {n} valid SIC observations',flush=True)
+                  path.unlink()
+
+          rows=sorted(set(rows),key=lambda x:(x[0],x[1],x[3],x[2],x[4]))
+          csvpath=outdir/'sec_sic_events_complete.csv'
+          with csvpath.open('w',newline='') as f:
+              w=csv.writer(f); w.writerow(['filed','cik','sic','adsh','source_quarter']); w.writerows(rows)
+          digest=hashlib.sha256(csvpath.read_bytes()).hexdigest()
+          meta=outdir/'PROVENANCE.txt'
+          meta.write_text(f'source=SEC Financial Statement Data Sets 2009Q2..2026Q1\nrows={len(rows)}\nsha256={digest}\nrule=as-filed SIC usable only strictly after filed date\n')
+          print(meta.read_text())
+          PY
+      - name: Upload compact SIC tape
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: corrected-pit-sec-sic-tape
+          path: /tmp/sec-sic-tape/
+          if-no-files-found: error
+          retention-days: 7
