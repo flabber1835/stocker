@@ -372,8 +372,12 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
         return self._create_backup(restore_drill=False)
 
     def persist_success(self, health: Mapping) -> None:
+        """Persist the exact reviewed activation mode after operational PASS."""
         self.phase("finalize: post-deploy backup, persist facts, and retain receipt")
         post_backup = self._create_backup(restore_drill=False)
+        reviewed = self.reviewed_validation
+        activation_mode = reviewed.mode if reviewed is not None else "paper"
+        dual = activation_mode == "dual"
         receipt = {
             "schema": core.DEPLOY_SCHEMA,
             "completed_at": core._utc_text(core._utcnow()),
@@ -390,6 +394,10 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
             "leader_heartbeat_at": health.get("leader_heartbeat_at"),
             "policy_state": health.get("policy_state"),
             "operational_ready": health.get("operational_ready"),
+            "activation_mode": activation_mode,
+            "certified_performance_authority": (
+                "BROKER_FREE_SHADOW_LEDGER" if dual else "PAPER_TRIAL"),
+            "paper_accounting_authoritative": not dual,
             "post_deploy_backup": post_backup,
         }
         managed = {
@@ -399,23 +407,26 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
             "SENTINEL_TEST_IMAGE_REPOSITORY": self.cfg.test_repository,
             "SENTINEL_TEST_IMAGE_DIGEST": self.test_digest,
         }
-        if self.reviewed_validation is not None:
+        if reviewed is not None:
             managed.update({
-                "SENTINEL_SHADOW_OBSERVATION_ENABLED": "0",
+                "SENTINEL_SHADOW_OBSERVATION_ENABLED": "1" if dual else "0",
                 "SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256": (
-                    self.reviewed_validation.source_identity_sha256),
+                    reviewed.source_identity_sha256),
                 "SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256": (
-                    self.reviewed_validation.bundle_sha256),
-                "SENTINEL_REVIEWED_DEPLOYMENT_MODE": "paper",
-                "SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256": "",
-                "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256": "",
+                    reviewed.bundle_sha256),
+                "SENTINEL_REVIEWED_DEPLOYMENT_MODE": activation_mode,
+                "SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256": (
+                    reviewed.shadow_configuration_sha256 or "" if dual else ""),
+                "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256": (
+                    reviewed.data_publication_sha256 or "" if dual else ""),
             })
             receipt.update({
-                "activation_mode": "paper",
-                "reviewed_validation_bundle_sha256": (
-                    self.reviewed_validation.bundle_sha256),
-                "validated_source_identity_sha256": (
-                    self.reviewed_validation.source_identity_sha256),
+                "reviewed_validation_bundle_sha256": reviewed.bundle_sha256,
+                "validated_source_identity_sha256": reviewed.source_identity_sha256,
+                "validated_shadow_config_sha256": (
+                    reviewed.shadow_configuration_sha256 if dual else None),
+                "validated_data_publication_sha256": (
+                    reviewed.data_publication_sha256 if dual else None),
             })
         path = self.attempt_dir / "deployment-receipt.json"
         pending = self.attempt_dir / "deployment-receipt.pending.json"
@@ -424,7 +435,15 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
             encoding="utf-8")
         _safe_update_dotenv(core.ENV_PATH, managed)
         os.replace(str(pending), str(path))
-        print("\nDEPLOYMENT PASS: autonomous Alpaca PAPER trading is authorized and operational")
+        if dual:
+            print(
+                "\nDEPLOYMENT PASS: certified shadow plus reconciled Alpaca "
+                "PAPER transport is operational")
+            print(
+                "performance authority: broker-free shadow ledger; PAPER "
+                "accounting is display/reconciliation evidence only")
+        else:
+            print("\nDEPLOYMENT PASS: autonomous Alpaca PAPER trading is authorized and operational")
         print("receipt: %s" % path)
 
     def _verify_signing_key_is_trusted(self) -> None:

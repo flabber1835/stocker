@@ -157,19 +157,12 @@ services:
       context: .
       dockerfile: Dockerfile.sentinel
       network: host
-    # `latest` is a CONVENIENCE ALIAS and deliberately literal.
-    #
-    # An interpolated `sentinel:${SENTINEL_IMAGE_TAG:-latest}` looks like better
-    # pinning and is worse: scripts/compose_image.py REFUSES an image containing
-    # `${...}` on purpose, because it cannot know the environment Compose was
-    # invoked with, and a resolver that guesses is how the manifest ends up
-    # naming an artefact that never ran.
-    #
-    # Commit pinning happens where it can be VERIFIED instead: `make
-    # sentinel-image` builds `sentinel:<git-sha>` alongside this alias, and the
-    # identity record captures the resolved image DIGEST — which is stronger
-    # than a tag, since a tag can be moved and a digest cannot.
-    image: sentinel:latest
+    # Use the same exact runtime selector as the CLI. During a reviewed
+    # deployment the bootstrap replaces this with the promoted immutable
+    # RepoDigest, so the mobile panel cannot remain on an older local `latest`
+    # image while trading runs newer code. Local development still defaults to
+    # the convenience alias.
+    image: ${SENTINEL_RUNTIME_IMAGE_REF:-sentinel:latest}
     restart: unless-stopped
     # A read-only page has no business growing. Small on purpose: a phone
     # refreshing every 30s must not be able to compete with the trading process
