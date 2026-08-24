@@ -5,10 +5,12 @@ test_confirmed_recovery_starts_real_55_percent_basket (test_reference_implementa
 test_divergence_trigger_is_preserved (test_reference_implementation.ControllerTests.test_divergence_trigger_is_preserved) ... ok
 test_full_promotion_holds_65_until_witness (test_reference_implementation.ControllerTests.test_full_promotion_holds_65_until_witness) ... ok
 test_independent_confirmation_skips_provisional (test_reference_implementation.ControllerTests.test_independent_confirmation_skips_provisional) ... ok
+test_invalid_negative_ramp_index_is_rejected (test_reference_implementation.ControllerTests.test_invalid_negative_ramp_index_is_rejected) ... ok
 test_native_full_readiness_stays_latched_while_waiting (test_reference_implementation.ControllerTests.test_native_full_readiness_stays_latched_while_waiting) ... ok
 test_one_session_warning_clears_without_recovery_episode (test_reference_implementation.ControllerTests.test_one_session_warning_clears_without_recovery_episode) ... ok
 test_second_warning_confirms_zero (test_reference_implementation.ControllerTests.test_second_warning_confirms_zero) ... ok
 test_state_round_trip (test_reference_implementation.ControllerTests.test_state_round_trip) ... ok
+test_unavailable_fast_evidence_withholds_state_transition (test_reference_implementation.ControllerTests.test_unavailable_fast_evidence_withholds_state_transition) ... ok
 test_old_overnight_new_intraday (test_reference_implementation.ExecutionTests.test_old_overnight_new_intraday) ... ok
 test_replay_applies_close_decision_at_following_open (test_reference_implementation.ExecutionTests.test_replay_applies_close_decision_at_following_open) ... ok
 test_dynamic_signal_confirms_controllable_branch (test_reference_implementation.PeerSignalTests.test_dynamic_signal_confirms_controllable_branch) ... ok
@@ -16,6 +18,6 @@ test_impossible_branch_does_not_warn (test_reference_implementation.PeerSignalTe
 test_missing_short_loss_is_unavailable_not_negative (test_reference_implementation.PeerSignalTests.test_missing_short_loss_is_unavailable_not_negative) ... ok
 
 ----------------------------------------------------------------------
-Ran 13 tests in 0.008s
+Ran 15 tests in 0.008s
 
 OK
