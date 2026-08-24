@@ -1,15 +1,15 @@
-"""Streaming bar writer for the #246 full-history identity replacement.
+"""Streaming bar writer for the #246 historical identity replacement.
 
 The ordinary bar upsert deliberately avoids taking ownership of an unchanged
-published row. That is correct for bounded daily overlap, but not for a complete
-identity rebuild: negative-space retirement is safe only when every row observed
-in the replacement SEP traversal belongs to the candidate generation. This
-writer keeps the normal economic-field semantics while making provenance
-replacement unconditional for each replayed key.
+published row. That is correct for bounded daily overlap and remains correct for
+all unaffected securities during a full replay. Only permanent security IDs
+whose historical listing projection changed need stronger provenance transfer:
+those keys must be claimed even when their prices are economically unchanged so
+covered-vs-obsolete negative space can be distinguished at publication.
 """
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Iterable, Sequence
 
 from sentinel.feed import store as feed_store
 
@@ -45,17 +45,21 @@ _BAR_REBUILD_UPSERT = """
 """
 
 
-def write_bars_claiming(conn, bars: Iterable, *, run_id: str,
-                        batch_size: int = 0) -> int:
-    """Write a bounded batch stream and claim unchanged published keys.
+def write_bars_claiming(
+        conn, bars: Iterable, *, run_id: str,
+        claim_security_ids: Sequence[str] | None = None,
+        batch_size: int = 0) -> int:
+    """Replay bars while force-claiming only the affected permanent IDs.
 
-    One upsert per source row is important operationally: the retained corpus is
-    tens of millions of rows, so a second UPDATE pass would approximately double
-    the full-rebuild statement count and turn a recovery operation into a much
-    larger NAS outage window.
+    ``claim_security_ids=None`` retains the focused-test compatibility behavior
+    of claiming every supplied row. Production always supplies the structured
+    affected set. Unaffected rows use the ordinary upsert and therefore avoid a
+    full-corpus provenance rewrite and its corresponding WAL amplification.
     """
     feed_store._assert_corpus_locked(conn)
     writer = str(run_id)
+    claim_all = claim_security_ids is None
+    claim = {str(value) for value in (claim_security_ids or ())}
     size = int(batch_size or feed_store.WRITE_BATCH)
     rows: list[tuple] = []
     written = 0
@@ -64,8 +68,14 @@ def write_bars_claiming(conn, bars: Iterable, *, run_id: str,
         nonlocal written
         if not rows:
             return
+        forced = [row for row in rows if claim_all or str(row[0]) in claim]
+        ordinary = [row for row in rows
+                    if not claim_all and str(row[0]) not in claim]
         with conn.cursor() as cur:
-            cur.executemany(_BAR_REBUILD_UPSERT, rows)
+            if ordinary:
+                cur.executemany(feed_store._BAR_UPSERT, ordinary)
+            if forced:
+                cur.executemany(_BAR_REBUILD_UPSERT, forced)
         conn.commit()
         written += len(rows)
         rows.clear()
