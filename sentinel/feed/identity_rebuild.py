@@ -457,17 +457,57 @@ def _stage_candidate_universe(conn, *, run_id: str,
 
 
 def _retire_obsolete_bars(conn, *, run_id: str, plan: IdentityRebuildPlan,
-                          affected: Sequence[str]) -> int:
+                          affected: Sequence[str], batch_size: int = 1000) -> int:
+    """Move obsolete keys to the candidate identity, then remove them atomically.
+
+    The strategy-evidence trigger correctly refuses DELETE while a row still
+    belongs to a published generation. Its reviewed restatement contract allows
+    that row to move to a durable non-failed unpublished run. We do that first,
+    then delete only the exact moved keys. Both statements remain inside the
+    final publication transaction, so rollback restores the prior bytes and
+    ownership if any later validation or publication step fails.
+    """
     if not affected:
         return 0
+    writer = str(run_id)
     with conn.cursor() as cur:
         cur.execute(
-            "DELETE FROM sentinel_bars"
+            "SELECT security_id,session FROM sentinel_bars"
             " WHERE security_id=ANY(%s::text[])"
             "   AND session BETWEEN %s AND %s"
-            "   AND last_written_run_id IS DISTINCT FROM %s::uuid",
-            (list(affected), plan.market_start, plan.market_end, str(run_id)))
-        return int(cur.rowcount)
+            "   AND last_written_run_id IS DISTINCT FROM %s::uuid"
+            " ORDER BY security_id,session",
+            (list(affected), plan.market_start, plan.market_end, writer))
+        keys = [(str(security_id), str(session))
+                for security_id, session in cur.fetchall()]
+    retired = 0
+    size = max(1, int(batch_size))
+    for offset in range(0, len(keys), size):
+        batch = keys[offset:offset + size]
+        update_rows = [(writer, security_id, session, writer)
+                       for security_id, session in batch]
+        delete_rows = [(security_id, session, writer)
+                       for security_id, session in batch]
+        with conn.cursor() as cur:
+            cur.executemany(
+                "UPDATE sentinel_bars SET last_written_run_id=%s"
+                " WHERE security_id=%s AND session=%s"
+                "   AND last_written_run_id IS DISTINCT FROM %s::uuid",
+                update_rows)
+            moved = int(cur.rowcount)
+            cur.executemany(
+                "DELETE FROM sentinel_bars"
+                " WHERE security_id=%s AND session=%s"
+                "   AND last_written_run_id=%s",
+                delete_rows)
+            deleted = int(cur.rowcount)
+        if moved != len(batch) or deleted != len(batch):
+            raise recovery.PublicationRecoveryRefused(
+                f"identity rebuild obsolete-bar retirement moved {moved} and "
+                f"deleted {deleted} of {len(batch)} expected key(s); refusing "
+                "a partial destructive boundary")
+        retired += deleted
+    return retired
 
 
 def publish_completed_run(conn, *, run, rows: Sequence[Mapping],
