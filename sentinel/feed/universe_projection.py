@@ -83,11 +83,11 @@ _REBUILD_DELETE = _AUTHORITY_ROWS_CTE + """
 , authority_keys AS (
     SELECT DISTINCT permaticker,ticker FROM authority_rows
 )
-DELETE FROM feed_universe_current current
+DELETE FROM feed_universe_current c
  WHERE NOT EXISTS (
        SELECT 1 FROM authority_keys authority
-        WHERE authority.permaticker=current.permaticker
-          AND authority.ticker=current.ticker)
+        WHERE authority.permaticker=c.permaticker
+          AND authority.ticker=c.ticker)
 """
 
 
@@ -255,12 +255,12 @@ def retire_absent_from_run(conn, *, run_id: str) -> int:
     """
     with conn.cursor() as cur:
         cur.execute(
-            "DELETE FROM feed_universe_current current"
+            "DELETE FROM feed_universe_current c"
             " WHERE NOT EXISTS ("
             "   SELECT 1 FROM sentinel_universe candidate"
             "    WHERE candidate.last_written_run_id=%s"
-            "      AND candidate.permaticker=current.permaticker"
-            "      AND candidate.ticker=current.ticker)",
+            "      AND candidate.permaticker=c.permaticker"
+            "      AND candidate.ticker=c.ticker)",
             (str(run_id),))
         return max(0, int(cur.rowcount or 0))
 
