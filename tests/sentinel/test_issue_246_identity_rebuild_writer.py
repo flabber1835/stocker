@@ -1,10 +1,11 @@
-"""The #246 full-history writer claims unchanged published bar keys in one pass."""
+"""#246 provenance transfer and scoped obsolete-bar retirement."""
 from __future__ import annotations
 
 from types import SimpleNamespace
 
 import pytest
 
+from sentinel.feed import identity_rebuild as IR
 from sentinel.feed import identity_rebuild_writer as W
 from sentinel.feed import publication as P
 from sentinel.feed import store as S
@@ -45,18 +46,22 @@ def _bar():
     return SimpleNamespace(vendor=vendor, close_signal=10.0)
 
 
-def test_writer_claims_an_economically_unchanged_published_row(conn):
-    published = S.IngestRun(conn, "seed")
-    old_run = published.progress.run_id
+def _insert_bar(conn, *, security_id: str, ticker: str, owner: str) -> None:
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_bars"
             " (security_id,session,ticker,close_signal,close_unadjusted,"
             "  open_unadjusted,volume,split_ratio,dividend_per_share,"
             "  last_written_run_id)"
-            " VALUES ('P1','2026-08-21','KEEP',10,10,9.9,1000,1,0,%s)",
-            (old_run,))
+            " VALUES (%s,'2026-08-21',%s,10,10,9.9,1000,1,0,%s)",
+            (security_id, ticker, owner))
     conn.commit()
+
+
+def test_writer_claims_an_economically_unchanged_published_row(conn):
+    published = S.IngestRun(conn, "seed")
+    old_run = published.progress.run_id
+    _insert_bar(conn, security_id="P1", ticker="KEEP", owner=old_run)
     published.finish("success")
     P.publish(conn, run_id=old_run)
 
@@ -74,3 +79,29 @@ def test_writer_claims_an_economically_unchanged_published_row(conn):
         ticker, close, owner = cur.fetchone()
     assert ticker == "KEEP" and close == 10.0
     assert owner == replacement.progress.run_id
+
+
+def test_retirement_never_deletes_an_unaffected_missing_source_row(conn):
+    old = S.IngestRun(conn, "seed")
+    _insert_bar(conn, security_id="CHANGED", ticker="OLD", owner=old.progress.run_id)
+    _insert_bar(conn, security_id="UNRELATED", ticker="KEEP", owner=old.progress.run_id)
+    old.finish("success")
+    P.publish(conn, run_id=old.progress.run_id)
+
+    replacement = S.IngestRun(conn, "seed")
+    plan = IR.IdentityRebuildPlan(
+        market_start="2026-08-21", market_end="2026-08-21",
+        base_version=P.require_current(conn).version,
+        base_visible_start="2026-08-21", base_visible_end="2026-08-21",
+        snapshot_date="2026-08-24")
+    with S.corpus_write_lock(conn):
+        assert IR._retire_obsolete_bars(
+            conn, run_id=replacement.progress.run_id,
+            plan=plan, affected=("CHANGED",)) == 1
+        conn.commit()
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT security_id FROM sentinel_bars ORDER BY security_id")
+        remaining = [str(row[0]) for row in cur.fetchall()]
+    assert remaining == ["UNRELATED"]
