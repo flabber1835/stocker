@@ -28,8 +28,8 @@ from __future__ import annotations
 from typing import Callable, Iterable
 
 from sentinel.feed import (
-    action_source, domains, identity_rebuild, maintenance, recovery, sharadar,
-    universe)
+    action_source, domains, identity_rebuild, identity_rebuild_writer,
+    maintenance, recovery, sharadar, universe)
 from sentinel.feed import store as feed_store
 
 
@@ -139,7 +139,7 @@ def full_reseed_locked(
                 written = feed_store.write_bars(
                     conn, bars, run_id=run.progress.run_id, require_lock=True)
             else:
-                written = identity_rebuild.write_bars_claiming(
+                written = identity_rebuild_writer.write_bars_claiming(
                     conn, bars, run_id=run.progress.run_id)
             ingest_impl._persist_chunk_evidence(
                 conn, run, lo[:4], lo, hi, report, splits,
