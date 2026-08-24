@@ -244,23 +244,94 @@ def _validate_config(cfg: Config) -> None:
             raise ValueError(f"{name} must be a positive integer")
     if cfg.peer_min_obs > cfg.peer_lookback:
         raise ValueError("peer_min_obs cannot exceed peer_lookback")
-    if not cfg.residual_thresholds or any(
-            not _finite(v) or not -1 <= v <= 1 for v in cfg.residual_thresholds):
-        raise ValueError("residual_thresholds must be finite in [-1,1]")
+    if (not isinstance(cfg.residual_thresholds, tuple)
+            or not cfg.residual_thresholds
+            or any(not _finite(v) or not -1 <= float(v) <= 1
+                   for v in cfg.residual_thresholds)):
+        raise ValueError("residual_thresholds must be a finite tuple in [-1,1]")
     if cfg.residual_votes_required > len(cfg.residual_thresholds):
         raise ValueError("residual vote requirement exceeds vote count")
-    if (len(cfg.ramp_confirm_sessions) != len(cfg.ramp_steps) - 1
-            or any(v <= 0 for v in cfg.ramp_confirm_sessions)
+    if (not isinstance(cfg.ramp_steps, tuple) or len(cfg.ramp_steps) < 2
+            or any(not _finite(v) or not 0 <= float(v) <= 1
+                   for v in cfg.ramp_steps)
             or any(a >= b for a, b in zip(cfg.ramp_steps, cfg.ramp_steps[1:]))
             or abs(cfg.ramp_steps[-1] - 1.0) > 1e-12):
-        raise ValueError("invalid recovery ramp")
-    for value in (cfg.provisional, cfg.severe, cfg.fast_damaged, cfg.fast_green,
-                  cfg.healthy_damaged, cfg.healthy_green,
-                  cfg.divergence_ceiling, cfg.symbolic_core_floor):
-        if not _finite(value) or not 0 <= value <= 1:
-            raise ValueError("allocation/breadth thresholds must be in [0,1]")
-    if not _finite(cfg.one_way_cost_bps) or not 0 <= cfg.one_way_cost_bps < 10_000:
+        raise ValueError("invalid recovery ramp steps")
+    if (not isinstance(cfg.ramp_confirm_sessions, tuple)
+            or len(cfg.ramp_confirm_sessions) != len(cfg.ramp_steps)-1
+            or any(isinstance(v, bool) or not isinstance(v, int) or v <= 0
+                   for v in cfg.ramp_confirm_sessions)):
+        raise ValueError("invalid recovery ramp confirmations")
+    unit_interval = ("provisional", "severe", "fast_damaged", "fast_green",
+                     "healthy_damaged", "healthy_green",
+                     "divergence_ceiling", "symbolic_core_floor")
+    for name in unit_interval:
+        value = getattr(cfg, name)
+        if not _finite(value) or not 0 <= float(value) <= 1:
+            raise ValueError(f"{name} must be finite in [0,1]")
+    finite_fields = ("fast_dd", "fast_r5", "fast_r10",
+                     "fast_damage_delta5", "fast_vol_accel",
+                     "fast_spy_r20", "fast_shadow_r10_confirm",
+                     "healthy_r20", "fragile_delta_r40_5",
+                     "spy_v_rebound", "wc_dd_trigger",
+                     "witness_r20_trigger", "spy_r20_floor",
+                     "one_way_cost_bps")
+    for name in finite_fields:
+        if not _finite(getattr(cfg, name)):
+            raise ValueError(f"{name} must be finite")
+    if not 0 <= cfg.one_way_cost_bps < 10_000:
         raise ValueError("one_way_cost_bps must be in [0,10000)")
+
+
+def _validate_fast(decision: FastDecision) -> None:
+    if not isinstance(decision, FastDecision):
+        raise ValueError("fast must be FastDecision")
+    if not isinstance(decision.status, BranchStatus):
+        raise ValueError("fast status must be BranchStatus")
+    for name in ("warning", "confirmed", "codistress_confirmed",
+                 "symbolic_floor_confirmed"):
+        if not isinstance(getattr(decision, name), bool):
+            raise ValueError(f"fast {name} must be boolean")
+    for name in ("residual_votes", "residual_vote_count"):
+        value = getattr(decision, name)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"fast {name} must be a non-negative integer")
+    if decision.residual_votes > decision.residual_vote_count:
+        raise ValueError("fast residual votes exceed vote count")
+    if decision.confirmed and not decision.warning:
+        raise ValueError("confirmed FAST evidence must also be a warning")
+    if decision.status in (BranchStatus.UNAVAILABLE, BranchStatus.IMPOSSIBLE):
+        if decision.warning or decision.confirmed:
+            raise ValueError("unavailable/impossible FAST evidence cannot warn")
+    if decision.status is BranchStatus.INEVITABLE:
+        if not decision.warning or not decision.confirmed:
+            raise ValueError("inevitable FAST evidence must be confirmed")
+    if decision.status is BranchStatus.CONTROLLABLE and not decision.warning:
+        raise ValueError("controllable FAST evidence must be a warning")
+    if not isinstance(decision.reason, str) or not decision.reason:
+        raise ValueError("fast reason must be non-empty")
+
+
+def _validate_peer_snapshot(peers: PeerSnapshot) -> None:
+    if not isinstance(peers, PeerSnapshot):
+        raise ValueError("peers must be PeerSnapshot")
+    if not (_finite(peers.minimum_damaged) and _finite(peers.maximum_damaged)
+            and 0 <= peers.minimum_damaged <= peers.maximum_damaged <= 1):
+        raise ValueError("invalid peer damage bounds")
+    if not _finite(peers.codistress_breadth) or not 0 <= peers.codistress_breadth <= 1:
+        raise ValueError("invalid co-distress breadth")
+    if not isinstance(peers.residual_breadths, tuple):
+        raise ValueError("residual breadths must be a tuple")
+    for threshold, breadth in peers.residual_breadths:
+        if not (_finite(threshold) and -1 <= threshold <= 1
+                and _finite(breadth) and 0 <= breadth <= 1):
+            raise ValueError("invalid residual breadth vote")
+    for name in ("holdings", "residual_coverage", "codistress_coverage"):
+        value = getattr(peers, name)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"{name} must be a non-negative integer")
+    if peers.residual_coverage > peers.holdings or peers.codistress_coverage > peers.holdings:
+        raise ValueError("peer coverage exceeds holdings")
 
 
 def _mean(values: Sequence[float]) -> float:
@@ -341,16 +412,25 @@ def build_peer_snapshot(*, holdings: Iterable[HoldingHistory],
     """
     _validate_config(cfg)
     rows = tuple(holdings)
-    if not rows or len({r.security_id for r in rows}) != len(rows):
+    if (not rows or any(not isinstance(r.security_id, str) or not r.security_id
+                        for r in rows)
+            or len({r.security_id for r in rows}) != len(rows)):
         raise ValueError("holdings must be non-empty and uniquely identified")
+    if any(not all(isinstance(v, bool) for v in (r.red, r.green, r.core_amber))
+           for r in rows):
+        raise ValueError("holding state flags must be boolean")
     if any(len(r.returns) != len(market_returns) or
            len(r.distress) != len(market_returns) for r in rows):
         raise ValueError("all histories must align")
     minimum = _mean([float(r.core_amber) for r in rows])
     maximum = _mean([float(r.core_amber or not r.green) for r in rows])
     if exact_minimum is not None:
+        if not _finite(exact_minimum):
+            raise ValueError("exact_minimum must be finite")
         minimum = float(exact_minimum)
     if exact_maximum is not None:
+        if not _finite(exact_maximum):
+            raise ValueError("exact_maximum must be finite")
         maximum = float(exact_maximum)
     if not (_finite(minimum) and _finite(maximum) and 0 <= minimum <= maximum <= 1):
         raise ValueError("invalid symbolic damage bounds")
@@ -394,7 +474,7 @@ def build_peer_snapshot(*, holdings: Iterable[HoldingHistory],
                 promoted = _mean([float(rows[j].red) for j in (i, *chosen)]) >= 0.5
         codistress_amber.append(bool(row.core_amber or promoted))
 
-    return PeerSnapshot(
+    snapshot = PeerSnapshot(
         minimum_damaged=minimum,
         maximum_damaged=maximum,
         residual_breadths=tuple(residual_breadths),
@@ -403,6 +483,8 @@ def build_peer_snapshot(*, holdings: Iterable[HoldingHistory],
         residual_coverage=len(covered),
         codistress_coverage=len(codistress_covered),
     )
+    _validate_peer_snapshot(snapshot)
+    return snapshot
 
 
 def _damage_pass(damaged: float, prior: float, cfg: Config) -> bool:
@@ -413,6 +495,7 @@ def evaluate_fast(*, context: FastContext, peers: PeerSnapshot,
                   cfg: Config = Config()) -> FastDecision:
     """Return high-recall warning plus higher-precision confirmation."""
     _validate_config(cfg)
+    _validate_peer_snapshot(peers)
     required = (context.shadow_dd, context.green,
                 context.damaged_5_sessions_ago, context.spy_vol_ratio)
     short_available = _finite(context.r5) or _finite(context.r10)
@@ -471,7 +554,10 @@ def _state_payload(state: State) -> dict:
 
 
 def _validate_state(state: State) -> None:
-    if state.version != STATE_VERSION:
+    if not isinstance(state, State):
+        raise ValueError("state must be State")
+    if isinstance(state.version, bool) or not isinstance(state.version, int) \
+            or state.version != STATE_VERSION:
         raise ValueError("unsupported state version")
     for name in ("provisional_active", "fast_severe", "prior_slow_severe",
                  "recovery_episode", "ramp_active", "divergence_latched"):
@@ -482,6 +568,10 @@ def _validate_state(state: State) -> None:
         value = getattr(state, name)
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise ValueError(f"{name} must be a non-negative integer")
+    if state.ramp_index is not None and (isinstance(state.ramp_index, bool)
+                                         or not isinstance(state.ramp_index, int)
+                                         or state.ramp_index < 0):
+        raise ValueError("ramp_index must be null or non-negative integer")
     if state.ramp_active != (state.ramp_index is not None):
         raise ValueError("ramp_active/ramp_index mismatch")
     if not _finite(state.previous_allocation) or not 0 <= state.previous_allocation <= 1:
@@ -537,12 +627,24 @@ def step(*, observation: Observation, state: State,
     ob = observation
     if not isinstance(ob.session, str) or not ob.session:
         raise ValueError("session must be non-empty")
-    if state.last_session is not None and ob.session <= state.last_session:
+    try:
+        current_session = date.fromisoformat(ob.session)
+        prior_session = (date.fromisoformat(state.last_session)
+                         if state.last_session is not None else None)
+    except ValueError as exc:
+        raise ValueError("session must be YYYY-MM-DD") from exc
+    if prior_session is not None and current_session <= prior_session:
         raise ValueError("sessions must advance strictly")
-    if not isinstance(ob.fast, FastDecision) or not isinstance(ob.slow_severe, bool):
-        raise ValueError("invalid observation types")
-    if ob.fast.confirmed and not ob.fast.warning:
-        raise ValueError("confirmed FAST evidence must also be a warning")
+    if not isinstance(ob.slow_severe, bool):
+        raise ValueError("slow_severe must be boolean")
+    _validate_fast(ob.fast)
+    if ob.fast.status is BranchStatus.UNAVAILABLE:
+        raise ValueError("FAST evidence unavailable: withhold the decision")
+    for name in ("shadow_r20", "shadow_r40", "damaged", "green",
+                 "witness_r20", "witness_r40", "spy_r20", "wc_dd"):
+        value = getattr(ob, name)
+        if value is not None and not _finite(value):
+            raise ValueError(f"{name} must be finite or null")
 
     healthy = _healthy(ob, cfg)
     witness_streak = state.witness_streak+1 if _witness_healthy(ob) else 0
@@ -595,7 +697,7 @@ def step(*, observation: Observation, state: State,
                 reasons.append("RECOVERY_NONFRAGILE_CONCORDANT_FULL")
             else:
                 allocation, episode, ramp, ramp_index = cfg.ramp_steps[0], True, True, 0
-                ramp_streak = 1 if healthy else 0
+                ramp_streak = 1 if healthy and not ob.fast.warning else 0
                 reasons.append("RECOVERY_FRAGILE_RAMP" if fragile
                                else "RECOVERY_CONCORDANCE_HOLD_55")
         elif ramp:
@@ -605,7 +707,7 @@ def step(*, observation: Observation, state: State,
             need = cfg.ramp_confirm_sessions[ramp_index]
             ready = ramp_streak >= need
             if not ready:
-                ramp_streak = ramp_streak+1 if healthy else 0
+                ramp_streak = ramp_streak+1 if healthy and not ob.fast.warning else 0
                 ready = ramp_streak >= need
             if ready:
                 proposed_index = ramp_index+1
@@ -731,8 +833,11 @@ def run_replay(inputs: Iterable[ReplayInput], *, cfg: Config = Config(),
     if len(source) < 2 or not _finite(initial_nav) or initial_nav <= 0:
         raise ValueError("invalid replay inputs")
     state = initial_state
+    _validate_state(state)
     effective = (state.previous_allocation if initial_effective_allocation is None
                  else float(initial_effective_allocation))
+    if not _finite(effective) or not 0 <= effective <= 1:
+        raise ValueError("invalid initial effective allocation")
     pending, nav, out = state.previous_allocation, float(initial_nav), []
     for i, item in enumerate(source):
         if i == 0 and item.interval_from_previous_close is not None:
