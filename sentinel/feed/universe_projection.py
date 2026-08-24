@@ -38,8 +38,8 @@ _AUTHORITY_ROWS_CTE = """
 WITH latest_identity_rebuild AS (
     SELECT p.version,p.run_id
       FROM sentinel_corpus_publications p
-      JOIN feed_ingest_runs r ON r.run_id=p.run_id
-     WHERE r.publication_recovery->>'schema'='sentinel.identity-rebuild/1'
+     WHERE p.evidence->'identity_rebuild'->>'schema'=
+           'sentinel.identity-rebuild/1'
      ORDER BY p.version DESC
      LIMIT 1
 ), authority_rows AS (
@@ -165,7 +165,7 @@ DDL = [
     """ALTER TABLE feed_universe_current
         ADD COLUMN IF NOT EXISTS is_delisted_snapshot_date DATE""",
     # Explicit migration reconstructs the bounded read model from published or
-    # legacy evidence. The latest identity-rebuild generation is a membership
+    # legacy evidence. The latest identity-rebuild publication is a membership
     # floor: older rows may fill sparse fields only for pairings that generation
     # still names; omitted pairings are durable negative space.
     _REBUILD_DELETE,
