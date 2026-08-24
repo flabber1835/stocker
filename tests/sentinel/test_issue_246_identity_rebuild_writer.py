@@ -38,9 +38,9 @@ def conn(pg):
     connection.close()
 
 
-def _bar():
+def _bar(security_id: str = "P1", ticker: str = "KEEP"):
     vendor = SimpleNamespace(
-        security_id="P1", session="2026-08-21", ticker="KEEP",
+        security_id=security_id, session="2026-08-21", ticker=ticker,
         raw_close=10.0, raw_open=9.9, volume=1000.0,
         split_ratio=1.0, dividend_per_share=0.0)
     return SimpleNamespace(vendor=vendor, close_signal=10.0)
@@ -79,6 +79,34 @@ def test_writer_claims_an_economically_unchanged_published_row(conn):
         ticker, close, owner = cur.fetchone()
     assert ticker == "KEEP" and close == 10.0
     assert owner == replacement.progress.run_id
+
+
+def test_writer_leaves_unaffected_unchanged_row_on_published_owner(conn):
+    published = S.IngestRun(conn, "seed")
+    old_run = published.progress.run_id
+    _insert_bar(conn, security_id="CHANGED", ticker="OLD", owner=old_run)
+    _insert_bar(conn, security_id="UNRELATED", ticker="KEEP", owner=old_run)
+    published.finish("success")
+    P.publish(conn, run_id=old_run)
+
+    replacement = S.IngestRun(conn, "seed")
+    with S.corpus_write_lock(conn):
+        assert W.write_bars_claiming(
+            conn,
+            [_bar("CHANGED", "NEW"), _bar("UNRELATED", "KEEP")],
+            run_id=replacement.progress.run_id,
+            claim_security_ids=("CHANGED",), batch_size=2) == 2
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT security_id,last_written_run_id::text"
+            " FROM sentinel_bars ORDER BY security_id")
+        owners = {str(security_id): str(owner)
+                  for security_id, owner in cur.fetchall()}
+    assert owners == {
+        "CHANGED": replacement.progress.run_id,
+        "UNRELATED": old_run,
+    }
 
 
 def test_retirement_never_deletes_an_unaffected_missing_source_row(conn):
