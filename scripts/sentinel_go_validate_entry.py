@@ -1,26 +1,23 @@
 #!/usr/bin/env python3
 """Production entrypoint for NAS GO validation.
 
-The core validator intentionally executes its bounded preparation as a custom
-Python command so it can prove schema, source-final, publication and timing
-facts in one subprocess.  That command is still a corpus mutation and therefore
-must cross the same clean-HEAD/image binding membrane as ``feed-daily``.
+The core validator executes its bounded preparation as a custom ``python -c``
+Compose command.  That code calls ``ingest.daily()`` and therefore mutates the
+corpus, but it is not syntactically the supported ``feed-daily`` CLI command
+that ``sentinel-compose.sh`` can classify and bind automatically.
 
-This entrypoint installs the production preparation probe that obtains that
-binding from ``sentinel_feed_gate.py`` and forwards only the five certified feed
-identity variables into the one Compose run.  Broker authority is removed before
-both the host binding and container invocation.  The mutation guard itself is
-not weakened or bypassed.
+This entrypoint leaves the core validator unchanged and wraps only that one
+subprocess boundary.  Immediately before the preparation container starts, it
+reuses ``sentinel_feed_gate.py bind`` to prove clean HEAD == candidate image
+revision, then forwards exactly the five per-invocation identity variables used
+by the normal feed wrapper.  The runtime mutation guard remains unchanged.
 """
 from __future__ import annotations
 
-import json
-import math
 from pathlib import Path
 import subprocess
 import sys
-import time
-from typing import Callable, Mapping, Optional
+from typing import Mapping, Optional, Sequence
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -30,6 +27,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import sentinel_go_validate as go  # noqa: E402
 
 
+_CORE_PREPARATION_PROBE = go.probe_prevalidation_preparation
 _FEED_ENV_KEYS = (
     "SENTINEL_GIT_COMMIT",
     "SENTINEL_RUNTIME_IMAGE_DIGEST",
@@ -39,19 +37,28 @@ _FEED_ENV_KEYS = (
 )
 
 
-def _clean_head_feed_binding(
-        runner: go.CommandRunner, *, run_env: Mapping[str, str],
+def _is_preparation_command(argv: Sequence[str]) -> bool:
+    command = [str(item) for item in argv]
+    return bool(
+        command[:2] == ["docker", "compose"]
+        and "--entrypoint" in command
+        and "-c" in command
+        and command[-1] == go._PREPARATION_CODE)
+
+
+def _binding_or_none(
+        runner: go.CommandRunner, *, env: Mapping[str, str], cwd: Path,
         runtime_ref: str, commit: str) -> Optional[tuple[str, str]]:
-    """Re-use the host feed gate; never mint feed authority in the validator."""
-    binding_env = dict(run_env)
-    # These are consistency claims only. sentinel_feed_gate independently reads
-    # clean HEAD, the image revision label and the immutable Docker image id.
+    """Ask the existing host gate for the binding; never mint it locally."""
+    binding_env = go._without_broker_authority(env)
+    # These two values are consistency claims only. The feed gate independently
+    # reads clean HEAD, the image revision label, and the immutable Docker id.
     binding_env["SENTINEL_GIT_COMMIT"] = str(commit)
     binding_env["SENTINEL_RUNTIME_IMAGE_DIGEST"] = str(runtime_ref)
     completed = runner.run([
         sys.executable, "scripts/sentinel_feed_gate.py", "bind",
         "--repo", str(go.ROOT), "--image", str(runtime_ref),
-    ], env=binding_env)
+    ], env=binding_env, cwd=cwd)
     if completed.returncode != 0:
         return None
     lines = [line.strip() for line in (completed.stdout or "").splitlines()
@@ -67,130 +74,71 @@ def _clean_head_feed_binding(
     return bound_commit, bound_digest
 
 
+class FeedBoundPreparationRunner:
+    """Delegate every command except the one mutating preparation subprocess."""
+
+    def __init__(self, runner: go.CommandRunner, *, runtime_ref: str,
+                 commit: str):
+        self._runner = runner
+        self._runtime_ref = str(runtime_ref)
+        self._commit = str(commit)
+
+    def run(self, argv: Sequence[str], *, env=None, cwd: Path = go.ROOT):
+        command = [str(item) for item in argv]
+        if not _is_preparation_command(command):
+            return self._runner.run(command, env=env, cwd=cwd)
+
+        run_env = go._without_broker_authority(dict(env or {}))
+        binding = _binding_or_none(
+            self._runner, env=run_env, cwd=cwd,
+            runtime_ref=self._runtime_ref, commit=self._commit)
+        if binding is None:
+            # The core probe will record a failed preparation, while no mutation
+            # container has been started. Raw gate diagnostics remain private.
+            return subprocess.CompletedProcess(
+                command, 2, stdout="", stderr="")
+
+        bound_commit, bound_digest = binding
+        run_env.pop("SENTINEL_FEED_SERVICE_MODE", None)
+        run_env.update({
+            "SENTINEL_GIT_COMMIT": bound_commit,
+            "SENTINEL_RUNTIME_IMAGE_DIGEST": bound_digest,
+            "SENTINEL_FEED_AUTHORIZED": "CLEAN_HEAD_IMAGE_V1",
+            "SENTINEL_FEED_GIT_COMMIT": bound_commit,
+            "SENTINEL_FEED_RUNTIME_IMAGE_DIGEST": bound_digest,
+        })
+
+        # Compose services intentionally carry no standing feed authority. Add
+        # these names only to this already host-authorized `compose run`, exactly
+        # as sentinel-compose.sh does for supported feed mutations.
+        try:
+            insertion = command.index("--entrypoint")
+        except ValueError:
+            return subprocess.CompletedProcess(
+                command, 2, stdout="", stderr="")
+        forwarded = [
+            item for key in _FEED_ENV_KEYS for item in ("--env", key)
+        ]
+        command[insertion:insertion] = forwarded
+        return self._runner.run(command, env=run_env, cwd=cwd)
+
+
 def probe_prevalidation_preparation(
         runner: go.CommandRunner, *, env: Mapping[str, str],
-        runtime_ref: Optional[str], commit: Optional[str],
-        monotonic: Callable[[], float] = time.monotonic) -> go.PreparationSummary:
-    """Prepare schema + Sharadar tail under the certified feed mutation gate."""
-    prerequisites = (
-        bool(str(env.get("SHARADAR_API_KEY") or "").strip())
-        and bool(env.get("SENTINEL_POSTGRES_PASSWORD"))
-        and commit is not None
-        and go._HEX40.fullmatch(str(commit)) is not None
-        and runtime_ref is not None
-        and go._IMAGE_DIGEST.fullmatch(str(runtime_ref)) is not None)
-    if not prerequisites:
-        evidence = {
-            "reason": "PREPARATION_AUTHORITY_UNAVAILABLE",
-            "runtime_known": runtime_ref is not None,
-        }
-        return go.PreparationSummary(
-            status=go.NOT_PROVEN, runtime_image_digest=runtime_ref,
-            schema_migration_attempted=False,
-            bounded_sharadar_daily_attempted=False,
-            broker_mutation_attempts=0,
-            evidence_sha256=go._evidence_digest(evidence))
-
-    run_env = go._without_broker_authority(env)
-    compose_args = go._resolve_compose_args(runner, run_env)
-    if compose_args is None:
-        return go.PreparationSummary(
-            status=go.NOT_PROVEN, runtime_image_digest=runtime_ref,
-            schema_migration_attempted=False,
-            bounded_sharadar_daily_attempted=False,
-            broker_mutation_attempts=0,
-            evidence_sha256=go._evidence_digest({
-                "reason": "PREPARATION_COMPOSE_GRAPH_UNAVAILABLE"}))
-
-    run_env["SENTINEL_RUNTIME_IMAGE_REF"] = str(runtime_ref)
-    binding = _clean_head_feed_binding(
-        runner, run_env=run_env, runtime_ref=str(runtime_ref),
-        commit=str(commit))
-    if binding is None:
-        return go.PreparationSummary(
-            status=go.NOT_PROVEN, runtime_image_digest=runtime_ref,
-            schema_migration_attempted=False,
-            bounded_sharadar_daily_attempted=False,
-            broker_mutation_attempts=0,
-            evidence_sha256=go._evidence_digest({
-                "reason": "PREPARATION_CLEAN_HEAD_FEED_BINDING_UNAVAILABLE",
-                "runtime_known": runtime_ref is not None,
-            }))
-
-    bound_commit, bound_digest = binding
-    run_env.update({
-        "SENTINEL_GIT_COMMIT": bound_commit,
-        "SENTINEL_RUNTIME_IMAGE_DIGEST": bound_digest,
-        "SENTINEL_FEED_AUTHORIZED": "CLEAN_HEAD_IMAGE_V1",
-        "SENTINEL_FEED_GIT_COMMIT": bound_commit,
-        "SENTINEL_FEED_RUNTIME_IMAGE_DIGEST": bound_digest,
-    })
-
-    started = monotonic()
-    completed = runner.run([
-        "docker", "compose", *compose_args, "--profile", "cli", "run",
-        "--rm", "-T", "--no-deps",
-        *(item for key in _FEED_ENV_KEYS for item in ("--env", key)),
-        "--entrypoint", "python", "sentinel", "-c", go._PREPARATION_CODE,
-    ], env=run_env)
-    elapsed_milliseconds = max(
-        0, int(math.ceil((monotonic() - started) * 1000.0)))
-
-    marker = "SENTINEL_GO_PREPARATION="
-    payload = None
-    if completed.returncode == 0:
-        for line in (completed.stdout or "").splitlines():
-            if line.startswith(marker):
-                try:
-                    payload = json.loads(line[len(marker):])
-                except json.JSONDecodeError:
-                    payload = None
-
-    valid = (
-        isinstance(payload, dict)
-        and set(payload) == {
-            "schema_migrated", "source_not_before_satisfied",
-            "following_open_future", "bounded_sharadar_daily",
-            "publication_current"}
-        and all(payload.get(field) is True for field in payload))
-    evidence = {
-        "exit_code": int(completed.returncode),
-        "schema_migrated": bool(
-            isinstance(payload, dict) and payload.get("schema_migrated") is True),
-        "bounded_sharadar_daily": bool(
-            isinstance(payload, dict)
-            and payload.get("bounded_sharadar_daily") is True),
-        "source_not_before_satisfied": bool(
-            isinstance(payload, dict)
-            and payload.get("source_not_before_satisfied") is True),
-        "following_open_future": bool(
-            isinstance(payload, dict)
-            and payload.get("following_open_future") is True),
-        "publication_current": bool(
-            isinstance(payload, dict)
-            and payload.get("publication_current") is True),
-        "clean_head_feed_binding": True,
-        "feed_authority_forwarded": all(
-            key in run_env for key in _FEED_ENV_KEYS),
-        "broker_authority_removed": not bool(
-            go._BROKER_AUTH_ENV.intersection(run_env)),
-    }
-    return go.PreparationSummary(
-        status=go.PASS if valid else go.FAIL,
-        runtime_image_digest=runtime_ref,
-        schema_migration_attempted=bool(
-            isinstance(payload, dict)
-            and payload.get("schema_migrated") is True),
-        bounded_sharadar_daily_attempted=bool(
-            isinstance(payload, dict)
-            and payload.get("bounded_sharadar_daily") is True),
-        broker_mutation_attempts=0,
-        evidence_sha256=go._evidence_digest(evidence),
-        elapsed_milliseconds=elapsed_milliseconds)
+        runtime_ref: Optional[str], commit: Optional[str], **kwargs):
+    """Run the core probe with feed binding enforced at its mutation boundary."""
+    if (runtime_ref is None or commit is None
+            or go._IMAGE_DIGEST.fullmatch(str(runtime_ref)) is None
+            or go._HEX40.fullmatch(str(commit)) is None):
+        return _CORE_PREPARATION_PROBE(
+            runner, env=env, runtime_ref=runtime_ref, commit=commit, **kwargs)
+    bound_runner = FeedBoundPreparationRunner(
+        runner, runtime_ref=str(runtime_ref), commit=str(commit))
+    return _CORE_PREPARATION_PROBE(
+        bound_runner, env=env, runtime_ref=runtime_ref, commit=commit, **kwargs)
 
 
 def install() -> None:
-    """Install the production preparation boundary before the probe graph runs."""
     go.probe_prevalidation_preparation = probe_prevalidation_preparation
 
 
