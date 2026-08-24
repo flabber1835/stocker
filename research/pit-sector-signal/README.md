@@ -2,6 +2,31 @@
 
 Research-only retention for issue #241. Nothing in this directory is production strategy authority.
 
+## Baseline calibration correction — 2026-08-23
+
+**Do not interpret the retained 18.48% SEC-FF12 result as the current 22.63% Simplified Concordance LD-RC system with only sector made point-in-time.**
+
+The authoritative 30pp first-pass table proves that the inherited #241 base is already different before sector changes:
+
+- inherited #241 base + current Sharadar sector: **18.43172395% 20Y CAGR**
+- same inherited base + causal SEC SIC→FF12: **18.47948391% 20Y CAGR**
+- actual sector-only A/B on that fixed base: **+0.04775996 pp/year**
+- authoritative current Simplified LD-RC control from the accepted replay: **22.63021562% 20Y CAGR**
+
+Thus the apparent `22.6302 -> 18.4795` difference is a **baseline-calibration mismatch, not a sector effect**. The ~4.20 pp/year discrepancy is already present in #241's current-sector control.
+
+The inherited base came from an earlier true-PIT research lineage described as a `category-free SEP quantitative universe, latest-date SEC PIT issuer identity, strict-before SEC SIC->frozen FF12 sector`. That is not the production-current 22.63% control lineage.
+
+PR #208 independently proves one relevant failure mode: applying SEC issuer treatment before SEC evidence exists changes the 1998–2005 warm-up and reduces 20Y CAGR from **22.6302% to 21.3492%**. The accepted causal issuer A/B instead keeps unsupported pre-2006 warm-up state identical, switches to SEC PIT authority only when evidence exists, and changes zero trades / zero performance.
+
+See:
+
+- `BASELINE-CALIBRATION-AUDIT.md`
+- `baseline-calibration-decomposition.csv`
+- `baseline_calibration_guard.py`
+
+The guard intentionally fails against the retained #241 first-pass data until a sector experiment's current-sector control reproduces the authoritative 22.63021562% baseline.
+
 ## Branch / code provenance
 
 - Research branch: `research/pit-sector-signal-2026-08-23`
@@ -50,7 +75,7 @@ Primary 30pp 20-year results from that first pass:
 | corr6/corr8/corr8-monthly | 18.4317% | 1.0421 | -25.21% | 29.471x |
 | sector-neutral | 17.5501% | 0.9944 | -28.64% | 25.380x |
 
-This is an exploratory result, not a promotion result. Nearest-3 improved the full-period result only modestly over causal FF12 and has not yet passed an out-of-sample/walk-forward test.
+These rows are valid **relative comparisons within the inherited #241 base**. They are not calibrated direct replacements for the 22.6302% current-system control.
 
 The 40pp sensitivity is retained because it reveals nonlinear taxonomy dependence. Current Sharadar sector was ~19.9794% CAGR, causal FF12 ~17.9905%, and correlation/monthly/nearest-neighbor variants landed between them. This must not be confused with the current 30pp strategy.
 
@@ -77,4 +102,6 @@ A candidate is not interesting merely because its full-period CAGR is higher. It
 
 ## Files / regeneration
 
-`FILES_MANIFEST.tsv` records SHA-256 and byte size for every local input/output that existed at the checkpoint. Large transient source matrices are intentionally represented by hash + deterministic script provenance rather than silently omitted. `sector_market_experiment.py` is the exact first-pass peer experiment script. `results-summary.csv` and `results-summary.json` retain the complete scored first-pass table.
+`FILES_MANIFEST.tsv` records SHA-256 and byte size for every local input/output that existed at the checkpoint. A calibration audit found that several load-bearing transient source/tape files were retained only by hash/path rather than by bytes; therefore the original #241 first-pass baseline cannot be fully regenerated from this branch alone. `BASELINE-CALIBRATION-AUDIT.md` records that reproducibility defect explicitly.
+
+`sector_market_experiment.py` is the retained first-pass peer experiment script. `results-summary.csv` retains its complete scored first-pass table.
