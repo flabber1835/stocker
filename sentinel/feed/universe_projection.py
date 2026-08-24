@@ -24,8 +24,118 @@ here in the SAME transaction that publishes its run; an unpublished snapshot can
 therefore never leak into current planning. Legacy NULL-provenance rows are
 already immediately readable under `visible_predicate`, so the legacy writer
 merges those rows before its existing commit.
+
+A published identity rebuild is also a membership boundary. Pre-rebuild rows are
+still retained as immutable field evidence for pairings present in that complete
+snapshot, but a pairing omitted by the replacement snapshot must not reappear the
+next time schema migration reconstructs this derived table. Later published
+snapshots remain free to add genuinely new pairings.
 """
 from __future__ import annotations
+
+
+_AUTHORITY_ROWS_CTE = """
+WITH latest_identity_rebuild AS (
+    SELECT p.version,p.run_id
+      FROM sentinel_corpus_publications p
+      JOIN feed_ingest_runs r ON r.run_id=p.run_id
+     WHERE r.publication_recovery->>'schema'='sentinel.identity-rebuild/1'
+     ORDER BY p.version DESC
+     LIMIT 1
+), authority_rows AS (
+    SELECT u.permaticker,u.ticker,u.category,u.sector,u.related_tickers,
+           u.first_price_date,u.last_price_date,u.is_delisted,u.snapshot_date,
+           COALESCE(p.version,0) AS authority_version
+      FROM sentinel_universe u
+      LEFT JOIN sentinel_corpus_publications p
+        ON p.run_id=u.last_written_run_id
+     WHERE NOT EXISTS (SELECT 1 FROM latest_identity_rebuild)
+       AND (u.last_written_run_id IS NULL OR p.run_id IS NOT NULL)
+    UNION ALL
+    SELECT u.permaticker,u.ticker,u.category,u.sector,u.related_tickers,
+           u.first_price_date,u.last_price_date,u.is_delisted,u.snapshot_date,
+           COALESCE(p.version,0) AS authority_version
+      FROM sentinel_universe u
+      LEFT JOIN sentinel_corpus_publications p
+        ON p.run_id=u.last_written_run_id
+      CROSS JOIN latest_identity_rebuild floor
+     WHERE (u.last_written_run_id IS NULL OR p.run_id IS NOT NULL)
+       AND (p.version IS NULL OR p.version<=floor.version)
+       AND EXISTS (
+           SELECT 1 FROM sentinel_universe baseline
+            WHERE baseline.last_written_run_id=floor.run_id
+              AND baseline.permaticker=u.permaticker
+              AND baseline.ticker=u.ticker)
+    UNION ALL
+    SELECT u.permaticker,u.ticker,u.category,u.sector,u.related_tickers,
+           u.first_price_date,u.last_price_date,u.is_delisted,u.snapshot_date,
+           p.version AS authority_version
+      FROM sentinel_universe u
+      JOIN sentinel_corpus_publications p
+        ON p.run_id=u.last_written_run_id
+      CROSS JOIN latest_identity_rebuild floor
+     WHERE p.version>floor.version
+)
+"""
+
+
+_REBUILD_DELETE = _AUTHORITY_ROWS_CTE + """
+, authority_keys AS (
+    SELECT DISTINCT permaticker,ticker FROM authority_rows
+)
+DELETE FROM feed_universe_current current
+ WHERE NOT EXISTS (
+       SELECT 1 FROM authority_keys authority
+        WHERE authority.permaticker=current.permaticker
+          AND authority.ticker=current.ticker)
+"""
+
+
+_REBUILD_INSERT = _AUTHORITY_ROWS_CTE + """
+INSERT INTO feed_universe_current
+      (permaticker,ticker,category,category_snapshot_date,
+       sector,sector_snapshot_date,
+       related_tickers,related_tickers_snapshot_date,
+       first_price_date,last_price_date,
+       is_delisted,is_delisted_snapshot_date,snapshot_date)
+SELECT u.permaticker,u.ticker,
+  (ARRAY_REMOVE(ARRAY_AGG(
+      u.category ORDER BY u.snapshot_date DESC,u.authority_version DESC),NULL))[1],
+  MAX(u.snapshot_date) FILTER (WHERE u.category IS NOT NULL),
+  (ARRAY_REMOVE(ARRAY_AGG(
+      u.sector ORDER BY u.snapshot_date DESC,u.authority_version DESC),NULL))[1],
+  MAX(u.snapshot_date) FILTER (WHERE u.sector IS NOT NULL),
+  (ARRAY_REMOVE(ARRAY_AGG(
+      u.related_tickers ORDER BY u.snapshot_date DESC,u.authority_version DESC),
+      NULL))[1],
+  MAX(u.snapshot_date) FILTER (WHERE u.related_tickers IS NOT NULL),
+  (ARRAY_REMOVE(ARRAY_AGG(
+      u.first_price_date ORDER BY u.snapshot_date DESC,u.authority_version DESC),
+      NULL))[1],
+  (ARRAY_REMOVE(ARRAY_AGG(
+      u.last_price_date ORDER BY u.snapshot_date DESC,u.authority_version DESC),
+      NULL))[1],
+  (ARRAY_REMOVE(ARRAY_AGG(
+      u.is_delisted ORDER BY u.snapshot_date DESC,u.authority_version DESC),
+      NULL))[1],
+  MAX(u.snapshot_date) FILTER (WHERE u.is_delisted IS NOT NULL),
+  MAX(u.snapshot_date)
+FROM authority_rows u
+WHERE u.permaticker IS NOT NULL AND u.ticker IS NOT NULL
+GROUP BY u.permaticker,u.ticker
+ON CONFLICT (permaticker,ticker) DO UPDATE SET
+  category=EXCLUDED.category,
+  category_snapshot_date=EXCLUDED.category_snapshot_date,
+  sector=EXCLUDED.sector,
+  sector_snapshot_date=EXCLUDED.sector_snapshot_date,
+  related_tickers=EXCLUDED.related_tickers,
+  related_tickers_snapshot_date=EXCLUDED.related_tickers_snapshot_date,
+  first_price_date=EXCLUDED.first_price_date,
+  last_price_date=EXCLUDED.last_price_date,
+  is_delisted=EXCLUDED.is_delisted,
+  is_delisted_snapshot_date=EXCLUDED.is_delisted_snapshot_date,
+  snapshot_date=EXCLUDED.snapshot_date
+"""
 
 
 DDL = [
@@ -54,53 +164,12 @@ DDL = [
         ADD COLUMN IF NOT EXISTS related_tickers_snapshot_date DATE""",
     """ALTER TABLE feed_universe_current
         ADD COLUMN IF NOT EXISTS is_delisted_snapshot_date DATE""",
-    # One explicit-migration scan converts an existing append-only deployment
-    # into the bounded read model. Runtime never rebuilds this from history.
-    # Re-running the migration is deterministic and repairs the projection from
-    # published/legacy evidence rather than trusting a stale derived row. Every
-    # field, including listing bounds, is the latest non-null observation.
-    """INSERT INTO feed_universe_current
-          (permaticker,ticker,category,category_snapshot_date,
-           sector,sector_snapshot_date,
-           related_tickers,related_tickers_snapshot_date,
-           first_price_date,last_price_date,
-           is_delisted,is_delisted_snapshot_date,snapshot_date)
-        SELECT u.permaticker,u.ticker,
-          (ARRAY_REMOVE(ARRAY_AGG(u.category ORDER BY u.snapshot_date DESC),
-                        NULL))[1],
-          MAX(u.snapshot_date) FILTER (WHERE u.category IS NOT NULL),
-          (ARRAY_REMOVE(ARRAY_AGG(u.sector ORDER BY u.snapshot_date DESC),
-                        NULL))[1],
-          MAX(u.snapshot_date) FILTER (WHERE u.sector IS NOT NULL),
-          (ARRAY_REMOVE(ARRAY_AGG(u.related_tickers
-                                  ORDER BY u.snapshot_date DESC), NULL))[1],
-          MAX(u.snapshot_date) FILTER (WHERE u.related_tickers IS NOT NULL),
-          (ARRAY_REMOVE(ARRAY_AGG(u.first_price_date
-                                  ORDER BY u.snapshot_date DESC), NULL))[1],
-          (ARRAY_REMOVE(ARRAY_AGG(u.last_price_date
-                                  ORDER BY u.snapshot_date DESC), NULL))[1],
-          (ARRAY_REMOVE(ARRAY_AGG(u.is_delisted ORDER BY u.snapshot_date DESC),
-                        NULL))[1],
-          MAX(u.snapshot_date) FILTER (WHERE u.is_delisted IS NOT NULL),
-          MAX(u.snapshot_date)
-        FROM sentinel_universe u
-        WHERE u.permaticker IS NOT NULL AND u.ticker IS NOT NULL
-          AND (u.last_written_run_id IS NULL OR EXISTS (
-                SELECT 1 FROM sentinel_corpus_publications p
-                 WHERE p.run_id=u.last_written_run_id))
-        GROUP BY u.permaticker,u.ticker
-        ON CONFLICT (permaticker,ticker) DO UPDATE SET
-          category=EXCLUDED.category,
-          category_snapshot_date=EXCLUDED.category_snapshot_date,
-          sector=EXCLUDED.sector,
-          sector_snapshot_date=EXCLUDED.sector_snapshot_date,
-          related_tickers=EXCLUDED.related_tickers,
-          related_tickers_snapshot_date=EXCLUDED.related_tickers_snapshot_date,
-          first_price_date=EXCLUDED.first_price_date,
-          last_price_date=EXCLUDED.last_price_date,
-          is_delisted=EXCLUDED.is_delisted,
-          is_delisted_snapshot_date=EXCLUDED.is_delisted_snapshot_date,
-          snapshot_date=EXCLUDED.snapshot_date""",
+    # Explicit migration reconstructs the bounded read model from published or
+    # legacy evidence. The latest identity-rebuild generation is a membership
+    # floor: older rows may fill sparse fields only for pairings that generation
+    # still names; omitted pairings are durable negative space.
+    _REBUILD_DELETE,
+    _REBUILD_INSERT,
 ]
 
 
@@ -176,6 +245,24 @@ _PROJECT_RUN = f"""
       snapshot_date=GREATEST(feed_universe_current.snapshot_date,
                              EXCLUDED.snapshot_date)
 """
+
+
+def retire_absent_from_run(conn, *, run_id: str) -> int:
+    """Retire membership omitted by one complete replacement candidate.
+
+    Caller owns the publication transaction. The candidate rows are still
+    unpublished, so a rollback restores the previous projection exactly.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM feed_universe_current current"
+            " WHERE NOT EXISTS ("
+            "   SELECT 1 FROM sentinel_universe candidate"
+            "    WHERE candidate.last_written_run_id=%s"
+            "      AND candidate.permaticker=current.permaticker"
+            "      AND candidate.ticker=current.ticker)",
+            (str(run_id),))
+        return max(0, int(cur.rowcount or 0))
 
 
 def project_run(conn, *, run_id: str) -> int:
