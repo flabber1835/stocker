@@ -1,18 +1,25 @@
-"""Attended full-history recovery for historical TICKERS identity corrections.
+"""Full-history recovery for historical TICKERS identity corrections.
 
 Ordinary seed and daily ingestion must never reinterpret already-published bars
 merely because Sharadar's current TICKERS snapshot changed a listing interval.
 The guard in :mod:`sentinel.feed.universe` is therefore intentionally retained.
-This module is the only stronger recovery boundary: a complete source-stable
-seed replays every retained SEP session against the corrected TICKERS snapshot,
-claims every replayed bar, and retires negative space in the same transaction as
-the replacement universe projection and corpus publication.
+This module is the only stronger recovery boundary: an explicitly requested,
+complete source-stable seed replays the retained SEP history against the
+corrected TICKERS snapshot and publishes the replacement atomically.
+
+Negative-space retirement is deliberately narrow. A stable paginated SEP
+traversal is not proof that every unrelated historical row still exists. Only
+security identities whose published listing interval actually changed are
+eligible for bar retirement, and any old bar that remains covered by the new
+listing projection must have been claimed by the replacement replay or the
+publication is refused.
 """
 from __future__ import annotations
 
 import datetime as _dt
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from typing import Iterable, Mapping, Sequence
 
@@ -21,11 +28,12 @@ from sentinel.feed import store as feed_store
 from sentinel.feed import universe_projection
 
 SCHEMA = "sentinel.identity-rebuild/1"
+log = logging.getLogger("sentinel")
 
 
 @dataclass(frozen=True)
 class IdentityRebuildPlan:
-    """Exact published boundary a full identity rebuild is allowed to replace."""
+    """Exact published boundary a full identity rebuild may replace."""
 
     market_start: str
     market_end: str
@@ -82,15 +90,23 @@ def _unused_snapshot_date(conn, *, market_end: str,
 
 def prepare(conn, *, date_from: str, date_to: str,
             observed_on: str | None = None) -> IdentityRebuildPlan:
-    """Authorize only a complete replacement of the current physical history."""
+    """Authorize only a complete replacement of current physical SEP history."""
     feed_store._assert_corpus_locked(conn)
     requested_lo, requested_hi = _date(date_from), _date(date_to)
     if requested_lo > requested_hi:
         raise recovery.PublicationRecoveryRefused(
             f"reversed identity rebuild range: {requested_lo} > {requested_hi}")
 
-    report = publication.assert_coherent(conn)
+    report = publication.coherence(conn)
     current = publication.require_current(conn)
+    live = recovery.live_candidates(conn)
+    unsafe = [(item.run_id, item.status) for item in live
+              if item.status != "failed"]
+    if unsafe:
+        raise recovery.PublicationRecoveryRefused(
+            "identity rebuild found unpublished authority outside a failed "
+            f"terminal state: {unsafe}")
+
     visible_lo, visible_hi = _bar_bounds(conn, visible=True)
     physical_lo, physical_hi = _bar_bounds(conn, visible=False)
     if visible_lo is None or visible_hi is None:
@@ -216,6 +232,44 @@ def _universe_payload(rows: Sequence[Mapping], *, snapshot_date: str,
     return payload
 
 
+def _listing_changes(conn, *, payload: Sequence[tuple],
+                     corpus_lo: str, corpus_hi: str) -> list[dict]:
+    candidate = universe._candidate_listing_projection(payload)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT permaticker,ticker,first_price_date,last_price_date"
+            " FROM feed_universe_current")
+        prior = {(str(p), str(t)): (f, l) for p, t, f, l in cur.fetchall()}
+
+    changes: list[dict] = []
+    for permaticker, ticker in sorted(set(prior) | set(candidate)):
+        had_prior = (permaticker, ticker) in prior
+        has_candidate = (permaticker, ticker) in candidate
+        old_first, old_last = prior.get((permaticker, ticker), (None, None))
+        new_first, new_last = candidate.get((permaticker, ticker), (None, None))
+        if had_prior and has_candidate:
+            new_first = new_first if new_first is not None else old_first
+            new_last = new_last if new_last is not None else old_last
+        old = (universe._clipped_listing(
+            old_first, old_last, corpus_lo, corpus_hi) if had_prior else None)
+        new = (universe._clipped_listing(
+            new_first, new_last, corpus_lo, corpus_hi) if has_candidate else None)
+        if old != new:
+            changes.append({
+                "permaticker": permaticker,
+                "ticker": ticker,
+                "published": list(old) if old is not None else None,
+                "candidate": list(new) if new is not None else None,
+            })
+    return changes
+
+
+def _changes_digest(changes: Sequence[Mapping]) -> str:
+    encoded = json.dumps(
+        list(changes), sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def verify_candidate(conn, *, run_id: str, plan: IdentityRebuildPlan,
                      rows: Iterable[Mapping]) -> list[Mapping]:
     """Re-prove the mutation and bind the exact stable TICKERS generation."""
@@ -236,10 +290,19 @@ def verify_candidate(conn, *, run_id: str, plan: IdentityRebuildPlan,
             "observation; refusing a destructive rebuild without a reproducible "
             "historical identity mutation")
 
+    changes = _listing_changes(
+        conn, payload=payload, corpus_lo=plan.base_visible_start,
+        corpus_hi=plan.base_visible_end)
+    if not changes:
+        raise recovery.PublicationRecoveryRefused(
+            "historical identity guard fired but no structured listing change "
+            "could be reproduced")
     observation = coherence.observe_tickers(material)
     addition = {
         "candidate_rows": int(observation.rows),
         "candidate_digest": observation.digest,
+        "changed_pairs": changes,
+        "changed_pairs_digest": _changes_digest(changes),
         "mutation_sha256": hashlib.sha256(
             mutation_detail.encode("utf-8")).hexdigest(),
         "mutation_detail": mutation_detail[:4000],
@@ -260,46 +323,9 @@ def verify_candidate(conn, *, run_id: str, plan: IdentityRebuildPlan,
     return material
 
 
-def write_bars_claiming(conn, bars: Iterable, *, run_id: str,
-                        batch_size: int = 0) -> int:
-    """Replay bars while claiming unchanged published keys for this generation."""
-    feed_store._assert_corpus_locked(conn)
-    writer = str(run_id)
-    size = int(batch_size or feed_store.WRITE_BATCH)
-    rows: list[tuple] = []
-    written = 0
-
-    def flush() -> None:
-        nonlocal written
-        if not rows:
-            return
-        with conn.cursor() as cur:
-            cur.executemany(feed_store._BAR_UPSERT, [row[:10] for row in rows])
-            cur.executemany(
-                "UPDATE sentinel_bars SET last_written_run_id=%s"
-                " WHERE security_id=%s AND session=%s",
-                [(writer, row[0], row[1]) for row in rows])
-        conn.commit()
-        written += len(rows)
-        rows.clear()
-
-    for item in bars:
-        bar = getattr(item, "vendor", item)
-        rows.append((
-            bar.security_id, bar.session, bar.ticker,
-            getattr(item, "close_signal", None),
-            bar.raw_close, bar.raw_open, bar.volume, bar.split_ratio,
-            bar.dividend_per_share, writer,
-            getattr(item, "close_total_return", None),
-        ))
-        if len(rows) >= size:
-            flush()
-    flush()
-    return written
-
-
-def _candidate_evidence(conn, *, run_id: str,
-                        rows: Sequence[Mapping]) -> tuple[IdentityRebuildPlan, dict]:
+def _candidate_evidence(
+        conn, *, run_id: str, rows: Sequence[Mapping]
+        ) -> tuple[IdentityRebuildPlan, dict, list[dict]]:
     status, payload = _load_payload(conn, run_id=run_id)
     if status != "running":
         raise recovery.PublicationRecoveryRefused(
@@ -311,11 +337,47 @@ def _candidate_evidence(conn, *, run_id: str,
         raise recovery.PublicationRecoveryRefused(
             "final TICKERS generation differs from the candidate bound before "
             "the SEP replay")
-    return plan, payload
+    candidate_payload = _universe_payload(
+        rows, snapshot_date=plan.snapshot_date, run_id=run_id)
+    changes = _listing_changes(
+        conn, payload=candidate_payload, corpus_lo=plan.base_visible_start,
+        corpus_hi=plan.base_visible_end)
+    recorded = payload.get("changed_pairs")
+    if (recorded != changes
+            or str(payload.get("changed_pairs_digest") or "")
+            != _changes_digest(changes)):
+        raise recovery.PublicationRecoveryRefused(
+            "final structured identity changes differ from the candidate bound "
+            "before the SEP replay")
+    return plan, payload, changes
 
 
-def _validate_bar_replacement(conn, *, run_id: str,
-                              plan: IdentityRebuildPlan) -> int:
+def _candidate_intervals(rows: Sequence[Mapping], *, plan: IdentityRebuildPlan
+                         ) -> dict[str, tuple[tuple[str, str], ...]]:
+    grouped: dict[str, list[tuple[str, str]]] = {}
+    for listing in universe.listings_from_rows(rows):
+        lo = max(listing.first_session or plan.market_start, plan.market_start)
+        hi = min(listing.last_session or plan.market_end, plan.market_end)
+        if lo <= hi:
+            grouped.setdefault(listing.permaticker, []).append((lo, hi))
+    return {key: tuple(sorted(value)) for key, value in grouped.items()}
+
+
+def _affected_security_ids(changes: Sequence[Mapping]) -> tuple[str, ...]:
+    return tuple(sorted({
+        str(item["permaticker"]) for item in changes
+        if item.get("published") is not None
+    }))
+
+
+def _covered(intervals: Sequence[tuple[str, str]], session: str) -> bool:
+    return any(lo <= session <= hi for lo, hi in intervals)
+
+
+def _validate_bar_replacement(
+        conn, *, run_id: str, plan: IdentityRebuildPlan,
+        rows: Sequence[Mapping], changes: Sequence[Mapping]
+        ) -> tuple[int, tuple[str, ...]]:
     writer = str(run_id)
     with conn.cursor() as cur:
         cur.execute(
@@ -339,7 +401,34 @@ def _validate_bar_replacement(conn, *, run_id: str,
         raise recovery.PublicationRecoveryRefused(
             f"identity rebuild candidate coverage {lo}..{hi} does not span the "
             f"published boundary {plan.base_visible_start}..{plan.base_visible_end}")
-    return int(count)
+
+    affected = _affected_security_ids(changes)
+    if not affected:
+        return int(count), affected
+    intervals = _candidate_intervals(rows, plan=plan)
+    sql = (
+        "SELECT security_id,session,ticker FROM sentinel_bars"
+        " WHERE security_id=ANY(%s::text[])"
+        "   AND session BETWEEN %s AND %s"
+        "   AND last_written_run_id IS DISTINCT FROM %s::uuid"
+        " ORDER BY security_id,session")
+    missing: list[tuple[str, str, str]] = []
+    missing_count = 0
+    with feed_store.streaming_cursor(
+            conn, sql, (list(affected), plan.market_start, plan.market_end,
+                        writer)) as cur:
+        for security_id, session, ticker in cur:
+            sid, sess = str(security_id), str(session)
+            if _covered(intervals.get(sid, ()), sess):
+                missing_count += 1
+                if len(missing) < 8:
+                    missing.append((sid, sess, str(ticker)))
+    if missing_count:
+        raise recovery.PublicationRecoveryRefused(
+            f"identity rebuild failed to replay {missing_count} old bar(s) still "
+            f"covered by the candidate listing intervals: {missing}. Refusing "
+            "to turn a stable partial SEP traversal into deletion authority")
+    return int(count), affected
 
 
 def _stage_candidate_universe(conn, *, run_id: str,
@@ -361,12 +450,27 @@ def _stage_candidate_universe(conn, *, run_id: str,
     return len(payload)
 
 
+def _retire_obsolete_bars(conn, *, run_id: str, plan: IdentityRebuildPlan,
+                          affected: Sequence[str]) -> int:
+    if not affected:
+        return 0
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM sentinel_bars"
+            " WHERE security_id=ANY(%s::text[])"
+            "   AND session BETWEEN %s AND %s"
+            "   AND last_written_run_id IS DISTINCT FROM %s::uuid",
+            (list(affected), plan.market_start, plan.market_end, str(run_id)))
+        return int(cur.rowcount)
+
+
 def publish_completed_run(conn, *, run, rows: Sequence[Mapping],
                           plan: IdentityRebuildPlan):
-    """Commit success, negative-space retirement and publication atomically."""
+    """Commit success, scoped retirement and publication atomically."""
     feed_store._assert_corpus_locked(conn)
     writer = str(run.progress.run_id)
-    durable_plan, payload = _candidate_evidence(conn, run_id=writer, rows=rows)
+    durable_plan, payload, changes = _candidate_evidence(
+        conn, run_id=writer, rows=rows)
     if durable_plan != plan:
         raise recovery.PublicationRecoveryRefused(
             "identity rebuild finalizer received a plan different from its "
@@ -377,8 +481,8 @@ def publish_completed_run(conn, *, run, rows: Sequence[Mapping],
             f"identity rebuild was authorized against corpus v{plan.base_version} "
             f"but current authority is v{current.version}")
 
-    candidate_bar_count = _validate_bar_replacement(
-        conn, run_id=writer, plan=plan)
+    candidate_bar_count, affected = _validate_bar_replacement(
+        conn, run_id=writer, plan=plan, rows=rows, changes=changes)
     try:
         candidate_universe_rows = _stage_candidate_universe(
             conn, run_id=writer, plan=plan, rows=rows)
@@ -397,14 +501,8 @@ def publish_completed_run(conn, *, run, rows: Sequence[Mapping],
 
         retired_projection = universe_projection.retire_absent_from_run(
             conn, run_id=writer)
-        with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM sentinel_bars"
-                " WHERE session BETWEEN %s AND %s"
-                "   AND last_written_run_id IS DISTINCT FROM %s::uuid",
-                (plan.market_start, plan.market_end, writer))
-            retired_bars = int(cur.rowcount)
-
+        retired_bars = _retire_obsolete_bars(
+            conn, run_id=writer, plan=plan, affected=affected)
         evidence = {
             "kind": run.progress.kind,
             "rows_written": run.progress.rows_written,
@@ -414,6 +512,8 @@ def publish_completed_run(conn, *, run, rows: Sequence[Mapping],
                 **_plan_payload(plan),
                 "candidate_rows": int(payload["candidate_rows"]),
                 "candidate_digest": str(payload["candidate_digest"]),
+                "changed_pairs": changes,
+                "changed_pairs_digest": str(payload["changed_pairs_digest"]),
                 "mutation_sha256": str(payload["mutation_sha256"]),
                 "candidate_universe_rows": candidate_universe_rows,
                 "candidate_bars": candidate_bar_count,
@@ -421,13 +521,27 @@ def publish_completed_run(conn, *, run, rows: Sequence[Mapping],
                 "retired_projection_pairs": retired_projection,
             },
         }
-        return publication.publish(
+        published = publication.publish(
             conn, run_id=writer, window_start=plan.market_start,
             window_end=plan.market_end, evidence=evidence)
+        log.info(
+            "sentinel: identity-aware corpus replacement published v%d; "
+            "retired %d obsolete bar(s) across %d affected security id(s) and "
+            "%d universe pairing(s)",
+            published.version, retired_bars, len(affected), retired_projection)
+        return published
     except BaseException as exc:                              # noqa: BLE001
         conn.rollback()
         run.finish("failed", f"identity rebuild publication failed: {exc}")
         raise
+
+
+def write_bars_claiming(conn, bars: Iterable, *, run_id: str,
+                        batch_size: int = 0) -> int:
+    """Compatibility facade for focused tests and external package callers."""
+    from sentinel.feed.identity_rebuild_writer import write_bars_claiming as write
+
+    return write(conn, bars, run_id=run_id, batch_size=batch_size)
 
 
 __all__ = [
