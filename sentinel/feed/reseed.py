@@ -65,6 +65,7 @@ def full_reseed_locked(
             conn, run_id=run.progress.run_id, plan=identity_rebuild_plan)
 
     candidate_tickers = None
+    claim_security_ids = None
     with run.chunk("tickers"):
         rows = list(fetch(sharadar.TICKERS))
         if identity_rebuild_plan is None:
@@ -74,6 +75,8 @@ def full_reseed_locked(
             candidate_tickers = identity_rebuild.verify_candidate(
                 conn, run_id=run.progress.run_id,
                 plan=identity_rebuild_plan, rows=rows)
+            claim_security_ids = identity_rebuild.affected_security_ids(
+                conn, run_id=run.progress.run_id)
 
     action_start = maintenance.ACTIONS_FULL_WINDOW_START
     with run.chunk("actions"):
@@ -107,9 +110,9 @@ def full_reseed_locked(
         resolver = resolve_identity or universe.load_resolver(
             conn, include_run_id=run.progress.run_id).resolve
     else:
-        if candidate_tickers is None:
+        if candidate_tickers is None or claim_security_ids is None:
             raise recovery.PublicationRecoveryRefused(
-                "identity rebuild lost its candidate TICKERS snapshot")
+                "identity rebuild lost its candidate TICKERS evidence")
         # Never overlay the old published projection here. That is the exact
         # circular defect #246 closes: an omitted/reassigned pairing must not
         # remain available to resolve the replacement SEP replay.
@@ -140,7 +143,8 @@ def full_reseed_locked(
                     conn, bars, run_id=run.progress.run_id, require_lock=True)
             else:
                 written = identity_rebuild_writer.write_bars_claiming(
-                    conn, bars, run_id=run.progress.run_id)
+                    conn, bars, run_id=run.progress.run_id,
+                    claim_security_ids=claim_security_ids)
             ingest_impl._persist_chunk_evidence(
                 conn, run, lo[:4], lo, hi, report, splits,
                 action_rows, action_rows, ambiguous_splits)
