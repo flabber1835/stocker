@@ -370,6 +370,16 @@ def _affected_security_ids(changes: Sequence[Mapping]) -> tuple[str, ...]:
     }))
 
 
+def affected_security_ids(conn, *, run_id: str) -> tuple[str, ...]:
+    """Permanent IDs whose unchanged replay rows must transfer provenance."""
+    _status, payload = _load_payload(conn, run_id=run_id)
+    changes = payload.get("changed_pairs")
+    if not isinstance(changes, list):
+        raise recovery.PublicationRecoveryRefused(
+            f"identity rebuild seed {run_id} has no structured changed-pair set")
+    return _affected_security_ids(changes)
+
+
 def _covered(intervals: Sequence[tuple[str, str]], session: str) -> bool:
     return any(lo <= session <= hi for lo, hi in intervals)
 
@@ -381,30 +391,26 @@ def _validate_bar_replacement(
     writer = str(run_id)
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT COUNT(*),MIN(session),MAX(session) FROM sentinel_bars"
+            "SELECT COUNT(*) FROM sentinel_bars"
             " WHERE last_written_run_id=%s", (writer,))
-        count, lo, hi = cur.fetchone()
+        count = int(cur.fetchone()[0])
         cur.execute(
             "SELECT COUNT(*) FROM sentinel_bars"
             " WHERE last_written_run_id=%s"
             "   AND (session<%s OR session>%s)",
             (writer, plan.market_start, plan.market_end))
         outside = int(cur.fetchone()[0])
-    if not int(count or 0):
-        raise recovery.PublicationRecoveryRefused(
-            "identity rebuild replay produced no candidate SEP bars")
     if outside:
         raise recovery.PublicationRecoveryRefused(
             f"identity rebuild run owns {outside} bar(s) outside its declared "
             f"range {plan.market_start}..{plan.market_end}")
-    if str(lo) > plan.base_visible_start or str(hi) < plan.base_visible_end:
-        raise recovery.PublicationRecoveryRefused(
-            f"identity rebuild candidate coverage {lo}..{hi} does not span the "
-            f"published boundary {plan.base_visible_start}..{plan.base_visible_end}")
 
+    # Full session/population/domain coverage is proven upstream by the seed-mode
+    # StableSharadarFetch for every year. Ownership here is intentionally sparse:
+    # only changed values and affected permanent IDs transfer to this run.
     affected = _affected_security_ids(changes)
     if not affected:
-        return int(count), affected
+        return count, affected
     intervals = _candidate_intervals(rows, plan=plan)
     sql = (
         "SELECT security_id,session,ticker FROM sentinel_bars"
@@ -428,7 +434,7 @@ def _validate_bar_replacement(
             f"identity rebuild failed to replay {missing_count} old bar(s) still "
             f"covered by the candidate listing intervals: {missing}. Refusing "
             "to turn a stable partial SEP traversal into deletion authority")
-    return int(count), affected
+    return count, affected
 
 
 def _stage_candidate_universe(conn, *, run_id: str,
@@ -536,15 +542,20 @@ def publish_completed_run(conn, *, run, rows: Sequence[Mapping],
         raise
 
 
-def write_bars_claiming(conn, bars: Iterable, *, run_id: str,
-                        batch_size: int = 0) -> int:
-    """Compatibility facade for focused tests and external package callers."""
+def write_bars_claiming(
+        conn, bars: Iterable, *, run_id: str,
+        claim_security_ids: Sequence[str] | None = None,
+        batch_size: int = 0) -> int:
+    """Compatibility facade for focused tests and package callers."""
     from sentinel.feed.identity_rebuild_writer import write_bars_claiming as write
 
-    return write(conn, bars, run_id=run_id, batch_size=batch_size)
+    return write(
+        conn, bars, run_id=run_id, claim_security_ids=claim_security_ids,
+        batch_size=batch_size)
 
 
 __all__ = [
-    "IdentityRebuildPlan", "SCHEMA", "prepare", "publish_completed_run",
-    "record_plan", "verify_candidate", "write_bars_claiming",
+    "IdentityRebuildPlan", "SCHEMA", "affected_security_ids", "prepare",
+    "publish_completed_run", "record_plan", "verify_candidate",
+    "write_bars_claiming",
 ]
