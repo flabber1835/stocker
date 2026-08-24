@@ -28,13 +28,15 @@ from __future__ import annotations
 from typing import Callable, Iterable
 
 from sentinel.feed import (
-    action_source, domains, maintenance, recovery, sharadar, universe)
+    action_source, domains, identity_rebuild, maintenance, recovery, sharadar,
+    universe)
 from sentinel.feed import store as feed_store
 
 
 def full_reseed_locked(
         conn, *, date_from: str, date_to: str,
-        fetch: Callable[..., Iterable[dict]], resolve_identity=None
+        fetch: Callable[..., Iterable[dict]], resolve_identity=None,
+        identity_rebuild_plan: identity_rebuild.IdentityRebuildPlan | None = None,
         ) -> feed_store.IngestProgress:
     """Refetch and replace a legacy ambiguous unpublished candidate set.
 
@@ -44,6 +46,12 @@ def full_reseed_locked(
     SEP/SFP candidate row. ``fetch`` is the same seed-mode stable source facade
     used by ordinary seed. ACTIONS independently uses the complete
     ``1900-01-01..date_to`` contract.
+
+    ``identity_rebuild_plan`` is the stronger #246 boundary. It deliberately
+    does not publish TICKERS metadata first. The complete candidate snapshot is
+    kept in memory, SEP is resolved exclusively against it, and TICKERS rows,
+    obsolete-key retirement, projection replacement and corpus publication land
+    in one final transaction.
     """
     from sentinel.feed import ingest_impl
 
@@ -52,11 +60,20 @@ def full_reseed_locked(
     run = feed_store.IngestRun(
         conn, "seed", date_from=date_from, date_to=date_to,
         chunks_total=len(chunks) + 3)
+    if identity_rebuild_plan is not None:
+        identity_rebuild.record_plan(
+            conn, run_id=run.progress.run_id, plan=identity_rebuild_plan)
 
+    candidate_tickers = None
     with run.chunk("tickers"):
         rows = list(fetch(sharadar.TICKERS))
-        run.progress.rows_written += universe.write_universe(
-            conn, rows, date_to, run_id=run.progress.run_id)
+        if identity_rebuild_plan is None:
+            run.progress.rows_written += universe.write_universe(
+                conn, rows, date_to, run_id=run.progress.run_id)
+        else:
+            candidate_tickers = identity_rebuild.verify_candidate(
+                conn, run_id=run.progress.run_id,
+                plan=identity_rebuild_plan, rows=rows)
 
     action_start = maintenance.ACTIONS_FULL_WINDOW_START
     with run.chunk("actions"):
@@ -86,8 +103,18 @@ def full_reseed_locked(
         run.progress.rows_written += ingest_impl._write_sfp_reference_rows(
             conn, rows, run_id=run.progress.run_id)
 
-    resolver = resolve_identity or universe.load_resolver(
-        conn, include_run_id=run.progress.run_id).resolve
+    if identity_rebuild_plan is None:
+        resolver = resolve_identity or universe.load_resolver(
+            conn, include_run_id=run.progress.run_id).resolve
+    else:
+        if candidate_tickers is None:
+            raise recovery.PublicationRecoveryRefused(
+                "identity rebuild lost its candidate TICKERS snapshot")
+        # Never overlay the old published projection here. That is the exact
+        # circular defect #246 closes: an omitted/reassigned pairing must not
+        # remain available to resolve the replacement SEP replay.
+        resolver = universe.IdentityResolver(
+            universe.listings_from_rows(candidate_tickers)).resolve
 
     for index, (lo, hi) in enumerate(chunks):
         final_chunk = index == len(chunks) - 1
@@ -108,8 +135,12 @@ def full_reseed_locked(
                 # cannot cross into hidden legacy candidate evidence.
                 prior_observations=feed_store.previous_observations(conn, lo),
                 report=report)
-            written = feed_store.write_bars(
-                conn, bars, run_id=run.progress.run_id, require_lock=True)
+            if identity_rebuild_plan is None:
+                written = feed_store.write_bars(
+                    conn, bars, run_id=run.progress.run_id, require_lock=True)
+            else:
+                written = identity_rebuild.write_bars_claiming(
+                    conn, bars, run_id=run.progress.run_id)
             ingest_impl._persist_chunk_evidence(
                 conn, run, lo[:4], lo, hi, report, splits,
                 action_rows, action_rows, ambiguous_splits)
@@ -139,8 +170,13 @@ def full_reseed_locked(
                     market_start=date_from, actions_start=action_start,
                     end=date_to)
 
-    run.finish("success")
-    ingest_impl._publish_version(conn, run, date_from, date_to)
+    if identity_rebuild_plan is None:
+        run.finish("success")
+        ingest_impl._publish_version(conn, run, date_from, date_to)
+    else:
+        identity_rebuild.publish_completed_run(
+            conn, run=run, rows=candidate_tickers,
+            plan=identity_rebuild_plan)
     return run.progress
 
 
