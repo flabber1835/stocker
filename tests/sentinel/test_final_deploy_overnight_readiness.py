@@ -23,17 +23,30 @@ def _load(name: str, path: Path):
     return module
 
 
-core = _load(
-    "sentinel_autonomous_deploy_final_release",
-    SCRIPTS / "sentinel_autonomous_deploy.py")
-sys.modules["sentinel_autonomous_deploy"] = core
-driver = _load(
-    "sentinel_autonomous_deploy_driver_final_release",
-    SCRIPTS / "sentinel_autonomous_deploy_driver.py")
-sys.modules["sentinel_autonomous_deploy_driver"] = driver
-bootstrap = _load(
-    "sentinel_autonomous_deploy_bootstrap_final_release",
-    SCRIPTS / "sentinel_autonomous_deploy_bootstrap.py")
+def _load_release_modules():
+    """Load the deploy inheritance chain without polluting pytest globals."""
+    names = ("sentinel_autonomous_deploy", "sentinel_autonomous_deploy_driver")
+    saved = {name: sys.modules.get(name) for name in names}
+    try:
+        core = _load(
+            "sentinel_autonomous_deploy",
+            SCRIPTS / "sentinel_autonomous_deploy.py")
+        driver = _load(
+            "sentinel_autonomous_deploy_driver",
+            SCRIPTS / "sentinel_autonomous_deploy_driver.py")
+        bootstrap = _load(
+            "sentinel_autonomous_deploy_bootstrap_final_release",
+            SCRIPTS / "sentinel_autonomous_deploy_bootstrap.py")
+        return core, driver, bootstrap
+    finally:
+        for name, prior in saved.items():
+            if prior is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = prior
+
+
+core, driver, bootstrap = _load_release_modules()
 
 
 def test_bootstrap_persists_reviewed_dual_as_dual(monkeypatch, tmp_path):
