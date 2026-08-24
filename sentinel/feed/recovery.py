@@ -137,7 +137,7 @@ def record_action_reconcile_retirement_plan(
 
 def load_action_reconcile_retirement_plan(
         conn, *, run_id: str) -> ActionReconcileRetirementPlan | None:
-    """Load the exact durable cleanup scope for normal or crash-resumed publish."""
+    """Load ACTIONS cleanup scope without consuming other recovery schemas."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT kind,publication_recovery FROM feed_ingest_runs WHERE run_id=%s",
@@ -145,8 +145,14 @@ def load_action_reconcile_retirement_plan(
         row = cur.fetchone()
     if row is None:
         raise PublicationRecoveryRefused(
-            f"ACTIONS retry run {run_id} has no ingest lifecycle row")
+            f"ingest run {run_id} has no lifecycle row")
     kind, raw = str(row[0]), row[1]
+    # publication_recovery is a tagged union shared by several ingest kinds.
+    # A seed identity-rebuild plan is not malformed ACTIONS evidence; it belongs
+    # to a different publisher-specific finalization path. Dispatch on kind
+    # before interpreting that generic JSONB column.
+    if kind != "actions_reconcile":
+        return None
     payload = raw if isinstance(raw, dict) else json.loads(raw or "{}")
     if not payload:
         return None
@@ -155,7 +161,7 @@ def load_action_reconcile_retirement_plan(
             f"run {run_id} has malformed ACTIONS publication-recovery evidence")
     expected_fields = {
         "schema", "market_start", "market_end", "replay_windows"}
-    if (kind != "actions_reconcile" or set(payload) != expected_fields
+    if (set(payload) != expected_fields
             or payload.get("schema") !=
             "sentinel.actions-reconcile-retirement/1"):
         raise PublicationRecoveryRefused(
