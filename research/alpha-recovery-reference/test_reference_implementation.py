@@ -12,8 +12,10 @@ from reference_implementation import (
 
 
 def fast(warning: bool, confirmed: bool = False,
-         status: BranchStatus = BranchStatus.CONTROLLABLE) -> FastDecision:
-    return FastDecision(status, warning, confirmed, 2 if confirmed else 0, 3,
+         status: BranchStatus | None = None) -> FastDecision:
+    resolved = status or (BranchStatus.CONTROLLABLE if warning
+                          else BranchStatus.IMPOSSIBLE)
+    return FastDecision(resolved, warning, confirmed, 2 if confirmed else 0, 3,
                         confirmed, True, "TEST_FAST")
 
 
@@ -99,6 +101,15 @@ class ControllerTests(unittest.TestCase):
                          r40_history=(None, -.10, -.08),
                          last_session="2026-01-01")
         self.assertEqual(state_from_dict(state_to_dict(original)), original)
+
+    def test_unavailable_fast_evidence_withholds_state_transition(self):
+        unavailable = fast(False, status=BranchStatus.UNAVAILABLE)
+        with self.assertRaisesRegex(ValueError, "withhold the decision"):
+            step(observation=ob(1, signal=unavailable), state=State())
+
+    def test_invalid_negative_ramp_index_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "ramp_index"):
+            state_to_dict(State(ramp_active=True, ramp_index=-1))
 
 
 class PeerSignalTests(unittest.TestCase):
