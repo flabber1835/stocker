@@ -1,5 +1,6 @@
 name: Research SEC PIT SIC tape
 
+# Research-only workflow. Not production authority and not intended to merge.
 on:
   pull_request:
     paths:
@@ -19,7 +20,7 @@ jobs:
           python - <<'PY'
           from concurrent.futures import ThreadPoolExecutor
           from pathlib import Path
-          import csv, hashlib, io, os, tempfile, time, urllib.request, zipfile
+          import csv, hashlib, io, time, urllib.request, zipfile
 
           quarters=[]
           for y in range(2009, 2027):
@@ -51,7 +52,6 @@ jobs:
                       last=exc; time.sleep(2*(attempt+1))
               raise RuntimeError(f'failed {url}: {last}')
 
-          # Download in bounded batches; process and delete each batch immediately.
           for start in range(0,len(quarters),4):
               batch=quarters[start:start+4]
               with ThreadPoolExecutor(max_workers=4) as pool:
@@ -62,8 +62,7 @@ jobs:
                       if len(members)!=1:
                           raise RuntimeError(f'{path.name}: expected one SUB file, got {members}')
                       raw=z.read(members[0])
-                  text=raw.decode('utf-8-sig',errors='replace')
-                  rdr=csv.DictReader(io.StringIO(text),delimiter='\t')
+                  rdr=csv.DictReader(io.StringIO(raw.decode('utf-8-sig',errors='replace')),delimiter='\t')
                   required={'adsh','cik','sic','filed'}
                   if not required.issubset(set(rdr.fieldnames or [])):
                       raise RuntimeError(f'{path.name}: missing fields {required-set(rdr.fieldnames or [])}')
@@ -86,9 +85,9 @@ jobs:
           with csvpath.open('w',newline='') as f:
               w=csv.writer(f); w.writerow(['filed','cik','sic','adsh','source_quarter']); w.writerows(rows)
           digest=hashlib.sha256(csvpath.read_bytes()).hexdigest()
-          meta=outdir/'PROVENANCE.txt'
-          meta.write_text(f'source=SEC Financial Statement Data Sets 2009Q2..2026Q1\nrows={len(rows)}\nsha256={digest}\nrule=as-filed SIC usable only strictly after filed date\n')
-          print(meta.read_text())
+          (outdir/'PROVENANCE.txt').write_text(
+              f'source=SEC Financial Statement Data Sets 2009Q2..2026Q1\nrows={len(rows)}\nsha256={digest}\nrule=as-filed SIC usable only strictly after filed date\n')
+          print((outdir/'PROVENANCE.txt').read_text())
           PY
       - name: Upload compact SIC tape
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
