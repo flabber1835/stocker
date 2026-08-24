@@ -1,0 +1,58 @@
+{
+  "schema": "sentinel.corrected-pit-metadata-ab/1",
+  "window_end": "2026-07-31",
+  "control_fingerprint": {
+    "cagr_20y": 0.22630215620600636,
+    "sharpe_20y": 1.2138138710255424,
+    "max_drawdown_20y": -0.21695821510142832,
+    "ending_multiple_20y": 59.15428690967636
+  },
+  "control_reproduced_exactly": true,
+  "category_free": {
+    "changed_wealth_core_buys": 0,
+    "changed_nav_sessions": 0,
+    "changed_native_allocation_sessions": 0,
+    "changed_final_allocation_sessions": 0,
+    "changed_witness_r20_sessions": 2239,
+    "changed_witness_r40_sessions": 2504,
+    "combined_pit_path_changes_vs_sector_only": 0
+  },
+  "issuer_pit": {
+    "pr208_primary_ab_economic_delta": 0,
+    "permissive_post2006_first_security_choice_divergence": {
+      "decision_session": "2025-12-22",
+      "fill_session": "2025-12-23",
+      "baseline": "ROIV",
+      "permissive": "GOOGL"
+    },
+    "causal_resolution": "SEC filing 2025-12-18 confirms GOOG/GOOGL CIK 0001652044; actual PIT blocks GOOGL, so baseline issuer path is preserved"
+  },
+  "sector_pit": {
+    "held_rows": 114961,
+    "held_unique_tickers": 463,
+    "cik_covered_rows": 92123,
+    "cik_coverage_fraction": 0.8013413244491611,
+    "sic_covered_rows": 77045,
+    "sic_coverage_fraction": 0.6701838014631049,
+    "damaged_changed_sessions": 1480,
+    "native_changed_sessions": 172,
+    "allocation_changed_sessions": 148,
+    "fast_changed_sessions": 5,
+    "first_damaged_change": "2006-08-11",
+    "first_allocation_change": "2011-10-31",
+    "A_control_cagr_20": 0.22630215620600636,
+    "B_cagr_20": 0.21635768122474452,
+    "sec_sic_sha256": "cee14e068e0793bcaaf668ffe3bbbd09c5d2107699ecd08b71371641a3efd8b7"
+  },
+  "hashes": {
+    "control_daily": "75877495da8fa2ba82ea96a15e3c59536162e944d60da0e8ea0e04f3966859a4",
+    "category_free_daily": "3a99a70625c7b769981b5f6e462d2eeffc775f1b07b7eaeba699c5d0fb1bc147",
+    "pit_daily": "ce9c801e5e44f3dd40273cf9ef4412f1f6009ff5f0d6daa23f339f1e3c07fe7e",
+    "metrics": "a9fb403eff8a3feb42931a5c13674064ad85d673caee32b4ed46481d7fe630f8",
+    "session_diff": "9716c430c2fe9675863c901df2bbc8e980de93fa20903cfaac0f88500b6f36a9",
+    "held_pit_sector_evidence": "7a89075759c6dc093f4e34a7f21961e2bcf17e0ce5cc0549614a96742fc7630d",
+    "sec_sic": "cee14e068e0793bcaaf668ffe3bbbd09c5d2107699ecd08b71371641a3efd8b7",
+    "sec_form345_observations": "61287dcab9185136deedfb8f5f64c391751980a761b748e6bde848366ce65cd0",
+    "held_sector_diag": "d85f7e8bdf82ff4c0e6a4b14abab7088d67327d25cb987c98205272b62d2870e"
+  }
+}
