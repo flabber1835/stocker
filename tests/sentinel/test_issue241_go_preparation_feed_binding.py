@@ -88,9 +88,8 @@ def test_go_preparation_reuses_host_feed_gate_and_forwards_exact_binding():
     assert len(compose_calls) == 1
     compose_argv, compose_env = compose_calls[0]
     for key in entry._FEED_ENV_KEYS:
-        assert ["--env", key] == compose_argv[
-            compose_argv.index("--env", compose_argv.index(key) - 1):
-            compose_argv.index(key) + 1]
+        position = compose_argv.index(key)
+        assert compose_argv[position - 1] == "--env"
     assert compose_env["SENTINEL_GIT_COMMIT"] == COMMIT
     assert compose_env["SENTINEL_RUNTIME_IMAGE_DIGEST"] == DIGEST
     assert compose_env["SENTINEL_FEED_AUTHORIZED"] == "CLEAN_HEAD_IMAGE_V1"
@@ -101,12 +100,12 @@ def test_go_preparation_reuses_host_feed_gate_and_forwards_exact_binding():
     assert not entry.go._BROKER_AUTH_ENV.intersection(bind_env)
 
 
-def test_go_preparation_fails_closed_when_clean_head_binding_is_unavailable():
+def test_go_preparation_fails_closed_before_mutation_when_binding_unavailable():
     runner = Runner(bind_returncode=2)
     summary = entry.probe_prevalidation_preparation(
         runner, env=_env(), runtime_ref=DIGEST, commit=COMMIT)
 
-    assert summary.status == entry.go.NOT_PROVEN
+    assert summary.status == entry.go.FAIL
     assert summary.complete is False
     assert not any(call[0][:2] == ["docker", "compose"]
                    for call in runner.calls)
