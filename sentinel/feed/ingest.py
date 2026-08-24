@@ -11,6 +11,8 @@ adds the properties a transport client cannot provide by itself:
   published authority frontier;
 * failed daily vs historical-maintenance candidates are retried in the order
   that can actually supersede their physical rows;
+* historical TICKERS corrections can advance only through a complete,
+  identity-aware full-history replacement;
 * SEP's vendor-update clock is maintained independently from market-session
   freshness;
 * recent decision history receives a complete export-backed negative-space proof;
@@ -24,8 +26,9 @@ import datetime as _dt
 from typing import Callable, Iterable, Optional
 
 from sentinel.feed import (
-    coherence, ingest_impl as _impl, maintenance, recent_reconciliation,
-    recovery, reseed, sep_reconciliation, sharadar, snapshot_source)
+    coherence, identity_rebuild, ingest_impl as _impl, maintenance,
+    recent_reconciliation, recovery, reseed, sep_reconciliation, sharadar,
+    snapshot_source, universe)
 
 for _name in dir(_impl):
     if not _name.startswith("__"):
@@ -128,6 +131,46 @@ def _prove_recent_frontier(conn, *, fetch) -> None:
         conn, through=frontier, fetch=_recent_reconciliation_source(fetch))
 
 
+def _seed_source(fetch, *, final_hi: str):
+    tracked = maintenance.LastUpdatedTrackingFetch(fetch)
+    guarded = coherence.StableSharadarFetch(
+        tracked, protect_sep=lambda _params: True,
+        corroborate_reference=(
+            lambda params: str(params.get("date.lte") or "") == final_hi),
+        after_session=None, seed_mode=True)
+    return tracked, guarded
+
+
+def _run_seed_generation(
+        conn, *, recovery_plan: recovery.FullReseedPlan,
+        fetch, final_hi: str, resolve_identity=None):
+    """Run ordinary recovery, escalating only the named identity mutation."""
+    seed_from, seed_to = recovery_plan.date_from, recovery_plan.date_to
+    tracked, guarded = _seed_source(fetch, final_hi=final_hi)
+    try:
+        if recovery_plan.retired_run_ids:
+            progress = reseed.full_reseed_locked(
+                conn, date_from=seed_from, date_to=seed_to,
+                fetch=guarded, resolve_identity=resolve_identity)
+        else:
+            progress = _impl._seed_locked(
+                conn, date_from=seed_from, date_to=seed_to,
+                fetch=guarded, resolve_identity=resolve_identity)
+        return progress, tracked
+    except universe.HistoricalIdentityMutation:
+        # The ordinary guard is correct. Escalation is allowed only because the
+        # requested seed already covers the complete physical/published corpus;
+        # `prepare` proves that before a second candidate opens.
+        plan = identity_rebuild.prepare(
+            conn, date_from=seed_from, date_to=seed_to)
+        tracked, guarded = _seed_source(fetch, final_hi=final_hi)
+        progress = reseed.full_reseed_locked(
+            conn, date_from=seed_from, date_to=seed_to,
+            fetch=guarded, resolve_identity=resolve_identity,
+            identity_rebuild_plan=plan)
+        return progress, tracked
+
+
 def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
          date_to: Optional[str] = None,
          fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
@@ -141,20 +184,9 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
         seed_from, seed_to = recovery_plan.date_from, recovery_plan.date_to
         chunks = sharadar.year_chunks(seed_from, seed_to)
         final_hi = chunks[-1][1]
-        tracked = maintenance.LastUpdatedTrackingFetch(fetch)
-        guarded = coherence.StableSharadarFetch(
-            tracked, protect_sep=lambda _params: True,
-            corroborate_reference=(
-                lambda params: str(params.get("date.lte") or "") == final_hi),
-            after_session=None, seed_mode=True)
-        if recovery_plan.retired_run_ids:
-            progress = reseed.full_reseed_locked(
-                conn, date_from=seed_from, date_to=seed_to,
-                fetch=guarded, resolve_identity=resolve_identity)
-        else:
-            progress = _impl._seed_locked(
-                conn, date_from=seed_from, date_to=seed_to,
-                fetch=guarded, resolve_identity=resolve_identity)
+        progress, tracked = _run_seed_generation(
+            conn, recovery_plan=recovery_plan, fetch=fetch,
+            final_hi=final_hi, resolve_identity=resolve_identity)
         published = _finish_publication_or_refuse(conn, progress)
         if tracked.max_sep_lastupdated is None:
             raise maintenance.MutationCursorUnavailable(
