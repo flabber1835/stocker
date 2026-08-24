@@ -1,0 +1,4 @@
+train,test,selected_cagr_threshold,train_cagr,test_cagr,test_sharpe,test_mdd,selected_sharpe_threshold,train_sharpe,sharpe_selector_test_cagr,sharpe_selector_test_sharpe,sharpe_selector_test_mdd
+train2010,test1115,0.13,0.209232,0.113160,0.791192,-0.197081,0.125,1.147076,0.113160,0.791192,-0.197081
+train2015,test1620,0.15,0.169492,0.186340,1.167751,-0.178042,0.15,1.034347,0.186340,1.167751,-0.178042
+train2020,test2126,0.15,0.175157,0.271337,1.226173,-0.241570,0.15,1.078855,0.271337,1.226173,-0.241570
