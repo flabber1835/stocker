@@ -15,4 +15,6 @@ PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
   exit 1
 }
 
-exec "$PYTHON" scripts/sentinel_go_validate.py "$@"
+# The production entrypoint reuses sentinel_feed_gate.py to bind the one
+# prevalidation corpus mutation to clean HEAD and the exact candidate image.
+exec "$PYTHON" scripts/sentinel_go_validate_entry.py "$@"
