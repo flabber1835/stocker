@@ -33,6 +33,18 @@ from sentinel.feed import (
 from sentinel.feed import store as feed_store
 
 
+def _fail_finalization_if_running(conn, run, exc: BaseException) -> None:
+    """Make a post-chunk failure durable without masking an already-failed run."""
+    conn.rollback()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT status FROM feed_ingest_runs WHERE run_id=%s",
+            (str(run.progress.run_id),))
+        row = cur.fetchone()
+    if row is not None and str(row[0]) == "running":
+        run.finish("failed", f"identity rebuild finalization failed: {exc}")
+
+
 def full_reseed_locked(
         conn, *, date_from: str, date_to: str,
         fetch: Callable[..., Iterable[dict]], resolve_identity=None,
@@ -178,9 +190,13 @@ def full_reseed_locked(
         run.finish("success")
         ingest_impl._publish_version(conn, run, date_from, date_to)
     else:
-        identity_rebuild.publish_completed_run(
-            conn, run=run, rows=candidate_tickers,
-            plan=identity_rebuild_plan)
+        try:
+            identity_rebuild.publish_completed_run(
+                conn, run=run, rows=candidate_tickers,
+                plan=identity_rebuild_plan)
+        except BaseException as exc:                          # noqa: BLE001
+            _fail_finalization_if_running(conn, run, exc)
+            raise
     return run.progress
 
 
