@@ -1,0 +1,6 @@
+comparison,threshold,control_cagr,candidate_cagr,delta_pp,interpretation,source
+issue241_sector_only_ab,30pp,0.18431723949742174,0.18479483906439498,0.04775995669732414,"SEC FF12 slightly improves CAGR versus current Sharadar sector on the same inherited #241 base; this is the actual sector-only A/B within #241",research/pit-sector-signal/results-summary.csv
+apparent_invalid_comparison,30pp,0.22630215620600636,0.18479483906439498,-4.150731714161138,"Invalid as a sector attribution because the #241 current-sector control is already 18.4317%, not 22.6302%",issue236_vs_issue241
+issue241_control_gap_before_sector,30pp,0.22630215620600636,0.18431723949742174,-4.198491670858462,"Upstream baseline mismatch present before PIT sector substitution",issue236_vs_issue241
+pr208_strict_precoverage_sensitivity,30pp,0.22630215620600636,0.21349153444114055,-1.2810621764865804,"Confirmed sensitivity from incorrectly applying SEC issuer mode before SEC evidence exists; not the accepted causal issuer A/B",artifacts/sec-pit-ldrc-ab/strict_precoverage_sensitivity.csv@1a647f6715aecc1b046061e878efc4df9406b41a
+issue241_threshold_interaction_current_sector,40pp_to_30pp,0.19979390436996347,0.18431723949742174,-1.5476664872541734,"Nonlinear fast-threshold interaction on the already-altered inherited #241 base; not a sector effect",research/pit-sector-signal/results-summary.csv
