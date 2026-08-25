@@ -47,6 +47,7 @@ class AutomationHealth(BaseModel):
     latest_failure_code: str | None = None
     latest_failure_detail: str | None = None
     last_clean_reconciliation_id: str | None = None
+    broker_outcome_unresolved: int = 0
     pending_alerts: int = 0
     dead_letter_alerts: int = 0
     unacknowledged_alerts: int = 0
@@ -63,14 +64,9 @@ def read_health(conn) -> AutomationHealth:
     """Read policy and service state without constructing any broker client.
 
     Correctly disabled or killed is supervisor-healthy but not operationally
-    ready.  A missing singleton is both uninstalled and unhealthy.  Operational
-    readiness additionally requires evidence that the current scheduler process
-    is alive and progressing; a valid authority + lease alone is insufficient.
-
-    PAPER_OBSERVATION_ONLY is standing forward-trial authority once activated.
-    Its nominal observation-window expiry remains visible as retained evidence,
-    but time passage alone does not invalidate that explicitly revocable paper
-    authority.  Historical/admin authority families remain time-bounded.
+    ready. A missing singleton is both uninstalled and unhealthy. Unresolved
+    broker commands remain visible after kill/deactivation because revoking local
+    authority cannot recall an already accepted broker request.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -120,16 +116,25 @@ def read_health(conn) -> AutomationHealth:
             (control.generation, control.generation))
         cycle = cur.fetchone()
         cur.execute(
+            "SELECT COUNT(*) FROM sentinel_commands WHERE state IN "
+            "('SEND_PENDING','ACKNOWLEDGED','UNKNOWN','PARTIALLY_FILLED',"
+            " 'CANCEL_PENDING')")
+        broker_outcome_unresolved = int(cur.fetchone()[0])
+        cur.execute(
             "SELECT"
             " COUNT(*) FILTER (WHERE state IN ('PENDING','DELIVERING')),"
             " COUNT(*) FILTER (WHERE state='DEAD_LETTER'),"
             " COUNT(*) FILTER (WHERE ack_state='UNACKNOWLEDGED')"
             " FROM sentinel_alert_outbox")
         pending, dead, unacknowledged = cur.fetchone()
+        # Health belongs to the CURRENT LEASE HOLDER. A hot standby also emits
+        # its own heartbeat; selecting the globally newest service row would let
+        # that passive process either mask or falsely accuse the active leader.
         cur.execute(
-            "SELECT instance_id,heartbeat_at FROM"
-            " sentinel_automation_service_instances"
-            " ORDER BY heartbeat_at DESC LIMIT 1")
+            "SELECT i.instance_id,i.heartbeat_at FROM"
+            " sentinel_automation_service_instances i"
+            " JOIN sentinel_automation_lease l ON l.id=1"
+            " WHERE i.instance_id=l.holder_id LIMIT 1")
         instance = cur.fetchone()
         cur.execute(
             "SELECT a.active_certificate_sha256,"
@@ -163,9 +168,6 @@ def read_health(conn) -> AutomationHealth:
         except (TypeError, json.JSONDecodeError):
             claims = {}
 
-    # A healthy leader updates both lease and service-instance heartbeat.  Use
-    # the lease's own DB-time renewal horizon as the staleness allowance so no
-    # host clock participates in this readiness verdict.
     lease_window_seconds = (
         max(1.0, (expires - heartbeat).total_seconds())
         if heartbeat is not None and expires is not None else 1.0)
@@ -185,9 +187,13 @@ def read_health(conn) -> AutomationHealth:
         (datetime.now(timezone.utc) - database_now).total_seconds())
 
     if not control.enabled:
-        policy = "DISABLED"
+        policy = (
+            "DISABLED_BROKER_OUTCOME_UNRESOLVED"
+            if broker_outcome_unresolved else "DISABLED")
     elif control.kill_switch_engaged:
-        policy = "KILLED"
+        policy = (
+            "KILLED_BROKER_OUTCOME_UNRESOLVED"
+            if broker_outcome_unresolved else "KILLED")
     elif control.authority_verdict == "FAIL":
         policy = "AUTHORITY_FAILED"
     elif control.authority_verdict != "PASS":
@@ -248,6 +254,7 @@ def read_health(conn) -> AutomationHealth:
         latest_failure_code=cycle[3] if cycle else None,
         latest_failure_detail=cycle[4] if cycle else None,
         last_clean_reconciliation_id=cycle[5] if cycle else None,
+        broker_outcome_unresolved=broker_outcome_unresolved,
         pending_alerts=pending,
         dead_letter_alerts=dead,
         unacknowledged_alerts=unacknowledged,
