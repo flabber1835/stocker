@@ -2,8 +2,9 @@
 
 The trading worker only enqueues durable outbox rows. This process owns delivery
 and requires a real HTTPS webhook; local logging is deliberately not accepted as
-successful unattended notification. Database loss is reported directly through
-the external webhook because the durable outbox is unavailable in that failure.
+successful unattended notification. Database loss and scheduler silence are
+reported directly because the failed component cannot be trusted to enqueue its
+own incident.
 """
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ from urllib.parse import urlparse
 import httpx
 
 from sentinel.automation import outbox
+from sentinel.automation.health import read_health
 from sentinel.automation_runtime import config_from_env
 from sentinel.config import SentinelConfig
 from sentinel.feed import store as feed_store
@@ -63,6 +65,17 @@ class WebhookAlertAdapter:
             "payload": {"detail": detail[:1000]},
         }, key)
 
+    def deliver_health_failure(self, policy_state: str, detail: dict,
+                               bucket: int) -> None:
+        key = f"sentinel:automation-health:{policy_state}:{bucket}"
+        self._post({
+            "schema": "sentinel.external-alert/1",
+            "idempotency_key": key,
+            "event_type": "AUTOMATION_EXTERNAL_HEALTH_FAILURE",
+            "severity": "CRITICAL",
+            "payload": {"policy_state": policy_state, **detail},
+        }, key)
+
 
 async def _sleep_or_stop(stop: asyncio.Event, seconds: float) -> None:
     try:
@@ -103,10 +116,33 @@ async def run() -> int:
 
     holder = f"alert-dispatcher-{os.getpid()}"
     last_database_bucket: int | None = None
+    last_health_key: tuple[str, int] | None = None
+    externally_critical = {
+        "SCHEDULER_STALLED", "SCHEDULER_OVERDUE", "WAITING_FOR_LEADER",
+        "AUTHORITY_FAILED", "AUTHORITY_INVALID", "BLOCKED",
+    }
     while not stopped.is_set():
         conn = None
         try:
             conn = feed_store.connect(config.database_url)
+            health = read_health(conn)
+            if (health.enabled and not health.kill_switch_engaged
+                    and health.policy_state in externally_critical):
+                bucket = int(time.time() // 60)
+                health_key = (health.policy_state, bucket)
+                if health_key != last_health_key:
+                    adapter.deliver_health_failure(
+                        health.policy_state,
+                        {
+                            "control_generation": health.control_generation,
+                            "leader_holder": health.leader_holder,
+                            "latest_cycle_id": health.latest_cycle_id,
+                            "latest_cycle_state": health.latest_cycle_state,
+                            "broker_outcome_unresolved":
+                                health.broker_outcome_unresolved,
+                        },
+                        bucket)
+                    last_health_key = health_key
             result = await outbox.dispatch_once(
                 conn, adapter=adapter, holder_id=holder,
                 claim_seconds=automation.alert_claim_seconds,
