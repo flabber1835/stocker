@@ -1,74 +1,302 @@
 #!/usr/bin/env python3
 """Build the phase-1 Orion PIT-only input set from supplied Sharadar files.
 
-Fail closed: only fields already treated as point-in-time facts are copied.
-No adjusted/split-adjusted price fields and no TICKERS snapshot fields are emitted.
+This builder is deliberately fail-closed:
+- raw Sharadar files are read only from the source area;
+- source bytes must match the SHA-256 values pinned in MANIFEST.csv;
+- only explicitly whitelisted PIT columns are emitted;
+- TICKERS is never read;
+- outputs are deterministic gzip files and must match the pinned manifest exactly.
+
+The GitHub workflow builds into a temporary directory first and copies only the
+validated manifest-listed outputs into ``PIT input data``.
 """
 
 from __future__ import annotations
 
+import argparse
 import csv
 import gzip
+import hashlib
 import io
 import pathlib
+import re
 import zipfile
-
-ROOT = pathlib.Path(".")
-OUT = pathlib.Path("PIT input data")
-OUT.mkdir(parents=True, exist_ok=True)
+from collections.abc import Iterable, Iterator
 
 
-def write_gz(path: pathlib.Path, header: list[str], rows):
+SEP_HEADER = ["ticker", "date", "volume", "closeunadj"]
+ACTIONS_HEADER = ["date", "action", "ticker", "value"]
+SFP_HEADER = ["ticker", "date", "volume", "closeunadj"]
+
+
+def sha256_file(path: pathlib.Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def load_manifest(path: pathlib.Path) -> dict[str, dict[str, str]]:
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    if not rows:
+        raise SystemExit(f"empty manifest: {path}")
+    required = {
+        "file",
+        "rows",
+        "bytes",
+        "columns",
+        "sha256",
+        "source_file",
+        "source_sha256",
+    }
+    if set(rows[0]) != required:
+        raise SystemExit(
+            f"unexpected manifest schema: {sorted(rows[0])}; expected {sorted(required)}"
+        )
+    result = {row["file"]: row for row in rows}
+    if len(result) != len(rows):
+        raise SystemExit("duplicate output filename in MANIFEST.csv")
+    return result
+
+
+def candidate_sources(
+    repo_root: pathlib.Path,
+    source_dir: pathlib.Path,
+    logical_name: str,
+) -> list[pathlib.Path]:
+    roots = [source_dir, repo_root]
+    candidates: list[pathlib.Path] = []
+
+    sep_match = re.fullmatch(r"SHARADAR_SEP_(\d{4})\.csv(?:\(\d+\))?\.gz", logical_name)
+    if sep_match:
+        year = sep_match.group(1)
+        patterns = [
+            f"SHARADAR_SEP_{year}.csv.gz",
+            f"SHARADAR_SEP_{year}.csv*.gz",
+        ]
+    else:
+        patterns = [logical_name]
+
+    for root in roots:
+        for pattern in patterns:
+            candidates.extend(sorted(root.glob(pattern)))
+
+    # Preserve deterministic preference: source_dir exact/normalized names first,
+    # then any same-byte duplicate.  De-duplicate paths without hiding conflicts.
+    unique: list[pathlib.Path] = []
+    seen: set[pathlib.Path] = set()
+    for path in candidates:
+        resolved = path.resolve()
+        if path.is_file() and resolved not in seen:
+            seen.add(resolved)
+            unique.append(path)
+    return unique
+
+
+def resolve_source(
+    repo_root: pathlib.Path,
+    source_dir: pathlib.Path,
+    logical_name: str,
+    expected_sha256: str,
+) -> pathlib.Path:
+    candidates = candidate_sources(repo_root, source_dir, logical_name)
+    if not candidates:
+        raise SystemExit(f"missing source: {logical_name}")
+
+    matching = [path for path in candidates if sha256_file(path) == expected_sha256]
+    if not matching:
+        observed = ", ".join(f"{p}={sha256_file(p)}" for p in candidates)
+        raise SystemExit(
+            f"source hash mismatch for {logical_name}; expected {expected_sha256}; "
+            f"observed {observed}"
+        )
+
+    chosen = matching[0]
+    if len(matching) > 1:
+        print(
+            f"source duplicate: {logical_name}: using {chosen}; "
+            f"{len(matching)} byte-identical candidates match the pinned hash"
+        )
+    else:
+        print(f"source verified: {logical_name}: {chosen}")
+    return chosen
+
+
+def require_columns(reader: csv.DictReader, required: Iterable[str], source: str) -> None:
+    fieldnames = reader.fieldnames or []
+    missing = [column for column in required if column not in fieldnames]
+    if missing:
+        raise SystemExit(f"{source} missing required columns: {missing}")
+
+
+def write_gz(path: pathlib.Path, header: list[str], rows: Iterable[list[str]]) -> int:
+    count = 0
     with path.open("wb") as raw:
+        # Do not pass filename= here.  The pinned manifest was produced with the
+        # output basename recorded in the gzip header; mtime=0 removes clock noise.
         with gzip.GzipFile(fileobj=raw, mode="wb", compresslevel=1, mtime=0) as gz:
-            with io.TextIOWrapper(gz, encoding="utf-8", newline="") as txt:
-                w = csv.writer(txt, lineterminator="\n")
-                w.writerow(header)
-                w.writerows(rows)
+            with io.TextIOWrapper(gz, encoding="utf-8", newline="") as text:
+                writer = csv.writer(text, lineterminator="\n")
+                writer.writerow(header)
+                for row in rows:
+                    writer.writerow(row)
+                    count += 1
+    return count
 
 
-for year in range(1998, 2027):
-    matches = sorted(ROOT.glob(f"SHARADAR_SEP_{year}.csv*.gz"))
-    if not matches:
-        raise SystemExit(f"missing SEP source for {year}")
-    src = matches[0]
+def single_csv_member(archive: zipfile.ZipFile, source: pathlib.Path) -> str:
+    members = [name for name in archive.namelist() if name.lower().endswith(".csv")]
+    if len(members) != 1:
+        raise SystemExit(f"{source} must contain exactly one CSV member; found {members}")
+    return members[0]
 
-    def sep_rows(src=src):
-        with gzip.open(src, "rt", newline="") as f:
-            for row in csv.DictReader(f):
-                yield [row["ticker"], row["date"], row["volume"], row["closeunadj"]]
 
-    write_gz(
-        OUT / f"SEP_{year}_PIT_ONLY.csv.gz",
-        ["ticker", "date", "volume", "closeunadj"],
-        sep_rows(),
+def verify_output(
+    path: pathlib.Path,
+    row_count: int,
+    header: list[str],
+    manifest_row: dict[str, str],
+) -> None:
+    expected_header = manifest_row["columns"].split("|")
+    if header != expected_header:
+        raise SystemExit(
+            f"internal whitelist mismatch for {path.name}: {header} != {expected_header}"
+        )
+
+    expected_rows = int(manifest_row["rows"])
+    if row_count != expected_rows:
+        raise SystemExit(f"row-count mismatch for {path.name}: {row_count} != {expected_rows}")
+
+    expected_bytes = int(manifest_row["bytes"])
+    actual_bytes = path.stat().st_size
+    if actual_bytes != expected_bytes:
+        raise SystemExit(f"byte-count mismatch for {path.name}: {actual_bytes} != {expected_bytes}")
+
+    expected_hash = manifest_row["sha256"]
+    actual_hash = sha256_file(path)
+    if actual_hash != expected_hash:
+        raise SystemExit(f"output hash mismatch for {path.name}: {actual_hash} != {expected_hash}")
+
+    with gzip.open(path, "rt", encoding="utf-8", newline="") as handle:
+        actual_header = next(csv.reader(handle))
+    if actual_header != expected_header:
+        raise SystemExit(
+            f"output header mismatch for {path.name}: {actual_header} != {expected_header}"
+        )
+    print(f"output verified: {path.name}: rows={row_count} sha256={actual_hash}")
+
+
+def build(args: argparse.Namespace) -> None:
+    repo_root = args.repo_root.resolve()
+    source_dir = (repo_root / args.source_dir).resolve()
+    output_dir = args.output_dir.resolve()
+    manifest_path = (repo_root / args.manifest).resolve()
+    manifest = load_manifest(manifest_path)
+
+    expected_outputs = {
+        *(f"SEP_{year}_PIT_ONLY.csv.gz" for year in range(1998, 2027)),
+        "ACTIONS_PIT_ONLY.csv.gz",
+        "SFP_SPY_BIL_PIT_ONLY.csv.gz",
+    }
+    if set(manifest) != expected_outputs:
+        missing = sorted(expected_outputs - set(manifest))
+        extra = sorted(set(manifest) - expected_outputs)
+        raise SystemExit(f"manifest output set mismatch; missing={missing}; extra={extra}")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for existing in output_dir.iterdir():
+        if existing.is_file():
+            existing.unlink()
+        else:
+            raise SystemExit(f"unexpected directory in temporary output: {existing}")
+
+    for year in range(1998, 2027):
+        output_name = f"SEP_{year}_PIT_ONLY.csv.gz"
+        pin = manifest[output_name]
+        source = resolve_source(repo_root, source_dir, pin["source_file"], pin["source_sha256"])
+
+        def sep_rows(source: pathlib.Path = source) -> Iterator[list[str]]:
+            with gzip.open(source, "rt", encoding="utf-8", newline="") as handle:
+                reader = csv.DictReader(handle)
+                require_columns(reader, SEP_HEADER, str(source))
+                for row in reader:
+                    yield [row[column] for column in SEP_HEADER]
+
+        output = output_dir / output_name
+        count = write_gz(output, SEP_HEADER, sep_rows())
+        verify_output(output, count, SEP_HEADER, pin)
+
+    actions_pin = manifest["ACTIONS_PIT_ONLY.csv.gz"]
+    actions_source = resolve_source(
+        repo_root,
+        source_dir,
+        actions_pin["source_file"],
+        actions_pin["source_sha256"],
     )
+    with zipfile.ZipFile(actions_source) as archive:
+        member = single_csv_member(archive, actions_source)
 
-with zipfile.ZipFile(ROOT / "SHARADAR_ACTIONS.zip") as z:
-    member = z.namelist()[0]
+        def action_rows() -> Iterator[list[str]]:
+            with archive.open(member) as raw, io.TextIOWrapper(
+                raw, encoding="utf-8", newline=""
+            ) as handle:
+                reader = csv.DictReader(handle)
+                require_columns(reader, ACTIONS_HEADER, f"{actions_source}::{member}")
+                for row in reader:
+                    yield [row[column] for column in ACTIONS_HEADER]
 
-    def action_rows():
-        with z.open(member) as raw, io.TextIOWrapper(raw, encoding="utf-8", newline="") as f:
-            for row in csv.DictReader(f):
-                yield [row["date"], row["action"], row["ticker"], row["value"]]
+        output = output_dir / "ACTIONS_PIT_ONLY.csv.gz"
+        count = write_gz(output, ACTIONS_HEADER, action_rows())
+        verify_output(output, count, ACTIONS_HEADER, actions_pin)
 
-    write_gz(
-        OUT / "ACTIONS_PIT_ONLY.csv.gz",
-        ["date", "action", "ticker", "value"],
-        action_rows(),
+    sfp_pin = manifest["SFP_SPY_BIL_PIT_ONLY.csv.gz"]
+    sfp_source = resolve_source(
+        repo_root,
+        source_dir,
+        sfp_pin["source_file"],
+        sfp_pin["source_sha256"],
     )
+    with zipfile.ZipFile(sfp_source) as archive:
+        member = single_csv_member(archive, sfp_source)
 
-with zipfile.ZipFile(ROOT / "SHARADAR_SFP.zip") as z:
-    member = z.namelist()[0]
+        def sfp_rows() -> Iterator[list[str]]:
+            with archive.open(member) as raw, io.TextIOWrapper(
+                raw, encoding="utf-8", newline=""
+            ) as handle:
+                reader = csv.DictReader(handle)
+                require_columns(reader, SFP_HEADER, f"{sfp_source}::{member}")
+                for row in reader:
+                    if row["ticker"] in {"SPY", "BIL"}:
+                        yield [row[column] for column in SFP_HEADER]
 
-    def sfp_rows():
-        with z.open(member) as raw, io.TextIOWrapper(raw, encoding="utf-8", newline="") as f:
-            for row in csv.DictReader(f):
-                if row["ticker"] in {"SPY", "BIL"}:
-                    yield [row["ticker"], row["date"], row["volume"], row["closeunadj"]]
+        output = output_dir / "SFP_SPY_BIL_PIT_ONLY.csv.gz"
+        count = write_gz(output, SFP_HEADER, sfp_rows())
+        verify_output(output, count, SFP_HEADER, sfp_pin)
 
-    write_gz(
-        OUT / "SFP_SPY_BIL_PIT_ONLY.csv.gz",
-        ["ticker", "date", "volume", "closeunadj"],
-        sfp_rows(),
+    actual_outputs = {path.name for path in output_dir.iterdir() if path.is_file()}
+    if actual_outputs != expected_outputs:
+        missing = sorted(expected_outputs - actual_outputs)
+        extra = sorted(actual_outputs - expected_outputs)
+        raise SystemExit(f"temporary output set mismatch; missing={missing}; extra={extra}")
+
+    print(f"PIT-only build PASS: {len(actual_outputs)} files; no TICKERS or non-whitelisted fields emitted")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repo-root", type=pathlib.Path, default=pathlib.Path("."))
+    parser.add_argument("--source-dir", type=pathlib.Path, default=pathlib.Path("sharadar"))
+    parser.add_argument("--output-dir", type=pathlib.Path, required=True)
+    parser.add_argument(
+        "--manifest",
+        type=pathlib.Path,
+        default=pathlib.Path("PIT input data/MANIFEST.csv"),
     )
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    build(parse_args())
