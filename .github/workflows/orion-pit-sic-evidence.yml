@@ -93,30 +93,36 @@ jobs:
           EXPECTED_2011Q2: '1695'
         run: |
           set -euo pipefail
-          SIC_FILE="$(find /tmp/orion-sec-sic -type f -name 'sec_sic_events_complete.csv' -print -quit)"
-          test -n "${SIC_FILE}"
-          ACTUAL_SHA="$(sha256sum "${SIC_FILE}" | awk '{print $1}')"
-          test "${ACTUAL_SHA}" = "${EXPECTED_SHA256}"
-          SIC_FILE="${SIC_FILE}" python - <<'PY'
-          import csv, os
+          python - <<'PY'
+          import csv, hashlib, os
+          from pathlib import Path
 
-          path = os.environ['SIC_FILE']
+          expected_sha = os.environ['EXPECTED_SHA256']
+          matches = []
+          for path in Path('/tmp/orion-sec-sic').rglob('*.csv'):
+              h = hashlib.sha256(path.read_bytes()).hexdigest()
+              if h == expected_sha:
+                  matches.append(path)
+          if len(matches) != 1:
+              raise SystemExit(f'expected exactly one CSV with authoritative hash {expected_sha}; found {matches}')
+          path = matches[0]
           rows = 0
           q2 = set()
-          with open(path, newline='', encoding='utf-8') as fh:
+          with path.open(newline='', encoding='utf-8') as fh:
               reader = csv.DictReader(fh)
-              expected = {'filed', 'cik', 'sic', 'adsh', 'source_quarter'}
+              expected = {'adsh', 'cik', 'sic', 'filed', 'accepted'}
               if set(reader.fieldnames or []) != expected:
                   raise SystemExit(f'unexpected SIC schema: {reader.fieldnames}')
               for row in reader:
                   rows += 1
-                  if row['source_quarter'] == '2011Q2':
+                  if '2011-04-01' <= row['filed'] <= '2011-06-30':
                       q2.add((row['filed'], row['cik'], row['sic']))
           if rows != int(os.environ['EXPECTED_ROWS']):
               raise SystemExit(f'row count mismatch: {rows}')
           if len(q2) != int(os.environ['EXPECTED_2011Q2']):
               raise SystemExit(f'2011Q2 fingerprint mismatch: {len(q2)}')
-          print(f'PASS rows={rows} 2011Q2_unique={len(q2)}')
+          Path('/tmp/orion-sic-file.txt').write_text(str(path) + '\n')
+          print(f'PASS file={path.name} sha256={expected_sha} rows={rows} 2011Q2_unique={len(q2)}')
           PY
 
       - name: Retain deterministic Orion SIC evidence
@@ -127,7 +133,7 @@ jobs:
           set -euo pipefail
           OUT='research/sentinel-fastgate/pit-evidence/generated'
           mkdir -p "${OUT}"
-          SIC_FILE="$(find /tmp/orion-sec-sic -type f -name 'sec_sic_events_complete.csv' -print -quit)"
+          SIC_FILE="$(cat /tmp/orion-sic-file.txt)"
           SIC_FILE="${SIC_FILE}" OUT="${OUT}" python - <<'PY'
           import gzip, hashlib, json, os
           from pathlib import Path
@@ -140,7 +146,7 @@ jobs:
               raise SystemExit('SIC hash changed between verification and retention')
 
           gz = gzip.compress(raw, compresslevel=9, mtime=0)
-          gz_path = out / 'sec_sic_events_complete.csv.gz'
+          gz_path = out / 'sec_sic_submissions.csv.gz'
           gz_path.write_bytes(gz)
           gz_sha = hashlib.sha256(gz).hexdigest()
 
@@ -155,11 +161,12 @@ jobs:
               },
               'source_artifact': source,
               'sic_tape': {
+                  'source_filename': src.name,
                   'rows': 423766,
                   'uncompressed_sha256': raw_sha,
                   'deterministic_gzip_sha256': gz_sha,
                   'validation_2011Q2_unique_filed_cik_sic': 1695,
-                  'fields': ['filed', 'cik', 'sic', 'adsh', 'source_quarter'],
+                  'fields': ['adsh', 'cik', 'sic', 'filed', 'accepted'],
               },
               'causal_rule': 'latest SIC evidence satisfying filed < decision_session',
               'same_day_filing_policy': 'not known',
@@ -170,7 +177,7 @@ jobs:
           PY
           (
             cd "${OUT}"
-            sha256sum sec_sic_events_complete.csv.gz sec_sic_provenance.json > SEC_SIC_SHA256SUMS.txt
+            sha256sum sec_sic_submissions.csv.gz sec_sic_provenance.json > SEC_SIC_SHA256SUMS.txt
           )
 
       - name: Commit retained SIC evidence to Orion branch only
@@ -179,7 +186,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -f \
-            research/sentinel-fastgate/pit-evidence/generated/sec_sic_events_complete.csv.gz \
+            research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz \
             research/sentinel-fastgate/pit-evidence/generated/sec_sic_provenance.json \
             research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
           if git diff --cached --quiet; then
