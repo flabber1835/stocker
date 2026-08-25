@@ -1,0 +1,12 @@
+{
+  "strategy_name": "Sentinel Fastgate",
+  "strategy_id": "sentinel-fastgate",
+  "base_main_commit": "722aa14ae0e452437b80425528ba30fcf133b029",
+  "sessions": 5032,
+  "native_next_max_abs": 0.0,
+  "ldrc_desired_next_max_abs": 0.0,
+  "effective_allocation_max_abs": 0.0,
+  "nav_max_abs": 2.2026824808563106e-13,
+  "nav_final_control": 59.154286909676216,
+  "nav_final_authoritative": 59.15428690967636
+}
