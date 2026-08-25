@@ -61,3 +61,13 @@ def test_compose_uses_strict_liveness_and_bounded_failover_budget():
     assert "SENTINEL_AUTOMATION_RETRY_BASE_SECONDS:-5" in text
     assert "interval: 5s" in text
     assert "retries: 2" in text
+
+
+def test_off_host_standby_requires_shared_database_and_same_fencing_runtime():
+    text = Path("docker-compose.sentinel-automation-standby.yml").read_text()
+    assert "sentinel-automation-standby:" in text
+    assert "SENTINEL_DATABASE_URL: ${SENTINEL_DATABASE_URL:?set shared HA PostgreSQL DSN}" in text
+    assert "sentinel.automation_supervisor" in text
+    assert "sentinel.automation_liveness" in text
+    assert "depends_on:" not in text
+    assert "SENTINEL_AUTOMATION_LEASE_SECONDS:-12" in text
