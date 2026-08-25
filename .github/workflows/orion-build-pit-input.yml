@@ -1,7 +1,21 @@
 name: Orion build PIT-only input
 
 on:
+  # workflow_dispatch only appears in the GitHub UI when the workflow exists on
+  # the default branch.  This research workflow intentionally does not touch
+  # main, so the branch-scoped push trigger is the authoritative trigger.
   workflow_dispatch:
+  push:
+    branches:
+      - research/sentinel-fastgate-2026-08-24
+    paths:
+      - 'sharadar/SHARADAR_SEP_*.csv.gz'
+      - 'sharadar/SHARADAR_ACTIONS.zip'
+      - 'sharadar/SHARADAR_ACTIONS.zip.part-*'
+      - 'sharadar/SHARADAR_SFP.zip'
+      - 'sharadar/SHARADAR_SFP.zip.part-*'
+      - 'PIT input data/MANIFEST.csv'
+      - 'PIT input data/build_phase1_pit.py'
 
 permissions:
   contents: write
