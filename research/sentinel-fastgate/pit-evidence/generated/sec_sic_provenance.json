@@ -1,0 +1,38 @@
+{
+  "authority": "U.S. SEC Financial Statement Data Sets submissions table",
+  "causal_rule": "latest SIC evidence satisfying filed < decision_session",
+  "coverage": {
+    "first_quarter": "2009Q2",
+    "last_quarter": "2026Q1"
+  },
+  "ff12_definition": "research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt",
+  "missing_sic_policy": "singleton unknown peer; never fall back to current Sharadar sector",
+  "same_day_filing_policy": "not known",
+  "schema": "orion.sec-sic-pit-evidence/1",
+  "sic_tape": {
+    "deterministic_gzip_sha256": "3967f65d71cb47b7fb44037e84e3dd6ee5a03503f7684b04905b7d749bc64485",
+    "fields": [
+      "adsh",
+      "cik",
+      "sic",
+      "filed",
+      "accepted"
+    ],
+    "rows": 423766,
+    "source_filename": "sec_sic_submissions.csv",
+    "uncompressed_sha256": "cee14e068e0793bcaaf668ffe3bbbd09c5d2107699ecd08b71371641a3efd8b7",
+    "validation_2011Q2_unique_filed_cik_sic": 1695
+  },
+  "source_artifact": {
+    "artifact_created_at": "2026-08-24T03:08:06Z",
+    "artifact_id": 9505476249,
+    "artifact_name": "corrected-pit-sec-sic-tape",
+    "workflow_head_branch": "research/correct-pit-sector-ab-2026-08-23",
+    "workflow_head_sha": "e2a89fbd6ff74889c2461d801788b51efaf418bd",
+    "workflow_run_id": 32685356728
+  },
+  "transport": {
+    "description": "erlenbusch/sec-edgar sec_edgar.duckdb mirror used as transport in corrected reconstruction after SEC runner HTTP 403",
+    "mirror_sha256": "fdfd9c5807dac4725a1fb0b84b42a547be75f9a70d3568280a45930d1776a044"
+  }
+}

@@ -1,0 +1,2 @@
+3967f65d71cb47b7fb44037e84e3dd6ee5a03503f7684b04905b7d749bc64485  sec_sic_submissions.csv.gz
+d0d8428cffeea54fa8f2bbc89bed0daf8c535e13d65c1b7affed1e4c2547f14b  sec_sic_provenance.json
