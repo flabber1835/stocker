@@ -1,0 +1,141 @@
+name: Orion recover authoritative harness archives
+
+on:
+  push:
+    branches:
+      - research/sentinel-fastgate-2026-08-24
+    paths:
+      - '.github/workflows/orion-recover-authoritative-harness.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out Orion research branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/sentinel-fastgate-2026-08-24
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Enforce research-only boundary
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "research/sentinel-fastgate-2026-08-24"
+          test "$(git branch --show-current)" = "research/sentinel-fastgate-2026-08-24"
+
+      - name: Recover exact archived source and manifests
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          from pathlib import Path, PurePosixPath
+          import shutil
+          import zipfile
+
+          root = Path('research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered')
+          if root.exists():
+              shutil.rmtree(root)
+          root.mkdir(parents=True)
+
+          archives = {
+              'terminal_issuer_corrected': Path('docs/Sentinel_1_1_Terminal_and_Issuer_Corrected.zip'),
+              'frozen_harness_handoff': Path('docs/Sentinel_1_1_Frozen_Harness_Handoff.zip'),
+              'faithful_reproduction_no_sharadar': Path('docs/Sentinel_1_1_Faithful_Reproduction_Kit_NO_SHARADAR.zip'),
+          }
+          source_ext = {'.py', '.json', '.md', '.txt', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.csv'}
+          inventory: dict[str, object] = {
+              'schema': 'orion.authoritative-harness-recovery/1',
+              'archives': {},
+          }
+          retained_hashes: list[tuple[str, str]] = []
+
+          for label, archive in archives.items():
+              if not archive.is_file():
+                  raise SystemExit(f'missing retained archive: {archive}')
+              archive_sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+              entries = []
+              retained = []
+              target_root = root / label
+              target_root.mkdir(parents=True)
+
+              with zipfile.ZipFile(archive) as zf:
+                  bad = zf.testzip()
+                  if bad is not None:
+                      raise SystemExit(f'{archive}: corrupt member {bad}')
+                  for info in sorted(zf.infolist(), key=lambda row: row.filename):
+                      if info.is_dir():
+                          continue
+                      pure = PurePosixPath(info.filename)
+                      if pure.is_absolute() or '..' in pure.parts:
+                          raise SystemExit(f'unsafe zip member: {info.filename}')
+                      data = zf.read(info)
+                      digest = hashlib.sha256(data).hexdigest()
+                      entries.append({
+                          'path': info.filename,
+                          'bytes': len(data),
+                          'compressed_bytes': info.compress_size,
+                          'sha256': digest,
+                      })
+
+                      keep = False
+                      if label == 'terminal_issuer_corrected':
+                          keep = len(data) <= 8 * 1024 * 1024
+                      elif pure.suffix.lower() in source_ext and len(data) <= 3 * 1024 * 1024:
+                          keep = True
+                      if '__pycache__' in pure.parts or pure.name.endswith(('.pyc', '.pyo')):
+                          keep = False
+                      if not keep:
+                          continue
+
+                      destination = target_root.joinpath(*pure.parts)
+                      destination.parent.mkdir(parents=True, exist_ok=True)
+                      destination.write_bytes(data)
+                      rel = destination.as_posix()
+                      retained.append(rel)
+                      retained_hashes.append((digest, rel))
+
+              inventory['archives'][label] = {
+                  'repository_path': archive.as_posix(),
+                  'archive_bytes': archive.stat().st_size,
+                  'archive_sha256': archive_sha,
+                  'members': entries,
+                  'retained_paths': retained,
+              }
+
+          (root / 'ARCHIVE_INVENTORY.json').write_text(
+              json.dumps(inventory, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          lines = [f'{digest}  {path}' for digest, path in sorted(retained_hashes, key=lambda row: row[1])]
+          (root / 'RECOVERED_SHA256SUMS.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+          print(json.dumps({
+              label: {
+                  'members': len(meta['members']),
+                  'retained': len(meta['retained_paths']),
+              }
+              for label, meta in inventory['archives'].items()
+          }, indent=2, sort_keys=True))
+          PY
+
+      - name: Commit recovered harness evidence to Orion branch only
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered
+          if git diff --cached --quiet; then
+            echo 'Recovered harness evidence already matches.'
+            exit 0
+          fi
+          git commit -m 'research(orion): recover authoritative harness source [skip ci]'
+          git push origin HEAD:research/sentinel-fastgate-2026-08-24
