@@ -22,7 +22,8 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Iterable, Mapping
 
-from sentinel.feed import authority, calendar, universe
+from sentinel.feed import authority, calendar, source_validation, universe
+from stock_strategy_shared.wealth_core.eligibility import is_common_equity
 
 TICKERS_AUTHORITY_FIELDS = (
     "table",
@@ -85,6 +86,10 @@ class SepListingPopulationIncomplete(RuntimeError):
 class SeedHistoryIncomplete(RuntimeError):
     """Historical SEP evidence is inconsistent with a complete seed source."""
 
+    def __init__(self, message: str, *, coverage_evidence=None):
+        super().__init__(message)
+        self.coverage_evidence = list(coverage_evidence or [])
+
 
 @dataclass(frozen=True)
 class SeedSessionCounts:
@@ -108,6 +113,86 @@ class SeedSessionCounts:
             raw_open=self.raw_open + int(open_ and signal and raw),
             volume=self.volume + int(volume),
         )
+
+
+@dataclass(frozen=True)
+class SeedExpectedListing:
+    ticker: str
+    first_session: str | None
+    last_session: str | None
+    strategy_eligible: bool
+
+    def covers(self, session: str) -> bool:
+        return not ((self.first_session and session < self.first_session)
+                    or (self.last_session and session > self.last_session))
+
+
+# No ratio waiver.  Any future exception must name one ticker/session/kind and
+# carry a reviewed source explanation in the change that adds it.
+SEED_COVERAGE_EXCEPTIONS: frozenset[tuple[str, str, str]] = frozenset()
+
+
+def _expected_seed_listings(rows: Iterable[Mapping]) -> tuple[SeedExpectedListing, ...]:
+    return tuple(
+        SeedExpectedListing(
+            ticker=str(row.get("ticker") or "").strip().upper(),
+            first_session=(str(row.get("firstpricedate"))
+                           if row.get("firstpricedate") else None),
+            last_session=(str(row.get("lastpricedate"))
+                          if row.get("lastpricedate") else None),
+            strategy_eligible=is_common_equity(row.get("category")),
+        )
+        for row in rows
+    )
+
+
+def assert_seed_listing_coverage(
+        observed: Mapping[str, set[str]],
+        expected_listings: Iterable[SeedExpectedListing], *,
+        date_from: str, date_to: str) -> list[dict]:
+    """Require exact strategy-eligible source membership on every seed session."""
+    listings = tuple(expected_listings)
+    if not listings:
+        raise SeedHistoryIncomplete(
+            "historical seed has no stable TICKERS listing authority")
+    evidence: list[dict] = []
+    failures: list[str] = []
+    for session in calendar.sessions_in_range(date_from, date_to):
+        active = [item for item in listings if item.covers(session)]
+        active_all = {item.ticker for item in active}
+        eligible = {item.ticker for item in active if item.strategy_eligible}
+        ineligible = active_all - eligible
+        got = {str(ticker).strip().upper()
+               for ticker in observed.get(session, set()) if str(ticker).strip()}
+        missing = sorted(
+            ticker for ticker in eligible - got
+            if (ticker, session, "missing") not in SEED_COVERAGE_EXCEPTIONS)
+        extra = sorted(
+            ticker for ticker in got - active_all
+            if (ticker, session, "extra") not in SEED_COVERAGE_EXCEPTIONS)
+        absent_ineligible = ineligible - got
+        item = {
+            "session": session,
+            "expected_eligible_count": len(eligible),
+            "observed_expected_count": len(eligible.intersection(got)),
+            "missing_eligible": missing,
+            "missing_eligible_count": len(missing),
+            "extra": extra,
+            "extra_count": len(extra),
+            "absent_ineligible_count": len(absent_ineligible),
+        }
+        evidence.append(item)
+        if missing or extra:
+            failures.append(
+                f"{session}: missing eligible={missing[:8]}"
+                f"{' ...' if len(missing) > 8 else ''}; "
+                f"extra={extra[:8]}{' ...' if len(extra) > 8 else ''}")
+    if failures:
+        raise SeedHistoryIncomplete(
+            "Sharadar SEP seed does not exactly cover the stable TICKERS "
+            "strategy-eligible listing set: " + "; ".join(failures[:5]),
+            coverage_evidence=evidence)
+    return evidence
 
 
 class _Fingerprint:
@@ -355,7 +440,8 @@ class StableSharadarFetch(authority.StableSharadarFetch):
     def __init__(self, fetch, *, protect_sep=None,
                  corroborate_reference=None,
                  after_session: str | None = None,
-                 seed_mode: bool = False):
+                 seed_mode: bool = False,
+                 observation_through: str | _dt.date | None = None):
         # Daily has one protected window, so all source corroboration happens
         # there. A seed passes an explicit final-chunk predicate: every SEP year
         # is stable on its own while TICKERS/ACTIONS/SFP remain bracketed across
@@ -366,10 +452,13 @@ class StableSharadarFetch(authority.StableSharadarFetch):
         super().__init__(
             fetch, protect_sep=protect_sep,
             corroborate_actions=reference,
-            after_session=after_session)
+            after_session=after_session,
+            observation_through=observation_through)
         self._corroborate_reference = reference
         self._seed_mode = bool(seed_mode)
         self._seed_resolver = None
+        self._seed_expected_listings: tuple[SeedExpectedListing, ...] = ()
+        self._seed_coverage_evidence: list[dict] = []
         self._tickers_listings: tuple[universe.Listing, ...] | None = None
         self._tickers_first = None
         self._tickers_params = None
@@ -386,7 +475,9 @@ class StableSharadarFetch(authority.StableSharadarFetch):
                 raise RuntimeError(
                     "TICKERS was requested again before corroboration")
             rows = list(self._fetch(table, params, **kwargs))
-            relevant = assert_tickers_metadata(rows)
+            relevant = source_validation.validate_tickers(
+                _sep_ticker_rows(rows))
+            relevant = assert_tickers_metadata(relevant)
             # Sentinel's security universe is SEP. Other TICKERS product rows
             # can share the same (permaticker,ticker) but carry different
             # strategy metadata; letting them reach write_universe would make
@@ -397,12 +488,14 @@ class StableSharadarFetch(authority.StableSharadarFetch):
             listings = tuple(universe.listings_from_rows(relevant))
             self._tickers_listings = listings
             self._seed_resolver = universe.IdentityResolver(listings)
+            self._seed_expected_listings = _expected_seed_listings(relevant)
             return relevant
 
         if table == sharadar.SFP:
             if self._sfp_first is not None:
                 raise RuntimeError("SFP was requested again before corroboration")
-            rows = list(self._fetch(table, params, **kwargs))
+            rows = list(source_validation.validated_market_rows(
+                "SFP", self._fetch(table, params, **kwargs), params))
             self._sfp_first = observe_sfp(rows)
             self._sfp_params = dict(params or {})
             self._sfp_kwargs = dict(kwargs)
@@ -431,7 +524,9 @@ class StableSharadarFetch(authority.StableSharadarFetch):
             rows = list(self._fetch(
                 sharadar.TICKERS, dict(self._tickers_params or {}),
                 **dict(self._tickers_kwargs or {})))
-            relevant = assert_tickers_metadata(rows)
+            relevant = source_validation.validate_tickers(
+                _sep_ticker_rows(rows))
+            relevant = assert_tickers_metadata(relevant)
             authority.require_stable(
                 "TICKERS", self._tickers_first, observe_tickers(relevant))
             self._tickers_first = None
@@ -439,13 +534,20 @@ class StableSharadarFetch(authority.StableSharadarFetch):
             self._tickers_kwargs = None
 
         if self._sfp_first is not None:
-            rows = list(self._fetch(
-                sharadar.SFP, dict(self._sfp_params or {}),
-                **dict(self._sfp_kwargs or {})))
+            rows = list(source_validation.validated_market_rows(
+                "SFP", self._fetch(
+                    sharadar.SFP, dict(self._sfp_params or {}),
+                    **dict(self._sfp_kwargs or {})),
+                dict(self._sfp_params or {})))
             authority.require_stable("SFP", self._sfp_first, observe_sfp(rows))
             self._sfp_first = None
             self._sfp_params = None
             self._sfp_kwargs = None
+
+    def pop_seed_coverage_evidence(self) -> list[dict]:
+        evidence = self._seed_coverage_evidence
+        self._seed_coverage_evidence = []
+        return evidence
 
     def _validated_daily_listing_replay(self, rows):
         """Spool protected daily SEP until TICKERS proves its negative space."""
@@ -502,17 +604,28 @@ class StableSharadarFetch(authority.StableSharadarFetch):
 
         spool = tempfile.TemporaryFile(mode="w+b")
         sessions: dict[str, SeedSessionCounts] = {}
+        observed_tickers: dict[str, set[str]] = {}
         try:
             for row in rows:
                 row = dict(row)
                 session = str(row.get("date") or "")
-                ticker = str(row.get("ticker") or "")
+                ticker = str(row.get("ticker") or "").strip().upper()
                 resolved = bool(session and ticker and resolver(ticker, session))
                 if session:
                     sessions[session] = sessions.get(
                         session, SeedSessionCounts()).add(
                             row, resolved=resolved)
+                    if ticker:
+                        observed_tickers.setdefault(session, set()).add(ticker)
                 pickle.dump(row, spool, protocol=pickle.HIGHEST_PROTOCOL)
+            try:
+                coverage = assert_seed_listing_coverage(
+                    observed_tickers, self._seed_expected_listings,
+                    date_from=date_from, date_to=date_to)
+            except SeedHistoryIncomplete as exc:
+                self._seed_coverage_evidence.extend(exc.coverage_evidence)
+                raise
+            self._seed_coverage_evidence.extend(coverage)
             assert_seed_history(
                 sessions, date_from=date_from, date_to=date_to)
             spool.seek(0)

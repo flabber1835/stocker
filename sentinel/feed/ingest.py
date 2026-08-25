@@ -132,12 +132,13 @@ def _prove_recent_frontier(conn, *, fetch) -> None:
 
 
 def _seed_source(fetch, *, final_hi: str):
-    tracked = maintenance.LastUpdatedTrackingFetch(fetch)
+    tracked = maintenance.LastUpdatedTrackingFetch(fetch, through=final_hi)
     guarded = coherence.StableSharadarFetch(
         tracked, protect_sep=lambda _params: True,
         corroborate_reference=(
             lambda params: str(params.get("date.lte") or "") == final_hi),
-        after_session=None, seed_mode=True)
+        after_session=None, seed_mode=True,
+        observation_through=final_hi)
     return tracked, guarded
 
 

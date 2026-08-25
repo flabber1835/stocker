@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Iterable, Mapping
 
-from sentinel.feed import action_source
+from sentinel.feed import action_source, source_validation
 
 MIN_FRONTIER_DOMAIN_COVERAGE = 0.90
 _MASK_256 = (1 << 256) - 1
@@ -155,10 +155,13 @@ def _sep_payload(row: Mapping) -> bytes:
     return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
-def observe_sep(rows: Iterable[Mapping]) -> SourceObservation:
+def observe_sep(rows: Iterable[Mapping], *, params: Mapping | None = None,
+                observation_through: str | _dt.date | None = None
+                ) -> SourceObservation:
     fingerprint = _CommutativeFingerprint()
     sessions: dict[str, DomainCounts] = {}
-    for row in rows:
+    for row in source_validation.validated_market_rows(
+            "SEP", rows, params, observation_through=observation_through):
         fingerprint.add(_sep_payload(row))
         session = str(row.get("date") or "")
         if session:
@@ -261,11 +264,13 @@ class StableSharadarFetch:
     """
 
     def __init__(self, fetch, *, protect_sep=None, corroborate_actions=None,
-                 after_session: str | None = None):
+                 after_session: str | None = None,
+                 observation_through: str | _dt.date | None = None):
         self._fetch = fetch
         self._protect_sep = protect_sep or (lambda _params: True)
         self._corroborate_actions = corroborate_actions or self._protect_sep
         self._after_session = after_session
+        self._observation_through = observation_through
         self._actions_first: SourceObservation | None = None
         self._actions_params: dict | None = None
         self._actions_kwargs: dict | None = None
@@ -284,8 +289,16 @@ class StableSharadarFetch:
             self._actions_kwargs = dict(kwargs)
             return rows
 
-        if table == sharadar.SEP and self._protect_sep(params or {}):
-            return self._stable_sep(table, params, **kwargs)
+        if table == sharadar.SEP:
+            if self._protect_sep(params or {}):
+                return self._stable_sep(table, params, **kwargs)
+            return source_validation.validated_market_rows(
+                table, self._fetch(table, params, **kwargs), params,
+                observation_through=self._observation_through)
+        if table == sharadar.SFP:
+            return source_validation.validated_market_rows(
+                table, self._fetch(table, params, **kwargs), params,
+                observation_through=self._observation_through)
 
         return self._fetch(table, params, **kwargs)
 
@@ -310,13 +323,17 @@ class StableSharadarFetch:
 
         # A complete first observation is followed by the complete candidate
         # traversal that will be replayed only if every source proof succeeds.
-        first = observe_sep(self._fetch(table, params, **kwargs))
+        first = observe_sep(
+            self._fetch(table, params, **kwargs), params=params,
+            observation_through=self._observation_through)
 
         spool = tempfile.TemporaryFile(mode="w+b")
         fingerprint = _CommutativeFingerprint()
         sessions: dict[str, DomainCounts] = {}
         try:
-            for row in self._fetch(table, params, **kwargs):
+            for row in source_validation.validated_market_rows(
+                    table, self._fetch(table, params, **kwargs), params,
+                    observation_through=self._observation_through):
                 fingerprint.add(_sep_payload(row))
                 session = str(row.get("date") or "")
                 if session:

@@ -35,7 +35,7 @@ from typing import Iterable, Mapping, Optional
 from sentinel.core.terminal import DIVIDEND_ACTIONS, SHARE_SPLIT_ACTIONS
 from sentinel.feed import (
     action_source, anomalies, authority, calendar, publication, recovery,
-    renormalize, sharadar, snapshot_export, store, universe)
+    renormalize, sharadar, snapshot_export, source_validation, store, universe)
 
 SEP_CURSOR_NAME = "sharadar-sep-lastupdated:v1"
 # New name on purpose whenever split semantics change: a cursor earned under an
@@ -71,8 +71,10 @@ class SourceCursor:
 class LastUpdatedTrackingFetch:
     """Transparent fetch wrapper used by a complete seed to earn CDC bootstrap."""
 
-    def __init__(self, fetch):
+    def __init__(self, fetch, *, through: str | dt.date | None = None):
         self._fetch = fetch
+        self._through = (None if through is None else
+                         dt.date.fromisoformat(str(through)))
         self.max_sep_lastupdated: Optional[dt.date] = None
 
     def __call__(self, table, params=None, **kwargs):
@@ -89,6 +91,10 @@ class LastUpdatedTrackingFetch:
                     except ValueError as exc:
                         raise SharadarMutationRefused(
                             f"SEP lastupdated {value!r} is not an ISO date") from exc
+                    if self._through is not None and observed > self._through:
+                        raise SharadarMutationRefused(
+                            f"SEP lastupdated {observed} is beyond seed "
+                            f"observation boundary {self._through}")
                     if (self.max_sep_lastupdated is None
                             or observed > self.max_sep_lastupdated):
                         self.max_sep_lastupdated = observed
@@ -251,8 +257,14 @@ def _mutation_digest(rows: Iterable[Mapping]) -> tuple[int, str]:
 
 
 def _stable_rows(fetch, table: str, params: Mapping[str, str]) -> list[dict]:
-    first = [dict(row) for row in fetch(table, params)]
-    second = [dict(row) for row in fetch(table, params)]
+    if table == sharadar.SEP:
+        first = [dict(row) for row in source_validation.validated_market_rows(
+            table, fetch(table, params), params)]
+        second = [dict(row) for row in source_validation.validated_market_rows(
+            table, fetch(table, params), params)]
+    else:
+        first = [dict(row) for row in fetch(table, params)]
+        second = [dict(row) for row in fetch(table, params)]
     if table == sharadar.ACTIONS:
         one = authority.observe_actions(first)
         two = authority.observe_actions(second)
@@ -308,7 +320,10 @@ def _validate_sep_mutation_rows(conn, rows: Iterable[Mapping], *,
         # lastupdated row widen either edge would recreate the ACTIONS defect one
         # source membrane over.
         if session_date < published_from or session_date > published_through:
-            continue
+            raise SharadarMutationRefused(
+                f"SEP mutation row {ticker}/{session} lies outside the "
+                f"published authority horizon {published_from}.."
+                f"{published_through}; refusing to filter source evidence")
         if resolver(ticker, session) is None:
             raise SharadarMutationRefused(
                 f"SEP mutation {ticker}/{session} has no permanent identity; "

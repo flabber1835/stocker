@@ -736,11 +736,49 @@ def cmd_rejection_audit(config: SentinelConfig, args) -> int:
     return EXIT_NOT_ESTABLISHED
 
 
+
+def _resolve_feed_daily_through(value: str | None, *, now_et=None) -> str:
+    """Resolve/refuse the exact closed XNYS decision boundary before mutation."""
+    from sentinel.feed import calendar
+
+    observation = (now_et if now_et is not None else
+                   datetime.now(ZoneInfo(calendar.EXCHANGE_TZ)))
+    latest = calendar.latest_closed_session(observation)
+    if value is None:
+        return latest
+    try:
+        requested = datetime.strptime(str(value), "%Y-%m-%d").date().isoformat()
+    except ValueError as exc:
+        raise ValueError("--through must be an ISO date YYYY-MM-DD") from exc
+    try:
+        calendar.session_window(requested)
+    except Exception as exc:
+        raise ValueError(f"--through {requested} is not an XNYS session") from exc
+    if requested > latest:
+        raise ValueError(
+            f"--through {requested} is later than latest fully closed XNYS "
+            f"session {latest}")
+    return requested
+
+
 def cmd_feed(config: SentinelConfig, args) -> int:
     """Run an ingest. Progress is committed per chunk, so watch it from another
     shell with `feed-status` rather than by staring at this one."""
     from sentinel.feed import ingest
     from sentinel.feed import store as feed_store
+
+    resolved_through = None
+    if args.command == "feed-daily":
+        try:
+            resolved_through = _resolve_feed_daily_through(args.through)
+        except ValueError as exc:
+            print(f"REFUSED: {exc}", file=sys.stderr)
+            return EXIT_CONFIG
+        print(json.dumps({
+            "schema": "sentinel.feed-daily-boundary/1",
+            "resolved_decision_session": resolved_through,
+            "calendar": "XNYS",
+        }, sort_keys=True))
 
     # BEFORE database construction.  A stale image is allowed to describe
     # itself, but it must not reclaim a run, open a new run row, or touch one
@@ -770,7 +808,7 @@ def cmd_feed(config: SentinelConfig, args) -> int:
             log.info("sentinel: seeding — watch with `feed-status` from another shell")
             p = ingest.seed(conn, **kw)
         else:
-            p = ingest.daily(conn)
+            p = ingest.daily(conn, today=resolved_through)
         log.info("sentinel: %s complete — %d chunks, %s rows written, %s dropped",
                  p.kind, p.chunks_done, f"{p.rows_written:,}", f"{p.rows_dropped:,}")
         return EXIT_OK
@@ -2137,7 +2175,9 @@ def main(argv: list[str] | None = None) -> int:
     sd = sub.add_parser("feed-seed", help="load the full Sharadar history (hours)")
     sd.add_argument("--from", dest="date_from", default=None)
     sd.add_argument("--to", dest="date_to", default=None)
-    sub.add_parser("feed-daily", help="fetch since the stored frontier")
+    fd = sub.add_parser("feed-daily", help="fetch since the stored frontier")
+    fd.add_argument("--through", default=None,
+                    help="closed XNYS decision session (YYYY-MM-DD)")
     mp = sub.add_parser("migration-plan",
                         help="legacy broker book vs the Wealth Core target")
     mp.add_argument("--sessions", type=int, default=252)

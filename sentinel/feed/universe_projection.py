@@ -100,23 +100,23 @@ INSERT INTO feed_universe_current
        is_delisted,is_delisted_snapshot_date,snapshot_date)
 SELECT u.permaticker,u.ticker,
   (ARRAY_REMOVE(ARRAY_AGG(
-      u.category ORDER BY u.snapshot_date DESC,u.authority_version DESC),NULL))[1],
+      u.category ORDER BY u.authority_version DESC,u.snapshot_date DESC),NULL))[1],
   MAX(u.snapshot_date) FILTER (WHERE u.category IS NOT NULL),
   (ARRAY_REMOVE(ARRAY_AGG(
-      u.sector ORDER BY u.snapshot_date DESC,u.authority_version DESC),NULL))[1],
+      u.sector ORDER BY u.authority_version DESC,u.snapshot_date DESC),NULL))[1],
   MAX(u.snapshot_date) FILTER (WHERE u.sector IS NOT NULL),
   (ARRAY_REMOVE(ARRAY_AGG(
-      u.related_tickers ORDER BY u.snapshot_date DESC,u.authority_version DESC),
+      u.related_tickers ORDER BY u.authority_version DESC,u.snapshot_date DESC),
       NULL))[1],
   MAX(u.snapshot_date) FILTER (WHERE u.related_tickers IS NOT NULL),
   (ARRAY_REMOVE(ARRAY_AGG(
-      u.first_price_date ORDER BY u.snapshot_date DESC,u.authority_version DESC),
+      u.first_price_date ORDER BY u.authority_version DESC,u.snapshot_date DESC),
       NULL))[1],
   (ARRAY_REMOVE(ARRAY_AGG(
-      u.last_price_date ORDER BY u.snapshot_date DESC,u.authority_version DESC),
+      u.last_price_date ORDER BY u.authority_version DESC,u.snapshot_date DESC),
       NULL))[1],
   (ARRAY_REMOVE(ARRAY_AGG(
-      u.is_delisted ORDER BY u.snapshot_date DESC,u.authority_version DESC),
+      u.is_delisted ORDER BY u.authority_version DESC,u.snapshot_date DESC),
       NULL))[1],
   MAX(u.snapshot_date) FILTER (WHERE u.is_delisted IS NOT NULL),
   MAX(u.snapshot_date)
@@ -174,31 +174,21 @@ DDL = [
 
 
 def _newer_value(value: str, observed: str) -> str:
+    # project_run is called only inside publication order. The candidate
+    # generation therefore outranks observation chronology; NULL remains
+    # sparse carry-forward rather than an erasure.
     return f"""CASE
         WHEN EXCLUDED.{observed} IS NULL THEN feed_universe_current.{value}
-        WHEN feed_universe_current.{observed} IS NULL
-          OR EXCLUDED.{observed} >= feed_universe_current.{observed}
-          THEN EXCLUDED.{value}
-        ELSE feed_universe_current.{value} END"""
+        ELSE EXCLUDED.{value} END"""
 
 
 def _newer_date(observed: str) -> str:
-    return f"""CASE
-        WHEN EXCLUDED.{observed} IS NULL
-          THEN feed_universe_current.{observed}
-        WHEN feed_universe_current.{observed} IS NULL
-          OR EXCLUDED.{observed} >= feed_universe_current.{observed}
-          THEN EXCLUDED.{observed}
-        ELSE feed_universe_current.{observed} END"""
+    return f"COALESCE(EXCLUDED.{observed}, feed_universe_current.{observed})"
 
 
 def _newer_bound(value: str) -> str:
-    """Latest non-null listing bound; later authority may narrow the interval."""
-    return f"""CASE
-        WHEN EXCLUDED.{value} IS NULL THEN feed_universe_current.{value}
-        WHEN EXCLUDED.snapshot_date >= feed_universe_current.snapshot_date
-          THEN EXCLUDED.{value}
-        ELSE feed_universe_current.{value} END"""
+    """Later publication generation wins; NULL carries prior evidence."""
+    return f"COALESCE(EXCLUDED.{value}, feed_universe_current.{value})"
 
 
 # Candidate aggregation is over ONE ingest generation, never over retained
@@ -247,6 +237,78 @@ _PROJECT_RUN = f"""
 """
 
 
+_IDENTITY_REBUILD_INSERT = """
+INSERT INTO feed_universe_current
+      (permaticker,ticker,category,category_snapshot_date,
+       sector,sector_snapshot_date,
+       related_tickers,related_tickers_snapshot_date,
+       first_price_date,last_price_date,
+       is_delisted,is_delisted_snapshot_date,snapshot_date)
+SELECT u.permaticker,u.ticker,
+  (ARRAY_REMOVE(ARRAY_AGG(u.category ORDER BY u.snapshot_date DESC),NULL))[1],
+  MAX(u.snapshot_date) FILTER (WHERE u.category IS NOT NULL),
+  (ARRAY_REMOVE(ARRAY_AGG(u.sector ORDER BY u.snapshot_date DESC),NULL))[1],
+  MAX(u.snapshot_date) FILTER (WHERE u.sector IS NOT NULL),
+  (ARRAY_REMOVE(ARRAY_AGG(u.related_tickers ORDER BY u.snapshot_date DESC),NULL))[1],
+  MAX(u.snapshot_date) FILTER (WHERE u.related_tickers IS NOT NULL),
+  (ARRAY_REMOVE(ARRAY_AGG(u.first_price_date ORDER BY u.snapshot_date DESC),NULL))[1],
+  (ARRAY_REMOVE(ARRAY_AGG(u.last_price_date ORDER BY u.snapshot_date DESC),NULL))[1],
+  (ARRAY_REMOVE(ARRAY_AGG(u.is_delisted ORDER BY u.snapshot_date DESC),NULL))[1],
+  MAX(u.snapshot_date) FILTER (WHERE u.is_delisted IS NOT NULL),
+  MAX(u.snapshot_date)
+FROM sentinel_universe u
+WHERE u.last_written_run_id=%s
+  AND u.permaticker IS NOT NULL AND u.ticker IS NOT NULL
+GROUP BY u.permaticker,u.ticker
+"""
+
+
+def _assert_identity_rebuild_projection(conn, *, run_id: str) -> int:
+    """Prove exact membership and listing bounds before publication can commit."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "WITH candidate AS ("
+            " SELECT u.permaticker,u.ticker,"
+            "  (ARRAY_REMOVE(ARRAY_AGG(u.first_price_date"
+            "    ORDER BY u.snapshot_date DESC),NULL))[1] AS first_price_date,"
+            "  (ARRAY_REMOVE(ARRAY_AGG(u.last_price_date"
+            "    ORDER BY u.snapshot_date DESC),NULL))[1] AS last_price_date"
+            " FROM sentinel_universe u WHERE u.last_written_run_id=%s"
+            "   AND u.permaticker IS NOT NULL AND u.ticker IS NOT NULL"
+            " GROUP BY u.permaticker,u.ticker), differences AS ("
+            " SELECT COALESCE(c.permaticker,p.permaticker) AS permaticker,"
+            "        COALESCE(c.ticker,p.ticker) AS ticker"
+            " FROM candidate c FULL OUTER JOIN feed_universe_current p"
+            "   ON p.permaticker=c.permaticker AND p.ticker=c.ticker"
+            " WHERE c.permaticker IS NULL OR p.permaticker IS NULL"
+            "    OR p.first_price_date IS DISTINCT FROM c.first_price_date"
+            "    OR p.last_price_date IS DISTINCT FROM c.last_price_date)"
+            " SELECT (SELECT COUNT(*) FROM candidate),"
+            "        (SELECT COUNT(*) FROM feed_universe_current),"
+            "        (SELECT COUNT(*) FROM differences)",
+            (str(run_id),))
+        candidate_count, projection_count, differences = map(int, cur.fetchone())
+    if candidate_count <= 0:
+        raise RuntimeError(
+            f"identity rebuild {run_id} has no candidate TICKERS membership")
+    if candidate_count != projection_count or differences:
+        raise RuntimeError(
+            f"identity rebuild {run_id} projection mismatch before publication: "
+            f"candidate={candidate_count}, projection={projection_count}, "
+            f"differences={differences}")
+    return candidate_count
+
+
+def _replace_identity_rebuild_run(conn, *, run_id: str) -> int:
+    """Replace current identity state in the caller's publication transaction."""
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM feed_universe_current")
+        cur.execute(_IDENTITY_REBUILD_INSERT, (str(run_id),))
+        written = max(0, int(cur.rowcount or 0))
+    _assert_identity_rebuild_projection(conn, run_id=run_id)
+    return written
+
+
 def retire_absent_from_run(conn, *, run_id: str) -> int:
     """Retire membership omitted by one complete replacement candidate.
 
@@ -266,12 +328,16 @@ def retire_absent_from_run(conn, *, run_id: str) -> int:
 
 
 def project_run(conn, *, run_id: str) -> int:
-    """Merge one candidate generation; caller owns the publication transaction.
-
-    This function NEVER commits. `publication.publish` invokes it before the
-    publication row is committed, so either both projection and publication
-    become durable or neither does.
-    """
+    """Project one later publication generation without committing."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT publication_recovery->>'schema' FROM feed_ingest_runs"
+            " WHERE run_id=%s", (str(run_id),))
+        row = cur.fetchone()
+    if row is None:
+        raise RuntimeError(f"projection run {run_id} has no ingest lifecycle")
+    if row[0] == 'sentinel.identity-rebuild/1':
+        return _replace_identity_rebuild_run(conn, run_id=run_id)
     sql = _PROJECT_RUN.format(predicate="u.last_written_run_id=%s")
     with conn.cursor() as cur:
         cur.execute(sql, (str(run_id),))
@@ -285,8 +351,10 @@ def project_legacy_snapshot(conn, *, snapshot_date: str) -> int:
     the same transaction prevents the bounded reader and raw visibility rule
     from disagreeing during upgrades or explicit legacy imports.
     """
-    sql = _PROJECT_RUN.format(
-        predicate="u.last_written_run_id IS NULL AND u.snapshot_date=%s")
+    # Legacy imports are not ordered publication generations. Reconstruct
+    # from all visible evidence so observation chronology remains their only
+    # authority rather than reusing the later-generation merge rule.
     with conn.cursor() as cur:
-        cur.execute(sql, (snapshot_date,))
+        cur.execute(_REBUILD_DELETE)
+        cur.execute(_REBUILD_INSERT)
         return max(0, int(cur.rowcount or 0))

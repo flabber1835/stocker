@@ -216,3 +216,65 @@ def test_publication_failure_rolls_back_tombstones_and_projection(conn, monkeypa
             "SELECT status FROM feed_ingest_runs WHERE run_id=%s",
             (run.progress.run_id,))
         assert cur.fetchone()[0] == "failed"
+
+def test_older_observation_identity_generation_replaces_bounds(conn, monkeypatch):
+    _publish_base(conn)
+    monkeypatch.setattr(
+        IR, "_unused_snapshot_date", lambda *a, **k: "2026-08-19")
+    corrected = _candidate_rows()
+    for row in corrected:
+        row["firstpricedate"] = "2026-08-20"
+        row["lastpricedate"] = "2026-08-20"
+    with S.corpus_write_lock(conn):
+        plan = IR.prepare(
+            conn, date_from="2026-08-20", date_to="2026-08-21",
+            observed_on="2026-08-24")
+        run = S.IngestRun(
+            conn, "seed", date_from=plan.market_start, date_to=plan.market_end)
+        IR.record_plan(conn, run_id=run.progress.run_id, plan=plan)
+        rows = IR.verify_candidate(
+            conn, run_id=run.progress.run_id, plan=plan, rows=corrected)
+        IR.write_bars_claiming(
+            conn, [_bar("P1", "BTLN"), _bar("P3", "KEEP"),
+                   _bar("P4", "NEW")],
+            run_id=run.progress.run_id, batch_size=2)
+        IR.publish_completed_run(conn, run=run, rows=rows, plan=plan)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT permaticker,ticker,first_price_date,last_price_date"
+            " FROM feed_universe_current ORDER BY permaticker,ticker")
+        rows = [(str(p), str(t), str(f), str(l))
+                for p, t, f, l in cur.fetchall()]
+    assert rows == [
+        ("P1", "BTLN", "2026-08-20", "2026-08-20"),
+        ("P3", "KEEP", "2026-08-20", "2026-08-20"),
+        ("P4", "NEW", "2026-08-20", "2026-08-20"),
+    ]
+
+
+def test_identity_projection_assertion_failure_rolls_back_replacement(
+        conn, monkeypatch):
+    from sentinel.feed import universe_projection as UP
+
+    base = _publish_base(conn)
+    with S.corpus_write_lock(conn):
+        plan, run, rows = _prepare_candidate(conn)
+        original = UP._assert_identity_rebuild_projection
+
+        def fail_after_exact_projection(connection, *, run_id):
+            original(connection, run_id=run_id)
+            raise RuntimeError("post-replacement assertion fault")
+
+        monkeypatch.setattr(UP, "_assert_identity_rebuild_projection",
+                            fail_after_exact_projection)
+        with pytest.raises(RuntimeError, match="post-replacement"):
+            IR.publish_completed_run(conn, run=run, rows=rows, plan=plan)
+
+    assert P.require_current(conn).version == base.version
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT permaticker,ticker FROM feed_universe_current"
+            " ORDER BY permaticker,ticker")
+        pairs = [(str(p), str(t)) for p, t in cur.fetchall()]
+    assert pairs == [("P1", "GGRP"), ("P2", "LBRDK"), ("P3", "KEEP")]
