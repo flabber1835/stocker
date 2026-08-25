@@ -126,10 +126,14 @@ def read_health(conn) -> AutomationHealth:
             " COUNT(*) FILTER (WHERE ack_state='UNACKNOWLEDGED')"
             " FROM sentinel_alert_outbox")
         pending, dead, unacknowledged = cur.fetchone()
+        # Health belongs to the CURRENT LEASE HOLDER. A hot standby also emits
+        # its own heartbeat; selecting the globally newest service row would let
+        # that passive process either mask or falsely accuse the active leader.
         cur.execute(
-            "SELECT instance_id,heartbeat_at FROM"
-            " sentinel_automation_service_instances"
-            " ORDER BY heartbeat_at DESC LIMIT 1")
+            "SELECT i.instance_id,i.heartbeat_at FROM"
+            " sentinel_automation_service_instances i"
+            " JOIN sentinel_automation_lease l ON l.id=1"
+            " WHERE i.instance_id=l.holder_id LIMIT 1")
         instance = cur.fetchone()
         cur.execute(
             "SELECT a.active_certificate_sha256,"
