@@ -6,8 +6,6 @@
   "state_version": 1,
   "base_main_commit": "722aa14ae0e452437b80425528ba30fcf133b029",
   "authoritative_strategy_commit": "22ebcf48addadbc7ec4531df415041d1b8674f48",
-  "canonical_source": "sentinel_fastgate_reference.py",
-  "canonical_source_git_blob": "a1d4107ee552cba64373d896f49cebd3196087a5",
   "authoritative_dependency_git_blobs": {
     "sentinel/controller/concordance.py": "f1b49d3b6e942633eea126d834995a11cc896c3e",
     "sentinel/controller/concordance_parent.py": "bd2cea533479cabe502081c5d8c69a9535f315e0",
@@ -26,16 +24,37 @@
     "fast_spy_vol_ratio": 0.04,
     "fast_spy_r20": -0.01,
     "fast_shadow_r10_confirmation": -0.1,
-    "residual_thresholds": [0.145, 0.15, 0.155],
+    "peer_lookback": 252,
+    "peer_min_observations": 120,
+    "residual_thresholds": [
+      0.145,
+      0.15,
+      0.155
+    ],
     "residual_votes_required": 2,
+    "codistress_neighbors": 3,
+    "codistress_min_union": 5,
     "symbolic_core_floor": 0.75,
     "provisional_ceiling": 0.55,
     "persistence_sessions": 2
   },
+  "peer_builder": {
+    "history_domain": "held-security returns ending before decision session",
+    "market_neutralization": "OLS beta to SPY over prior aligned observations",
+    "residual_breadth": "vulnerable holdings promoted by max residual correlation to current RED holdings",
+    "codistress_breadth": "three prior Jaccard peers; promote when self-plus-peers RED share >= 50%",
+    "symbolic_bounds": "exact authoritative minimum/maximum damaged breadth required"
+  },
   "composition": [
-    "causal FAST snapshot -> Fastgate confirmation -> authoritative native Sentinel",
+    "causal peer histories -> Fastgate confirmation -> authoritative native Sentinel",
     "authoritative native Sentinel -> authoritative LD-RC",
     "unconfirmed first warning -> external 55% ceiling after LD-RC"
   ],
-  "strategy_digest_sha256": "7a18d1c66f221848ccdb327d1851c14e8d75f7c6d9a3fd51e390c6adef2d67b5"
+  "strategy_digest_sha256": "c1434409d8f91d8aa94405eccc20bf2f764479a9208a6030e60564999a281492",
+  "canonical_source": "sentinel_fastgate_reference.py",
+  "canonical_source_sha256": "c60beab918b49ce0610445bb07d273d28d5e4b2fc3ddd702efe54ea251f12f54",
+  "canonical_source_git_blob": "486de36a6764b9bab3a3b1b424c9930c3f0b61c1",
+  "canonical_test": "test_sentinel_fastgate_reference.py",
+  "canonical_test_sha256": "a8bd6cb513d11ad53075dc6107320f047a699a93e9ced2b381b426bd1cc95021",
+  "canonical_test_git_blob": "7fc1615908cd5b0351ad0845d5c738aa9c1783e7"
 }
