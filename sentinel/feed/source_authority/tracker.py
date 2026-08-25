@@ -21,6 +21,10 @@ class LastUpdatedTrackingFetch:
             ceiling, context="complete SEP seed observation")
         self.max_sep_lastupdated: Optional[dt.date] = None
 
+    @property
+    def seed_coverage_evidence(self):
+        return getattr(self._fetch, "seed_coverage_evidence", None)
+
     def __call__(self, table, params=None, **kwargs):
         rows = self._fetch(table, params, **kwargs)
         if table != sharadar.SEP:

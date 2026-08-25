@@ -57,6 +57,23 @@ def _callback_deadline_expired(
     return now_monotonic - watch.observed_at > deadline_seconds
 
 
+def _callback_deadline_expired_during_database_loss(
+        watch: CallbackWatch, *, now_monotonic: float,
+        database_unreadable_since: float,
+        deadline_seconds: float) -> bool:
+    """Preserve the hard callback bound when PostgreSQL cannot be observed.
+
+    If a callback had already been observed, its original monotonic deadline
+    continues to run. If database loss began before callback state could be
+    observed, conservatively cap the unobservable worker interval itself. This
+    may recycle an otherwise idle worker during a prolonged DB outage, but it
+    never weakens the configured hard callback bound into an unbounded wait.
+    """
+    anchor = (watch.observed_at if watch.state and watch.observed_at is not None
+              else database_unreadable_since)
+    return now_monotonic - anchor > deadline_seconds
+
+
 def _instance_stalled(*, heartbeat_age_seconds: float | None,
                       lease_seconds: float,
                       startup_grace_elapsed: bool) -> bool:
@@ -132,6 +149,7 @@ def main() -> int:
         child = _spawn(holder_id)
         started = time.monotonic()
         watch = CallbackWatch()
+        database_unreadable_since: float | None = None
         while not stopping:
             code = child.poll()
             if code is not None:
@@ -140,11 +158,25 @@ def main() -> int:
             try:
                 state, heartbeat_age = _snapshot(
                     sentinel_config.database_url, holder_id)
+                database_unreadable_since = None
             except Exception as exc:  # noqa: BLE001
-                # Database loss prevents safe authority validation. The child
-                # will fail closed on its own; do not kill-loop while DB is down.
+                if database_unreadable_since is None:
+                    database_unreadable_since = now_mono
                 print(f"automation supervisor health read failed: {exc}",
                       file=sys.stderr)
+                if _callback_deadline_expired_during_database_loss(
+                        watch, now_monotonic=now_mono,
+                        database_unreadable_since=database_unreadable_since,
+                        deadline_seconds=(
+                            automation_config.callback_deadline_seconds)):
+                    print(
+                        f"automation supervisor terminating worker {holder_id}: "
+                        "database authority was unobservable for the hard "
+                        f"{automation_config.callback_deadline_seconds}s "
+                        "callback deadline",
+                        file=sys.stderr)
+                    _terminate(child)
+                    break
                 time.sleep(poll_seconds)
                 continue
 
