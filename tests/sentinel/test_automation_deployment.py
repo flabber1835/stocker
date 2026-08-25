@@ -38,7 +38,9 @@ def test_automation_is_profile_gated_and_uses_immutable_runtime_image():
         "${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel-authorized}@")
     assert "@${SENTINEL_RUNTIME_IMAGE_DIGEST:?" in automated["image"]
     assert "build" not in automated
-    assert automated["command"] == ["automation-run"]
+    assert "command" not in automated
+    assert automated["entrypoint"] == [
+        "python", "-m", "sentinel.automation_supervisor"]
     assert automated["restart"] == "unless-stopped"
     assert automated["mem_limit"] and automated["cpus"]
     assert "ports" not in automated
@@ -51,7 +53,7 @@ def test_automation_health_is_select_only_and_policy_inert_is_healthy():
     health = automated["healthcheck"]["test"]
 
     assert health == [
-        "CMD", "python", "-m", "sentinel", "automation-health"]
+        "CMD", "python", "-m", "sentinel.automation_liveness"]
     source = (AUTOMATION / "health.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     statements = []
