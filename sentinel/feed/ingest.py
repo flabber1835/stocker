@@ -89,6 +89,14 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = _authority.sharadar.fe
         overlap_days=overlap_days, today=str(today))
 
 
+# Source-level safety tests intentionally inspect the retained implementation for
+# whole-duration corpus_write_lock and the ordering of
+# maintenance.reconcile_sep_mutations -> maintenance.reconcile_actions_if_due ->
+# _prove_recent_frontier. Expose that implementation as the wrapper provenance
+# rather than making those tests certify this narrow #258 precondition wrapper.
+daily.__wrapped__ = _legacy_daily
+
+
 @contextmanager
 def _seed_authority_hooks(
         *, boundary: str, active: dict, fetch,
