@@ -1,0 +1,18 @@
+test_provisional_ceiling_is_applied_after_ldrc (test_sentinel_fastgate_reference.CompositionTests.test_provisional_ceiling_is_applied_after_ldrc) ... ok
+test_provisional_never_overrides_severe_or_increases_exposure (test_sentinel_fastgate_reference.CompositionTests.test_provisional_never_overrides_severe_or_increases_exposure) ... ok
+test_causal_confirmation_is_immediate (test_sentinel_fastgate_reference.GateTests.test_causal_confirmation_is_immediate) ... ok
+test_first_warning_is_external_55_percent_ceiling (test_sentinel_fastgate_reference.GateTests.test_first_warning_is_external_55_percent_ceiling) ... ok
+test_one_session_warning_clears_immediately (test_sentinel_fastgate_reference.GateTests.test_one_session_warning_clears_immediately) ... ok
+test_second_warning_confirms (test_sentinel_fastgate_reference.GateTests.test_second_warning_confirms) ... ok
+test_unavailable_evidence_withholds_without_mutation (test_sentinel_fastgate_reference.GateTests.test_unavailable_evidence_withholds_without_mutation) ... ok
+test_identity_and_state_round_trip_are_deterministic (test_sentinel_fastgate_reference.IdentityTests.test_identity_and_state_round_trip_are_deterministic) ... ok
+test_invalid_persistence_configuration_is_rejected (test_sentinel_fastgate_reference.IdentityTests.test_invalid_persistence_configuration_is_rejected) ... ok
+test_controllable_dynamic_peer_signal_confirms (test_sentinel_fastgate_reference.SignalTests.test_controllable_dynamic_peer_signal_confirms) ... ok
+test_history_must_end_before_decision (test_sentinel_fastgate_reference.SignalTests.test_history_must_end_before_decision) ... ok
+test_missing_required_evidence_is_unavailable (test_sentinel_fastgate_reference.SignalTests.test_missing_required_evidence_is_unavailable) ... ok
+test_non_peer_failure_is_impossible (test_sentinel_fastgate_reference.SignalTests.test_non_peer_failure_is_impossible) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 0.002s
+
+OK
