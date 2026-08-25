@@ -1,4 +1,4 @@
-"""Canonical SEP/SFP key uniqueness before stable fingerprints."""
+"""Canonical SEP/SFP key uniqueness and TICKERS structural authority."""
 from __future__ import annotations
 
 import hashlib
@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Iterable, Iterator, Mapping, Optional
 
-from sentinel.feed import sharadar
+from sentinel.feed import sharadar, tickers_authority
 from .dates import (
     CanonicalSourceDuplicate, SepUpdateEnvelope, _canonical_key,
     _canonical_row,
@@ -132,13 +132,28 @@ def _duplicate_refusal(table: str, conn: sqlite3.Connection
 
 
 class CanonicalSourceFetch:
+    """Apply canonical source validation before any retained fingerprint.
+
+    SEP/SFP uniqueness is always safe for injected deterministic fixtures.  The
+    full TICKERS structural membrane is enabled explicitly by production callers
+    because unit/replay fetch seams intentionally use abbreviated TICKERS rows
+    that are not claiming to be complete Sharadar source snapshots.
+    """
+
     def __init__(self, fetch, *,
-                 sep_update_envelope: Optional[SepUpdateEnvelope] = None):
+                 sep_update_envelope: Optional[SepUpdateEnvelope] = None,
+                 validate_tickers: bool = False):
         self._fetch = fetch
         self._sep_update_envelope = sep_update_envelope
+        self._validate_tickers = bool(validate_tickers)
 
     def __call__(self, table, params=None, **kwargs):
         rows = self._fetch(table, params, **kwargs)
+        if table == sharadar.TICKERS and self._validate_tickers:
+            # Materialization is bounded by the TICKERS table (~22k SEP rows).
+            # Validation occurs here, upstream of coherence.StableSharadarFetch,
+            # so an invalid stable snapshot can never earn its first fingerprint.
+            return tickers_authority.validate(rows)
         if table not in {sharadar.SEP, sharadar.SFP}:
             return rows
         envelope = None

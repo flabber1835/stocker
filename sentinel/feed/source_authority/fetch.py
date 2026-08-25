@@ -6,7 +6,7 @@ import pickle
 import tempfile
 from typing import Optional
 
-from sentinel.feed import coherence, sharadar
+from sentinel.feed import coherence, sharadar, snapshot_source
 from .dates import SepUpdateEnvelope, SourceAuthorityRefused, _strict_date
 from .duplicates import CanonicalSourceFetch
 from .coverage import SeedCoverageAccumulator
@@ -20,7 +20,12 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
                  corroborate_reference=None,
                  after_session: str | None = None,
                  seed_mode: bool = False):
-        self._canonical_fetch = CanonicalSourceFetch(fetch)
+        # Only the production snapshot membrane is entitled to claim complete
+        # TICKERS structural authority. Injected deterministic fetch seams remain
+        # usable for narrow financial/adversarial tests without pretending to be
+        # a complete Sharadar TICKERS export.
+        self._canonical_fetch = CanonicalSourceFetch(
+            fetch, validate_tickers=(fetch is snapshot_source.fetch_table))
         self._seed_projection: Optional[SeedListingProjection] = None
         super().__init__(
             self._canonical_fetch, protect_sep=protect_sep,
