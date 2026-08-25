@@ -4,14 +4,19 @@
   "strategy_version": 1,
   "research_branch": "research/sentinel-fastgate-2026-08-24",
   "canonical_source": "sentinel_fastgate_reference.py",
-  "canonical_source_git_blob": "a1d4107ee552cba64373d896f49cebd3196087a5",
-  "strategy_digest_sha256": "7a18d1c66f221848ccdb327d1851c14e8d75f7c6d9a3fd51e390c6adef2d67b5",
+  "canonical_source_sha256": "c60beab918b49ce0610445bb07d273d28d5e4b2fc3ddd702efe54ea251f12f54",
+  "canonical_source_git_blob": "486de36a6764b9bab3a3b1b424c9930c3f0b61c1",
+  "strategy_digest_sha256": "c1434409d8f91d8aa94405eccc20bf2f764479a9208a6030e60564999a281492",
   "base_main_commit": "722aa14ae0e452437b80425528ba30fcf133b029",
   "authoritative_strategy_commit": "22ebcf48addadbc7ec4531df415041d1b8674f48",
   "historical_replay_commit": "7c591211b463428a835c98af0ba597839d1b8aab",
   "authoritative_tape": "sentinel_1p1_daily(3).csv",
   "evidence_end_session": "2026-07-31",
-  "renamed_from": "narrow alpha-recovery candidate / D_narrow_combined",
+  "renamed_from": [
+    "narrow alpha-recovery candidate",
+    "D_narrow_combined",
+    "FAST confirmation + externally owned provisional warning"
+  ],
   "control_gates": {
     "sessions": 5032,
     "native_next_max_abs": 0.0,
@@ -31,11 +36,23 @@
     "2022-04-26",
     "2022-06-15"
   ],
-  "limitations": [
-    "The canonical source defines the exact Fastgate decision policy from a causal feature snapshot.",
-    "The retained performance run ports the previously calculated causal confirmation schedule onto the authoritative tape.",
-    "A fresh point-in-time per-security residual-correlation and co-distress reconstruction must reproduce those confirmations before production promotion.",
-    "Ordinary/slow stress, confirmed severe recovery, the Sentinel 1.1 ramp, recent-leadership witness, divergence latch, and LD-RC remain unchanged pinned dependencies."
+  "reference_scope": [
+    "build prior-only 252-session market-residual peer correlations from held-security histories",
+    "build historical co-distress/Jaccard peer breadth from aligned prior-only histories",
+    "apply exact symbolic FAST minimum/maximum damage geometry supplied by the authoritative adapter",
+    "gate native FAST severe entry by causal confirmation or a second consecutive warning",
+    "apply the first unconfirmed 55% ceiling after unchanged LD-RC"
   ],
+  "limitations": [
+    "The retained 5/10/15/20-year performance evidence predates the completed raw-history builder and uses the previously calculated causal confirmation schedule mapped onto the authoritative tape.",
+    "A fresh point-in-time replay must feed authoritative held-security histories through this canonical source and reproduce the retained confirmations and economics before production promotion.",
+    "Exact symbolic minimum/maximum damaged breadth remains an authoritative input; Sentinel Fastgate deliberately does not approximate that retained geometry.",
+    "Ordinary/slow stress, confirmed severe recovery, the Sentinel 1.1 ramp, recent-leadership witness, divergence latch, LD-RC, and portfolio accounting remain unchanged pinned dependencies."
+  ],
+  "verification": {
+    "tests": 20,
+    "test_status": "PASS",
+    "test_source_sha256": "a8bd6cb513d11ad53075dc6107320f047a699a93e9ced2b381b426bd1cc95021"
+  },
   "status": "research candidate; not production activated or certified"
 }
