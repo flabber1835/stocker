@@ -1,0 +1,46 @@
+name: Orion SEC security-type coverage
+
+on:
+  push:
+    branches:
+      - research/sentinel-fastgate-2026-08-24
+    paths:
+      - 'PIT input data/analyze_sec_security_type_coverage.py'
+      - '.github/workflows/orion-sec-security-type-coverage.yml'
+      - 'sec/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research/sentinel-fastgate-2026-08-24
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Analyze SEC security-type evidence
+        run: python 'PIT input data/analyze_sec_security_type_coverage.py'
+      - name: Show report
+        run: |
+          cat 'PIT input data/SEC_SECURITY_TYPE_COVERAGE.md'
+          cat 'PIT input data/SEC_SECURITY_TYPE_COVERAGE.json'
+      - name: Commit diagnostic outputs
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz' \
+                  'PIT input data/SEC_SECURITY_TYPE_BUY_COVERAGE_GAPS.csv' \
+                  'PIT input data/SEC_SECURITY_TYPE_COVERAGE.json' \
+                  'PIT input data/SEC_SECURITY_TYPE_COVERAGE.md'
+          if git diff --cached --quiet; then
+            echo 'No output changes.'
+          else
+            git commit -m 'research(orion): add SEC security-type coverage results'
+            git push origin HEAD:research/sentinel-fastgate-2026-08-24
+          fi
