@@ -31,7 +31,19 @@ The runner:
 5. rejects raw Sharadar archives, TICKERS, adjusted-price fields, current metadata fields, or any unlisted data file;
 6. commits only the validated `*_PIT_ONLY.csv.gz` outputs back to the research branch.
 
-The run intentionally fails until the exact hash-pinned `SHARADAR_ACTIONS.zip` and `SHARADAR_SFP.zip` sources are present in the repository (normally under `sharadar/`). SEP 1998–2026 is already present on the research branch.
+### Large SFP source
+
+The pinned `SHARADAR_SFP.zip` is about 285 MB, above GitHub's normal 100 MB single-file limit. The workflow therefore supports a split source on the research branch:
+
+`sharadar/SHARADAR_SFP.zip.part-000`, `...part-001`, and so on.
+
+It concatenates the parts only inside the ephemeral runner workspace. The reassembled archive must hash exactly to the `source_sha256` in `MANIFEST.csv`; otherwise the build stops. The raw reassembled archive is never added to `PIT input data` and is never included in the runner commit.
+
+The same split mechanism is supported for `SHARADAR_ACTIONS.zip`, although that archive is small enough to commit whole.
+
+## Current source status
+
+SEP 1998–2026 is present on the research branch and byte-pinned. The run intentionally fails until the exact hash-pinned ACTIONS source and either the whole SFP source or its split parts are present.
 
 ## Completion criterion
 
