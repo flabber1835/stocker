@@ -9,19 +9,19 @@ Sentinel Fastgate is the canonical name for the previously described narrow alph
 
 ## Canonical source of truth
 
-[`sentinel_fastgate_reference.py`](sentinel_fastgate_reference.py) is the single canonical source file for every behavior introduced by Sentinel Fastgate.
+[`sentinel_fastgate_reference.py`](sentinel_fastgate_reference.py) is the single canonical source file for every decision rule introduced by Sentinel Fastgate.
 
-- SHA-256: `0acc3003c35de1901d9313c3cec7e27d949c53cf3183a1d6071501c241bd1c39`
-- Strategy digest: `46310578a0d7001d23d452aabba87d167dfb6a1ed2dd0607cda6e0ee73a770bc`
+- Git blob: `a1d4107ee552cba64373d896f49cebd3196087a5`
+- Strategy digest: `7a18d1c66f221848ccdb327d1851c14e8d75f7c6d9a3fd51e390c6adef2d67b5`
 
-The file implements the prior-only 252-session residual-correlation and co-distress confirmation algorithm, exact symbolic FAST branch handling, first-warning 55% ownership, persistence confirmation, post-LD-RC composition, state serialization, strategy identity, and dependency-blob verification.
+The file defines the exact causal-snapshot thresholds and fusion, symbolic FAST branch classification, first-warning 55% ownership, persistence confirmation, post-LD-RC composition, state serialization, deterministic identity, and dependency-blob verification.
 
-No other Python file in this directory defines strategy behavior. [`backtest_harness.py`](backtest_harness.py) is evidence infrastructure only.
+The raw per-security residual-correlation/co-distress feature builder is deliberately an upstream data adapter. Its histories must end before the decision session, and a fresh point-in-time reconstruction remains required before promotion.
 
 ## Architecture boundary
 
 ```text
-prior-only peer histories ending t-1
+causal peer/features snapshot ending before close t
         -> Sentinel Fastgate confirmation
         -> unchanged authoritative native Sentinel
         -> unchanged authoritative Simplified Concordance LD-RC
@@ -42,18 +42,17 @@ A first unconfirmed warning is invisible to native Sentinel and LD-RC, so cleari
 - [`retained_confirmation_mapping.csv`](retained_confirmation_mapping.csv) — retained causal schedule mapping
 - [`provenance.json`](provenance.json) — data lineage and limitations
 - [`STRATEGY_IDENTITY.json`](STRATEGY_IDENTITY.json) — deterministic identity payload
-- [`TEST_RESULTS.txt`](TEST_RESULTS.txt) and [`BACKTEST_STDOUT.txt`](BACKTEST_STDOUT.txt)
-- [`SOURCE_MANIFEST.md`](SOURCE_MANIFEST.md) — hashes for all retained files
+- [`TEST_RESULTS.txt`](TEST_RESULTS.txt) — canonical source tests
+- [`SOURCE_MANIFEST.md`](SOURCE_MANIFEST.md) — hashes for retained files
+
+The original parity-gated replay harness remains preserved at immutable lineage commit `7c591211b463428a835c98af0ba597839d1b8aab`; this canonical branch contains the renamed outputs and the single source-of-truth Fastgate implementation.
 
 ## Verification
 
 ```bash
 python -m unittest -v test_sentinel_fastgate_reference.py
-python backtest_harness.py
 ```
-
-The harness refuses to publish candidate metrics unless the unchanged current arm reproduces native decisions, LD-RC decisions, effective allocations, and daily NAV within the retained exact tolerance.
 
 ## Promotion boundary
 
-The source now specifies the dynamic signal end to end. The retained historical run still uses the previously calculated causal confirmation schedule mapped onto the authoritative tape. A fresh per-security point-in-time reconstruction must reproduce those decisions before production promotion.
+The source specifies the exact decision policy from a causal snapshot. The retained historical run uses the previously calculated causal confirmation schedule mapped onto the authoritative tape. A fresh per-security point-in-time reconstruction must reproduce those decisions before production promotion.
