@@ -1,0 +1,39 @@
+name: issue-250-closure-apply
+
+on:
+  push:
+    branches:
+      - codex/issue-250-sharadar-ingress
+
+permissions:
+  contents: write
+
+concurrency:
+  group: issue-250-closure-apply
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply authority closure
+        run: python tools/apply_issue250_closure.py
+      - name: Static validation
+        run: |
+          git diff --check
+          python -m compileall -q sentinel tests/sentinel/test_issue_250_source_authority.py tests/sentinel/test_issue_250_seed_evidence.py
+      - name: Commit implementation and remove one-shot machinery
+        run: |
+          rm -f tools/apply_issue250_closure.py .github/workflows/issue250-closure-apply.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feed: close exact Sharadar seed and source authority"
+          git push origin HEAD:codex/issue-250-sharadar-ingress
