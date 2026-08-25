@@ -1,0 +1,1084 @@
+{
+  "archives": 82,
+  "archive_range": [
+    "2006q1_form345.zip",
+    "2026q2_form345.zip"
+  ],
+  "distinct_positive_common_tickers": 24764,
+  "legacy_common_tickers": 24611,
+  "legacy_common_ticker_coverage": 13394,
+  "legacy_common_ticker_coverage_pct": 0.5442281906464589,
+  "executed_buy_tickers": 654,
+  "executed_buy_tickers_with_any_positive_evidence": 518,
+  "executed_buy_ticker_coverage_pct": 0.7920489296636085,
+  "executed_buy_rows_with_dates": 722,
+  "executed_buy_rows_causally_covered_before_buy": 573,
+  "executed_buy_row_causal_coverage_pct": 0.7936288088642659,
+  "executed_buy_rows_not_causally_covered": 149,
+  "top_security_titles": [
+    [
+      "Common Stock",
+      6204510
+    ],
+    [
+      "Class A Common Stock",
+      882015
+    ],
+    [
+      "Common Shares",
+      207694
+    ],
+    [
+      "Class B Common Stock",
+      116202
+    ],
+    [
+      "COMMON STOCK",
+      114304
+    ],
+    [
+      "Common Stock, par value $0.01 per share",
+      105365
+    ],
+    [
+      "Ordinary Shares",
+      87073
+    ],
+    [
+      "Common stock",
+      86460
+    ],
+    [
+      "Common",
+      76479
+    ],
+    [
+      "common stock",
+      54667
+    ],
+    [
+      "Common Stock, par value $.01 per share",
+      42369
+    ],
+    [
+      "Common Stock, par value $0.001 per share",
+      38858
+    ],
+    [
+      "Common Stock, $0.01 par value",
+      37042
+    ],
+    [
+      "Common Units",
+      34574
+    ],
+    [
+      "Class A common stock",
+      31022
+    ],
+    [
+      "Class A Common",
+      28701
+    ],
+    [
+      "Common Stock, $1.00 par value",
+      28596
+    ],
+    [
+      "Common Stock, par value $0.01",
+      25591
+    ],
+    [
+      "Common Stock, $.01 par value",
+      23399
+    ],
+    [
+      "Common Shares of Beneficial Interest",
+      19141
+    ],
+    [
+      "Common Stock, par value $.01",
+      18357
+    ],
+    [
+      "Common Stock, $0.001 par value",
+      17376
+    ],
+    [
+      "Common Stock, par value $0.001",
+      16327
+    ],
+    [
+      "Common stock, par value $0.01 per share",
+      13716
+    ],
+    [
+      "Class C Capital Stock",
+      12681
+    ],
+    [
+      "Series A Common Stock",
+      12587
+    ],
+    [
+      "Common Stock, $.10 par value",
+      11435
+    ],
+    [
+      "Common Stock, no par value",
+      11363
+    ],
+    [
+      "Class B Common",
+      10453
+    ],
+    [
+      "Common Stock $0.01 Par Value",
+      10063
+    ],
+    [
+      "Common Stock, par value $0.0001 per share",
+      9928
+    ],
+    [
+      "Class A Common Shares",
+      9799
+    ],
+    [
+      "Common Stock, $0.01 par value per share",
+      9472
+    ],
+    [
+      "Class A ordinary shares",
+      9237
+    ],
+    [
+      "COMMON",
+      9054
+    ],
+    [
+      "Common Stock, $.01 Par Value",
+      8658
+    ],
+    [
+      "Common shares without par value",
+      8447
+    ],
+    [
+      "Class C Common Stock",
+      8116
+    ],
+    [
+      "Common Stock, $0.0001 par value",
+      7811
+    ],
+    [
+      "Common units representing limited partner interests",
+      7744
+    ],
+    [
+      "Common Class A",
+      7738
+    ],
+    [
+      "Common Stock $.01 Par Value",
+      7701
+    ],
+    [
+      "Common Stock, $0.10 par value",
+      7630
+    ],
+    [
+      "Restricted Stock Units",
+      7578
+    ],
+    [
+      "Class A Ordinary Shares",
+      7477
+    ],
+    [
+      "Common Stock, $.25 Par Value",
+      7338
+    ],
+    [
+      "Common Stock, No par value",
+      6899
+    ],
+    [
+      "Restricted Stock",
+      6780
+    ],
+    [
+      "Common Stock, $1 2/3 Par Value",
+      6613
+    ],
+    [
+      "Common Stock, $.01 par value per share",
+      6526
+    ],
+    [
+      "Common Stock, $.001 par value",
+      6524
+    ],
+    [
+      "CBS Class B common stock",
+      6159
+    ],
+    [
+      "Class A Common Stock, par value $0.01 per share",
+      6151
+    ],
+    [
+      "Common Stock, without par value",
+      5910
+    ],
+    [
+      "common shares",
+      5896
+    ],
+    [
+      "Common Stock, Par Value $0.01 Per Share",
+      5882
+    ],
+    [
+      "Class A Common Shares, $.01 par value per share",
+      5852
+    ],
+    [
+      "Registered Shares",
+      5689
+    ],
+    [
+      "$5 Par Common Stock",
+      5512
+    ],
+    [
+      "Applied Biosystems Group Common Stock",
+      5480
+    ],
+    [
+      "Common Stock, Par Value $0.01",
+      5269
+    ],
+    [
+      "Common shares",
+      5236
+    ],
+    [
+      "Voting Common Stock",
+      5211
+    ],
+    [
+      "Common Stock, par value $.0001 per share",
+      5099
+    ],
+    [
+      "common",
+      5025
+    ],
+    [
+      "CLASS A COMMON STOCK",
+      5002
+    ],
+    [
+      "Common Units Representing Limited Partnership Interests",
+      4981
+    ],
+    [
+      "Common Stock, par value $.10 per share",
+      4935
+    ],
+    [
+      "Common Stock, par value $0.0001",
+      4885
+    ],
+    [
+      "Common Stock, $0.001 par value per share",
+      4852
+    ],
+    [
+      "Common Stock Class A",
+      4805
+    ],
+    [
+      "Common Stock $.01 Par Value ND",
+      4805
+    ],
+    [
+      "Class A Non-Voting Common Stock",
+      4795
+    ],
+    [
+      "Shares of Beneficial Interest",
+      4789
+    ],
+    [
+      "Common Units representing limited partner interests",
+      4723
+    ],
+    [
+      "Common Stock, $1 par value",
+      4697
+    ],
+    [
+      "Common Stock, par value $1.00 per share",
+      4679
+    ],
+    [
+      "UMH Properties, Inc.",
+      4674
+    ],
+    [
+      "Common Stock, Par Value $.01",
+      4578
+    ],
+    [
+      "Common stock, $0.01 par value per share",
+      4571
+    ],
+    [
+      "Fidelity Southern Corporation - Common Stock",
+      4562
+    ],
+    [
+      "Common Stock - Voting",
+      4523
+    ],
+    [
+      "Common Stock, $0.0001 par value per share",
+      4450
+    ],
+    [
+      "Common Stock, par value $.10",
+      4341
+    ],
+    [
+      "Tredegar Common Stock",
+      4336
+    ],
+    [
+      "Common Stock, $1.25 par value",
+      4318
+    ],
+    [
+      "Disney Common Stock",
+      4286
+    ],
+    [
+      "Common Stock, No Par Value",
+      4164
+    ],
+    [
+      "Humana Common",
+      4151
+    ],
+    [
+      "SFNC",
+      4116
+    ],
+    [
+      "Class C Google Stock Units",
+      3955
+    ],
+    [
+      "Class A Shares",
+      3915
+    ],
+    [
+      "Class A Common Stock, $.01 par value",
+      3870
+    ],
+    [
+      "American Depositary Shares",
+      3824
+    ],
+    [
+      "Common Stock, $1.00 Par Value",
+      3805
+    ],
+    [
+      "class A common stock",
+      3775
+    ],
+    [
+      "Common  Stock",
+      3751
+    ],
+    [
+      "No securities are beneficially owned",
+      3708
+    ],
+    [
+      "Common Stock, par value $.001",
+      3704
+    ],
+    [
+      "Common Shares Of Beneficial Interest",
+      3687
+    ]
+  ],
+  "archive_stats": [
+    {
+      "quarter": "2006q1",
+      "members": 10,
+      "submission_rows": 83657,
+      "security_title_rows": 224144,
+      "joined_title_rows": 224144,
+      "positive_common_rows": 212390
+    },
+    {
+      "quarter": "2006q2",
+      "members": 10,
+      "submission_rows": 70295,
+      "security_title_rows": 186488,
+      "joined_title_rows": 186488,
+      "positive_common_rows": 176697
+    },
+    {
+      "quarter": "2006q3",
+      "members": 10,
+      "submission_rows": 53564,
+      "security_title_rows": 153977,
+      "joined_title_rows": 153977,
+      "positive_common_rows": 146194
+    },
+    {
+      "quarter": "2006q4",
+      "members": 10,
+      "submission_rows": 60959,
+      "security_title_rows": 182610,
+      "joined_title_rows": 182610,
+      "positive_common_rows": 174939
+    },
+    {
+      "quarter": "2007q1",
+      "members": 10,
+      "submission_rows": 82540,
+      "security_title_rows": 236752,
+      "joined_title_rows": 236752,
+      "positive_common_rows": 224496
+    },
+    {
+      "quarter": "2007q2",
+      "members": 10,
+      "submission_rows": 71855,
+      "security_title_rows": 212805,
+      "joined_title_rows": 212805,
+      "positive_common_rows": 204481
+    },
+    {
+      "quarter": "2007q3",
+      "members": 10,
+      "submission_rows": 58307,
+      "security_title_rows": 206455,
+      "joined_title_rows": 206455,
+      "positive_common_rows": 197891
+    },
+    {
+      "quarter": "2007q4",
+      "members": 10,
+      "submission_rows": 63747,
+      "security_title_rows": 221284,
+      "joined_title_rows": 221284,
+      "positive_common_rows": 214292
+    },
+    {
+      "quarter": "2008q1",
+      "members": 10,
+      "submission_rows": 78685,
+      "security_title_rows": 231239,
+      "joined_title_rows": 231239,
+      "positive_common_rows": 220422
+    },
+    {
+      "quarter": "2008q2",
+      "members": 10,
+      "submission_rows": 67641,
+      "security_title_rows": 216597,
+      "joined_title_rows": 216597,
+      "positive_common_rows": 206380
+    },
+    {
+      "quarter": "2008q3",
+      "members": 10,
+      "submission_rows": 51472,
+      "security_title_rows": 127270,
+      "joined_title_rows": 127270,
+      "positive_common_rows": 120027
+    },
+    {
+      "quarter": "2008q4",
+      "members": 10,
+      "submission_rows": 52300,
+      "security_title_rows": 113613,
+      "joined_title_rows": 113613,
+      "positive_common_rows": 106317
+    },
+    {
+      "quarter": "2009q1",
+      "members": 10,
+      "submission_rows": 69390,
+      "security_title_rows": 135395,
+      "joined_title_rows": 135395,
+      "positive_common_rows": 125718
+    },
+    {
+      "quarter": "2009q2",
+      "members": 10,
+      "submission_rows": 53088,
+      "security_title_rows": 98826,
+      "joined_title_rows": 98826,
+      "positive_common_rows": 93194
+    },
+    {
+      "quarter": "2009q3",
+      "members": 10,
+      "submission_rows": 43619,
+      "security_title_rows": 96312,
+      "joined_title_rows": 96312,
+      "positive_common_rows": 90824
+    },
+    {
+      "quarter": "2009q4",
+      "members": 10,
+      "submission_rows": 46888,
+      "security_title_rows": 102670,
+      "joined_title_rows": 102670,
+      "positive_common_rows": 97423
+    },
+    {
+      "quarter": "2010q1",
+      "members": 10,
+      "submission_rows": 69725,
+      "security_title_rows": 147236,
+      "joined_title_rows": 147236,
+      "positive_common_rows": 138841
+    },
+    {
+      "quarter": "2010q2",
+      "members": 10,
+      "submission_rows": 57898,
+      "security_title_rows": 115721,
+      "joined_title_rows": 115721,
+      "positive_common_rows": 109718
+    },
+    {
+      "quarter": "2010q3",
+      "members": 10,
+      "submission_rows": 43766,
+      "security_title_rows": 88385,
+      "joined_title_rows": 88385,
+      "positive_common_rows": 83862
+    },
+    {
+      "quarter": "2010q4",
+      "members": 10,
+      "submission_rows": 50146,
+      "security_title_rows": 114444,
+      "joined_title_rows": 114444,
+      "positive_common_rows": 109819
+    },
+    {
+      "quarter": "2011q1",
+      "members": 10,
+      "submission_rows": 72582,
+      "security_title_rows": 154307,
+      "joined_title_rows": 154307,
+      "positive_common_rows": 145391
+    },
+    {
+      "quarter": "2011q2",
+      "members": 10,
+      "submission_rows": 57671,
+      "security_title_rows": 114157,
+      "joined_title_rows": 114157,
+      "positive_common_rows": 108571
+    },
+    {
+      "quarter": "2011q3",
+      "members": 10,
+      "submission_rows": 42254,
+      "security_title_rows": 85374,
+      "joined_title_rows": 85374,
+      "positive_common_rows": 80551
+    },
+    {
+      "quarter": "2011q4",
+      "members": 10,
+      "submission_rows": 43181,
+      "security_title_rows": 90088,
+      "joined_title_rows": 90088,
+      "positive_common_rows": 85240
+    },
+    {
+      "quarter": "2012q1",
+      "members": 10,
+      "submission_rows": 71282,
+      "security_title_rows": 149234,
+      "joined_title_rows": 149234,
+      "positive_common_rows": 140847
+    },
+    {
+      "quarter": "2012q2",
+      "members": 10,
+      "submission_rows": 54814,
+      "security_title_rows": 101881,
+      "joined_title_rows": 101881,
+      "positive_common_rows": 96654
+    },
+    {
+      "quarter": "2012q3",
+      "members": 10,
+      "submission_rows": 42682,
+      "security_title_rows": 91964,
+      "joined_title_rows": 91964,
+      "positive_common_rows": 86909
+    },
+    {
+      "quarter": "2012q4",
+      "members": 10,
+      "submission_rows": 47981,
+      "security_title_rows": 112254,
+      "joined_title_rows": 112254,
+      "positive_common_rows": 107054
+    },
+    {
+      "quarter": "2013q1",
+      "members": 10,
+      "submission_rows": 69605,
+      "security_title_rows": 148556,
+      "joined_title_rows": 148556,
+      "positive_common_rows": 140242
+    },
+    {
+      "quarter": "2013q2",
+      "members": 10,
+      "submission_rows": 56930,
+      "security_title_rows": 110205,
+      "joined_title_rows": 110205,
+      "positive_common_rows": 104961
+    },
+    {
+      "quarter": "2013q3",
+      "members": 10,
+      "submission_rows": 44336,
+      "security_title_rows": 92211,
+      "joined_title_rows": 92211,
+      "positive_common_rows": 87826
+    },
+    {
+      "quarter": "2013q4",
+      "members": 10,
+      "submission_rows": 46586,
+      "security_title_rows": 100152,
+      "joined_title_rows": 100152,
+      "positive_common_rows": 95142
+    },
+    {
+      "quarter": "2014q1",
+      "members": 10,
+      "submission_rows": 72485,
+      "security_title_rows": 151920,
+      "joined_title_rows": 151920,
+      "positive_common_rows": 142941
+    },
+    {
+      "quarter": "2014q2",
+      "members": 10,
+      "submission_rows": 56980,
+      "security_title_rows": 105314,
+      "joined_title_rows": 105314,
+      "positive_common_rows": 98804
+    },
+    {
+      "quarter": "2014q3",
+      "members": 10,
+      "submission_rows": 43042,
+      "security_title_rows": 86880,
+      "joined_title_rows": 86880,
+      "positive_common_rows": 81901
+    },
+    {
+      "quarter": "2014q4",
+      "members": 10,
+      "submission_rows": 47604,
+      "security_title_rows": 99692,
+      "joined_title_rows": 99692,
+      "positive_common_rows": 94136
+    },
+    {
+      "quarter": "2015q1",
+      "members": 10,
+      "submission_rows": 73143,
+      "security_title_rows": 151287,
+      "joined_title_rows": 151287,
+      "positive_common_rows": 142309
+    },
+    {
+      "quarter": "2015q2",
+      "members": 10,
+      "submission_rows": 57345,
+      "security_title_rows": 103850,
+      "joined_title_rows": 103850,
+      "positive_common_rows": 98085
+    },
+    {
+      "quarter": "2015q3",
+      "members": 10,
+      "submission_rows": 42553,
+      "security_title_rows": 83689,
+      "joined_title_rows": 83689,
+      "positive_common_rows": 78222
+    },
+    {
+      "quarter": "2015q4",
+      "members": 10,
+      "submission_rows": 43357,
+      "security_title_rows": 89250,
+      "joined_title_rows": 89250,
+      "positive_common_rows": 83869
+    },
+    {
+      "quarter": "2016q1",
+      "members": 10,
+      "submission_rows": 68776,
+      "security_title_rows": 138037,
+      "joined_title_rows": 138037,
+      "positive_common_rows": 129311
+    },
+    {
+      "quarter": "2016q2",
+      "members": 10,
+      "submission_rows": 53490,
+      "security_title_rows": 93125,
+      "joined_title_rows": 93125,
+      "positive_common_rows": 87866
+    },
+    {
+      "quarter": "2016q3",
+      "members": 10,
+      "submission_rows": 40073,
+      "security_title_rows": 80067,
+      "joined_title_rows": 80067,
+      "positive_common_rows": 75684
+    },
+    {
+      "quarter": "2016q4",
+      "members": 10,
+      "submission_rows": 41983,
+      "security_title_rows": 86031,
+      "joined_title_rows": 86031,
+      "positive_common_rows": 80395
+    },
+    {
+      "quarter": "2017q1",
+      "members": 10,
+      "submission_rows": 70217,
+      "security_title_rows": 144892,
+      "joined_title_rows": 144892,
+      "positive_common_rows": 136495
+    },
+    {
+      "quarter": "2017q2",
+      "members": 10,
+      "submission_rows": 53955,
+      "security_title_rows": 97394,
+      "joined_title_rows": 97394,
+      "positive_common_rows": 92365
+    },
+    {
+      "quarter": "2017q3",
+      "members": 10,
+      "submission_rows": 37451,
+      "security_title_rows": 72252,
+      "joined_title_rows": 72252,
+      "positive_common_rows": 68100
+    },
+    {
+      "quarter": "2017q4",
+      "members": 10,
+      "submission_rows": 40873,
+      "security_title_rows": 83687,
+      "joined_title_rows": 83687,
+      "positive_common_rows": 79664
+    },
+    {
+      "quarter": "2018q1",
+      "members": 10,
+      "submission_rows": 68559,
+      "security_title_rows": 142100,
+      "joined_title_rows": 142100,
+      "positive_common_rows": 134551
+    },
+    {
+      "quarter": "2018q2",
+      "members": 10,
+      "submission_rows": 53913,
+      "security_title_rows": 97309,
+      "joined_title_rows": 97309,
+      "positive_common_rows": 92185
+    },
+    {
+      "quarter": "2018q3",
+      "members": 10,
+      "submission_rows": 38571,
+      "security_title_rows": 79577,
+      "joined_title_rows": 79577,
+      "positive_common_rows": 75513
+    },
+    {
+      "quarter": "2018q4",
+      "members": 10,
+      "submission_rows": 41008,
+      "security_title_rows": 104260,
+      "joined_title_rows": 104260,
+      "positive_common_rows": 99836
+    },
+    {
+      "quarter": "2019q1",
+      "members": 10,
+      "submission_rows": 67537,
+      "security_title_rows": 147432,
+      "joined_title_rows": 147432,
+      "positive_common_rows": 140221
+    },
+    {
+      "quarter": "2019q2",
+      "members": 10,
+      "submission_rows": 53007,
+      "security_title_rows": 100195,
+      "joined_title_rows": 100195,
+      "positive_common_rows": 96283
+    },
+    {
+      "quarter": "2019q3",
+      "members": 10,
+      "submission_rows": 37647,
+      "security_title_rows": 75616,
+      "joined_title_rows": 75616,
+      "positive_common_rows": 71886
+    },
+    {
+      "quarter": "2019q4",
+      "members": 10,
+      "submission_rows": 38145,
+      "security_title_rows": 76190,
+      "joined_title_rows": 76190,
+      "positive_common_rows": 72697
+    },
+    {
+      "quarter": "2020q1",
+      "members": 10,
+      "submission_rows": 69408,
+      "security_title_rows": 140638,
+      "joined_title_rows": 140638,
+      "positive_common_rows": 133066
+    },
+    {
+      "quarter": "2020q2",
+      "members": 10,
+      "submission_rows": 51459,
+      "security_title_rows": 92401,
+      "joined_title_rows": 92401,
+      "positive_common_rows": 88871
+    },
+    {
+      "quarter": "2020q3",
+      "members": 10,
+      "submission_rows": 39096,
+      "security_title_rows": 78585,
+      "joined_title_rows": 78585,
+      "positive_common_rows": 75022
+    },
+    {
+      "quarter": "2020q4",
+      "members": 10,
+      "submission_rows": 43607,
+      "security_title_rows": 94052,
+      "joined_title_rows": 94052,
+      "positive_common_rows": 90522
+    },
+    {
+      "quarter": "2021q1",
+      "members": 10,
+      "submission_rows": 74944,
+      "security_title_rows": 162181,
+      "joined_title_rows": 162181,
+      "positive_common_rows": 155140
+    },
+    {
+      "quarter": "2021q2",
+      "members": 10,
+      "submission_rows": 58798,
+      "security_title_rows": 114204,
+      "joined_title_rows": 114204,
+      "positive_common_rows": 109789
+    },
+    {
+      "quarter": "2021q3",
+      "members": 10,
+      "submission_rows": 44057,
+      "security_title_rows": 93326,
+      "joined_title_rows": 93326,
+      "positive_common_rows": 89465
+    },
+    {
+      "quarter": "2021q4",
+      "members": 10,
+      "submission_rows": 46675,
+      "security_title_rows": 101150,
+      "joined_title_rows": 101150,
+      "positive_common_rows": 97217
+    },
+    {
+      "quarter": "2022q1",
+      "members": 10,
+      "submission_rows": 71395,
+      "security_title_rows": 143639,
+      "joined_title_rows": 143639,
+      "positive_common_rows": 137049
+    },
+    {
+      "quarter": "2022q2",
+      "members": 10,
+      "submission_rows": 55261,
+      "security_title_rows": 92115,
+      "joined_title_rows": 92115,
+      "positive_common_rows": 88628
+    },
+    {
+      "quarter": "2022q3",
+      "members": 10,
+      "submission_rows": 37955,
+      "security_title_rows": 70274,
+      "joined_title_rows": 70274,
+      "positive_common_rows": 66872
+    },
+    {
+      "quarter": "2022q4",
+      "members": 10,
+      "submission_rows": 38307,
+      "security_title_rows": 76819,
+      "joined_title_rows": 76819,
+      "positive_common_rows": 73575
+    },
+    {
+      "quarter": "2023q1",
+      "members": 10,
+      "submission_rows": 69457,
+      "security_title_rows": 138349,
+      "joined_title_rows": 138349,
+      "positive_common_rows": 132395
+    },
+    {
+      "quarter": "2023q2",
+      "members": 10,
+      "submission_rows": 55207,
+      "security_title_rows": 91267,
+      "joined_title_rows": 91267,
+      "positive_common_rows": 87202
+    },
+    {
+      "quarter": "2023q3",
+      "members": 10,
+      "submission_rows": 37036,
+      "security_title_rows": 70628,
+      "joined_title_rows": 70628,
+      "positive_common_rows": 66522
+    },
+    {
+      "quarter": "2023q4",
+      "members": 10,
+      "submission_rows": 38108,
+      "security_title_rows": 76657,
+      "joined_title_rows": 76657,
+      "positive_common_rows": 72419
+    },
+    {
+      "quarter": "2024q1",
+      "members": 10,
+      "submission_rows": 67671,
+      "security_title_rows": 142254,
+      "joined_title_rows": 142254,
+      "positive_common_rows": 136497
+    },
+    {
+      "quarter": "2024q2",
+      "members": 10,
+      "submission_rows": 52802,
+      "security_title_rows": 90578,
+      "joined_title_rows": 90578,
+      "positive_common_rows": 87182
+    },
+    {
+      "quarter": "2024q3",
+      "members": 10,
+      "submission_rows": 36075,
+      "security_title_rows": 73778,
+      "joined_title_rows": 73778,
+      "positive_common_rows": 71033
+    },
+    {
+      "quarter": "2024q4",
+      "members": 10,
+      "submission_rows": 38547,
+      "security_title_rows": 83321,
+      "joined_title_rows": 83321,
+      "positive_common_rows": 80359
+    },
+    {
+      "quarter": "2025q1",
+      "members": 10,
+      "submission_rows": 63284,
+      "security_title_rows": 131112,
+      "joined_title_rows": 131112,
+      "positive_common_rows": 126416
+    },
+    {
+      "quarter": "2025q2",
+      "members": 10,
+      "submission_rows": 50861,
+      "security_title_rows": 86426,
+      "joined_title_rows": 86426,
+      "positive_common_rows": 83456
+    },
+    {
+      "quarter": "2025q3",
+      "members": 10,
+      "submission_rows": 35457,
+      "security_title_rows": 71702,
+      "joined_title_rows": 71702,
+      "positive_common_rows": 68860
+    },
+    {
+      "quarter": "2025q4",
+      "members": 10,
+      "submission_rows": 36421,
+      "security_title_rows": 77199,
+      "joined_title_rows": 77199,
+      "positive_common_rows": 74202
+    },
+    {
+      "quarter": "2026q1",
+      "members": 10,
+      "submission_rows": 69259,
+      "security_title_rows": 137735,
+      "joined_title_rows": 137735,
+      "positive_common_rows": 131356
+    },
+    {
+      "quarter": "2026q2",
+      "members": 10,
+      "submission_rows": 56102,
+      "security_title_rows": 101074,
+      "joined_title_rows": 101074,
+      "positive_common_rows": 96558
+    }
+  ],
+  "classification_rule": {
+    "positive_only": true,
+    "rule": "A symbol becomes common-stock-eligible only after a filed Form 3/4/5 non-derivative security title positively matches common/ordinary equity and matches the submission issuer trading symbol. Negative instrument titles do not classify the issuer symbol as non-common.",
+    "decision_cutoff": "evidence filing date must be strictly earlier than decision/buy date",
+    "unknown_policy": "unknown remains ineligible"
+  }
+}
