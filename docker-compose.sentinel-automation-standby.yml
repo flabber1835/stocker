@@ -1,10 +1,7 @@
-# Optional off-host passive automation worker.
-#
-# Deploy this overlay on a SECOND failure-domain host against the same durable
-# PostgreSQL authority endpoint. It intentionally has no local postgres
-# dependency: SENTINEL_DATABASE_URL must name the shared/HA database. Both
-# workers may run continuously; the existing database lease/fence permits only
-# one leader to mutate broker state.
+# Optional off-host passive automation worker + independent silence monitor.
+# Deploy on a SECOND failure-domain host against the same durable/HA PostgreSQL
+# endpoint. Database fencing permits only one trading leader; alert delivery uses
+# SKIP LOCKED claims and may safely run on both hosts.
 services:
   sentinel-automation-standby:
     image: ${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel-authorized}@${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable SENTINEL_RUNTIME_IMAGE_DIGEST}
@@ -52,3 +49,23 @@ services:
       timeout: 5s
       retries: 2
       start_period: 20s
+
+  # Run the external-health/outbox dispatcher off-host as well. It has no Alpaca
+  # credentials and can report primary scheduler silence or database loss even
+  # when the primary automation host cannot enqueue its own incident.
+  sentinel-alert-dispatcher-standby:
+    image: ${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel-authorized}@${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable SENTINEL_RUNTIME_IMAGE_DIGEST}
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.5
+    entrypoint: ["python", "-m", "sentinel.alert_service"]
+    environment:
+      ALPACA_BASE_URL: https://paper-api.alpaca.markets
+      SENTINEL_DATABASE_URL: ${SENTINEL_DATABASE_URL:?set shared HA PostgreSQL DSN}
+      SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL: ${SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL:?set external HTTPS alert webhook}
+      SENTINEL_AUTOMATION_ALERT_WEBHOOK_TIMEOUT_SECONDS: ${SENTINEL_AUTOMATION_ALERT_WEBHOOK_TIMEOUT_SECONDS:-10}
+      SENTINEL_AUTOMATION_ALERT_POLL_SECONDS: ${SENTINEL_AUTOMATION_ALERT_POLL_SECONDS:-2}
+      SENTINEL_AUTOMATION_ALERT_CLAIM_SECONDS: ${SENTINEL_AUTOMATION_ALERT_CLAIM_SECONDS:-60}
+      SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS: ${SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS:-8}
+      SENTINEL_AUTOMATION_RETRY_BASE_SECONDS: ${SENTINEL_AUTOMATION_RETRY_BASE_SECONDS:-5}
+      SENTINEL_AUTOMATION_RETRY_MAX_SECONDS: ${SENTINEL_AUTOMATION_RETRY_MAX_SECONDS:-900}
