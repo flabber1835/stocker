@@ -120,14 +120,22 @@ async def run() -> int:
     externally_critical = {
         "SCHEDULER_STALLED", "SCHEDULER_OVERDUE", "WAITING_FOR_LEADER",
         "AUTHORITY_FAILED", "AUTHORITY_INVALID", "BLOCKED",
+        "KILLED_BROKER_OUTCOME_UNRESOLVED",
+        "DISABLED_BROKER_OUTCOME_UNRESOLVED",
     }
     while not stopped.is_set():
         conn = None
         try:
             conn = feed_store.connect(config.database_url)
             health = read_health(conn)
-            if (health.enabled and not health.kill_switch_engaged
-                    and health.policy_state in externally_critical):
+            active_incident = bool(
+                health.policy_state in externally_critical
+                and ((health.enabled and not health.kill_switch_engaged)
+                     or health.policy_state in {
+                         "KILLED_BROKER_OUTCOME_UNRESOLVED",
+                         "DISABLED_BROKER_OUTCOME_UNRESOLVED",
+                     }))
+            if active_incident:
                 bucket = int(time.time() // 60)
                 health_key = (health.policy_state, bucket)
                 if health_key != last_health_key:
