@@ -27,6 +27,7 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
         self._canonical_fetch = CanonicalSourceFetch(
             fetch, validate_tickers=(fetch is snapshot_source.fetch_table))
         self._seed_projection: Optional[SeedListingProjection] = None
+        self.seed_coverage_evidence: Optional[dict] = None
         super().__init__(
             self._canonical_fetch, protect_sep=protect_sep,
             corroborate_reference=corroborate_reference,
@@ -68,11 +69,13 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
                             row, resolved=resolved)
                 pickle.dump(row, spool, protocol=pickle.HIGHEST_PROTOCOL)
             try:
-                coverage.require_complete(date_from=date_from, date_to=date_to)
+                evidence = coverage.require_complete(
+                    date_from=date_from, date_to=date_to)
             except SourceAuthorityRefused as exc:
                 raise coherence.SeedHistoryIncomplete(str(exc)) from exc
             coherence.assert_seed_history(
                 sessions, date_from=date_from, date_to=date_to)
+            self.seed_coverage_evidence = dict(evidence)
             spool.seek(0)
         except Exception:
             spool.close()
