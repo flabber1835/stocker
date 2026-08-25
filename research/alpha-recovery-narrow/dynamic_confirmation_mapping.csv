@@ -1,0 +1,10 @@
+retained_signal_date,authoritative_signal_date,treatment
+2008-07-02,2008-07-02,exact-date port
+2008-10-03,2008-10-03,exact-date port
+2011-08-04,2011-08-04,exact-date port
+2015-08-24,2015-08-25,aligned to first authoritative session satisfying frozen non-peer FAST predicates
+2018-02-08,,omitted: authoritative shadow drawdown never crossed frozen -10% predicate during the episode
+2018-10-11,2018-10-11,exact-date port
+2020-02-27,2020-02-27,exact-date port
+2022-04-26,2022-04-26,exact-date port
+2022-06-15,2022-06-15,exact-date port
