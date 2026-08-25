@@ -127,6 +127,7 @@ COPY Dockerfile.sentinel-authorized /work/repo/Dockerfile.sentinel-authorized
 COPY deploy/sentinel-authorized-runtime-v1 /work/repo/deploy/sentinel-authorized-runtime-v1
 COPY docker-compose.sentinel.yml /work/repo/docker-compose.sentinel.yml
 COPY docker-compose.sentinel-automation.yml /work/repo/docker-compose.sentinel-automation.yml
+COPY docker-compose.sentinel-automation-standby.yml /work/repo/docker-compose.sentinel-automation-standby.yml
 COPY Dockerfile.sentinel-test /work/repo/Dockerfile.sentinel-test
 # The certification harness resolves the bt-engine image out of THIS file and
 # refuses a build context that hides a COPY source, so both are inputs to
