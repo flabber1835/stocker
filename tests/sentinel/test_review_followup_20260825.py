@@ -8,6 +8,7 @@ import pytest
 
 from sentinel import alert_service, automation_supervisor, shadow_supervisor
 from sentinel.feed import sharadar, source_authority
+from sentinel.feed.source_authority import fetch as source_fetch
 
 
 def _sep(*, lastupdated="2026-08-05"):
@@ -46,6 +47,33 @@ def test_cdc_request_shape_drift_refuses_before_fetch():
             "lastupdated.lte": "2026-08-05",
         }))
     assert called is False
+
+
+def test_cdc_replay_is_available_only_after_two_exact_update_observations():
+    calls = []
+
+    def fetch(table, params=None, **kwargs):
+        calls.append(dict(params or {}))
+        return iter([_sep()])
+
+    envelope = source_authority.SepUpdateEnvelope.interval(
+        "2026-08-01", "2026-08-05", context="test CDC")
+    routed = source_fetch._CdcThenReplayFetch(fetch, envelope)
+    date_request = {"date.gte": "2026-08-03", "date.lte": "2026-08-04"}
+
+    with pytest.raises(source_authority.SourceAuthorityRefused,
+                       match="request envelope refused"):
+        list(routed(sharadar.SEP, date_request))
+    assert calls == []
+
+    update_request = {
+        "lastupdated.gte": "2026-08-01",
+        "lastupdated.lte": "2026-08-05",
+    }
+    assert list(routed(sharadar.SEP, update_request))
+    assert list(routed(sharadar.SEP, update_request))
+    assert list(routed(sharadar.SEP, date_request))
+    assert calls == [update_request, update_request, date_request]
 
 
 def test_successful_seed_coverage_returns_positive_category_evidence(monkeypatch):
@@ -87,16 +115,16 @@ def test_shadow_health_requires_frontier_health_and_respects_latch(
     monkeypatch.setattr(shadow_supervisor, "HEARTBEAT_FILE", heartbeat)
     monkeypatch.setattr(shadow_supervisor, "LATCH_FILE", latch)
     monkeypatch.setattr(shadow_supervisor, "service_health", lambda config: {"ok": True})
-    assert shadow_supervisor._health(object(), 30.0) == 0
+    assert shadow_supervisor._health(30.0, config=object()) == 0
 
     monkeypatch.setattr(
         shadow_supervisor, "service_health",
         lambda config: (_ for _ in ()).throw(RuntimeError("frontier stale")))
-    assert shadow_supervisor._health(object(), 30.0) == 1
+    assert shadow_supervisor._health(30.0, config=object()) == 1
 
     monkeypatch.setattr(shadow_supervisor, "service_health", lambda config: {"ok": True})
     latch.write_text('{"reason":"terminal refusal"}', encoding="utf-8")
-    assert shadow_supervisor._health(object(), 30.0) == 1
+    assert shadow_supervisor._health(30.0, config=object()) == 1
 
 
 def test_shadow_retry_threshold_latches_instead_of_exit_restart_loop(
