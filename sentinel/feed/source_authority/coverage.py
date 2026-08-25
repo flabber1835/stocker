@@ -73,11 +73,19 @@ class SeedCoverageAccumulator:
                 f"{ticker}") from exc
         return True
 
-    def require_complete(self, *, date_from: str, date_to: str) -> None:
+    def require_complete(self, *, date_from: str, date_to: str) -> dict:
         sessions = list(calendar.sessions_in_range(date_from, date_to))
         if not sessions:
             raise SourceAuthorityRefused(
                 f"seed coverage interval {date_from}..{date_to} has no sessions")
+
+        aggregate_expected_ineligible: dict[str, int] = {}
+        aggregate_received_ineligible: dict[str, int] = {}
+        aggregate_missing_ineligible: dict[str, int] = {}
+        aggregate_expected_eligible = 0
+        aggregate_received_eligible = 0
+        aggregate_reviewed_exceptions = 0
+
         for session in sessions:
             active = self.projection.active(session)
             expected = {key: item for key, item in active.items()
@@ -105,14 +113,49 @@ class SeedCoverageAccumulator:
             unresolved = [str(row[0]) for row in self._db.execute(
                 "SELECT ticker FROM unresolved_risk WHERE session=?"
                 " ORDER BY ticker LIMIT 16", (session,)).fetchall()]
+            evidence = self._failure_evidence(
+                session=session, active=active, expected=expected,
+                missing=missing, extra=extra, unresolved=unresolved,
+                accepted=accepted)
             if missing or extra or unresolved:
                 raise SourceAuthorityRefused(
                     "Sharadar SEP seed eligible-set coverage refused: "
-                    + json.dumps(self._failure_evidence(
-                        session=session, active=active, expected=expected,
-                        missing=missing, extra=extra, unresolved=unresolved,
-                        accepted=accepted),
-                        sort_keys=True, separators=(",", ":")))
+                    + json.dumps(evidence, sort_keys=True, separators=(",", ":")))
+
+            aggregate_expected_eligible += int(evidence["expected_eligible"])
+            aggregate_received_eligible += int(evidence["received_eligible"])
+            aggregate_reviewed_exceptions += len(accepted)
+            for category, count in evidence[
+                    "expected_ineligible_by_category"].items():
+                aggregate_expected_ineligible[category] = (
+                    aggregate_expected_ineligible.get(category, 0) + int(count))
+            for category, count in evidence[
+                    "received_ineligible_by_category"].items():
+                aggregate_received_ineligible[category] = (
+                    aggregate_received_ineligible.get(category, 0) + int(count))
+            for category, count in evidence[
+                    "missing_ineligible_by_category"].items():
+                aggregate_missing_ineligible[category] = (
+                    aggregate_missing_ineligible.get(category, 0) + int(count))
+
+        return {
+            "schema": "sentinel.seed-source-coverage/1",
+            "interval": [str(date_from), str(date_to)],
+            "source_projection_digest": self.projection.source_digest,
+            "sessions_checked": len(sessions),
+            "expected_eligible_total": aggregate_expected_eligible,
+            "received_eligible_total": aggregate_received_eligible,
+            "missing_eligible_total": 0,
+            "unexpected_eligible_total": 0,
+            "unresolved_eligible_risk_total": 0,
+            "reviewed_exceptions_applied_total": aggregate_reviewed_exceptions,
+            "expected_ineligible_by_category": dict(sorted(
+                aggregate_expected_ineligible.items())),
+            "received_ineligible_by_category": dict(sorted(
+                aggregate_received_ineligible.items())),
+            "missing_ineligible_by_category": dict(sorted(
+                aggregate_missing_ineligible.items())),
+        }
 
     def _failure_evidence(self, *, session: str,
                           active: Mapping[str, SeedListing],
