@@ -29,12 +29,13 @@ import hashlib
 import json
 import math
 import os
+import uuid
 from dataclasses import dataclass
 from typing import Iterable, Mapping, Optional
 
 from sentinel.core.terminal import DIVIDEND_ACTIONS, SHARE_SPLIT_ACTIONS
 from sentinel.feed import (
-    action_source, anomalies, authority, calendar, publication, recovery,
+    action_snapshot, action_source, anomalies, authority, calendar, publication, recovery,
     renormalize, sharadar, snapshot_export, source_validation, store, universe)
 
 SEP_CURSOR_NAME = "sharadar-sep-lastupdated:v1"
@@ -424,6 +425,40 @@ def _active_action_rows(conn) -> dict[str, dict]:
     return out
 
 
+
+def _iter_active_action_rows(conn) -> Iterable[dict]:
+    """Stream the published ACTIONS generation without a client-side result set."""
+    name = f"sentinel_actions_{uuid.uuid4().hex}"
+    try:
+        cursor = conn.cursor(name=name)
+    except TypeError:  # deterministic lightweight test doubles
+        cursor = conn.cursor()
+    with cursor as cur:
+        if hasattr(cur, "itersize"):
+            cur.itersize = 5_000
+        cur.execute(
+            "SELECT source_row_id,source_payload,ticker,session,action,name,value,"
+            " contraticker,contraname FROM sentinel_active_actions"
+            " ORDER BY source_row_id")
+        while True:
+            batch = cur.fetchmany(2_000)
+            if not batch:
+                return
+            for (identity, payload, ticker, session, action, name, value,
+                 contraticker, contraname) in batch:
+                yield {
+                    "source_row_id": str(identity),
+                    "source_payload": payload,
+                    "ticker": str(ticker),
+                    "date": str(session),
+                    "action": str(action),
+                    "name": name,
+                    "value": value,
+                    "contraticker": contraticker,
+                    "contraname": contraname,
+                }
+
+
 def _bar_affecting_action(row: Mapping) -> bool:
     action = str(row.get("action") or "").lower()
     return action in SHARE_SPLIT_ACTIONS or action in DIVIDEND_ACTIONS
@@ -562,15 +597,11 @@ def _semantic_upgrade_replay_dates(
     return sorted(dates)
 
 
+
 def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
                              through: str, force: bool = False
                              ) -> Optional[SourceCursor]:
-    """Reconcile complete ACTIONS and replay affected split/dividend bar windows.
-
-    Production removal/negative-space authority comes from Nasdaq's whole-table
-    Exporter snapshot. Injected test/simulation fetches retain the deterministic
-    two-complete-observation seam so unit tests never require network access.
-    """
+    """Reconcile complete ACTIONS with bounded memory and exact negative space."""
     store._assert_corpus_locked(conn)
     if ACTIONS_RECONCILE_DAYS < 1:
         raise ValueError("SHARADAR_ACTIONS_RECONCILE_DAYS must be >= 1")
@@ -582,90 +613,100 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
 
     params = sharadar.date_params(ACTIONS_FULL_WINDOW_START, hi.isoformat())
     if fetch is sharadar.fetch_table:
-        rows, source_evidence = snapshot_export.fetch_complete_actions(
+        snapshot, source_evidence = snapshot_export.fetch_complete_actions(
             through=hi.isoformat())
     else:
-        rows = _stable_rows(fetch, sharadar.ACTIONS, params)
+        stable = _stable_rows(fetch, sharadar.ACTIONS, params)
+        snapshot = action_snapshot.ActionSnapshot.from_rows(stable)
+        del stable
         source_evidence = {
             "authority": "injected-double-observation/v1",
-            "source_rows": len(rows),
+            "source_rows": snapshot.source_rows,
+            "distinct_source_rows": len(snapshot),
+            "exact_repeat_rows": snapshot.exact_repeat_rows,
         }
-    _validate_action_snapshot_window(rows, hi=hi)
-    if not rows:
-        raise SharadarMutationRefused(
-            "complete Sharadar ACTIONS reconciliation returned zero rows; "
-            "refusing to turn a suspicious empty source into mass removals")
 
-    distinct = action_source.distinct_rows(rows)
-    prior_active = _active_action_rows(conn)
-    if prior_active and len(distinct) < int(len(prior_active) * 0.90):
-        raise SharadarMutationRefused(
-            f"complete ACTIONS source shrank from {len(prior_active):,} active "
-            f"rows to {len(distinct):,}; refusing mass-removal authority "
-            "without inspection")
-    changed_dates = _action_change_dates(conn, rows)
-    market_start, market_end = _retained_market_bounds(conn)
-    recovery_dates, has_outside_failed_bars = (
-        _failed_action_reconcile_bar_footprint(
-            conn, market_start=market_start, market_end=market_end))
-    semantic_dates = (_semantic_upgrade_replay_dates(
-        conn, market_start=market_start, market_end=market_end,
-        current_action_rows=rows, prior_action_rows=prior_active.values())
-        if prior_cursor is None else [])
-    replay_dates = sorted(
-        set(changed_dates) | set(recovery_dates) | set(semantic_dates))
+    with snapshot:
+        _validate_action_snapshot_window(snapshot, hi=hi)
+        if not snapshot:
+            raise SharadarMutationRefused(
+                "complete Sharadar ACTIONS reconciliation returned zero rows; "
+                "refusing to turn a suspicious empty source into mass removals")
 
-    current_ids = {identity for identity, _payload, _row in distinct}
-    if (current_ids == set(prior_active)
-            and not recovery_dates and not semantic_dates
-            and not has_outside_failed_bars):
-        current = publication.require_current(conn)
+        prior_count = snapshot.load_prior_rows(_iter_active_action_rows(conn))
+        if prior_count and len(snapshot) < int(prior_count * 0.90):
+            raise SharadarMutationRefused(
+                f"complete ACTIONS source shrank from {prior_count:,} active "
+                f"rows to {len(snapshot):,}; refusing mass-removal authority "
+                "without inspection")
+        bar_actions = set(SHARE_SPLIT_ACTIONS) | set(DIVIDEND_ACTIONS)
+        changed_dates = snapshot.changed_dates(bar_actions)
+        changed_source_rows = snapshot.identity_delta_count()
+        market_start, market_end = _retained_market_bounds(conn)
+        recovery_dates, has_outside_failed_bars = (
+            _failed_action_reconcile_bar_footprint(
+                conn, market_start=market_start, market_end=market_end))
+        semantic_dates = (_semantic_upgrade_replay_dates(
+            conn, market_start=market_start, market_end=market_end,
+            current_action_rows=snapshot,
+            prior_action_rows=snapshot.iter_prior())
+            if prior_cursor is None else [])
+        replay_dates = sorted(
+            set(changed_dates) | set(recovery_dates) | set(semantic_dates))
+
+        if (changed_source_rows == 0
+                and not recovery_dates and not semantic_dates
+                and not has_outside_failed_bars):
+            current = publication.require_current(conn)
+            return _write_cursor(
+                conn, name=ACTIONS_CURSOR_NAME, kind=ACTIONS_CURSOR_KIND,
+                through=hi, publication_version=current.version)
+
+        windows = renormalize.correction_windows(
+            replay_dates, market_start=market_start, market_end=market_end)
+        run = store.IngestRun(
+            conn, "actions_reconcile",
+            date_from=ACTIONS_FULL_WINDOW_START, date_to=hi.isoformat(),
+            chunks_total=2 + len(windows))
+        with run.chunk("actions_full"):
+            run.progress.rows_written += store.write_actions(
+                conn, snapshot, run_id=run.progress.run_id,
+                window_start=ACTIONS_FULL_WINDOW_START,
+                window_end=hi.isoformat())
+        if windows:
+            renormalize.renormalize(
+                conn, fetch=fetch, run=run, dates=replay_dates,
+                include_action_run_id=run.progress.run_id,
+                chunk_prefix="actions", market_start=market_start,
+                market_end=market_end)
+        with run.chunk("publication_recovery"):
+            recovery.record_action_reconcile_retirement_plan(
+                conn, run_id=run.progress.run_id,
+                plan=recovery.ActionReconcileRetirementPlan(
+                    market_start=market_start, market_end=market_end,
+                    replay_windows=tuple(windows)))
+        run.finish("success")
+        published = publication.publish(
+            conn, run_id=run.progress.run_id,
+            window_start=ACTIONS_FULL_WINDOW_START,
+            window_end=hi.isoformat(),
+            evidence={
+                "kind": "actions_reconcile",
+                "source_authority": source_evidence,
+                "source_rows": snapshot.source_rows,
+                "distinct_source_rows": len(snapshot),
+                "exact_repeat_rows": snapshot.exact_repeat_rows,
+                "changed_source_rows": changed_source_rows,
+                "changed_action_dates": len(set(changed_dates)),
+                "recovery_bar_dates": len(set(recovery_dates)),
+                "semantic_upgrade_dates": len(set(semantic_dates)),
+                "affected_bar_dates": len(set(replay_dates)),
+                "retained_market_window": [market_start, market_end],
+                "replay_windows": [list(w) for w in windows],
+            })
         return _write_cursor(
             conn, name=ACTIONS_CURSOR_NAME, kind=ACTIONS_CURSOR_KIND,
-            through=hi, publication_version=current.version)
-
-    windows = renormalize.correction_windows(
-        replay_dates, market_start=market_start, market_end=market_end)
-    run = store.IngestRun(
-        conn, "actions_reconcile",
-        date_from=ACTIONS_FULL_WINDOW_START, date_to=hi.isoformat(),
-        chunks_total=2 + len(windows))
-    with run.chunk("actions_full"):
-        run.progress.rows_written += store.write_actions(
-            conn, rows, run_id=run.progress.run_id,
-            window_start=ACTIONS_FULL_WINDOW_START, window_end=hi.isoformat())
-    if windows:
-        renormalize.renormalize(
-            conn, fetch=fetch, run=run, dates=replay_dates,
-            include_action_run_id=run.progress.run_id,
-            chunk_prefix="actions", market_start=market_start,
-            market_end=market_end)
-    with run.chunk("publication_recovery"):
-        recovery.record_action_reconcile_retirement_plan(
-            conn, run_id=run.progress.run_id,
-            plan=recovery.ActionReconcileRetirementPlan(
-                market_start=market_start, market_end=market_end,
-                replay_windows=tuple(windows)))
-    run.finish("success")
-    published = publication.publish(
-        conn, run_id=run.progress.run_id,
-        window_start=ACTIONS_FULL_WINDOW_START, window_end=hi.isoformat(),
-        evidence={
-            "kind": "actions_reconcile",
-            "source_authority": source_evidence,
-            "source_rows": len(rows),
-            "changed_source_rows": len(set(prior_active).symmetric_difference(current_ids)),
-            "changed_action_dates": len(set(changed_dates)),
-            "recovery_bar_dates": len(set(recovery_dates)),
-            "semantic_upgrade_dates": len(set(semantic_dates)),
-            "affected_bar_dates": len(set(replay_dates)),
-            "retained_market_window": [market_start, market_end],
-            "replay_windows": [list(w) for w in windows],
-        })
-    return _write_cursor(
-        conn, name=ACTIONS_CURSOR_NAME, kind=ACTIONS_CURSOR_KIND,
-        through=hi, publication_version=published.version)
-
+            through=hi, publication_version=published.version)
 
 __all__ = [
     "ACTIONS_RECONCILE_DAYS", "LastUpdatedTrackingFetch",

@@ -13,6 +13,7 @@ from the complete vendor export.
 from __future__ import annotations
 
 import csv
+from contextlib import closing
 import datetime as dt
 import io
 import json
@@ -99,7 +100,7 @@ class ActionSnapshot(Sequence[dict]):
         self.exact_repeat_rows = 0
         self._distinct_rows = 0
         self._closed = False
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             conn.executescript(_CURRENT_DDL + ";" + _PRIOR_DDL + ";")
 
     @classmethod
@@ -137,8 +138,12 @@ class ActionSnapshot(Sequence[dict]):
                 with archive.open(members[0], "r") as raw:
                     text = io.TextIOWrapper(raw, encoding="utf-8-sig", newline="")
                     reader = csv.DictReader(text)
-                    fields = set(reader.fieldnames or ())
-                    missing = sorted(set(required_columns) - fields)
+                    fields = list(reader.fieldnames or ())
+                    if (len(fields) != len(set(fields))
+                            or any(not str(field).strip() for field in fields)):
+                        raise ActionSnapshotError(
+                            "complete ACTIONS export has invalid/duplicate columns")
+                    missing = sorted(set(required_columns) - set(fields))
                     if missing:
                         raise ActionSnapshotError(
                             "complete ACTIONS export lacks required column(s): "
@@ -146,6 +151,9 @@ class ActionSnapshot(Sequence[dict]):
 
                     def rows() -> Iterator[dict]:
                         for row in reader:
+                            if None in row:
+                                raise ActionSnapshotError(
+                                    "complete ACTIONS export row is wider than its header")
                             yield {
                                 key: (None if value == "" else value)
                                 for key, value in row.items()
@@ -181,8 +189,12 @@ class ActionSnapshot(Sequence[dict]):
                 with archive.open(members[0], "r") as raw:
                     text = io.TextIOWrapper(raw, encoding="utf-8-sig", newline="")
                     reader = csv.DictReader(text)
-                    fields = set(reader.fieldnames or ())
-                    missing = sorted(set(required_columns) - fields)
+                    fields = list(reader.fieldnames or ())
+                    if (len(fields) != len(set(fields))
+                            or any(not str(field).strip() for field in fields)):
+                        raise ActionSnapshotError(
+                            "complete ACTIONS export has invalid/duplicate columns")
+                    missing = sorted(set(required_columns) - set(fields))
                     if missing:
                         raise ActionSnapshotError(
                             "complete ACTIONS export lacks required column(s): "
@@ -190,6 +202,9 @@ class ActionSnapshot(Sequence[dict]):
 
                     def rows() -> Iterator[dict]:
                         for row in reader:
+                            if None in row:
+                                raise ActionSnapshotError(
+                                    "complete ACTIONS export row is wider than its header")
                             yield {
                                 key: (None if value == "" else value)
                                 for key, value in row.items()
@@ -239,7 +254,7 @@ class ActionSnapshot(Sequence[dict]):
         if batch_size < 1:
             raise ValueError("ACTIONS snapshot batch_size must be positive")
         pending: list[tuple] = []
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             for row in rows:
                 _identity, _payload, item = self._strict_source_row(row)
                 self.source_rows += 1
@@ -308,7 +323,7 @@ class ActionSnapshot(Sequence[dict]):
             raise ValueError("ACTIONS prior batch_size must be positive")
         pending: list[tuple] = []
         count = 0
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             conn.execute("DELETE FROM prior_rows")
             for row in rows:
                 pending.append(self._prior_tuple(row))
@@ -329,12 +344,12 @@ class ActionSnapshot(Sequence[dict]):
 
     @property
     def prior_rows(self) -> int:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             return int(conn.execute(
                 "SELECT COUNT(*) FROM prior_rows").fetchone()[0])
 
     def identity_delta_count(self) -> int:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             return int(conn.execute(
                 "SELECT COUNT(*) FROM ("
                 " SELECT c.source_row_id FROM current_rows c"
@@ -363,7 +378,7 @@ class ActionSnapshot(Sequence[dict]):
             " WHERE c.source_row_id IS NULL)"
             " SELECT DISTINCT session FROM changed"
             f" WHERE LOWER(action) IN ({placeholders}) ORDER BY session")
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             return [str(row[0]) for row in conn.execute(sql, names)]
 
     @staticmethod
@@ -409,7 +424,7 @@ class ActionSnapshot(Sequence[dict]):
             item += len(self)
         if item < 0 or item >= len(self):
             raise IndexError(index)
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             row = conn.execute(
                 "SELECT ticker,session,action,name,value,contraticker,contraname"
                 " FROM current_rows ORDER BY source_row_id LIMIT 1 OFFSET ?",

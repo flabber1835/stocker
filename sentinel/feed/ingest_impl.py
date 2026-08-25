@@ -485,11 +485,16 @@ def _seed_locked(conn, *, date_from: str, date_to: Optional[str],
     with run.chunk("actions"):
         from sentinel.feed import calendar
         action_start, _ = calendar.action_date_window(date_from, date_to)
-        action_source_rows = list(fetch(
-            sharadar.ACTIONS, sharadar.date_params(action_start, date_to)))
-        run.progress.rows_written += feed_store.write_actions(
-            conn, action_source_rows, run_id=run.progress.run_id,
-            window_start=action_start, window_end=date_to)
+        action_source_rows = fetch(
+            sharadar.ACTIONS, sharadar.date_params(action_start, date_to))
+        try:
+            run.progress.rows_written += feed_store.write_actions(
+                conn, action_source_rows, run_id=run.progress.run_id,
+                window_start=action_start, window_end=date_to)
+        finally:
+            close = getattr(action_source_rows, "close", None)
+            if close is not None:
+                close()
 
     # SPY and BIL are funds, not SEP equities. One combined request preserves
     # StableSharadarFetch's single SFP generation witness; the writer then

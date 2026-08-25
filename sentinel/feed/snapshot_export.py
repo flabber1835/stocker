@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from typing import Callable, Iterable, Mapping
 from urllib.parse import urlparse
 
-from sentinel.feed import sharadar
+from sentinel.feed import action_snapshot, sharadar
 
 EXPORT_MAX_POLLS = int(os.getenv("SHARADAR_EXPORT_MAX_POLLS", "20"))
 EXPORT_POLL_SECONDS = float(os.getenv("SHARADAR_EXPORT_POLL_SECONDS", "30"))
@@ -177,7 +177,7 @@ def _fetch_complete(
         http=None, sleep: Callable[[float], None] = time.sleep,
         now: Callable[[], datetime] | None = None,
         poll_seconds: float | None = None,
-        max_polls: int | None = None) -> tuple[list[dict], dict]:
+        max_polls: int | None = None) -> tuple[object, dict]:
     validate_config()
     polls = EXPORT_MAX_POLLS if max_polls is None else int(max_polls)
     delay = EXPORT_POLL_SECONDS if poll_seconds is None else float(poll_seconds)
@@ -217,22 +217,37 @@ def _fetch_complete(
                         "began before the table's last refresh")
                 blob = _safe_download(
                     client, link, http=http, sleep=sleep, now=now)
-                rows = _csv_rows(blob, required=required)
-                return rows, {
+                evidence = {
                     "authority": "nasdaq-data-link-table-export/v1",
                     "table": table,
                     "file_status": status,
                     "data_snapshot_time": snapshot.isoformat(),
                     "last_refreshed_time": refreshed.isoformat(),
-                    "source_rows": len(rows),
                 }
+                if table == sharadar.ACTIONS:
+                    try:
+                        rows = action_snapshot.ActionSnapshot.from_zip_bytes(
+                            blob, required_columns=required)
+                    except action_snapshot.ActionSnapshotError as exc:
+                        raise SharadarSnapshotExportError(str(exc)) from exc
+                    evidence.update({
+                        "source_rows": rows.source_rows,
+                        "distinct_source_rows": len(rows),
+                        "exact_repeat_rows": rows.exact_repeat_rows,
+                    })
+                    return rows, evidence
+                rows = _csv_rows(blob, required=required)
+                evidence["source_rows"] = len(rows)
+                return rows, evidence
             if poll < polls:
                 sleep(delay)
     raise SharadarSnapshotExportError(
         f"Sharadar {table} export did not become fresh after {polls} poll(s)")
 
 
-def fetch_complete_actions(*, through: str, **kwargs) -> tuple[list[dict], dict]:
+def fetch_complete_actions(
+        *, through: str, **kwargs
+        ) -> tuple[action_snapshot.ActionSnapshot, dict]:
     return _fetch_complete(
         sharadar.ACTIONS,
         params={"date.gte": "1900-01-01", "date.lte": str(through)},

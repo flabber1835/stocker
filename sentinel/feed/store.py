@@ -17,6 +17,7 @@ cost the ability to run it from a plain script.
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
 import math
 import os
@@ -609,109 +610,197 @@ def write_defensive_bars(conn, rows: Iterable[Any], *, run_id=None,
     return written
 
 
-def write_actions(conn, rows: Sequence[Any], *, run_id=None,
+
+def write_actions(conn, rows: Iterable[Any], *, run_id=None,
                   window_start: str | None = None,
-                  window_end: str | None = None) -> int:
+                  window_end: str | None = None,
+                  batch_size: int = 5_000) -> int:
     """Persist one COMPLETE corporate-action source snapshot.
 
-    A run-stamped call is append-only.  It records every current row as PRESENT
-    and every previously active key missing from the explicitly fetched window
-    as REMOVED.  Publication, not insertion, activates those observations.  An
-    empty complete response is therefore meaningful and must not return early.
-
-    Calls without ``run_id`` retain the legacy/test upsert surface.  Those rows
-    form the immutable pre-upgrade baseline read by ``sentinel_active_actions``;
-    production ingest always supplies a run and complete window.
+    Production writes never construct a whole-export identity map, published
+    baseline, or observation list in Python. Canonical rows enter a temporary
+    PostgreSQL candidate relation in bounded batches. SQL set operations then
+    emit PRESENT rows and published-baseline negative space as REMOVED rows.
+    Exact seven-column repeats collapse; legitimate siblings remain distinct.
     """
+    if batch_size < 1:
+        raise ValueError("ACTIONS write batch_size must be positive")
     if run_id is None:
-        payload = [
-            (r["ticker"], r["date"], r["action"], r.get("value"),
-             r.get("contraticker"), None) for r in rows
-        ]
-        if not payload:
-            return 0
-        with conn.cursor() as cur:
-            cur.executemany(_ACTION_UPSERT, payload)
-        conn.commit()
-        return len(payload)
+        payload: list[tuple] = []
+        written = 0
+
+        def flush_legacy() -> None:
+            nonlocal written
+            if not payload:
+                return
+            with conn.cursor() as cur:
+                cur.executemany(_ACTION_UPSERT, payload)
+            conn.commit()
+            written += len(payload)
+            payload.clear()
+
+        for row in rows:
+            payload.append((
+                row["ticker"], row["date"], row["action"], row.get("value"),
+                row.get("contraticker"), None))
+            if len(payload) >= batch_size:
+                flush_legacy()
+        flush_legacy()
+        return written
 
     _assert_corpus_locked(conn)
     if window_start is None or window_end is None:
         raise ValueError(
             "a run-stamped ACTIONS write must name the complete fetched window")
-    lo, hi = str(window_start), str(window_end)
-    if lo > hi:
+    try:
+        lo_date = dt.date.fromisoformat(str(window_start))
+        hi_date = dt.date.fromisoformat(str(window_end))
+    except ValueError as exc:
+        raise ValueError("ACTIONS window bounds must be ISO dates") from exc
+    lo, hi = lo_date.isoformat(), hi_date.isoformat()
+    if lo_date > hi_date:
         raise ValueError(f"reversed ACTIONS window: {lo} > {hi}")
     writer = str(run_id)
 
     from sentinel.feed import action_source
 
-    current: dict[str, tuple] = {}
-    for identity, payload, row in action_source.distinct_rows(rows):
-        ticker, session, action = (str(row["ticker"]), str(row["date"]),
-                                   str(row["action"]))
-        if not lo <= session <= hi:
-            raise ValueError(
-                f"ACTIONS row {ticker}/{session}/{action} lies outside the "
-                f"declared complete window [{lo}, {hi}]")
-        item = (identity, json.dumps(
-                    payload, sort_keys=True, separators=(",", ":")),
-                ticker, session, action, row.get("name"), row.get("value"),
-                row.get("contraticker"), row.get("contraname"),
-                "PRESENT", writer)
-        current[identity] = item
-
-    # Reconcile against the PUBLISHED active generation, never against another
-    # unpublished attempt.  A failed retry therefore cannot become the baseline
-    # from which a later retry silently reasons.
+    candidate = "feed_action_candidate"
+    create_candidate = f"""
+        CREATE TEMP TABLE IF NOT EXISTS {candidate} (
+          source_row_id TEXT NOT NULL,
+          source_payload TEXT NOT NULL,
+          ticker TEXT NOT NULL,
+          session DATE NOT NULL,
+          action TEXT NOT NULL,
+          name TEXT,
+          value TEXT,
+          contraticker TEXT,
+          contraname TEXT,
+          PRIMARY KEY (source_row_id,source_payload)
+        ) ON COMMIT PRESERVE ROWS
+    """
+    insert_candidate = f"""
+        INSERT INTO {candidate}
+          (source_row_id,source_payload,ticker,session,action,name,value,
+           contraticker,contraname)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (source_row_id,source_payload) DO NOTHING
+    """
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT source_row_id,source_payload,ticker,session,action,name,"
-            " value,contraticker,contraname"
-            " FROM sentinel_active_actions"
-            " WHERE session BETWEEN %s AND %s", (lo, hi))
-        prior = list(cur.fetchall())
+        cur.execute(create_candidate)
+        cur.execute(f"TRUNCATE TABLE {candidate}")
+    conn.commit()
 
-    observations = list(current.values())
-    for (identity, payload, ticker, session, action, name, value, contraticker,
-         contraname) in prior:
-        identity = str(identity)
-        if identity not in current:
-            observations.append((identity, json.dumps(
-                                     payload, sort_keys=True, default=str),
-                                 str(ticker), str(session), str(action), name,
-                                 value, contraticker, contraname,
-                                 "REMOVED", writer))
+    pending: list[tuple] = []
 
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO sentinel_action_generations"
-            " (last_written_run_id,window_start,window_end,source_rows)"
-            " VALUES (%s,%s,%s,%s) ON CONFLICT (last_written_run_id) DO NOTHING",
-            (writer, lo, hi, len(current)))
-        cur.execute(
-            "SELECT window_start,window_end,source_rows"
-            " FROM sentinel_action_generations WHERE last_written_run_id=%s",
-            (writer,))
-        recorded = cur.fetchone()
-        if (str(recorded[0]), str(recorded[1]), int(recorded[2])) != (
-                lo, hi, len(current)):
-            raise ValueError(
-                f"ACTIONS generation {writer} was already recorded with a "
-                "different complete-window contract")
-        if observations:
-            cur.executemany(
-                "INSERT INTO sentinel_action_observations"
-                " (source_row_id,source_payload,ticker,session,action,name,value,"
-                "  contraticker,contraname,disposition,last_written_run_id)"
-                " VALUES (%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
-                " ON CONFLICT (last_written_run_id,source_row_id)"
-                " DO NOTHING", observations)
+    def flush_candidate() -> None:
+        if not pending:
+            return
+        with conn.cursor() as cur:
+            cur.executemany(insert_candidate, pending)
+        conn.commit()
+        pending.clear()
+
+    try:
+        for raw in rows:
+            row = dict(raw)
+            payload = action_source.canonical_payload(row)
+            identity = action_source.source_row_id(payload)
+            ticker = str(payload.get("ticker") or "").strip()
+            session = str(payload.get("date") or "").strip()
+            action = str(payload.get("action") or "").strip()
+            if not ticker or not session or not action:
+                raise ValueError("ACTIONS row lacks ticker, date, or action")
+            try:
+                observed = dt.date.fromisoformat(session)
+            except ValueError as exc:
+                raise ValueError(
+                    f"ACTIONS row {ticker}/{session}/{action} has invalid date") from exc
+            if observed.isoformat() != session:
+                raise ValueError(
+                    f"ACTIONS row {ticker}/{session}/{action} has non-canonical date")
+            if not lo_date <= observed <= hi_date:
+                raise ValueError(
+                    f"ACTIONS row {ticker}/{session}/{action} lies outside the "
+                    f"declared complete window [{lo}, {hi}]")
+            pending.append((
+                identity, action_source.payload_bytes(payload).decode("utf-8"),
+                ticker, session, action, payload.get("name"),
+                payload.get("value"), payload.get("contraticker"),
+                payload.get("contraname")))
+            if len(pending) >= batch_size:
+                flush_candidate()
+        flush_candidate()
+
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT source_row_id,COUNT(*) FROM {candidate}"
+                " GROUP BY source_row_id HAVING COUNT(*)>1 LIMIT 1")
+            collision = cur.fetchone()
+            if collision is not None:
+                raise ValueError(
+                    "ACTIONS source-row identity collision for "
+                    f"{collision[0]}")
+            cur.execute(f"SELECT COUNT(*) FROM {candidate}")
+            source_rows = int(cur.fetchone()[0])
+
+            cur.execute(
+                "INSERT INTO sentinel_action_generations"
+                " (last_written_run_id,window_start,window_end,source_rows)"
+                " VALUES (%s,%s,%s,%s)"
+                " ON CONFLICT (last_written_run_id) DO NOTHING",
+                (writer, lo, hi, source_rows))
+            cur.execute(
+                "SELECT window_start,window_end,source_rows"
+                " FROM sentinel_action_generations"
+                " WHERE last_written_run_id=%s", (writer,))
+            recorded = cur.fetchone()
+            if recorded is None or (
+                    str(recorded[0]), str(recorded[1]), int(recorded[2])) != (
+                        lo, hi, source_rows):
+                raise ValueError(
+                    f"ACTIONS generation {writer} was already recorded with a "
+                    "different complete-window contract")
+
+            cur.execute(f"""
+                INSERT INTO sentinel_action_observations
+                  (source_row_id,source_payload,ticker,session,action,name,value,
+                   contraticker,contraname,disposition,last_written_run_id)
+                SELECT c.source_row_id,c.source_payload::jsonb,c.ticker,c.session,
+                       c.action,c.name,c.value,c.contraticker,c.contraname,
+                       'PRESENT',%s
+                FROM {candidate} c
+                ON CONFLICT (last_written_run_id,source_row_id) DO NOTHING
+            """, (writer,))
+            cur.execute(f"""
+                INSERT INTO sentinel_action_observations
+                  (source_row_id,source_payload,ticker,session,action,name,value,
+                   contraticker,contraname,disposition,last_written_run_id)
+                SELECT a.source_row_id,a.source_payload,a.ticker,a.session,a.action,
+                       a.name,a.value,a.contraticker,a.contraname,'REMOVED',%s
+                FROM sentinel_active_actions a
+                LEFT JOIN {candidate} c
+                  ON c.source_row_id=a.source_row_id
+                WHERE a.session BETWEEN %s AND %s
+                  AND c.source_row_id IS NULL
+                ON CONFLICT (last_written_run_id,source_row_id) DO NOTHING
+            """, (writer, lo, hi))
+
         from sentinel.feed import actions as action_store
         action_store.record_pending(conn, run_id=writer)
-    conn.commit()
-    return len(current)
-
+        with conn.cursor() as cur:
+            cur.execute(f"DROP TABLE {candidate}")
+        conn.commit()
+        return source_rows
+    except BaseException:
+        conn.rollback()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f"DROP TABLE IF EXISTS {candidate}")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        raise
 
 def write_rejections(conn, rejections, *, run_id=None) -> int:
     """Append refused vendor rows at ingest-generation grain.

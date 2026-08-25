@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Iterable, Mapping
 
-from sentinel.feed import action_source, source_validation
+from sentinel.feed import action_snapshot, action_source, source_validation
 
 MIN_FRONTIER_DOMAIN_COVERAGE = 0.90
 _MASK_256 = (1 << 256) - 1
@@ -272,6 +272,7 @@ class StableSharadarFetch:
         self._after_session = after_session
         self._observation_through = observation_through
         self._actions_first: SourceObservation | None = None
+        self._actions_snapshot: action_snapshot.ActionSnapshot | None = None
         self._actions_params: dict | None = None
         self._actions_kwargs: dict | None = None
 
@@ -283,8 +284,10 @@ class StableSharadarFetch:
                 raise RuntimeError(
                     "ACTIONS was requested again before its first candidate "
                     "snapshot could be corroborated")
-            rows = list(self._fetch(table, params, **kwargs))
+            rows = action_snapshot.ActionSnapshot.from_rows(
+                self._fetch(table, params, **kwargs))
             self._actions_first = observe_actions(rows)
+            self._actions_snapshot = rows
             self._actions_params = dict(params or {})
             self._actions_kwargs = dict(kwargs)
             return rows
@@ -307,15 +310,21 @@ class StableSharadarFetch:
 
         if self._actions_first is None:
             return
-        rows = list(self._fetch(
-            sharadar.ACTIONS,
-            dict(self._actions_params or {}),
-            **dict(self._actions_kwargs or {})))
-        second = observe_actions(rows)
-        require_stable(sharadar.ACTIONS, self._actions_first, second)
-        self._actions_first = None
-        self._actions_params = None
-        self._actions_kwargs = None
+        first_snapshot = self._actions_snapshot
+        try:
+            with action_snapshot.ActionSnapshot.from_rows(self._fetch(
+                    sharadar.ACTIONS,
+                    dict(self._actions_params or {}),
+                    **dict(self._actions_kwargs or {}))) as rows:
+                second = observe_actions(rows)
+                require_stable(sharadar.ACTIONS, self._actions_first, second)
+        finally:
+            if first_snapshot is not None:
+                first_snapshot.close()
+            self._actions_first = None
+            self._actions_snapshot = None
+            self._actions_params = None
+            self._actions_kwargs = None
 
     def _stable_sep(self, table, params, **kwargs):
         import pickle
