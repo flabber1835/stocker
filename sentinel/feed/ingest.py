@@ -8,15 +8,33 @@ from sentinel.feed import ingest_authority_impl as _impl
 from sentinel.feed import source_authority
 
 
+if not hasattr(_impl, "_original_coherence"):
+    _impl._original_coherence = _impl.coherence
+
+
 class _CoherenceProxy:
-    StableSharadarFetch = source_authority.StableSharadarFetch
+    """Upgrade the production stability guard without breaking injected seams.
+
+    Existing financial/adversarial tests deliberately monkeypatch
+    ``sentinel.feed.coherence.StableSharadarFetch``.  A hard class attribute on
+    this proxy bypassed that seam and caused the real guard to touch database
+    state behind tests that intentionally pass an opaque connection sentinel.
+    Production still receives the source-authority guard; an explicit runtime
+    replacement of the legacy guard remains authoritative for the caller.
+    """
+
+    def __init__(self):
+        self._baseline_stable = _impl._original_coherence.StableSharadarFetch
 
     def __getattr__(self, name):
+        if name == "StableSharadarFetch":
+            current = _impl._original_coherence.StableSharadarFetch
+            if current is not self._baseline_stable:
+                return current
+            return source_authority.StableSharadarFetch
         return getattr(_impl._original_coherence, name)
 
 
-if not hasattr(_impl, "_original_coherence"):
-    _impl._original_coherence = _impl.coherence
 _impl.coherence = _CoherenceProxy()
 
 
