@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from sentinel.automation_supervisor import (
@@ -7,6 +8,10 @@ from sentinel.automation_supervisor import (
     _callback_deadline_expired,
     _instance_stalled,
 )
+
+
+ROOT = Path(os.environ.get(
+    "SENTINEL_REPO_ROOT", Path(__file__).resolve().parents[2]))
 
 
 def test_callback_deadline_is_process_supervised():
@@ -57,7 +62,8 @@ def test_missing_initial_instance_is_fatal_after_startup_grace():
 
 
 def test_compose_uses_strict_liveness_and_bounded_failover_budget():
-    text = Path("docker-compose.sentinel-automation.yml").read_text()
+    text = (ROOT / "docker-compose.sentinel-automation.yml").read_text(
+        encoding="utf-8")
     assert "sentinel.automation_supervisor" in text
     assert "sentinel.automation_liveness" in text
     assert "SENTINEL_AUTOMATION_LEASE_SECONDS:-12" in text
@@ -69,7 +75,8 @@ def test_compose_uses_strict_liveness_and_bounded_failover_budget():
 
 
 def test_off_host_standby_requires_shared_database_and_same_fencing_runtime():
-    text = Path("docker-compose.sentinel-automation-standby.yml").read_text()
+    text = (ROOT / "docker-compose.sentinel-automation-standby.yml").read_text(
+        encoding="utf-8")
     assert "sentinel-automation-standby:" in text
     assert (
         "SENTINEL_DATABASE_URL: "
@@ -81,7 +88,8 @@ def test_off_host_standby_requires_shared_database_and_same_fencing_runtime():
 
 
 def test_secondary_worker_is_hot_passive_until_live_lease_expires():
-    text = Path("sentinel/automation_worker.py").read_text()
+    text = (ROOT / "sentinel" / "automation_worker.py").read_text(
+        encoding="utf-8")
     assert 'state="STANDBY"' in text
     assert "leader != holder_id" in text
     assert "lease_generation == control_generation" in text
@@ -89,6 +97,7 @@ def test_secondary_worker_is_hot_passive_until_live_lease_expires():
 
 
 def test_global_health_is_bound_to_current_lease_holder_not_latest_instance():
-    text = Path("sentinel/automation/health.py").read_text()
+    text = (ROOT / "sentinel" / "automation" / "health.py").read_text(
+        encoding="utf-8")
     assert "WHERE i.instance_id=l.holder_id LIMIT 1" in text
     assert "ORDER BY heartbeat_at DESC LIMIT 1" not in text

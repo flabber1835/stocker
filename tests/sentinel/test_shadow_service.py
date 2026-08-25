@@ -541,7 +541,7 @@ def test_shadow_module_and_compose_service_have_no_broker_surface():
     start = compose.index("  sentinel-shadow:")
     block = compose[start:]
     assert 'profiles: ["shadow"]' in block
-    assert 'entrypoint: ["python", "-m", "sentinel.shadow_service"]' in block
+    assert 'entrypoint: ["python", "-m", "sentinel.shadow_supervisor"]' in block
     assert "ALPACA_API_KEY" not in block
     assert "ALPACA_SECRET_KEY" not in block
     assert "SENTINEL_PAPER_ACCOUNT_ID" not in block

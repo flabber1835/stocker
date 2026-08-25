@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Iterable, Mapping
 
-from sentinel.feed import action_source
+from sentinel.feed import action_source, session_envelope
 
 MIN_FRONTIER_DOMAIN_COVERAGE = 0.90
 _MASK_256 = (1 << 256) - 1
@@ -258,11 +258,18 @@ class StableSharadarFetch:
     SEP itself is not materialised in RAM: its second observation is spooled to
     a temporary file, validated in full, and only then replayed to the ingest.
     This preserves the bounded-memory property of the existing bulk path.
+
+    The decorated transport validates every date-bounded SEP/SFP row against
+    its exact inclusive request and XNYS before either observation can hash it.
+    This also covers subclasses that directly use ``self._fetch`` for reference
+    bracketing, notably the primary SFP SPY/BIL path.
     """
 
     def __init__(self, fetch, *, protect_sep=None, corroborate_actions=None,
-                 after_session: str | None = None):
-        self._fetch = fetch
+                 after_session: str | None = None,
+                 operation: str = "stable_sharadar_fetch"):
+        self._fetch = session_envelope.SessionEnvelopeFetch(
+            fetch, operation=operation)
         self._protect_sep = protect_sep or (lambda _params: True)
         self._corroborate_actions = corroborate_actions or self._protect_sep
         self._after_session = after_session
@@ -310,6 +317,8 @@ class StableSharadarFetch:
 
         # A complete first observation is followed by the complete candidate
         # traversal that will be replayed only if every source proof succeeds.
+        # SessionEnvelopeFetch sits underneath both reads, so an off-window row
+        # is rejected before it can influence either fingerprint.
         first = observe_sep(self._fetch(table, params, **kwargs))
 
         spool = tempfile.TemporaryFile(mode="w+b")

@@ -105,21 +105,29 @@ def measuring_rows():
     return lambda: _LIVE["peak"]
 
 
-def sep_rows(n_sessions: int, start_ordinal: int = 738000, tracked: bool = False):
+def sep_rows(n_sessions: int, tracked: bool = False):
     """A generator, deliberately. A list would put the baseline's whole chunk in
     memory before `sorted()` was reached and hide exactly what is measured.
+
+    The synthetic source uses actual XNYS sessions from one calendar-year chunk.
+    Consecutive calendar ordinals would inject weekends/holidays and rows outside
+    the requested source envelope, which is not a valid Sharadar session stream.
 
     Rows are shaped like real SEP rows — ten keys, not two — so a consumer that
     reads a field the staging table does not carry fails here rather than in
     production.
     """
-    import datetime as dt
+    from sentinel.feed import calendar
 
     make = TrackedRow if tracked else dict
+    sessions = calendar.sessions_in_range("2021-01-01", "2021-12-31")
+    if n_sessions < 0 or n_sessions > len(sessions):
+        raise ValueError(
+            f"memory fixture requested {n_sessions} sessions; 2021 exposes "
+            f"{len(sessions)} XNYS sessions")
 
     def gen():
-        for i in range(n_sessions):
-            day = dt.date.fromordinal(start_ordinal + i).isoformat()
+        for day in sessions[:n_sessions]:
             for s in range(SECURITIES):
                 t = f"T{s:03d}"
                 yield make({"ticker": t, "date": day, "open": 10.0,
@@ -208,8 +216,8 @@ class TestTheFailure:
         length. 64 is slack for the generator's own frame and whatever the
         collector has not swept, not a tuning knob.
         """
-        live, total = peak_live_rows(conn, 400)
-        assert total == 10_000
+        live, total = peak_live_rows(conn, 240)
+        assert total == 6_000
         assert live <= 64, (
             f"{live} of {total} vendor rows were alive at once. On a real "
             f"chunk — ~10k securities x ~252 sessions — that ratio is 1-2 GB "
@@ -221,8 +229,8 @@ class TestTheFailure:
         is simply too large satisfies neither, while a fix that streams but
         accumulates something per-row satisfies only the first at small sizes.
         """
-        small, _ = peak_live_rows(conn, 100)
-        large, _ = peak_live_rows(conn, 400)
+        small, _ = peak_live_rows(conn, 60)
+        large, _ = peak_live_rows(conn, 240)
         assert large <= small + 8, (
             f"live rows went {small} -> {large} for 4x the chunk; something "
             f"is retained per row")

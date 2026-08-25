@@ -211,18 +211,22 @@ class TestDaily:
         """Resuming strictly after the last stored session never revisits a bar,
         and Sharadar restates. A stale close would live forever — and the
         trailing stop reads exactly those closes."""
+        # 2024-01-15 was the Martin Luther King Jr. market holiday. Use the next
+        # real XNYS session so this orchestration test does not model an invalid
+        # provider row.
+        prior_session = "2024-01-16"
         ingest.seed(conn, date_from="2024-01-01", date_to="2024-01-31",
-                    fetch=fetcher([sep_row("AAA", "2024-01-15", raw=100.0)]))
-        f = fetcher([sep_row("AAA", "2024-01-15", raw=123.0),
+                    fetch=fetcher([sep_row("AAA", prior_session, raw=100.0)]))
+        f = fetcher([sep_row("AAA", prior_session, raw=123.0),
                      sep_row("AAA", "2024-02-01", raw=130.0)])
         ingest.daily(conn, fetch=f, today="2024-02-01")
 
         requested_from = [c for c in f.calls
                           if c[0] == sharadar.SEP and "date.gte" in c[1]][0][1]["date.gte"]
-        assert requested_from < "2024-01-15", "the daily window did not overlap"
+        assert requested_from < prior_session, "the daily window did not overlap"
         with conn.cursor() as cur:
             cur.execute("SELECT close_unadjusted FROM sentinel_bars"
-                        " WHERE session='2024-01-15'")
+                        " WHERE session=%s", (prior_session,))
             assert cur.fetchone()[0] == 123.0, "the restated bar was not repaired"
 
     def test_daily_on_an_EMPTY_corpus_refuses_with_the_remedy(self, conn):
@@ -232,7 +236,7 @@ class TestDaily:
             ingest.daily(conn, fetch=fetcher([]))
 
     def test_a_mostly_empty_raw_domain_REFUSES_on_the_daily_path(self, conn):
-        prior = sep_row("AAA", "2024-01-15")
+        prior = sep_row("AAA", "2024-01-16")
         ingest.seed(conn, date_from="2024-01-01", date_to="2024-01-31",
                     fetch=fetcher([prior]))
         blank = [dict(sep_row("BBB", "2024-02-01"), closeunadj=None)
