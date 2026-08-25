@@ -1,0 +1,1 @@
+Implementation note: the governing reconstruction design was already frozen in ORION_INPUT_FIELD_DEPENDENCY.md before Phase-2 code was added. PHASE2_PRICE_RECONSTRUCTION.md is the implementation-specific restatement of that existing contract.
