@@ -1,0 +1,44 @@
+name: Orion fetch SEC cover-page security type
+
+on:
+  push:
+    branches:
+      - research/sentinel-fastgate-2026-08-24
+    paths:
+      - 'PIT input data/fetch_sec_coverpage_security_type.py'
+      - 'PIT input data/SEC_SECURITY_TYPE_BUY_COVERAGE_GAPS.csv'
+      - '.github/workflows/orion-fetch-sec-coverpage-security-type.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research/sentinel-fastgate-2026-08-24
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch targeted SEC evidence
+        run: python 'PIT input data/fetch_sec_coverpage_security_type.py'
+      - name: Show report
+        run: cat 'PIT input data/SEC_COVERPAGE_SECURITY_TYPE_REPORT.json'
+      - name: Commit evidence outputs
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'PIT input data/SEC_COVERPAGE_SECURITY_TYPE_EVIDENCE.csv' \
+                  'PIT input data/SEC_COVERPAGE_SECURITY_TYPE_UNRESOLVED.csv' \
+                  'PIT input data/SEC_COVERPAGE_SECURITY_TYPE_REPORT.json'
+          if git diff --cached --quiet; then
+            echo 'No changes to commit'
+          else
+            git commit -m 'research(orion): add targeted SEC cover-page security-type evidence'
+            git push origin HEAD:research/sentinel-fastgate-2026-08-24
+          fi
