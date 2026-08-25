@@ -40,4 +40,4 @@ The effective allocation differs on only 55 sessions: one costly provisional ses
 
 ## Qualification
 
-The controller and accounting replay are stateful and parity-gated. The canonical source contains the complete signal algorithm, but this retained performance run uses the prior causal confirmation schedule rather than freshly rebuilding every peer decision from authoritative per-security held histories. That fresh reconstruction remains the production-promotion gate.
+The controller and accounting replay are stateful and parity-gated. The canonical source contains the exact Fastgate decision policy from a causal feature snapshot. This retained performance run still uses the prior causal confirmation schedule rather than freshly rebuilding the per-security residual-correlation and co-distress features. That fresh reconstruction remains the production-promotion gate.
