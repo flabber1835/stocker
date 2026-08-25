@@ -20,6 +20,34 @@ def _durable_json(value):
     return json.loads(json.dumps(value, sort_keys=True, default=str))
 
 
+def record_seed_coverage(conn, *, run_id: str, evidence: dict) -> None:
+    """Persist successful exact SEP membership/category accounting evidence."""
+    payload = _durable_json(evidence)
+    if (not isinstance(payload, dict)
+            or payload.get("schema") != "sentinel.seed-source-coverage/1"
+            or payload.get("missing_eligible_total") != 0
+            or payload.get("unexpected_eligible_total") != 0
+            or payload.get("unresolved_eligible_risk_total") != 0):
+        raise SeedCoherenceRefused(
+            f"seed {run_id} coverage evidence is absent or not an exact pass")
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE feed_ingest_runs"
+            " SET publication_recovery=jsonb_set("
+            "   publication_recovery,'{seed_coverage}',%s::jsonb,true),"
+            " updated_at=NOW()"
+            " WHERE run_id=%s AND kind='seed' AND status='running'"
+            "   AND NOT EXISTS (SELECT 1 FROM sentinel_corpus_publications p"
+            "                   WHERE p.run_id=feed_ingest_runs.run_id)",
+            (json.dumps(payload, sort_keys=True), str(run_id)))
+        changed = int(cur.rowcount)
+    if changed != 1:
+        conn.rollback()
+        raise SeedCoherenceRefused(
+            f"seed {run_id} lost unpublished RUNNING authority before coverage save")
+    conn.commit()
+
+
 def require_for_publication(conn, *, run_id: str, window_start=None,
                             window_end=None):
     """Validate a production seed proof; injected non-authority seeds return None.
@@ -58,6 +86,17 @@ def require_for_publication(conn, *, run_id: str, window_start=None,
             f"seed publication window {window_start}..{window_end} differs from "
             f"durable run window {date_from}..{date_to}")
 
+    coverage = recovery.get("seed_coverage")
+    if coverage is not None:
+        if (not isinstance(coverage, dict)
+                or coverage.get("schema") != "sentinel.seed-source-coverage/1"
+                or coverage.get("interval") != [date_from, date_to]
+                or coverage.get("missing_eligible_total") != 0
+                or coverage.get("unexpected_eligible_total") != 0
+                or coverage.get("unresolved_eligible_risk_total") != 0):
+            raise SeedCoherenceRefused(
+                f"seed {run_id} retained source coverage evidence is invalid")
+
     payload = recovery.get("seed_coherence")
     if not isinstance(payload, dict) or payload.get("schema") != SCHEMA:
         raise SeedCoherenceRefused(
@@ -94,4 +133,4 @@ def require_for_publication(conn, *, run_id: str, window_start=None,
 # Intentionally omit ``reopen_successful_run``. #259 finalization must execute
 # while the candidate is still RUNNING; reopening SUCCESS is not supported.
 __all__ = [name for name in getattr(_base, "__all__", ())
-           if name != "reopen_successful_run"]
+           if name != "reopen_successful_run"] + ["record_seed_coverage"]
