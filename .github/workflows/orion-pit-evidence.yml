@@ -1,0 +1,132 @@
+name: Orion PIT evidence archive
+
+on:
+  push:
+    branches:
+      - research/sentinel-fastgate-2026-08-24
+    paths:
+      - '.github/workflows/orion-pit-evidence.yml'
+      - 'sec-filings/**'
+      - 'tools/sec_pit_reconstruct.py'
+      - 'research/sentinel-fastgate/pit-evidence/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild-and-retain:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out Orion research branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/sentinel-fastgate-2026-08-24
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Reconstruct full SEC PIT issuer evidence
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/orion-sec-pit
+          python tools/sec_pit_reconstruct.py \
+            --input-dir sec-filings \
+            --output-dir /tmp/orion-sec-pit \
+            --require-start 2006Q1 \
+            --require-through 2026Q2
+
+      - name: Build deterministic retained archive
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv
+          import gzip
+          import hashlib
+          import json
+          import shutil
+          from pathlib import Path
+
+          src = Path('/tmp/orion-sec-pit')
+          out = Path('research/sentinel-fastgate/pit-evidence/generated')
+          out.mkdir(parents=True, exist_ok=True)
+
+          def gzip_deterministic(source: Path, target: Path) -> None:
+              with source.open('rb') as inp, target.open('wb') as raw:
+                  with gzip.GzipFile(filename='', mode='wb', fileobj=raw, compresslevel=9, mtime=0) as gz:
+                      shutil.copyfileobj(inp, gz, length=1024 * 1024)
+
+          gzip_deterministic(src / 'observations.csv', out / 'observations.csv.gz')
+          gzip_deterministic(src / 'symbol_cik_evidence.csv', out / 'symbol_cik_evidence.csv.gz')
+
+          # Canonical replacement for the older convenience sec_cik_change_events.csv.
+          # Keep one unique dated symbol/CIK observation and use normalized 10-digit CIKs.
+          tuples = set()
+          with (src / 'observations.csv').open(newline='', encoding='utf-8') as fh:
+              for row in csv.DictReader(fh):
+                  ticker = (row.get('issuer_trading_symbol') or '').strip().upper()
+                  cik = (row.get('issuer_cik') or '').strip()
+                  filing_date = (row.get('filing_date') or '').strip()
+                  if ticker and cik and filing_date:
+                      tuples.add((filing_date, ticker, cik))
+
+          legacy = Path('/tmp/sec_cik_change_events.csv')
+          with legacy.open('w', newline='', encoding='utf-8') as fh:
+              w = csv.writer(fh, lineterminator='\n')
+              w.writerow(['index', 'filing_date', 'ticker', 'issuer_cik'])
+              for i, (filing_date, ticker, cik) in enumerate(sorted(tuples)):
+                  w.writerow([i, filing_date, ticker, cik])
+          gzip_deterministic(legacy, out / 'sec_cik_change_events.csv.gz')
+
+          coverage = json.loads((src / 'coverage.json').read_text(encoding='utf-8'))
+          coverage['orion_archive_schema'] = 'orion.sec-pit-issuer-evidence/1'
+          coverage['change_event_rows'] = len(tuples)
+          coverage['change_event_rule'] = 'unique sorted (filing_date, issuer_trading_symbol, normalized issuer_cik); usable no earlier than filing_date'
+          (out / 'coverage.json').write_text(json.dumps(coverage, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+
+          files = sorted(p for p in out.iterdir() if p.is_file() and p.name != 'SHA256SUMS.txt')
+          lines = []
+          for p in files:
+              h = hashlib.sha256()
+              with p.open('rb') as fh:
+                  for chunk in iter(lambda: fh.read(1024 * 1024), b''):
+                      h.update(chunk)
+              lines.append(f'{h.hexdigest()}  {p.name}')
+          (out / 'SHA256SUMS.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+          # GitHub's hard per-file limit is 100 MiB. Fail rather than silently omit evidence.
+          limit = 95 * 1024 * 1024
+          oversize = [(p.name, p.stat().st_size) for p in out.iterdir() if p.is_file() and p.stat().st_size >= limit]
+          if oversize:
+              raise SystemExit(f'retained evidence file too large for safe GitHub commit: {oversize}')
+
+          print(json.dumps({
+              'archive_count': coverage['archive_count'],
+              'observation_count': coverage['observation_count'],
+              'change_event_rows': len(tuples),
+              'min_filing_date': coverage['min_filing_date'],
+              'max_filing_date': coverage['max_filing_date'],
+              'alphabet_control': coverage['alphabet_control'],
+              'files': {p.name: p.stat().st_size for p in sorted(out.iterdir()) if p.is_file()},
+          }, indent=2, sort_keys=True))
+          PY
+
+      - name: Commit retained evidence to Orion branch
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add research/sentinel-fastgate/pit-evidence/generated
+          if git diff --cached --quiet; then
+            echo 'Generated Orion PIT evidence is already current.'
+            exit 0
+          fi
+          git commit -m 'research(orion): refresh retained SEC PIT issuer evidence [skip ci]'
+          git push origin HEAD:research/sentinel-fastgate-2026-08-24
