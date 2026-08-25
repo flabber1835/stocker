@@ -1,0 +1,167 @@
+name: Orion build PIT-only input
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: orion-build-pit-input-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-pit-input:
+    name: Extract and commit PIT-only replay input
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Enforce research branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_NAME}" != "research/sentinel-fastgate-2026-08-24" ]]; then
+            echo "This workflow is intentionally restricted to research/sentinel-fastgate-2026-08-24" >&2
+            exit 1
+          fi
+
+      - name: Check out exact branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build into temporary closed-world directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="${RUNNER_TEMP}/orion-pit-input"
+          rm -rf "${tmp}"
+          mkdir -p "${tmp}"
+          python "PIT input data/build_phase1_pit.py" \
+            --repo-root . \
+            --source-dir sharadar \
+            --manifest "PIT input data/MANIFEST.csv" \
+            --output-dir "${tmp}"
+          echo "PIT_TEMP_OUTPUT=${tmp}" >> "${GITHUB_ENV}"
+
+      - name: Copy only manifest-listed PIT files into input directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import csv
+          import gzip
+          import os
+          import pathlib
+          import shutil
+
+          target = pathlib.Path("PIT input data")
+          source = pathlib.Path(os.environ["PIT_TEMP_OUTPUT"])
+          manifest_path = target / "MANIFEST.csv"
+
+          with manifest_path.open("r", encoding="utf-8", newline="") as handle:
+              rows = list(csv.DictReader(handle))
+
+          expected = {row["file"]: row for row in rows}
+          if len(expected) != 31:
+              raise SystemExit(f"expected exactly 31 PIT data files, found {len(expected)}")
+
+          actual_temp = {path.name for path in source.iterdir() if path.is_file()}
+          if actual_temp != set(expected):
+              raise SystemExit(
+                  f"temporary closed-world set mismatch; "
+                  f"missing={sorted(set(expected) - actual_temp)}; "
+                  f"extra={sorted(actual_temp - set(expected))}"
+              )
+
+          # Remove only prior generated PIT data.  Never copy raw Sharadar archives
+          # or any unlisted file into this directory.
+          for path in target.glob("*.csv.gz"):
+              path.unlink()
+
+          for name in sorted(expected):
+              shutil.copyfile(source / name, target / name)
+
+          actual_target = {path.name for path in target.glob("*.csv.gz")}
+          if actual_target != set(expected):
+              raise SystemExit(
+                  f"target data set mismatch; "
+                  f"missing={sorted(set(expected) - actual_target)}; "
+                  f"extra={sorted(actual_target - set(expected))}"
+              )
+
+          forbidden_tokens = {
+              "open",
+              "high",
+              "low",
+              "close",
+              "closeadj",
+              "lastupdated",
+              "name",
+              "contraticker",
+              "contraname",
+              "sector",
+              "industry",
+              "exchange",
+              "category",
+          }
+
+          for name, row in expected.items():
+              path = target / name
+              with gzip.open(path, "rt", encoding="utf-8", newline="") as handle:
+                  header = next(csv.reader(handle))
+              expected_header = row["columns"].split("|")
+              if header != expected_header:
+                  raise SystemExit(f"header mismatch after copy for {name}: {header}")
+              leaked = forbidden_tokens.intersection(header)
+              if leaked:
+                  raise SystemExit(f"non-PIT columns leaked into {name}: {sorted(leaked)}")
+
+          forbidden_files = [
+              path
+              for path in target.iterdir()
+              if path.is_file()
+              and (
+                  path.name.startswith("SHARADAR_")
+                  or "TICKERS" in path.name.upper()
+                  or path.suffix.lower() == ".zip"
+              )
+          ]
+          if forbidden_files:
+              raise SystemExit(f"raw/non-PIT files present in input directory: {forbidden_files}")
+
+          print("Closed-world copy PASS: only the 31 manifest-listed PIT data files are present")
+          PY
+
+      - name: Show staged PIT inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          du -sh "PIT input data"
+          find "PIT input data" -maxdepth 1 -type f -name '*.csv.gz' -printf '%f %s bytes\n' | sort
+
+      - name: Commit PIT-only data to research branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "PIT input data"/*.csv.gz
+
+          if git diff --cached --quiet; then
+            echo "PIT-only input already matches the pinned manifest; nothing to commit."
+            exit 0
+          fi
+
+          git commit -m "Add validated PIT-only Orion replay inputs"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
