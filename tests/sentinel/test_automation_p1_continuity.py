@@ -56,10 +56,18 @@ def test_health_surfaces_unresolved_broker_outcomes_after_kill():
         assert state in text
 
 
-def test_alert_service_has_direct_database_and_scheduler_silence_paths():
+def test_alert_service_has_direct_database_scheduler_and_kill_uncertainty_paths():
     text = Path("sentinel/alert_service.py").read_text()
     assert "ALERT_DISPATCHER_DATABASE_UNREACHABLE" in text
     assert "AUTOMATION_EXTERNAL_HEALTH_FAILURE" in text
     assert "SCHEDULER_STALLED" in text
     assert "SCHEDULER_OVERDUE" in text
     assert "WAITING_FOR_LEADER" in text
+    assert "KILLED_BROKER_OUTCOME_UNRESOLVED" in text
+    assert "DISABLED_BROKER_OUTCOME_UNRESOLVED" in text
+
+
+def test_shadow_supervisor_health_is_not_relaxed_to_callback_deadline():
+    text = Path("sentinel/shadow_supervisor.py").read_text()
+    assert "return _health(max(10.0, min(30.0, poll)))" in text
+    assert "sentinel.shadow_worker" in text
