@@ -205,10 +205,19 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
 def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
           resolve_identity=None, overlap_days: int = _impl.DAILY_OVERLAP_DAYS,
           today: Optional[str] = None):
+    # Production callers must bind the entire daily authority chain to one
+    # explicit exchange session. Container timezone/wall-clock date is not a
+    # source boundary. Validation that the named session is actually closed is
+    # performed by the manual CLI or the automation scheduler before this layer;
+    # this layer enforces that no caller can silently fall back to ``date.today``.
+    if today is None:
+        raise ValueError(
+            "daily ingest requires an explicit through-session; wall-clock date "
+            "fallback is not publication authority")
     fetch = _authoritative_source(fetch)
     _validate_source_before_run(fetch)
-    resolved_today = today or _today()
-    today_date = _dt.date.fromisoformat(str(resolved_today))
+    resolved_today = str(today)
+    today_date = _dt.date.fromisoformat(resolved_today)
     yesterday = (today_date - _dt.timedelta(days=1)).isoformat()
 
     with _impl.feed_store.corpus_write_lock(conn):
