@@ -10,8 +10,8 @@ from typing import Iterable, Iterator, Mapping, Optional
 
 from sentinel.feed import sharadar, tickers_authority
 from .dates import (
-    CanonicalSourceDuplicate, SepUpdateEnvelope, _canonical_key,
-    _canonical_row,
+    CanonicalSourceDuplicate, SepUpdateEnvelope, SourceAuthorityRefused,
+    _canonical_key, _canonical_row,
 )
 
 
@@ -138,6 +138,10 @@ class CanonicalSourceFetch:
     full TICKERS structural membrane is enabled explicitly by production callers
     because unit/replay fetch seams intentionally use abbreviated TICKERS rows
     that are not claiming to be complete Sharadar source snapshots.
+
+    When an SEP update envelope is configured, request shape is part of the
+    authority contract. A caller may not silently drift away from the bounded
+    ``lastupdated.gte/lte`` request and thereby downgrade to row-only validation.
     """
 
     def __init__(self, fetch, *,
@@ -148,6 +152,29 @@ class CanonicalSourceFetch:
         self._validate_tickers = bool(validate_tickers)
 
     def __call__(self, table, params=None, **kwargs):
+        request = params or {}
+        if table == sharadar.SEP and self._sep_update_envelope is not None:
+            if not _is_matching_update_request(
+                    request, self._sep_update_envelope):
+                envelope = self._sep_update_envelope
+                evidence = {
+                    "context": envelope.context,
+                    "expected": {
+                        "lastupdated.gte": (
+                            None if envelope.lower is None
+                            else envelope.lower.isoformat()),
+                        "lastupdated.lte": envelope.upper.isoformat(),
+                    },
+                    "received": {
+                        "lastupdated.gte": request.get("lastupdated.gte"),
+                        "lastupdated.lte": request.get("lastupdated.lte"),
+                    },
+                    "reason": "SEP update request shape differs from configured envelope",
+                }
+                raise SourceAuthorityRefused(
+                    "Sharadar SEP update request envelope refused: "
+                    + json.dumps(evidence, sort_keys=True, separators=(",", ":")))
+
         rows = self._fetch(table, params, **kwargs)
         if table == sharadar.TICKERS and self._validate_tickers:
             # Materialization is bounded by the TICKERS table (~22k SEP rows).
@@ -156,11 +183,8 @@ class CanonicalSourceFetch:
             return tickers_authority.validate(rows)
         if table not in {sharadar.SEP, sharadar.SFP}:
             return rows
-        envelope = None
-        if (table == sharadar.SEP and self._sep_update_envelope is not None
-                and _is_matching_update_request(
-                    params or {}, self._sep_update_envelope)):
-            envelope = self._sep_update_envelope
+        envelope = (
+            self._sep_update_envelope if table == sharadar.SEP else None)
         return validated_source_rows(table, rows, update_envelope=envelope)
 
 
