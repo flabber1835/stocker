@@ -17,8 +17,22 @@ Fail-closed exclusions:
 
 No reconstructed fields are included yet.
 
-`MANIFEST.csv` records the exact validated output files, row counts, sizes, output hashes, source files, and source hashes. `build_phase1_pit.py` is the deterministic extraction recipe.
+`MANIFEST.csv` pins the exact validated output files, row counts, sizes, output SHA-256 hashes, source files, and source SHA-256 hashes. `build_phase1_pit.py` is the deterministic fail-closed extraction recipe.
 
-## Persistence status
+## GitHub runner
 
-The validated binary dataset is 472,851,520 bytes across 31 `.csv.gz` files (46,931,241 data rows). The current GitHub connector cannot stream local binary files into GitHub, so the data bytes themselves are not yet committed. This directory therefore must not be treated as a complete replay input until every manifest-listed data file is present and hash-matches the manifest.
+`.github/workflows/orion-build-pit-input.yml` is the only supported repository-side population path for this phase. It is manual and restricted to branch `research/sentinel-fastgate-2026-08-24`.
+
+The runner:
+1. validates every raw source against the source SHA-256 pinned in `MANIFEST.csv`;
+2. builds all 31 PIT-only gzip files in a temporary closed-world directory;
+3. requires every output row count, byte count, header, and SHA-256 to match `MANIFEST.csv` exactly;
+4. copies only those 31 manifest-listed files into this directory;
+5. rejects raw Sharadar archives, TICKERS, adjusted-price fields, current metadata fields, or any unlisted data file;
+6. commits only the validated `*_PIT_ONLY.csv.gz` outputs back to the research branch.
+
+The run intentionally fails until the exact hash-pinned `SHARADAR_ACTIONS.zip` and `SHARADAR_SFP.zip` sources are present in the repository (normally under `sharadar/`). SEP 1998–2026 is already present on the research branch.
+
+## Completion criterion
+
+This directory is a complete Phase-1 replay input only when all 31 manifest-listed `.csv.gz` files are present and hash-match `MANIFEST.csv`. Until then it is incomplete and must not be used as a certified replay input.
