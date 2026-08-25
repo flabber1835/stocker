@@ -1,0 +1,205 @@
+name: Orion build Phase-2 PIT prices
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - research/sentinel-fastgate-2026-08-24
+    paths:
+      - '.github/workflows/orion-build-pit-prices.yml'
+      - 'PIT input data/build_phase2_prices.py'
+      - 'PIT input data/MANIFEST.csv'
+      - 'sharadar/SHARADAR_SEP_*.csv.gz'
+      - 'sharadar/SHARADAR_ACTIONS.zip'
+      - 'sharadar/SHARADAR_SFP.zip'
+      - 'sharadar/SFP/SHARADAR_SFP.zip.*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: orion-build-pit-prices-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  reconstruct-prices:
+    name: Reconstruct and commit PIT-safe price inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Enforce research branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_NAME}" != "research/sentinel-fastgate-2026-08-24" ]]; then
+            echo "Phase-2 PIT reconstruction is restricted to the Orion research branch" >&2
+            exit 1
+          fi
+
+      - name: Check out exact branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Reassemble exact SFP source in runner workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          raw="${RUNNER_TEMP}/orion-phase2-source"
+          rm -rf "${raw}"
+          mkdir -p "${raw}"
+
+          if [[ -f sharadar/SHARADAR_SFP.zip ]]; then
+            cp sharadar/SHARADAR_SFP.zip "${raw}/SHARADAR_SFP.zip"
+          else
+            mapfile -t parts < <(find sharadar/SFP -maxdepth 1 -type f -name 'SHARADAR_SFP.zip.*' -print | sort)
+            if (( ${#parts[@]} == 0 )); then
+              echo "missing SFP archive and split SFP parts" >&2
+              exit 1
+            fi
+            echo "Reassembling SHARADAR_SFP.zip from ${#parts[@]} byte chunks"
+            cat "${parts[@]}" > "${raw}/SHARADAR_SFP.zip"
+          fi
+
+          sha256sum "${raw}/SHARADAR_SFP.zip"
+          echo "ORION_PHASE2_SFP=${raw}/SHARADAR_SFP.zip" >> "${GITHUB_ENV}"
+
+      - name: Reconstruct into closed-world temporary directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="${RUNNER_TEMP}/orion-phase2-prices"
+          rm -rf "${tmp}"
+          mkdir -p "${tmp}"
+
+          python "PIT input data/build_phase2_prices.py" \
+            --source-dir sharadar \
+            --sfp "${ORION_PHASE2_SFP}" \
+            --phase1-manifest "PIT input data/MANIFEST.csv" \
+            --output-dir "${tmp}"
+
+          echo "ORION_PHASE2_OUTPUT=${tmp}" >> "${GITHUB_ENV}"
+
+      - name: Enforce closed-world Phase-2 output contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import csv
+          import gzip
+          import os
+          import pathlib
+
+          root = pathlib.Path(os.environ["ORION_PHASE2_OUTPUT"])
+          manifest = root / "PRICE_RECONSTRUCTION_MANIFEST.csv"
+          audit = root / "PRICE_RECONSTRUCTION_AUDIT.json"
+          if not manifest.is_file() or not audit.is_file():
+              raise SystemExit("Phase-2 manifest/audit missing")
+
+          with manifest.open("r", encoding="utf-8", newline="") as handle:
+              rows = list(csv.DictReader(handle))
+          if len(rows) != 30:
+              raise SystemExit(f"expected 30 Phase-2 price files, found {len(rows)}")
+
+          expected = {row["file"] for row in rows}
+          actual = {p.name for p in root.glob("*.csv.gz")}
+          if actual != expected:
+              raise SystemExit(
+                  f"closed-world output mismatch; missing={sorted(expected-actual)} extra={sorted(actual-expected)}"
+              )
+
+          sep_header = [
+              "ticker", "date", "raw_open", "signal_open", "signal_close",
+              "split_factor_step", "effective_split_ratio", "dividend_basis",
+          ]
+          sfp_header = [
+              "ticker", "date", "raw_open", "raw_close", "close_to_close_factor",
+              "prior_close_to_open_factor", "open_to_close_factor",
+          ]
+          forbidden_exact = {"open", "close", "closeadj", "high", "low", "lastupdated"}
+
+          for name in sorted(expected):
+              path = root / name
+              with gzip.open(path, "rt", encoding="utf-8", newline="") as handle:
+                  header = next(csv.reader(handle))
+              want = sfp_header if name.startswith("SFP_") else sep_header
+              if header != want:
+                  raise SystemExit(f"header mismatch for {name}: {header}")
+              leaked = forbidden_exact.intersection(header)
+              if leaked:
+                  raise SystemExit(f"forbidden raw/adjusted levels leaked into {name}: {sorted(leaked)}")
+
+              # Stay below GitHub's normal per-file Git limit with margin.
+              size = path.stat().st_size
+              if size >= 99 * 1024 * 1024:
+                  raise SystemExit(f"generated file too large for normal Git: {name}={size}")
+
+          total = sum((root / name).stat().st_size for name in expected)
+          if total >= 1800 * 1024 * 1024:
+              raise SystemExit(f"Phase-2 generated payload too large for one normal Git push: {total}")
+
+          print(f"Phase-2 closed-world gate PASS: {len(expected)} data files, {total:,} bytes")
+          PY
+
+      - name: Copy only validated derived price files into PIT input data
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="PIT input data"
+
+          rm -f "${target}"/SEP_PRICE_*_PIT_ONLY.csv.gz
+          rm -f "${target}"/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
+          rm -f "${target}"/PRICE_RECONSTRUCTION_MANIFEST.csv
+          rm -f "${target}"/PRICE_RECONSTRUCTION_AUDIT.json
+
+          cp "${ORION_PHASE2_OUTPUT}"/SEP_PRICE_*_PIT_ONLY.csv.gz "${target}/"
+          cp "${ORION_PHASE2_OUTPUT}"/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz "${target}/"
+          cp "${ORION_PHASE2_OUTPUT}"/PRICE_RECONSTRUCTION_MANIFEST.csv "${target}/"
+          cp "${ORION_PHASE2_OUTPUT}"/PRICE_RECONSTRUCTION_AUDIT.json "${target}/"
+
+          count=$(find "${target}" -maxdepth 1 -type f \( -name 'SEP_PRICE_*_PIT_ONLY.csv.gz' -o -name 'SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz' \) | wc -l)
+          if [[ "${count}" -ne 30 ]]; then
+            echo "target Phase-2 file count mismatch: ${count}" >&2
+            exit 1
+          fi
+
+      - name: Show Phase-2 inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          du -sh "PIT input data"
+          find "PIT input data" -maxdepth 1 -type f \
+            \( -name 'SEP_PRICE_*_PIT_ONLY.csv.gz' -o -name 'SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz' \) \
+            -printf '%f %s bytes\n' | sort
+          cat "PIT input data/PRICE_RECONSTRUCTION_AUDIT.json"
+
+      - name: Commit validated Phase-2 price inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -- \
+            "PIT input data"/SEP_PRICE_*_PIT_ONLY.csv.gz \
+            "PIT input data"/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz \
+            "PIT input data"/PRICE_RECONSTRUCTION_MANIFEST.csv \
+            "PIT input data"/PRICE_RECONSTRUCTION_AUDIT.json
+
+          if git diff --cached --quiet; then
+            echo "Validated Phase-2 price inputs already match; nothing to commit."
+            exit 0
+          fi
+
+          git commit -m "Add validated Phase-2 PIT price inputs"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
