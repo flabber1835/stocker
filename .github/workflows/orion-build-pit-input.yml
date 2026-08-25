@@ -2,7 +2,7 @@ name: Orion build PIT-only input
 
 on:
   # workflow_dispatch only appears in the GitHub UI when the workflow exists on
-  # the default branch.  This research workflow intentionally does not touch
+  # the default branch. This research workflow intentionally does not touch
   # main, so the branch-scoped push trigger is the authoritative trigger.
   workflow_dispatch:
   push:
@@ -14,6 +14,7 @@ on:
       - 'sharadar/SHARADAR_ACTIONS.zip.part-*'
       - 'sharadar/SHARADAR_SFP.zip'
       - 'sharadar/SHARADAR_SFP.zip.part-*'
+      - 'sharadar/SFP/SHARADAR_SFP.zip.*'
       - 'PIT input data/MANIFEST.csv'
       - 'PIT input data/build_phase1_pit.py'
 
@@ -59,28 +60,41 @@ jobs:
 
           assemble_if_split() {
             local name="$1"
+            local part_dir="$2"
             local whole="sharadar/${name}"
+
             if [[ -f "${whole}" ]]; then
               echo "whole source present: ${whole}"
               return 0
             fi
 
-            mapfile -t parts < <(find sharadar -maxdepth 1 -type f -name "${name}.part-*" -print | sort)
+            local -a parts=()
+            if [[ -d "${part_dir}" ]]; then
+              mapfile -t parts < <(
+                find "${part_dir}" -maxdepth 1 -type f \
+                  \( -name "${name}.part-*" -o -name "${name}.[0-9][0-9][0-9]" \) \
+                  -print | sort
+              )
+            fi
+
             if (( ${#parts[@]} == 0 )); then
               echo "no whole or split source present for ${name}; builder will fail closed if required"
               return 0
             fi
 
             echo "reassembling ${name} from ${#parts[@]} committed chunks"
+            printf '  %s\n' "${parts[@]}"
             cat "${parts[@]}" > "${whole}"
             ls -lh "${whole}"
+            sha256sum "${whole}"
           }
 
-          # SFP is larger than GitHub's normal 100 MB per-file limit, so the
-          # research branch may carry it as SHARADAR_SFP.zip.part-000, ... .
-          # The final assembled byte stream is still checked against MANIFEST.csv.
-          assemble_if_split "SHARADAR_SFP.zip"
-          assemble_if_split "SHARADAR_ACTIONS.zip"
+          # The uploaded SFP archive is byte-split as
+          # sharadar/SFP/SHARADAR_SFP.zip.001, .002, ... . The concatenated
+          # archive exists only in the runner workspace and is subsequently
+          # checked against the pinned source SHA-256 in MANIFEST.csv.
+          assemble_if_split "SHARADAR_SFP.zip" "sharadar/SFP"
+          assemble_if_split "SHARADAR_ACTIONS.zip" "sharadar"
 
       - name: Build into temporary closed-world directory
         shell: bash
@@ -203,7 +217,7 @@ jobs:
           git add -- "PIT input data"/*.csv.gz
 
           if git diff --cached --quiet; then
-            echo "PIT-only input already matches the pinned manifest; nothing to commit."
+            echo "PIT-only input already matches the pinned source/content constraints; nothing to commit."
             exit 0
           fi
 
