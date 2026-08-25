@@ -1,0 +1,38 @@
+{
+  "base_main_commit": "722aa14ae0e452437b80425528ba30fcf133b029",
+  "strategy_files_unchanged_since": "22ebcf48addadbc7ec4531df415041d1b8674f48",
+  "authoritative_tape": "sentinel_1p1_daily(3).csv",
+  "control_gates": {
+    "native_next_max_abs": 0.0,
+    "ldrc_desired_next_max_abs": 0.0,
+    "effective_allocation_max_abs": 0.0,
+    "nav_max_abs": 2.2026824808563106e-13,
+    "nav_final_control": 59.154286909676216,
+    "nav_final_authoritative": 59.15428690967636
+  },
+  "dynamic_confirmed_dates": [
+    "2008-07-02",
+    "2008-10-03",
+    "2011-08-04",
+    "2015-08-25",
+    "2018-10-11",
+    "2020-02-27",
+    "2022-04-26",
+    "2022-06-15"
+  ],
+  "portable_dynamic_confirmed_dates": [
+    "2008-07-02",
+    "2008-10-03",
+    "2011-08-04",
+    "2015-08-25",
+    "2018-10-11",
+    "2020-02-27",
+    "2022-04-26",
+    "2022-06-15"
+  ],
+  "limitations": [
+    "Retained causal dynamic-peer decision schedule is ported to the authoritative tape; per-security peer histories were not freshly recomputed.",
+    "Severe recovery, slow branch, Sentinel 1.1 ramp, and LD-RC logic are replayed unchanged.",
+    "Authoritative hold-versus-transition accounting is used."
+  ]
+}
