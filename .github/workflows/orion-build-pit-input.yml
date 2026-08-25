@@ -38,6 +38,36 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Reassemble split raw archives in runner workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          assemble_if_split() {
+            local name="$1"
+            local whole="sharadar/${name}"
+            if [[ -f "${whole}" ]]; then
+              echo "whole source present: ${whole}"
+              return 0
+            fi
+
+            mapfile -t parts < <(find sharadar -maxdepth 1 -type f -name "${name}.part-*" -print | sort)
+            if (( ${#parts[@]} == 0 )); then
+              echo "no whole or split source present for ${name}; builder will fail closed if required"
+              return 0
+            fi
+
+            echo "reassembling ${name} from ${#parts[@]} committed chunks"
+            cat "${parts[@]}" > "${whole}"
+            ls -lh "${whole}"
+          }
+
+          # SFP is larger than GitHub's normal 100 MB per-file limit, so the
+          # research branch may carry it as SHARADAR_SFP.zip.part-000, ... .
+          # The final assembled byte stream is still checked against MANIFEST.csv.
+          assemble_if_split "SHARADAR_SFP.zip"
+          assemble_if_split "SHARADAR_ACTIONS.zip"
+
       - name: Build into temporary closed-world directory
         shell: bash
         run: |
@@ -84,7 +114,7 @@ jobs:
                   f"extra={sorted(actual_temp - set(expected))}"
               )
 
-          # Remove only prior generated PIT data.  Never copy raw Sharadar archives
+          # Remove only prior generated PIT data. Never copy raw Sharadar archives
           # or any unlisted file into this directory.
           for path in target.glob("*.csv.gz"):
               path.unlink()
