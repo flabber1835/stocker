@@ -172,7 +172,10 @@ class TestCurrentSessionIdentityCoverage:
 class TestDailyPublicationBoundary:
     def test_catastrophic_identity_loss_marks_the_run_failed_and_does_not_publish(
             self, conn):
-        baseline = sep_row("AAA", "2024-01-15")
+        # 2024-01-15 was an XNYS holiday. The baseline must be a real provider
+        # session; the test's failure under inspection is identity coverage, not
+        # session-envelope integrity.
+        baseline = sep_row("AAA", "2024-01-16")
         ingest.seed(
             conn, date_from="2024-01-01", date_to="2024-01-31",
             fetch=fetcher([baseline]))

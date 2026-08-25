@@ -86,24 +86,31 @@ def sess(n, end=TODAY):
 
 def fake_vendor(*, sep_tickers, actions=(), tickers=()):
     """A stand-in for SHARADAR. `sep_tickers` prices every named symbol on every
-    session in the window; `tickers` is the identity table, so a symbol priced
-    and NOT listed is exactly the unnameable case."""
+    session in the retained fixture; `tickers` is the identity table, so a symbol
+    priced and NOT listed is exactly the unnameable case.
+
+    Like the real source contract, each bounded call exposes only rows inside its
+    inclusive requested interval. Returning the full retained fixture for a
+    yearly seed chunk would itself be an off-envelope provider defect.
+    """
     days = sess(30)
 
     def fetch(table, params=None, **kw):
         params = dict(params or {})
+        lo = params.get("date.gte", "0000-00-00")
+        hi = params.get("date.lte", "9999-99-99")
         if table == sharadar.SEP:
             return [{"date": d, "ticker": t, "close": 100.0,
                      "closeunadj": 100.0, "open": 99.0, "volume": 1e6,
                      "lastupdated": d}
-                    for d in days for t in sep_tickers]
+                    for d in days if lo <= d <= hi for t in sep_tickers]
         if table == sharadar.ACTIONS:
             rows = list(actions)
             if not rows and params.get("date.gte") == "1900-01-01":
                 return [{"ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
                          "action": "listed", "value": None,
                          "contraticker": None}]
-            return rows
+            return [row for row in rows if lo <= str(row.get("date") or "") <= hi]
         if table == sharadar.TICKERS:
             return list(tickers)
         return []

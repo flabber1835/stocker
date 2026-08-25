@@ -85,14 +85,24 @@ def sess(n=30, end=TODAY):
 def vendor(*, actions=(), split_at=None, ratio=1.0):
     """Prices AAA every session. If `split_at` is given, the ADJUSTED close is
     rebased from that session on, exactly as SEP presents a split — so the
-    derived inference has something real to work from."""
+    derived inference has something real to work from.
+
+    The fake transport honors the same inclusive date filter as Sharadar. A
+    bounded reconciliation request must never receive the fixture's entire
+    retained history, because that would model precisely the off-envelope source
+    defect the production membrane now refuses.
+    """
     days = sess()
 
     def fetch(table, params=None, **kw):
         params = dict(params or {})
+        lo = params.get("date.gte", "0000-00-00")
+        hi = params.get("date.lte", "9999-99-99")
         if table == sharadar.SEP:
             out = []
             for d in days:
+                if not lo <= d <= hi:
+                    continue
                 after = split_at is not None and d >= split_at
                 raw = 100.0 / ratio if after else 100.0
                 adj = 100.0 / ratio            # adjusted is post-split throughout
@@ -106,7 +116,7 @@ def vendor(*, actions=(), split_at=None, ratio=1.0):
                 return [{"ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
                          "action": "listed", "value": None,
                          "contraticker": None}]
-            return rows
+            return [row for row in rows if lo <= str(row.get("date") or "") <= hi]
         if table == sharadar.SFP:
             return []
         if table == sharadar.TICKERS:
