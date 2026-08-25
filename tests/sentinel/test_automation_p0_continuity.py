@@ -47,11 +47,11 @@ def test_instance_stall_is_bounded_by_lease_after_startup_grace():
         startup_grace_elapsed=True)
 
 
-def test_missing_initial_instance_does_not_trigger_pre_grace_kill_loop():
+def test_missing_initial_instance_is_fatal_after_startup_grace():
     assert not _instance_stalled(
         heartbeat_age_seconds=None, lease_seconds=12.0,
         startup_grace_elapsed=False)
-    assert not _instance_stalled(
+    assert _instance_stalled(
         heartbeat_age_seconds=None, lease_seconds=12.0,
         startup_grace_elapsed=True)
 
