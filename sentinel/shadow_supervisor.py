@@ -58,7 +58,8 @@ def _latched_wait(stopping) -> int:
     return 0
 
 
-def _health(config: ShadowServiceConfig, max_age_seconds: float) -> int:
+def _health(max_age_seconds: float, *, config=None) -> int:
+    """Require both supervisor liveness and verified shadow-frontier health."""
     try:
         age = time.time() - HEARTBEAT_FILE.stat().st_mtime
     except OSError as exc:
@@ -79,7 +80,8 @@ def _health(config: ShadowServiceConfig, max_age_seconds: float) -> int:
               file=sys.stderr)
         return 1
     try:
-        service_health(config)
+        resolved = config if config is not None else ShadowServiceConfig.from_env()
+        service_health(resolved)
     except Exception as exc:  # fail closed: health must prove frontier health
         print(
             "REFUSED: shadow frontier health failed: "
@@ -176,10 +178,9 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--health", action="store_true")
     args = parser.parse_args(argv)
-    config = ShadowServiceConfig.from_env()
     if args.health:
         poll = float(os.environ.get("SENTINEL_SHADOW_POLL_SECONDS", "300"))
-        return _health(config, max(10.0, min(30.0, poll)))
+        return _health(max(10.0, min(30.0, poll)))
     return run()
 
 
