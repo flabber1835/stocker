@@ -45,7 +45,7 @@ CLOSEADJ_PERMITTED = (
     # sharadar.py names the field only to validate the SFP wire schema; it never
     # exposes it to the security-bar domain.
     "sentinel/feed/sharadar.py",
-    "sentinel/feed/staging.py",
+    "sentinel/feed/staging_impl.py",
     "sentinel/feed/store.py",
     "sentinel/feed/schema.py",
     # Reference-source authority hashes the dedicated SFP/SPY total-return
@@ -141,7 +141,7 @@ class TestTheForbiddenColumn:
             "sentinel/regime/spy.py",
             "sentinel/feed/domains.py",
             "sentinel/feed/sharadar.py",
-            "sentinel/feed/staging.py",
+            "sentinel/feed/staging_impl.py",
             "sentinel/feed/store.py",
             "sentinel/feed/schema.py",
             "sentinel/feed/coherence.py",
