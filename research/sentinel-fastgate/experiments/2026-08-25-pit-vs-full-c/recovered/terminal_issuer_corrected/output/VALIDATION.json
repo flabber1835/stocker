@@ -1,0 +1,33 @@
+{
+  "status": "PASS",
+  "correction": "Certified Sharadar relatedtickers parsing (space or comma separated) plus hard no-duplicate-economic-issuer replay invariant",
+  "source_compile": "PASS",
+  "full_replay_sessions": 5032,
+  "full_shadow_session_checks": 7188,
+  "duplicate_economic_issuer_violations": 0,
+  "alphabet_keys_equal": true,
+  "ending_GOOG_count": 1,
+  "ending_GOOGL_count": 0,
+  "first_daily_difference_vs_terminal_only_lineage": "2025-12-23",
+  "allocation_path_differences_vs_terminal_only_lineage": 0,
+  "parent_allocation_path_differences_vs_terminal_only_lineage": 0,
+  "old_only_buy_events": [
+    {
+      "date": "2025-12-23",
+      "ticker": "GOOGL"
+    }
+  ],
+  "new_only_buy_events": [
+    {
+      "date": "2025-12-23",
+      "ticker": "ROIV"
+    }
+  ],
+  "sentinel_20y_cagr": 0.22094618498568308,
+  "sentinel_20y_max_drawdown": -0.21963097876900606,
+  "sentinel_20y_ending_multiple": 54.195852099734765,
+  "wealth_core_multiple_from_1998": 173.76809512730534,
+  "ending_held_positions": 20,
+  "ending_cash_weight": 0.3714038880475936,
+  "ending_stock_weight": 0.6285961119524062
+}

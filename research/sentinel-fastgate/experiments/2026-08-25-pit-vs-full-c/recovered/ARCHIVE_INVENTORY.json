@@ -1,0 +1,691 @@
+{
+  "archives": {
+    "faithful_reproduction_no_sharadar": {
+      "archive_bytes": 21846183,
+      "archive_sha256": "096da33f74f3c049743dfd24cfdac2150baca2a7ce4f12d15514ca5eb1a5c3d4",
+      "members": [
+        {
+          "bytes": 2896,
+          "compressed_bytes": 1391,
+          "path": "Sentinel_1_1_Faithful_Reproduction_Kit/00_README/EXTERNAL_SHARADAR_SHA256SUMS.txt",
+          "sha256": "822a1327ec3419c1443bbc5b8a2cc114018e8dfbd10457aa43033af26daabd96"
+        },
+        {
+          "bytes": 1436,
+          "compressed_bytes": 842,
+          "path": "Sentinel_1_1_Faithful_Reproduction_Kit/00_README/FILE_MANIFEST.csv",
+          "sha256": "8bf3089c4fb91fb29452c80ffc877765b3df8273ea586ad068e42b08ef0e397c"
+        },
+        {
+          "bytes": 4794,
+          "compressed_bytes": 2228,
+          "path": "Sentinel_1_1_Faithful_Reproduction_Kit/00_README/README_REPRODUCTION_KIT.md",
+          "sha256": "e02dcd1cb187c27cf20ebbf98054f0e2723526daee23268f9d3adb881d453ef5"
+        },
+        {
+          "bytes": 849,
+          "compressed_bytes": 544,
+          "path": "Sentinel_1_1_Faithful_Reproduction_Kit/00_README/SHA256SUMS.txt",
+          "sha256": "1a6510498085bf752b9d6e3b1c75157e86a6c7d70a40152e8d9ba68e02f794fc"
+        },
+        {
+          "bytes": 9057156,
+          "compressed_bytes": 9046212,
+          "path": "Sentinel_1_1_Faithful_Reproduction_Kit/01_SENTINEL_FROZEN_HARNESS/Sentinel_1_1_Frozen_Harness_Handoff.zip",
+          "sha256": "c344dd14ee920985d65becf48c6317c484b20720cb223c22412fa7bf22f43993"
+        },
+        {
+          "bytes": 11628694,
+          "compressed_bytes": 11476462,
+          "path": "Sentinel_1_1_Faithful_Reproduction_Kit/02_CERTIFIED_WEALTH_CORE/stocker_certified_sharadar_symbolic_wealth_v1.zip",
+          "sha256": "c4d27fbca263035529348525576fb81c2176e9468a583d58f7489adc13bc9c98"
+        },
+        {
+          "bytes": 1319035,
+          "compressed_bytes": 1311943,
+          "path": "Sentinel_1_1_Faithful_Reproduction_Kit/02_CERTIFIED_WEALTH_CORE/stocker_certified_wealth_core_v1.zip",
+          "sha256": "050d9396b2a961da4f0608658792098c6ac62a94479fc213502cb53040059e66"
+        },
+        {
+          "bytes": 1375,
+          "compressed_bytes": 733,
+          "path": "Sentinel_1_1_Faithful_Reproduction_Kit/04_EXACT_BREADTH_RECOVERY/RECOVERY_STATUS.md",
+          "sha256": "0f4fca23208cc7df0dabcdd2f74e619d9568c054625ddf9d47885085fb7b7a47"
+        },
+        {
+          "bytes": 4745,
+          "compressed_bytes": 1884,
+          "path": "Sentinel_1_1_Faithful_Reproduction_Kit/04_EXACT_BREADTH_RECOVERY/recovered_breadth_classifier.py",
+          "sha256": "4eb54d1a2145181e15f62d5c96c6e291edb04bca9a42a7e18610a1502f407c77"
+        }
+      ],
+      "repository_path": "docs/Sentinel_1_1_Faithful_Reproduction_Kit_NO_SHARADAR.zip",
+      "retained_paths": [
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/faithful_reproduction_no_sharadar/Sentinel_1_1_Faithful_Reproduction_Kit/00_README/EXTERNAL_SHARADAR_SHA256SUMS.txt",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/faithful_reproduction_no_sharadar/Sentinel_1_1_Faithful_Reproduction_Kit/00_README/FILE_MANIFEST.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/faithful_reproduction_no_sharadar/Sentinel_1_1_Faithful_Reproduction_Kit/00_README/README_REPRODUCTION_KIT.md",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/faithful_reproduction_no_sharadar/Sentinel_1_1_Faithful_Reproduction_Kit/00_README/SHA256SUMS.txt",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/faithful_reproduction_no_sharadar/Sentinel_1_1_Faithful_Reproduction_Kit/04_EXACT_BREADTH_RECOVERY/RECOVERY_STATUS.md",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/faithful_reproduction_no_sharadar/Sentinel_1_1_Faithful_Reproduction_Kit/04_EXACT_BREADTH_RECOVERY/recovered_breadth_classifier.py"
+      ]
+    },
+    "frozen_harness_handoff": {
+      "archive_bytes": 9057156,
+      "archive_sha256": "c344dd14ee920985d65becf48c6317c484b20720cb223c22412fa7bf22f43993",
+      "members": [
+        {
+          "bytes": 9092,
+          "compressed_bytes": 3540,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/00_README/FILE_MANIFEST.csv",
+          "sha256": "0537ba3c1ba01f923a8775fe01842b8d9a078645814a606ef3d20cf7cc811b8c"
+        },
+        {
+          "bytes": 3955,
+          "compressed_bytes": 1502,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/00_README/FROZEN_SENTINEL_1P1_RULE.json",
+          "sha256": "ef4f4a6c790f57039326d787a5c3cb172ddcd4df6e610c6035637eecacfdff90"
+        },
+        {
+          "bytes": 5589,
+          "compressed_bytes": 2586,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/00_README/HANDOFF_README.md",
+          "sha256": "de7b26d8791bd498df5b24c92f8ded5864661f24cbf25c29c61255f85456e305"
+        },
+        {
+          "bytes": 8706,
+          "compressed_bytes": 3335,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/00_README/SHA256SUMS.txt",
+          "sha256": "743f0dc0ca9264997df34421bd5a04cc17653bcb60918ec7b0e195e6bf67eb4d"
+        },
+        {
+          "bytes": 1595,
+          "compressed_bytes": 746,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/00_README/SOURCE_PROVENANCE.csv",
+          "sha256": "f509b15b06e0e11aca76dfaabee703c379ed133205bc3f2684b1529738cd0d11"
+        },
+        {
+          "bytes": 229187,
+          "compressed_bytes": 201525,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/01_CURRENT_ARCHITECTURE/sentinel-architecture.pdf",
+          "sha256": "a201ddf3301d865b53ee01eee2afde1d3ebb0db59b8469662c2780a69c1fe001"
+        },
+        {
+          "bytes": 361,
+          "compressed_bytes": 244,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/01_exact_replay_summary.csv",
+          "sha256": "379c63f1a38a08293adebeb9be3a0a2e79dea3eb399ffba4969f9bde5ae8fd00"
+        },
+        {
+          "bytes": 382,
+          "compressed_bytes": 209,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/02_recovery_gate_flags.csv",
+          "sha256": "0b1139bf2a2d9ed00a1872776bef73d4ab556dd3019b7998c09e88ed60e470f1"
+        },
+        {
+          "bytes": 721589,
+          "compressed_bytes": 256986,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/03_exact_candidate_daily.csv",
+          "sha256": "95dff9d177b661b5b98984b69233349857c94bda9186cbdd2af528291b94b055"
+        },
+        {
+          "bytes": 812,
+          "compressed_bytes": 408,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/04_delay_cost_sensitivity.csv",
+          "sha256": "908498e9aa67bffb3b1bc26b595343ee99183fe1fb9f5e9eea926a1ffacb1750"
+        },
+        {
+          "bytes": 7550,
+          "compressed_bytes": 3045,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/05_exact_parameter_plateau.csv",
+          "sha256": "ccc0125870a7e8e8e8a6eaf5a6cada746296569c207e7f3c7ec0790d6a292d9b"
+        },
+        {
+          "bytes": 4096,
+          "compressed_bytes": 813,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/06_exact_gate_plateau.csv",
+          "sha256": "847261408cb56f3629983e0f2c11373907bf26a0618392ccd2abfc17f02c1863"
+        },
+        {
+          "bytes": 921,
+          "compressed_bytes": 452,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/07_leave_one_crisis_out.csv",
+          "sha256": "5ea6dba069ed0effa0b09bf52399eec59a79f5ecd9f186ce8328c4ca4afe6f10"
+        },
+        {
+          "bytes": 11691,
+          "compressed_bytes": 3848,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/08_rolling_start_validation.csv",
+          "sha256": "2bf8bcab15f281a6a20fcc0e5d5f0a2b65c20b28087218a6304cd244e9c09c14"
+        },
+        {
+          "bytes": 3153,
+          "compressed_bytes": 1241,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/09_fixed_5y_windows.csv",
+          "sha256": "1e145a56f898b6e0a37e1aee9a3ff8634ccf273ad39560fe9886595dd0330492"
+        },
+        {
+          "bytes": 987,
+          "compressed_bytes": 451,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/10_time_blocks.csv",
+          "sha256": "80794f98a591529da7dbb941c80d87444d143e8c73737ba37e5b1117bd575092"
+        },
+        {
+          "bytes": 490709,
+          "compressed_bytes": 174643,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/11_controlled_recovery_adversarial_worlds.csv",
+          "sha256": "be7e16e0ee23a5d86389c93b573ad10fd8654bf23a32164999cace320b30fd02"
+        },
+        {
+          "bytes": 722,
+          "compressed_bytes": 376,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/12_controlled_recovery_adversarial_summary.csv",
+          "sha256": "224c2339682e129d437269c01e4e1e106085a91139d4eecdda52f36cd53b3263"
+        },
+        {
+          "bytes": 4517,
+          "compressed_bytes": 1723,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/13_exact_open_transition_audit.csv",
+          "sha256": "e117ebb4b7a6688ddab139d60b6bed494ea0f5c162bdfc104cfdf024a29e6beb"
+        },
+        {
+          "bytes": 4017,
+          "compressed_bytes": 1239,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/14_promotion_scorecard.json",
+          "sha256": "9cc56e0114fce98003655feec012cbb024ee85e64642a2997be95afc8cacab35"
+        },
+        {
+          "bytes": 3259,
+          "compressed_bytes": 1422,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/sentinel_1p1_transition_oracle.csv",
+          "sha256": "f69802590b78aa1a6769352f46e9bf969ce1ea1a08b93a83fa46d375b7259887"
+        },
+        {
+          "bytes": 784,
+          "compressed_bytes": 291,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/zero_gate_comparison.csv",
+          "sha256": "c82174f33ab70b3c01a4d84b1d7cc52d6cd10e941f015835b7092bca67efc913"
+        },
+        {
+          "bytes": 917,
+          "compressed_bytes": 451,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/zero_gate_decision.txt",
+          "sha256": "ae4b661d231b937688a1c0ec79a3b3b34470bf2b814e39229905af42981352a5"
+        },
+        {
+          "bytes": 798372,
+          "compressed_bytes": 588503,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/03_SENTINEL_1P0_PARENT/Sentinel_1.0x_Comprehensive_Engineering_Prospectus.pdf",
+          "sha256": "aa78cdd737c6b15ab9ee5373c2b25e62182eae56a315ddb3115295fd10ee5896"
+        },
+        {
+          "bytes": 347,
+          "compressed_bytes": 153,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/03_SENTINEL_1P0_PARENT/sentinel_1p0_simplification_equivalence_proof.csv",
+          "sha256": "be6ac7124ed869446c5250a44375b1ee508a49ddbe1535017f8cb223049ded53"
+        },
+        {
+          "bytes": 1668927,
+          "compressed_bytes": 436211,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/04_BREADTH_ORACLES/fundamental_portfolio_health_daily.csv",
+          "sha256": "3a27e49bd575757e7d128a4b3bc8c5ad05a460a9cdcf7a8ebd987417f5cb0e40"
+        },
+        {
+          "bytes": 721589,
+          "compressed_bytes": 256986,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/04_BREADTH_ORACLES/sentinel_1p1_exact_daily_with_breadth.csv",
+          "sha256": "95dff9d177b661b5b98984b69233349857c94bda9186cbdd2af528291b94b055"
+        },
+        {
+          "bytes": 361,
+          "compressed_bytes": 244,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/01_exact_replay_summary.csv",
+          "sha256": "379c63f1a38a08293adebeb9be3a0a2e79dea3eb399ffba4969f9bde5ae8fd00"
+        },
+        {
+          "bytes": 382,
+          "compressed_bytes": 209,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/02_recovery_gate_flags.csv",
+          "sha256": "0b1139bf2a2d9ed00a1872776bef73d4ab556dd3019b7998c09e88ed60e470f1"
+        },
+        {
+          "bytes": 721589,
+          "compressed_bytes": 256986,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/03_exact_candidate_daily.csv",
+          "sha256": "95dff9d177b661b5b98984b69233349857c94bda9186cbdd2af528291b94b055"
+        },
+        {
+          "bytes": 812,
+          "compressed_bytes": 407,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/04_delay_cost_sensitivity.csv",
+          "sha256": "e3902c2faf5ff7d95cac1d278b8fc354178f6ed1a100c1b58ea08789f572f748"
+        },
+        {
+          "bytes": 7550,
+          "compressed_bytes": 3045,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/05_exact_parameter_plateau.csv",
+          "sha256": "ccc0125870a7e8e8e8a6eaf5a6cada746296569c207e7f3c7ec0790d6a292d9b"
+        },
+        {
+          "bytes": 4096,
+          "compressed_bytes": 813,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/06_exact_gate_plateau.csv",
+          "sha256": "847261408cb56f3629983e0f2c11373907bf26a0618392ccd2abfc17f02c1863"
+        },
+        {
+          "bytes": 921,
+          "compressed_bytes": 452,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/07_leave_one_crisis_out.csv",
+          "sha256": "5ea6dba069ed0effa0b09bf52399eec59a79f5ecd9f186ce8328c4ca4afe6f10"
+        },
+        {
+          "bytes": 11691,
+          "compressed_bytes": 3848,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/08_rolling_start_validation.csv",
+          "sha256": "2bf8bcab15f281a6a20fcc0e5d5f0a2b65c20b28087218a6304cd244e9c09c14"
+        },
+        {
+          "bytes": 3153,
+          "compressed_bytes": 1241,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/09_fixed_5y_windows.csv",
+          "sha256": "1e145a56f898b6e0a37e1aee9a3ff8634ccf273ad39560fe9886595dd0330492"
+        },
+        {
+          "bytes": 987,
+          "compressed_bytes": 451,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/10_time_blocks.csv",
+          "sha256": "80794f98a591529da7dbb941c80d87444d143e8c73737ba37e5b1117bd575092"
+        },
+        {
+          "bytes": 506217,
+          "compressed_bytes": 187482,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/11_controlled_recovery_adversarial_worlds.csv",
+          "sha256": "88daccb06633ec656b4d32cc1075a6857463bcc1826be707722d7fd5cab4a6a1"
+        },
+        {
+          "bytes": 831,
+          "compressed_bytes": 444,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/12_controlled_recovery_adversarial_summary.csv",
+          "sha256": "195490a60846a8850cfad858fea2949780292cfd08784f0d297c138ec61b16c4"
+        },
+        {
+          "bytes": 4517,
+          "compressed_bytes": 1723,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/13_exact_open_transition_audit.csv",
+          "sha256": "e117ebb4b7a6688ddab139d60b6bed494ea0f5c162bdfc104cfdf024a29e6beb"
+        },
+        {
+          "bytes": 4127,
+          "compressed_bytes": 1316,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/14_promotion_scorecard.json",
+          "sha256": "5ef8a2f358682f4b4ec650e940b2675cbce64d661a3b34c90bbd7bf343ef6e64"
+        },
+        {
+          "bytes": 663,
+          "compressed_bytes": 297,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/15_crisis_comparison.csv",
+          "sha256": "bef9121a73cebda170d4f34c8252cd16498261e355d1b3de092f7df7ac7a71ba"
+        },
+        {
+          "bytes": 178,
+          "compressed_bytes": 141,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/16_worst_drawdown_locations.csv",
+          "sha256": "d1aa5242e989a33fd6bf6902c178d0a5bc7810b05ca5fd05a64584f8901671a1"
+        },
+        {
+          "bytes": 1421,
+          "compressed_bytes": 730,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/17_promotion_test_scorecard.csv",
+          "sha256": "d76dff6a1351a576a145b6514f7e3896c2d99d6a3c3806f6cb688193705948e5"
+        },
+        {
+          "bytes": 1289,
+          "compressed_bytes": 754,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/18_promotion_decision.txt",
+          "sha256": "b266dff34dd41e07a755113d685bea6458894771b347081bbed54c611afaf064"
+        },
+        {
+          "bytes": 1413,
+          "compressed_bytes": 752,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/recovery_ramp_candidate_spec.txt",
+          "sha256": "155481b848bac33d21beb8f81a55ecce1668321470f79fc2cce5fba175dd8651"
+        },
+        {
+          "bytes": 7976,
+          "compressed_bytes": 3436,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/position_replay/SURVIVOR_FIREWALL_REPORT.md",
+          "sha256": "d87736d1c7d83e9a1dbea2b525bcef634718ffebf72bef6d58f5d12834e63efa"
+        },
+        {
+          "bytes": 1221,
+          "compressed_bytes": 645,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/position_replay/enrich_panel.py",
+          "sha256": "f1415d228b3a4cc84aecd55eccaf778ac74b0b331699e8031766bdbe3b0ca98f"
+        },
+        {
+          "bytes": 18866,
+          "compressed_bytes": 5731,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/position_replay/run_firewall_v2_fixed.py",
+          "sha256": "1acd032b1bc785e81a0d201fbdd4ab1608f574d0382d7bf9b1a03c99d1b1000a"
+        },
+        {
+          "bytes": 35455,
+          "compressed_bytes": 9950,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/position_replay/run_position_replay.py",
+          "sha256": "298a43d1cbd902465d1e63287a8f9538caa51bc9e7254ef3f2afa9b5cf193617"
+        },
+        {
+          "bytes": 8136,
+          "compressed_bytes": 3284,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/SHOCK_OVERRIDE_FORENSICS_REPORT.md",
+          "sha256": "a7672b4edd5f3f47640241a2a0f9d549ac16fd37637511b34da57ae2d1a2a16e"
+        },
+        {
+          "bytes": 6425,
+          "compressed_bytes": 2696,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/SYSTEMIC_SHOCK_OVERRIDE_REPORT.md",
+          "sha256": "12dd55ffa46f6ec1982a3e5d773c1992e6fbeff107f2a0bf035817a7948e46a7"
+        },
+        {
+          "bytes": 1334823,
+          "compressed_bytes": 475255,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/best_override_daily.csv",
+          "sha256": "712bdeb03ae9f2b94b5e576a0dad729111224056d058a5db720b4a676254bcd1"
+        },
+        {
+          "bytes": 2706,
+          "compressed_bytes": 1133,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/best_override_transitions.csv",
+          "sha256": "719fa8d3c19a10910f7d57d6a2be8c9e32dc3d3b1c540ecf4fcd1893acb05211"
+        },
+        {
+          "bytes": 1666053,
+          "compressed_bytes": 613734,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/best_systemic_confirmation_daily.csv",
+          "sha256": "55903f6b9a84a078385ea91725d4d6947ec1510970f0ff5c3e15de58c0eef04e"
+        },
+        {
+          "bytes": 2616,
+          "compressed_bytes": 1186,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/best_systemic_confirmation_transitions.csv",
+          "sha256": "d706373a2316282a3a8e7ed65b1e467941888efa89fd681683c4af5457b3184d"
+        },
+        {
+          "bytes": 12282,
+          "compressed_bytes": 4452,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/run_shock_phase2_fast.py",
+          "sha256": "958a42c6b8d94b99637763fb535a35203cc1d843d6cb5c68af498bfcac4f47dd"
+        },
+        {
+          "bytes": 7298,
+          "compressed_bytes": 2918,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/run_shock_systemic_confirmation_small.py",
+          "sha256": "e4f91ba385f02e8dec10da347675926cc22a4d0b7183c4e6f1fdbf2759e8aa08"
+        },
+        {
+          "bytes": 12509,
+          "compressed_bytes": 4313,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/run_systemic_shock_override.py",
+          "sha256": "2ff7c0ebffb14af5192d47298f7573c0e866b130a3d2ae14203caa80a5ba5d0e"
+        },
+        {
+          "bytes": 1946317,
+          "compressed_bytes": 1340625,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/07_SUPPORTING_SPECS/Wealth_Core_Champion_Prospectus_and_Engineering_Specification.pdf",
+          "sha256": "4de935490f1a73baa89d55493ca362210e83bcee066a7ba73b90605ca22f4661"
+        },
+        {
+          "bytes": 934121,
+          "compressed_bytes": 617260,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/07_SUPPORTING_SPECS/Wealth_Core_Expectancy_Aware_Persistent_Bear_Functional_Specification.pdf",
+          "sha256": "1f7de8217947804e06227a1029c2d953bd8c2d24c1973e5f47713afd78b8249a"
+        },
+        {
+          "bytes": 1376916,
+          "compressed_bytes": 1376591,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/08_SOURCE_ARCHIVES/elastic_survivor_firewall_experiment.zip",
+          "sha256": "d6f4e3ba52d7e9d272f89d1f2ca4853cc49e3920dc4c6a5989ff6d88ebc76714"
+        },
+        {
+          "bytes": 449254,
+          "compressed_bytes": 447907,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/08_SOURCE_ARCHIVES/sentinel_1p1_zero_gate_test.zip",
+          "sha256": "23fa2e0729c66434f2b455b5bcb36eed2dd6aa72442695cfe9201b31a55941c8"
+        },
+        {
+          "bytes": 465067,
+          "compressed_bytes": 462695,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/08_SOURCE_ARCHIVES/sentinel_recovery_ramp_promotion_suite.zip",
+          "sha256": "036ba0708f341e9e45f7048c69e3f6a04b118f8e4a94b38a31c50d60cda6f427"
+        },
+        {
+          "bytes": 716030,
+          "compressed_bytes": 712392,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/08_SOURCE_ARCHIVES/wealth_core_shock_override_forensics_v2.zip",
+          "sha256": "5703e6212ec3e5e2a0f563ff72777d1efb6ec41225a4c976f20afddfa68fc2ba"
+        },
+        {
+          "bytes": 548693,
+          "compressed_bytes": 547070,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/08_SOURCE_ARCHIVES/wealth_core_systemic_shock_override_experiment.zip",
+          "sha256": "0823cb28d68a5ae6d931275066e140313a4c7d065a20eab8ac863596c9391cc0"
+        },
+        {
+          "bytes": 1647,
+          "compressed_bytes": 877,
+          "path": "Sentinel_1_1_Frozen_Harness_Handoff/09_GAPS/MISSING_OR_UNRECOVERED.md",
+          "sha256": "f32a76e4898a8092c3dc0a24b705336c79d495ac0a9b947fa5c97354161ee508"
+        }
+      ],
+      "repository_path": "docs/Sentinel_1_1_Frozen_Harness_Handoff.zip",
+      "retained_paths": [
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/00_README/FILE_MANIFEST.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/00_README/FROZEN_SENTINEL_1P1_RULE.json",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/00_README/HANDOFF_README.md",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/00_README/SHA256SUMS.txt",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/00_README/SOURCE_PROVENANCE.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/01_exact_replay_summary.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/02_recovery_gate_flags.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/03_exact_candidate_daily.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/04_delay_cost_sensitivity.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/05_exact_parameter_plateau.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/06_exact_gate_plateau.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/07_leave_one_crisis_out.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/08_rolling_start_validation.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/09_fixed_5y_windows.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/10_time_blocks.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/11_controlled_recovery_adversarial_worlds.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/12_controlled_recovery_adversarial_summary.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/13_exact_open_transition_audit.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/14_promotion_scorecard.json",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/sentinel_1p1_transition_oracle.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/zero_gate_comparison.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/zero_gate_decision.txt",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/03_SENTINEL_1P0_PARENT/sentinel_1p0_simplification_equivalence_proof.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/04_BREADTH_ORACLES/fundamental_portfolio_health_daily.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/04_BREADTH_ORACLES/sentinel_1p1_exact_daily_with_breadth.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/01_exact_replay_summary.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/02_recovery_gate_flags.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/03_exact_candidate_daily.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/04_delay_cost_sensitivity.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/05_exact_parameter_plateau.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/06_exact_gate_plateau.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/07_leave_one_crisis_out.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/08_rolling_start_validation.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/09_fixed_5y_windows.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/10_time_blocks.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/11_controlled_recovery_adversarial_worlds.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/12_controlled_recovery_adversarial_summary.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/13_exact_open_transition_audit.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/14_promotion_scorecard.json",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/15_crisis_comparison.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/16_worst_drawdown_locations.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/17_promotion_test_scorecard.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/18_promotion_decision.txt",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/recovery_ramp_candidate_spec.txt",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/position_replay/SURVIVOR_FIREWALL_REPORT.md",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/position_replay/enrich_panel.py",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/position_replay/run_firewall_v2_fixed.py",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/position_replay/run_position_replay.py",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/SHOCK_OVERRIDE_FORENSICS_REPORT.md",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/SYSTEMIC_SHOCK_OVERRIDE_REPORT.md",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/best_override_daily.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/best_override_transitions.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/best_systemic_confirmation_daily.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/best_systemic_confirmation_transitions.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/run_shock_phase2_fast.py",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/run_shock_systemic_confirmation_small.py",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/run_systemic_shock_override.py",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/09_GAPS/MISSING_OR_UNRECOVERED.md"
+      ]
+    },
+    "terminal_issuer_corrected": {
+      "archive_bytes": 528804,
+      "archive_sha256": "670d043a8a6469f600cc14dd29b7ebccd41cbd52fe28b60dc3a704ca840ad529",
+      "members": [
+        {
+          "bytes": 2566,
+          "compressed_bytes": 1283,
+          "path": "output/ISSUER_CORRECTION_REPORT.md",
+          "sha256": "350326aa4366d485d35ffebbda31032d36cbb3dbb297de33018bec9a7846c299"
+        },
+        {
+          "bytes": 587,
+          "compressed_bytes": 380,
+          "path": "output/README.md",
+          "sha256": "6e8bcd08e325f58e1de59d75b0b81cfd9900ae22dac43fed31c9a8a3f3ffe16c"
+        },
+        {
+          "bytes": 1685,
+          "compressed_bytes": 1004,
+          "path": "output/SHA256SUMS.txt",
+          "sha256": "6ae6cd22dde91cb749280340cd2d4b7be597e60ad955eb3a7fe286933bdab798"
+        },
+        {
+          "bytes": 1107,
+          "compressed_bytes": 539,
+          "path": "output/VALIDATION.json",
+          "sha256": "d7c4599cf19d75728da9a9d749efc9fc711dc09914a4a2affa7cc31fd8918054"
+        },
+        {
+          "bytes": 74689,
+          "compressed_bytes": 34433,
+          "path": "output/__pycache__/sentinel_1p1_standalone.cpython-313.pyc",
+          "sha256": "399b5299b76d1ade442ae51095cc622e3b7ae89f77b38bb7d46510ffc5e4e033"
+        },
+        {
+          "bytes": 192,
+          "compressed_bytes": 114,
+          "path": "output/alphabet_issuer_identity_audit.csv",
+          "sha256": "317639f94cc0c5294710e51560532621b145ff8910ffb21e5d7bcae03d109fd7"
+        },
+        {
+          "bytes": 56129,
+          "compressed_bytes": 21359,
+          "path": "output/daily_path_delta_vs_terminal_corrected.csv",
+          "sha256": "57d7168218744d77fed8c116f6dfe7cf29efa3bc8ff8a3ea98395437fa503ca6"
+        },
+        {
+          "bytes": 1362,
+          "compressed_bytes": 794,
+          "path": "output/ending_holdings.csv",
+          "sha256": "a8290abc122b173394e0d0b20c870ca67c1d884823e1000682c74593d3147ddc"
+        },
+        {
+          "bytes": 1697,
+          "compressed_bytes": 1039,
+          "path": "output/ending_holdings_named.csv",
+          "sha256": "03e2276a2a5d7540106d50127884a335c45a9355d10b48114d17456f8f7a4a9d"
+        },
+        {
+          "bytes": 34534,
+          "compressed_bytes": 16586,
+          "path": "output/executed_buys.csv",
+          "sha256": "4daf6d913524ceab16c13f8d914eafe9c7c24069138bf94740fc9e9b30951cab"
+        },
+        {
+          "bytes": 950,
+          "compressed_bytes": 382,
+          "path": "output/issuer_correction_metric_delta.csv",
+          "sha256": "8da96e7e1e0df6ac304e6ea1a3c78f8d4312e49e109dbfec06c603f153eb2095"
+        },
+        {
+          "bytes": 165,
+          "compressed_bytes": 133,
+          "path": "output/issuer_correction_trade_diff.csv",
+          "sha256": "cd654642b71ce0cad39ac21b914a25fe780d6b2eca72e036f096d5759bc05afe"
+        },
+        {
+          "bytes": 4604,
+          "compressed_bytes": 1623,
+          "path": "output/issuer_identity_patch.diff",
+          "sha256": "4d10fc0c7843c9a7b7a40d39af08714d0967952c154f61e360f71489f2b7210d"
+        },
+        {
+          "bytes": 554345,
+          "compressed_bytes": 107539,
+          "path": "output/issuer_key_parser_changes.csv",
+          "sha256": "caca3a569d47683339ca0f4eac2e4d331aa36aa6082f7e21926d7748a5ddd0cb"
+        },
+        {
+          "bytes": 831611,
+          "compressed_bytes": 322534,
+          "path": "output/sentinel_1p1_daily.csv",
+          "sha256": "9bf46bfa229888d997072dd4fa3f60f772b208b1e2c55480c8cf65dd7b1c62f7"
+        },
+        {
+          "bytes": 42734,
+          "compressed_bytes": 13788,
+          "path": "output/sentinel_1p1_standalone.py",
+          "sha256": "624e2138fd3745d0ab69f8b080b4d647c365986d5ad2c80e0de8c42c3f1241ce"
+        },
+        {
+          "bytes": 818,
+          "compressed_bytes": 443,
+          "path": "output/sentinel_1p1_summary.json",
+          "sha256": "64dce62ab78ab5547cac5949c9dfbf1c0ad5cd9734f24978afc74d7593f8211b"
+        },
+        {
+          "bytes": 251,
+          "compressed_bytes": 135,
+          "path": "output/terminal_close_admission_blocks.csv",
+          "sha256": "b77f302becd8c6584ce1cf03221dcb76245cb2f252f037d96b5f10e96997230e"
+        },
+        {
+          "bytes": 104,
+          "compressed_bytes": 98,
+          "path": "output/terminal_pending_entry_blocks.csv",
+          "sha256": "27b36cdd22e5811eeca9c95a1677c4c3342e989ceb588d000efcc76d99c82084"
+        },
+        {
+          "bytes": 699,
+          "compressed_bytes": 340,
+          "path": "output/trailing_scorecard_vs_spy.csv",
+          "sha256": "ba0aab24aeda89fe2243fc1c0478029a2467a80e3248ab99d51771ce36285d84"
+        }
+      ],
+      "repository_path": "docs/Sentinel_1_1_Terminal_and_Issuer_Corrected.zip",
+      "retained_paths": [
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/ISSUER_CORRECTION_REPORT.md",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/README.md",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/SHA256SUMS.txt",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/VALIDATION.json",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/alphabet_issuer_identity_audit.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/daily_path_delta_vs_terminal_corrected.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/ending_holdings.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/ending_holdings_named.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/executed_buys.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/issuer_correction_metric_delta.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/issuer_correction_trade_diff.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/issuer_identity_patch.diff",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/issuer_key_parser_changes.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/sentinel_1p1_daily.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/sentinel_1p1_standalone.py",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/sentinel_1p1_summary.json",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/terminal_close_admission_blocks.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/terminal_pending_entry_blocks.csv",
+        "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/trailing_scorecard_vs_spy.csv"
+      ]
+    }
+  },
+  "schema": "orion.authoritative-harness-recovery/1"
+}

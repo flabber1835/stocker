@@ -1,0 +1,13 @@
+test,result,detail
+Exact historical replay,PASS,CAGR 22.2517% vs 22.1197%; max DD -21.95% vs -23.93%
+Exact-open / ledger audit,PASS,38 noncanonical transition dates audited; max prior-close reconstruction error 6.7e-16 after certified split corrections
+1-session delayed features,PASS,CAGR 22.2049%; max DD -21.97%
+2-session delayed features,MIXED,CAGR 21.7334% (below Sentinel); max DD -21.95%. Lag additionally flags 2007 and COVID recoveries.
+50 bps transition cost,PASS,CAGR 22.1783%; max DD -22.23%
+Local parameter plateau,PASS,"80% of 45 nearby variants improve DD while losing <=25bp CAGR; median CAGR delta +0.13%, median DD improvement +1.48%"
+60 quarterly rolling starts,PASS-RISK / MIXED-WEALTH,DD improved in 100%; terminal wealth higher in 60%; median CAGR delta +0.14%
+15 fixed 5-year windows,PASS-RISK / MIXED-WEALTH,DD improved in 93%; terminal wealth higher in 67%; median CAGR delta +0.04%
+Controlled double-dip stress,PASS,DD better in 93%; median DD improvement +5.07%
+Controlled slow-bear stress,PASS,DD better in 95%; median DD improvement +6.11%
+Controlled explosive rebound,EXPECTED TRADEOFF,Median terminal wealth delta -2.15%; ramp can lag violent V-shaped recoveries when gate flags them
+Independent unseen recovery OOS,NOT AVAILABLE,Rule was discovered from the same seven historical Sentinel recovery episodes; controlled synthetic worlds are not a substitute for independent market history.

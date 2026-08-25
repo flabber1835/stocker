@@ -1,0 +1,22 @@
+{
+  "strategy": "Sentinel 1.1-RC zero recovery gate + terminal-order + certified issuer-identity correction",
+  "runtime_inputs": "Sharadar only; no oracle files",
+  "start": "2006-07-31",
+  "end": "2026-07-31",
+  "sessions": 5032,
+  "cagr": 0.22094618498568308,
+  "max_drawdown": -0.21963097876900606,
+  "max_drawdown_peak": "2021-02-12",
+  "max_drawdown_trough": "2022-01-27",
+  "ending_multiple": 54.195852099734765,
+  "final_nav": 54.195852099734765,
+  "wealth_core_final_multiple_from_1998": 173.76809512730534,
+  "terminal_pending_entry_blocks": 1,
+  "terminal_close_admission_blocks": 5,
+  "executed_buys": 722,
+  "ending_held_positions": 20,
+  "ending_cash_weight": 0.3714038880475936,
+  "ending_stock_weight": 0.6285961119524062,
+  "issuer_conflict_invariant_checks": 7188,
+  "issuer_conflict_violations": 0
+}

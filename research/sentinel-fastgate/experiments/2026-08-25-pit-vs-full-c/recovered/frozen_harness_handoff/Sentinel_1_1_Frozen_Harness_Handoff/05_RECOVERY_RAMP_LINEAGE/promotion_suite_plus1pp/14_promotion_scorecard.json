@@ -1,0 +1,137 @@
+{
+  "frozen_rule": {
+    "first": 0.55,
+    "second": 0.65,
+    "confirm": 10,
+    "gate_horizon": 5,
+    "gate_threshold": 0.01
+  },
+  "canonical": {
+    "cagr": 0.22119749919039466,
+    "max_dd": -0.23925591713899663,
+    "ending_multiple": 54.41940224142888,
+    "days_le_m10": 1387,
+    "days_le_m20": 69,
+    "days_le_m25": 0,
+    "dd_1pct_tail": -0.20379360768020738,
+    "longest_underwater_sessions": 607
+  },
+  "candidate_exact": {
+    "cagr": 0.22251748466709476,
+    "max_dd": -0.21949045670277334,
+    "ending_multiple": 55.60801829914156,
+    "days_le_m10": 1331,
+    "days_le_m20": 55,
+    "days_le_m25": 0,
+    "dd_1pct_tail": -0.20073582360660228,
+    "longest_underwater_sessions": 617
+  },
+  "exact_open_audit": {
+    "dates": 38,
+    "max_abs_prev_close_reconstruction_error": 6.661338147750939e-16
+  },
+  "rolling_starts": {
+    "n": 60,
+    "pct_higher_wealth": 0.6,
+    "median_wealth_delta": 0.020278694281522514,
+    "pct_better_dd": 1.0,
+    "median_dd_delta": 0.012839146680014402,
+    "median_cagr_delta": 0.0014342924900131448
+  },
+  "fixed_5y_windows": {
+    "n": 15,
+    "pct_higher_wealth": 0.6666666666666666,
+    "pct_better_dd": 0.9333333333333333,
+    "median_cagr_delta": 0.00037074786012847305,
+    "median_dd_delta": 0.026771685450608707
+  },
+  "parameter_plateau": {
+    "variants": 45,
+    "pass_fraction": 0.8,
+    "median_cagr_delta": 0.0013199854767000918,
+    "median_dd_delta": 0.014820840874741226
+  },
+  "delay2": {
+    "cagr": 0.21733356267272042,
+    "max_dd": -0.21949045670277334
+  },
+  "cost50bps": {
+    "cagr": 0.22178325100552554,
+    "max_dd": -0.22232212785465288
+  },
+  "controlled_adversarial": [
+    {
+      "family": "clean_v",
+      "worlds": 500,
+      "flag_rate": 0.004,
+      "median_wealth_delta": 0.0,
+      "mean_wealth_delta": -0.00016172058788435216,
+      "pct_better_wealth": 0.0,
+      "median_dd_delta": 0.0,
+      "mean_dd_delta": 3.729382030443018e-05,
+      "pct_better_dd": 0.004,
+      "median_transitions": 1.0
+    },
+    {
+      "family": "double_dip",
+      "worlds": 500,
+      "flag_rate": 0.952,
+      "median_wealth_delta": 0.007530659111565585,
+      "mean_wealth_delta": 0.01623499410658858,
+      "pct_better_wealth": 0.55,
+      "median_dd_delta": 0.05068482039702532,
+      "mean_dd_delta": 0.05131288495000669,
+      "pct_better_dd": 0.934,
+      "median_transitions": 3.0
+    },
+    {
+      "family": "explosive_rebound",
+      "worlds": 500,
+      "flag_rate": 0.922,
+      "median_wealth_delta": -0.021548795821385414,
+      "mean_wealth_delta": -0.024213566156157842,
+      "pct_better_wealth": 0.2,
+      "median_dd_delta": 1.1102230246251565e-16,
+      "mean_dd_delta": 0.007098251159423686,
+      "pct_better_dd": 0.592,
+      "median_transitions": 3.0
+    },
+    {
+      "family": "fragile_recovery",
+      "worlds": 500,
+      "flag_rate": 0.956,
+      "median_wealth_delta": 0.005771665014234428,
+      "mean_wealth_delta": 0.008489566190359784,
+      "pct_better_wealth": 0.552,
+      "median_dd_delta": 0.04943127100653938,
+      "mean_dd_delta": 0.04896563524241078,
+      "pct_better_dd": 0.91,
+      "median_transitions": 2.5
+    },
+    {
+      "family": "slow_bear",
+      "worlds": 500,
+      "flag_rate": 0.952,
+      "median_wealth_delta": 0.035424703641221855,
+      "mean_wealth_delta": 0.03862698564438977,
+      "pct_better_wealth": 0.744,
+      "median_dd_delta": 0.06106443087738728,
+      "mean_dd_delta": 0.06230376671344225,
+      "pct_better_dd": 0.952,
+      "median_transitions": 1.0
+    },
+    {
+      "family": "whipsaw",
+      "worlds": 500,
+      "flag_rate": 0.946,
+      "median_wealth_delta": 0.02773371286449622,
+      "mean_wealth_delta": 0.03846168201476667,
+      "pct_better_wealth": 0.612,
+      "median_dd_delta": 0.09948427567997253,
+      "mean_dd_delta": 0.09782438203241481,
+      "pct_better_dd": 0.944,
+      "median_transitions": 1.0
+    }
+  ],
+  "status_note": "Exact historical mechanics + local/entry-date robustness passed; controlled synthetic recovery stress is supplemental, not independent market OOS. Rule was discovered on the same seven historical Sentinel recoveries."
+}
