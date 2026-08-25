@@ -23,8 +23,36 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Apply reviewed transformations
-        run: python tools/apply_issue250_phase1.py
+      - name: Correct transformer cardinality and apply
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tools/apply_issue250_phase1.py")
+          text = path.read_text()
+          start = text.index(
+              'replace_once(\n    "sentinel/feed/universe.py",\n'
+              '    "      ORDER BY snapshot_date DESC,candidate DESC),NULL))[1]",')
+          end_marker = (
+              '# Same text appears twice (first and last bounds); replace the remaining copy.\n'
+              'replace_once(\n    "sentinel/feed/universe.py",\n'
+              '    "      ORDER BY snapshot_date DESC,candidate DESC),NULL))[1]",\n'
+              '    "      ORDER BY candidate DESC,snapshot_date DESC),NULL))[1]",\n'
+              ')\n')
+          end = text.index(end_marker, start) + len(end_marker)
+          replacement = '''target = Path("sentinel/feed/universe.py")
+          text = target.read_text()
+          old_order = "      ORDER BY snapshot_date DESC,candidate DESC),NULL))[1]"
+          new_order = "      ORDER BY candidate DESC,snapshot_date DESC),NULL))[1]"
+          if text.count(old_order) != 2:
+              raise RuntimeError(
+                  f"sentinel/feed/universe.py: expected two candidate-order clauses, "
+                  f"found {text.count(old_order)}")
+          target.write_text(text.replace(old_order, new_order))
+          '''
+          path.write_text(text[:start] + replacement + text[end:])
+          PY
+          python tools/apply_issue250_phase1.py
       - name: Static validation
         run: |
           git diff --check
