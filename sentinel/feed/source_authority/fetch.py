@@ -4,11 +4,11 @@ from __future__ import annotations
 import datetime as dt
 import pickle
 import tempfile
-from typing import Optional
+from typing import Mapping, Optional
 
 from sentinel.feed import coherence, sharadar, snapshot_source
 from .dates import SepUpdateEnvelope, SourceAuthorityRefused, _strict_date
-from .duplicates import CanonicalSourceFetch
+from .duplicates import CanonicalSourceFetch, _is_matching_update_request
 from .coverage import SeedCoverageAccumulator
 from .seed_model import SeedListingProjection
 
@@ -140,6 +140,49 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
         return replay()
 
 
+class _CdcThenReplayFetch:
+    """Keep CDC update authority distinct from its bounded price-date replay.
+
+    The maintenance engine first observes the exact lastupdated interval twice
+    for source stability, then re-reads affected price-date windows through the
+    canonical normalizer. The update-envelope membrane must fail closed for any
+    drift in those CDC requests without incorrectly applying that envelope to
+    the later, deliberately different date-window reads.
+    """
+
+    def __init__(self, fetch, envelope: SepUpdateEnvelope):
+        self._envelope = envelope
+        self._cdc = CanonicalSourceFetch(
+            fetch, sep_update_envelope=envelope)
+        self._replay = CanonicalSourceFetch(fetch)
+        self._cdc_observations = 0
+
+    @staticmethod
+    def _is_exact_date_replay_request(params: Mapping) -> bool:
+        return (
+            set(params) == {"date.gte", "date.lte"}
+            and bool(str(params.get("date.gte") or ""))
+            and bool(str(params.get("date.lte") or ""))
+        )
+
+    def __call__(self, table, params=None, **kwargs):
+        if table != sharadar.SEP:
+            return self._replay(table, params, **kwargs)
+        request = params or {}
+        if _is_matching_update_request(request, self._envelope):
+            self._cdc_observations += 1
+            return self._cdc(table, params, **kwargs)
+        # maintenance._stable_rows earns source stability from two complete
+        # observations before any affected date can be replayed. A date request
+        # before that point is therefore request-shape drift, not replay.
+        if (self._cdc_observations >= 2
+                and self._is_exact_date_replay_request(request)):
+            return self._replay(table, params, **kwargs)
+        # Delegate every unrecognized SEP shape to the envelope-bound wrapper;
+        # it refuses before touching the underlying source.
+        return self._cdc(table, params, **kwargs)
+
+
 def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
                             through: str):
     """Run the existing CDC engine behind exact pre-fingerprint guards."""
@@ -153,9 +196,8 @@ def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
     if hi <= cursor.processed_through:
         return cursor
     lo = cursor.processed_through - dt.timedelta(days=1)
-    guarded = CanonicalSourceFetch(
-        fetch, sep_update_envelope=SepUpdateEnvelope.interval(
-            lo, hi, context="SEP CDC request"))
+    envelope = SepUpdateEnvelope.interval(lo, hi, context="SEP CDC request")
+    guarded = _CdcThenReplayFetch(fetch, envelope)
     return maintenance._reconcile_sep_mutations_core(
         conn, fetch=guarded, through=through)
 
