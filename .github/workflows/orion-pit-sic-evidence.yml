@@ -24,6 +24,13 @@ jobs:
           ref: research/sentinel-fastgate-2026-08-24
           fetch-depth: 1
           persist-credentials: true
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/orion-pit-sic-evidence.yml
+            /research/sentinel-fastgate/pit-evidence/README.md
+            /research/sentinel-fastgate/pit-evidence/SEC_SIC_PROVENANCE.md
+            /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
 
       - name: Enforce Orion-only branch boundary
         run: |
@@ -171,7 +178,7 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add \
+          git add -f \
             research/sentinel-fastgate/pit-evidence/generated/sec_sic_events_complete.csv.gz \
             research/sentinel-fastgate/pit-evidence/generated/sec_sic_provenance.json \
             research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
