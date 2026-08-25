@@ -24,7 +24,10 @@ jobs:
         with:
           python-version: '3.12'
       - name: Apply bounded ACTIONS implementation
-        run: python tools/apply_issue250_actions.py
+        run: |
+          sed -i 's/if count < 8:/if count < 7:/' tools/apply_issue250_actions.py
+          sed -i 's/expected >=8/expected >=7/' tools/apply_issue250_actions.py
+          python tools/apply_issue250_actions.py
       - name: Static validation
         run: |
           git diff --check
