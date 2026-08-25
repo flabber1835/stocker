@@ -1,0 +1,51 @@
+{
+  "contract": "Orion Phase-2 PIT-safe price reconstruction",
+  "duplicate_rule": "keep last physical source row per (ticker,date), matching legacy replay",
+  "forbidden_source_levels_not_emitted": [
+    "SEP.open",
+    "SEP.close",
+    "SEP.closeadj",
+    "SFP.open",
+    "SFP.close",
+    "SFP.closeadj"
+  ],
+  "output_file_count": 30,
+  "physical_source_row_order_independent": true,
+  "schema_version": 2,
+  "sep": {
+    "duplicate_source_rows_dropped_keep_last": 0,
+    "sep_rows": 46246803,
+    "split_action_rows": 10711,
+    "split_dividend_rows": 290,
+    "split_mismatch_gt_5pct": 570,
+    "split_unverifiable": 0,
+    "ticker_count_with_price_factor": 21939
+  },
+  "sep_output_columns": [
+    "ticker",
+    "date",
+    "raw_open",
+    "signal_open",
+    "signal_close",
+    "split_factor_step",
+    "effective_split_ratio",
+    "dividend_basis"
+  ],
+  "sfp": {
+    "duplicate_source_rows_dropped_keep_last": 0,
+    "sfp_rows": 12015,
+    "sfp_rows_by_ticker": {
+      "BIL": 4825,
+      "SPY": 7190
+    }
+  },
+  "sfp_output_columns": [
+    "ticker",
+    "date",
+    "raw_open",
+    "raw_close",
+    "close_to_close_factor",
+    "prior_close_to_open_factor",
+    "open_to_close_factor"
+  ]
+}
