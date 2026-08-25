@@ -13,6 +13,50 @@ from .coverage import SeedCoverageAccumulator
 from .seed_model import SeedListingProjection
 
 
+def _merge_counts(left: dict, right: dict) -> dict:
+    result = {str(key): int(value) for key, value in left.items()}
+    for key, value in right.items():
+        result[str(key)] = result.get(str(key), 0) + int(value)
+    return dict(sorted(result.items()))
+
+
+def _merge_seed_coverage(current: Optional[dict], chunk: dict) -> dict:
+    if current is None:
+        return dict(chunk)
+    if (current.get("schema") != "sentinel.seed-source-coverage/1"
+            or chunk.get("schema") != current.get("schema")
+            or chunk.get("source_projection_digest")
+            != current.get("source_projection_digest")):
+        raise SourceAuthorityRefused(
+            "seed coverage chunks do not share one stable TICKERS authority")
+    return {
+        "schema": current["schema"],
+        "interval": [current["interval"][0], chunk["interval"][1]],
+        "source_projection_digest": current["source_projection_digest"],
+        "sessions_checked": int(current["sessions_checked"]) + int(
+            chunk["sessions_checked"]),
+        "expected_eligible_total": int(current["expected_eligible_total"]) + int(
+            chunk["expected_eligible_total"]),
+        "received_eligible_total": int(current["received_eligible_total"]) + int(
+            chunk["received_eligible_total"]),
+        "missing_eligible_total": 0,
+        "unexpected_eligible_total": 0,
+        "unresolved_eligible_risk_total": 0,
+        "reviewed_exceptions_applied_total": int(
+            current["reviewed_exceptions_applied_total"]) + int(
+                chunk["reviewed_exceptions_applied_total"]),
+        "expected_ineligible_by_category": _merge_counts(
+            current["expected_ineligible_by_category"],
+            chunk["expected_ineligible_by_category"]),
+        "received_ineligible_by_category": _merge_counts(
+            current["received_ineligible_by_category"],
+            chunk["received_ineligible_by_category"]),
+        "missing_ineligible_by_category": _merge_counts(
+            current["missing_ineligible_by_category"],
+            chunk["missing_ineligible_by_category"]),
+    }
+
+
 class StableSharadarFetch(coherence.StableSharadarFetch):
     """Coherence guard with canonical-key and exact seed-membership authority."""
 
@@ -75,7 +119,8 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
                 raise coherence.SeedHistoryIncomplete(str(exc)) from exc
             coherence.assert_seed_history(
                 sessions, date_from=date_from, date_to=date_to)
-            self.seed_coverage_evidence = dict(evidence)
+            self.seed_coverage_evidence = _merge_seed_coverage(
+                self.seed_coverage_evidence, evidence)
             spool.seek(0)
         except Exception:
             spool.close()
