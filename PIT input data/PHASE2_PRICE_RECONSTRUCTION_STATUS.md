@@ -1,0 +1,1 @@
+Status marker for the Phase-2 PIT price workflow. The workflow is expected to run automatically from changes to `.github/workflows/orion-build-pit-prices.yml` or `build_phase2_prices.py`. Generated price files are not considered complete until the GitHub Actions run is green and commits the 30 validated data files plus manifest/audit.
