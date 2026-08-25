@@ -5,7 +5,7 @@ from pathlib import Path
 from sentinel.automation_supervisor import (
     CallbackWatch,
     _callback_deadline_expired,
-    _restart_for_health,
+    _instance_stalled,
 )
 
 
@@ -35,20 +35,25 @@ def test_callback_watch_resets_between_phases():
         deadline_seconds=30.0)
 
 
-def test_enabled_stalled_or_overdue_scheduler_requires_restart():
-    for policy in ("SCHEDULER_STALLED", "SCHEDULER_OVERDUE",
-                   "WAITING_FOR_LEADER"):
-        assert _restart_for_health(
-            enabled=True, killed=False, operational_ready=False,
-            policy_state=policy, startup_grace_elapsed=True)
+def test_instance_stall_is_bounded_by_lease_after_startup_grace():
+    assert not _instance_stalled(
+        heartbeat_age_seconds=99.0, lease_seconds=12.0,
+        startup_grace_elapsed=False)
+    assert not _instance_stalled(
+        heartbeat_age_seconds=12.0, lease_seconds=12.0,
+        startup_grace_elapsed=True)
+    assert _instance_stalled(
+        heartbeat_age_seconds=12.001, lease_seconds=12.0,
+        startup_grace_elapsed=True)
 
 
-def test_fail_closed_policy_states_do_not_restart_loop():
-    for policy in ("DISABLED", "KILLED", "AUTHORITY_FAILED", "BLOCKED"):
-        assert not _restart_for_health(
-            enabled=(policy not in {"DISABLED"}),
-            killed=(policy == "KILLED"), operational_ready=False,
-            policy_state=policy, startup_grace_elapsed=True)
+def test_missing_initial_instance_does_not_trigger_pre_grace_kill_loop():
+    assert not _instance_stalled(
+        heartbeat_age_seconds=None, lease_seconds=12.0,
+        startup_grace_elapsed=False)
+    assert not _instance_stalled(
+        heartbeat_age_seconds=None, lease_seconds=12.0,
+        startup_grace_elapsed=True)
 
 
 def test_compose_uses_strict_liveness_and_bounded_failover_budget():
