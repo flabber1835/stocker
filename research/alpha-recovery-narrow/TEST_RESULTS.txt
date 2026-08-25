@@ -1,0 +1,14 @@
+test_causal_confirmation_skips_provisional (test_fast_confirmation.FastConfirmationTests.test_causal_confirmation_skips_provisional) ... ok
+test_confirmation_without_warning_is_rejected (test_fast_confirmation.FastConfirmationTests.test_confirmation_without_warning_is_rejected) ... ok
+test_first_warning_is_external_provisional_only (test_fast_confirmation.FastConfirmationTests.test_first_warning_is_external_provisional_only) ... ok
+test_invalid_persistence_configuration_is_rejected (test_fast_confirmation.FastConfirmationTests.test_invalid_persistence_configuration_is_rejected) ... ok
+test_one_session_warning_clears_immediately (test_fast_confirmation.FastConfirmationTests.test_one_session_warning_clears_immediately) ... ok
+test_provisional_composition_never_increases_ldrc (test_fast_confirmation.FastConfirmationTests.test_provisional_composition_never_increases_ldrc) ... ok
+test_second_warning_confirms_parent_fast (test_fast_confirmation.FastConfirmationTests.test_second_warning_confirms_parent_fast) ... ok
+test_sessions_must_advance (test_fast_confirmation.FastConfirmationTests.test_sessions_must_advance) ... ok
+test_state_round_trip (test_fast_confirmation.FastConfirmationTests.test_state_round_trip) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.000s
+
+OK
