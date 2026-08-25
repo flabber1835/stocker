@@ -1,10 +1,9 @@
 """Bounded supervisor for the broker-free shadow publisher.
 
-Each shadow advance executes in a disposable child process.  A wedged ingest,
+Each shadow advance executes in a disposable child process. A wedged ingest,
 replay, filesystem or database call therefore cannot stall the publisher
-forever: the supervisor terminates the child at the configured deadline and
-retries after the ordinary poll interval.  The child is broker-free by the
-shadow-service environment contract.
+forever. Transient publication lag is retried; integrity refusals stop the
+service so health fails instead of disguising a terminal fault as progress.
 """
 from __future__ import annotations
 
@@ -17,6 +16,7 @@ import time
 from pathlib import Path
 
 from sentinel.shadow_service import ShadowServiceConfig
+from sentinel.shadow_worker import EXIT_REFUSED, EXIT_RETRY, EXIT_WAITING
 
 HEARTBEAT_FILE = Path("/tmp/sentinel-shadow-supervisor-heartbeat")
 
@@ -34,20 +34,6 @@ def _terminate(child: subprocess.Popen, *, grace_seconds: float = 5.0) -> None:
     except subprocess.TimeoutExpired:
         child.kill()
         child.wait(timeout=max(1.0, grace_seconds))
-
-
-def _run_once(deadline_seconds: float) -> int:
-    child = subprocess.Popen(
-        [sys.executable, "-m", "sentinel.shadow_service", "--once"],
-        stdin=subprocess.DEVNULL)
-    try:
-        return child.wait(timeout=deadline_seconds)
-    except subprocess.TimeoutExpired:
-        print(
-            "shadow supervisor terminating overdue advance after "
-            f"{deadline_seconds:.0f}s", file=sys.stderr, flush=True)
-        _terminate(child)
-        return 124
 
 
 def _health(max_age_seconds: float) -> int:
@@ -72,7 +58,7 @@ def run() -> int:
     if deadline_seconds < 30 or deadline_seconds > 7200:
         print("REFUSED: SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS must be in [30,7200]",
               file=sys.stderr)
-        return 2
+        return EXIT_REFUSED
     stopping = False
     active: subprocess.Popen | None = None
 
@@ -86,12 +72,11 @@ def run() -> int:
     signal.signal(signal.SIGINT, stop)
     _touch()
     while not stopping:
-        # Inline implementation rather than _run_once so SIGTERM can terminate
-        # the current child immediately.
         active = subprocess.Popen(
-            [sys.executable, "-m", "sentinel.shadow_service", "--once"],
+            [sys.executable, "-m", "sentinel.shadow_worker"],
             stdin=subprocess.DEVNULL)
         started = time.monotonic()
+        timed_out = False
         while not stopping and active.poll() is None:
             _touch()
             if time.monotonic() - started > deadline_seconds:
@@ -99,10 +84,25 @@ def run() -> int:
                     "shadow supervisor terminating overdue advance after "
                     f"{deadline_seconds:.0f}s", file=sys.stderr, flush=True)
                 _terminate(active)
+                timed_out = True
                 break
             time.sleep(1.0)
+        if stopping:
+            break
+        code = 124 if timed_out else int(active.poll() or 0)
         active = None
         _touch()
+        if code == EXIT_REFUSED:
+            print(
+                "REFUSED: shadow worker reported terminal integrity refusal",
+                file=sys.stderr, flush=True)
+            return EXIT_REFUSED
+        if code not in {0, EXIT_WAITING, EXIT_RETRY, 124}:
+            print(
+                f"REFUSED: shadow worker exited unexpectedly with {code}",
+                file=sys.stderr, flush=True)
+            return EXIT_REFUSED
+
         deadline = time.monotonic() + config.poll_seconds
         while not stopping and time.monotonic() < deadline:
             _touch()
