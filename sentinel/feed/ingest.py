@@ -33,9 +33,14 @@ def _seed_source(fetch, *, final_hi: str):
 
 _impl._seed_source = _seed_source
 
-for _name in dir(_impl):
-    if _name != "_name" and not _name.startswith("__"):
-        globals()[_name] = getattr(_impl, _name)
+# Copy the wrapper's concrete namespace rather than enumerating dir(_impl) and
+# resolving names again through its module delegation.  The latter can expose
+# synthetic/private names (for example _name or _original_coherence) that are
+# not attributes of the delegated ingest_impl module and makes import order
+# affect whether this facade can be imported.
+for _export_name, _export_value in tuple(vars(_impl).items()):
+    if not _export_name.startswith("__") and _export_name != "_impl":
+        globals()[_export_name] = _export_value
 _seed_source = _seed_source
 
 _FACADE_OWNED = frozenset({"_seed_source", "source_authority"})
