@@ -120,9 +120,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     if args.health:
         poll = float(os.environ.get("SENTINEL_SHADOW_POLL_SECONDS", "300"))
-        deadline = float(os.environ.get(
-            "SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS", "900"))
-        return _health(max(10.0, min(30.0, poll), deadline))
+        return _health(max(10.0, min(30.0, poll)))
     return run()
 
 
