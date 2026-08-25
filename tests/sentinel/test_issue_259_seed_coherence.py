@@ -43,6 +43,10 @@ def _proof(run_id="seed-1"):
         "key_sha256": "b" * 64,
         "value_sha256": "c" * 64,
     }
+    # These pairs represent independently serialized jsonb values. Do not alias
+    # the Python dictionaries: deepcopy preserves alias topology, which would
+    # make mutating one purported observation mutate its comparison witness too
+    # even though PostgreSQL jsonb cannot retain such object identity.
     return {
         "schema": seed_coherence.SCHEMA,
         "phase": "complete",
@@ -50,15 +54,15 @@ def _proof(run_id="seed-1"):
         "market_interval": ["2026-01-02", "2026-08-24"],
         "seed_start_update_boundary": "2026-08-24",
         "mutation_interval": ["2026-08-24", "2026-08-24"],
-        "mutation_source_first": observation,
-        "mutation_source_second": observation,
+        "mutation_source_first": dict(observation),
+        "mutation_source_second": dict(observation),
         "overlap": {
             "interval": ["2026-02-20", "2026-08-24"],
-            "source_first": observation,
-            "source_second": observation,
+            "source_first": dict(observation),
+            "source_second": dict(observation),
         },
-        "normalized_source": normalized,
-        "normalized_local": normalized,
+        "normalized_source": dict(normalized),
+        "normalized_local": dict(normalized),
         "final_mutation_cursor": "2026-08-24",
     }
 
