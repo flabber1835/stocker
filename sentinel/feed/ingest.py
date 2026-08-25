@@ -61,7 +61,7 @@ for _export_name, _export_value in tuple(vars(_authority).items()):
 _seed_source = _seed_source
 _impl = _authority._impl
 
-_base_daily = _authority.daily
+_legacy_daily = _authority.daily
 
 
 def daily(conn, *, fetch: Callable[..., Iterable[dict]] = _authority.sharadar.fetch_table,
@@ -83,7 +83,7 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = _authority.sharadar.fe
         raise ValueError(
             "daily ingest requires an explicit through-session; wall-clock date "
             "fallback is not publication authority")
-    return _base_daily(
+    return _legacy_daily(
         conn, fetch=fetch, resolve_identity=resolve_identity,
         overlap_days=overlap_days, today=str(today))
 
