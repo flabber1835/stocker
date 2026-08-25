@@ -60,8 +60,10 @@ def _callback_deadline_expired(
 def _instance_stalled(*, heartbeat_age_seconds: float | None,
                       lease_seconds: float,
                       startup_grace_elapsed: bool) -> bool:
-    if not startup_grace_elapsed or heartbeat_age_seconds is None:
+    if not startup_grace_elapsed:
         return False
+    if heartbeat_age_seconds is None:
+        return True
     return heartbeat_age_seconds > lease_seconds
 
 
@@ -162,10 +164,12 @@ def main() -> int:
                     lease_seconds=automation_config.lease_seconds,
                     startup_grace_elapsed=(
                         now_mono - started >= startup_grace_seconds)):
+                age_detail = ("missing" if heartbeat_age is None
+                              else f"{heartbeat_age:.3f}s")
                 print(
                     f"automation supervisor terminating stalled worker "
-                    f"{holder_id}: heartbeat age {heartbeat_age:.3f}s exceeds "
-                    f"lease {automation_config.lease_seconds}s",
+                    f"{holder_id}: heartbeat age {age_detail}; lease "
+                    f"{automation_config.lease_seconds}s",
                     file=sys.stderr)
                 _terminate(child)
                 break
