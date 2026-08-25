@@ -71,8 +71,24 @@ def test_compose_uses_strict_liveness_and_bounded_failover_budget():
 def test_off_host_standby_requires_shared_database_and_same_fencing_runtime():
     text = Path("docker-compose.sentinel-automation-standby.yml").read_text()
     assert "sentinel-automation-standby:" in text
-    assert "SENTINEL_DATABASE_URL: ${SENTINEL_DATABASE_URL:?set shared HA PostgreSQL DSN}" in text
+    assert (
+        "SENTINEL_DATABASE_URL: "
+        "${SENTINEL_DATABASE_URL:?set shared HA PostgreSQL DSN}" in text)
     assert "sentinel.automation_supervisor" in text
     assert "sentinel.automation_liveness" in text
     assert "depends_on:" not in text
     assert "SENTINEL_AUTOMATION_LEASE_SECONDS:-12" in text
+
+
+def test_secondary_worker_is_hot_passive_until_live_lease_expires():
+    text = Path("sentinel/automation_worker.py").read_text()
+    assert 'state="STANDBY"' in text
+    assert "leader != holder_id" in text
+    assert "lease_generation == control_generation" in text
+    assert "expires_at > database_now" in text
+
+
+def test_global_health_is_bound_to_current_lease_holder_not_latest_instance():
+    text = Path("sentinel/automation/health.py").read_text()
+    assert "WHERE i.instance_id=l.holder_id LIMIT 1" in text
+    assert "ORDER BY heartbeat_at DESC LIMIT 1" not in text
