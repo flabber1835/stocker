@@ -24,6 +24,10 @@ from sentinel.config import SentinelConfig
 from sentinel.feed import store as feed_store
 
 
+class AlertTransportFailure(RuntimeError):
+    """External alert transport failed while PostgreSQL may still be healthy."""
+
+
 class WebhookAlertAdapter:
     def __init__(self, url: str, *, timeout_seconds: float = 10.0) -> None:
         parsed = urlparse(url)
@@ -36,12 +40,17 @@ class WebhookAlertAdapter:
         self._timeout = timeout_seconds
 
     def _post(self, payload: dict, idempotency_key: str) -> None:
-        with httpx.Client(timeout=self._timeout, follow_redirects=False) as client:
-            response = client.post(
-                self._url, json=payload,
-                headers={"Idempotency-Key": idempotency_key})
+        try:
+            with httpx.Client(
+                    timeout=self._timeout, follow_redirects=False) as client:
+                response = client.post(
+                    self._url, json=payload,
+                    headers={"Idempotency-Key": idempotency_key})
+        except Exception as exc:  # transport boundary, not database authority
+            raise AlertTransportFailure(
+                f"alert webhook transport failed: {type(exc).__name__}: {exc}") from exc
         if response.status_code < 200 or response.status_code >= 300:
-            raise RuntimeError(
+            raise AlertTransportFailure(
                 f"alert webhook returned HTTP {response.status_code}")
 
     def deliver(self, alert, idempotency_key: str) -> None:
@@ -82,6 +91,15 @@ async def _sleep_or_stop(stop: asyncio.Event, seconds: float) -> None:
         await asyncio.wait_for(stop.wait(), timeout=seconds)
     except asyncio.TimeoutError:
         pass
+
+
+def _report_transport_failure(exc: BaseException) -> None:
+    # The failing transport cannot report its own failure over the same channel.
+    # Emit an unambiguous local critical classification; durable outbox rows
+    # remain pending/retryable and are not reclassified as PostgreSQL outages.
+    print(
+        "CRITICAL ALERT_TRANSPORT_FAILURE: "
+        f"{type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
 
 
 async def run() -> int:
@@ -125,9 +143,27 @@ async def run() -> int:
     }
     while not stopped.is_set():
         conn = None
+        result = None
         try:
+            # Database failures are isolated to database-backed operations. A
+            # later webhook failure must never enter this classification path.
             conn = feed_store.connect(config.database_url)
             health = read_health(conn)
+        except Exception as exc:  # noqa: BLE001
+            bucket = int(time.time() // 60)
+            if bucket != last_database_bucket:
+                try:
+                    adapter.deliver_database_failure(
+                        f"{type(exc).__name__}: {exc}", bucket)
+                    last_database_bucket = bucket
+                except AlertTransportFailure as alert_exc:
+                    _report_transport_failure(alert_exc)
+            if conn is not None:
+                conn.close()
+            await _sleep_or_stop(stopped, poll)
+            continue
+
+        try:
             active_incident = bool(
                 health.policy_state in externally_critical
                 and ((health.enabled and not health.kill_switch_engaged)
@@ -157,26 +193,27 @@ async def run() -> int:
                 retry_base_seconds=automation.retry_base_seconds,
                 retry_max_seconds=automation.retry_max_seconds)
             last_database_bucket = None
+        except AlertTransportFailure as exc:
+            _report_transport_failure(exc)
+            await _sleep_or_stop(stopped, poll)
+            continue
         except Exception as exc:  # noqa: BLE001
-            # The database cannot durably record its own disappearance. Emit a
-            # direct external critical signal, rate-limited to one per minute.
+            # Exceptions from database-backed outbox state remain database
+            # incidents. Transport failures are typed and handled above.
             bucket = int(time.time() // 60)
             if bucket != last_database_bucket:
                 try:
                     adapter.deliver_database_failure(
                         f"{type(exc).__name__}: {exc}", bucket)
                     last_database_bucket = bucket
-                except Exception as alert_exc:  # noqa: BLE001
-                    print(
-                        "alert dispatcher could not report database failure: "
-                        f"{type(alert_exc).__name__}: {alert_exc}",
-                        file=sys.stderr, flush=True)
+                except AlertTransportFailure as alert_exc:
+                    _report_transport_failure(alert_exc)
             await _sleep_or_stop(stopped, poll)
             continue
         finally:
             if conn is not None:
                 conn.close()
-        if result.alert is None:
+        if result is None or result.alert is None:
             await _sleep_or_stop(stopped, poll)
     return 0
 
