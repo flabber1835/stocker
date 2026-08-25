@@ -176,6 +176,7 @@ jobs:
           SENTINEL_RUNTIME_IMAGE_DIGEST: sha256:0000000000000000000000000000000000000000000000000000000000000000
           SENTINEL_TEST_IMAGE_DIGEST: sha256:1111111111111111111111111111111111111111111111111111111111111111
           SENTINEL_AUTHORITY_ARTIFACTS_DIR: /tmp/sentinel-ci-authority
+          SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL: https://ci.invalid/sentinel-alerts
         run: |
           set -euo pipefail
           mapfile -d '' shell_scripts < <(git ls-files -z -- '*.sh')
