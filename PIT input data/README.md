@@ -21,7 +21,9 @@ No reconstructed fields are included yet.
 
 ## GitHub runner
 
-`.github/workflows/orion-build-pit-input.yml` is the only supported repository-side population path for this phase. It is manual and restricted to branch `research/sentinel-fastgate-2026-08-24`.
+`.github/workflows/orion-build-pit-input.yml` is the supported repository-side population path for this phase and is restricted to branch `research/sentinel-fastgate-2026-08-24`.
+
+Because a `workflow_dispatch` workflow is only exposed by GitHub when its workflow file also exists on the default branch, this research-only workflow has a branch-scoped `push` trigger. Main remains untouched. A push that changes the pinned Sharadar source files, source chunks, manifest, or builder starts the extraction.
 
 The runner:
 1. validates every raw source against the source SHA-256 pinned in `MANIFEST.csv`;
@@ -30,6 +32,8 @@ The runner:
 4. copies only those 31 manifest-listed files into this directory;
 5. rejects raw Sharadar archives, TICKERS, adjusted-price fields, current metadata fields, or any unlisted data file;
 6. commits only the validated `*_PIT_ONLY.csv.gz` outputs back to the research branch.
+
+The generated-output commit does not retrigger the workflow because the push path filter excludes `PIT input data/*.csv.gz`.
 
 ### Large SFP source
 
@@ -43,7 +47,7 @@ The same split mechanism is supported for `SHARADAR_ACTIONS.zip`, although that 
 
 ## Current source status
 
-SEP 1998–2026 is present on the research branch and byte-pinned. The run intentionally fails until the exact hash-pinned ACTIONS source and either the whole SFP source or its split parts are present.
+SEP 1998–2026 is present on the research branch and byte-pinned. The run intentionally fails until the exact hash-pinned ACTIONS source and either the whole SFP source or all of its split parts are present. To avoid intentionally failed intermediate runs, stage ACTIONS plus every SFP part in one commit/push.
 
 ## Completion criterion
 
