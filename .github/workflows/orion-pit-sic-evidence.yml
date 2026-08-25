@@ -1,5 +1,6 @@
 name: Orion PIT SIC evidence archive
 
+# Re-run on workflow edits to refresh the retained, fingerprint-verified SIC evidence.
 on:
   push:
     branches:
