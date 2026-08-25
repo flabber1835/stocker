@@ -20,10 +20,14 @@ _BASE_EXPORTS = {
 for _name, _value in _BASE_EXPORTS.items():
     globals()[_name] = _value
 
-# Keep this literal in the public CLI source: deployment certification verifies
-# that the marker-bearing runtime boundary remains visible at the executable
-# entrypoint, not hidden behind an implementation indirection.
+# Keep these runtime-authority operations visible at the public executable
+# entrypoint. Deployment certification source-checks this boundary, while the
+# retained implementation remains the single behavior authority.
 AUTHORIZED_RUNTIME_COMMANDS = _base.AUTHORIZED_RUNTIME_COMMANDS
+
+
+def _authorized_runtime_marker_contract():
+    return AUTHORIZED_RUNTIME_MARKER.read_bytes()
 
 
 # Static CLI-surface contract for runbook/resource-harness validation. These are
