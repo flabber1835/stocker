@@ -1,0 +1,41 @@
+{
+  "schema": "sentinel.fastgate/1",
+  "strategy_name": "Sentinel Fastgate",
+  "strategy_id": "sentinel-fastgate",
+  "strategy_version": 1,
+  "state_version": 1,
+  "base_main_commit": "722aa14ae0e452437b80425528ba30fcf133b029",
+  "authoritative_strategy_commit": "22ebcf48addadbc7ec4531df415041d1b8674f48",
+  "canonical_source": "sentinel_fastgate_reference.py",
+  "canonical_source_git_blob": "a1d4107ee552cba64373d896f49cebd3196087a5",
+  "authoritative_dependency_git_blobs": {
+    "sentinel/controller/concordance.py": "f1b49d3b6e942633eea126d834995a11cc896c3e",
+    "sentinel/controller/concordance_parent.py": "bd2cea533479cabe502081c5d8c69a9535f315e0",
+    "sentinel/controller/frozen_rule.py": "2af87eb7502f55642270da972a27cde8d526d8e9",
+    "sentinel/controller/ldrc.py": "619d9faece5dcec7a87631b5b67c6df671701548",
+    "sentinel/controller/machine.py": "64395d42355a34ee4a8df1a89263b523a54efd31",
+    "sentinel/controller/recent_leadership.py": "12bc736bbe34ca9f665cecc8086d8267c538119a"
+  },
+  "config": {
+    "fast_shadow_drawdown": -0.1,
+    "fast_damaged_breadth": 0.85,
+    "fast_green_breadth": 0.2,
+    "fast_shadow_r5": -0.05,
+    "fast_shadow_r10": -0.08,
+    "fast_damage_delta5": 0.3,
+    "fast_spy_vol_ratio": 0.04,
+    "fast_spy_r20": -0.01,
+    "fast_shadow_r10_confirmation": -0.1,
+    "residual_thresholds": [0.145, 0.15, 0.155],
+    "residual_votes_required": 2,
+    "symbolic_core_floor": 0.75,
+    "provisional_ceiling": 0.55,
+    "persistence_sessions": 2
+  },
+  "composition": [
+    "causal FAST snapshot -> Fastgate confirmation -> authoritative native Sentinel",
+    "authoritative native Sentinel -> authoritative LD-RC",
+    "unconfirmed first warning -> external 55% ceiling after LD-RC"
+  ],
+  "strategy_digest_sha256": "7a18d1c66f221848ccdb327d1851c14e8d75f7c6d9a3fd51e390c6adef2d67b5"
+}
