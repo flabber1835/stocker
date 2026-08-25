@@ -61,6 +61,7 @@ for _export_name, _export_value in tuple(vars(_authority).items()):
 _seed_source = _seed_source
 _impl = _authority._impl
 
+_legacy_seed = _authority.seed
 _legacy_daily = _authority.daily
 
 
@@ -204,10 +205,21 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
          date_to: Optional[str] = None,
          fetch: Callable[..., Iterable[dict]] = _authority.sharadar.fetch_table,
          resolve_identity=None):
-    """Complete seed plus bounded concurrent-mutation/source-local proof."""
+    """Complete production seed plus bounded concurrent-mutation proof.
+
+    Injected callbacks remain a non-certifying test/replay seam and retain the
+    pre-#259 orchestration path. Only the production snapshot membrane can claim
+    vendor-generation coherence.
+    """
     from sentinel.feed import seed_coherence
 
-    fetch = _authority._authoritative_source(fetch)
+    authoritative_fetch = _authority._authoritative_source(fetch)
+    if authoritative_fetch is not _authority.snapshot_source.fetch_table:
+        return _legacy_seed(
+            conn, date_from=date_from, date_to=date_to, fetch=fetch,
+            resolve_identity=resolve_identity)
+
+    fetch = authoritative_fetch
     _authority._validate_source_before_run(fetch)
     boundary = seed_coherence.capture_update_boundary()
     with _impl.feed_store.corpus_write_lock(conn):
