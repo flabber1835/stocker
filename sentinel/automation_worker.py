@@ -11,7 +11,8 @@ import asyncio
 import os
 import signal
 import sys
-from datetime import timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sentinel import schema
 from sentinel.automation import store as automation_store
@@ -94,7 +95,14 @@ async def _run() -> int:
     runtime = ProductionAutomation(
         sentinel_config=config, automation_config=automation_config,
         holder_id=holder_id)
-    await runtime.run(stop=stop)
+    # Unattended production never consumes its own alert outbox.  Alert
+    # delivery is a separate broker-free process so a stalled/killed trading
+    # worker cannot both fail and mark its notification DELIVERED.
+    await runtime.service.run(
+        runtime.connect, stop=stop,
+        clock=lambda: datetime.now(ZoneInfo("UTC")),
+        sleep=asyncio.sleep, alert_wake=None,
+        control_wake=runtime.control_wake)
     return 0
 
 
