@@ -185,7 +185,7 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -f \
+          git add --sparse -f \
             research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz \
             research/sentinel-fastgate/pit-evidence/generated/sec_sic_provenance.json \
             research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
