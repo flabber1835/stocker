@@ -1,0 +1,2 @@
+index,case,decision_date,held_ticker,candidate_ticker,sec_cik,earliest_pilot_public_evidence,effective_from,point_in_time_result,selection_result
+0,Alphabet share classes,2025-12-23,GOOG,GOOGL,1652044,2016-02-11,2014-04-03,CONFIRMED_SAME_ISSUER,REJECT_GOOGL_SELECT_ROIV
