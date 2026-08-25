@@ -1,0 +1,182 @@
+name: Orion PIT SIC evidence archive
+
+on:
+  push:
+    branches:
+      - research/sentinel-fastgate-2026-08-24
+    paths:
+      - '.github/workflows/orion-pit-sic-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  recover-verify-retain:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out Orion research branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/sentinel-fastgate-2026-08-24
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Enforce Orion-only branch boundary
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "research/sentinel-fastgate-2026-08-24"
+          test "$(git branch --show-current)" = "research/sentinel-fastgate-2026-08-24"
+
+      - name: Recover exact corrected PIT SEC SIC artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_BRANCH: research/correct-pit-sector-ab-2026-08-23
+          ARTIFACT_NAME: corrected-pit-sec-sic-tape
+        run: |
+          set -euo pipefail
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${ARTIFACT_NAME}&per_page=100" > /tmp/orion-sic-artifacts.json
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          data = json.loads(Path('/tmp/orion-sic-artifacts.json').read_text())
+          source_branch = os.environ['SOURCE_BRANCH']
+          candidates = []
+          for artifact in data.get('artifacts', []):
+              if artifact.get('expired'):
+                  continue
+              run = artifact.get('workflow_run') or {}
+              if run.get('head_branch') != source_branch:
+                  continue
+              candidates.append(artifact)
+          if not candidates:
+              raise SystemExit(
+                  'No unexpired corrected PIT SIC artifact found on the authoritative research branch; '
+                  'refusing to regenerate unverified replacement bytes.'
+              )
+          candidates.sort(key=lambda x: (x.get('created_at') or '', x.get('id') or 0), reverse=True)
+          a = candidates[0]
+          run = a.get('workflow_run') or {}
+          if not run.get('id'):
+              raise SystemExit('Selected SIC artifact has no workflow run id')
+          Path('/tmp/orion-sic-selected.txt').write_text(f"{a['id']} {run['id']}\n")
+          Path('/tmp/orion-sic-source.json').write_text(json.dumps({
+              'artifact_id': a['id'],
+              'artifact_name': a['name'],
+              'artifact_created_at': a.get('created_at'),
+              'workflow_run_id': run['id'],
+              'workflow_head_branch': run.get('head_branch'),
+              'workflow_head_sha': run.get('head_sha'),
+          }, indent=2, sort_keys=True) + '\n')
+          PY
+          read ARTIFACT_ID RUN_ID < /tmp/orion-sic-selected.txt
+          echo "Recovering artifact ${ARTIFACT_ID} from run ${RUN_ID}"
+          rm -rf /tmp/orion-sec-sic
+          mkdir -p /tmp/orion-sec-sic
+          gh run download "${RUN_ID}" -R "${GITHUB_REPOSITORY}" -n "${ARTIFACT_NAME}" -D /tmp/orion-sec-sic
+
+      - name: Verify authoritative SIC fingerprints
+        env:
+          EXPECTED_SHA256: cee14e068e0793bcaaf668ffe3bbbd09c5d2107699ecd08b71371641a3efd8b7
+          EXPECTED_ROWS: '423766'
+          EXPECTED_2011Q2: '1695'
+        run: |
+          set -euo pipefail
+          SIC_FILE="$(find /tmp/orion-sec-sic -type f -name 'sec_sic_events_complete.csv' -print -quit)"
+          test -n "${SIC_FILE}"
+          ACTUAL_SHA="$(sha256sum "${SIC_FILE}" | awk '{print $1}')"
+          test "${ACTUAL_SHA}" = "${EXPECTED_SHA256}"
+          SIC_FILE="${SIC_FILE}" python - <<'PY'
+          import csv, os
+
+          path = os.environ['SIC_FILE']
+          rows = 0
+          q2 = set()
+          with open(path, newline='', encoding='utf-8') as fh:
+              reader = csv.DictReader(fh)
+              expected = {'filed', 'cik', 'sic', 'adsh', 'source_quarter'}
+              if set(reader.fieldnames or []) != expected:
+                  raise SystemExit(f'unexpected SIC schema: {reader.fieldnames}')
+              for row in reader:
+                  rows += 1
+                  if row['source_quarter'] == '2011Q2':
+                      q2.add((row['filed'], row['cik'], row['sic']))
+          if rows != int(os.environ['EXPECTED_ROWS']):
+              raise SystemExit(f'row count mismatch: {rows}')
+          if len(q2) != int(os.environ['EXPECTED_2011Q2']):
+              raise SystemExit(f'2011Q2 fingerprint mismatch: {len(q2)}')
+          print(f'PASS rows={rows} 2011Q2_unique={len(q2)}')
+          PY
+
+      - name: Retain deterministic Orion SIC evidence
+        env:
+          EXPECTED_SHA256: cee14e068e0793bcaaf668ffe3bbbd09c5d2107699ecd08b71371641a3efd8b7
+          MIRROR_SHA256: fdfd9c5807dac4725a1fb0b84b42a547be75f9a70d3568280a45930d1776a044
+        run: |
+          set -euo pipefail
+          OUT='research/sentinel-fastgate/pit-evidence/generated'
+          mkdir -p "${OUT}"
+          SIC_FILE="$(find /tmp/orion-sec-sic -type f -name 'sec_sic_events_complete.csv' -print -quit)"
+          SIC_FILE="${SIC_FILE}" OUT="${OUT}" python - <<'PY'
+          import gzip, hashlib, json, os
+          from pathlib import Path
+
+          src = Path(os.environ['SIC_FILE'])
+          out = Path(os.environ['OUT'])
+          raw = src.read_bytes()
+          raw_sha = hashlib.sha256(raw).hexdigest()
+          if raw_sha != os.environ['EXPECTED_SHA256']:
+              raise SystemExit('SIC hash changed between verification and retention')
+
+          gz = gzip.compress(raw, compresslevel=9, mtime=0)
+          gz_path = out / 'sec_sic_events_complete.csv.gz'
+          gz_path.write_bytes(gz)
+          gz_sha = hashlib.sha256(gz).hexdigest()
+
+          source = json.loads(Path('/tmp/orion-sic-source.json').read_text())
+          provenance = {
+              'schema': 'orion.sec-sic-pit-evidence/1',
+              'authority': 'U.S. SEC Financial Statement Data Sets submissions table',
+              'coverage': {'first_quarter': '2009Q2', 'last_quarter': '2026Q1'},
+              'transport': {
+                  'description': 'erlenbusch/sec-edgar sec_edgar.duckdb mirror used as transport in corrected reconstruction after SEC runner HTTP 403',
+                  'mirror_sha256': os.environ['MIRROR_SHA256'],
+              },
+              'source_artifact': source,
+              'sic_tape': {
+                  'rows': 423766,
+                  'uncompressed_sha256': raw_sha,
+                  'deterministic_gzip_sha256': gz_sha,
+                  'validation_2011Q2_unique_filed_cik_sic': 1695,
+                  'fields': ['filed', 'cik', 'sic', 'adsh', 'source_quarter'],
+              },
+              'causal_rule': 'latest SIC evidence satisfying filed < decision_session',
+              'same_day_filing_policy': 'not known',
+              'missing_sic_policy': 'singleton unknown peer; never fall back to current Sharadar sector',
+              'ff12_definition': 'research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt',
+          }
+          (out / 'sec_sic_provenance.json').write_text(json.dumps(provenance, indent=2, sort_keys=True) + '\n')
+          PY
+          (
+            cd "${OUT}"
+            sha256sum sec_sic_events_complete.csv.gz sec_sic_provenance.json > SEC_SIC_SHA256SUMS.txt
+          )
+
+      - name: Commit retained SIC evidence to Orion branch only
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            research/sentinel-fastgate/pit-evidence/generated/sec_sic_events_complete.csv.gz \
+            research/sentinel-fastgate/pit-evidence/generated/sec_sic_provenance.json \
+            research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
+          if git diff --cached --quiet; then
+            echo 'Retained SIC evidence already matches.'
+            exit 0
+          fi
+          git commit -m 'research(orion): retain exact SEC SIC PIT evidence [skip ci]'
+          git push origin HEAD:research/sentinel-fastgate-2026-08-24
