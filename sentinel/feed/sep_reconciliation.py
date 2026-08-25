@@ -14,7 +14,14 @@ for _export_name, _export_value in tuple(vars(_impl).items()):
     if not _export_name.startswith("__") and _export_name != "_impl":
         globals()[_export_name] = _export_value
 
-_ORIGINAL_SOURCE_FINGERPRINT = _impl._source_fingerprint
+_ORIGINAL_SOURCE_FINGERPRINT = globals().get(
+    "_ORIGINAL_SOURCE_FINGERPRINT", _impl._source_fingerprint)
+_ORIGINAL_RECONCILE_YEAR = globals().get(
+    "_ORIGINAL_RECONCILE_YEAR", _impl.reconcile_year)
+_ORIGINAL_RECONCILE_ALL = globals().get(
+    "_ORIGINAL_RECONCILE_ALL", _impl.reconcile_all)
+_ORIGINAL_RECONCILE_NEXT = globals().get(
+    "_ORIGINAL_RECONCILE_NEXT", _impl.reconcile_next)
 _OBSERVATION_CEILING = contextvars.ContextVar(
     "sentinel_sep_reconciliation_observation_ceiling", default=None)
 
@@ -49,32 +56,39 @@ def _guarded_source_fingerprint(conn, *, fetch, start: str, end: str):
         conn, fetch=guarded, start=start, end=end)
 
 
-_impl._source_fingerprint = _guarded_source_fingerprint
 _source_fingerprint = _guarded_source_fingerprint
 
 
 def reconcile_year(conn, *, fetch=_impl.sharadar.fetch_table,
                    year: int, start: str, end: str,
                    observation_ceiling=None):
+    active_ceiling = _OBSERVATION_CEILING.get()
+    if observation_ceiling is None and active_ceiling is not None:
+        return _ORIGINAL_RECONCILE_YEAR(
+            conn, fetch=fetch, year=year, start=start, end=end)
+
     ceiling = dt.date.today() if observation_ceiling is None else observation_ceiling
     with _ceiling(ceiling):
-        return _impl.reconcile_year(
+        return _ORIGINAL_RECONCILE_YEAR(
             conn, fetch=fetch, year=year, start=start, end=end)
 
 
 def reconcile_all(conn, *, fetch=_impl.sharadar.fetch_table, through: str):
     with _ceiling(through):
-        return _impl.reconcile_all(conn, fetch=fetch, through=through)
+        return _ORIGINAL_RECONCILE_ALL(conn, fetch=fetch, through=through)
 
 
 def reconcile_next(conn, *, fetch=_impl.sharadar.fetch_table, through: str):
     with _ceiling(through):
-        return _impl.reconcile_next(conn, fetch=fetch, through=through)
+        return _ORIGINAL_RECONCILE_NEXT(conn, fetch=fetch, through=through)
 
 
-_FACADE_OWNED = frozenset({
-    "_source_fingerprint", "reconcile_year", "reconcile_all", "reconcile_next",
-})
+# The implementation calls these names internally. Route them through the
+# public wrappers so existing monkeypatch-based seams remain valid.
+_impl._source_fingerprint = _guarded_source_fingerprint
+_impl.reconcile_year = reconcile_year
+
+_FACADE_OWNED = frozenset({"reconcile_all", "reconcile_next"})
 
 
 class _SepReconciliationFacade(types.ModuleType):
