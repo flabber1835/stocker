@@ -1,0 +1,41 @@
+name: issue-250-actions-apply
+
+on:
+  push:
+    branches:
+      - codex/issue-250-sharadar-ingress
+
+permissions:
+  contents: write
+
+concurrency:
+  group: issue-250-actions-apply
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply bounded ACTIONS implementation
+        run: python tools/apply_issue250_actions.py
+      - name: Static validation
+        run: |
+          git diff --check
+          python -m compileall -q sentinel/feed/action_snapshot.py sentinel/feed/snapshot_export.py sentinel/feed/authority.py sentinel/feed/store.py sentinel/feed/maintenance.py sentinel/feed/ingest_impl.py tests/sentinel/test_issue_235_actions_memory.py
+          ! grep -n 'distinct_rows(rows)' sentinel/feed/store.py
+          ! sed -n '/def reconcile_actions_if_due/,/__all__/p' sentinel/feed/maintenance.py | grep '_active_action_rows(conn)'
+      - name: Commit implementation and remove one-shot machinery
+        run: |
+          rm -f tools/apply_issue250_actions.py .github/workflows/issue250-actions-apply.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feed: bound complete ACTIONS reconciliation memory"
+          git push origin HEAD:codex/issue-250-sharadar-ingress
