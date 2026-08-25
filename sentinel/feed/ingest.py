@@ -142,6 +142,13 @@ def _seed_authority_hooks(
         if tracked is None:
             raise seed_coherence.SeedCoherenceRefused(
                 "seed finalization has no active validated lastupdated tracker")
+        coverage_evidence = tracked.seed_coverage_evidence
+        if coverage_evidence is None:
+            raise seed_coherence.SeedCoherenceRefused(
+                "seed finalization has no successful exact source-coverage evidence")
+        seed_coherence.record_seed_coverage(
+            run.conn, run_id=str(run.progress.run_id),
+            evidence=coverage_evidence)
         ceiling = seed_coherence.capture_update_ceiling()
         # Reuse #263's canonical-key and update-envelope membrane. Date-window
         # overlap observations also receive duplicate rejection; the bounded CDC
