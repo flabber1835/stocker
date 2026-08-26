@@ -36,7 +36,15 @@ _WAL_NAME = re.compile(r"[0-9A-F]{24}\Z")
 
 
 class BackupWriteFenced(RuntimeError):
-    """New economic/data mutation is temporarily forbidden by backup health."""
+    """Base class for backup-health refusals that fence new mutation."""
+
+
+class BackupUnavailable(BackupWriteFenced):
+    """External durability is temporarily unavailable and may self-heal."""
+
+
+class BackupConfigurationRefused(BackupWriteFenced):
+    """Backup configuration/integrity is invalid and requires intervention."""
 
 
 @dataclass(frozen=True)
@@ -72,7 +80,7 @@ def _aware(value):
     if value is None:
         return None
     if not isinstance(value, datetime):
-        raise BackupWriteFenced(
+        raise BackupConfigurationRefused(
             "PostgreSQL archive timestamp is malformed; refusing new mutation")
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
@@ -85,13 +93,13 @@ def status(conn) -> BackupGuardStatus:
             "FROM pg_stat_archiver")
         row = cur.fetchone()
     if row is None or len(row) != 5:
-        raise BackupWriteFenced(
+        raise BackupConfigurationRefused(
             "PostgreSQL archive health is unavailable; refusing new mutation")
     mode, last_ok, last_fail, failed_count, database_now = row
     mode = str(mode or "")
     database_now = _aware(database_now)
     if database_now is None:
-        raise BackupWriteFenced(
+        raise BackupConfigurationRefused(
             "PostgreSQL archive clock is unavailable; refusing new mutation")
     last_ok = _aware(last_ok)
     last_fail = _aware(last_fail)
@@ -132,7 +140,7 @@ def _archiver_observation(conn):
             " failed_count FROM pg_stat_archiver")
         row = cur.fetchone()
     if row is None or len(row) != 4:
-        raise BackupWriteFenced(
+        raise BackupConfigurationRefused(
             "PostgreSQL archive probe state is unavailable")
     wal, last_ok, last_fail, failed_count = row
     return str(wal or ""), _aware(last_ok), _aware(last_fail), int(failed_count or 0)
@@ -157,12 +165,12 @@ def _probe_wal_boundary(conn, *, operation: str) -> str:
             cur.execute("SELECT pg_walfile_name(pg_switch_wal())")
             switched = cur.fetchone()
     except Exception as exc:
-        raise BackupWriteFenced(
+        raise BackupConfigurationRefused(
             f"{operation} fenced: could not force external-WAL liveness probe "
             f"({type(exc).__name__})") from exc
     target = str(switched[0] if switched else "")
     if _WAL_NAME.fullmatch(target) is None:
-        raise BackupWriteFenced(
+        raise BackupConfigurationRefused(
             f"{operation} fenced: PostgreSQL WAL switch returned malformed "
             "archive evidence")
     return target
@@ -171,7 +179,8 @@ def _probe_wal_boundary(conn, *, operation: str) -> str:
 def _exact_archived_file(conn, wal_name: str) -> tuple[int | None, int]:
     """Return exact durable-target file size and configured WAL segment size."""
     if _WAL_NAME.fullmatch(str(wal_name)) is None:
-        raise BackupWriteFenced("external WAL probe target name is malformed")
+        raise BackupConfigurationRefused(
+            "external WAL probe target name is malformed")
     path = f"{BACKUP_WAL_MOUNT}/{wal_name}"
     try:
         with conn.cursor() as cur:
@@ -181,16 +190,17 @@ def _exact_archived_file(conn, wal_name: str) -> tuple[int | None, int]:
                 (path,))
             row = cur.fetchone()
     except Exception as exc:
-        raise BackupWriteFenced(
+        raise BackupConfigurationRefused(
             "external WAL durable-target file cannot be inspected "
             f"({type(exc).__name__})") from exc
     if row is None or len(row) != 2:
-        raise BackupWriteFenced(
+        raise BackupConfigurationRefused(
             "external WAL durable-target inspection returned no evidence")
     size = None if row[0] is None else int(row[0])
     expected = int(row[1])
     if expected <= 0:
-        raise BackupWriteFenced("configured WAL segment size is invalid")
+        raise BackupConfigurationRefused(
+            "configured WAL segment size is invalid")
     return size, expected
 
 
@@ -222,10 +232,10 @@ def _probe_stale_archive_target(
             return status(conn)
         if failure_advanced and not exact_durable:
             result = status(conn)
-            raise BackupWriteFenced(_fence_message(result, operation=operation))
+            raise BackupUnavailable(_fence_message(result, operation=operation))
 
     result = status(conn)
-    raise BackupWriteFenced(
+    raise BackupUnavailable(
         f"{operation} fenced: external WAL target did not durably publish the "
         f"exact forced segment {target_wal} within "
         f"{BACKUP_PROBE_TIMEOUT_SECONDS}s; "
@@ -249,10 +259,17 @@ def _resolved_for_mutation(conn, *, operation: str) -> BackupGuardStatus:
     return result
 
 
+def _raise_fenced(result: BackupGuardStatus, *, operation: str) -> None:
+    message = _fence_message(result, operation=operation)
+    if result.archive_mode != "on":
+        raise BackupConfigurationRefused(message)
+    raise BackupUnavailable(message)
+
+
 def require_writes_permitted(conn, *, operation: str) -> BackupGuardStatus:
     result = _resolved_for_mutation(conn, operation=operation)
     if not result.writes_permitted:
-        raise BackupWriteFenced(_fence_message(result, operation=operation))
+        _raise_fenced(result, operation=operation)
     return result
 
 
@@ -260,12 +277,13 @@ def require_bulk_writes_permitted(conn, *, operation: str) -> BackupGuardStatus:
     """Require a currently proven archive target before WAL-heavy recovery."""
     result = _resolved_for_mutation(conn, operation=operation)
     if not result.bulk_writes_permitted:
-        raise BackupWriteFenced(_fence_message(result, operation=operation))
+        _raise_fenced(result, operation=operation)
     return result
 
 
 __all__ = [
     "BACKUP_HARD_MAX_AGE_HOURS", "BACKUP_PROBE_TIMEOUT_SECONDS",
-    "BACKUP_WAL_MOUNT", "BackupGuardStatus", "BackupWriteFenced",
-    "require_bulk_writes_permitted", "require_writes_permitted", "status",
+    "BACKUP_WAL_MOUNT", "BackupConfigurationRefused", "BackupGuardStatus",
+    "BackupUnavailable", "BackupWriteFenced", "require_bulk_writes_permitted",
+    "require_writes_permitted", "status",
 ]
