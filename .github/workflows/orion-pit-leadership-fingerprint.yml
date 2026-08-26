@@ -1,0 +1,41 @@
+name: Orion PIT leadership fingerprint
+
+on:
+  push:
+    branches:
+      - research/sentinel-fastgate-2026-08-24
+    paths:
+      - 'PIT input data/audit_pit_leadership_fingerprints.py'
+      - '.github/workflows/orion-pit-leadership-fingerprint.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research/sentinel-fastgate-2026-08-24
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install 'numpy<3' 'pandas<3'
+      - name: Run leadership fingerprint audit
+        run: python 'PIT input data/audit_pit_leadership_fingerprints.py'
+      - name: Commit diagnostic output
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'PIT input data/PIT_LEADERSHIP_FINGERPRINT_AUDIT.json'
+          if git diff --cached --quiet; then
+            echo 'No diagnostic changes.'
+          else
+            git commit -m 'research(orion): record PIT leadership fingerprint audit'
+            git push origin HEAD:research/sentinel-fastgate-2026-08-24
+          fi
