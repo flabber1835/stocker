@@ -17,7 +17,9 @@ import time
 from pathlib import Path
 
 from sentinel.shadow_recovery import ShadowServiceConfig, service_health
-from sentinel.shadow_worker import EXIT_REFUSED, EXIT_RETRY, EXIT_WAITING
+from sentinel.shadow_worker import (
+    EXIT_AVAILABILITY, EXIT_REFUSED, EXIT_RETRY, EXIT_WAITING,
+)
 
 HEARTBEAT_FILE = Path("/tmp/sentinel-shadow-supervisor-heartbeat")
 LATCH_FILE = Path("/tmp/sentinel-shadow-supervisor-critical.json")
@@ -146,11 +148,14 @@ def run() -> int:
         if code == EXIT_REFUSED:
             _latch("shadow worker reported terminal integrity refusal")
             return _latched_wait(lambda: stopping)
-        if code not in {0, EXIT_WAITING, EXIT_RETRY, 124}:
+        if code not in {
+                0, EXIT_WAITING, EXIT_RETRY, EXIT_AVAILABILITY, 124}:
             _latch(f"shadow worker exited unexpectedly with {code}")
             return _latched_wait(lambda: stopping)
 
         if code in {EXIT_RETRY, 124}:
+            # Non-availability retries and hard timeouts still indicate a local
+            # malfunction/wedge and retain the bounded terminal latch.
             consecutive_failures += 1
             if consecutive_failures >= failure_threshold:
                 _latch(
@@ -158,9 +163,10 @@ def run() -> int:
                     failures=consecutive_failures)
                 return _latched_wait(lambda: stopping)
         else:
-            # Success and causal WAITING prove the worker is responsive. A
-            # recoverable multi-day gap is represented by WAITING/health state,
-            # not by a terminal integrity latch.
+            # SUCCESS, causal WAITING, and typed external AVAILABILITY loss are
+            # responsive states. Sharadar or the backup target may remain down
+            # for days and heal without operator reset; no stale performance or
+            # broker authority is created while they are unavailable.
             consecutive_failures = 0
 
         deadline = time.monotonic() + config.poll_seconds
