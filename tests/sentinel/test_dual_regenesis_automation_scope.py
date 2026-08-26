@@ -8,6 +8,7 @@ from sentinel import (
     automation_recovery,
     dual_plan_authority,
     dual_reconciliation,
+    paper,
 )
 from sentinel.automation.model import NonRetryableCallbackRefused
 
@@ -109,6 +110,52 @@ def test_prepare_scopes_reset_even_when_base_prepare_raises(monkeypatch):
 
     assert dual_reconciliation.regenesis_preparation_active() is False
     assert dual_plan_authority.regenesis_flat_sizing_required() is False
+
+
+@pytest.mark.parametrize("detail", [
+    (
+        "post-gap PAPER plan sizing requires a flat broker account; "
+        "predecessor-strategy positions cannot seed fresh Wealth Core state"
+    ),
+    "post-gap PAPER plan sizing still has working broker order(s): order-1",
+])
+def test_prepare_retries_mutable_pre_adoption_book_state(monkeypatch, detail):
+    runtime = _runtime()
+    runtime._require_backup_for_new_mutation = lambda _operation: None
+    runtime._regenesis_flat_sizing_required = lambda: True
+
+    async def base_prepare(_self, _context):
+        raise dual_plan_authority.DualPlanAuthorityRefused(detail)
+
+    monkeypatch.setattr(
+        automation_recovery.base.ProductionAutomation, "prepare", base_prepare)
+
+    with pytest.raises(
+            paper.PaperRetryableRefused,
+            match="waiting for a flat, settled predecessor account"):
+        asyncio.run(runtime.prepare(object()))
+
+    assert dual_reconciliation.regenesis_preparation_active() is False
+    assert dual_plan_authority.regenesis_flat_sizing_required() is False
+
+
+def test_prepare_keeps_external_replacement_terminal(monkeypatch):
+    runtime = _runtime()
+    runtime._require_backup_for_new_mutation = lambda _operation: None
+    runtime._regenesis_flat_sizing_required = lambda: True
+
+    async def base_prepare(_self, _context):
+        raise dual_plan_authority.DualPlanAuthorityRefused(
+            "post-gap PAPER plan sizing observed externally replaced order(s): "
+            "order-1")
+
+    monkeypatch.setattr(
+        automation_recovery.base.ProductionAutomation, "prepare", base_prepare)
+
+    with pytest.raises(
+            NonRetryableCallbackRefused,
+            match="externally replaced"):
+        asyncio.run(runtime.prepare(object()))
 
 
 def test_legacy_nonflat_sizing_authority_cannot_be_rehabilitated(monkeypatch):
