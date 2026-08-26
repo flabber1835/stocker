@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import asyncio
 
-from sentinel import automation_recovery, dual_reconciliation
+from sentinel import (
+    automation_recovery,
+    dual_plan_authority,
+    dual_reconciliation,
+)
 
 
 def _runtime():
@@ -30,34 +34,64 @@ def test_dual_match_is_verification_only_outside_prepare(monkeypatch):
     assert result == {"verdict": "MATCH"}
     assert observed == [False]
     assert dual_reconciliation.regenesis_preparation_active() is False
+    assert dual_plan_authority.regenesis_flat_sizing_required() is False
 
 
-def test_prepare_scopes_handover_establishment_and_resets_after_return(monkeypatch):
+def test_prepare_scopes_handover_and_first_plan_flat_sizing(monkeypatch):
     runtime = _runtime()
     runtime._require_backup_for_new_mutation = lambda _operation: None
+    runtime._regenesis_flat_sizing_required = lambda: True
     observed = []
 
     async def base_prepare(_self, _context):
-        observed.append(dual_reconciliation.regenesis_preparation_active())
+        observed.append((
+            dual_reconciliation.regenesis_preparation_active(),
+            dual_plan_authority.regenesis_flat_sizing_required(),
+        ))
         return "prepared"
 
     monkeypatch.setattr(
         automation_recovery.base.ProductionAutomation, "prepare", base_prepare)
 
     assert dual_reconciliation.regenesis_preparation_active() is False
+    assert dual_plan_authority.regenesis_flat_sizing_required() is False
     result = asyncio.run(runtime.prepare(object()))
 
     assert result == "prepared"
-    assert observed == [True]
+    assert observed == [(True, True)]
     assert dual_reconciliation.regenesis_preparation_active() is False
+    assert dual_plan_authority.regenesis_flat_sizing_required() is False
 
 
-def test_prepare_scope_resets_even_when_base_prepare_raises(monkeypatch):
+def test_prepare_does_not_require_flat_sizing_after_handover(monkeypatch):
     runtime = _runtime()
     runtime._require_backup_for_new_mutation = lambda _operation: None
+    runtime._regenesis_flat_sizing_required = lambda: False
+    observed = []
+
+    async def base_prepare(_self, _context):
+        observed.append((
+            dual_reconciliation.regenesis_preparation_active(),
+            dual_plan_authority.regenesis_flat_sizing_required(),
+        ))
+        return "prepared"
+
+    monkeypatch.setattr(
+        automation_recovery.base.ProductionAutomation, "prepare", base_prepare)
+
+    result = asyncio.run(runtime.prepare(object()))
+    assert result == "prepared"
+    assert observed == [(True, False)]
+
+
+def test_prepare_scopes_reset_even_when_base_prepare_raises(monkeypatch):
+    runtime = _runtime()
+    runtime._require_backup_for_new_mutation = lambda _operation: None
+    runtime._regenesis_flat_sizing_required = lambda: True
 
     async def base_prepare(_self, _context):
         assert dual_reconciliation.regenesis_preparation_active() is True
+        assert dual_plan_authority.regenesis_flat_sizing_required() is True
         raise RuntimeError("boom")
 
     monkeypatch.setattr(
@@ -71,13 +105,21 @@ def test_prepare_scope_resets_even_when_base_prepare_raises(monkeypatch):
         raise AssertionError("base prepare should have raised")
 
     assert dual_reconciliation.regenesis_preparation_active() is False
+    assert dual_plan_authority.regenesis_flat_sizing_required() is False
 
 
 def test_nested_prepare_scope_restores_prior_context():
     assert dual_reconciliation.regenesis_preparation_active() is False
-    with dual_reconciliation.regenesis_preparation_scope():
+    assert dual_plan_authority.regenesis_flat_sizing_required() is False
+    with dual_reconciliation.regenesis_preparation_scope(), \
+            dual_plan_authority.regenesis_flat_sizing_scope(True):
         assert dual_reconciliation.regenesis_preparation_active() is True
-        with dual_reconciliation.regenesis_preparation_scope():
+        assert dual_plan_authority.regenesis_flat_sizing_required() is True
+        with dual_reconciliation.regenesis_preparation_scope(), \
+                dual_plan_authority.regenesis_flat_sizing_scope(False):
             assert dual_reconciliation.regenesis_preparation_active() is True
+            assert dual_plan_authority.regenesis_flat_sizing_required() is False
         assert dual_reconciliation.regenesis_preparation_active() is True
+        assert dual_plan_authority.regenesis_flat_sizing_required() is True
     assert dual_reconciliation.regenesis_preparation_active() is False
+    assert dual_plan_authority.regenesis_flat_sizing_required() is False
