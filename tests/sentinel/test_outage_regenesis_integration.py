@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 import psycopg
 import pytest
@@ -13,7 +14,9 @@ from sentinel import (
     automation_recovery,
     dual_plan_authority,
     paper,
+    shadow_recovery,
     shadow_segments,
+    shadow_supervisor,
 )
 from sentinel.execution.contract import (
     BrokerAccountIdentity,
@@ -184,3 +187,40 @@ def test_real_segment_rollover_cannot_adopt_nonflat_predecessor_book(
 
     assert adopted == []
     assert dual_plan_authority.regenesis_flat_sizing_required() is False
+
+
+def test_docker_health_is_non_green_during_multi_session_gap(
+        tmp_path, monkeypatch):
+    """Compose's exact --health path must fail while causal recovery is pending."""
+    heartbeat = tmp_path / "shadow-heartbeat"
+    heartbeat.touch()
+    monkeypatch.setattr(shadow_supervisor, "HEARTBEAT_FILE", heartbeat)
+    monkeypatch.setattr(
+        shadow_supervisor, "LATCH_FILE", tmp_path / "shadow-critical.json")
+
+    config = SimpleNamespace(database_url="unused", observation_id="primary")
+    monkeypatch.setattr(
+        shadow_recovery.base,
+        "preflight",
+        lambda *_args, **_kwargs: {
+            "status": "ATTESTED_STRUCTURAL",
+            "latest_session": "2026-08-17",
+        },
+    )
+    monkeypatch.setattr(
+        shadow_recovery.calendar,
+        "latest_closed_session",
+        lambda _now: "2026-08-20",
+    )
+    monkeypatch.setattr(
+        shadow_recovery.calendar,
+        "next_session",
+        lambda session: {
+            "2026-08-17": "2026-08-18",
+            "2026-08-20": "2026-08-21",
+        }[str(session)],
+    )
+
+    # shadow_supervisor imported the production function object directly; its
+    # module globals above are the same patched shadow_recovery dependencies.
+    assert shadow_supervisor._health(30.0, config=config) == 1
