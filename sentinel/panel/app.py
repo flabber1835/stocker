@@ -24,6 +24,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from sentinel import shadow_runtime, shadow_segments
+from sentinel.panel import model
 from sentinel.panel.render import REFRESH_SECONDS, render
 from sentinel.panel.sources import build_panel
 
@@ -72,18 +73,115 @@ def _config() -> tuple[Path, str]:
             os.environ.get("SENTINEL_DATABASE_URL", "").strip())
 
 
+def _shadow_segment_disclosure(panel: model.Panel, database_url: str) -> model.Panel:
+    """Make an economic re-genesis impossible to mistake for trial-to-date P/L."""
+    if not database_url or str(os.environ.get(
+            "SENTINEL_REVIEWED_DEPLOYMENT_MODE", "")).strip().lower() != "dual":
+        return panel
+    from sentinel.feed import store as feed_store
+
+    observation_id = str(os.environ.get(
+        "SENTINEL_SHADOW_OBSERVATION_ID", "primary")).strip()
+    if not observation_id:
+        return panel
+    conn = None
+    try:
+        conn = feed_store.connect(database_url)
+        segment = shadow_segments.active_segment(conn, observation_id)
+    except Exception as exc:                              # noqa: BLE001
+        return model.Panel(
+            rows=list(panel.rows), now=panel.now,
+            source_errors=[
+                *panel.source_errors,
+                f"shadow segment disclosure: {type(exc).__name__}: {exc}",
+            ],
+            trial_details=dict(panel.trial_details),
+            trial_history=list(panel.trial_history),
+        )
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:                             # noqa: BLE001
+                pass
+    if segment.index == 0:
+        return panel
+
+    marker = str(segment.marker_sha256 or "")
+    detail = (
+        f"causal outage broke performance and strategy-state continuity; "
+        f"segment {segment.index} starts {segment.first_session} after "
+        f"{segment.reason}; predecessor {segment.predecessor_session}; "
+        "this is NOT trial-to-date return. Broker transport is fenced until "
+        "SENTINEL_SHADOW_REGENESIS_APPROVAL_SHA256 equals the exact marker "
+        f"{marker}")
+    rows: list[model.Row] = []
+    inserted = False
+    for row in panel.rows:
+        if row.key == "shadow_verification" and not inserted:
+            rows.append(row)
+            rows.append(model.Row(
+                key="shadow_segment",
+                label="Shadow economic performance segment",
+                value=f"SEGMENT {segment.index} · START {segment.first_session}",
+                status=model.WARN,
+                detail=detail,
+            ))
+            inserted = True
+            continue
+        if row.key == "shadow_return":
+            rows.append(model.Row(
+                key=row.key,
+                label="Certified segment return",
+                value=row.value,
+                status=row.status,
+                detail=detail,
+                as_of=row.as_of,
+                freshness=row.freshness,
+            ))
+            continue
+        if row.key == "shadow_nav":
+            rows.append(model.Row(
+                key=row.key,
+                label=row.label,
+                value=row.value,
+                status=row.status,
+                detail=f"current segment NAV · {detail}",
+                as_of=row.as_of,
+                freshness=row.freshness,
+            ))
+            continue
+        rows.append(row)
+    if not inserted:
+        rows.append(model.Row(
+            key="shadow_segment",
+            label="Shadow economic performance segment",
+            value=f"SEGMENT {segment.index} · START {segment.first_session}",
+            status=model.WARN,
+            detail=detail,
+        ))
+    return model.Panel(
+        rows=rows, now=panel.now,
+        source_errors=list(panel.source_errors),
+        trial_details=dict(panel.trial_details),
+        trial_history=list(panel.trial_history),
+    )
+
+
 @app.get("/", response_class=HTMLResponse)
 def panel() -> HTMLResponse:
     state_dir, dsn = _config()
-    html = render(build_panel(state_dir=state_dir, database_url=dsn),
-                  refresh_seconds=REFRESH_SECONDS)
+    p = _shadow_segment_disclosure(
+        build_panel(state_dir=state_dir, database_url=dsn), dsn)
+    html = render(p, refresh_seconds=REFRESH_SECONDS)
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/panel.json")
 def panel_json() -> JSONResponse:
     state_dir, dsn = _config()
-    p = build_panel(state_dir=state_dir, database_url=dsn)
+    p = _shadow_segment_disclosure(
+        build_panel(state_dir=state_dir, database_url=dsn), dsn)
     return JSONResponse(
         {
             "overall": p.overall,
