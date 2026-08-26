@@ -365,6 +365,11 @@ def test_post_gap_dual_transport_requires_exact_segment_marker(monkeypatch):
     monkeypatch.setattr(
         dual_reconciliation.shadow_segments, "active_segment",
         lambda *_args, **_kwargs: SimpleNamespace(index=2, marker_sha256=marker))
+    monkeypatch.setattr(
+        dual_reconciliation, "_load_regenesis_handover",
+        lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        dual_reconciliation.journal, "latest_plan", lambda _conn: None)
     monkeypatch.delenv(dual_reconciliation.REGENESIS_APPROVAL_ENV, raising=False)
 
     with pytest.raises(
