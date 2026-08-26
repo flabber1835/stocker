@@ -194,7 +194,8 @@ _TARGET_CATALOG_SHA256 = {
 # surface.  Like the behavioral fingerprint, this covers table kinds, every
 # column/type/null/default, constraints, indexes and triggers while ignoring
 # deployment-local OIDs and column order.
-_STAGE4_CATALOG_SHA256 = "DISCOVER_FROM_CLEAN_POSTGRES"
+_STAGE4_CATALOG_SHA256 = (
+    "e93e68accdc7ebcc5b0f987e799623929e372df746bea669b9c532f3493d4d79")
 
 # Corpus tables may legitimately be installed before behavioral schema (the
 # prepare CLI does exactly that).  They do not disqualify a database from being
