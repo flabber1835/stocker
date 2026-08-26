@@ -15,13 +15,11 @@ from __future__ import annotations
 from decimal import Decimal
 
 from sentinel.execution.alpaca import (
-    AlpacaCredentialsRefused,
     AlpacaExecutionBroker,
     IncompleteBrokerPayload,
     MalformedBrokerPayload,
-    RetryableCommandOutcome,
+    _submit_error_outcome,
     _submit_outcome,
-    _retry_after_seconds,
 )
 from sentinel.execution.contract import (
     BrokerInstrument,
@@ -108,45 +106,7 @@ class AssetIdAlpacaExecutionBroker(AlpacaExecutionBroker):
                 )
             return _submit_outcome(order)
 
-        if resp.status_code in (401, 403):
-            raise AlpacaCredentialsRefused(
-                "Alpaca submit authority refused with HTTP "
-                f"{resp.status_code}: {(resp.text or '')[:500]}"
-            )
-        if resp.status_code == 429:
-            retry_after = _retry_after_seconds(resp)
-            return RetryableCommandOutcome(
-                state=S.UNKNOWN,
-                retry_after_seconds=retry_after,
-                detail=(
-                    "HTTP 429 rate limit; same-key retry eligible after "
-                    f"{retry_after}s"
-                ),
-            )
-        if resp.status_code == 408:
-            return CommandOutcome(
-                state=S.UNKNOWN,
-                detail="HTTP 408 transport ambiguity",
-            )
-        if resp.status_code == 422:
-            text = (resp.text or "")[:500]
-            if "client_order_id" in text or "duplicate" in text.lower():
-                return CommandOutcome(
-                    state=S.UNKNOWN,
-                    detail=f"duplicate key at broker: {text}",
-                )
-            return CommandOutcome(state=S.REJECTED, detail=text)
-        if 400 <= resp.status_code < 500:
-            return CommandOutcome(
-                state=S.REJECTED,
-                detail=(
-                    f"HTTP {resp.status_code}: {(resp.text or '')[:500]}"
-                ),
-            )
-        return CommandOutcome(
-            state=S.UNKNOWN,
-            detail=f"HTTP {resp.status_code}",
-        )
+        return _submit_error_outcome(resp)
 
 
 __all__ = ["AssetIdAlpacaExecutionBroker"]

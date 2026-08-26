@@ -29,6 +29,7 @@ from __future__ import annotations
 from copy import deepcopy
 import hashlib
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any, Mapping
 
@@ -475,6 +476,8 @@ class PortfolioState:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "PortfolioState":
+        if not isinstance(d, Mapping):
+            raise ValueError("persisted Wealth Core state is not an object")
         raw_slots = d.get("slots")
         if not isinstance(raw_slots, Mapping) or not raw_slots:
             raise ValueError("persisted Wealth Core state has no slot domain")
@@ -496,6 +499,38 @@ class PortfolioState:
             if not valid_slot:
                 raise ValueError(
                     "persisted Wealth Core slot key and slot_id disagree")
+        raw_cash = d.get("cash", 0.0)
+        if isinstance(raw_cash, bool):
+            raise ValueError("persisted Wealth Core cash is not a finite number")
+        try:
+            cash = float(raw_cash)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "persisted Wealth Core cash is not a finite number") from exc
+        if not math.isfinite(cash) or cash < 0:
+            raise ValueError(
+                "persisted Wealth Core cash must be finite and non-negative")
+
+        raw_session_index = d.get("session_index", 0)
+        if isinstance(raw_session_index, bool):
+            raise ValueError(
+                "persisted Wealth Core session_index is not an integer")
+        try:
+            session_index = int(raw_session_index)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "persisted Wealth Core session_index is not an integer") from exc
+        if str(raw_session_index).strip() != str(session_index):
+            raise ValueError(
+                "persisted Wealth Core session_index is not an exact integer")
+        if session_index < 0:
+            raise ValueError(
+                "persisted Wealth Core session_index must be non-negative")
+
+        initialized = d.get("initialized", False)
+        if type(initialized) is not bool:
+            raise ValueError(
+                "persisted Wealth Core initialized flag is not boolean")
         return cls(
             slots={int(k): SlotState(**v) for k, v in raw_slots.items()},
             episodes={int(k): HoldingEpisode(**v)
@@ -508,9 +543,9 @@ class PortfolioState:
             # live activation is blocked), so no such blob exists; if one ever
             # does, it must be migrated deliberately rather than reinterpreted.
             security_cooldowns=dict(d.get("security_cooldowns") or {}),
-            cash=float(d.get("cash", 0.0)),
-            initialized=bool(d.get("initialized", False)),
-            session_index=int(d.get("session_index", 0)),
+            cash=cash,
+            initialized=initialized,
+            session_index=session_index,
             unresolved_terminals=dict(d.get("unresolved_terminals") or {}),
             # Absent means zero — a blob written before the settlement waterfall
             # existed carries no pending grace, which is the correct reading:

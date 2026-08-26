@@ -772,6 +772,58 @@ def test_safety_index_predicate_literal_case_is_semantic(database):
         assert "'send_pending'" in cur.fetchone()[0]
 
 
+@pytest.mark.parametrize("damage", [
+    "column-type",
+    "column-default",
+    "constraint-definition",
+    "index-definition",
+    "unexpected-trigger",
+    "unexpected-column",
+])
+def test_stage4_runtime_requires_complete_semantic_catalog(database, damage):
+    schema.ensure_schema(database)
+    with database.cursor() as cur:
+        if damage == "column-type":
+            cur.execute(
+                "ALTER TABLE sentinel_automation_service_instances"
+                " ALTER COLUMN authority_detail TYPE VARCHAR(64)")
+        elif damage == "column-default":
+            cur.execute(
+                "ALTER TABLE sentinel_automation_control"
+                " ALTER COLUMN enabled SET DEFAULT TRUE")
+        elif damage == "constraint-definition":
+            cur.execute(
+                "ALTER TABLE sentinel_alert_dispatcher_health DROP CONSTRAINT"
+                " sentinel_alert_dispatcher_health_state_check")
+            cur.execute(
+                "ALTER TABLE sentinel_alert_dispatcher_health ADD CONSTRAINT"
+                " sentinel_alert_dispatcher_health_state_check CHECK"
+                " (state IN ('STARTING','HEALTHY','DEGRADED','FAILED','CORRUPT'))")
+        elif damage == "index-definition":
+            cur.execute(
+                "DROP INDEX idx_sentinel_alert_dispatcher_health_heartbeat")
+            cur.execute(
+                "CREATE INDEX idx_sentinel_alert_dispatcher_health_heartbeat"
+                " ON sentinel_alert_dispatcher_health (heartbeat_at,state)")
+        elif damage == "unexpected-trigger":
+            cur.execute(
+                "CREATE TRIGGER sentinel_alert_outbox_corrupt_trigger"
+                " BEFORE UPDATE ON sentinel_alert_outbox FOR EACH ROW"
+                " EXECUTE FUNCTION sentinel_refuse_trial_evidence_mutation()")
+        elif damage == "unexpected-column":
+            cur.execute(
+                "ALTER TABLE sentinel_automation_lease"
+                " ADD COLUMN corrupt_extension TEXT")
+        else:                                                   # pragma: no cover
+            raise AssertionError(damage)
+    database.commit()
+
+    with pytest.raises(schema.SchemaMigrationRefused, match="Stage-4"):
+        schema.require_runtime_schema(database)
+    database.rollback()
+    _assert_operator_refusal(database, reason="Stage-4")
+
+
 def test_unlogged_rollout_authority_is_not_a_durable_current_schema(database):
     schema.ensure_schema(database)
     with database.cursor() as cur:

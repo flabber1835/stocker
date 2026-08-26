@@ -667,8 +667,15 @@ class TestAlpacaSubmit:
         assert run(broker.submit(client_key="k", instrument=AAA, side=Side.BUY,
                                  quantity=D(10))).state is S.UNKNOWN
 
-    def test_a_4xx_IS_a_rejection_because_the_broker_said_so(self):
+    def test_an_undocumented_4xx_is_UNKNOWN_until_exact_lookup(self):
         broker, _ = alpaca({}, post=FakeResponse(status_code=400, text="bad qty"))
+        assert run(broker.submit(client_key="k", instrument=AAA, side=Side.BUY,
+                                 quantity=D(10))).state is S.UNKNOWN
+
+    @pytest.mark.parametrize("status", [403, 422])
+    def test_a_documented_order_refusal_is_REJECTED(self, status):
+        broker, _ = alpaca(
+            {}, post=FakeResponse(status_code=status, text="invalid quantity"))
         assert run(broker.submit(client_key="k", instrument=AAA, side=Side.BUY,
                                  quantity=D(10))).state is S.REJECTED
 
