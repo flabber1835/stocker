@@ -1,14 +1,24 @@
 """Immutable one-way sizing authority for the informational PAPER mirror.
 
-The certified shadow record supplies strategy intent.  A complete, bound
-Alpaca snapshot supplies only the account scale used by ``build_execution_plan``.
-This module commits every economic sizing input and re-runs that canonical
-adapter before a plan may cross the dual-run execution membrane.  Current
-broker state is deliberately not substituted for the retained sizing snapshot:
-fills and cash activity are expected to move it after the plan was made.
+The certified shadow record supplies strategy intent. A complete, bound Alpaca
+snapshot supplies only the account scale used by ``build_execution_plan``. This
+module commits every economic sizing input and re-runs that canonical adapter
+before a plan may cross the dual-run execution membrane. Current broker state is
+deliberately not substituted for the retained sizing snapshot: fills and cash
+activity are expected to move it after the plan was made.
+
+A first PAPER plan after a causal shadow gap is stricter. While production
+preparation explicitly enables the re-genesis sizing scope, the exact broker
+observation used to build the immutable plan must already be flat and settled.
+That check executes before plan adoption under PAPER's existing behavioral
+writer lock. Therefore predecessor-strategy positions can never become an input
+to a new segment's immutable sizing authority and cannot be rehabilitated later
+merely by flattening the broker account.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 import hashlib
 import json
 import re
@@ -28,16 +38,32 @@ from sentinel.execution.contract import (
     Completeness,
     Side,
 )
-from sentinel.execution.states import CommandState
+from sentinel.execution.states import CommandState, IN_FLIGHT
 
 
 SCHEMA = "sentinel.dual-plan-sizing-authority/1"
 CURSOR_PREFIX = "dual-plan-sizing-authority:v1:"
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
+_REGENESIS_FLAT_SIZING_REQUIRED = ContextVar(
+    "sentinel_dual_regenesis_flat_sizing_required", default=False)
 
 
 class DualPlanAuthorityRefused(RuntimeError):
     """The retained sizing inputs are absent, mutable, or do not re-derive."""
+
+
+@contextmanager
+def regenesis_flat_sizing_scope(required: bool):
+    """Task-local requirement for the first immutable post-gap PAPER sizing."""
+    token = _REGENESIS_FLAT_SIZING_REQUIRED.set(bool(required))
+    try:
+        yield
+    finally:
+        _REGENESIS_FLAT_SIZING_REQUIRED.reset(token)
+
+
+def regenesis_flat_sizing_required() -> bool:
+    return bool(_REGENESIS_FLAT_SIZING_REQUIRED.get())
 
 
 def _canonical(value: Any) -> str:
@@ -167,6 +193,30 @@ def _observation_payload(observation: BrokerObservation) -> dict:
                 key=lambda item: (item.broker_order_id, item.client_key or ""))
         ],
     }
+
+
+def _require_flat_regenesis_observation(observation: BrokerObservation) -> None:
+    """Refuse predecessor book/order state as a new segment sizing input."""
+    observation.require_complete("post-gap PAPER sizing")
+    if observation.positions:
+        raise DualPlanAuthorityRefused(
+            "post-gap PAPER plan sizing requires a flat broker account; "
+            "predecessor-strategy positions cannot seed fresh Wealth Core state")
+    working = []
+    replaced = []
+    for order in observation.orders:
+        if order.external_replacement:
+            replaced.append(str(order.broker_order_id))
+        if order.state in IN_FLIGHT:
+            working.append(str(order.broker_order_id))
+    if replaced:
+        raise DualPlanAuthorityRefused(
+            "post-gap PAPER plan sizing observed externally replaced order(s): "
+            + ", ".join(sorted(replaced)[:8]))
+    if working:
+        raise DualPlanAuthorityRefused(
+            "post-gap PAPER plan sizing still has working broker order(s): "
+            + ", ".join(sorted(working)[:8]))
 
 
 def _decode_identity(value: Any, *, where: str) -> BrokerAccountIdentity:
@@ -329,6 +379,8 @@ def build_authority(
     if state.state_hash != plan.shadow_snapshot_hash:
         raise DualPlanAuthorityRefused(
             "plan does not commit the verified shadow state")
+    if regenesis_flat_sizing_required():
+        _require_flat_regenesis_observation(observation)
     body = {
         "schema": SCHEMA,
         "plan_id": str(plan.plan_id),
@@ -370,6 +422,15 @@ def _validate_payload(value: Any, *, plan_id: str | None = None) -> dict:
         raise DualPlanAuthorityRefused(
             "dual sizing authority names a different plan")
     return json.loads(_canonical(raw))
+
+
+def require_regenesis_flat_authority(
+        value: Any, *, plan_id: str | None = None) -> dict:
+    """Recheck that immutable sizing never contained predecessor broker state."""
+    raw = _validate_payload(value, plan_id=plan_id)
+    _require_flat_regenesis_observation(
+        _decode_observation(raw["broker_observation"]))
+    return raw
 
 
 def _cursor(plan_id: str) -> str:
@@ -488,5 +549,7 @@ def rederive_plan(
 
 __all__ = [
     "CURSOR_PREFIX", "SCHEMA", "DualPlanAuthorityRefused",
-    "build_authority", "load_authority", "record_authority", "rederive_plan",
+    "build_authority", "load_authority", "record_authority",
+    "regenesis_flat_sizing_required", "regenesis_flat_sizing_scope",
+    "require_regenesis_flat_authority", "rederive_plan",
 ]
