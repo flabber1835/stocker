@@ -62,15 +62,21 @@ def catch_up(conn, *, target_session: str) -> OutageRecoveryResult:
     """Reach one explicit closed XNYS target without replaying strategy actions.
 
     The function mutates only the canonical data corpus. It has no execution,
-    broker, plan, shadow-NAV, or catch-up strategy seam. A full retained reseed
-    is WAL-heavy and therefore requires a fully HEALTHY external archiver before
-    it starts; a transient backup outage can never combine with a bulk rebuild
-    into an unbounded local WAL backlog.
+    broker, plan, shadow-NAV, or catch-up strategy seam. Every mutation first
+    proves ordinary external-WAL durability. A retained full reseed is stricter:
+    because it can create a large WAL burst, it requires a fully HEALTHY
+    archiver before the seed begins.
     """
     target = str(target_session)
     visible_before = store.latest_visible_session(conn)
     if visible_before == target:
         return OutageRecoveryResult(target, "ALREADY_CURRENT", None, None)
+
+    # The common primitive owns the durability rule. Callers such as unattended
+    # shadow recovery and NAS validation cannot accidentally bypass it by
+    # invoking this helper directly while the external backup has been lost.
+    backup_guard.require_writes_permitted(
+        conn, operation="canonical outage daily catch-up")
     try:
         ingest.daily(conn, today=target)
         mode = "DAILY"
@@ -83,6 +89,11 @@ def catch_up(conn, *, target_session: str) -> OutageRecoveryResult:
         backup_guard.require_bulk_writes_permitted(
             conn, operation="retained full corpus reseed")
         ingest.seed(conn, date_from=retained_start, date_to=target)
+        # The seed may have repaired the local state, but the supported daily
+        # path still owns the final exact-target publication. Re-prove ordinary
+        # durability before that second mutation as well.
+        backup_guard.require_writes_permitted(
+            conn, operation="post-reseed canonical daily publication")
         ingest.daily(conn, today=target)
         mode = "RETAINED_FULL_RESEED"
     visible_after = store.latest_visible_session(conn)
