@@ -8,12 +8,18 @@ brick the appliance.
 
 This module gives one reviewed logical observation id an append-only sequence of
 physical cursor namespaces. Segment zero is the legacy namespace and therefore
-requires no migration. A rollover appends one marker that binds:
+requires no migration. A rollover stages one marker that binds:
 
 * the previous segment's final immutable record and runtime authority;
 * the exact new current publication subject;
 * the already-reviewed source identity; and
 * the explicit reason continuity was broken.
+
+The marker is deliberately left uncommitted. The new shadow genesis is appended
+on the same PostgreSQL connection and its existing genesis commit makes marker +
+genesis durable together. If fresh genesis cannot be created, the caller's
+rollback removes the staged marker. A failed attempt therefore cannot strand an
+empty active segment after its prospective cutoff expires.
 
 No old genesis, record, authority, NAV or return row is updated or deleted.
 Returns are deliberately not compounded across a marker. A segment rollover is
@@ -239,7 +245,7 @@ def rollover(
         previous_last_session: str, reason: str,
         new_data_publication_sha256: str,
         validated_source_identity_sha256: str) -> ShadowSegment:
-    """Append one deterministic segment boundary without touching old P/L."""
+    """Stage one deterministic boundary; genesis commits it atomically."""
     logical = _logical_id(logical_observation_id)
     first = str(first_session)
     previous_last = str(previous_last_session)
@@ -301,15 +307,17 @@ def rollover(
             row = cur.fetchone()
         if row is None:
             raise ShadowSegmentRefused(
-                "shadow segment marker did not become durable")
+                "shadow segment marker did not become staged")
         stored = _parse_marker(row[0], row[1], row[2])
-        if stored.to_dict() != ShadowSegment(
-                logical, index, first, current.index, previous_last,
-                previous_record, previous_authority, new_publication,
-                source_identity, reason, marker["marker_sha256"]).to_dict():
+        expected = ShadowSegment(
+            logical, index, first, current.index, previous_last,
+            previous_record, previous_authority, new_publication,
+            source_identity, reason, marker["marker_sha256"])
+        if stored.to_dict() != expected.to_dict():
             raise ShadowSegmentRefused(
                 "shadow segment marker already exists with different evidence")
-        conn.commit()
+        # NO COMMIT HERE. ShadowObserver.append_genesis commits marker + genesis
+        # on the same connection. A caller failure rolls this marker back.
         return stored
     except BaseException:
         conn.rollback()
@@ -327,14 +335,7 @@ class SegmentedPostgresShadowObservationStore(_LegacyStore):
 
 
 def install_runtime_store(shadow_runtime_module) -> None:
-    """Install segment-aware storage and genesis publication authorization.
-
-    Segment zero is exactly the old path. A later segment may use a publication
-    newer than the deployment bundle only when the append-only marker binds that
-    exact publication to the final authority of the previous segment and to the
-    same reviewed source identity. This is a fresh performance genesis, never a
-    continuation of old returns.
-    """
+    """Install segment-aware storage and genesis publication authorization."""
     if getattr(shadow_runtime_module, "_segment_runtime_installed", False):
         return
     original_require = shadow_runtime_module._require_reviewed_genesis_publication
