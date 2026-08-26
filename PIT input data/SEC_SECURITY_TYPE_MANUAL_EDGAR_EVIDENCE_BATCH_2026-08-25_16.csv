@@ -1,0 +1,2 @@
+orion_ticker,buy_date,issuer_cik,sec_historical_symbol,security_title,classification,evidence_date,form,accession,source_url,join_basis,status,notes
+GELX,2000-10-25,0001001425,GELX,Common Stock,common,1999-10-05,S-4,333-88459,https://www.sec.gov/news/digest/1999/dig101299.pdf,direct_issuer_registration,verified_common_prebuy,"SEC News Digest records GelTex Pharmaceuticals S-4 filed Oct 5 1999 for Common Stock; safely before Orion buy."
