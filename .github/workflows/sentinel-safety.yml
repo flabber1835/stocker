@@ -1,6 +1,14 @@
 name: Sentinel safety
 
 on:
+  # Exact feature-branch head gate. GitHub/App-authored Contents API updates do
+  # not reliably produce a pull_request synchronize workflow run, so relying on
+  # that event alone can leave the reviewed head with only stale CI evidence.
+  # The pull_request gate below remains authoritative for synthetic-merge
+  # integration with main; this push gate proves the exact branch head too.
+  push:
+    branches:
+      - 'fix/**'
   pull_request:
     branches: [main, codex/main-review-remediation]
   workflow_dispatch:
