@@ -2,24 +2,10 @@
 """Production entrypoint for NAS GO validation.
 
 The core validator executes its bounded preparation as a custom ``python -c``
-Compose command. That code mutates only the Sentinel database, but it is not the
-syntactic ``feed-daily`` CLI command that :mod:`sentinel_feed_gate` can classify
-and bind automatically.
-
-This entrypoint owns two production-only responsibilities around that boundary:
-
-* bind the exact mutating container to clean HEAD and the immutable candidate
-  image immediately before it starts; and
-* make a stale retained corpus recoverable. A normal daily catch-up is tried
-  first. Only durable-state failures for which the feed already defines a
-  complete source-stable reseed remedy may escalate to a full replacement of
-  the *retained* corpus range, followed by one exact daily revalidation. Vendor,
-  network, source-authority, and unknown failures never trigger a reseed by
-  guess.
-
-The recovery never constructs a broker and never replays a missed strategy
-order. It repairs source authority only; prospective strategy activation remains
-separately constrained to a future following XNYS open.
+Compose command. This entrypoint binds that mutation to clean HEAD + the exact
+candidate image and installs the same retained-range outage recovery primitive
+used by unattended runtime. Vendor/network/source-authority failures never
+trigger a reseed by guess.
 """
 from __future__ import annotations
 
@@ -36,16 +22,11 @@ if str(SCRIPT_DIR) not in sys.path:
 import sentinel_go_validate as go  # noqa: E402
 
 
-# Keep the core's success marker contract unchanged. Extra RECOVERY/FAILURE
-# markers are operator diagnostics only and are deliberately excluded from the
-# sanitized evidence ZIP.
 _RECOVERY_PREPARATION_CODE = r'''
 import json, os
 from datetime import datetime, timezone
 from sentinel import schema
-from sentinel.feed import (
-    calendar, ingest, maintenance, publication, recovery,
-    sep_reconciliation, store, universe)
+from sentinel.feed import calendar, ingest, outage_recovery, publication, store
 from sentinel.shadow_runtime import publication_not_before
 
 SUCCESS_MARKER = 'SENTINEL_GO_PREPARATION='
@@ -54,23 +35,10 @@ FAILURE_MARKER = 'SENTINEL_GO_PREPARATION_FAILURE='
 
 
 def emit_failure(phase, exc):
-    # Exception type + phase is enough to route recovery without leaking an API
-    # response, ticker, host path, credential, or database identifier.
     print(FAILURE_MARKER + json.dumps({
         'phase': str(phase),
         'error_type': type(exc).__name__,
     }, sort_keys=True), flush=True)
-
-
-def retained_market_start(conn):
-    predicate = publication.visible_predicate('b')
-    with conn.cursor() as cur:
-        cur.execute('SELECT MIN(b.session) FROM sentinel_bars b WHERE ' + predicate)
-        row = cur.fetchone()
-    value = None if row is None else row[0]
-    if value is None:
-        raise RuntimeError('retained corpus has no published market start')
-    return str(value)
 
 
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
@@ -85,32 +53,20 @@ try:
     source_final = now >= publication_not_before(target)
     prospective = now < execution_open.astimezone(timezone.utc)
     eligible = source_final and prospective
-    progress = None
+    daily_attempted = False
     if eligible:
         phase = 'DAILY_CATCHUP'
-        try:
-            progress = ingest.daily(c, today=target)
-        except (
-                universe.HistoricalIdentityMutation,
-                recovery.PublicationRecoveryRefused,
-                maintenance.MutationCursorUnavailable,
-                sep_reconciliation.SepReconciliationStateInvalid,
-                publication.CorpusIncoherent) as exc:
-            # These are durable local-state failures with an existing complete,
-            # source-stable recovery contract. Replace only the retained market
-            # interval; this is not permission to fetch decades of research data.
-            c.rollback()
-            phase = 'RETAINED_FULL_RESEED'
-            start = retained_market_start(c)
+        recovered = outage_recovery.catch_up(c, target_session=target)
+        daily_attempted = True
+        if recovered.mode == 'ALREADY_CURRENT':
+            # Validation proves the explicit-through daily path itself even when
+            # no catch-up was necessary.
+            ingest.daily(c, today=target)
+        elif recovered.mode == 'RETAINED_FULL_RESEED':
             print(RECOVERY_MARKER + json.dumps({
-                'mode': 'RETAINED_FULL_RESEED',
-                'trigger': type(exc).__name__,
+                'mode': recovered.mode,
+                'trigger': recovered.recovered_from,
             }, sort_keys=True), flush=True)
-            ingest.seed(c, date_from=start, date_to=target)
-            # Re-enter through the ordinary daily authority path after reseed so
-            # validator success still proves the reviewed daily path itself.
-            phase = 'POST_RESEED_DAILY_REVALIDATION'
-            progress = ingest.daily(c, today=target)
     phase = 'PUBLICATION_CHECK'
     after = publication.current(c)
     visible = store.latest_visible_session(c)
@@ -122,8 +78,7 @@ try:
         'schema_migrated': True,
         'source_not_before_satisfied': source_final,
         'following_open_future': prospective,
-        'bounded_sharadar_daily': (
-            progress is not None and progress.kind == 'daily'),
+        'bounded_sharadar_daily': daily_attempted,
         'publication_current': current,
     }, sort_keys=True), flush=True)
 except BaseException as exc:
@@ -168,8 +123,6 @@ def _binding_or_none(
         runtime_ref: str, commit: str) -> Optional[tuple[str, str]]:
     """Ask the existing host gate for the binding; never mint it locally."""
     binding_env = go._without_broker_authority(env)
-    # These two values are consistency claims only. The feed gate independently
-    # reads clean HEAD, the image revision label, and the immutable Docker id.
     binding_env["SENTINEL_GIT_COMMIT"] = str(commit)
     binding_env["SENTINEL_RUNTIME_IMAGE_DIGEST"] = str(runtime_ref)
     completed = runner.run([
@@ -192,7 +145,6 @@ def _binding_or_none(
 
 
 def _emit_sanitized_preparation_diagnostics(completed) -> None:
-    """Surface only deliberately sanitized markers from the isolated child."""
     for stream in (completed.stdout or "", completed.stderr or ""):
         for line in stream.splitlines():
             text = line.strip()
@@ -219,8 +171,6 @@ class FeedBoundPreparationRunner:
             self._runner, env=run_env, cwd=cwd,
             runtime_ref=self._runtime_ref, commit=self._commit)
         if binding is None:
-            # The core probe will record a failed preparation, while no mutation
-            # container has been started. Raw gate diagnostics remain private.
             return subprocess.CompletedProcess(
                 command, 2, stdout="", stderr="")
 
@@ -234,9 +184,6 @@ class FeedBoundPreparationRunner:
             "SENTINEL_FEED_RUNTIME_IMAGE_DIGEST": bound_digest,
         })
 
-        # Compose services intentionally carry no standing feed authority. Add
-        # these names only to this already host-authorized `compose run`, exactly
-        # as sentinel-compose.sh does for supported feed mutations.
         try:
             insertion = command.index("--entrypoint")
         except ValueError:
