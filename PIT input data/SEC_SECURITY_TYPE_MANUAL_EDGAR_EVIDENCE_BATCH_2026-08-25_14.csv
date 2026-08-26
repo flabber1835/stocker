@@ -1,0 +1,2 @@
+orion_ticker,buy_date,issuer_cik,sec_historical_symbol,security_title,classification,evidence_date,form,accession,source_url,join_basis,status,notes
+DSGX,2000-03-28,0001050140,DSGX,Foreign Common Stock,common,1999-08-03,S-8,333-10666,https://www.sec.gov/news/digest/1999/dig081299.pdf,direct_issuer_registration,verified_common_prebuy,"SEC News Digest records Descartes Systems Group S-8 filed Aug 3 1999 for FOREIGN COMMON STOCK; safely before Orion buy."
