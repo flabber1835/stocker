@@ -139,6 +139,44 @@ def test_prepare_retries_mutable_pre_adoption_book_state(monkeypatch, detail):
     assert dual_plan_authority.regenesis_flat_sizing_required() is False
 
 
+def test_prepare_retries_generic_first_plan_working_order_gate(monkeypatch):
+    runtime = _runtime()
+    runtime._require_backup_for_new_mutation = lambda _operation: None
+    runtime._regenesis_flat_sizing_required = lambda: True
+
+    async def base_prepare(_self, _context):
+        raise NonRetryableCallbackRefused(
+            "PAPER preparation refused: initial plan adoption requires no "
+            "working broker order; settle or explicitly resolve prior durable "
+            "command before first plan")
+
+    monkeypatch.setattr(
+        automation_recovery.base.ProductionAutomation, "prepare", base_prepare)
+
+    with pytest.raises(
+            paper.PaperRetryableRefused,
+            match="waiting for prior broker orders"):
+        asyncio.run(runtime.prepare(object()))
+
+
+def test_generic_working_order_gate_stays_terminal_after_handover(monkeypatch):
+    runtime = _runtime()
+    runtime._require_backup_for_new_mutation = lambda _operation: None
+    runtime._regenesis_flat_sizing_required = lambda: False
+
+    async def base_prepare(_self, _context):
+        raise NonRetryableCallbackRefused(
+            "PAPER preparation refused: initial plan adoption requires no "
+            "working broker order; settle or explicitly resolve prior durable "
+            "command before first plan")
+
+    monkeypatch.setattr(
+        automation_recovery.base.ProductionAutomation, "prepare", base_prepare)
+
+    with pytest.raises(NonRetryableCallbackRefused):
+        asyncio.run(runtime.prepare(object()))
+
+
 def test_prepare_keeps_external_replacement_terminal(monkeypatch):
     runtime = _runtime()
     runtime._require_backup_for_new_mutation = lambda _operation: None
