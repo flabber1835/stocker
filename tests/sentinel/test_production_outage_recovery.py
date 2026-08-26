@@ -56,12 +56,18 @@ def test_backup_guard_allows_transient_disconnect_but_fences_prolonged_loss():
     healthy = backup_guard.status(_OneRowConn(_archiver_row()))
     assert healthy.state == "HEALTHY"
     assert healthy.writes_permitted is True
+    assert healthy.bulk_writes_permitted is True
 
     degraded = backup_guard.status(
         _OneRowConn(_archiver_row(hours_old=4, unresolved=True)))
     assert degraded.state == "DEGRADED"
     assert degraded.writes_permitted is True
+    assert degraded.bulk_writes_permitted is False
     assert degraded.unresolved_failure is True
+    with pytest.raises(backup_guard.BackupWriteFenced, match="DEGRADED"):
+        backup_guard.require_bulk_writes_permitted(
+            _OneRowConn(_archiver_row(hours_old=4, unresolved=True)),
+            operation="retained reseed")
 
     fenced = backup_guard.status(_OneRowConn(_archiver_row(
         hours_old=backup_guard.BACKUP_HARD_MAX_AGE_HOURS + 1,
@@ -97,6 +103,9 @@ def test_feed_outage_recovery_escalates_only_named_local_state(monkeypatch):
         lambda _conn: "2026-08-21" if not seeded["done"] else "2026-08-25")
     monkeypatch.setattr(
         outage_recovery, "retained_market_start", lambda _conn: "2025-08-20")
+    monkeypatch.setattr(
+        outage_recovery.backup_guard, "require_bulk_writes_permitted",
+        lambda *_args, **_kwargs: None)
 
     def daily(_conn, *, today):
         assert today == "2026-08-25"
@@ -122,6 +131,34 @@ def test_feed_outage_recovery_escalates_only_named_local_state(monkeypatch):
     assert result.recovered_from == "LocalRecoverable"
     assert seeded["args"] == ("2025-08-20", "2026-08-25")
     assert daily_calls["count"] == 2
+
+
+def test_degraded_backup_blocks_bulk_reseed_before_seed_starts(monkeypatch):
+    class LocalRecoverable(RuntimeError):
+        pass
+
+    monkeypatch.setattr(
+        outage_recovery, "_RECOVERABLE_LOCAL_STATE", (LocalRecoverable,))
+    monkeypatch.setattr(
+        outage_recovery.store, "latest_visible_session",
+        lambda _conn: "2026-08-21")
+    monkeypatch.setattr(
+        outage_recovery.ingest, "daily",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(LocalRecoverable("stale")))
+    monkeypatch.setattr(
+        outage_recovery, "retained_market_start", lambda _conn: "2025-08-20")
+    monkeypatch.setattr(
+        outage_recovery.ingest, "seed",
+        lambda *_args, **_kwargs: pytest.fail(
+            "bulk seed must not start while backup is degraded"))
+    monkeypatch.setattr(
+        outage_recovery.backup_guard, "require_bulk_writes_permitted",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            backup_guard.BackupWriteFenced("backup DEGRADED")))
+
+    conn = SimpleNamespace(rollback=lambda: None)
+    with pytest.raises(backup_guard.BackupWriteFenced, match="DEGRADED"):
+        outage_recovery.catch_up(conn, target_session="2026-08-25")
 
 
 def test_feed_outage_recovery_never_relabels_vendor_failure_local(monkeypatch):
