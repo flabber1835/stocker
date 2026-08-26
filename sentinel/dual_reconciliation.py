@@ -11,13 +11,16 @@ observation automatically, but broker transport requires two independent facts:
 
 * explicit operator approval bound to the exact append-only segment marker; and
 * one durable broker handover proving the newly initialized strategy first met a
-  COMPLETE, flat, settled account with no order that could still move it.
+  COMPLETE, flat, clean account with no order or Sentinel command that could
+  still move it.
 
-The handover is recorded only from the immutable sizing observation created by
-the current PAPER preparation and only while that observation is still fresh.
-After it exists, later plans in the same segment may of course hold positions;
-the account is not required to remain flat forever. A later segment has a new
-marker and therefore requires a new flat handover.
+Strategy economics and broker-currentness are deliberately separate. The plan's
+immutable dual sizing authority remains frozen forever; the handover receipt
+retains its SHA. Flatness is proved from the latest durable, finalized broker
+reconciliation row and the receipt also binds that row's sequence/content hash.
+A crash after plan adoption can therefore re-observe Alpaca and finish the
+handover without rewriting the plan or pretending a later broker snapshot was
+used for sizing.
 
 Verification remains read-only by default. The production preparation callback
 enters an async-safe preparation scope so its pre-plan shadow check can run before
@@ -39,13 +42,14 @@ from typing import Any, Mapping
 
 from sentinel import dual_plan_authority, shadow_runtime, shadow_segments
 from sentinel.execution import journal
-from sentinel.execution.states import IN_FLIGHT
+from sentinel.execution.states import CommandState, IN_FLIGHT
 from sentinel.feed import calendar
 
 
 REGENESIS_APPROVAL_ENV = "SENTINEL_SHADOW_REGENESIS_APPROVAL_SHA256"
-REGENESIS_HANDOVER_SCHEMA = "sentinel.dual-regenesis-broker-handover/1"
-REGENESIS_HANDOVER_PREFIX = "dual-regenesis-broker-handover:v1:"
+REGENESIS_HANDOVER_SCHEMA = "sentinel.dual-regenesis-broker-handover/2"
+REGENESIS_HANDOVER_PREFIX = "dual-regenesis-broker-handover:v2:"
+REGENESIS_OBSERVATION_SCHEMA = "sentinel.dual-regenesis-broker-observation/1"
 REGENESIS_HANDOVER_MAX_AGE_SECONDS = 300
 _HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 _REGENESIS_PREPARATION_SCOPE = ContextVar(
@@ -103,6 +107,26 @@ def _decimal(value: Any, *, label: str) -> Decimal:
     return parsed
 
 
+def _aware(value: Any, *, label: str) -> datetime:
+    if not isinstance(value, datetime):
+        raise DualReconciliationRefused(f"{label} is not a timestamp")
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise DualReconciliationRefused(f"{label} is timezone-naive")
+    return value.astimezone(timezone.utc)
+
+
+def _json_value(value: Any, *, label: str, expected_type):
+    if isinstance(value, expected_type):
+        return value
+    try:
+        parsed = json.loads(str(value))
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise DualReconciliationRefused(f"{label} is not valid JSON") from exc
+    if not isinstance(parsed, expected_type):
+        raise DualReconciliationRefused(f"{label} has an unexpected JSON type")
+    return parsed
+
+
 def _require_regenesis_transport_approval(conn, observation_id: str):
     """Return active segment; require exact marker approval after a causal gap."""
     try:
@@ -134,6 +158,139 @@ def _handover_cursor(observation_id: str, segment_index: int) -> str:
     return f"{REGENESIS_HANDOVER_PREFIX}{logical}:{int(segment_index):08d}"
 
 
+def _observation_evidence(conn, *, seq: int | None = None):
+    """Return canonical durable broker evidence, its hash, and UTC observation time."""
+    sql = (
+        "SELECT o.seq,o.observed_at,o.terminal_recovery_through,"
+        " o.completeness,o.positions,o.orders,o.runtime_state,"
+        " p.broker,p.broker_account_id,p.observed_at,p.positions"
+        " FROM sentinel_observations o"
+        " LEFT JOIN sentinel_observation_provenance p"
+        "   ON p.observation_seq=o.seq")
+    params = ()
+    if seq is None:
+        sql += " ORDER BY o.seq DESC LIMIT 1"
+    else:
+        if isinstance(seq, bool) or not isinstance(seq, int) or seq < 1:
+            raise DualReconciliationRefused(
+                "re-genesis broker observation sequence is invalid")
+        sql += " WHERE o.seq=%s"
+        params = (seq,)
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        row = cur.fetchone()
+    if row is None:
+        return None
+    if len(row) != 11:
+        raise DualReconciliationRefused(
+            "durable broker observation query returned an unknown shape")
+    (observation_seq, observed_at, terminal_through, completeness,
+     raw_positions, raw_orders, runtime_state, broker, broker_account_id,
+     provenance_observed_at, raw_provenance_positions) = row
+    if (isinstance(observation_seq, bool) or not isinstance(observation_seq, int)
+            or observation_seq < 1):
+        raise DualReconciliationRefused(
+            "durable broker observation sequence is invalid")
+    observed = _aware(observed_at, label="durable broker observed_at")
+    if terminal_through is not None:
+        terminal = _aware(
+            terminal_through, label="durable broker terminal recovery boundary")
+    else:
+        terminal = None
+    provenance_observed = _aware(
+        provenance_observed_at, label="broker observation provenance time")
+    if provenance_observed != observed:
+        raise DualReconciliationRefused(
+            "broker observation provenance timestamp disagrees with observation")
+    broker = str(broker or "").strip()
+    broker_account_id = str(broker_account_id or "").strip()
+    if not broker or not broker_account_id:
+        raise DualReconciliationRefused(
+            "durable broker observation lacks account provenance")
+    positions = _json_value(
+        raw_positions, label="durable broker positions", expected_type=dict)
+    orders = _json_value(
+        raw_orders, label="durable broker orders", expected_type=list)
+    provenance_positions = _json_value(
+        raw_provenance_positions, label="broker position provenance",
+        expected_type=list)
+    valid_states = {state.value for state in CommandState}
+    for index, order in enumerate(orders):
+        if not isinstance(order, Mapping):
+            raise DualReconciliationRefused(
+                f"durable broker order {index} is malformed")
+        expected = {
+            "id", "key", "security_id", "broker_instrument_id", "side",
+            "state", "qty", "filled",
+        }
+        if set(order) != expected or str(order.get("state") or "") not in valid_states:
+            raise DualReconciliationRefused(
+                f"durable broker order {index} has an unknown shape/state")
+        _decimal(order.get("qty"), label=f"durable broker order {index} quantity")
+        _decimal(order.get("filled"), label=f"durable broker order {index} fill")
+    for security_id, quantity in positions.items():
+        if not str(security_id):
+            raise DualReconciliationRefused(
+                "durable broker positions contain an empty security id")
+        _decimal(quantity, label=f"durable broker position {security_id}")
+    for index, position in enumerate(provenance_positions):
+        if not isinstance(position, Mapping) or set(position) != {
+                "security_id", "symbol", "broker_instrument_id", "quantity"}:
+            raise DualReconciliationRefused(
+                f"durable broker position provenance {index} is malformed")
+        if not str(position.get("security_id") or ""):
+            raise DualReconciliationRefused(
+                f"durable broker position provenance {index} lacks security id")
+        _decimal(
+            position.get("quantity"),
+            label=f"durable broker position provenance {index} quantity")
+    body = {
+        "schema": REGENESIS_OBSERVATION_SCHEMA,
+        "observation_seq": observation_seq,
+        "observed_at": observed.isoformat(),
+        "terminal_recovery_through": (
+            None if terminal is None else terminal.isoformat()),
+        "completeness": str(completeness or ""),
+        "positions": json.loads(_canonical(positions)),
+        "orders": json.loads(_canonical(orders)),
+        "runtime_state": str(runtime_state or ""),
+        "broker": broker,
+        "broker_account_id": broker_account_id,
+        "provenance_positions": json.loads(_canonical(provenance_positions)),
+    }
+    return body, _sha256(body), observed
+
+
+def _require_flat_observation_body(body: Mapping, *, binding=None) -> None:
+    if body.get("schema") != REGENESIS_OBSERVATION_SCHEMA:
+        raise DualReconciliationRefused(
+            "re-genesis broker observation has an unknown schema")
+    if body.get("completeness") != "COMPLETE" or body.get("runtime_state") != "RUNNING":
+        raise DualReconciliationPending(
+            "re-genesis broker handover requires the latest finalized clean "
+            "RUNNING/COMPLETE reconciliation")
+    if body.get("positions") != {} or body.get("provenance_positions") != []:
+        raise DualReconciliationPending(
+            "economic re-genesis is approved but the broker account is not "
+            "flat; old-strategy positions must not be reinterpreted as the "
+            "fresh Wealth Core/controller genesis")
+    in_flight_states = {state.value for state in IN_FLIGHT}
+    working = [
+        str(order.get("id") or "UNKNOWN") for order in body.get("orders", [])
+        if str(order.get("state") or "") in in_flight_states]
+    if working:
+        raise DualReconciliationPending(
+            "re-genesis broker handover still has working order(s): "
+            + ", ".join(sorted(working)[:8]))
+    if binding is not None:
+        identity = binding.identity
+        if (str(body.get("broker") or "") != str(identity.broker)
+                or str(body.get("broker_account_id") or "")
+                != str(identity.broker_account_id)):
+            raise DualReconciliationRefused(
+                "re-genesis broker observation belongs to another account")
+
+
 def _validate_handover(value: Any, *, segment, observation_id: str) -> dict:
     raw = dict(value) if isinstance(value, Mapping) else None
     expected = {
@@ -141,6 +298,7 @@ def _validate_handover(value: Any, *, segment, observation_id: str) -> dict:
         "segment_marker_sha256", "deployment_id", "broker",
         "broker_account_id", "takeover_epoch", "adopted_plan_id",
         "adopted_plan_fingerprint", "decision_session", "broker_observed_at",
+        "broker_observation_seq", "broker_observation_sha256",
         "sizing_authority_sha256", "handover_sha256",
     }
     if raw is None or set(raw) != expected:
@@ -161,15 +319,12 @@ def _validate_handover(value: Any, *, segment, observation_id: str) -> dict:
             or marker != str(segment.marker_sha256 or "")):
         raise DualReconciliationRefused(
             "re-genesis broker handover belongs to another shadow segment")
-    if _HEX64.fullmatch(marker) is None:
-        raise DualReconciliationRefused(
-            "re-genesis broker handover segment marker is malformed")
-    if _HEX64.fullmatch(str(raw.get("sizing_authority_sha256") or "")) is None:
-        raise DualReconciliationRefused(
-            "re-genesis broker handover lacks sizing authority")
-    if _HEX64.fullmatch(str(raw.get("adopted_plan_fingerprint") or "")) is None:
-        raise DualReconciliationRefused(
-            "re-genesis broker handover plan fingerprint is malformed")
+    for field in (
+            "segment_marker_sha256", "sizing_authority_sha256",
+            "adopted_plan_fingerprint", "broker_observation_sha256"):
+        if _HEX64.fullmatch(str(raw.get(field) or "")) is None:
+            raise DualReconciliationRefused(
+                f"re-genesis broker handover {field} is malformed")
     for field in (
             "deployment_id", "broker", "broker_account_id", "adopted_plan_id"):
         if not isinstance(raw.get(field), str) or not str(raw[field]).strip():
@@ -180,6 +335,11 @@ def _validate_handover(value: Any, *, segment, observation_id: str) -> dict:
             or int(raw["takeover_epoch"]) < 1):
         raise DualReconciliationRefused(
             "re-genesis broker handover takeover epoch is invalid")
+    if (isinstance(raw.get("broker_observation_seq"), bool)
+            or not isinstance(raw.get("broker_observation_seq"), int)
+            or int(raw["broker_observation_seq"]) < 1):
+        raise DualReconciliationRefused(
+            "re-genesis broker handover observation sequence is invalid")
     try:
         observed = datetime.fromisoformat(str(raw["broker_observed_at"]))
         date.fromisoformat(str(raw["decision_session"]))
@@ -209,17 +369,24 @@ def _load_regenesis_handover(conn, *, segment, observation_id: str) -> dict | No
     if str(row[0]) != str(result["decision_session"]):
         raise DualReconciliationRefused(
             "re-genesis broker handover session column disagrees with payload")
+    evidence = _observation_evidence(
+        conn, seq=int(result["broker_observation_seq"]))
+    if evidence is None:
+        raise DualReconciliationRefused(
+            "re-genesis broker handover references a missing broker observation")
+    body, evidence_sha, observed = evidence
+    _require_flat_observation_body(body)
+    if (evidence_sha != result["broker_observation_sha256"]
+            or observed.isoformat() != str(result["broker_observed_at"])
+            or body["broker"] != result["broker"]
+            or body["broker_account_id"] != result["broker_account_id"]):
+        raise DualReconciliationRefused(
+            "re-genesis broker handover observation evidence changed")
     return result
 
 
 def _require_handover_binding(receipt: Mapping, *, binding) -> None:
-    """Economic handover follows the broker account, not a command epoch.
-
-    ``deployment_id`` and ``takeover_epoch`` remain in the immutable receipt for
-    audit, but a legitimate restored-host adoption changes the command namespace
-    without changing the economic account or the shadow segment. Requiring the
-    old epoch forever would deadlock a continuous strategy after a safe takeover.
-    """
+    """Economic handover follows the broker account, not a command epoch."""
     identity = binding.identity
     expected = (str(identity.broker), str(identity.broker_account_id))
     actual = (
@@ -238,22 +405,22 @@ def _database_now(conn) -> datetime:
     if not isinstance(value, datetime):
         raise DualReconciliationRefused(
             "database clock is unavailable for re-genesis handover")
-    if value.tzinfo is None or value.utcoffset() is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value
+    return _aware(value, label="database clock")
 
 
-def _fresh_flat_authority_or_refuse(
-        conn, *, authority: Mapping, plan, binding) -> datetime:
-    """Prove the retained sizing read is a fresh flat broker handover."""
-    if authority.get("plan_id") != plan.plan_id \
-            or authority.get("plan_fingerprint") != plan.fingerprint():
+def _authority_floor_or_refuse(
+        *, authority: Mapping, plan, binding,
+        expected_sizing_authority_sha256: str) -> datetime:
+    if (authority.get("plan_id") != plan.plan_id
+            or authority.get("plan_fingerprint") != plan.fingerprint()
+            or str(authority.get("decision_session")) != str(plan.decision_session)):
         raise DualReconciliationRefused(
             "re-genesis sizing authority does not name the current plan")
-    if str(authority.get("decision_session")) != str(plan.decision_session):
+    authority_sha = str(authority.get("authority_sha256") or "")
+    if (authority_sha != str(expected_sizing_authority_sha256)
+            or _HEX64.fullmatch(authority_sha) is None):
         raise DualReconciliationRefused(
-            "re-genesis sizing authority names another decision session")
-
+            "re-genesis sizing authority digest differs from re-derived plan")
     identity = binding.identity
     plan_identity = (
         str(plan.deployment_id), str(plan.broker),
@@ -264,109 +431,92 @@ def _fresh_flat_authority_or_refuse(
     if plan_identity != binding_identity:
         raise DualReconciliationRefused(
             "re-genesis plan does not match the current account binding")
-
     observation = authority.get("broker_observation")
     if not isinstance(observation, Mapping):
         raise DualReconciliationRefused(
             "re-genesis sizing authority lacks broker observation evidence")
-    if str(observation.get("completeness")) != "COMPLETE":
-        raise DualReconciliationPending(
-            "re-genesis broker handover requires a COMPLETE observation")
     account_identity = observation.get("account_identity")
-    if (not isinstance(account_identity, Mapping)
+    if (str(observation.get("completeness")) != "COMPLETE"
+            or not isinstance(account_identity, Mapping)
             or str(account_identity.get("broker") or "") != str(identity.broker)
             or str(account_identity.get("account_id") or "")
             != str(identity.broker_account_id)):
         raise DualReconciliationRefused(
-            "re-genesis broker observation belongs to another account")
-
-    positions = observation.get("positions")
-    orders = observation.get("orders")
-    if not isinstance(positions, list) or not isinstance(orders, list):
-        raise DualReconciliationRefused(
-            "re-genesis broker observation position/order shape is invalid")
-    if positions:
-        raise DualReconciliationPending(
-            "economic re-genesis is approved but the broker account is not "
-            "flat; old-strategy positions must not be reinterpreted as the "
-            "fresh Wealth Core/controller genesis")
-
-    in_flight_states = {state.value for state in IN_FLIGHT}
-    working = []
-    replaced = []
-    for order in orders:
-        if not isinstance(order, Mapping):
-            raise DualReconciliationRefused(
-                "re-genesis broker order evidence is malformed")
-        if bool(order.get("external_replacement")):
-            replaced.append(str(order.get("broker_order_id") or "UNKNOWN"))
-        if str(order.get("state") or "") in in_flight_states:
-            working.append(str(order.get("broker_order_id") or "UNKNOWN"))
-    if replaced:
-        raise DualReconciliationRefused(
-            "re-genesis broker handover observed externally replaced order(s): "
-            + ", ".join(sorted(replaced)[:8]))
-    if working:
-        raise DualReconciliationPending(
-            "re-genesis broker handover still has working order(s): "
-            + ", ".join(sorted(working)[:8]))
-
-    in_flight = journal.in_flight_commands(conn, identity)
-    if in_flight:
-        raise DualReconciliationPending(
-            "re-genesis broker handover still has durable Sentinel command(s) "
-            "that can move the account")
-
+            "re-genesis sizing observation is incomplete or belongs to another account")
     try:
         observed = datetime.fromisoformat(str(observation.get("observed_at")))
     except (TypeError, ValueError) as exc:
         raise DualReconciliationRefused(
-            "re-genesis broker observation timestamp is malformed") from exc
+            "re-genesis sizing observation timestamp is malformed") from exc
     if observed.tzinfo is None or observed.utcoffset() is None:
         raise DualReconciliationRefused(
-            "re-genesis broker observation timestamp is naive")
+            "re-genesis sizing observation timestamp is naive")
+    return observed.astimezone(timezone.utc)
+
+
+def _latest_clean_flat_observation_or_refuse(
+        conn, *, binding, not_before: datetime):
+    evidence = _observation_evidence(conn)
+    if evidence is None:
+        raise DualReconciliationPending(
+            "re-genesis broker handover has no durable reconciliation observation")
+    body, evidence_sha, observed = evidence
+    _require_flat_observation_body(body, binding=binding)
+    if observed < not_before:
+        raise DualReconciliationPending(
+            "latest clean flat broker reconciliation predates the immutable "
+            "plan sizing observation")
     now = _database_now(conn)
-    age = now.astimezone(timezone.utc) - observed.astimezone(timezone.utc)
+    age = now - observed
     if age < timedelta(seconds=-5):
         raise DualReconciliationRefused(
             "re-genesis broker observation is materially future-dated")
     if age > timedelta(seconds=REGENESIS_HANDOVER_MAX_AGE_SECONDS):
         raise DualReconciliationPending(
-            "flat broker evidence is too old to establish economic re-genesis; "
-            "a later close must obtain a new flat sizing observation")
-    return observed
+            "flat broker reconciliation is too old to establish economic "
+            "re-genesis; preparation must re-observe the broker")
+    in_flight = journal.in_flight_commands(conn, binding.identity)
+    if in_flight:
+        raise DualReconciliationPending(
+            "re-genesis broker handover still has durable Sentinel command(s) "
+            "that can move the account")
+    return body, evidence_sha, observed
 
 
 def _record_or_require_regenesis_handover(
-        conn, *, segment, observation_id: str, plan, binding) -> dict | None:
-    """Create one segment handover under Sentinel's single behavioral writer."""
+        conn, *, segment, observation_id: str, plan, binding,
+        sizing_authority_sha256: str) -> dict | None:
+    """Create one segment/account handover under the behavioral writer lock."""
     if segment.index == 0:
         return None
     existing = _load_regenesis_handover(
         conn, segment=segment, observation_id=observation_id)
     if existing is not None:
         _require_handover_binding(existing, binding=binding)
+        if existing["sizing_authority_sha256"] != sizing_authority_sha256:
+            raise DualReconciliationRefused(
+                "re-genesis broker handover names another sizing authority")
         return existing
-
-    # The sizing observation can say "flat" only at one instant. Holding the
-    # same session-level writer lock used by plans/commands closes the race where
-    # another process creates SEND_PENDING after that check but before the
-    # handover row becomes durable. Recheck the unique receipt after acquiring
-    # the lock so two legitimate restart attempts stay idempotent.
     with journal.writer_lock(conn):
         existing = _load_regenesis_handover(
             conn, segment=segment, observation_id=observation_id)
         if existing is not None:
             _require_handover_binding(existing, binding=binding)
+            if existing["sizing_authority_sha256"] != sizing_authority_sha256:
+                raise DualReconciliationRefused(
+                    "re-genesis broker handover names another sizing authority")
             return existing
-
         authority = dual_plan_authority.load_authority(
             conn, plan_id=plan.plan_id)
         if authority is None:
             raise DualReconciliationPending(
-                "re-genesis PAPER plan has no immutable sizing observation yet")
-        observed = _fresh_flat_authority_or_refuse(
-            conn, authority=authority, plan=plan, binding=binding)
+                "re-genesis PAPER plan has no immutable sizing authority yet")
+        floor = _authority_floor_or_refuse(
+            authority=authority, plan=plan, binding=binding,
+            expected_sizing_authority_sha256=sizing_authority_sha256)
+        observation, observation_sha, observed = (
+            _latest_clean_flat_observation_or_refuse(
+                conn, binding=binding, not_before=floor))
         identity = binding.identity
         body = {
             "schema": REGENESIS_HANDOVER_SCHEMA,
@@ -381,7 +531,9 @@ def _record_or_require_regenesis_handover(
             "adopted_plan_fingerprint": str(plan.fingerprint()),
             "decision_session": str(plan.decision_session),
             "broker_observed_at": observed.isoformat(),
-            "sizing_authority_sha256": str(authority["authority_sha256"]),
+            "broker_observation_seq": int(observation["observation_seq"]),
+            "broker_observation_sha256": observation_sha,
+            "sizing_authority_sha256": str(sizing_authority_sha256),
         }
         value = {**body, "handover_sha256": _sha256(body)}
         cursor = _handover_cursor(observation_id, segment.index)
@@ -395,10 +547,8 @@ def _record_or_require_regenesis_handover(
             conn, segment=segment, observation_id=observation_id)
         if stored != value:
             raise DualReconciliationRefused(
-                "a concurrent writer recorded different re-genesis handover "
-                "evidence")
+                "a concurrent writer recorded different re-genesis handover evidence")
         _require_handover_binding(stored, binding=binding)
-        # writer_lock commits only after the complete proof succeeds.
         return stored
 
 
@@ -436,12 +586,6 @@ def verified_shadow_intent(
             conn, segment=segment, observation_id=observation_id)
         if handover is None:
             current = journal.latest_plan(conn)
-            # Before any PAPER plan exists this remains a read-only intent probe;
-            # it cannot transport. Once the current decision-session plan exists,
-            # every non-PREPARE caller is fenced until the durable flat handover
-            # is present. PREPARE itself enters regenesis_preparation_scope(),
-            # which also makes a same-session retry possible after a transient
-            # post-plan handover failure.
             if current is not None and str(current.decision_session) == wanted:
                 raise DualReconciliationPending(
                     "post-gap PAPER transport has no durable flat broker handover; "
@@ -454,20 +598,13 @@ def require_plan_matches_verified_shadow(
         starting_cash: Decimal | str | int | float,
         binding=None, rollout_state=None,
         establish_regenesis_handover: bool = False) -> Mapping[str, str]:
-    """Verify exact dual intent; optionally establish the one-time handover.
-
-    ``False`` is the default so inspection/recovery/execution stay read-only at
-    this layer. The caller that just completed current PAPER preparation may set
-    the flag to ``True``; only that path may convert its fresh immutable sizing
-    observation into the durable segment/account handover receipt.
-    """
+    """Verify exact dual intent; optionally establish the one-time handover."""
     decision_session = str(plan.decision_session)
     result = verified_shadow_intent(
         conn, decision_session=decision_session,
         observation_id=observation_id, starting_cash=starting_cash,
         allow_regenesis_handover_pending=True)
     segment = shadow_segments.active_segment(conn, observation_id)
-
     state = result.state
     if str(plan.shadow_snapshot_hash) != state.state_hash:
         raise DualReconciliationRefused(
@@ -475,7 +612,6 @@ def require_plan_matches_verified_shadow(
     if int(plan.data_version) != int(state.data_version):
         raise DualReconciliationRefused(
             "PAPER plan data version differs from certified shadow state")
-
     decision = state.last_decision
     if (not isinstance(decision, Mapping)
             or decision.get("session") != decision_session):
@@ -484,38 +620,17 @@ def require_plan_matches_verified_shadow(
     expected_exposure = _decimal(
         decision.get("target_core_exposure"),
         label="verified shadow Core exposure")
-    actual_exposure = _decimal(
-        plan.target_exposure, label="PAPER plan Core exposure")
+    actual_exposure = _decimal(plan.target_exposure, label="PAPER plan Core exposure")
     if expected_exposure != actual_exposure:
         raise DualReconciliationRefused(
             "PAPER plan exposure differs from certified shadow intent")
-
     expected_effective = date.fromisoformat(calendar.next_session(decision_session))
     if plan.effective_session != expected_effective:
         raise DualReconciliationRefused(
             "PAPER plan is not bound to the certified following XNYS session")
-
     if binding is None:
         from sentinel.handover import assert_no_legacy_path
         binding = assert_no_legacy_path(conn)
-    handover = None
-    if segment.index > 0:
-        if establish_regenesis_handover:
-            if not regenesis_preparation_active():
-                raise DualReconciliationRefused(
-                    "re-genesis handover establishment is outside the explicit "
-                    "production preparation scope")
-            handover = _record_or_require_regenesis_handover(
-                conn, segment=segment, observation_id=observation_id,
-                plan=plan, binding=binding)
-        else:
-            handover = _load_regenesis_handover(
-                conn, segment=segment, observation_id=observation_id)
-            if handover is None:
-                raise DualReconciliationPending(
-                    "post-gap PAPER plan has no durable flat broker handover; "
-                    "read-only verification cannot create that authority")
-            _require_handover_binding(handover, binding=binding)
     if rollout_state is None:
         from sentinel.authority import load_rollout_state
         rollout_state = load_rollout_state(conn)
@@ -526,15 +641,35 @@ def require_plan_matches_verified_shadow(
     except dual_plan_authority.DualPlanAuthorityRefused as exc:
         raise DualReconciliationRefused(
             f"PAPER plan sizing authority is invalid: {exc}") from exc
-
+    handover = None
+    if segment.index > 0:
+        if establish_regenesis_handover:
+            if not regenesis_preparation_active():
+                raise DualReconciliationRefused(
+                    "re-genesis handover establishment is outside the explicit "
+                    "production preparation scope")
+            handover = _record_or_require_regenesis_handover(
+                conn, segment=segment, observation_id=observation_id,
+                plan=plan, binding=binding,
+                sizing_authority_sha256=sizing["authority_sha256"])
+        else:
+            handover = _load_regenesis_handover(
+                conn, segment=segment, observation_id=observation_id)
+            if handover is None:
+                raise DualReconciliationPending(
+                    "post-gap PAPER plan has no durable flat broker handover; "
+                    "read-only verification cannot create that authority")
+            _require_handover_binding(handover, binding=binding)
+            if handover["sizing_authority_sha256"] != sizing["authority_sha256"]:
+                raise DualReconciliationRefused(
+                    "re-genesis handover sizing authority differs from current plan")
     return {
         "schema": "sentinel.dual-plan-shadow-reconciliation/1",
         "decision_session": decision_session,
         "effective_session": expected_effective.isoformat(),
         "state_sha256": state.state_hash,
         "shadow_record_sha256": result.record_sha256,
-        "shadow_runtime_authority_sha256": str(
-            result.runtime_authority_sha256),
+        "shadow_runtime_authority_sha256": str(result.runtime_authority_sha256),
         "sizing_authority_sha256": sizing["authority_sha256"],
         "plan_fingerprint": sizing["plan_fingerprint"],
         "target_core_exposure": format(expected_exposure.normalize(), "f"),
@@ -550,6 +685,7 @@ __all__ = [
     "DualReconciliationPending", "DualReconciliationRefused",
     "REGENESIS_APPROVAL_ENV", "REGENESIS_HANDOVER_MAX_AGE_SECONDS",
     "REGENESIS_HANDOVER_PREFIX", "REGENESIS_HANDOVER_SCHEMA",
-    "regenesis_preparation_active", "regenesis_preparation_scope",
-    "require_plan_matches_verified_shadow", "verified_shadow_intent",
+    "REGENESIS_OBSERVATION_SCHEMA", "regenesis_preparation_active",
+    "regenesis_preparation_scope", "require_plan_matches_verified_shadow",
+    "verified_shadow_intent",
 ]
