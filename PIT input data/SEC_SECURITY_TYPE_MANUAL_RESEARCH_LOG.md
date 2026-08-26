@@ -25,6 +25,7 @@ This log records manual SEC EDGAR work performed because GitHub-hosted runners r
 - Batch 20: `NXTL`, `ORTL`, and `SDLI` — verified common.
 - Batch 21: `PWER1` and `RNB` — verified common.
 - Batch 22: `LPHIQ`, `VRUS1`, and `WGHTQ` — verified common from causal pre-buy SEC evidence. Full provenance is in `SEC_SECURITY_TYPE_MANUAL_EDGAR_EVIDENCE_BATCH_2026-08-25_22.csv`.
+- Batch 23: `KBL`, both earlier `COCOQ` buys, and `NGH` — resolved from causal pre-buy SEC evidence. Full provenance is in `SEC_SECURITY_TYPE_MANUAL_EDGAR_EVIDENCE_BATCH_2026-08-25_23.csv`.
 
 All resolved rows are preserved in numbered evidence CSV batches with CIK, historical symbol, filing date/form/file number, SEC URL, join basis, classification, and notes.
 
@@ -40,12 +41,15 @@ All resolved rows are preserved in numbered evidence CSV batches with CIK, histo
 - `FRFHF` buy `2008-02-21` — explicit Fairfax filings located so far are after the buy.
 - `LMLP1` buy `2000-03-29` — explicit LML common-stock registration found `2000-11-06`, after buy.
 - `VSTR1` buy `1999-11-23` — explicit VoiceStream common-stock registration located in 2000, after buy; earlier evidence required.
+- `TSG1` buy `2007-02-27` — pre-buy Sabre Holdings SEC evidence establishes NYSE `TSG` common stock, but the Orion/Sharadar `TSG1` alias still needs a causal security-identity join before admission.
+- `SUN1` buy `2004-04-16` — the relevant issuer is Sun Microsystems, not Sunoco; pre-buy SEC evidence establishes Nasdaq `SUNW` common stock, but `SUN1` → `SUNW` still needs a causal security-identity join.
+- `PHSYB` buy `1998-07-07` — SEC evidence establishes PacifiCare Class B common stock, but the directly retrieved description is retrospective; a pre-buy filing/identity bridge is still required.
 - `TELFY` early buys — historical Telefonica/Spanish Telephone Company F-6 evidence for depositary receipts for common stock exists before 1998, but direct causal issuer/alias linkage still needs final confirmation.
 - `CBDBY` — historical SEC F-6 evidence indicates depositary receipts for **preferred stock**, making this a likely genuine non-common case; direct historical ticker/CIK linkage still needs final confirmation before classification.
 
 ### Count checkpoint
 
-The prior authoritative checkpoint was **41 unresolved executed-buy rows**. Batch 22 resolves three additional rows (`LPHIQ`, `VRUS1`, `WGHTQ`), leaving **38 unresolved executed-buy rows**.
+The prior authoritative checkpoint was **38 unresolved executed-buy rows**. Batch 23 resolves four additional rows (`KBL`, two earlier `COCOQ` buys, and `NGH`), leaving **34 unresolved executed-buy rows**.
 
 ## Governance
 
