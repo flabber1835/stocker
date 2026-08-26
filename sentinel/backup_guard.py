@@ -12,21 +12,25 @@ Once an unresolved failure has persisted beyond the reviewed hard age, new
 data/plan/order mutation is fenced. A merely old successful archive with *no*
 newer failure is ambiguous: the database may have been quiet, or the target may
 have disappeared without PostgreSQL having generated a new archive attempt.
-Before any new economic/data mutation in that state, Sentinel forces one WAL
-switch and requires a fresh successful archive. Thus a disconnected quiet disk
-cannot be discovered only after a broker order has already been authorized.
+Before any new economic/data mutation in that state, Sentinel writes a harmless
+restore-point WAL record, forces a WAL switch, and requires the archiver to reach
+that forced segment. Thus a disconnected quiet disk cannot be discovered only
+after a broker order has already been authorized, and a large stale WAL backlog
+cannot masquerade as current durability merely because one older file moved.
 Read-only broker recovery remains available throughout.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import re
 import time
 
 
 BACKUP_HARD_MAX_AGE_HOURS = 30
 BACKUP_PROBE_TIMEOUT_SECONDS = 20
 BACKUP_PROBE_POLL_SECONDS = 0.25
+_WAL_NAME = re.compile(r"[0-9A-F]{24}\Z")
 
 
 class BackupWriteFenced(RuntimeError):
@@ -121,58 +125,76 @@ def _archiver_observation(conn):
         raise BackupWriteFenced(
             "PostgreSQL archive probe state is unavailable")
     wal, last_ok, last_fail, failed_count = row
-    return str(wal or ""), _aware(last_ok), _aware(last_fail), int(failed_count or 0)
+    wal = str(wal or "")
+    if wal and _WAL_NAME.fullmatch(wal) is None:
+        raise BackupWriteFenced(
+            "PostgreSQL last_archived_wal is malformed")
+    return wal, _aware(last_ok), _aware(last_fail), int(failed_count or 0)
 
 
-def _probe_stale_archive_target(
-        conn, *, operation: str,
-        sleep=time.sleep, monotonic=time.monotonic) -> BackupGuardStatus:
-    """Force a harmless WAL boundary and require proof the target archived it.
-
-    ``pg_switch_wal`` does not mutate strategy/account state. It makes a quiet
-    database actively exercise the already-configured archive_command before an
-    economic callback is allowed to create a new obligation. Any newly observed
-    archive failure fails closed; a fresh success clears the ambiguity.
-    """
-    before_wal, before_ok, before_fail, before_failed_count = (
-        _archiver_observation(conn))
+def _probe_wal_boundary(conn, *, operation: str) -> str:
+    """Generate non-business WAL and return the exact segment that must archive."""
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT pg_switch_wal()")
+            # A bare pg_switch_wal() may do nothing after a completely quiet
+            # segment. A restore point is a small WAL-only record (no strategy,
+            # feed, plan, order or account table mutation) and guarantees there
+            # is activity to switch/archive under the configured wal_level.
+            cur.execute(
+                "SELECT pg_create_restore_point('sentinel-backup-probe')")
+            if cur.fetchone() is None:
+                raise RuntimeError("restore point returned no row")
+            cur.execute("SELECT pg_walfile_name(pg_switch_wal())")
             switched = cur.fetchone()
     except Exception as exc:
         raise BackupWriteFenced(
             f"{operation} fenced: could not force external-WAL liveness probe "
             f"({type(exc).__name__})") from exc
-    if switched is None:
+    target = str(switched[0] if switched else "")
+    if _WAL_NAME.fullmatch(target) is None:
         raise BackupWriteFenced(
-            f"{operation} fenced: PostgreSQL WAL switch returned no evidence")
+            f"{operation} fenced: PostgreSQL WAL switch returned malformed "
+            "archive evidence")
+    return target
+
+
+def _probe_stale_archive_target(
+        conn, *, operation: str,
+        sleep=time.sleep, monotonic=time.monotonic) -> BackupGuardStatus:
+    """Force and observe archival through an exact harmless WAL boundary."""
+    _before_wal, before_ok, before_fail, before_failed_count = (
+        _archiver_observation(conn))
+    target_wal = _probe_wal_boundary(conn, operation=operation)
 
     deadline = monotonic() + BACKUP_PROBE_TIMEOUT_SECONDS
     while monotonic() < deadline:
         sleep(BACKUP_PROBE_POLL_SECONDS)
         wal, last_ok, last_fail, failed_count = _archiver_observation(conn)
-        success_advanced = (
-            last_ok is not None
-            and (before_ok is None or last_ok > before_ok)
-            and (not before_wal or wal != before_wal))
+        # WAL filenames are fixed-width hexadecimal timeline/log/segment names.
+        # The configured primary does not change timeline during this runtime;
+        # reaching the target or a later name proves the forced boundary made it
+        # to the external archive, not merely that an older backlog file moved.
+        target_reached = (
+            bool(wal) and wal >= target_wal
+            and last_ok is not None
+            and (before_ok is None or last_ok > before_ok))
         failure_advanced = (
             failed_count > before_failed_count
             or (last_fail is not None
                 and (before_fail is None or last_fail > before_fail)))
-        if success_advanced and (
+        if target_reached and (
                 last_fail is None or last_ok is not None and last_ok >= last_fail):
             result = status(conn)
             if result.state == "HEALTHY":
                 return result
-        if failure_advanced and not success_advanced:
+        if failure_advanced and not target_reached:
             result = status(conn)
             raise BackupWriteFenced(_fence_message(result, operation=operation))
 
     result = status(conn)
     raise BackupWriteFenced(
-        f"{operation} fenced: external WAL target did not prove a fresh archive "
-        f"within {BACKUP_PROBE_TIMEOUT_SECONDS}s; "
+        f"{operation} fenced: external WAL target did not archive the forced "
+        f"segment {target_wal} within {BACKUP_PROBE_TIMEOUT_SECONDS}s; "
         + _fence_message(result, operation=operation))
 
 
