@@ -6,10 +6,10 @@ Archives inspected: **82** (2006q1_form345.zip through 2026q2_form345.zip).
 
 - Authoritative executed-buy rows with dates: **722**
 - Automatically verified common before buy: **573**
-- Curated/manual verified common before buy: **138**
+- Curated/manual verified common before buy: **143**
 - Curated/manual verified non-common before buy: **3**
-- Total causally classified before buy: **714/722 (98.89%)**
-- Unresolved executed-buy rows: **8**
+- Total causally classified before buy: **719/722 (99.58%)**
+- Unresolved executed-buy rows: **3**
 
 ## Automatic evidence coverage
 
@@ -20,9 +20,9 @@ Archives inspected: **82** (2006q1_form345.zip through 2026q2_form345.zip).
 
 ## Manual evidence admission
 
-- Curated evidence files inspected: **27**
-- Admitted exact-buy evidence rows: **144**
-- Admitted exact-buy pairs: **141**
+- Curated evidence files inspected: **28**
+- Admitted exact-buy evidence rows: **149**
+- Admitted exact-buy pairs: **146**
 - Rejected/non-admitted rows: **1**
 
 ## PIT rule
