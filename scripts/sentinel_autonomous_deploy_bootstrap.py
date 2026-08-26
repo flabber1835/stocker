@@ -337,8 +337,11 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
         self.phase("transition: start only behavioral PostgreSQL on preserved volume")
         self.runner.run(self.base_compose + ["up", "-d", "sentinel-postgres"])
 
-        self.phase("durability: fresh pre-migration base backup and restore drill")
-        self._create_backup(restore_drill=True)
+        self.phase("durability: fresh pre-migration backup and physical replay")
+        pre_backup = self._create_backup(restore_drill=False)
+        self.runner.run([
+            "bash", "scripts/sentinel-restore-drill.sh", "--backup",
+            pre_backup, "--physical-only"])
 
         self.phase("schema: explicit migration while automation is stopped")
         code = (
@@ -369,12 +372,12 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
         _safe_update_dotenv(core.ENV_PATH, updates)
 
     def _post_deploy_backup(self) -> str:
-        return self._create_backup(restore_drill=False)
+        return self._create_backup(restore_drill=True)
 
     def persist_success(self, health: Mapping) -> None:
         """Persist the exact reviewed activation mode after operational PASS."""
         self.phase("finalize: post-deploy backup, persist facts, and retain receipt")
-        post_backup = self._create_backup(restore_drill=False)
+        post_backup = self._create_backup(restore_drill=True)
         reviewed = self.reviewed_validation
         activation_mode = reviewed.mode if reviewed is not None else "paper"
         dual = activation_mode == "dual"

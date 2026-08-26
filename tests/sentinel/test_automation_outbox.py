@@ -5,7 +5,7 @@ import threading
 
 import pytest
 
-from sentinel import schema
+from sentinel import alert_health, schema
 from sentinel.automation import outbox
 from sentinel.automation.model import (
     AckState,
@@ -248,3 +248,79 @@ async def test_dispatch_failure_is_committed_not_lost(conn) -> None:
 
     assert result.dead_lettered
     assert "TimeoutError" in result.error
+
+
+@pytest.mark.asyncio
+async def test_terminal_transport_failure_dead_letters_without_retry(conn) -> None:
+    class TerminalFailure(RuntimeError):
+        retryable = False
+
+    class RejectedAdapter:
+        def deliver(self, alert, idempotency_key):
+            raise TerminalFailure("webhook credentials rejected")
+
+    outbox.enqueue(
+        conn, idempotency_key="terminal-webhook", event_type="TEST",
+        severity="CRITICAL", payload={}, max_attempts=8)
+
+    result = await outbox.dispatch_once(
+        conn, adapter=RejectedAdapter(), holder_id="alert-worker")
+
+    assert result.dead_lettered
+    assert result.alert is not None
+    assert result.alert.attempt_count == 1
+    assert "webhook credentials rejected" in result.error
+
+
+def test_dispatcher_health_transitions_and_recovers_durably(conn) -> None:
+    starting = alert_health.register(conn, dispatcher_id="primary")
+    assert starting.state == alert_health.STARTING
+
+    healthy = alert_health.record_success(conn, dispatcher_id="primary")
+    assert healthy.state == alert_health.HEALTHY
+    assert healthy.consecutive_failures == 0
+
+    degraded = alert_health.record_failure(
+        conn, dispatcher_id="primary", error="timeout",
+        maximum_failures=2)
+    assert degraded.state == alert_health.DEGRADED
+    failed = alert_health.record_failure(
+        conn, dispatcher_id="primary", error="timeout again",
+        maximum_failures=2)
+    assert failed.state == alert_health.FAILED
+
+    recovered = alert_health.record_success(conn, dispatcher_id="primary")
+    assert recovered.state == alert_health.HEALTHY
+    assert recovered.consecutive_failures == 0
+    assert recovered.last_error is None
+
+
+def test_dispatcher_health_fails_on_stale_heartbeat_and_dead_letter(conn) -> None:
+    alert_health.register(conn, dispatcher_id="primary")
+    alert_health.record_success(conn, dispatcher_id="primary")
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE sentinel_alert_dispatcher_health SET"
+            " heartbeat_at=clock_timestamp()-INTERVAL '2 minutes'"
+            " WHERE dispatcher_id='primary'")
+    conn.commit()
+    with pytest.raises(alert_health.AlertDispatcherUnhealthy, match="stale"):
+        alert_health.require_healthy(
+            conn, dispatcher_id="primary", maximum_age_seconds=30,
+            startup_grace_seconds=300)
+
+    alert_health.record_success(conn, dispatcher_id="primary")
+    outbox.enqueue(
+        conn, idempotency_key="dead-letter-health", event_type="TEST",
+        severity="CRITICAL", payload={}, max_attempts=1)
+    claimed = outbox.claim_next(
+        conn, holder_id="alert-worker", claim_seconds=30)
+    assert claimed is not None
+    outbox.mark_failed(
+        conn, alert_id=claimed.alert_id, holder_id="alert-worker",
+        error="terminal", retryable=False)
+    with pytest.raises(alert_health.AlertDispatcherUnhealthy,
+                       match="dead-letter"):
+        alert_health.require_healthy(
+            conn, dispatcher_id="primary", maximum_age_seconds=30,
+            startup_grace_seconds=300)

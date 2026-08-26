@@ -95,6 +95,10 @@ _AUTOMATION_COLUMNS = {
         "failure_detail", "updated_at", "created_at"},
     "sentinel_alert_outbox": {
         "state", "ack_state", "updated_at"},
+    "sentinel_alert_dispatcher_health": {
+        "dispatcher_id", "heartbeat_at", "state", "last_attempt_at",
+        "last_success_at", "consecutive_failures", "last_error",
+        "updated_at"},
     "sentinel_automation_service_instances": {
         "instance_id", "state", "heartbeat_at", "next_wake_at",
         "last_error", "updated_at"},
@@ -744,6 +748,23 @@ def _automation_alert_counts(conn) -> dict:
     }
 
 
+def _alert_dispatchers(conn) -> list[dict]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT dispatcher_id,state,heartbeat_at,last_attempt_at,"
+            " last_success_at,consecutive_failures,last_error,"
+            " EXTRACT(EPOCH FROM (clock_timestamp()-heartbeat_at))"
+            " FROM sentinel_alert_dispatcher_health ORDER BY dispatcher_id")
+        rows = cur.fetchall()
+    return [{
+        "dispatcher_id": str(row[0]), "state": str(row[1]),
+        "heartbeat_at": _utc(row[2]), "last_attempt_at": _utc(row[3]),
+        "last_success_at": _utc(row[4]),
+        "consecutive_failures": int(row[5]), "last_error": row[6],
+        "heartbeat_age_seconds": float(row[7]),
+    } for row in rows]
+
+
 def _latest_automation_instance(conn) -> dict | None:
     with conn.cursor() as cur:
         cur.execute(
@@ -862,6 +883,7 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
             model.automation_leader_row(installed=None, error=detail),
             model.automation_cycle_row(installed=None, error=detail),
             model.automation_alerts_row(installed=None, error=detail),
+            model.alert_dispatcher_row(installed=None, error=detail),
         ], [detail])
 
     from sentinel.feed import store as feed_store
@@ -879,6 +901,7 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                 model.automation_leader_row(installed=None, error=detail),
                 model.automation_cycle_row(installed=None, error=detail),
                 model.automation_alerts_row(installed=None, error=detail),
+                model.alert_dispatcher_row(installed=None, error=detail),
             ], [detail])
 
         automation_present = any(
@@ -891,6 +914,7 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                 model.automation_leader_row(installed=False),
                 model.automation_cycle_row(installed=False),
                 model.automation_alerts_row(installed=False),
+                model.alert_dispatcher_row(installed=False),
             ]
             control = None
         else:
@@ -913,6 +937,7 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                     model.automation_leader_row(installed=None, error=detail),
                     model.automation_cycle_row(installed=None, error=detail),
                     model.automation_alerts_row(installed=None, error=detail),
+                    model.alert_dispatcher_row(installed=None, error=detail),
                 ]
                 control = None
             else:
@@ -929,6 +954,8 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                             installed=True, error=detail),
                         model.automation_alerts_row(
                             installed=True, error=detail),
+                        model.alert_dispatcher_row(
+                            installed=True, error=detail),
                     ]
                 else:
                     lease, lease_error = _read(
@@ -943,6 +970,9 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                         STATEMENT_TIMEOUT_MS, default=None)
                     alerts, alerts_error = _read(
                         conn, _automation_alert_counts,
+                        STATEMENT_TIMEOUT_MS, default=None)
+                    dispatchers, dispatchers_error = _read(
+                        conn, _alert_dispatchers,
                         STATEMENT_TIMEOUT_MS, default=None)
                     cycle_view = dict(cycle or {})
                     if instance:
@@ -970,6 +1000,9 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                             as_of=(alerts or {}).get("updated_at"),
                             **{key: value for key, value in (alerts or {}).items()
                                if key != "updated_at"}),
+                        model.alert_dispatcher_row(
+                            installed=True, dispatchers=dispatchers,
+                            error=dispatchers_error),
                     ]
 
         authority_errors: list[str] = []
@@ -1047,6 +1080,7 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
             model.automation_leader_row(installed=None, error=detail),
             model.automation_cycle_row(installed=None, error=detail),
             model.automation_alerts_row(installed=None, error=detail),
+            model.alert_dispatcher_row(installed=None, error=detail),
         ], [f"automation database: {detail}"])
     finally:
         if conn is not None:
@@ -1360,6 +1394,36 @@ def _dual_authority_rows(
                 pass
 
 
+def _current_trial_operational_failures(
+        *, latest_session: date, control, cycle) -> list[str]:
+    """Return current facts that immediately invalidate VERIFIED styling.
+
+    This deliberately does not wait for ``execution_close_at``. A terminal
+    missed or superseded cycle is already conclusive economic evidence even
+    when the ordinary close/certification deadline remains hours away.
+    """
+    reasons: list[str] = []
+    if control is None:
+        reasons.append("CURRENT_AUTOMATION_UNAVAILABLE")
+    elif not control.enabled:
+        reasons.append("CURRENT_AUTOMATION_DISABLED")
+    elif control.kill_switch_engaged:
+        reasons.append("CURRENT_AUTOMATION_KILLED")
+
+    if cycle is None or cycle.effective_session < latest_session:
+        return reasons
+    cycle_state = str(getattr(cycle.state, "value", cycle.state)).upper()
+    invalidating = {"BLOCKED", "MISSED_STATE_ONLY", "SUPERSEDED"}
+    if cycle_state in invalidating:
+        reasons.append(
+            "CURRENT_CYCLE_" + str(
+                cycle.failure_code or cycle_state).upper())
+    elif cycle_state == "SUCCEEDED" and (
+            cycle.failure_code or cycle.failure_detail):
+        reasons.append("CURRENT_CYCLE_INVALID_SUCCESS")
+    return reasons
+
+
 def _trial_rows(database_url: str, *, now: datetime
                 ) -> tuple[list[model.Row], dict, list[dict], list[str]]:
     """Project immutable trial certificates; never contact or repair a broker."""
@@ -1399,9 +1463,19 @@ def _trial_rows(database_url: str, *, now: datetime
         cycle, cycle_error = _read(
             conn, automation_store.latest_cycle,
             STATEMENT_TIMEOUT_MS, default=None)
-        if current_error or frontier_error or cycle_error:
+        control, control_error = _read(
+            conn, automation_store.load_control,
+            STATEMENT_TIMEOUT_MS, default=None)
+        if current_error or frontier_error or cycle_error or control_error:
             verdict = "NOT_VERIFIED"
             reasons.append("CURRENT_IDENTITY_UNREADABLE")
+        if latest:
+            current_reasons = _current_trial_operational_failures(
+                latest_session=date.fromisoformat(str(latest["session"])),
+                control=control, cycle=cycle)
+            if current_reasons:
+                verdict = "NOT_VERIFIED"
+                reasons.extend(current_reasons)
         if latest and current is not None:
             recorded = latest.get("publication") or {}
             if (recorded.get("valuation_version") != current.version

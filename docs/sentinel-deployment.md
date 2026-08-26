@@ -1666,16 +1666,37 @@ scripts/sentinel-backup-status.sh
 scripts/sentinel-restore-drill.sh
 ```
 
-Checkpoints are `verified_base_backup:...`, `backup_ready:true`, and
-`restore_drill_ready:true`. A base backup is not promoted as ready until a
+Checkpoints are `verified_base_backup:...`, `backup_ready:true`,
+`physical_wal_replay_ready:true`, `restored_database_semantics_ready:true`, and
+`restore_semantics_ready:true`. A base backup is not promoted as ready until a
 unique recovery marker written after the base has crossed `archive_command`.
 Status refuses disabled archiving, a stale last success, or a failure newer
 than the last success. The restore drill copies the newest base backup to a
-uniquely named disposable Docker volume, starts PostgreSQL with no network and
-no published port, applies archived WAL through that exact post-base marker and
-LSN, checks the canonical tables including the behavioral-migration ledger and
-rollout state, then
-removes only that named container and volume. It never writes the primary.
+uniquely named disposable Docker volume, starts PostgreSQL on an internal
+Docker network with no external route or published port, applies archived WAL
+through that exact post-base marker and LSN, checks the canonical tables
+including the behavioral-migration ledger and rollout state, promotes the
+disposable database, and runs the digest-qualified Sentinel runtime image's
+read-only runtime/feed-schema, account/command, restart-state/plan,
+automation-cycle, and trial financial-chain validators. It then removes only
+that named container, network, and volume. It never writes the primary.
+
+`SENTINEL_RUNTIME_IMAGE_REF` must be an immutable `sha256:...` image id or
+repository digest; the deployed
+`SENTINEL_RUNTIME_IMAGE_REPOSITORY` + `SENTINEL_RUNTIME_IMAGE_DIGEST` pair is
+the equivalent persisted input. `--physical-only` is reserved for the fenced
+pre-migration rollback checkpoint, where the candidate schema is intentionally
+not installed yet; successful deployment takes and semantically validates a
+new post-migration backup before persisting the deployed result.
+
+That checkpoint proves physical replay plus promoted database semantics.  It is
+deliberately not named `restore_drill_ready`: full disaster-recovery
+certification additionally requires a fresh `ADMIN_ADOPT` takeover generation,
+killed/disabled startup, complete broker/account/cash/terminal reconciliation,
+and one separately authorized controlled PAPER resume against a dedicated test
+account.  Those broker mutations are an attended operating ceremony and may
+not be hidden inside the routine backup drill.  The retained evidence must bind
+both checkpoints before disaster recovery can be called end-to-end certified.
 
 `archive_command` publishes each WAL filename as an immutable object. Merely
 finding the final pathname is not success: an existing regular, non-symlink
@@ -1728,6 +1749,7 @@ broker        newest durable broker observation plus unresolved command-journal
 automation    durable installed/enabled/kill policy; leader holder/fence/
               heartbeat/expiry; last/next cycle, last clean reconciliation and
               current failure; pending/dead-letter/unacknowledged outbox facts;
+              durable alert-dispatcher heartbeat/transport success/failure;
               fresh installation is DISABLED and KILLED
 ```
 

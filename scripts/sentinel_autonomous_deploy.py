@@ -1579,6 +1579,7 @@ class AutonomousDeploy:
             test, self.cfg.test_repository)
         self.env.update({
             "SENTINEL_GIT_COMMIT": self.commit,
+            "SENTINEL_RUNTIME_IMAGE_REF": self.runtime_repo_digest,
             "SENTINEL_RUNTIME_IMAGE_REPOSITORY": self.cfg.runtime_repository,
             "SENTINEL_RUNTIME_IMAGE_DIGEST": self.runtime_digest,
             "SENTINEL_TEST_IMAGE_DIGEST": self.test_digest,
@@ -1691,10 +1692,11 @@ class AutonomousDeploy:
         self.phase("transition: start only behavioral PostgreSQL on preserved volume")
         self.runner.run(self.base_compose + ["up", "-d", "sentinel-postgres"])
 
-        self.phase("durability: fresh pre-migration base backup and restore drill")
+        self.phase("durability: fresh pre-migration backup and physical replay")
         self.runner.run(["bash", "scripts/sentinel-base-backup.sh"])
         self.runner.run(["bash", "scripts/sentinel-backup-status.sh"])
-        self.runner.run(["bash", "scripts/sentinel-restore-drill.sh"])
+        self.runner.run([
+            "bash", "scripts/sentinel-restore-drill.sh", "--physical-only"])
 
         self.phase("schema: explicit migration while automation is stopped")
         code = (
@@ -2119,6 +2121,7 @@ class AutonomousDeploy:
     def _post_deploy_backup(self) -> Optional[str]:
         self.runner.run(["bash", "scripts/sentinel-base-backup.sh"])
         self.runner.run(["bash", "scripts/sentinel-backup-status.sh"])
+        self.runner.run(["bash", "scripts/sentinel-restore-drill.sh"])
         return None
 
     def persist_deployed(self, status: Mapping) -> None:
@@ -2244,6 +2247,7 @@ class AutonomousDeploy:
         update_dotenv(ENV_PATH, managed)
         self.runner.run(["bash", "scripts/sentinel-base-backup.sh"])
         self.runner.run(["bash", "scripts/sentinel-backup-status.sh"])
+        self.runner.run(["bash", "scripts/sentinel-restore-drill.sh"])
         receipt = {
             "schema": DEPLOY_SCHEMA,
             "completed_at": _utc_text(_utcnow()),
