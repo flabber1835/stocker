@@ -29,6 +29,7 @@ def test_dual_match_is_verification_only_outside_prepare(monkeypatch):
 
     assert result == {"verdict": "MATCH"}
     assert observed == [False]
+    assert dual_reconciliation.regenesis_preparation_active() is False
 
 
 def test_prepare_scopes_handover_establishment_and_resets_after_return(monkeypatch):
@@ -37,19 +38,18 @@ def test_prepare_scopes_handover_establishment_and_resets_after_return(monkeypat
     observed = []
 
     async def base_prepare(_self, _context):
-        observed.append(
-            automation_recovery._ESTABLISH_REGENESIS_HANDOVER.get())
+        observed.append(dual_reconciliation.regenesis_preparation_active())
         return "prepared"
 
     monkeypatch.setattr(
         automation_recovery.base.ProductionAutomation, "prepare", base_prepare)
 
-    assert automation_recovery._ESTABLISH_REGENESIS_HANDOVER.get() is False
+    assert dual_reconciliation.regenesis_preparation_active() is False
     result = asyncio.run(runtime.prepare(object()))
 
     assert result == "prepared"
     assert observed == [True]
-    assert automation_recovery._ESTABLISH_REGENESIS_HANDOVER.get() is False
+    assert dual_reconciliation.regenesis_preparation_active() is False
 
 
 def test_prepare_scope_resets_even_when_base_prepare_raises(monkeypatch):
@@ -57,7 +57,7 @@ def test_prepare_scope_resets_even_when_base_prepare_raises(monkeypatch):
     runtime._require_backup_for_new_mutation = lambda _operation: None
 
     async def base_prepare(_self, _context):
-        assert automation_recovery._ESTABLISH_REGENESIS_HANDOVER.get() is True
+        assert dual_reconciliation.regenesis_preparation_active() is True
         raise RuntimeError("boom")
 
     monkeypatch.setattr(
@@ -70,4 +70,14 @@ def test_prepare_scope_resets_even_when_base_prepare_raises(monkeypatch):
     else:  # pragma: no cover - falsifier guard
         raise AssertionError("base prepare should have raised")
 
-    assert automation_recovery._ESTABLISH_REGENESIS_HANDOVER.get() is False
+    assert dual_reconciliation.regenesis_preparation_active() is False
+
+
+def test_nested_prepare_scope_restores_prior_context():
+    assert dual_reconciliation.regenesis_preparation_active() is False
+    with dual_reconciliation.regenesis_preparation_scope():
+        assert dual_reconciliation.regenesis_preparation_active() is True
+        with dual_reconciliation.regenesis_preparation_scope():
+            assert dual_reconciliation.regenesis_preparation_active() is True
+        assert dual_reconciliation.regenesis_preparation_active() is True
+    assert dual_reconciliation.regenesis_preparation_active() is False
