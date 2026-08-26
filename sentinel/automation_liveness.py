@@ -59,7 +59,9 @@ def main() -> int:
         "supervised_heartbeat_fresh": own_fresh,
     }
     print(json.dumps(payload, default=str, sort_keys=True))
-    return 0 if health.healthy and own_fresh and not leader_overdue else 1
+    return 0 if (
+        health.operational_ready and own_fresh and not leader_overdue
+    ) else 1
 
 
 if __name__ == "__main__":  # pragma: no cover
