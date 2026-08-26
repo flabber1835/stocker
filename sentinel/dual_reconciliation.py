@@ -1,10 +1,8 @@
 """Read-only authority bridge from certified shadow intent to PAPER transport.
 
-The broker-free shadow ledger remains the performance authority.  Alpaca PAPER
-is allowed to transport and display the same strategy only after its immutable
-plan proves that it names the exact verified shadow state and allocation for
-the same decision close.  Broker order/position/fill convergence remains the
-separate execution reconciliation owned by :mod:`sentinel.execution`.
+The broker-free shadow ledger remains the performance authority. Alpaca PAPER
+may transport the same strategy only after its immutable plan proves that it
+names the exact current verified shadow state and allocation.
 """
 from __future__ import annotations
 
@@ -12,8 +10,13 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping
 
-from sentinel import dual_plan_authority, shadow_runtime
+from sentinel import dual_plan_authority, shadow_runtime, shadow_segments
 from sentinel.feed import calendar
+
+
+# Dual reconciliation can run in automation, an authorized CLI, or tests. Every
+# process must resolve the same active append-only segment as the shadow worker.
+shadow_segments.install_runtime_store(shadow_runtime)
 
 
 class DualReconciliationPending(RuntimeError):
@@ -28,8 +31,7 @@ def _decimal(value: Any, *, label: str) -> Decimal:
     try:
         parsed = Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError) as exc:
-        raise DualReconciliationRefused(
-            f"{label} is not a decimal") from exc
+        raise DualReconciliationRefused(f"{label} is not a decimal") from exc
     if not parsed.is_finite():
         raise DualReconciliationRefused(f"{label} is not finite")
     return parsed
@@ -38,7 +40,6 @@ def _decimal(value: Any, *, label: str) -> Decimal:
 def verified_shadow_intent(
         conn, *, decision_session: date | str, observation_id: str,
         starting_cash: Decimal | str | int | float):
-    """Return the exact current VERIFIED shadow state for one decision close."""
     wanted = str(decision_session)
     try:
         result = shadow_runtime.verified_shadow_status(
@@ -68,12 +69,6 @@ def require_plan_matches_verified_shadow(
         conn, *, plan, observation_id: str,
         starting_cash: Decimal | str | int | float,
         binding=None, rollout_state=None) -> Mapping[str, str]:
-    """Prove one PAPER plan is the exact account-sized shadow transport.
-
-    This function is read-only.  A not-yet-created or one-session-behind shadow
-    result is retryable.  A revised/invalid lineage, an ahead lineage, or any
-    plan/state/allocation mismatch is a permanent operator-visible refusal.
-    """
     decision_session = str(plan.decision_session)
     result = verified_shadow_intent(
         conn, decision_session=decision_session,
@@ -101,8 +96,7 @@ def require_plan_matches_verified_shadow(
         raise DualReconciliationRefused(
             "PAPER plan exposure differs from certified shadow intent")
 
-    expected_effective = date.fromisoformat(
-        calendar.next_session(decision_session))
+    expected_effective = date.fromisoformat(calendar.next_session(decision_session))
     if plan.effective_session != expected_effective:
         raise DualReconciliationRefused(
             "PAPER plan is not bound to the certified following XNYS session")
