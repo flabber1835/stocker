@@ -11,7 +11,8 @@ This log records manual SEC EDGAR work performed because GitHub-hosted runners r
 - `BBRC1` buy `2000-05-19` — verified common from Burr-Brown 1999 10-K.
 - `BGO` buy `2003-12-03` — verified common from Bema Gold 2002 40-F.
 - Batch 08: `ADVP`, `AEH1`, `CGP`, `DELL1`, `CSE1`, `LU1`, `VRTS1`, `WLA` — all verified common from SEC registration evidence filed before their Orion buys. Full per-row provenance is in `SEC_SECURITY_TYPE_MANUAL_EDGAR_EVIDENCE_BATCH_2026-08-25_08.csv`.
-- Batch 09: `BGEN` (1998-10-13), `KMG1` (1999-09-03), `MEDX1` (2000-02-14), `SNDK1` (2003-11-13), `SII1` (2000-05-05), `THOR1` (2008-09-05 and 2008-12-02), and `TOY` (2005-05-25) — all verified common from SEC registration evidence filed strictly before the relevant buy. Full source dates, filing numbers, CIKs, and URLs are preserved in `SEC_SECURITY_TYPE_MANUAL_EDGAR_EVIDENCE_BATCH_2026-08-25_09.csv`.
+- Batch 09: `BGEN`, `KMG1`, `MEDX1`, `SNDK1`, `SII1`, both `THOR1` buys, and `TOY` — all verified common from SEC registration evidence filed strictly before the relevant buy. Full provenance is in `SEC_SECURITY_TYPE_MANUAL_EDGAR_EVIDENCE_BATCH_2026-08-25_09.csv`.
+- Batch 10: both `BUD1` buys, `CELL1`, `CPNLQ`, `GNET1`, both `MFNXQ` buys, `MOVIQ`, and `NEWP1` — all verified common from SEC registration evidence filed strictly before the relevant buy. Full provenance is in `SEC_SECURITY_TYPE_MANUAL_EDGAR_EVIDENCE_BATCH_2026-08-25_10.csv`.
 
 ### Investigated but not yet admitted
 
@@ -22,7 +23,7 @@ This log records manual SEC EDGAR work performed because GitHub-hosted runners r
 
 ### Count checkpoint
 
-The prior authoritative checkpoint was **97 unresolved executed-buy rows**. Batch 09 resolves eight more buy rows (including two `THOR1` buys), leaving **89 unresolved executed-buy rows**.
+The prior authoritative checkpoint was **89 unresolved executed-buy rows**. Batch 10 resolves nine additional buy rows, leaving **80 unresolved executed-buy rows**.
 
 ## Governance
 
