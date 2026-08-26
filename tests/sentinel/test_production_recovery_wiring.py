@@ -48,6 +48,8 @@ class _ProbeCursor:
             self.kind = "restore"
         elif "pg_switch_wal" in text:
             self.kind = "switch"
+        elif "pg_stat_file" in text:
+            self.kind = "file"
         elif "last_archived_wal" in text:
             self.kind = "archiver"
         elif "current_setting('archive_mode')" in text:
@@ -60,6 +62,8 @@ class _ProbeCursor:
             return ("0/1FFFFFF",)
         if self.kind == "switch":
             return (self.conn.target_wal,)
+        if self.kind == "file":
+            return (self.conn.target_size, self.conn.target_size)
         if self.kind == "archiver":
             index = min(self.conn.archiver_reads, len(self.conn.archiver_rows) - 1)
             self.conn.archiver_reads += 1
@@ -70,8 +74,10 @@ class _ProbeCursor:
 
 
 class _ProbeConn:
-    def __init__(self, *, target_wal, before, after, status_row):
+    def __init__(self, *, target_wal, before, after, status_row,
+                 target_size=16 * 1024 * 1024):
         self.target_wal = target_wal
+        self.target_size = target_size
         self.archiver_rows = [before, after]
         self.archiver_reads = 0
         self.status_row = status_row
@@ -102,7 +108,7 @@ def test_quiet_old_archive_requires_active_probe_before_mutation():
     assert result.bulk_writes_permitted is False
 
 
-def test_active_wal_probe_promotes_only_after_forced_segment_archives():
+def test_active_wal_probe_promotes_only_after_exact_forced_file_is_durable():
     now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
     old_success = now - timedelta(
         hours=backup_guard.BACKUP_HARD_MAX_AGE_HOURS + 12)
