@@ -10,9 +10,10 @@ This log records manual SEC EDGAR work performed because GitHub-hosted runners r
 - `SQM` buy `2005-06-03` — verified common-equity ADR from pre-buy SEC 6-K plus SEC continuity evidence.
 - `BBRC1` buy `2000-05-19` — verified common from Burr-Brown 1999 10-K.
 - `BGO` buy `2003-12-03` — verified common from Bema Gold 2002 40-F.
-- Batch 08: `ADVP`, `AEH1`, `CGP`, `DELL1`, `CSE1`, `LU1`, `VRTS1`, `WLA` — all verified common from SEC registration evidence filed before their Orion buys. Full per-row provenance is in `SEC_SECURITY_TYPE_MANUAL_EDGAR_EVIDENCE_BATCH_2026-08-25_08.csv`.
-- Batch 09: `BGEN`, `KMG1`, `MEDX1`, `SNDK1`, `SII1`, both `THOR1` buys, and `TOY` — all verified common from SEC registration evidence filed strictly before the relevant buy. Full provenance is in `SEC_SECURITY_TYPE_MANUAL_EDGAR_EVIDENCE_BATCH_2026-08-25_09.csv`.
-- Batch 10: both `BUD1` buys, `CELL1`, `CPNLQ`, `GNET1`, both `MFNXQ` buys, `MOVIQ`, and `NEWP1` — all verified common from SEC registration evidence filed strictly before the relevant buy. Full provenance is in `SEC_SECURITY_TYPE_MANUAL_EDGAR_EVIDENCE_BATCH_2026-08-25_10.csv`.
+- Batch 08: `ADVP`, `AEH1`, `CGP`, `DELL1`, `CSE1`, `LU1`, `VRTS1`, `WLA` — all verified common from SEC registration evidence filed before their Orion buys.
+- Batch 09: `BGEN`, `KMG1`, `MEDX1`, `SNDK1`, `SII1`, both `THOR1` buys, and `TOY` — all verified common from SEC registration evidence filed strictly before the relevant buy.
+- Batch 10: both `BUD1` buys, `CELL1`, `CPNLQ`, `GNET1`, both `MFNXQ` buys, `MOVIQ`, and `NEWP1` — all verified common from SEC registration evidence filed strictly before the relevant buy.
+- Batch 11: `SCIO1`, `SSTI1`, `TCF1`, `TFSIQ`, `UCBHQ`, and `VOLT2` — all verified common from SEC registration evidence filed strictly before the relevant buy. Full per-row provenance is in `SEC_SECURITY_TYPE_MANUAL_EDGAR_EVIDENCE_BATCH_2026-08-25_11.csv`.
 
 ### Investigated but not yet admitted
 
@@ -23,7 +24,7 @@ This log records manual SEC EDGAR work performed because GitHub-hosted runners r
 
 ### Count checkpoint
 
-The prior authoritative checkpoint was **89 unresolved executed-buy rows**. Batch 10 resolves nine additional buy rows, leaving **80 unresolved executed-buy rows**.
+The prior authoritative checkpoint was **80 unresolved executed-buy rows**. Batch 11 resolves six additional buy rows, leaving **74 unresolved executed-buy rows**.
 
 ## Governance
 
