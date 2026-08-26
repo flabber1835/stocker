@@ -1,13 +1,11 @@
 {
   "category_cutoff": "SEC filing date strictly before target session; unknown ineligible",
-  "purpose": "PIT category/opportunity-set control diagnostic; no performance claim",
+  "frozen_runner_comparability": "not directly comparable: frozen runner used Sharadar close*volume plus current metadata",
+  "price_liquidity_semantics": "corrected PIT signal_close for returns; raw closeunadj*volume for liquidity",
+  "purpose": "PIT category/opportunity-set diagnostic; no performance claim",
   "targets": [
     {
-      "expected_retained": {
-        "expected_overlap": 7,
-        "expected_pool": 101
-      },
-      "legacy_current_category_control": {
+      "current_category_on_pit_price_domains": {
         "eligible": 1038,
         "leadership_population": 104,
         "pool_tickers": [
@@ -347,6 +345,16 @@
         "WR1",
         "XL1"
       ],
+      "provenance_references_not_pass_fail_targets": {
+        "frozen_exploratory_runner": {
+          "eligible": 1005,
+          "leadership_population": 101
+        },
+        "retained_historical_fingerprint": {
+          "held_overlap": 7,
+          "leadership_population": 101
+        }
+      },
       "sec_auto_common_fail_closed": {
         "eligible": 811,
         "leadership_population": 82,
@@ -438,11 +446,7 @@
       "target": "2008-12-23"
     },
     {
-      "expected_retained": {
-        "expected_overlap": 8,
-        "expected_pool": 96
-      },
-      "legacy_current_category_control": {
+      "current_category_on_pit_price_domains": {
         "eligible": 1733,
         "leadership_population": 174,
         "pool_tickers": [
@@ -776,6 +780,16 @@
         "XIFR",
         "ZG"
       ],
+      "provenance_references_not_pass_fail_targets": {
+        "frozen_exploratory_runner": {
+          "eligible": 1791,
+          "leadership_population": 180
+        },
+        "retained_historical_fingerprint": {
+          "held_overlap": 8,
+          "leadership_population": 96
+        }
+      },
       "sec_auto_common_fail_closed": {
         "eligible": 1583,
         "leadership_population": 159,
