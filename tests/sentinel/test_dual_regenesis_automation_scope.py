@@ -67,6 +67,29 @@ def test_prepare_scopes_handover_and_first_plan_flat_sizing(monkeypatch):
     assert dual_plan_authority.regenesis_flat_sizing_required() is False
 
 
+def test_rollover_after_prepare_entry_is_seen_at_locked_sizing_boundary(monkeypatch):
+    """Regression: a segment transition must not stale-cache flat sizing false."""
+    runtime = _runtime()
+    runtime._require_backup_for_new_mutation = lambda _operation: None
+    rolled = {"value": False}
+    runtime._regenesis_flat_sizing_required = lambda: rolled["value"]
+
+    async def base_prepare(_self, _context):
+        # Model the old race: wrapper entry observed segment 0, then shadow won
+        # the writer lock and committed segment 1 before PAPER built authority.
+        rolled["value"] = True
+        assert dual_plan_authority.regenesis_flat_sizing_required() is True
+        return "prepared"
+
+    monkeypatch.setattr(
+        automation_recovery.base.ProductionAutomation, "prepare", base_prepare)
+
+    result = asyncio.run(runtime.prepare(object()))
+
+    assert result == "prepared"
+    assert dual_plan_authority.regenesis_flat_sizing_required() is False
+
+
 def test_prepare_does_not_require_flat_sizing_after_handover(monkeypatch):
     runtime = _runtime()
     runtime._require_backup_for_new_mutation = lambda _operation: None
