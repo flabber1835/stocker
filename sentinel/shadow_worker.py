@@ -4,7 +4,8 @@ from __future__ import annotations
 import json
 import sys
 
-from sentinel import shadow_runtime
+from sentinel import backup_guard, shadow_runtime
+from sentinel.feed import sharadar
 from sentinel.shadow_recovery import (
     ShadowServiceConfig,
     ShadowServiceRefused,
@@ -16,6 +17,20 @@ from sentinel.shadow_recovery import (
 EXIT_REFUSED = 2
 EXIT_WAITING = 10
 EXIT_RETRY = 11
+EXIT_AVAILABILITY = 12
+
+
+def _availability_failure(exc: BaseException) -> bool:
+    current: BaseException | None = exc
+    seen = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, (
+                sharadar.SharadarRequestError,
+                backup_guard.BackupWriteFenced)):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def main() -> int:
@@ -27,7 +42,13 @@ def main() -> int:
     except ShadowServiceWaiting as exc:
         print(f"WAITING: {exc}", file=sys.stderr, flush=True)
         return EXIT_WAITING
+    except backup_guard.BackupWriteFenced as exc:
+        print(f"AVAILABILITY: {exc}", file=sys.stderr, flush=True)
+        return EXIT_AVAILABILITY
     except ShadowServiceRetry as exc:
+        if _availability_failure(exc):
+            print(f"AVAILABILITY: {exc}", file=sys.stderr, flush=True)
+            return EXIT_AVAILABILITY
         print(f"RETRY: {exc}", file=sys.stderr, flush=True)
         return EXIT_RETRY
     except (ShadowServiceRefused, shadow_runtime.ShadowRuntimeRefused) as exc:
