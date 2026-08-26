@@ -2,15 +2,24 @@
 """Production entrypoint for NAS GO validation.
 
 The core validator executes its bounded preparation as a custom ``python -c``
-Compose command.  That code calls ``ingest.daily()`` and therefore mutates the
-corpus, but it is not syntactically the supported ``feed-daily`` CLI command
-that ``sentinel-compose.sh`` can classify and bind automatically.
+Compose command. That code mutates only the Sentinel database, but it is not the
+syntactic ``feed-daily`` CLI command that :mod:`sentinel_feed_gate` can classify
+and bind automatically.
 
-This entrypoint leaves the core validator unchanged and wraps only that one
-subprocess boundary.  Immediately before the preparation container starts, it
-reuses ``sentinel_feed_gate.py bind`` to prove clean HEAD == candidate image
-revision, then forwards exactly the five per-invocation identity variables used
-by the normal feed wrapper.  The runtime mutation guard remains unchanged.
+This entrypoint owns two production-only responsibilities around that boundary:
+
+* bind the exact mutating container to clean HEAD and the immutable candidate
+  image immediately before it starts; and
+* make a stale retained corpus recoverable. A normal daily catch-up is tried
+  first. Only durable-state failures for which the feed already defines a
+  complete source-stable reseed remedy may escalate to a full replacement of
+  the *retained* corpus range, followed by one exact daily revalidation. Vendor,
+  network, source-authority, and unknown failures never trigger a reseed by
+  guess.
+
+The recovery never constructs a broker and never replays a missed strategy
+order. It repairs source authority only; prospective strategy activation remains
+separately constrained to a future following XNYS open.
 """
 from __future__ import annotations
 
@@ -27,6 +36,110 @@ if str(SCRIPT_DIR) not in sys.path:
 import sentinel_go_validate as go  # noqa: E402
 
 
+# Keep the core's success marker contract unchanged. Extra RECOVERY/FAILURE
+# markers are operator diagnostics only and are deliberately excluded from the
+# sanitized evidence ZIP.
+_RECOVERY_PREPARATION_CODE = r'''
+import json, os
+from datetime import datetime, timezone
+from sentinel import schema
+from sentinel.feed import (
+    calendar, ingest, maintenance, publication, recovery,
+    sep_reconciliation, store, universe)
+from sentinel.shadow_runtime import publication_not_before
+
+SUCCESS_MARKER = 'SENTINEL_GO_PREPARATION='
+RECOVERY_MARKER = 'SENTINEL_GO_PREPARATION_RECOVERY='
+FAILURE_MARKER = 'SENTINEL_GO_PREPARATION_FAILURE='
+
+
+def emit_failure(phase, exc):
+    # Exception type + phase is enough to route recovery without leaking an API
+    # response, ticker, host path, credential, or database identifier.
+    print(FAILURE_MARKER + json.dumps({
+        'phase': str(phase),
+        'error_type': type(exc).__name__,
+    }, sort_keys=True), flush=True)
+
+
+def retained_market_start(conn):
+    predicate = publication.visible_predicate('b')
+    with conn.cursor() as cur:
+        cur.execute('SELECT MIN(b.session) FROM sentinel_bars b WHERE ' + predicate)
+        row = cur.fetchone()
+    value = None if row is None else row[0]
+    if value is None:
+        raise RuntimeError('retained corpus has no published market start')
+    return str(value)
+
+
+c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
+phase = 'SCHEMA_MIGRATION'
+try:
+    schema.ensure_schema(c)
+    store.migrate_schema(c)
+    target = calendar.latest_closed_session()
+    now = datetime.now(timezone.utc)
+    execution_session = calendar.next_session(target)
+    execution_open, _execution_close = calendar.session_window(execution_session)
+    source_final = now >= publication_not_before(target)
+    prospective = now < execution_open.astimezone(timezone.utc)
+    eligible = source_final and prospective
+    progress = None
+    if eligible:
+        phase = 'DAILY_CATCHUP'
+        try:
+            progress = ingest.daily(c, today=target)
+        except (
+                universe.HistoricalIdentityMutation,
+                recovery.PublicationRecoveryRefused,
+                maintenance.MutationCursorUnavailable,
+                sep_reconciliation.SepReconciliationStateInvalid,
+                publication.CorpusIncoherent) as exc:
+            # These are durable local-state failures with an existing complete,
+            # source-stable recovery contract. Replace only the retained market
+            # interval; this is not permission to fetch decades of research data.
+            c.rollback()
+            phase = 'RETAINED_FULL_RESEED'
+            start = retained_market_start(c)
+            print(RECOVERY_MARKER + json.dumps({
+                'mode': 'RETAINED_FULL_RESEED',
+                'trigger': type(exc).__name__,
+            }, sort_keys=True), flush=True)
+            ingest.seed(c, date_from=start, date_to=target)
+            # Re-enter through the ordinary daily authority path after reseed so
+            # validator success still proves the reviewed daily path itself.
+            phase = 'POST_RESEED_DAILY_REVALIDATION'
+            progress = ingest.daily(c, today=target)
+    phase = 'PUBLICATION_CHECK'
+    after = publication.current(c)
+    visible = store.latest_visible_session(c)
+    current = (
+        after is not None and after.window_end is not None
+        and after.window_end >= target and visible == target
+        and publication.chain_gaps(c) == [])
+    print(SUCCESS_MARKER + json.dumps({
+        'schema_migrated': True,
+        'source_not_before_satisfied': source_final,
+        'following_open_future': prospective,
+        'bounded_sharadar_daily': (
+            progress is not None and progress.kind == 'daily'),
+        'publication_current': current,
+    }, sort_keys=True), flush=True)
+except BaseException as exc:
+    try:
+        c.rollback()
+    except BaseException:
+        pass
+    emit_failure(phase, exc)
+    raise
+finally:
+    c.close()
+'''.strip()
+
+# Install before saving the original probe reference so the core probe uses the
+# recovery-aware code string while retaining its existing evidence schema.
+go._PREPARATION_CODE = _RECOVERY_PREPARATION_CODE
 _CORE_PREPARATION_PROBE = go.probe_prevalidation_preparation
 _FEED_ENV_KEYS = (
     "SENTINEL_GIT_COMMIT",
@@ -34,6 +147,10 @@ _FEED_ENV_KEYS = (
     "SENTINEL_FEED_AUTHORIZED",
     "SENTINEL_FEED_GIT_COMMIT",
     "SENTINEL_FEED_RUNTIME_IMAGE_DIGEST",
+)
+_DIAGNOSTIC_PREFIXES = (
+    "SENTINEL_GO_PREPARATION_RECOVERY=",
+    "SENTINEL_GO_PREPARATION_FAILURE=",
 )
 
 
@@ -72,6 +189,15 @@ def _binding_or_none(
             or bound_digest != str(runtime_ref)):
         return None
     return bound_commit, bound_digest
+
+
+def _emit_sanitized_preparation_diagnostics(completed) -> None:
+    """Surface only deliberately sanitized markers from the isolated child."""
+    for stream in (completed.stdout or "", completed.stderr or ""):
+        for line in stream.splitlines():
+            text = line.strip()
+            if any(text.startswith(prefix) for prefix in _DIAGNOSTIC_PREFIXES):
+                print(text, file=sys.stderr, flush=True)
 
 
 class FeedBoundPreparationRunner:
@@ -120,7 +246,9 @@ class FeedBoundPreparationRunner:
             item for key in _FEED_ENV_KEYS for item in ("--env", key)
         ]
         command[insertion:insertion] = forwarded
-        return self._runner.run(command, env=run_env, cwd=cwd)
+        completed = self._runner.run(command, env=run_env, cwd=cwd)
+        _emit_sanitized_preparation_diagnostics(completed)
+        return completed
 
 
 def probe_prevalidation_preparation(
@@ -139,6 +267,7 @@ def probe_prevalidation_preparation(
 
 
 def install() -> None:
+    go._PREPARATION_CODE = _RECOVERY_PREPARATION_CODE
     go.probe_prevalidation_preparation = probe_prevalidation_preparation
 
 
