@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from sentinel import alert_health
 from sentinel.automation import outbox
 from sentinel.automation.health import read_health
 from sentinel.automation_runtime import config_from_env
@@ -26,6 +27,10 @@ from sentinel.feed import store as feed_store
 
 class AlertTransportFailure(RuntimeError):
     """External alert transport failed while PostgreSQL may still be healthy."""
+
+    def __init__(self, message: str, *, retryable: bool = True) -> None:
+        super().__init__(message)
+        self.retryable = bool(retryable)
 
 
 class WebhookAlertAdapter:
@@ -47,11 +52,20 @@ class WebhookAlertAdapter:
                     self._url, json=payload,
                     headers={"Idempotency-Key": idempotency_key})
         except Exception as exc:  # transport boundary, not database authority
+            # httpx exception strings may contain the full webhook URL, whose
+            # path/query commonly carries a credential. Persist and print only
+            # the exception class; the durable HTTP classification below keeps
+            # response status when one exists.
             raise AlertTransportFailure(
-                f"alert webhook transport failed: {type(exc).__name__}: {exc}") from exc
+                f"alert webhook transport failed: {type(exc).__name__}",
+                retryable=True) from exc
         if response.status_code < 200 or response.status_code >= 300:
+            retryable = (
+                response.status_code in {408, 425, 429}
+                or response.status_code >= 500)
             raise AlertTransportFailure(
-                f"alert webhook returned HTTP {response.status_code}")
+                f"alert webhook returned HTTP {response.status_code}",
+                retryable=retryable)
 
     def deliver(self, alert, idempotency_key: str) -> None:
         self._post({
@@ -83,6 +97,16 @@ class WebhookAlertAdapter:
             "event_type": "AUTOMATION_EXTERNAL_HEALTH_FAILURE",
             "severity": "CRITICAL",
             "payload": {"policy_state": policy_state, **detail},
+        }, key)
+
+    def deliver_dispatcher_probe(self, dispatcher_id: str, bucket: int) -> None:
+        key = f"sentinel:alert-dispatcher:probe:{dispatcher_id}:{bucket}"
+        self._post({
+            "schema": "sentinel.external-alert/1",
+            "idempotency_key": key,
+            "event_type": "ALERT_DISPATCHER_REACHABILITY_PROBE",
+            "severity": "INFO",
+            "payload": {"dispatcher_id": dispatcher_id},
         }, key)
 
 
@@ -121,6 +145,19 @@ async def run() -> int:
         print("REFUSED: SENTINEL_AUTOMATION_ALERT_POLL_SECONDS must be in (0,60]",
               file=sys.stderr)
         return 2
+    dispatcher_id = os.environ.get(
+        "SENTINEL_AUTOMATION_ALERT_DISPATCHER_ID", "primary").strip()
+    if not dispatcher_id or len(dispatcher_id) > 128:
+        print("REFUSED: SENTINEL_AUTOMATION_ALERT_DISPATCHER_ID is invalid",
+              file=sys.stderr)
+        return 2
+    maximum_failures = int(os.environ.get(
+        "SENTINEL_AUTOMATION_ALERT_MAX_CONSECUTIVE_FAILURES", "3"))
+    probe_seconds = float(os.environ.get(
+        "SENTINEL_AUTOMATION_ALERT_PROBE_SECONDS", "300"))
+    if maximum_failures < 1 or probe_seconds <= 0 or probe_seconds > 3600:
+        print("REFUSED: alert health/probe bounds are invalid", file=sys.stderr)
+        return 2
 
     stopped = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -135,6 +172,8 @@ async def run() -> int:
     holder = f"alert-dispatcher-{os.getpid()}"
     last_database_bucket: int | None = None
     last_health_key: tuple[str, int] | None = None
+    last_probe_at: float | None = None
+    registered = False
     externally_critical = {
         "SCHEDULER_STALLED", "SCHEDULER_OVERDUE", "WAITING_FOR_LEADER",
         "AUTHORITY_FAILED", "AUTHORITY_INVALID", "BLOCKED",
@@ -148,6 +187,11 @@ async def run() -> int:
             # Database failures are isolated to database-backed operations. A
             # later webhook failure must never enter this classification path.
             conn = feed_store.connect(config.database_url)
+            if registered:
+                alert_health.heartbeat(conn, dispatcher_id=dispatcher_id)
+            else:
+                alert_health.register(conn, dispatcher_id=dispatcher_id)
+                registered = True
             health = read_health(conn)
         except Exception as exc:  # noqa: BLE001
             bucket = int(time.time() // 60)
@@ -186,14 +230,51 @@ async def run() -> int:
                                 health.broker_outcome_unresolved,
                         },
                         bucket)
+                    alert_health.record_success(
+                        conn, dispatcher_id=dispatcher_id)
                     last_health_key = health_key
             result = await outbox.dispatch_once(
                 conn, adapter=adapter, holder_id=holder,
                 claim_seconds=automation.alert_claim_seconds,
                 retry_base_seconds=automation.retry_base_seconds,
                 retry_max_seconds=automation.retry_max_seconds)
+            if result.error:
+                alert_health.record_failure(
+                    conn, dispatcher_id=dispatcher_id, error=result.error,
+                    terminal=result.dead_lettered,
+                    maximum_failures=maximum_failures)
+                _report_transport_failure(AlertTransportFailure(
+                    result.error, retryable=not result.dead_lettered))
+            elif result.delivered:
+                alert_health.record_success(
+                    conn, dispatcher_id=dispatcher_id)
+
+            monotonic_now = time.monotonic()
+            if (last_probe_at is None
+                    or monotonic_now - last_probe_at >= probe_seconds):
+                probe_bucket = int(time.time() // probe_seconds)
+                try:
+                    adapter.deliver_dispatcher_probe(
+                        dispatcher_id, probe_bucket)
+                    alert_health.record_success(
+                        conn, dispatcher_id=dispatcher_id)
+                except AlertTransportFailure as exc:
+                    alert_health.record_failure(
+                        conn, dispatcher_id=dispatcher_id, error=str(exc),
+                        terminal=not exc.retryable,
+                        maximum_failures=maximum_failures)
+                    _report_transport_failure(exc)
+                last_probe_at = monotonic_now
             last_database_bucket = None
         except AlertTransportFailure as exc:
+            if conn is not None:
+                try:
+                    alert_health.record_failure(
+                        conn, dispatcher_id=dispatcher_id, error=str(exc),
+                        terminal=not exc.retryable,
+                        maximum_failures=maximum_failures)
+                except Exception as health_exc:              # noqa: BLE001
+                    _report_transport_failure(health_exc)
             _report_transport_failure(exc)
             await _sleep_or_stop(stopped, poll)
             continue

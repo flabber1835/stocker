@@ -233,6 +233,7 @@ _STAGE4_TABLES = frozenset({
     "sentinel_automation_cycle_events",
     "sentinel_alert_outbox",
     "sentinel_alert_delivery_events",
+    "sentinel_alert_dispatcher_health",
     "sentinel_automation_service_instances",
     "sentinel_observation_provenance",
     "sentinel_trial_strategy_evidence",
@@ -249,6 +250,11 @@ _STAGE4_RUNTIME_REQUIRED_COLUMNS = {
     "sentinel_automation_service_instances": frozenset({
         "authority_verdict", "authority_detail", "authority_checked_at"}),
     "sentinel_observation_provenance": frozenset({"positions"}),
+    "sentinel_alert_dispatcher_health": frozenset({
+        "dispatcher_id", "started_at", "heartbeat_at", "state",
+        "last_attempt_at", "last_success_at", "consecutive_failures",
+        "last_error", "updated_at",
+    }),
 }
 
 _PLAN_AUTHORITY_CHECK = "sentinel_execution_plan_rollout_authority_ck"
@@ -1038,6 +1044,25 @@ DDL = (
         at                   TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())""",
     """CREATE INDEX IF NOT EXISTS idx_sentinel_alert_delivery_events
         ON sentinel_alert_delivery_events (alert_id,seq)""",
+
+    """CREATE TABLE IF NOT EXISTS sentinel_alert_dispatcher_health (
+        dispatcher_id        TEXT PRIMARY KEY,
+        started_at           TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        heartbeat_at         TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        state                TEXT        NOT NULL CHECK (state IN (
+            'STARTING','HEALTHY','DEGRADED','FAILED')),
+        last_attempt_at      TIMESTAMPTZ,
+        last_success_at      TIMESTAMPTZ,
+        consecutive_failures INT         NOT NULL DEFAULT 0
+                                        CHECK (consecutive_failures >= 0),
+        last_error           TEXT,
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        CHECK ((state IN ('STARTING','HEALTHY')
+                AND consecutive_failures = 0 AND last_error IS NULL)
+            OR (state IN ('DEGRADED','FAILED')
+                AND consecutive_failures >= 1 AND last_error IS NOT NULL)))""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_alert_dispatcher_health_heartbeat
+        ON sentinel_alert_dispatcher_health (heartbeat_at)""",
 
     """CREATE TABLE IF NOT EXISTS sentinel_automation_service_instances (
         instance_id          TEXT PRIMARY KEY,

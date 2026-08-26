@@ -12,7 +12,7 @@ regression matter and neither is cosmetic:
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -222,10 +222,191 @@ class TestTheRowsThatMatter:
             installed=True, enabled=True, killed=True, generation=4)
 
         assert disabled.value == "DISABLED"
-        assert disabled.status is model.PENDING
+        assert disabled.status is model.WARN
         assert "supervisor-healthy" in disabled.detail
         assert killed.value == "ENABLED · KILLED"
         assert killed.status is model.WARN
+
+    @pytest.mark.parametrize("state", ("MISSED_STATE_ONLY", "SUPERSEDED"))
+    def test_non_success_terminal_cycle_is_immediately_red(self, state):
+        row = model.automation_cycle_row(
+            installed=True, enabled=True, cycle_id="cycle-missed",
+            state=state, failure_code="MISSED_EXECUTION_WINDOW",
+            failure_detail="window elapsed")
+
+        assert row.status is model.FAIL
+        assert "MISSED_EXECUTION_WINDOW" in row.detail
+
+    def test_any_cycle_failure_code_overrides_success_coloring(self):
+        row = model.automation_cycle_row(
+            installed=True, enabled=True, cycle_id="cycle-corrupt",
+            state="SUCCEEDED", failure_code="IMPOSSIBLE_SUCCESS_FAILURE")
+
+        assert row.status is model.FAIL
+
+    def test_retry_wait_with_retry_reason_remains_amber(self):
+        row = model.automation_cycle_row(
+            installed=True, enabled=True, cycle_id="cycle-retry",
+            state="RETRY_WAIT", failure_code="PUBLICATION_PENDING",
+            failure_detail="source not final yet")
+
+        assert row.status is model.WARN
+
+    @pytest.mark.parametrize(
+        "state", ("DISCOVERED", "PREPARING", "WAITING_OPEN", "EXECUTING"))
+    def test_only_succeeded_cycle_is_green(self, state):
+        row = model.automation_cycle_row(
+            installed=True, enabled=True, cycle_id="cycle-active", state=state)
+
+        assert row.status is model.WARN
+
+    def test_disabled_installed_automation_participates_in_operational_headline(self):
+        panel = model.Panel(rows=[
+            model.Row("database", "Database", "READY", model.OK),
+            model.automation_row(
+                installed=True, enabled=False, killed=True, generation=7),
+            model.automation_leader_row(
+                installed=True, enabled=False, killed=True, active=False),
+        ], now=NOW)
+
+        assert panel.operational is model.WARN
+        assert panel.overall is model.WARN
+
+    def test_missed_cycle_invalidates_prior_trial_before_execution_close(self):
+        from types import SimpleNamespace
+        from sentinel.panel import sources
+
+        reasons = sources._current_trial_operational_failures(  # noqa: SLF001
+            latest_session=date(2026, 8, 25),
+            control=SimpleNamespace(
+                enabled=True, kill_switch_engaged=False),
+            cycle=SimpleNamespace(
+                effective_session=date(2026, 8, 26),
+                state="SUPERSEDED",
+                failure_code="MAX_EXECUTION_LATENESS_EXCEEDED",
+                failure_detail="window elapsed",
+                execution_close_at=NOW + timedelta(hours=5)))
+
+        assert reasons == [
+            "CURRENT_CYCLE_MAX_EXECUTION_LATENESS_EXCEEDED"]
+
+    def test_disabled_automation_invalidates_prior_trial(self):
+        from types import SimpleNamespace
+        from sentinel.panel import sources
+
+        reasons = sources._current_trial_operational_failures(  # noqa: SLF001
+            latest_session=date(2026, 8, 25),
+            control=SimpleNamespace(
+                enabled=False, kill_switch_engaged=True),
+            cycle=None)
+
+        assert reasons == ["CURRENT_AUTOMATION_DISABLED"]
+
+    def test_retry_wait_does_not_erase_prior_verified_before_deadline(self):
+        from types import SimpleNamespace
+        from sentinel.panel import sources
+
+        reasons = sources._current_trial_operational_failures(  # noqa: SLF001
+            latest_session=date(2026, 8, 25),
+            control=SimpleNamespace(
+                enabled=True, kill_switch_engaged=False),
+            cycle=SimpleNamespace(
+                effective_session=date(2026, 8, 26), state="RETRY_WAIT",
+                failure_code="PUBLICATION_PENDING",
+                failure_detail="source not final yet"))
+
+        assert reasons == []
+
+    def test_trial_source_removes_verified_before_failed_cycle_close(
+            self, monkeypatch):
+        from types import SimpleNamespace
+
+        from sentinel import trial
+        from sentinel.automation import schedule
+        from sentinel.automation import store as automation_store
+        from sentinel.feed import calendar, publication
+        from sentinel.feed import store as feed_store
+        from sentinel.panel import sources
+
+        class Connection:
+            closed = False
+
+            def close(self):
+                self.closed = True
+
+        conn = Connection()
+        verified = {
+            "session": "2026-08-25", "verdict": "VERIFIED",
+            "reason_codes": [], "cycle": {"cycle_id": "old-cycle"},
+            "verified_at": NOW,
+        }
+        failed_cycle = SimpleNamespace(
+            cycle_id="failed-cycle", effective_session=date(2026, 8, 26),
+            execution_close_at=NOW + timedelta(hours=5), state="SUPERSEDED",
+            failure_code="MAX_EXECUTION_LATENESS_EXCEEDED",
+            failure_detail="window elapsed")
+        monkeypatch.setattr(feed_store, "connect", lambda _dsn: conn)
+        monkeypatch.setattr(sources, "_set_statement_timeout", lambda *_: None)
+        monkeypatch.setattr(trial, "load_verifications", lambda _c: [verified])
+        monkeypatch.setattr(publication, "current", lambda _c: None)
+        monkeypatch.setattr(
+            feed_store, "latest_visible_session", lambda _c: "2026-08-25")
+        monkeypatch.setattr(
+            automation_store, "latest_cycle", lambda _c: failed_cycle)
+        monkeypatch.setattr(
+            automation_store, "load_control",
+            lambda _c: SimpleNamespace(
+                enabled=True, kill_switch_engaged=False))
+        monkeypatch.setattr(
+            calendar, "freshness", lambda *_: SimpleNamespace(
+                evaluable=True, sessions_behind=0, ahead=False))
+        monkeypatch.setattr(
+            calendar, "latest_closed_session", lambda _now: "2026-08-25")
+        monkeypatch.setattr(
+            schedule, "for_decision_session",
+            lambda *_: SimpleNamespace(prepare_at=NOW + timedelta(days=1)))
+
+        rows, _details, _history, errors = sources._trial_rows(  # noqa: SLF001
+            "postgresql://panel@db/sentinel", now=NOW)
+
+        assert errors == []
+        assert rows[0].status is model.FAIL
+        assert "CURRENT CYCLE MAX EXECUTION LATENESS EXCEEDED" in rows[0].value
+        assert conn.closed
+
+    def test_alert_dispatcher_requires_fresh_healthy_delivery(self):
+        healthy = model.alert_dispatcher_row(
+            installed=True,
+            dispatchers=[{
+                "dispatcher_id": "primary", "state": "HEALTHY",
+                "heartbeat_at": NOW, "heartbeat_age_seconds": 2.5,
+                "consecutive_failures": 0, "last_success_at": NOW,
+                "last_error": None,
+            }])
+        stale = model.alert_dispatcher_row(
+            installed=True,
+            dispatchers=[{
+                "dispatcher_id": "primary", "state": "HEALTHY",
+                "heartbeat_at": NOW - timedelta(minutes=2),
+                "heartbeat_age_seconds": 120,
+                "consecutive_failures": 0, "last_success_at": NOW,
+                "last_error": None,
+            }])
+        missing = model.alert_dispatcher_row(
+            installed=True, dispatchers=[])
+        false_healthy = model.alert_dispatcher_row(
+            installed=True,
+            dispatchers=[{
+                "dispatcher_id": "primary", "state": "HEALTHY",
+                "heartbeat_at": NOW, "heartbeat_age_seconds": 1,
+                "consecutive_failures": 0, "last_success_at": None,
+                "last_error": None,
+            }])
+
+        assert healthy.status is model.OK
+        assert stale.status is model.FAIL
+        assert missing.status is model.FAIL
+        assert false_healthy.status is model.FAIL
 
     def test_lifecycle_active_never_manufactures_a_runtime_verdict(self):
         row = model.execution_authority_row(
@@ -703,8 +884,8 @@ class TestAutomationRowsAreDurableFacts:
         return Connection()
 
     def _install(self, monkeypatch, *, found=None, control=None,
-                 lease=None, cycle=None, alerts=None, lifecycle=None,
-                 instance=None, service_verdict=None):
+                 lease=None, cycle=None, alerts=None, dispatchers=None,
+                 lifecycle=None, instance=None, service_verdict=None):
         from sentinel.feed import store as feed_store
         from sentinel.panel import sources
 
@@ -728,6 +909,9 @@ class TestAutomationRowsAreDurableFacts:
             sources, "_latest_automation_cycle", lambda _conn: cycle)
         monkeypatch.setattr(
             sources, "_automation_alert_counts", lambda _conn: alerts)
+        monkeypatch.setattr(
+            sources, "_alert_dispatchers",
+            lambda _conn: [] if dispatchers is None else dispatchers)
         monkeypatch.setattr(
             sources, "_latest_automation_instance", lambda _conn: instance)
         monkeypatch.setattr(
@@ -767,6 +951,12 @@ class TestAutomationRowsAreDurableFacts:
                 "pending": 2, "dead_letter": 1, "unacknowledged": 3,
                 "updated_at": NOW,
             },
+            dispatchers=[{
+                "dispatcher_id": "primary", "state": "HEALTHY",
+                "heartbeat_at": NOW, "heartbeat_age_seconds": 1,
+                "last_attempt_at": NOW, "last_success_at": NOW,
+                "consecutive_failures": 0, "last_error": None,
+            }],
             lifecycle={
                 "authority_generation": 7,
                 "certificate_sha256": "a" * 64,
@@ -787,6 +977,7 @@ class TestAutomationRowsAreDurableFacts:
         assert by_key["automation_alerts"].value == (
             "2 pending · 1 DLQ · 3 unacked")
         assert by_key["automation_alerts"].status is model.FAIL
+        assert by_key["alert_dispatcher"].status is model.OK
         assert by_key["authority"].value.startswith("VALID")
         assert by_key["authority"].status is model.OK
         assert "lifecycle-only: ACTIVE" in by_key["authority"].detail

@@ -179,3 +179,28 @@ def test_webhook_transport_failure_has_distinct_type(monkeypatch):
     with pytest.raises(alert_service.AlertTransportFailure,
                        match="transport failed"):
         adapter._post({"x": 1}, "idempotency-key")
+
+
+@pytest.mark.parametrize(
+    ("status_code", "retryable"),
+    ((401, False), (403, False), (404, False), (410, False),
+     (408, True), (425, True), (429, True), (503, True)))
+def test_webhook_http_failure_classification(
+        monkeypatch, status_code, retryable):
+    class Response:
+        pass
+
+    Response.status_code = status_code
+
+    class Client:
+        def __init__(self, *args, **kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def post(self, *args, **kwargs): return Response()
+
+    monkeypatch.setattr(alert_service.httpx, "Client", Client)
+    adapter = alert_service.WebhookAlertAdapter(
+        "https://alerts.example.test")
+    with pytest.raises(alert_service.AlertTransportFailure) as caught:
+        adapter._post({"x": 1}, "idempotency-key")
+    assert caught.value.retryable is retryable

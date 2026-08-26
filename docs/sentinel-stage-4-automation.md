@@ -795,6 +795,33 @@ durable lifecycle says that certificate is active, unrevoked, and inside its
 validity window at database time. Revocation, expiry, a missing lifecycle, or a
 certificate mismatch overrides the cached PASS and renders failure.
 
+Installed automation that is disabled is supervisor-safe but operationally
+unavailable.  It is therefore amber in the panel and participates in the
+operational headline; only an automation surface that is genuinely not
+installed remains a non-runtime `PENDING` capability.  Likewise, cycle state is
+not a success synonym.  `SUCCEEDED` is green, `RETRY_WAIT` is amber, and
+`BLOCKED`, `MISSED_STATE_ONLY`, `SUPERSEDED`, or any terminal row carrying a
+failure code is red.  A newer non-success terminal cycle or disabled automation
+invalidates prior VERIFIED styling immediately, including between the
+max-execution-lateness boundary and the regular execution close.
+
+Alert transport has its own durable health contract.  Each dispatcher uses one
+stable configured identity and persists heartbeat, last transport attempt,
+last success, consecutive failures, terminal/dead-letter state, and the last
+error.  A periodic idempotent webhook probe prevents an idle outbox from being
+mistaken for proven reachability.  Network errors, 408/425/429, and 5xx are
+retryable; other 4xx responses are terminal configuration/destination failures
+and dead-letter immediately.  The dispatcher must inspect every
+`DispatchResult`: a retry schedules durable degraded health and a dead letter
+is immediately failed health.
+
+Both dispatcher containers have a database-backed health check.  It fails on
+stale heartbeat, bounded consecutive transport failures, terminal transport
+failure, or any dead letter.  This Docker-health path is independent of the
+webhook that failed, so the same broken endpoint cannot hide its own loss of
+delivery.  The panel projects the durable dispatcher state as a separate row;
+stderr remains diagnostic evidence, not the only alarm.
+
 The paper-trial financial headline is governed separately by
 `docs/sentinel-trial-verification.md`. Operationally safe cycle outcomes do not
 imply verified realized performance. A non-success terminal cycle immediately

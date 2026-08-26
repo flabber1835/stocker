@@ -202,11 +202,12 @@ def _migration_phase(script: str, next_method: str) -> str:
     return source[start:end]
 
 
-def test_core_autonomous_deploy_migrates_feed_only_after_quiesce_and_restore():
+def test_core_autonomous_deploy_migrates_feed_only_after_quiesce_and_replay():
     phase = _migration_phase("sentinel_autonomous_deploy.py", "refresh_data(self)")
 
     assert "self._direct_stop_automation()" in phase
     assert "scripts/sentinel-restore-drill.sh" in phase
+    assert "--physical-only" in phase
     assert "schema.ensure_schema(c); store.migrate_schema(c);" in phase
     assert phase.index("self._direct_stop_automation()") < phase.index(
         "store.migrate_schema(c)")
@@ -220,9 +221,10 @@ def test_bootstrap_autonomous_deploy_cannot_skip_feed_migration():
         "persist_success(self, health: Mapping)")
 
     assert "self._direct_stop_automation()" in phase
-    assert "self._create_backup(restore_drill=True)" in phase
+    assert "self._create_backup(restore_drill=False)" in phase
+    assert "--physical-only" in phase
     assert "schema.ensure_schema(c); store.migrate_schema(c);" in phase
     assert phase.index("self._direct_stop_automation()") < phase.index(
         "store.migrate_schema(c)")
-    assert phase.index("self._create_backup(restore_drill=True)") < phase.index(
+    assert phase.index("self._create_backup(restore_drill=False)") < phase.index(
         "store.migrate_schema(c)")

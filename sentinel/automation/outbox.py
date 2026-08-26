@@ -250,7 +250,8 @@ def mark_delivered(
 def mark_failed(
         conn, *, alert_id: str, holder_id: str, error: str,
         retry_base_seconds: int = 30,
-        retry_max_seconds: int = 900) -> AlertRecord:
+        retry_max_seconds: int = 900,
+        retryable: bool = True) -> AlertRecord:
     """Persist deterministic bounded backoff or terminal dead-letter state."""
     if retry_base_seconds < 1 or retry_max_seconds < retry_base_seconds:
         raise ValueError("invalid retry interval bounds")
@@ -267,7 +268,7 @@ def mark_failed(
                 raise AutomationRefused(
                     "alert failure result does not own the active claim")
             attempt, maximum = row
-            if attempt >= maximum:
+            if not retryable or attempt >= maximum:
                 state = AlertState.DEAD_LETTER
                 action = "DEAD_LETTERED"
                 cur.execute(
@@ -350,11 +351,13 @@ async def dispatch_once(
         if inspect.isawaitable(result):
             await result
     except Exception as exc:                                  # noqa: BLE001
+        retryable = getattr(exc, "retryable", True) is not False
         failed = mark_failed(
             conn, alert_id=alert.alert_id, holder_id=holder_id,
             error=f"{type(exc).__name__}: {exc}",
             retry_base_seconds=retry_base_seconds,
-            retry_max_seconds=retry_max_seconds)
+            retry_max_seconds=retry_max_seconds,
+            retryable=retryable)
         return DispatchResult(
             alert=failed,
             dead_lettered=failed.state is AlertState.DEAD_LETTER,

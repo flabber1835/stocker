@@ -153,11 +153,14 @@ def test_base_backup_is_physical_streamed_and_verified_before_promotion():
 
 def test_restore_drill_is_isolated_and_cleans_only_its_unique_objects():
     text = _read("scripts/sentinel-restore-drill.sh")
-    assert text.count("--network none") >= 2
+    assert text.count("--network none") >= 1
+    assert 'docker network create --internal "$NETWORK"' in text
     assert ":/archive:ro" in text
     assert 'VOLUME="sentinel-restore-drill-$TOKEN"' in text
     assert 'CONTAINER="sentinel-restore-drill-$TOKEN"' in text
+    assert 'NETWORK="sentinel-restore-drill-$TOKEN"' in text
     assert 'docker volume rm "$VOLUME"' in text
+    assert 'docker network rm "$NETWORK"' in text
     assert "sentinel_pgdata" not in text
     assert "sentinel_processed_sessions" in text
     assert "sentinel_behavioral_schema_migrations" in text
@@ -165,7 +168,15 @@ def test_restore_drill_is_isolated_and_cleans_only_its_unique_objects():
     assert "sentinel_backup_recovery_markers" in text
     assert "pg_last_wal_replay_lsn" in text
     assert "TARGET_LSN" in text
+    assert "recovery marker identity is malformed" in text
+    assert "recovery marker LSN is malformed" in text
     assert "RAISE EXCEPTION" in text
+    assert "pg_promote(true,60)" in text
+    assert "SENTINEL_RUNTIME_IMAGE_REF" in text
+    assert "sentinel.restore_validation" in text
+    assert "--read-only --cap-drop ALL" in text
+    assert "physical_wal_replay_ready:true" in text
+    assert "restore_semantics_ready:true" in text
 
 
 def test_backup_status_enforces_a_bounded_age_without_pruning():

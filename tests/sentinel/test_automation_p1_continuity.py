@@ -35,6 +35,9 @@ def test_primary_compose_supervises_shadow_and_externalizes_alerts():
     assert "sentinel-alert-dispatcher:" in text
     assert 'entrypoint: ["python", "-m", "sentinel.alert_service"]' in text
     assert "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL" in text
+    assert "SENTINEL_AUTOMATION_ALERT_DISPATCHER_ID: primary" in text
+    assert "SENTINEL_AUTOMATION_ALERT_PROBE_SECONDS" in text
+    assert 'test: ["CMD", "python", "-m", "sentinel.alert_liveness"]' in text
 
 
 def test_off_host_stack_contains_independent_silence_monitor():
@@ -43,6 +46,8 @@ def test_off_host_stack_contains_independent_silence_monitor():
     assert "sentinel-alert-dispatcher-standby:" in text
     assert "SENTINEL_DATABASE_URL: ${SENTINEL_DATABASE_URL:?set shared HA PostgreSQL DSN}" in text
     assert "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL" in text
+    assert "SENTINEL_AUTOMATION_ALERT_DISPATCHER_ID: standby" in text
+    assert 'test: ["CMD", "python", "-m", "sentinel.alert_liveness"]' in text
 
 
 def test_trading_worker_does_not_consume_its_own_alert_outbox():

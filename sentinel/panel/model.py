@@ -649,7 +649,7 @@ def automation_row(*, installed: Optional[bool] = False,
     suffix = f"generation {generation}"
     if not enabled:
         kill = "kill engaged" if killed else "kill released"
-        return Row("automation", "Automation", "DISABLED", PENDING,
+        return Row("automation", "Automation", "DISABLED", WARN,
                    f"supervisor-healthy and operationally inert · {kill} · "
                    f"{suffix}", updated_at)
     if killed:
@@ -731,16 +731,18 @@ def automation_cycle_row(*, installed: Optional[bool],
     if failure_code or failure_detail:
         detail += (f" · failure {failure_code or 'UNCLASSIFIED'}: "
                    f"{failure_detail or 'no detail'}")
-    if not normalized:
-        status = UNKNOWN
-    elif normalized == "BLOCKED":
-        status = FAIL
-    elif normalized == "RETRY_WAIT":
+    if normalized == "RETRY_WAIT":
         status = WARN
-    elif normalized in {"SUCCEEDED", "MISSED_STATE_ONLY", "SUPERSEDED"}:
+    elif failure_code or failure_detail:
+        status = FAIL
+    elif not normalized:
+        status = UNKNOWN
+    elif normalized in {"BLOCKED", "MISSED_STATE_ONLY", "SUPERSEDED"}:
+        status = FAIL
+    elif normalized == "SUCCEEDED":
         status = OK
     else:
-        status = OK if enabled else PENDING
+        status = WARN if enabled else PENDING
     return Row("automation_cycle", "Automation cycle",
                normalized or "UNKNOWN", status, detail, updated_at)
 
@@ -767,6 +769,54 @@ def automation_alerts_row(*, installed: Optional[bool],
         WARN if pending or unacknowledged else OK)
     return Row("automation_alerts", "Automation alerts", value, status,
                "SELECT-only projection of the durable alert outbox", as_of)
+
+
+def alert_dispatcher_row(*, installed: Optional[bool],
+                         dispatchers: Optional[list[dict]] = None,
+                         maximum_age_seconds: float = 30,
+                         error: Optional[str] = None) -> Row:
+    """Durable webhook reachability, independently checked by Docker health."""
+    if error or installed is None:
+        return Row("alert_dispatcher", "Alert delivery", "UNKNOWN", UNKNOWN,
+                   error or "alert dispatcher health could not be read")
+    if not installed:
+        return Row("alert_dispatcher", "Alert delivery", "NOT INSTALLED",
+                   PENDING, "no durable alert-dispatcher health schema exists")
+    if not dispatchers:
+        return Row("alert_dispatcher", "Alert delivery", "NO DISPATCHER",
+                   FAIL, "health schema exists but no dispatcher has registered")
+
+    failed = []
+    degraded = []
+    for item in dispatchers:
+        identity = str(item.get("dispatcher_id") or "unknown")
+        state = str(item.get("state") or "UNKNOWN").upper()
+        age = item.get("heartbeat_age_seconds")
+        if (not isinstance(age, (int, float)) or age < 0
+                or age > maximum_age_seconds or state == "FAILED"
+                or (state == "HEALTHY"
+                    and item.get("last_success_at") is None)):
+            failed.append(identity)
+        elif state != "HEALTHY":
+            degraded.append(identity)
+    healthy = len(dispatchers) - len(failed) - len(degraded)
+    value = (f"{healthy} healthy · {len(degraded)} degraded · "
+             f"{len(failed)} failed")
+    status = FAIL if failed else (WARN if degraded else OK)
+    detail_parts = []
+    for item in dispatchers:
+        detail_parts.append(
+            f"{item.get('dispatcher_id') or 'unknown'} "
+            f"{item.get('state') or 'UNKNOWN'} · heartbeat "
+            f"{item.get('heartbeat_age_seconds')}s · failures "
+            f"{item.get('consecutive_failures')} · last success "
+            f"{item.get('last_success_at') or 'none'} · "
+            f"{item.get('last_error') or 'no error'}")
+    as_of = max(
+        (item.get("heartbeat_at") for item in dispatchers
+         if item.get("heartbeat_at") is not None), default=None)
+    return Row("alert_dispatcher", "Alert delivery", value, status,
+               " | ".join(detail_parts), as_of)
 
 
 def execution_authority_row(
@@ -852,6 +902,7 @@ def execution_authority_row(
 __all__ = ["FAIL", "FINANCIAL_AUTHORITY_ROW_KEYS", "NO_PERFORMANCE_HERE",
            "OK", "PENDING", "Panel", "Row", "SHADOW_ROW_KEYS",
            "TRIAL_ROW_KEYS", "UNKNOWN", "WARN", "automation_alerts_row",
+           "alert_dispatcher_row",
            "automation_cycle_row", "automation_leader_row", "automation_row",
            "book_row", "broker_row",
            "execution_authority_row", "exposure_row", "feed_row", "ingest_row",
