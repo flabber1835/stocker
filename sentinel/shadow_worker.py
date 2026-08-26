@@ -40,12 +40,20 @@ def _sharadar_availability(exc: BaseException) -> bool:
     return False
 
 
+def _backup_availability(exc: BaseException) -> bool:
+    """Keep legacy generic fences retryable; explicit config/integrity is not."""
+    return (
+        isinstance(exc, backup_guard.BackupWriteFenced)
+        and not isinstance(exc, backup_guard.BackupConfigurationRefused)
+    )
+
+
 def _availability_failure(exc: BaseException) -> bool:
     current: BaseException | None = exc
     seen = set()
     while current is not None and id(current) not in seen:
         seen.add(id(current))
-        if isinstance(current, backup_guard.BackupUnavailable):
+        if _backup_availability(current):
             return True
         if _sharadar_availability(current):
             return True
@@ -62,12 +70,13 @@ def main() -> int:
     except ShadowServiceWaiting as exc:
         print(f"WAITING: {exc}", file=sys.stderr, flush=True)
         return EXIT_WAITING
-    except backup_guard.BackupUnavailable as exc:
-        print(f"AVAILABILITY: {exc}", file=sys.stderr, flush=True)
-        return EXIT_AVAILABILITY
-    except backup_guard.BackupWriteFenced as exc:
+    except backup_guard.BackupConfigurationRefused as exc:
         print(f"REFUSED: {exc}", file=sys.stderr, flush=True)
         return EXIT_REFUSED
+    except backup_guard.BackupWriteFenced as exc:
+        # BackupUnavailable and legacy generic BackupWriteFenced are transient.
+        print(f"AVAILABILITY: {exc}", file=sys.stderr, flush=True)
+        return EXIT_AVAILABILITY
     except ShadowServiceRetry as exc:
         if _availability_failure(exc):
             print(f"AVAILABILITY: {exc}", file=sys.stderr, flush=True)
