@@ -5,6 +5,11 @@ session rather than replaying performance retrospectively. This composition
 preserves that rule while making prolonged outages recoverable. Canonical data
 may catch up across missed sessions, but shadow performance starts a new
 append-only segment at the next close whose following open is still future.
+
+Process liveness and financial readiness remain separate. The supervisor keeps
+retrying recoverable outages without a permanent latch, but Docker readiness is
+non-green once a shadow decision has missed its causal following-open boundary
+or more than one XNYS session is absent.
 """
 from __future__ import annotations
 
@@ -123,7 +128,7 @@ def _roll_and_advance(config: base.ShadowServiceConfig, *, target: str) -> dict:
             "performance_segment": staged.index,
             "performance_continuity": "RESET_AFTER_CAUSAL_GAP",
             "previous_segment_anchor_kind": staged.predecessor_anchor_kind,
-            "previous_segment_marker_sha256": staged.marker_sha256,
+            "segment_marker_sha256": staged.marker_sha256,
         }
     except (base.ShadowServiceRefused, base.ShadowServiceRetry,
             shadow_runtime.ShadowRuntimeRefused,
@@ -185,18 +190,20 @@ def advance_once(config: base.ShadowServiceConfig, *,
 
 def service_health(config: base.ShadowServiceConfig, *,
                    now: Optional[datetime] = None) -> dict:
-    """Health remains live during recoverable gaps without claiming SHADOW_GO."""
+    """Financial readiness health; recoverable process liveness is separate."""
     instant = _utc(now)
     retained = base.preflight(
         config, now=instant, allow_stale_frontier=True)
     status = str(retained.get("status") or "")
     if status == "RECOVERY_REQUIRED":
         cutoff = _cutoff(str(retained.get("recovery_cutoff_at") or ""))
+        if instant >= cutoff:
+            raise base.ShadowServiceWaiting(
+                "shadow financial readiness is red: partial lineage missed its "
+                "following-open cutoff and requires a fresh performance segment")
         return {
             **retained,
-            "service_health": (
-                "HEALTHY_RECOVERY_PENDING" if instant < cutoff
-                else "HEALTHY_WAITING_FRESH_SEGMENT"),
+            "service_health": "HEALTHY_RECOVERY_PENDING",
         }
     if status == "ATTESTED_STRUCTURAL":
         target = calendar.latest_closed_session(instant)
@@ -205,15 +212,18 @@ def service_health(config: base.ShadowServiceConfig, *,
             return {**retained, "service_health": "HEALTHY_ATTESTED",
                     "target_session": target}
         adjacent = calendar.next_session(latest)
-        if adjacent == target:
-            return {**retained, "service_health": "HEALTHY_WAITING",
-                    "target_session": target}
-        return {
-            **retained,
-            "service_health": "HEALTHY_CAUSAL_GAP_RECOVERY_PENDING",
-            "target_session": target,
-            "performance_continuity": "WILL_RESET",
-        }
+        if adjacent != target:
+            raise base.ShadowServiceWaiting(
+                "shadow financial readiness is red: more than one XNYS "
+                "decision session is missing; causal-gap recovery is pending")
+        execution = calendar.next_session(target)
+        execution_open, _close = calendar.session_window(execution)
+        if instant >= execution_open.astimezone(timezone.utc):
+            raise base.ShadowServiceWaiting(
+                "shadow financial readiness is red: the owed decision close "
+                "passed its following-open cutoff without verified advancement")
+        return {**retained, "service_health": "HEALTHY_WAITING",
+                "target_session": target}
     return base.service_health(config, now=instant)
 
 
