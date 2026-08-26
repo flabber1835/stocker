@@ -63,10 +63,10 @@ def _segment(marker="b" * 64, index=2):
     return SimpleNamespace(index=index, marker_sha256=marker)
 
 
-def _binding():
+def _binding(*, account="paper-1", epoch=3, deployment="deploy-1"):
     return SimpleNamespace(identity=SimpleNamespace(
-        deployment_id="deploy-1", broker="alpaca",
-        broker_account_id="paper-1", takeover_epoch=3))
+        deployment_id=deployment, broker="alpaca",
+        broker_account_id=account, takeover_epoch=epoch))
 
 
 def _plan():
@@ -257,6 +257,58 @@ def test_existing_handover_allows_later_nonflat_days_without_reset(monkeypatch):
 
     assert second == first
     assert conn.commits == 1
+
+
+def test_existing_handover_survives_takeover_epoch_for_same_broker_account(monkeypatch):
+    now = datetime(2026, 8, 26, 23, 50, tzinfo=timezone.utc)
+    conn = _Conn(now)
+    monkeypatch.setattr(
+        dual_reconciliation.dual_plan_authority, "load_authority",
+        lambda *_args, **_kwargs: _authority(now))
+    monkeypatch.setattr(
+        dual_reconciliation.journal, "in_flight_commands",
+        lambda *_args, **_kwargs: ())
+    first = dual_reconciliation._record_or_require_regenesis_handover(
+        conn, segment=_segment(), observation_id="primary",
+        plan=_plan(), binding=_binding(epoch=3))
+
+    monkeypatch.setattr(
+        dual_reconciliation.dual_plan_authority, "load_authority",
+        lambda *_args, **_kwargs: pytest.fail(
+            "a takeover epoch must not erase an established economic handover"))
+    later = dual_reconciliation._record_or_require_regenesis_handover(
+        conn, segment=_segment(), observation_id="primary",
+        plan=SimpleNamespace(
+            **{**_plan().__dict__, "plan_id": "later-plan",
+               "fingerprint": lambda: "e" * 64}),
+        binding=_binding(epoch=4))
+
+    assert later == first
+    assert first["takeover_epoch"] == 3
+
+
+def test_existing_handover_refuses_different_broker_account(monkeypatch):
+    now = datetime(2026, 8, 26, 23, 50, tzinfo=timezone.utc)
+    conn = _Conn(now)
+    monkeypatch.setattr(
+        dual_reconciliation.dual_plan_authority, "load_authority",
+        lambda *_args, **_kwargs: _authority(now))
+    monkeypatch.setattr(
+        dual_reconciliation.journal, "in_flight_commands",
+        lambda *_args, **_kwargs: ())
+    dual_reconciliation._record_or_require_regenesis_handover(
+        conn, segment=_segment(), observation_id="primary",
+        plan=_plan(), binding=_binding())
+
+    with pytest.raises(
+            dual_reconciliation.DualReconciliationRefused,
+            match="another broker account"):
+        dual_reconciliation._record_or_require_regenesis_handover(
+            conn, segment=_segment(), observation_id="primary",
+            plan=SimpleNamespace(
+                **{**_plan().__dict__, "plan_id": "later-plan",
+                   "fingerprint": lambda: "e" * 64}),
+            binding=_binding(account="paper-2", epoch=4))
 
 
 def test_current_post_gap_plan_without_handover_is_not_execution_authority(monkeypatch):
