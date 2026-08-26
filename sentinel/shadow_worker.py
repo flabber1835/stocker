@@ -5,7 +5,7 @@ import json
 import sys
 
 from sentinel import shadow_runtime
-from sentinel.shadow_service import (
+from sentinel.shadow_recovery import (
     ShadowServiceConfig,
     ShadowServiceRefused,
     ShadowServiceRetry,
