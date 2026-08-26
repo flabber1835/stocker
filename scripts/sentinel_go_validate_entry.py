@@ -42,8 +42,15 @@ def emit_failure(phase, exc):
 
 
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
-phase = 'SCHEMA_MIGRATION'
+phase = 'BACKUP_DURABILITY'
 try:
+    # Schema bootstrap/migration is PostgreSQL WAL mutation just like market-data
+    # publication. Prove the external archive target *before* the validator may
+    # change even one financial-database row. On a brand-new archive-enabled
+    # cluster this actively establishes the first exact durable WAL segment.
+    backup_guard.require_writes_permitted(
+        c, operation='NAS validation schema migration')
+    phase = 'SCHEMA_MIGRATION'
     schema.ensure_schema(c)
     store.migrate_schema(c)
     target = calendar.latest_closed_session()
