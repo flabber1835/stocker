@@ -389,7 +389,7 @@ def test_panel_discloses_segment_return_and_exact_approval_marker(monkeypatch):
     marker = "c" * 64
     monkeypatch.setenv("SENTINEL_REVIEWED_DEPLOYMENT_MODE", "dual")
     monkeypatch.setenv("SENTINEL_SHADOW_OBSERVATION_ID", "primary")
-    monkeypatch.setattr(feed_store, "connect", lambda _dsn: SimpleNamespace(close=lambda: None))
+    monkeypatch.setattr(feed_store, "connect", lambda _dsn: _OneRowConn(None))
     monkeypatch.setattr(
         panel_app.shadow_segments, "active_segment",
         lambda *_args, **_kwargs: SimpleNamespace(
