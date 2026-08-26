@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
-"""Diagnose the retained 2008/2022 leadership-population fingerprints.
+"""Diagnose 2008/2022 leadership populations on the corrected PIT price tape.
 
-This is a research-only gate diagnostic.  It deliberately evaluates two category
-models on exactly the same PIT price/liquidity history:
+This is a research-only opportunity-set diagnostic. It deliberately evaluates two
+category models on exactly the same corrected PIT price/liquidity history:
 
-* legacy_current_category: current Sharadar TICKERS category (non-PIT), used only
-  as a falsifier that this independent calculation reproduces the prior replay;
-* sec_auto_common: common-equity evidence whose SEC filing date is strictly
-  before the target session.  Unknown is fail-closed/ineligible.
+* current_category_on_pit_price_domains: current Sharadar TICKERS category
+  (non-PIT), used only to isolate the effect of category authority while holding
+  the corrected PIT price/liquidity domains fixed;
+* sec_auto_common_fail_closed: automatic common-equity evidence whose SEC filing
+  date is strictly before the target session. Unknown is fail-closed/ineligible.
+
+IMPORTANT: the first arm is NOT a reproduction control for the frozen exploratory
+A/B runner. That runner used a different price/liquidity coordinate (Sharadar
+``close * volume``) plus current listing/category metadata. Its historical counts
+therefore are provenance references only, not pass/fail targets for this script.
 
 No strategy performance is computed here.
 """
@@ -18,7 +24,6 @@ import gzip
 import io
 import json
 import math
-import re
 import zipfile
 from pathlib import Path
 
@@ -31,9 +36,15 @@ TICKERS_ZIP = ROOT / "sharadar" / "SHARADAR_TICKERS.zip"
 SEC_EVIDENCE = PIT / "SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz"
 OUT = PIT / "PIT_LEADERSHIP_FINGERPRINT_AUDIT.json"
 
-TARGETS = {
-    "2008-12-23": {"expected_pool": 101, "expected_overlap": 7},
-    "2022-01-03": {"expected_pool": 96, "expected_overlap": 8},
+PROVENANCE = {
+    "2008-12-23": {
+        "retained_historical_fingerprint": {"leadership_population": 101, "held_overlap": 7},
+        "frozen_exploratory_runner": {"eligible": 1005, "leadership_population": 101},
+    },
+    "2022-01-03": {
+        "retained_historical_fingerprint": {"leadership_population": 96, "held_overlap": 8},
+        "frozen_exploratory_runner": {"eligible": 1791, "leadership_population": 180},
+    },
 }
 MIN_PRICE = 1.0
 MIN_ADV20 = 20_000_000.0
@@ -53,7 +64,7 @@ def _read_zip_csv(path: Path) -> pd.DataFrame:
         return pd.read_csv(io.StringIO(raw), sep=sep, low_memory=False)
 
 
-def legacy_common() -> set[str]:
+def current_common() -> set[str]:
     d = _read_zip_csv(TICKERS_ZIP)
     d = d[d["table"].astype(str).eq("SEP")]
     cat = d["category"].fillna("").astype(str)
@@ -73,7 +84,6 @@ def first_sec_common() -> dict[str, str]:
 
 
 def load_window(target: pd.Timestamp) -> tuple[pd.DataFrame, list[pd.Timestamp]]:
-    # Two calendar years are comfortably longer than the 126-session lookback.
     years = [target.year - 1, target.year]
     parts = []
     for y in years:
@@ -103,7 +113,7 @@ def load_window(target: pd.Timestamp) -> tuple[pd.DataFrame, list[pd.Timestamp]]
     return d[d["date"].isin(keep_sessions)].copy(), keep_sessions
 
 
-def fingerprint(target_s: str, legacy: set[str], sec_first: dict[str, str]) -> dict:
+def fingerprint(target_s: str, current: set[str], sec_first: dict[str, str]) -> dict:
     target = pd.Timestamp(target_s)
     d, sessions = load_window(target)
     session_to_col = {s: i for i, s in enumerate(sessions)}
@@ -124,12 +134,9 @@ def fingerprint(target_s: str, legacy: set[str], sec_first: dict[str, str]) -> d
         raw[i, j] = float(r.closeunadj) if pd.notna(r.closeunadj) else np.nan
         vol[i, j] = float(r.volume) if pd.notna(r.volume) else np.nan
 
-    # Exact standalone continuity condition at the target: 126 valid consecutive
-    # close-to-close returns through the target session.
     valid_close = np.isfinite(close) & (close > 0)
     continuous = valid_close.all(axis=1)
     logret = np.log(close[:, 1:] / close[:, :-1])
-    # standalone fvol = 126-session return buffer less latest 21 returns
     f = logret[:, :105]
     fcnt = np.isfinite(f).sum(axis=1)
     fsum = np.nansum(f, axis=1)
@@ -146,10 +153,11 @@ def fingerprint(target_s: str, legacy: set[str], sec_first: dict[str, str]) -> d
     m = np.isfinite(ss) & (ss > -1) & np.isfinite(fvol) & (fvol > 0)
     score[m] = np.log1p(ss[m]) / fvol[m]
 
+    # Corrected PIT liquidity coordinate: raw/unadjusted traded close * volume.
+    # This intentionally differs from the frozen exploratory runner's adjusted
+    # Sharadar close * volume calculation.
     dv = raw * vol
     adv20 = np.nansum(dv[:, -20:], axis=1) / 20.0
-    # Because the standalone ring inserts zeros for absent/non-finite dollar
-    # volume, nansum is the equivalent fail-closed arithmetic here.
     daily = dv[:, -1]
     base = (
         continuous
@@ -164,13 +172,12 @@ def fingerprint(target_s: str, legacy: set[str], sec_first: dict[str, str]) -> d
     )
 
     sec_ok = np.array([sec_first.get(t, "9999-99-99") < target_s for t in tickers], dtype=bool)
-    legacy_ok = np.array([t in legacy for t in tickers], dtype=bool)
+    current_ok = np.array([t in current for t in tickers], dtype=bool)
 
     def summarize(cat: np.ndarray) -> dict:
         elig = base & cat
         ids = np.flatnonzero(elig)
         vals = ss[ids]
-        # lexical ticker order is the explicit PIT tie order; mergesort preserves it.
         order = np.argsort(-vals, kind="mergesort")
         ranked = ids[order]
         pool_n = max(NPOS, int(math.ceil(len(ids) * TOP_FRAC))) if len(ids) else 0
@@ -181,13 +188,13 @@ def fingerprint(target_s: str, legacy: set[str], sec_first: dict[str, str]) -> d
             "pool_tickers": [tickers[i] for i in pool],
         }
 
-    a = summarize(legacy_ok)
+    a = summarize(current_ok)
     b = summarize(sec_ok)
     unknown_numeric = [tickers[i] for i in np.flatnonzero(base & ~sec_ok)]
     return {
         "target": target_s,
-        "expected_retained": TARGETS[target_s],
-        "legacy_current_category_control": a,
+        "provenance_references_not_pass_fail_targets": PROVENANCE[target_s],
+        "current_category_on_pit_price_domains": a,
         "sec_auto_common_fail_closed": b,
         "numeric_survivors_without_pre_session_sec_common": len(unknown_numeric),
         "numeric_survivors_without_pre_session_sec_common_tickers": unknown_numeric,
@@ -195,12 +202,14 @@ def fingerprint(target_s: str, legacy: set[str], sec_first: dict[str, str]) -> d
 
 
 def main() -> None:
-    legacy = legacy_common()
+    current = current_common()
     sec_first = first_sec_common()
     report = {
-        "purpose": "PIT category/opportunity-set control diagnostic; no performance claim",
+        "purpose": "PIT category/opportunity-set diagnostic; no performance claim",
         "category_cutoff": "SEC filing date strictly before target session; unknown ineligible",
-        "targets": [fingerprint(t, legacy, sec_first) for t in TARGETS],
+        "price_liquidity_semantics": "corrected PIT signal_close for returns; raw closeunadj*volume for liquidity",
+        "frozen_runner_comparability": "not directly comparable: frozen runner used Sharadar close*volume plus current metadata",
+        "targets": [fingerprint(t, current, sec_first) for t in PROVENANCE],
     }
     OUT.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
