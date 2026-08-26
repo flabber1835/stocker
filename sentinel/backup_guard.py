@@ -15,8 +15,9 @@ have disappeared without PostgreSQL having generated a new archive attempt.
 Before any new economic/data mutation in that state, Sentinel writes a harmless
 restore-point WAL record, forces a WAL switch, and requires the *exact* forced
 segment to exist at full segment size on the mounted durable archive target.
-This avoids relying on pg_stat_archiver ordering, which PostgreSQL does not
-promise across recovery/promotion. Read-only broker recovery remains available
+A new archive-enabled database with no prior successful archive uses that same
+active proof before its first protected mutation rather than deadlocking on the
+absence of historical evidence. Read-only broker recovery remains available
 throughout.
 """
 from __future__ import annotations
@@ -94,13 +95,21 @@ def status(conn) -> BackupGuardStatus:
             "PostgreSQL archive clock is unavailable; refusing new mutation")
     last_ok = _aware(last_ok)
     last_fail = _aware(last_fail)
+    failed_count = int(failed_count or 0)
     age = (None if last_ok is None else max(
         0, int((database_now - last_ok).total_seconds())))
     unresolved = bool(
         last_fail is not None and (last_ok is None or last_fail > last_ok))
     hard_seconds = BACKUP_HARD_MAX_AGE_HOURS * 3600
-    if mode != "on" or last_ok is None:
+    if mode != "on":
         state = "FENCED"
+    elif last_ok is None:
+        # A fresh archive-enabled cluster has no historical success yet. If it
+        # also has no observed failure, actively prove the target before the
+        # first protected write. An already-failing virgin archiver is fenced.
+        state = (
+            "FENCED" if unresolved or failed_count > 0
+            else "PROBE_REQUIRED")
     elif unresolved and age is not None and age > hard_seconds:
         state = "FENCED"
     elif unresolved:
@@ -113,7 +122,7 @@ def status(conn) -> BackupGuardStatus:
         state=state, archive_mode=mode,
         last_success_age_seconds=age,
         unresolved_failure=unresolved,
-        failed_count=int(failed_count or 0))
+        failed_count=failed_count)
 
 
 def _archiver_observation(conn):
