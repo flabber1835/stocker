@@ -82,8 +82,13 @@ class ProductionAutomation(base.ProductionAutomation):
     def _require_backup_for_new_mutation(self, operation: str):
         conn = self.connect()
         try:
-            return backup_guard.require_writes_permitted(
-                conn, operation=operation)
+            try:
+                return backup_guard.require_writes_permitted(
+                    conn, operation=operation)
+            except backup_guard.BackupConfigurationRefused as exc:
+                raise NonRetryableCallbackRefused(
+                    "backup durability configuration/integrity refused: "
+                    f"{exc}") from exc
         finally:
             conn.rollback()
             conn.close()
