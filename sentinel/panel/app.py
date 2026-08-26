@@ -79,6 +79,8 @@ def _shadow_segment_disclosure(panel: model.Panel, database_url: str) -> model.P
             "SENTINEL_REVIEWED_DEPLOYMENT_MODE", "")).strip().lower() != "dual":
         return panel
     from sentinel.feed import store as feed_store
+    from sentinel.panel.sources import (
+        STATEMENT_TIMEOUT_MS, _bounded_dsn, _set_statement_timeout)
 
     observation_id = str(os.environ.get(
         "SENTINEL_SHADOW_OBSERVATION_ID", "primary")).strip()
@@ -86,7 +88,8 @@ def _shadow_segment_disclosure(panel: model.Panel, database_url: str) -> model.P
         return panel
     conn = None
     try:
-        conn = feed_store.connect(database_url)
+        conn = feed_store.connect(_bounded_dsn(database_url))
+        _set_statement_timeout(conn, STATEMENT_TIMEOUT_MS)
         segment = shadow_segments.active_segment(conn, observation_id)
     except Exception as exc:                              # noqa: BLE001
         return model.Panel(
