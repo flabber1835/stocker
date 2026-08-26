@@ -23,7 +23,7 @@ Verification remains read-only by default. The production preparation callback
 enters an async-safe preparation scope so its pre-plan shadow check can run before
 the handover exists and its post-plan reconciliation may establish the receipt.
 Inspection, recovery, convergence, and execution never enter that scope and must
-observe an already-durable handover.
+observe an already-durable handover before a current post-gap plan can transport.
 """
 from __future__ import annotations
 
@@ -435,9 +435,17 @@ def verified_shadow_intent(
         handover = _load_regenesis_handover(
             conn, segment=segment, observation_id=observation_id)
         if handover is None:
-            raise DualReconciliationPending(
-                "post-gap PAPER transport has no durable flat broker handover; "
-                "broker mutation remains fenced")
+            current = journal.latest_plan(conn)
+            # Before any PAPER plan exists this remains a read-only intent probe;
+            # it cannot transport. Once the current decision-session plan exists,
+            # every non-PREPARE caller is fenced until the durable flat handover
+            # is present. PREPARE itself enters regenesis_preparation_scope(),
+            # which also makes a same-session retry possible after a transient
+            # post-plan handover failure.
+            if current is not None and str(current.decision_session) == wanted:
+                raise DualReconciliationPending(
+                    "post-gap PAPER transport has no durable flat broker handover; "
+                    "broker mutation remains fenced")
     return result
 
 
