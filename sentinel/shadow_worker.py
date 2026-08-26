@@ -45,7 +45,7 @@ def _availability_failure(exc: BaseException) -> bool:
     seen = set()
     while current is not None and id(current) not in seen:
         seen.add(id(current))
-        if isinstance(current, backup_guard.BackupWriteFenced):
+        if isinstance(current, backup_guard.BackupUnavailable):
             return True
         if _sharadar_availability(current):
             return True
@@ -62,9 +62,12 @@ def main() -> int:
     except ShadowServiceWaiting as exc:
         print(f"WAITING: {exc}", file=sys.stderr, flush=True)
         return EXIT_WAITING
-    except backup_guard.BackupWriteFenced as exc:
+    except backup_guard.BackupUnavailable as exc:
         print(f"AVAILABILITY: {exc}", file=sys.stderr, flush=True)
         return EXIT_AVAILABILITY
+    except backup_guard.BackupWriteFenced as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr, flush=True)
+        return EXIT_REFUSED
     except ShadowServiceRetry as exc:
         if _availability_failure(exc):
             print(f"AVAILABILITY: {exc}", file=sys.stderr, flush=True)
