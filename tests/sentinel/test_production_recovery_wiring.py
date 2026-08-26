@@ -94,6 +94,25 @@ def _repo_root() -> Path:
     return root
 
 
+def test_fresh_archive_enabled_database_requires_active_first_archive_proof():
+    now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+    result = backup_guard.status(_Conn(("on", None, None, 0, now)))
+
+    assert result.state == "PROBE_REQUIRED"
+    assert result.writes_permitted is False
+    assert result.bulk_writes_permitted is False
+
+
+def test_virgin_archiver_with_observed_failure_is_fenced():
+    now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+    failed_at = now - timedelta(minutes=1)
+    result = backup_guard.status(_Conn(("on", None, failed_at, 1, now)))
+
+    assert result.state == "FENCED"
+    assert result.unresolved_failure is True
+    assert result.writes_permitted is False
+
+
 def test_quiet_old_archive_requires_active_probe_before_mutation():
     now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
     old_success = now - timedelta(
@@ -141,9 +160,15 @@ def test_regenesis_approval_is_forwarded_to_authorized_automation():
     ) in text
 
 
-def test_nas_current_daily_proof_cannot_bypass_backup_guard():
+def test_nas_schema_and_daily_mutations_cannot_bypass_backup_guard():
     text = (_repo_root() / "scripts" / "sentinel_go_validate_entry.py").read_text(
         encoding="utf-8")
     assert "from sentinel import backup_guard, schema" in text
-    assert "NAS validation explicit daily publication" in text
+    schema_guard = text.index("operation='NAS validation schema migration'")
+    schema_mutation = text.index("schema.ensure_schema(c)")
+    daily_guard = text.index("operation='NAS validation explicit daily publication'")
+    daily_mutation = text.index("ingest.daily(c, today=target)", daily_guard)
+
+    assert schema_guard < schema_mutation
+    assert daily_guard < daily_mutation
     assert "backup_guard.require_writes_permitted" in text
