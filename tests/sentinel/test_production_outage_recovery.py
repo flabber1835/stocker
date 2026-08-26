@@ -5,9 +5,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from sentinel import backup_guard, shadow_recovery, shadow_segments, shadow_worker
-from sentinel import automation_recovery
-from sentinel.feed import outage_recovery, sharadar
+from sentinel import (
+    automation_recovery,
+    backup_guard,
+    dual_reconciliation,
+    shadow_recovery,
+    shadow_segments,
+    shadow_worker,
+)
+from sentinel.feed import outage_recovery, sharadar, store as feed_store
+from sentinel.panel import app as panel_app, model as panel_model
 
 
 class _OneRowCursor:
@@ -104,6 +111,9 @@ def test_feed_outage_recovery_escalates_only_named_local_state(monkeypatch):
     monkeypatch.setattr(
         outage_recovery, "retained_market_start", lambda _conn: "2025-08-20")
     monkeypatch.setattr(
+        outage_recovery.backup_guard, "require_writes_permitted",
+        lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
         outage_recovery.backup_guard, "require_bulk_writes_permitted",
         lambda *_args, **_kwargs: None)
 
@@ -133,6 +143,23 @@ def test_feed_outage_recovery_escalates_only_named_local_state(monkeypatch):
     assert daily_calls["count"] == 2
 
 
+def test_hard_backup_fence_blocks_ordinary_daily_before_ingest(monkeypatch):
+    monkeypatch.setattr(
+        outage_recovery.store, "latest_visible_session",
+        lambda _conn: "2026-08-21")
+    monkeypatch.setattr(
+        outage_recovery.backup_guard, "require_writes_permitted",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            backup_guard.BackupWriteFenced("backup FENCED")))
+    monkeypatch.setattr(
+        outage_recovery.ingest, "daily",
+        lambda *_args, **_kwargs: pytest.fail(
+            "ordinary ingest must not start after hard backup fence"))
+
+    with pytest.raises(backup_guard.BackupWriteFenced, match="FENCED"):
+        outage_recovery.catch_up(SimpleNamespace(), target_session="2026-08-25")
+
+
 def test_degraded_backup_blocks_bulk_reseed_before_seed_starts(monkeypatch):
     class LocalRecoverable(RuntimeError):
         pass
@@ -142,6 +169,9 @@ def test_degraded_backup_blocks_bulk_reseed_before_seed_starts(monkeypatch):
     monkeypatch.setattr(
         outage_recovery.store, "latest_visible_session",
         lambda _conn: "2026-08-21")
+    monkeypatch.setattr(
+        outage_recovery.backup_guard, "require_writes_permitted",
+        lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         outage_recovery.ingest, "daily",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(LocalRecoverable("stale")))
@@ -165,6 +195,9 @@ def test_feed_outage_recovery_never_relabels_vendor_failure_local(monkeypatch):
     monkeypatch.setattr(
         outage_recovery.store, "latest_visible_session",
         lambda _conn: "2026-08-21")
+    monkeypatch.setattr(
+        outage_recovery.backup_guard, "require_writes_permitted",
+        lambda *_args, **_kwargs: None)
     vendor = sharadar.SharadarRequestError("provider unavailable")
     monkeypatch.setattr(
         outage_recovery.ingest, "daily",
@@ -268,14 +301,111 @@ def test_expired_partial_shadow_waits_then_rolls_instead_of_promoting(monkeypatc
     assert calls == ["2026-08-24"]
 
 
-def test_shadow_worker_classifies_provider_and_backup_loss_as_availability():
-    provider = sharadar.SharadarRequestError("offline")
+def test_shadow_financial_health_is_red_for_multi_session_gap(monkeypatch):
+    cfg = SimpleNamespace(database_url="db", observation_id="primary")
+    monkeypatch.setattr(
+        shadow_recovery.base, "preflight",
+        lambda *_args, **_kwargs: {
+            "status": "ATTESTED_STRUCTURAL", "latest_session": "2026-08-20"})
+    monkeypatch.setattr(
+        shadow_recovery.calendar, "latest_closed_session", lambda _now: "2026-08-24")
+    monkeypatch.setattr(
+        shadow_recovery.calendar, "next_session",
+        lambda session: {
+            "2026-08-20": "2026-08-21",
+            "2026-08-24": "2026-08-25",
+        }[str(session)])
+
+    with pytest.raises(shadow_recovery.ShadowServiceWaiting, match="readiness is red"):
+        shadow_recovery.service_health(
+            cfg, now=datetime(2026, 8, 24, 21, 0, tzinfo=timezone.utc))
+
+
+def test_shadow_financial_health_is_red_after_partial_cutoff(monkeypatch):
+    cfg = SimpleNamespace(database_url="db", observation_id="primary")
+    monkeypatch.setattr(
+        shadow_recovery.base, "preflight",
+        lambda *_args, **_kwargs: {
+            "status": "RECOVERY_REQUIRED",
+            "recovery_cutoff_at": "2026-08-21T13:30:00Z",
+        })
+    with pytest.raises(shadow_recovery.ShadowServiceWaiting, match="readiness is red"):
+        shadow_recovery.service_health(
+            cfg, now=datetime(2026, 8, 21, 14, 0, tzinfo=timezone.utc))
+
+
+def test_shadow_worker_only_classifies_true_provider_availability():
+    transport = sharadar.SharadarRequestError(
+        "Sharadar request failed after 6 attempt(s) (TransportError) for SEP")
     retry = shadow_recovery.ShadowServiceRetry("not ready")
-    retry.__cause__ = provider
+    retry.__cause__ = transport
     assert shadow_worker._availability_failure(retry) is True
     assert shadow_worker._availability_failure(
+        sharadar.SharadarRetryDeferred(3600, 429)) is True
+    assert shadow_worker._availability_failure(
         backup_guard.BackupWriteFenced("backup offline")) is True
+
+    assert shadow_worker._availability_failure(
+        sharadar.SharadarProtocolError("SEP: schema changed")) is False
+    assert shadow_worker._availability_failure(
+        sharadar.SharadarRequestError(
+            "Sharadar request failed (HTTP 401) for SEP")) is False
     assert shadow_worker._availability_failure(RuntimeError("logic bug")) is False
+
+
+def test_post_gap_dual_transport_requires_exact_segment_marker(monkeypatch):
+    marker = "b" * 64
+    state = SimpleNamespace(last_processed_session="2026-08-25")
+    result = SimpleNamespace(
+        session="2026-08-25", shadow_verdict="SHADOW_GO",
+        verification="VERIFIED", state=state)
+    monkeypatch.setattr(
+        dual_reconciliation.shadow_runtime, "verified_shadow_status",
+        lambda *_args, **_kwargs: result)
+    monkeypatch.setattr(
+        dual_reconciliation.shadow_segments, "active_segment",
+        lambda *_args, **_kwargs: SimpleNamespace(index=2, marker_sha256=marker))
+    monkeypatch.delenv(dual_reconciliation.REGENESIS_APPROVAL_ENV, raising=False)
+
+    with pytest.raises(
+            dual_reconciliation.DualReconciliationPending,
+            match="economic segment 2"):
+        dual_reconciliation.verified_shadow_intent(
+            object(), decision_session="2026-08-25",
+            observation_id="primary", starting_cash="100000")
+
+    monkeypatch.setenv(dual_reconciliation.REGENESIS_APPROVAL_ENV, marker)
+    assert dual_reconciliation.verified_shadow_intent(
+        object(), decision_session="2026-08-25",
+        observation_id="primary", starting_cash="100000") is result
+
+
+def test_panel_discloses_segment_return_and_exact_approval_marker(monkeypatch):
+    marker = "c" * 64
+    monkeypatch.setenv("SENTINEL_REVIEWED_DEPLOYMENT_MODE", "dual")
+    monkeypatch.setenv("SENTINEL_SHADOW_OBSERVATION_ID", "primary")
+    monkeypatch.setattr(feed_store, "connect", lambda _dsn: SimpleNamespace(close=lambda: None))
+    monkeypatch.setattr(
+        panel_app.shadow_segments, "active_segment",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            index=3, first_session="2026-08-25", reason="MULTI_SESSION_CAUSAL_GAP",
+            predecessor_session="2026-08-20", marker_sha256=marker))
+    original = panel_model.Panel(rows=[
+        panel_model.Row(
+            "shadow_verification", "Certified shadow strategy",
+            "SHADOW VERIFIED THROUGH 2026-08-25"),
+        panel_model.Row("shadow_return", "Certified strategy return", "+2.00%"),
+    ])
+
+    disclosed = panel_app._shadow_segment_disclosure(original, "postgresql://test")
+
+    segment = disclosed.row("shadow_segment")
+    assert segment is not None and segment.status == panel_model.WARN
+    assert marker in segment.detail
+    returned = disclosed.row("shadow_return")
+    assert returned is not None
+    assert returned.label == "Certified segment return"
+    assert "NOT trial-to-date" in returned.detail
 
 
 def test_segment_rollover_reason_does_not_hide_a_single_contiguous_session():
