@@ -44,7 +44,9 @@ class _ProbeCursor:
 
     def execute(self, statement, *_args, **_kwargs):
         text = str(statement)
-        if "pg_switch_wal" in text:
+        if "pg_create_restore_point" in text:
+            self.kind = "restore"
+        elif "pg_switch_wal" in text:
             self.kind = "switch"
         elif "last_archived_wal" in text:
             self.kind = "archiver"
@@ -54,8 +56,10 @@ class _ProbeCursor:
             raise AssertionError(text)
 
     def fetchone(self):
+        if self.kind == "restore":
+            return ("0/1FFFFFF",)
         if self.kind == "switch":
-            return ("0/2000000",)
+            return (self.conn.target_wal,)
         if self.kind == "archiver":
             index = min(self.conn.archiver_reads, len(self.conn.archiver_rows) - 1)
             self.conn.archiver_reads += 1
@@ -66,7 +70,8 @@ class _ProbeCursor:
 
 
 class _ProbeConn:
-    def __init__(self, *, before, after, status_row):
+    def __init__(self, *, target_wal, before, after, status_row):
+        self.target_wal = target_wal
         self.archiver_rows = [before, after]
         self.archiver_reads = 0
         self.status_row = status_row
@@ -97,14 +102,16 @@ def test_quiet_old_archive_requires_active_probe_before_mutation():
     assert result.bulk_writes_permitted is False
 
 
-def test_active_wal_probe_promotes_only_after_fresh_archive_success():
+def test_active_wal_probe_promotes_only_after_forced_segment_archives():
     now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
     old_success = now - timedelta(
         hours=backup_guard.BACKUP_HARD_MAX_AGE_HOURS + 12)
     fresh_success = now - timedelta(seconds=1)
+    target = "000000010000000000000002"
     conn = _ProbeConn(
+        target_wal=target,
         before=("000000010000000000000001", old_success, None, 0),
-        after=("000000010000000000000002", fresh_success, None, 0),
+        after=(target, fresh_success, None, 0),
         status_row=("on", fresh_success, None, 0, now),
     )
     ticks = iter((0.0, 1.0))
