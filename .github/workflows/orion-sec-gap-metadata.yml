@@ -1,0 +1,43 @@
+name: Orion SEC gap metadata
+
+on:
+  push:
+    branches:
+      - research/sentinel-fastgate-2026-08-24
+    paths:
+      - 'PIT input data/extract_sec_security_type_gap_metadata.py'
+      - 'PIT input data/SEC_SECURITY_TYPE_BUY_COVERAGE_GAPS.csv'
+      - '.github/workflows/orion-sec-gap-metadata.yml'
+      - 'sharadar/SHARADAR_TICKERS.zip'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research/sentinel-fastgate-2026-08-24
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Extract unresolved ticker metadata
+        run: python 'PIT input data/extract_sec_security_type_gap_metadata.py'
+      - name: Show output
+        run: cat 'PIT input data/SEC_SECURITY_TYPE_GAP_TICKERS_METADATA.csv'
+      - name: Commit diagnostic output
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'PIT input data/SEC_SECURITY_TYPE_GAP_TICKERS_METADATA.csv'
+          if git diff --cached --quiet; then
+            echo 'No output changes.'
+          else
+            git commit -m 'research(orion): refresh unresolved security metadata'
+            git pull --rebase origin research/sentinel-fastgate-2026-08-24
+            git push origin HEAD:research/sentinel-fastgate-2026-08-24
+          fi
