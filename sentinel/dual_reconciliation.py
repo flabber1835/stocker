@@ -130,15 +130,31 @@ def _validate_handover(value: Any, *, segment, observation_id: str) -> dict:
     if _HEX64.fullmatch(digest) is None or digest != _sha256(unsigned):
         raise DualReconciliationRefused(
             "re-genesis broker handover digest is invalid")
+    marker = str(raw.get("segment_marker_sha256") or "")
     if (raw.get("logical_observation_id") != str(observation_id)
             or raw.get("segment_index") != int(segment.index)
-            or raw.get("segment_marker_sha256")
-            != str(segment.marker_sha256 or "")):
+            or marker != str(segment.marker_sha256 or "")):
         raise DualReconciliationRefused(
             "re-genesis broker handover belongs to another shadow segment")
+    if _HEX64.fullmatch(marker) is None:
+        raise DualReconciliationRefused(
+            "re-genesis broker handover segment marker is malformed")
     if _HEX64.fullmatch(str(raw.get("sizing_authority_sha256") or "")) is None:
         raise DualReconciliationRefused(
             "re-genesis broker handover lacks sizing authority")
+    if _HEX64.fullmatch(str(raw.get("adopted_plan_fingerprint") or "")) is None:
+        raise DualReconciliationRefused(
+            "re-genesis broker handover plan fingerprint is malformed")
+    for field in (
+            "deployment_id", "broker", "broker_account_id", "adopted_plan_id"):
+        if not isinstance(raw.get(field), str) or not str(raw[field]).strip():
+            raise DualReconciliationRefused(
+                f"re-genesis broker handover {field} is empty")
+    if (isinstance(raw.get("takeover_epoch"), bool)
+            or not isinstance(raw.get("takeover_epoch"), int)
+            or int(raw["takeover_epoch"]) < 1):
+        raise DualReconciliationRefused(
+            "re-genesis broker handover takeover epoch is invalid")
     try:
         observed = datetime.fromisoformat(str(raw["broker_observed_at"]))
         date.fromisoformat(str(raw["decision_session"]))
@@ -172,18 +188,21 @@ def _load_regenesis_handover(conn, *, segment, observation_id: str) -> dict | No
 
 
 def _require_handover_binding(receipt: Mapping, *, binding) -> None:
+    """Economic handover follows the broker account, not a command epoch.
+
+    ``deployment_id`` and ``takeover_epoch`` remain in the immutable receipt for
+    audit, but a legitimate restored-host adoption changes the command namespace
+    without changing the economic account or the shadow segment. Requiring the
+    old epoch forever would deadlock a continuous strategy after a safe takeover.
+    """
     identity = binding.identity
-    expected = (
-        str(identity.deployment_id), str(identity.broker),
-        str(identity.broker_account_id), int(identity.takeover_epoch))
+    expected = (str(identity.broker), str(identity.broker_account_id))
     actual = (
-        str(receipt.get("deployment_id") or ""),
         str(receipt.get("broker") or ""),
-        str(receipt.get("broker_account_id") or ""),
-        int(receipt.get("takeover_epoch") or 0))
+        str(receipt.get("broker_account_id") or ""))
     if actual != expected:
         raise DualReconciliationRefused(
-            "re-genesis broker handover belongs to another deployment/account")
+            "re-genesis broker handover belongs to another broker account")
 
 
 def _database_now(conn) -> datetime:
