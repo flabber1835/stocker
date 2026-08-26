@@ -319,7 +319,7 @@ def _fresh_flat_authority_or_refuse(
 
 def _record_or_require_regenesis_handover(
         conn, *, segment, observation_id: str, plan, binding) -> dict | None:
-    """Create the one-time segment handover only from fresh flat sizing facts."""
+    """Create one segment handover under Sentinel's single behavioral writer."""
     if segment.index == 0:
         return None
     existing = _load_regenesis_handover(
@@ -328,31 +328,43 @@ def _record_or_require_regenesis_handover(
         _require_handover_binding(existing, binding=binding)
         return existing
 
-    authority = dual_plan_authority.load_authority(conn, plan_id=plan.plan_id)
-    if authority is None:
-        raise DualReconciliationPending(
-            "re-genesis PAPER plan has no immutable sizing observation yet")
-    observed = _fresh_flat_authority_or_refuse(
-        conn, authority=authority, plan=plan, binding=binding)
-    identity = binding.identity
-    body = {
-        "schema": REGENESIS_HANDOVER_SCHEMA,
-        "logical_observation_id": str(observation_id),
-        "segment_index": int(segment.index),
-        "segment_marker_sha256": str(segment.marker_sha256 or ""),
-        "deployment_id": str(identity.deployment_id),
-        "broker": str(identity.broker),
-        "broker_account_id": str(identity.broker_account_id),
-        "takeover_epoch": int(identity.takeover_epoch),
-        "adopted_plan_id": str(plan.plan_id),
-        "adopted_plan_fingerprint": str(plan.fingerprint()),
-        "decision_session": str(plan.decision_session),
-        "broker_observed_at": observed.isoformat(),
-        "sizing_authority_sha256": str(authority["authority_sha256"]),
-    }
-    value = {**body, "handover_sha256": _sha256(body)}
-    cursor = _handover_cursor(observation_id, segment.index)
-    try:
+    # The sizing observation can say "flat" only at one instant. Holding the
+    # same session-level writer lock used by plans/commands closes the race where
+    # another process creates SEND_PENDING after that check but before the
+    # handover row becomes durable. Recheck the unique receipt after acquiring
+    # the lock so two legitimate restart attempts stay idempotent.
+    with journal.writer_lock(conn):
+        existing = _load_regenesis_handover(
+            conn, segment=segment, observation_id=observation_id)
+        if existing is not None:
+            _require_handover_binding(existing, binding=binding)
+            return existing
+
+        authority = dual_plan_authority.load_authority(
+            conn, plan_id=plan.plan_id)
+        if authority is None:
+            raise DualReconciliationPending(
+                "re-genesis PAPER plan has no immutable sizing observation yet")
+        observed = _fresh_flat_authority_or_refuse(
+            conn, authority=authority, plan=plan, binding=binding)
+        identity = binding.identity
+        body = {
+            "schema": REGENESIS_HANDOVER_SCHEMA,
+            "logical_observation_id": str(observation_id),
+            "segment_index": int(segment.index),
+            "segment_marker_sha256": str(segment.marker_sha256 or ""),
+            "deployment_id": str(identity.deployment_id),
+            "broker": str(identity.broker),
+            "broker_account_id": str(identity.broker_account_id),
+            "takeover_epoch": int(identity.takeover_epoch),
+            "adopted_plan_id": str(plan.plan_id),
+            "adopted_plan_fingerprint": str(plan.fingerprint()),
+            "decision_session": str(plan.decision_session),
+            "broker_observed_at": observed.isoformat(),
+            "sizing_authority_sha256": str(authority["authority_sha256"]),
+        }
+        value = {**body, "handover_sha256": _sha256(body)}
+        cursor = _handover_cursor(observation_id, segment.index)
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO sentinel_processed_sessions"
@@ -366,11 +378,8 @@ def _record_or_require_regenesis_handover(
                 "a concurrent writer recorded different re-genesis handover "
                 "evidence")
         _require_handover_binding(stored, binding=binding)
-        conn.commit()
+        # writer_lock commits only after the complete proof succeeds.
         return stored
-    except BaseException:
-        conn.rollback()
-        raise
 
 
 def verified_shadow_intent(
@@ -437,7 +446,7 @@ def require_plan_matches_verified_shadow(
             "PAPER plan state hash differs from the certified shadow state")
     if int(plan.data_version) != int(state.data_version):
         raise DualReconciliationRefused(
-            "PAPER plan data version differs from the certified shadow state")
+            "PAPER plan data version differs from certified shadow state")
 
     decision = state.last_decision
     if (not isinstance(decision, Mapping)
