@@ -14,6 +14,12 @@ inside a task-local *flat sizing* scope. That builder executes before plan
 adoption under PAPER's existing behavioral writer lock, so predecessor positions
 or working orders can never become the first new-segment plan's economic input.
 
+A currently non-flat predecessor book or currently working broker order is a
+retryable financial fence: those facts can change without changing strategy
+history. By contrast, an already-retained non-flat sizing authority, an external
+replacement, malformed evidence, or any other authority defect is permanent and
+is never rehabilitated by later broker state.
+
 Inspection, recovery, convergence and execution remain verification only and can
 never mint a receipt or enable the pre-adoption exception by reading state.
 """
@@ -24,10 +30,26 @@ from sentinel import automation_runtime as base
 from sentinel.automation.model import NonRetryableCallbackRefused
 
 
+# Exact messages are produced only by dual_plan_authority's pre-adoption flat
+# sizing gate. Classification stays here at the orchestration boundary so the
+# pure authority module never imports PAPER/runtime exception types (which would
+# create a dependency cycle). Everything not explicitly named remains terminal.
+_RETRYABLE_REGENESIS_BUILD_PREFIXES = (
+    "post-gap PAPER plan sizing requires a flat broker account;",
+    "post-gap PAPER plan sizing still has working broker order(s):",
+)
+
+
 # The PAPER mirror is a separate process from the shadow publisher. Install the
 # same active append-only segment reader here before dual reconciliation asks
 # shadow_runtime for current verified intent.
 shadow_segments.install_runtime_store(shadow_runtime)
+
+
+def _retryable_regenesis_build_refusal(exc: BaseException) -> bool:
+    detail = str(exc)
+    return any(detail.startswith(prefix)
+               for prefix in _RETRYABLE_REGENESIS_BUILD_PREFIXES)
 
 
 class ProductionAutomation(base.ProductionAutomation):
@@ -93,7 +115,7 @@ class ProductionAutomation(base.ProductionAutomation):
                 observation_id=self._shadow_observation_id,
                 starting_cash=self._shadow_starting_cash,
                 establish_regenesis_handover=establish)
-        except (dual_reconciliation.DualReconciliationPending,) as exc:
+        except dual_reconciliation.DualReconciliationPending as exc:
             if pending_is_retryable:
                 raise paper.PaperRetryableRefused(str(exc)) from exc
             raise NonRetryableCallbackRefused(
@@ -117,9 +139,17 @@ class ProductionAutomation(base.ProductionAutomation):
         # verifier below still rejects any retained non-flat legacy authority.
         from sentinel import dual_plan_authority, dual_reconciliation
         require_flat = self._regenesis_flat_sizing_required()
-        with dual_reconciliation.regenesis_preparation_scope(), \
-                dual_plan_authority.regenesis_flat_sizing_scope(require_flat):
-            return await super().prepare(context)
+        try:
+            with dual_reconciliation.regenesis_preparation_scope(), \
+                    dual_plan_authority.regenesis_flat_sizing_scope(require_flat):
+                return await super().prepare(context)
+        except dual_plan_authority.DualPlanAuthorityRefused as exc:
+            if require_flat and _retryable_regenesis_build_refusal(exc):
+                raise paper.PaperRetryableRefused(
+                    f"post-gap PAPER sizing is waiting for a flat, settled "
+                    f"predecessor account: {exc}") from exc
+            raise NonRetryableCallbackRefused(
+                f"dual-run immutable plan sizing refused: {exc}") from exc
 
     async def execute(self, context):
         self._require_backup_for_new_mutation("automation new order execution")
