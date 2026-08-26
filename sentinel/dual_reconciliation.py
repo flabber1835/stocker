@@ -19,13 +19,16 @@ After it exists, later plans in the same segment may of course hold positions;
 the account is not required to remain flat forever. A later segment has a new
 marker and therefore requires a new flat handover.
 
-Verification remains read-only by default. Only the explicit post-preparation
-automation transition may set ``establish_regenesis_handover=True`` and mint the
-one-time receipt. Inspection, recovery, and execution can verify an existing
-receipt but cannot create one as a side effect of reading current plan state.
+Verification remains read-only by default. The production preparation callback
+enters an async-safe preparation scope so its pre-plan shadow check can run before
+the handover exists and its post-plan reconciliation may establish the receipt.
+Inspection, recovery, convergence, and execution never enter that scope and must
+observe an already-durable handover.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import hashlib
@@ -45,6 +48,8 @@ REGENESIS_HANDOVER_SCHEMA = "sentinel.dual-regenesis-broker-handover/1"
 REGENESIS_HANDOVER_PREFIX = "dual-regenesis-broker-handover:v1:"
 REGENESIS_HANDOVER_MAX_AGE_SECONDS = 300
 _HEX64 = re.compile(r"[0-9a-f]{64}\Z")
+_REGENESIS_PREPARATION_SCOPE = ContextVar(
+    "sentinel_dual_regenesis_preparation_scope", default=False)
 
 # Dual reconciliation can run in automation, an authorized CLI, or tests. Every
 # process must resolve the same active append-only segment as the shadow worker.
@@ -57,6 +62,21 @@ class DualReconciliationPending(RuntimeError):
 
 class DualReconciliationRefused(RuntimeError):
     """Shadow intent and PAPER transport authority do not match exactly."""
+
+
+@contextmanager
+def regenesis_preparation_scope():
+    """Allow only this async/task context to run before a handover exists."""
+    token = _REGENESIS_PREPARATION_SCOPE.set(True)
+    try:
+        yield
+    finally:
+        _REGENESIS_PREPARATION_SCOPE.reset(token)
+
+
+def regenesis_preparation_active() -> bool:
+    """Whether this task is the explicit production preparation transition."""
+    return bool(_REGENESIS_PREPARATION_SCOPE.get())
 
 
 def _canonical(value: Any) -> str:
@@ -409,15 +429,15 @@ def verified_shadow_intent(
         raise DualReconciliationRefused(
             "verified shadow state cursor differs from PAPER decision close")
     segment = _require_regenesis_transport_approval(conn, observation_id)
-    if segment.index > 0 and not allow_regenesis_handover_pending:
+    allow_pending = (
+        allow_regenesis_handover_pending or regenesis_preparation_active())
+    if segment.index > 0 and not allow_pending:
         handover = _load_regenesis_handover(
             conn, segment=segment, observation_id=observation_id)
         if handover is None:
-            current = journal.latest_plan(conn)
-            if current is not None and str(current.decision_session) == wanted:
-                raise DualReconciliationPending(
-                    "the current post-gap PAPER plan has no durable flat broker "
-                    "handover; broker mutation remains fenced")
+            raise DualReconciliationPending(
+                "post-gap PAPER transport has no durable flat broker handover; "
+                "broker mutation remains fenced")
     return result
 
 
@@ -473,6 +493,10 @@ def require_plan_matches_verified_shadow(
     handover = None
     if segment.index > 0:
         if establish_regenesis_handover:
+            if not regenesis_preparation_active():
+                raise DualReconciliationRefused(
+                    "re-genesis handover establishment is outside the explicit "
+                    "production preparation scope")
             handover = _record_or_require_regenesis_handover(
                 conn, segment=segment, observation_id=observation_id,
                 plan=plan, binding=binding)
@@ -518,5 +542,6 @@ __all__ = [
     "DualReconciliationPending", "DualReconciliationRefused",
     "REGENESIS_APPROVAL_ENV", "REGENESIS_HANDOVER_MAX_AGE_SECONDS",
     "REGENESIS_HANDOVER_PREFIX", "REGENESIS_HANDOVER_SCHEMA",
+    "regenesis_preparation_active", "regenesis_preparation_scope",
     "require_plan_matches_verified_shadow", "verified_shadow_intent",
 ]
