@@ -1,0 +1,3 @@
+orion_ticker,buy_date,issuer_cik,sec_historical_symbol,security_title,classification,evidence_date,form,accession,source_url,join_basis,status,notes
+PWER1,1999-10-11,0001042825,PWER,Common Stock,common,1999-09-27,S-6,333-87879,https://www.sec.gov/news/digest/1999/dig100499.pdf,alias_to_causal_cik,verified_common_prebuy,"SEC News Digest records Power-One Inc filing Sep 27 1999 for Common Stock; safely before Orion buy."
+RNB,1999-08-02,0000083246,RNB,Common Stock,common,1995-01-19,S-8,33-57351,https://www.sec.gov/news/digest/1995/dig012695.pdf,direct_issuer_registration,verified_common_prebuy,"SEC News Digest records Republic New York Corp S-8 filed Jan 19 1995 for Common Stock; safely before Orion buy."
