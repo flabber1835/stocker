@@ -283,3 +283,27 @@ def test_segment_rollover_reason_does_not_hide_a_single_contiguous_session():
             == shadow_segments.SEGMENT_REASON_MISSED_FOLLOWING_OPEN)
     assert (shadow_recovery._rollover_reason("2026-08-20", "2026-08-24")
             == shadow_segments.SEGMENT_REASON_MULTI_SESSION_GAP)
+
+
+def test_segment_zero_without_reviewed_config_delegates_original_genesis_check():
+    calls = []
+
+    def original(conn, *, current, first_session, runtime_identity):
+        calls.append((conn, current, first_session, runtime_identity))
+        return "legacy-pass"
+
+    fake_runtime = SimpleNamespace(
+        _require_reviewed_genesis_publication=original,
+        PostgresShadowObservationStore=object,
+    )
+    shadow_segments.install_runtime_store(fake_runtime)
+    conn = object()
+    publication = object()
+    identity = {"validated_data_publication_sha256": "a" * 64}
+
+    result = fake_runtime._require_reviewed_genesis_publication(
+        conn, current=publication, first_session="2026-08-25",
+        runtime_identity=identity)
+
+    assert result == "legacy-pass"
+    assert calls == [(conn, publication, "2026-08-25", identity)]
