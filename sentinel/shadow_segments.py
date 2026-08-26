@@ -323,9 +323,15 @@ def install_runtime_store(shadow_runtime_module) -> None:
         reviewed = runtime_identity.get("reviewed_shadow_config")
         logical = (reviewed or {}).get("observation_id") \
             if isinstance(reviewed, Mapping) else None
+        # Segment zero predates outage segmentation and is intentionally
+        # backward-compatible with the original runtime-identity contract.
+        # Focused tests and already-retained legacy genesis records may not carry
+        # reviewed_shadow_config; in that case no later segment can be selected,
+        # so defer to the original exact publication-subject check unchanged.
         if not isinstance(logical, str):
-            raise ShadowSegmentRefused(
-                "runtime identity lacks reviewed logical observation id")
+            return original_require(
+                conn, current=current, first_session=first_session,
+                runtime_identity=runtime_identity)
         segment = active_segment(conn, logical)
         if segment.index == 0:
             return original_require(
