@@ -20,14 +20,34 @@ EXIT_RETRY = 11
 EXIT_AVAILABILITY = 12
 
 
+def _sharadar_availability(exc: BaseException) -> bool:
+    """Return true only for provider states that may heal without code/config.
+
+    ``SharadarRequestError`` is intentionally broad at the provider boundary:
+    it also represents HTTP auth/configuration failures, while
+    ``SharadarProtocolError`` represents malformed successful responses. Those
+    must not be treated as an indefinitely harmless outage. The two genuinely
+    availability-shaped cases are an explicit Retry-After deferral or exhausted
+    retries after transport/retryable-HTTP failures; the latter has the stable
+    provider-boundary rendering ``failed after N attempt(s)``.
+    """
+    if isinstance(exc, sharadar.SharadarProtocolError):
+        return False
+    if isinstance(exc, sharadar.SharadarRetryDeferred):
+        return True
+    if type(exc) is sharadar.SharadarRequestError:
+        return "Sharadar request failed after " in str(exc)
+    return False
+
+
 def _availability_failure(exc: BaseException) -> bool:
     current: BaseException | None = exc
     seen = set()
     while current is not None and id(current) not in seen:
         seen.add(id(current))
-        if isinstance(current, (
-                sharadar.SharadarRequestError,
-                backup_guard.BackupWriteFenced)):
+        if isinstance(current, backup_guard.BackupWriteFenced):
+            return True
+        if _sharadar_availability(current):
             return True
         current = current.__cause__ or current.__context__
     return False
