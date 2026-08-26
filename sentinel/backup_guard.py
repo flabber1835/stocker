@@ -149,7 +149,7 @@ def _probe_wal_boundary(conn, *, operation: str) -> str:
             # server timestamp so this probe cannot create duplicate recovery
             # target names.
             cur.execute(
-                "SELECT pg_create_restore_point(" 
+                "SELECT pg_create_restore_point("
                 "'sentinel-backup-probe-' || pg_backend_pid()::text || '-' || "
                 "to_char(clock_timestamp(), 'YYYYMMDDHH24MISSUS'))")
             if cur.fetchone() is None:
