@@ -30,14 +30,17 @@ from sentinel import automation_runtime as base
 from sentinel.automation.model import NonRetryableCallbackRefused
 
 
-# Exact messages are produced only by dual_plan_authority's pre-adoption flat
-# sizing gate. Classification stays here at the orchestration boundary so the
-# pure authority module never imports PAPER/runtime exception types (which would
-# create a dependency cycle). Everything not explicitly named remains terminal.
+# Exact messages are produced only by the first-plan pre-adoption gates.
+# Classification stays here at the orchestration boundary so the pure authority
+# and PAPER modules do not acquire cyclic runtime exception dependencies.
+# Everything not explicitly named remains terminal.
 _RETRYABLE_REGENESIS_BUILD_PREFIXES = (
     "post-gap PAPER plan sizing requires a flat broker account;",
     "post-gap PAPER plan sizing still has working broker order(s):",
 )
+_RETRYABLE_BASE_PREPARE_PREFIX = (
+    "PAPER preparation refused: initial plan adoption requires no working "
+    "broker order;")
 
 
 # The PAPER mirror is a separate process from the shadow publisher. Install the
@@ -50,6 +53,10 @@ def _retryable_regenesis_build_refusal(exc: BaseException) -> bool:
     detail = str(exc)
     return any(detail.startswith(prefix)
                for prefix in _RETRYABLE_REGENESIS_BUILD_PREFIXES)
+
+
+def _retryable_base_prepare_refusal(exc: BaseException) -> bool:
+    return str(exc).startswith(_RETRYABLE_BASE_PREPARE_PREFIX)
 
 
 class ProductionAutomation(base.ProductionAutomation):
@@ -150,6 +157,16 @@ class ProductionAutomation(base.ProductionAutomation):
                     f"predecessor account: {exc}") from exc
             raise NonRetryableCallbackRefused(
                 f"dual-run immutable plan sizing refused: {exc}") from exc
+        except NonRetryableCallbackRefused as exc:
+            # The base PAPER engine has a generic first-plan working-order gate
+            # that runs before dual_plan_authority.build_authority. In this one
+            # post-gap/no-handover context the state is mutable and belongs in
+            # the retry loop; all other PAPER activation refusals stay terminal.
+            if require_flat and _retryable_base_prepare_refusal(exc):
+                raise paper.PaperRetryableRefused(
+                    "post-gap PAPER sizing is waiting for prior broker orders "
+                    "to settle or be explicitly resolved") from exc
+            raise
 
     async def execute(self, context):
         self._require_backup_for_new_mutation("automation new order execution")
