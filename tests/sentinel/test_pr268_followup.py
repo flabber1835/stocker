@@ -6,7 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from sentinel import automation_liveness, backup_guard
+from sentinel import automation_liveness, automation_recovery, backup_guard
+from sentinel.automation.model import NonRetryableCallbackRefused
 from sentinel.feed import outage_recovery
 from sentinel import shadow_worker
 
@@ -163,6 +164,20 @@ def test_shadow_worker_only_calls_transient_backup_failure_availability():
         backup_guard.BackupUnavailable("target offline"))
     assert not shadow_worker._availability_failure(
         backup_guard.BackupConfigurationRefused("archive_mode=off"))
+
+
+def test_automation_latches_backup_configuration_refusal(monkeypatch):
+    runtime = object.__new__(automation_recovery.ProductionAutomation)
+    monkeypatch.setattr(runtime, "connect", lambda: _Conn())
+
+    def refuse(_conn, *, operation):
+        raise backup_guard.BackupConfigurationRefused(
+            f"{operation}: archive_mode=off")
+
+    monkeypatch.setattr(
+        automation_recovery.backup_guard, "require_writes_permitted", refuse)
+    with pytest.raises(NonRetryableCallbackRefused):
+        runtime._require_backup_for_new_mutation("automation plan preparation")
 
 
 def test_segment_panel_says_marker_is_not_sufficient():
