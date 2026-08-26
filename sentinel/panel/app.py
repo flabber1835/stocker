@@ -115,9 +115,12 @@ def _shadow_segment_disclosure(panel: model.Panel, database_url: str) -> model.P
         f"causal outage broke performance and strategy-state continuity; "
         f"segment {segment.index} starts {segment.first_session} after "
         f"{segment.reason}; predecessor {segment.predecessor_session}; "
-        "this is NOT trial-to-date return. Broker transport is fenced until "
-        "SENTINEL_SHADOW_REGENESIS_APPROVAL_SHA256 equals the exact marker "
-        f"{marker}")
+        "this is NOT trial-to-date return. Exact marker approval is necessary "
+        "but NOT sufficient for broker transport: "
+        "SENTINEL_SHADOW_REGENESIS_APPROVAL_SHA256 must equal the marker "
+        f"{marker}, and PAPER must also prove a fresh COMPLETE/RUNNING flat "
+        "broker reconciliation with no working orders or durable in-flight "
+        "commands before the one-time segment handover can be recorded")
     rows: list[model.Row] = []
     inserted = False
     for row in panel.rows:
