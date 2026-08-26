@@ -90,15 +90,22 @@ def test_feed_outage_recovery_escalates_only_named_local_state(monkeypatch):
 
     monkeypatch.setattr(
         outage_recovery, "_RECOVERABLE_LOCAL_STATE", (LocalRecoverable,))
+    seeded = {"done": False, "args": None}
+    daily_calls = {"count": 0}
     monkeypatch.setattr(
         outage_recovery.store, "latest_visible_session",
         lambda _conn: "2026-08-21" if not seeded["done"] else "2026-08-25")
     monkeypatch.setattr(
         outage_recovery, "retained_market_start", lambda _conn: "2025-08-20")
-    monkeypatch.setattr(
-        outage_recovery.ingest, "daily",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(LocalRecoverable("stale")))
-    seeded = {"done": False, "args": None}
+
+    def daily(_conn, *, today):
+        assert today == "2026-08-25"
+        daily_calls["count"] += 1
+        if daily_calls["count"] == 1:
+            raise LocalRecoverable("stale")
+        return SimpleNamespace(kind="daily")
+
+    monkeypatch.setattr(outage_recovery.ingest, "daily", daily)
 
     def seed(_conn, *, date_from, date_to):
         seeded["done"] = True
@@ -114,6 +121,7 @@ def test_feed_outage_recovery_escalates_only_named_local_state(monkeypatch):
     assert result.mode == "RETAINED_FULL_RESEED"
     assert result.recovered_from == "LocalRecoverable"
     assert seeded["args"] == ("2025-08-20", "2026-08-25")
+    assert daily_calls["count"] == 2
 
 
 def test_feed_outage_recovery_never_relabels_vendor_failure_local(monkeypatch):
@@ -142,8 +150,6 @@ def test_automation_backup_fence_blocks_new_work_but_not_recovery(monkeypatch):
     with pytest.raises(backup_guard.BackupWriteFenced):
         runtime._require_backup_for_new_mutation("plan")
     assert conn.closed is True
-    # Recovery is deliberately inherited unchanged instead of being wrapped by
-    # a backup precondition; uncertain broker transport must remain observable.
     assert (automation_recovery.ProductionAutomation.recover
             is automation_recovery.base.ProductionAutomation.recover)
 
