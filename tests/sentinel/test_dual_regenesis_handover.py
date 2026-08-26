@@ -24,6 +24,14 @@ class _Cursor:
 
     def execute(self, statement, params=None):
         text = str(statement)
+        if "pg_try_advisory_lock" in text:
+            self.conn.lock_attempts += 1
+            self.row = (True,)
+            return
+        if "pg_advisory_unlock" in text:
+            self.conn.unlocks += 1
+            self.row = (True,)
+            return
         if "SELECT clock_timestamp()" in text:
             self.row = (self.conn.now,)
             return
@@ -48,6 +56,8 @@ class _Conn:
         self.receipt = None
         self.commits = 0
         self.rollbacks = 0
+        self.lock_attempts = 0
+        self.unlocks = 0
 
     def cursor(self):
         return _Cursor(self)
@@ -137,6 +147,8 @@ def test_first_regenesis_adoption_records_exact_flat_handover(monkeypatch):
     assert receipt["sizing_authority_sha256"] == "a" * 64
     assert len(receipt["handover_sha256"]) == 64
     assert conn.receipt is not None
+    assert conn.lock_attempts == 1
+    assert conn.unlocks == 1
     assert conn.commits == 1
     assert conn.rollbacks == 0
 
