@@ -6,6 +6,7 @@ on:
       - research/sentinel-fastgate-2026-08-24
     paths:
       - 'PIT input data/analyze_sec_security_type_coverage.py'
+      - 'PIT input data/SEC_SECURITY_TYPE_MANUAL_EDGAR_EVIDENCE*.csv'
       - '.github/workflows/orion-sec-security-type-coverage.yml'
       - 'sec/**'
   workflow_dispatch:
@@ -37,10 +38,12 @@ jobs:
           git add 'PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz' \
                   'PIT input data/SEC_SECURITY_TYPE_BUY_COVERAGE_GAPS.csv' \
                   'PIT input data/SEC_SECURITY_TYPE_COVERAGE.json' \
-                  'PIT input data/SEC_SECURITY_TYPE_COVERAGE.md'
+                  'PIT input data/SEC_SECURITY_TYPE_COVERAGE.md' \
+                  'PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv'
           if git diff --cached --quiet; then
             echo 'No output changes.'
           else
-            git commit -m 'research(orion): add SEC security-type coverage results'
+            git commit -m 'research(orion): refresh SEC security-type coverage results'
+            git pull --rebase origin research/sentinel-fastgate-2026-08-24
             git push origin HEAD:research/sentinel-fastgate-2026-08-24
           fi
