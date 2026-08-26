@@ -7,8 +7,14 @@ retryably fenced until PostgreSQL successfully archives WAL again.
 """
 from __future__ import annotations
 
-from sentinel import backup_guard
+from sentinel import backup_guard, shadow_runtime, shadow_segments
 from sentinel import automation_runtime as base
+
+
+# The PAPER mirror is a separate process from the shadow publisher. Install the
+# same active append-only segment reader here before dual reconciliation asks
+# shadow_runtime for current verified intent.
+shadow_segments.install_runtime_store(shadow_runtime)
 
 
 class ProductionAutomation(base.ProductionAutomation):
