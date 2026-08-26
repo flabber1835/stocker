@@ -1,0 +1,40 @@
+name: Orion recover issue266 runner
+
+on:
+  push:
+    branches:
+      - research/sentinel-fastgate-2026-08-24
+    paths:
+      - 'research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recover_issue266_runner.py'
+      - '.github/workflows/orion-recover-issue266-runner.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research/sentinel-fastgate-2026-08-24
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Recover and verify source
+        run: python research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recover_issue266_runner.py
+      - name: Commit recovered source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+          if git diff --cached --quiet; then
+            echo 'Source already recovered.'
+          else
+            git commit -m 'research(orion): recover frozen issue266 A/B runner'
+            git pull --rebase origin research/sentinel-fastgate-2026-08-24
+            git push origin HEAD:research/sentinel-fastgate-2026-08-24
+          fi
