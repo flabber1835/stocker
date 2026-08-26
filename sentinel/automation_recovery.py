@@ -14,6 +14,13 @@ inside a task-local *flat sizing* scope. That builder executes before plan
 adoption under PAPER's existing behavioral writer lock, so predecessor positions
 or working orders can never become the first new-segment plan's economic input.
 
+The flat-sizing decision is deliberately late-bound. Shadow segment rollover is
+serialized by that same behavioral writer lock, while automation preparation
+enters its task scope before PAPER acquires the lock. Resolving segment/handover
+state only when the authority builder asks for it means the answer is observed
+while PAPER owns the lock; a rollover cannot slip between an early boolean read
+and immutable plan adoption.
+
 A currently non-flat predecessor book or currently working broker order is a
 retryable financial fence: those facts can change without changing strategy
 history. By contrast, an already-retained non-flat sizing authority, an external
@@ -57,6 +64,16 @@ def _retryable_regenesis_build_refusal(exc: BaseException) -> bool:
 
 def _retryable_base_prepare_refusal(exc: BaseException) -> bool:
     return str(exc).startswith(_RETRYABLE_BASE_PREPARE_PREFIX)
+
+
+class _LateBoundRegenesisFlatSizing:
+    """Resolve first-plan flatness only when the locked builder consumes it."""
+
+    def __init__(self, runtime: "ProductionAutomation") -> None:
+        self.runtime = runtime
+
+    def __bool__(self) -> bool:
+        return self.runtime._regenesis_flat_sizing_required()
 
 
 class ProductionAutomation(base.ProductionAutomation):
@@ -139,34 +156,41 @@ class ProductionAutomation(base.ProductionAutomation):
 
     async def prepare(self, context):
         self._require_backup_for_new_mutation("automation plan preparation")
-        # Determine the economic boundary before entering the base preparation.
-        # If segment > 0 has no handover, build_authority must prove the exact
-        # broker observation is flat before adopt_current_plan can run. Existing
-        # same-session plan retries do not rebuild authority, but the post-plan
-        # verifier below still rejects any retained non-flat legacy authority.
         from sentinel import dual_plan_authority, dual_reconciliation
-        require_flat = self._regenesis_flat_sizing_required()
+
+        # Do NOT snapshot segment state here. This wrapper runs before PAPER's
+        # behavioral writer lock is acquired, while the shadow worker may still
+        # legally commit a new segment under that lock. The ContextVar consumer
+        # calls bool() on this resolver inside build_authority(), after PAPER has
+        # acquired the lock, so the segment/handover answer cannot be stale at
+        # the immutable first-plan sizing boundary.
+        resolver = _LateBoundRegenesisFlatSizing(self)
+        token = dual_plan_authority._REGENESIS_FLAT_SIZING_REQUIRED.set(resolver)
         try:
-            with dual_reconciliation.regenesis_preparation_scope(), \
-                    dual_plan_authority.regenesis_flat_sizing_scope(require_flat):
-                return await super().prepare(context)
-        except dual_plan_authority.DualPlanAuthorityRefused as exc:
-            if require_flat and _retryable_regenesis_build_refusal(exc):
-                raise paper.PaperRetryableRefused(
-                    f"post-gap PAPER sizing is waiting for a flat, settled "
-                    f"predecessor account: {exc}") from exc
-            raise NonRetryableCallbackRefused(
-                f"dual-run immutable plan sizing refused: {exc}") from exc
-        except NonRetryableCallbackRefused as exc:
-            # The base PAPER engine has a generic first-plan working-order gate
-            # that runs before dual_plan_authority.build_authority. In this one
-            # post-gap/no-handover context the state is mutable and belongs in
-            # the retry loop; all other PAPER activation refusals stay terminal.
-            if require_flat and _retryable_base_prepare_refusal(exc):
-                raise paper.PaperRetryableRefused(
-                    "post-gap PAPER sizing is waiting for prior broker orders "
-                    "to settle or be explicitly resolved") from exc
-            raise
+            with dual_reconciliation.regenesis_preparation_scope():
+                try:
+                    return await super().prepare(context)
+                except dual_plan_authority.DualPlanAuthorityRefused as exc:
+                    if _retryable_regenesis_build_refusal(exc):
+                        raise paper.PaperRetryableRefused(
+                            "post-gap PAPER sizing is waiting for a flat, settled "
+                            f"predecessor account: {exc}") from exc
+                    raise NonRetryableCallbackRefused(
+                        f"dual-run immutable plan sizing refused: {exc}") from exc
+                except NonRetryableCallbackRefused as exc:
+                    # The base PAPER engine has a generic first-plan working-order
+                    # gate that runs before dual_plan_authority.build_authority.
+                    # Re-read the segment after the base lock has unwound rather
+                    # than relying on a pre-lock snapshot. Only the post-gap/no-
+                    # handover case is mutable and belongs in the retry loop.
+                    if (_retryable_base_prepare_refusal(exc)
+                            and self._regenesis_flat_sizing_required()):
+                        raise paper.PaperRetryableRefused(
+                            "post-gap PAPER sizing is waiting for prior broker "
+                            "orders to settle or be explicitly resolved") from exc
+                    raise
+        finally:
+            dual_plan_authority._REGENESIS_FLAT_SIZING_REQUIRED.reset(token)
 
     async def execute(self, context):
         self._require_backup_for_new_mutation("automation new order execution")
