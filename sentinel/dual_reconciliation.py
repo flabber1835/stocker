@@ -18,6 +18,11 @@ the current PAPER preparation and only while that observation is still fresh.
 After it exists, later plans in the same segment may of course hold positions;
 the account is not required to remain flat forever. A later segment has a new
 marker and therefore requires a new flat handover.
+
+Verification remains read-only by default. Only the explicit post-preparation
+automation transition may set ``establish_regenesis_handover=True`` and mint the
+one-time receipt. Inspection, recovery, and execution can verify an existing
+receipt but cannot create one as a side effect of reading current plan state.
 """
 from __future__ import annotations
 
@@ -410,7 +415,15 @@ def verified_shadow_intent(
 def require_plan_matches_verified_shadow(
         conn, *, plan, observation_id: str,
         starting_cash: Decimal | str | int | float,
-        binding=None, rollout_state=None) -> Mapping[str, str]:
+        binding=None, rollout_state=None,
+        establish_regenesis_handover: bool = False) -> Mapping[str, str]:
+    """Verify exact dual intent; optionally establish the one-time handover.
+
+    ``False`` is the default so inspection/recovery/execution stay read-only at
+    this layer. The caller that just completed current PAPER preparation may set
+    the flag to ``True``; only that path may convert its fresh immutable sizing
+    observation into the durable segment/account handover receipt.
+    """
     decision_session = str(plan.decision_session)
     result = verified_shadow_intent(
         conn, decision_session=decision_session,
@@ -448,9 +461,20 @@ def require_plan_matches_verified_shadow(
     if binding is None:
         from sentinel.handover import assert_no_legacy_path
         binding = assert_no_legacy_path(conn)
-    handover = _record_or_require_regenesis_handover(
-        conn, segment=segment, observation_id=observation_id,
-        plan=plan, binding=binding)
+    handover = None
+    if segment.index > 0:
+        if establish_regenesis_handover:
+            handover = _record_or_require_regenesis_handover(
+                conn, segment=segment, observation_id=observation_id,
+                plan=plan, binding=binding)
+        else:
+            handover = _load_regenesis_handover(
+                conn, segment=segment, observation_id=observation_id)
+            if handover is None:
+                raise DualReconciliationPending(
+                    "post-gap PAPER plan has no durable flat broker handover; "
+                    "read-only verification cannot create that authority")
+            _require_handover_binding(handover, binding=binding)
     if rollout_state is None:
         from sentinel.authority import load_rollout_state
         rollout_state = load_rollout_state(conn)
