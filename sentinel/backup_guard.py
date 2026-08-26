@@ -8,10 +8,13 @@ recovery point has been unprotected for days.
 
 A recent unresolved archive failure is DEGRADED: bounded ordinary operations may
 continue so a short USB/NAS interruption does not immediately idle the book.
-Bulk corpus replacement is stricter because it can generate a large WAL burst;
-it requires a fully HEALTHY archiver. Once the last successful archive is older
-than the reviewed hard age, all new data/plan/order mutation is retryably fenced.
-Read-only broker recovery remains allowed throughout.
+Once an unresolved failure has persisted beyond the reviewed hard age, new
+data/plan/order mutation is fenced. A merely old successful archive with *no*
+newer failure is not evidence that the disk is disconnected — the database may
+simply have been quiet. Such a state may perform a small ordinary write, which
+causes PostgreSQL's archive_timeout path to probe the target, but WAL-heavy bulk
+reseed remains blocked until a recent successful archive proves the target live.
+Read-only broker recovery remains available throughout.
 """
 from __future__ import annotations
 
@@ -40,7 +43,12 @@ class BackupGuardStatus:
 
     @property
     def bulk_writes_permitted(self) -> bool:
-        return self.state == "HEALTHY"
+        hard_seconds = BACKUP_HARD_MAX_AGE_HOURS * 3600
+        return (
+            self.state == "HEALTHY"
+            and self.last_success_age_seconds is not None
+            and self.last_success_age_seconds <= hard_seconds
+        )
 
     def to_dict(self) -> dict:
         return {
@@ -83,7 +91,7 @@ def status(conn) -> BackupGuardStatus:
     hard_seconds = BACKUP_HARD_MAX_AGE_HOURS * 3600
     if mode != "on" or last_ok is None:
         state = "FENCED"
-    elif age is not None and age > hard_seconds:
+    elif unresolved and age is not None and age > hard_seconds:
         state = "FENCED"
     elif unresolved:
         state = "DEGRADED"
@@ -114,7 +122,7 @@ def require_writes_permitted(conn, *, operation: str) -> BackupGuardStatus:
 
 
 def require_bulk_writes_permitted(conn, *, operation: str) -> BackupGuardStatus:
-    """Require an actively healthy archive target before WAL-heavy recovery."""
+    """Require a recent successful archive before WAL-heavy recovery."""
     result = status(conn)
     if not result.bulk_writes_permitted:
         raise BackupWriteFenced(_fence_message(result, operation=operation))
