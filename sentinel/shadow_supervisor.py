@@ -16,7 +16,7 @@ import sys
 import time
 from pathlib import Path
 
-from sentinel.shadow_service import ShadowServiceConfig, service_health
+from sentinel.shadow_recovery import ShadowServiceConfig, service_health
 from sentinel.shadow_worker import EXIT_REFUSED, EXIT_RETRY, EXIT_WAITING
 
 HEARTBEAT_FILE = Path("/tmp/sentinel-shadow-supervisor-heartbeat")
@@ -59,7 +59,7 @@ def _latched_wait(stopping) -> int:
 
 
 def _health(max_age_seconds: float, *, config=None) -> int:
-    """Require both supervisor liveness and verified shadow-frontier health."""
+    """Require supervisor liveness plus a safe shadow recovery state."""
     try:
         age = time.time() - HEARTBEAT_FILE.stat().st_mtime
     except OSError as exc:
@@ -82,7 +82,7 @@ def _health(max_age_seconds: float, *, config=None) -> int:
     try:
         resolved = config if config is not None else ShadowServiceConfig.from_env()
         service_health(resolved)
-    except Exception as exc:  # fail closed: health must prove frontier health
+    except Exception as exc:  # structural corruption still fails health closed
         print(
             "REFUSED: shadow frontier health failed: "
             f"{type(exc).__name__}: {exc}", file=sys.stderr)
@@ -158,9 +158,9 @@ def run() -> int:
                     failures=consecutive_failures)
                 return _latched_wait(lambda: stopping)
         else:
-            # A successful advance or an intentional causal wait demonstrates
-            # that the worker is responsive; only failed attempts count toward
-            # the bounded failure threshold.
+            # Success and causal WAITING prove the worker is responsive. A
+            # recoverable multi-day gap is represented by WAITING/health state,
+            # not by a terminal integrity latch.
             consecutive_failures = 0
 
         deadline = time.monotonic() + config.poll_seconds
