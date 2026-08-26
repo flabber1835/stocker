@@ -10,6 +10,11 @@ Process liveness and financial readiness remain separate. The supervisor keeps
 retrying recoverable outages without a permanent latch, but Docker readiness is
 non-green once a shadow decision has missed its causal following-open boundary
 or more than one XNYS session is absent.
+
+Economic segment rollover is serialized with PAPER plan adoption using the same
+session-level behavioral writer lock. A PAPER preparation can therefore never
+read one active shadow segment and commit a plan after another process has made
+a different segment economically authoritative.
 """
 from __future__ import annotations
 
@@ -19,6 +24,7 @@ from typing import Optional
 
 from sentinel import backup_guard, schema, shadow_runtime, shadow_segments
 from sentinel import shadow_service as base
+from sentinel.execution import journal
 from sentinel.feed import calendar, outage_recovery, publication, readiness
 from sentinel.feed import store as feed_store
 
@@ -101,28 +107,39 @@ def _roll_and_advance(config: base.ShadowServiceConfig, *, target: str) -> dict:
         if visible != target or current.window_end != target:
             raise base.ShadowServiceRetry(
                 "canonical publication did not reach the exact recovery target")
-        segment = shadow_segments.active_segment(conn, config.observation_id)
-        predecessor_session, _kind, _sha = shadow_segments.predecessor_anchor(
-            conn, config.observation_id, segment.index)
         publication_subject = shadow_runtime._data_publication_subject_sha256(
             current, visible)
         source_identity = str(os.environ.get(
             "SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256", "")).strip()
-        staged = shadow_segments.rollover(
-            conn,
-            logical_observation_id=config.observation_id,
-            first_session=target,
-            reason=_rollover_reason(predecessor_session, target),
-            new_data_publication_sha256=publication_subject,
-            validated_source_identity_sha256=source_identity)
-        result = shadow_runtime.advance_ready_shadow(
-            conn, through=target, observation_id=config.observation_id,
-            starting_cash=config.starting_cash)
-        value = result.to_dict()
-        if (value.get("shadow_verdict") != "SHADOW_GO"
-                or value.get("verification") != "VERIFIED"):
-            raise base.ShadowServiceRefused(
-                "new outage-recovery segment did not earn SHADOW_GO/VERIFIED")
+
+        # PAPER preparation already owns this same session-level advisory lock
+        # across verified shadow intent -> plan sizing -> plan adoption. Holding
+        # it here across the *committed* segment transition closes the converse
+        # race: shadow cannot change segment between PAPER's segment read and
+        # immutable plan adoption. writer_lock is safe across inner commits;
+        # PostgreSQL advisory locks are session-scoped, while rollover marker +
+        # new genesis retain their existing transaction/append atomicity.
+        with journal.writer_lock(conn):
+            segment = shadow_segments.active_segment(
+                conn, config.observation_id)
+            predecessor_session, _kind, _sha = shadow_segments.predecessor_anchor(
+                conn, config.observation_id, segment.index)
+            staged = shadow_segments.rollover(
+                conn,
+                logical_observation_id=config.observation_id,
+                first_session=target,
+                reason=_rollover_reason(predecessor_session, target),
+                new_data_publication_sha256=publication_subject,
+                validated_source_identity_sha256=source_identity)
+            result = shadow_runtime.advance_ready_shadow(
+                conn, through=target, observation_id=config.observation_id,
+                starting_cash=config.starting_cash)
+            value = result.to_dict()
+            if (value.get("shadow_verdict") != "SHADOW_GO"
+                    or value.get("verification") != "VERIFIED"):
+                raise base.ShadowServiceRefused(
+                    "new outage-recovery segment did not earn "
+                    "SHADOW_GO/VERIFIED")
         return {
             **value,
             "performance_segment": staged.index,
