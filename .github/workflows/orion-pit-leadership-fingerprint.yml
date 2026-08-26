@@ -37,5 +37,6 @@ jobs:
             echo 'No diagnostic changes.'
           else
             git commit -m 'research(orion): record PIT leadership fingerprint audit'
+            git pull --rebase origin research/sentinel-fastgate-2026-08-24
             git push origin HEAD:research/sentinel-fastgate-2026-08-24
           fi
