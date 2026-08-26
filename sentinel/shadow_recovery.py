@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 import os
 from typing import Optional
 
-from sentinel import schema, shadow_runtime, shadow_segments
+from sentinel import backup_guard, schema, shadow_runtime, shadow_segments
 from sentinel import shadow_service as base
 from sentinel.feed import calendar, outage_recovery, publication, readiness
 from sentinel.feed import store as feed_store
@@ -27,6 +27,15 @@ def _utc(now: Optional[datetime]) -> datetime:
         raise base.ShadowServiceRefused(
             "shadow recovery clock must be timezone-aware")
     return value.astimezone(timezone.utc)
+
+
+def _require_backup(config: base.ShadowServiceConfig, operation: str) -> None:
+    conn = feed_store.connect(config.database_url)
+    try:
+        backup_guard.require_writes_permitted(conn, operation=operation)
+    finally:
+        conn.rollback()
+        conn.close()
 
 
 def _fresh_target(now: Optional[datetime]) -> str:
@@ -73,6 +82,8 @@ def _roll_and_advance(config: base.ShadowServiceConfig, *, target: str) -> dict:
     try:
         feed_store.require_feed_schema(conn)
         schema.require_runtime_schema(conn)
+        backup_guard.require_writes_permitted(
+            conn, operation="shadow outage data catch-up")
         outage_recovery.catch_up(conn, target_session=target)
         report = readiness.check_readiness(conn)
         if not report.ready:
@@ -116,13 +127,12 @@ def _roll_and_advance(config: base.ShadowServiceConfig, *, target: str) -> dict:
         }
     except (base.ShadowServiceRefused, base.ShadowServiceRetry,
             shadow_runtime.ShadowRuntimeRefused,
-            shadow_segments.ShadowSegmentRefused):
+            shadow_segments.ShadowSegmentRefused,
+            backup_guard.BackupWriteFenced):
         conn.rollback()
         raise
     except Exception as exc:
         conn.rollback()
-        # Unknown vendor/network/database failures are retryable. They do not
-        # create a segment marker or execution authority.
         raise base.ShadowServiceRetry(
             f"shadow outage recovery is not ready ({type(exc).__name__})") from exc
     finally:
@@ -139,15 +149,14 @@ def advance_once(config: base.ShadowServiceConfig, *,
     status = str(retained.get("status") or "")
 
     if status == "NOT_STARTED":
+        _require_backup(config, "initial shadow observation")
         return base.advance_once(config, now=instant)
 
     if status == "RECOVERY_REQUIRED":
         cutoff = _cutoff(str(retained.get("recovery_cutoff_at") or ""))
         if instant < cutoff:
+            _require_backup(config, "shadow preopen crash recovery")
             return base.advance_once(config, now=instant)
-        # The candidate/genesis is preserved as an unauthorised predecessor
-        # anchor. It is never promoted after cutoff. Wait until a different
-        # source-final close can be born prospectively.
         target = _fresh_target(instant)
         if target <= str(retained.get("recovery_session") or ""):
             raise base.ShadowServiceWaiting(
@@ -155,24 +164,21 @@ def advance_once(config: base.ShadowServiceConfig, *,
         return _roll_and_advance(config, target=target)
 
     if status != "ATTESTED_STRUCTURAL":
-        # Full preflight may return VERIFIED in focused tests; retain ordinary
-        # semantics rather than silently inventing a new recovery class.
         return base.advance_once(config, now=instant)
 
     retained_session = str(retained.get("latest_session") or "")
     target = calendar.latest_closed_session(instant)
     if target == retained_session:
+        # Read-only revalidation of an already-authorized current segment is
+        # allowed even while backup writes are fenced.
         return base.advance_once(config, now=instant)
 
     adjacent = calendar.next_session(retained_session)
     if adjacent == target:
-        # A normal one-session wake remains part of the same performance chain,
-        # but only before that decision's following open.
         _fresh_target(instant)
+        _require_backup(config, "next-session shadow observation")
         return base.advance_once(config, now=instant)
 
-    # More than one missed XNYS close is a causal observation gap. Data may
-    # catch up, but performance continuity cannot.
     target = _fresh_target(instant)
     return _roll_and_advance(config, target=target)
 
