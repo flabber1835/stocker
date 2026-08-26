@@ -70,7 +70,14 @@ def catch_up(conn, *, target_session: str) -> OutageRecoveryResult:
     target = str(target_session)
     visible_before = store.latest_visible_session(conn)
     if visible_before == target:
-        return OutageRecoveryResult(target, "ALREADY_CURRENT", None, None)
+        # Frontier equality is not enough to declare recovery complete. An
+        # interrupted ingest may have committed invisible rows owned by an
+        # unpublished candidate while the last published frontier remains at
+        # the requested target. Returning here would permanently skip the normal
+        # daily recovery machinery and leave readiness fail-closed forever.
+        coherence = publication.coherence(conn)
+        if coherence.coherent and not publication.chain_gaps(conn):
+            return OutageRecoveryResult(target, "ALREADY_CURRENT", None, None)
 
     # The common primitive owns the durability rule. Callers such as unattended
     # shadow recovery and NAS validation cannot accidentally bypass it by
