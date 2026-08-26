@@ -25,7 +25,7 @@ import sentinel_go_validate as go  # noqa: E402
 _RECOVERY_PREPARATION_CODE = r'''
 import json, os
 from datetime import datetime, timezone
-from sentinel import schema
+from sentinel import backup_guard, schema
 from sentinel.feed import calendar, ingest, outage_recovery, publication, store
 from sentinel.shadow_runtime import publication_not_before
 
@@ -60,7 +60,11 @@ try:
         daily_attempted = True
         if recovered.mode == 'ALREADY_CURRENT':
             # Validation proves the explicit-through daily path itself even when
-            # no catch-up was necessary.
+            # no catch-up was necessary. The common recovery helper did not
+            # mutate in ALREADY_CURRENT mode, so this separate proof must apply
+            # the same external-WAL durability fence before calling ingest.
+            backup_guard.require_writes_permitted(
+                c, operation='NAS validation explicit daily publication')
             ingest.daily(c, today=target)
         elif recovered.mode == 'RETAINED_FULL_RESEED':
             print(RECOVERY_MARKER + json.dumps({
