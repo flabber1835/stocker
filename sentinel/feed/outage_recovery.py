@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from sentinel import backup_guard
 from sentinel.feed import (
     ingest, maintenance, publication, recovery, store, universe,
 )
@@ -61,9 +62,10 @@ def catch_up(conn, *, target_session: str) -> OutageRecoveryResult:
     """Reach one explicit closed XNYS target without replaying strategy actions.
 
     The function mutates only the canonical data corpus. It has no execution,
-    broker, plan, shadow-NAV, or catch-up strategy seam. After a retained full
-    reseed it deliberately re-enters ``daily`` once, so recovery proves the
-    ordinary unattended daily authority path before reporting success.
+    broker, plan, shadow-NAV, or catch-up strategy seam. A full retained reseed
+    is WAL-heavy and therefore requires a fully HEALTHY external archiver before
+    it starts; a transient backup outage can never combine with a bulk rebuild
+    into an unbounded local WAL backlog.
     """
     target = str(target_session)
     visible_before = store.latest_visible_session(conn)
@@ -78,10 +80,9 @@ def catch_up(conn, *, target_session: str) -> OutageRecoveryResult:
         conn.rollback()
         retained_start = retained_market_start(conn)
         recovered_from = type(exc).__name__
+        backup_guard.require_bulk_writes_permitted(
+            conn, operation="retained full corpus reseed")
         ingest.seed(conn, date_from=retained_start, date_to=target)
-        # Prove that the same explicit-through daily path used unattended can
-        # now accept the repaired corpus. A no-op daily still produces the
-        # reviewed daily lifecycle/authority evidence; failure propagates.
         ingest.daily(conn, today=target)
         mode = "RETAINED_FULL_RESEED"
     visible_after = store.latest_visible_session(conn)
