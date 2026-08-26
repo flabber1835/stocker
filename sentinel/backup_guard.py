@@ -13,11 +13,11 @@ data/plan/order mutation is fenced. A merely old successful archive with *no*
 newer failure is ambiguous: the database may have been quiet, or the target may
 have disappeared without PostgreSQL having generated a new archive attempt.
 Before any new economic/data mutation in that state, Sentinel writes a harmless
-restore-point WAL record, forces a WAL switch, and requires the archiver to reach
-that forced segment. Thus a disconnected quiet disk cannot be discovered only
-after a broker order has already been authorized, and a large stale WAL backlog
-cannot masquerade as current durability merely because one older file moved.
-Read-only broker recovery remains available throughout.
+restore-point WAL record, forces a WAL switch, and requires the *exact* forced
+segment to exist at full segment size on the mounted durable archive target.
+This avoids relying on pg_stat_archiver ordering, which PostgreSQL does not
+promise across recovery/promotion. Read-only broker recovery remains available
+throughout.
 """
 from __future__ import annotations
 
@@ -30,6 +30,7 @@ import time
 BACKUP_HARD_MAX_AGE_HOURS = 30
 BACKUP_PROBE_TIMEOUT_SECONDS = 20
 BACKUP_PROBE_POLL_SECONDS = 0.25
+BACKUP_WAL_MOUNT = "/sentinel-backup/wal"
 _WAL_NAME = re.compile(r"[0-9A-F]{24}\Z")
 
 
@@ -125,11 +126,7 @@ def _archiver_observation(conn):
         raise BackupWriteFenced(
             "PostgreSQL archive probe state is unavailable")
     wal, last_ok, last_fail, failed_count = row
-    wal = str(wal or "")
-    if wal and _WAL_NAME.fullmatch(wal) is None:
-        raise BackupWriteFenced(
-            "PostgreSQL last_archived_wal is malformed")
-    return wal, _aware(last_ok), _aware(last_fail), int(failed_count or 0)
+    return str(wal or ""), _aware(last_ok), _aware(last_fail), int(failed_count or 0)
 
 
 def _probe_wal_boundary(conn, *, operation: str) -> str:
@@ -137,11 +134,15 @@ def _probe_wal_boundary(conn, *, operation: str) -> str:
     try:
         with conn.cursor() as cur:
             # A bare pg_switch_wal() may do nothing after a completely quiet
-            # segment. A restore point is a small WAL-only record (no strategy,
-            # feed, plan, order or account table mutation) and guarantees there
-            # is activity to switch/archive under the configured wal_level.
+            # segment. The uniquely named restore point is a small WAL-only
+            # record (no strategy/feed/plan/order/account table mutation) and
+            # guarantees activity before the switch. Include backend pid and
+            # server timestamp so this probe cannot create duplicate recovery
+            # target names.
             cur.execute(
-                "SELECT pg_create_restore_point('sentinel-backup-probe')")
+                "SELECT pg_create_restore_point(" 
+                "'sentinel-backup-probe-' || pg_backend_pid()::text || '-' || "
+                "to_char(clock_timestamp(), 'YYYYMMDDHH24MISSUS'))")
             if cur.fetchone() is None:
                 raise RuntimeError("restore point returned no row")
             cur.execute("SELECT pg_walfile_name(pg_switch_wal())")
@@ -158,10 +159,36 @@ def _probe_wal_boundary(conn, *, operation: str) -> str:
     return target
 
 
+def _exact_archived_file(conn, wal_name: str) -> tuple[int | None, int]:
+    """Return exact durable-target file size and configured WAL segment size."""
+    if _WAL_NAME.fullmatch(str(wal_name)) is None:
+        raise BackupWriteFenced("external WAL probe target name is malformed")
+    path = f"{BACKUP_WAL_MOUNT}/{wal_name}"
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT (pg_stat_file(%s,true)).size, "
+                "pg_size_bytes(current_setting('wal_segment_size'))",
+                (path,))
+            row = cur.fetchone()
+    except Exception as exc:
+        raise BackupWriteFenced(
+            "external WAL durable-target file cannot be inspected "
+            f"({type(exc).__name__})") from exc
+    if row is None or len(row) != 2:
+        raise BackupWriteFenced(
+            "external WAL durable-target inspection returned no evidence")
+    size = None if row[0] is None else int(row[0])
+    expected = int(row[1])
+    if expected <= 0:
+        raise BackupWriteFenced("configured WAL segment size is invalid")
+    return size, expected
+
+
 def _probe_stale_archive_target(
         conn, *, operation: str,
         sleep=time.sleep, monotonic=time.monotonic) -> BackupGuardStatus:
-    """Force and observe archival through an exact harmless WAL boundary."""
+    """Force and observe archival of one exact harmless WAL segment."""
     _before_wal, before_ok, before_fail, before_failed_count = (
         _archiver_observation(conn))
     target_wal = _probe_wal_boundary(conn, operation=operation)
@@ -169,32 +196,30 @@ def _probe_stale_archive_target(
     deadline = monotonic() + BACKUP_PROBE_TIMEOUT_SECONDS
     while monotonic() < deadline:
         sleep(BACKUP_PROBE_POLL_SECONDS)
-        wal, last_ok, last_fail, failed_count = _archiver_observation(conn)
-        # WAL filenames are fixed-width hexadecimal timeline/log/segment names.
-        # The configured primary does not change timeline during this runtime;
-        # reaching the target or a later name proves the forced boundary made it
-        # to the external archive, not merely that an older backlog file moved.
-        target_reached = (
-            bool(wal) and wal >= target_wal
-            and last_ok is not None
+        size, expected_size = _exact_archived_file(conn, target_wal)
+        _wal, last_ok, last_fail, failed_count = _archiver_observation(conn)
+        exact_durable = size == expected_size
+        success_advanced = (
+            last_ok is not None
             and (before_ok is None or last_ok > before_ok))
         failure_advanced = (
             failed_count > before_failed_count
             or (last_fail is not None
                 and (before_fail is None or last_fail > before_fail)))
-        if target_reached and (
-                last_fail is None or last_ok is not None and last_ok >= last_fail):
-            result = status(conn)
-            if result.state == "HEALTHY":
-                return result
-        if failure_advanced and not target_reached:
+        if exact_durable and success_advanced:
+            # A later failure may already have moved the archiver to DEGRADED;
+            # that policy permits small ordinary mutations but still blocks a
+            # bulk reseed. The caller applies the appropriate write predicate.
+            return status(conn)
+        if failure_advanced and not exact_durable:
             result = status(conn)
             raise BackupWriteFenced(_fence_message(result, operation=operation))
 
     result = status(conn)
     raise BackupWriteFenced(
-        f"{operation} fenced: external WAL target did not archive the forced "
-        f"segment {target_wal} within {BACKUP_PROBE_TIMEOUT_SECONDS}s; "
+        f"{operation} fenced: external WAL target did not durably publish the "
+        f"exact forced segment {target_wal} within "
+        f"{BACKUP_PROBE_TIMEOUT_SECONDS}s; "
         + _fence_message(result, operation=operation))
 
 
@@ -232,6 +257,6 @@ def require_bulk_writes_permitted(conn, *, operation: str) -> BackupGuardStatus:
 
 __all__ = [
     "BACKUP_HARD_MAX_AGE_HOURS", "BACKUP_PROBE_TIMEOUT_SECONDS",
-    "BackupGuardStatus", "BackupWriteFenced", "require_bulk_writes_permitted",
-    "require_writes_permitted", "status",
+    "BACKUP_WAL_MOUNT", "BackupGuardStatus", "BackupWriteFenced",
+    "require_bulk_writes_permitted", "require_writes_permitted", "status",
 ]
