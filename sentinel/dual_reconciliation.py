@@ -3,16 +3,25 @@
 The broker-free shadow ledger remains the performance authority. Alpaca PAPER
 may transport the same strategy only after its immutable plan proves that it
 names the exact current verified shadow state and allocation.
+
+A causal-gap shadow segment is a new economic genesis, not merely a new chart
+segment: Wealth Core/controller path state cannot be reconstructed truthfully
+from missed prospective sessions. Such a segment may continue as a new research
+observation automatically, but broker transport requires an explicit one-shot
+operator approval bound to the exact append-only segment marker hash.
 """
 from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal, InvalidOperation
+import os
 from typing import Any, Mapping
 
 from sentinel import dual_plan_authority, shadow_runtime, shadow_segments
 from sentinel.feed import calendar
 
+
+REGENESIS_APPROVAL_ENV = "SENTINEL_SHADOW_REGENESIS_APPROVAL_SHA256"
 
 # Dual reconciliation can run in automation, an authorized CLI, or tests. Every
 # process must resolve the same active append-only segment as the shadow worker.
@@ -20,7 +29,7 @@ shadow_segments.install_runtime_store(shadow_runtime)
 
 
 class DualReconciliationPending(RuntimeError):
-    """The shadow service has not yet attested the plan's decision close."""
+    """The shadow service or explicit transport approval is not yet current."""
 
 
 class DualReconciliationRefused(RuntimeError):
@@ -35,6 +44,26 @@ def _decimal(value: Any, *, label: str) -> Decimal:
     if not parsed.is_finite():
         raise DualReconciliationRefused(f"{label} is not finite")
     return parsed
+
+
+def _require_regenesis_transport_approval(conn, observation_id: str):
+    """Return active segment; require exact marker approval after a causal gap."""
+    try:
+        segment = shadow_segments.active_segment(conn, observation_id)
+    except shadow_segments.ShadowSegmentRefused as exc:
+        raise DualReconciliationRefused(
+            f"shadow performance segment authority is invalid: {exc}") from exc
+    if segment.index == 0:
+        return segment
+    marker = str(segment.marker_sha256 or "")
+    approved = str(os.environ.get(REGENESIS_APPROVAL_ENV, "")).strip()
+    if approved != marker:
+        raise DualReconciliationPending(
+            "certified shadow restarted after a causal outage as economic "
+            f"segment {segment.index}; broker transport remains fenced until "
+            f"{REGENESIS_APPROVAL_ENV} equals the exact segment marker "
+            f"{marker}")
+    return segment
 
 
 def verified_shadow_intent(
@@ -62,6 +91,7 @@ def verified_shadow_intent(
     if state.last_processed_session != wanted:
         raise DualReconciliationRefused(
             "verified shadow state cursor differs from PAPER decision close")
+    _require_regenesis_transport_approval(conn, observation_id)
     return result
 
 
@@ -73,6 +103,7 @@ def require_plan_matches_verified_shadow(
     result = verified_shadow_intent(
         conn, decision_session=decision_session,
         observation_id=observation_id, starting_cash=starting_cash)
+    segment = shadow_segments.active_segment(conn, observation_id)
 
     state = result.state
     if str(plan.shadow_snapshot_hash) != state.state_hash:
@@ -126,11 +157,14 @@ def require_plan_matches_verified_shadow(
         "sizing_authority_sha256": sizing["authority_sha256"],
         "plan_fingerprint": sizing["plan_fingerprint"],
         "target_core_exposure": format(expected_exposure.normalize(), "f"),
+        "performance_segment": str(segment.index),
+        "segment_marker_sha256": str(segment.marker_sha256 or ""),
         "verdict": "MATCH",
     }
 
 
 __all__ = [
     "DualReconciliationPending", "DualReconciliationRefused",
-    "require_plan_matches_verified_shadow", "verified_shadow_intent",
+    "REGENESIS_APPROVAL_ENV", "require_plan_matches_verified_shadow",
+    "verified_shadow_intent",
 ]
