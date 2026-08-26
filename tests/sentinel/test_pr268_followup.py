@@ -10,6 +10,7 @@ from sentinel import automation_liveness, automation_recovery, backup_guard
 from sentinel.automation.model import NonRetryableCallbackRefused
 from sentinel.feed import outage_recovery
 from sentinel import shadow_worker
+from sentinel.panel import app as panel_app
 
 
 class _Cursor:
@@ -162,6 +163,8 @@ def test_backup_target_outage_remains_retryable(monkeypatch):
 def test_shadow_worker_only_calls_transient_backup_failure_availability():
     assert shadow_worker._availability_failure(
         backup_guard.BackupUnavailable("target offline"))
+    assert shadow_worker._availability_failure(
+        backup_guard.BackupWriteFenced("legacy transient fence"))
     assert not shadow_worker._availability_failure(
         backup_guard.BackupConfigurationRefused("archive_mode=off"))
 
@@ -181,7 +184,7 @@ def test_automation_latches_backup_configuration_refusal(monkeypatch):
 
 
 def test_segment_panel_says_marker_is_not_sufficient():
-    text = (Path(__file__).resolve().parents[2] / "sentinel/panel/app.py").read_text()
+    text = Path(panel_app.__file__).read_text()
     assert "approval is necessary" in text
     assert "but NOT sufficient" in text
     assert "fresh COMPLETE/RUNNING flat" in text
