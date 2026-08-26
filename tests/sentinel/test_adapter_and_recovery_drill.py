@@ -66,10 +66,11 @@ def D(x):
 # ===========================================================================
 
 class FakeResponse:
-    def __init__(self, payload=None, status_code=200, text=""):
+    def __init__(self, payload=None, status_code=200, text="", headers=None):
         self._payload = payload
         self.status_code = status_code
         self.text = text
+        self.headers = headers or {}
 
     def json(self):
         return self._payload
@@ -675,7 +676,9 @@ class TestAlpacaSubmit:
     @pytest.mark.parametrize("status", [403, 422])
     def test_a_documented_order_refusal_is_REJECTED(self, status):
         broker, _ = alpaca(
-            {}, post=FakeResponse(status_code=status, text="invalid quantity"))
+            {}, post=FakeResponse(
+                status_code=status, text="invalid quantity",
+                headers={"X-Request-ID": "request-123"}))
         assert run(broker.submit(client_key="k", instrument=AAA, side=Side.BUY,
                                  quantity=D(10))).state is S.REJECTED
 

@@ -222,7 +222,7 @@ class Ledger:
             if not isinstance(event, Mapping):
                 raise ValueError(
                     f"persisted Wealth Core ledger event {index} is not an object")
-            shares_delta = finite(
+            finite(
                 event.get("shares_delta"),
                 field_name=f"ledger event {index} shares_delta")
             cash_delta = finite(
@@ -230,10 +230,10 @@ class Ledger:
                 field_name=f"ledger event {index} cash_delta")
             price = event.get("price")
             if price is not None:
-                price = finite(
+                finite(
                     price, field_name=f"ledger event {index} price",
                     non_negative=True)
-            fees = finite(
+            finite(
                 event.get("fees"), field_name=f"ledger event {index} fees",
                 non_negative=True)
             cash_before = finite(
@@ -256,9 +256,14 @@ class Ledger:
                 session=event["session"],
                 event_type=EventType(event["event_type"]),
                 security_id=event["security_id"], ticker=event["ticker"],
-                shares_delta=shares_delta, cash_delta=cash_delta,
-                price=price, fees=fees, cash_before=cash_before,
-                cash_after=cash_after, reason=event["reason"],
+                # Validate through the finite numeric views above, but retain
+                # the exact persisted int/float representation.  Ledger hashes
+                # predate this validator and deliberately distinguish those
+                # JSON forms; restore validation must not rewrite history.
+                shares_delta=event["shares_delta"],
+                cash_delta=event["cash_delta"], price=event.get("price"),
+                fees=event["fees"], cash_before=event["cash_before"],
+                cash_after=event["cash_after"], reason=event["reason"],
                 detail=dict(detail)))
 
         receivables: list[dict] = []

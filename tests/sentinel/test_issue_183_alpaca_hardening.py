@@ -143,8 +143,16 @@ def test_credentials_status_is_typed_not_economic():
 
 @pytest.mark.parametrize("status", [403, 422])
 def test_documented_create_order_refusal_is_rejected(status):
-    outcome, _ = submit(Response(status_code=status, text="invalid quantity"))
+    outcome, _ = submit(Response(
+        status_code=status, text="invalid quantity",
+        headers={"X-Request-ID": "request-123"}))
     assert outcome.state is S.REJECTED
+
+
+@pytest.mark.parametrize("status", [403, 422])
+def test_nominal_refusal_without_alpaca_origin_witness_is_unknown(status):
+    outcome, _ = submit(Response(status_code=status, text="invalid quantity"))
+    assert outcome.state is S.UNKNOWN
 
 
 @pytest.mark.parametrize("status", [400, 404, 409, 418])
@@ -161,7 +169,8 @@ def test_duplicate_client_key_422_is_unknown_until_exact_lookup():
 
 def test_nonduplicate_client_key_validation_is_rejected():
     outcome, _ = submit(Response(
-        status_code=422, text="client_order_id exceeds 128 characters"))
+        status_code=422, text="client_order_id exceeds 128 characters",
+        headers={"X-Request-ID": "request-123"}))
     assert outcome.state is S.REJECTED
 
 

@@ -256,9 +256,19 @@ def _submit_error_outcome(resp) -> CommandOutcome:
             state=S.UNKNOWN,
             detail=f"duplicate key at broker: {detail}")
     if status in {403, 422}:
+        headers = getattr(resp, "headers", {}) or {}
+        request_id = str(
+            headers.get("X-Request-ID")
+            or headers.get("x-request-id") or "").strip()
+        if not request_id:
+            return CommandOutcome(
+                state=S.UNKNOWN,
+                detail=(f"HTTP {status} omitted Alpaca X-Request-ID; "
+                        f"response origin/non-acceptance is unproven: {detail}"))
         return CommandOutcome(
             state=S.REJECTED,
-            detail=f"HTTP {status} documented order refusal: {detail}")
+            detail=(f"HTTP {status} documented Alpaca order refusal "
+                    f"(request_id={request_id}): {detail}"))
     return CommandOutcome(
         state=S.UNKNOWN,
         detail=(f"HTTP {status} is not documented as definitive order "
