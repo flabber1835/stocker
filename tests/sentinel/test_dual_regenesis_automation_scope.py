@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from sentinel import (
     automation_recovery,
     dual_plan_authority,
     dual_reconciliation,
 )
+from sentinel.automation.model import NonRetryableCallbackRefused
 
 
 def _runtime():
@@ -106,6 +109,38 @@ def test_prepare_scopes_reset_even_when_base_prepare_raises(monkeypatch):
 
     assert dual_reconciliation.regenesis_preparation_active() is False
     assert dual_plan_authority.regenesis_flat_sizing_required() is False
+
+
+def test_legacy_nonflat_sizing_authority_cannot_be_rehabilitated(monkeypatch):
+    runtime = _runtime()
+    plan = type("Plan", (), {"plan_id": "post-gap-plan"})()
+    calls = []
+
+    monkeypatch.setattr(
+        dual_plan_authority, "load_authority",
+        lambda *_args, **_kwargs: {"plan_id": "post-gap-plan"})
+
+    def refuse(*_args, **_kwargs):
+        calls.append("checked")
+        raise dual_plan_authority.DualPlanAuthorityRefused(
+            "post-gap PAPER plan sizing requires a flat broker account")
+
+    monkeypatch.setattr(
+        dual_plan_authority, "require_regenesis_flat_authority", refuse)
+    monkeypatch.setattr(
+        dual_reconciliation, "require_plan_matches_verified_shadow",
+        lambda *_args, **_kwargs: pytest.fail(
+            "handover must not be attempted after contaminated sizing"))
+
+    with dual_reconciliation.regenesis_preparation_scope(), \
+            dual_plan_authority.regenesis_flat_sizing_scope(True):
+        with pytest.raises(
+                NonRetryableCallbackRefused,
+                match="flat broker account"):
+            runtime._require_dual_plan_shadow_match(
+                object(), plan, pending_is_retryable=True)
+
+    assert calls == ["checked"]
 
 
 def test_nested_prepare_scope_restores_prior_context():
