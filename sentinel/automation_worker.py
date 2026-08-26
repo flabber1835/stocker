@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 
 from sentinel import schema
 from sentinel.automation import store as automation_store
-from sentinel.automation_runtime import ProductionAutomation, config_from_env
+from sentinel.automation_recovery import ProductionAutomation, config_from_env
 from sentinel.config import SentinelConfig
 from sentinel.feed import store as feed_store
 

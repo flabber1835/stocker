@@ -16,8 +16,10 @@ import sys
 import time
 from pathlib import Path
 
-from sentinel.shadow_service import ShadowServiceConfig, service_health
-from sentinel.shadow_worker import EXIT_REFUSED, EXIT_RETRY, EXIT_WAITING
+from sentinel.shadow_recovery import ShadowServiceConfig, service_health
+from sentinel.shadow_worker import (
+    EXIT_AVAILABILITY, EXIT_REFUSED, EXIT_RETRY, EXIT_WAITING,
+)
 
 HEARTBEAT_FILE = Path("/tmp/sentinel-shadow-supervisor-heartbeat")
 LATCH_FILE = Path("/tmp/sentinel-shadow-supervisor-critical.json")
@@ -59,7 +61,7 @@ def _latched_wait(stopping) -> int:
 
 
 def _health(max_age_seconds: float, *, config=None) -> int:
-    """Require both supervisor liveness and verified shadow-frontier health."""
+    """Require supervisor liveness plus a safe shadow recovery state."""
     try:
         age = time.time() - HEARTBEAT_FILE.stat().st_mtime
     except OSError as exc:
@@ -82,7 +84,7 @@ def _health(max_age_seconds: float, *, config=None) -> int:
     try:
         resolved = config if config is not None else ShadowServiceConfig.from_env()
         service_health(resolved)
-    except Exception as exc:  # fail closed: health must prove frontier health
+    except Exception as exc:  # structural corruption still fails health closed
         print(
             "REFUSED: shadow frontier health failed: "
             f"{type(exc).__name__}: {exc}", file=sys.stderr)
@@ -146,11 +148,14 @@ def run() -> int:
         if code == EXIT_REFUSED:
             _latch("shadow worker reported terminal integrity refusal")
             return _latched_wait(lambda: stopping)
-        if code not in {0, EXIT_WAITING, EXIT_RETRY, 124}:
+        if code not in {
+                0, EXIT_WAITING, EXIT_RETRY, EXIT_AVAILABILITY, 124}:
             _latch(f"shadow worker exited unexpectedly with {code}")
             return _latched_wait(lambda: stopping)
 
         if code in {EXIT_RETRY, 124}:
+            # Non-availability retries and hard timeouts still indicate a local
+            # malfunction/wedge and retain the bounded terminal latch.
             consecutive_failures += 1
             if consecutive_failures >= failure_threshold:
                 _latch(
@@ -158,9 +163,10 @@ def run() -> int:
                     failures=consecutive_failures)
                 return _latched_wait(lambda: stopping)
         else:
-            # A successful advance or an intentional causal wait demonstrates
-            # that the worker is responsive; only failed attempts count toward
-            # the bounded failure threshold.
+            # SUCCESS, causal WAITING, and typed external AVAILABILITY loss are
+            # responsive states. Sharadar or the backup target may remain down
+            # for days and heal without operator reset; no stale performance or
+            # broker authority is created while they are unavailable.
             consecutive_failures = 0
 
         deadline = time.monotonic() + config.poll_seconds

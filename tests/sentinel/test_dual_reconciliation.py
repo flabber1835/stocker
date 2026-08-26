@@ -14,6 +14,15 @@ STATE_HASH = "a" * 64
 AUTHORITY = "b" * 64
 
 
+@pytest.fixture(autouse=True)
+def _segment_zero(monkeypatch):
+    """The legacy dual contract is the original uninterrupted segment."""
+    monkeypatch.setattr(
+        dual.shadow_segments, "active_segment",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            index=0, marker_sha256=None))
+
+
 def _plan(**changes):
     values = {
         "decision_session": date.fromisoformat(SESSION),
@@ -72,6 +81,9 @@ def test_exact_plan_state_session_and_exposure_match(monkeypatch):
         "sizing_authority_sha256": "d" * 64,
         "plan_fingerprint": "e" * 64,
         "target_core_exposure": "0.55",
+        "performance_segment": "0",
+        "segment_marker_sha256": "",
+        "regenesis_handover_sha256": "",
         "verdict": "MATCH",
     }
 

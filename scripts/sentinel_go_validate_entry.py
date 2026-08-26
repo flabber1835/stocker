@@ -2,15 +2,10 @@
 """Production entrypoint for NAS GO validation.
 
 The core validator executes its bounded preparation as a custom ``python -c``
-Compose command.  That code calls ``ingest.daily()`` and therefore mutates the
-corpus, but it is not syntactically the supported ``feed-daily`` CLI command
-that ``sentinel-compose.sh`` can classify and bind automatically.
-
-This entrypoint leaves the core validator unchanged and wraps only that one
-subprocess boundary.  Immediately before the preparation container starts, it
-reuses ``sentinel_feed_gate.py bind`` to prove clean HEAD == candidate image
-revision, then forwards exactly the five per-invocation identity variables used
-by the normal feed wrapper.  The runtime mutation guard remains unchanged.
+Compose command. This entrypoint binds that mutation to clean HEAD + the exact
+candidate image and installs the same retained-range outage recovery primitive
+used by unattended runtime. Vendor/network/source-authority failures never
+trigger a reseed by guess.
 """
 from __future__ import annotations
 
@@ -27,6 +22,90 @@ if str(SCRIPT_DIR) not in sys.path:
 import sentinel_go_validate as go  # noqa: E402
 
 
+_RECOVERY_PREPARATION_CODE = r'''
+import json, os
+from datetime import datetime, timezone
+from sentinel import backup_guard, schema
+from sentinel.feed import calendar, ingest, outage_recovery, publication, store
+from sentinel.shadow_runtime import publication_not_before
+
+SUCCESS_MARKER = 'SENTINEL_GO_PREPARATION='
+RECOVERY_MARKER = 'SENTINEL_GO_PREPARATION_RECOVERY='
+FAILURE_MARKER = 'SENTINEL_GO_PREPARATION_FAILURE='
+
+
+def emit_failure(phase, exc):
+    print(FAILURE_MARKER + json.dumps({
+        'phase': str(phase),
+        'error_type': type(exc).__name__,
+    }, sort_keys=True), flush=True)
+
+
+c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
+phase = 'BACKUP_DURABILITY'
+try:
+    # Schema bootstrap/migration is PostgreSQL WAL mutation just like market-data
+    # publication. Prove the external archive target *before* the validator may
+    # change even one financial-database row. On a brand-new archive-enabled
+    # cluster this actively establishes the first exact durable WAL segment.
+    backup_guard.require_writes_permitted(
+        c, operation='NAS validation schema migration')
+    phase = 'SCHEMA_MIGRATION'
+    schema.ensure_schema(c)
+    store.migrate_schema(c)
+    target = calendar.latest_closed_session()
+    now = datetime.now(timezone.utc)
+    execution_session = calendar.next_session(target)
+    execution_open, _execution_close = calendar.session_window(execution_session)
+    source_final = now >= publication_not_before(target)
+    prospective = now < execution_open.astimezone(timezone.utc)
+    eligible = source_final and prospective
+    daily_attempted = False
+    if eligible:
+        phase = 'DAILY_CATCHUP'
+        recovered = outage_recovery.catch_up(c, target_session=target)
+        daily_attempted = True
+        if recovered.mode == 'ALREADY_CURRENT':
+            # Validation proves the explicit-through daily path itself even when
+            # no catch-up was necessary. The common recovery helper did not
+            # mutate in ALREADY_CURRENT mode, so this separate proof must apply
+            # the same external-WAL durability fence before calling ingest.
+            backup_guard.require_writes_permitted(
+                c, operation='NAS validation explicit daily publication')
+            ingest.daily(c, today=target)
+        elif recovered.mode == 'RETAINED_FULL_RESEED':
+            print(RECOVERY_MARKER + json.dumps({
+                'mode': recovered.mode,
+                'trigger': recovered.recovered_from,
+            }, sort_keys=True), flush=True)
+    phase = 'PUBLICATION_CHECK'
+    after = publication.current(c)
+    visible = store.latest_visible_session(c)
+    current = (
+        after is not None and after.window_end is not None
+        and after.window_end >= target and visible == target
+        and publication.chain_gaps(c) == [])
+    print(SUCCESS_MARKER + json.dumps({
+        'schema_migrated': True,
+        'source_not_before_satisfied': source_final,
+        'following_open_future': prospective,
+        'bounded_sharadar_daily': daily_attempted,
+        'publication_current': current,
+    }, sort_keys=True), flush=True)
+except BaseException as exc:
+    try:
+        c.rollback()
+    except BaseException:
+        pass
+    emit_failure(phase, exc)
+    raise
+finally:
+    c.close()
+'''.strip()
+
+# Install before saving the original probe reference so the core probe uses the
+# recovery-aware code string while retaining its existing evidence schema.
+go._PREPARATION_CODE = _RECOVERY_PREPARATION_CODE
 _CORE_PREPARATION_PROBE = go.probe_prevalidation_preparation
 _FEED_ENV_KEYS = (
     "SENTINEL_GIT_COMMIT",
@@ -34,6 +113,10 @@ _FEED_ENV_KEYS = (
     "SENTINEL_FEED_AUTHORIZED",
     "SENTINEL_FEED_GIT_COMMIT",
     "SENTINEL_FEED_RUNTIME_IMAGE_DIGEST",
+)
+_DIAGNOSTIC_PREFIXES = (
+    "SENTINEL_GO_PREPARATION_RECOVERY=",
+    "SENTINEL_GO_PREPARATION_FAILURE=",
 )
 
 
@@ -51,8 +134,6 @@ def _binding_or_none(
         runtime_ref: str, commit: str) -> Optional[tuple[str, str]]:
     """Ask the existing host gate for the binding; never mint it locally."""
     binding_env = go._without_broker_authority(env)
-    # These two values are consistency claims only. The feed gate independently
-    # reads clean HEAD, the image revision label, and the immutable Docker id.
     binding_env["SENTINEL_GIT_COMMIT"] = str(commit)
     binding_env["SENTINEL_RUNTIME_IMAGE_DIGEST"] = str(runtime_ref)
     completed = runner.run([
@@ -74,6 +155,14 @@ def _binding_or_none(
     return bound_commit, bound_digest
 
 
+def _emit_sanitized_preparation_diagnostics(completed) -> None:
+    for stream in (completed.stdout or "", completed.stderr or ""):
+        for line in stream.splitlines():
+            text = line.strip()
+            if any(text.startswith(prefix) for prefix in _DIAGNOSTIC_PREFIXES):
+                print(text, file=sys.stderr, flush=True)
+
+
 class FeedBoundPreparationRunner:
     """Delegate every command except the one mutating preparation subprocess."""
 
@@ -93,8 +182,6 @@ class FeedBoundPreparationRunner:
             self._runner, env=run_env, cwd=cwd,
             runtime_ref=self._runtime_ref, commit=self._commit)
         if binding is None:
-            # The core probe will record a failed preparation, while no mutation
-            # container has been started. Raw gate diagnostics remain private.
             return subprocess.CompletedProcess(
                 command, 2, stdout="", stderr="")
 
@@ -108,9 +195,6 @@ class FeedBoundPreparationRunner:
             "SENTINEL_FEED_RUNTIME_IMAGE_DIGEST": bound_digest,
         })
 
-        # Compose services intentionally carry no standing feed authority. Add
-        # these names only to this already host-authorized `compose run`, exactly
-        # as sentinel-compose.sh does for supported feed mutations.
         try:
             insertion = command.index("--entrypoint")
         except ValueError:
@@ -120,7 +204,9 @@ class FeedBoundPreparationRunner:
             item for key in _FEED_ENV_KEYS for item in ("--env", key)
         ]
         command[insertion:insertion] = forwarded
-        return self._runner.run(command, env=run_env, cwd=cwd)
+        completed = self._runner.run(command, env=run_env, cwd=cwd)
+        _emit_sanitized_preparation_diagnostics(completed)
+        return completed
 
 
 def probe_prevalidation_preparation(
@@ -139,6 +225,7 @@ def probe_prevalidation_preparation(
 
 
 def install() -> None:
+    go._PREPARATION_CODE = _RECOVERY_PREPARATION_CODE
     go.probe_prevalidation_preparation = probe_prevalidation_preparation
 
 
