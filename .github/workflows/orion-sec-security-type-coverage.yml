@@ -6,6 +6,7 @@ on:
       - research/sentinel-fastgate-2026-08-24
     paths:
       - 'PIT input data/analyze_sec_security_type_coverage.py'
+      - 'PIT input data/audit_pit_leadership_fingerprints.py'
       - 'PIT input data/SEC_SECURITY_TYPE_MANUAL_EDGAR_EVIDENCE*.csv'
       - '.github/workflows/orion-sec-security-type-coverage.yml'
       - 'sec/**'
@@ -17,6 +18,7 @@ permissions:
 jobs:
   analyze:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,12 +27,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install fingerprint dependencies
+        run: pip install 'numpy<3' 'pandas<3'
       - name: Analyze SEC security-type evidence
         run: python 'PIT input data/analyze_sec_security_type_coverage.py'
-      - name: Show report
+      - name: Audit retained PIT leadership fingerprints
+        run: python 'PIT input data/audit_pit_leadership_fingerprints.py'
+      - name: Show reports
         run: |
           cat 'PIT input data/SEC_SECURITY_TYPE_COVERAGE.md'
           cat 'PIT input data/SEC_SECURITY_TYPE_COVERAGE.json'
+          cat 'PIT input data/PIT_LEADERSHIP_FINGERPRINT_AUDIT.json'
       - name: Commit diagnostic outputs
         run: |
           git config user.name 'github-actions[bot]'
@@ -39,11 +46,12 @@ jobs:
                   'PIT input data/SEC_SECURITY_TYPE_BUY_COVERAGE_GAPS.csv' \
                   'PIT input data/SEC_SECURITY_TYPE_COVERAGE.json' \
                   'PIT input data/SEC_SECURITY_TYPE_COVERAGE.md' \
-                  'PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv'
+                  'PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv' \
+                  'PIT input data/PIT_LEADERSHIP_FINGERPRINT_AUDIT.json'
           if git diff --cached --quiet; then
             echo 'No output changes.'
           else
-            git commit -m 'research(orion): refresh SEC security-type coverage results'
+            git commit -m 'research(orion): refresh SEC and PIT leadership diagnostics'
             git pull --rebase origin research/sentinel-fastgate-2026-08-24
             git push origin HEAD:research/sentinel-fastgate-2026-08-24
           fi
