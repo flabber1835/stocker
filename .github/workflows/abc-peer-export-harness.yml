@@ -1,0 +1,35 @@
+name: ABC peer export harness
+on:
+  push:
+    branches: [research/abc-peer-comparison-2026-08-27]
+    paths: ['.github/workflows/abc-peer-export-harness.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/abc-peer-comparison-2026-08-27
+          fetch-depth: 1
+          sparse-checkout: |
+            docs/Sentinel_1_1_Frozen_Harness_Handoff.zip
+            docs/Sentinel_1_1_Faithful_Reproduction_Kit_NO_SHARADAR.zip
+            docs/Sentinel_1_1_Terminal_and_Issuer_Corrected.zip
+            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered
+            research/sentinel-fastgate/control_parity.json
+          sparse-checkout-cone-mode: false
+      - name: Package retained harness
+        run: |
+          mkdir export
+          cp docs/Sentinel_1_1_*.zip export/ || true
+          cp research/sentinel-fastgate/control_parity.json export/ || true
+          cp -r research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered export/ || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: abc-retained-harness
+          path: export
+          compression-level: 0
