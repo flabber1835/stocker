@@ -69,26 +69,15 @@ def test_runtime_preflight_invalid_selector_configuration_fails_immediately(monk
     assert "REFUSED: runtime preflight configuration" in capsys.readouterr().err
 
 
-def test_successful_generic_promotion_writes_exact_ordinary_digest(monkeypatch, tmp_path, capsys):
-    # The supported GO launcher uses sentinel_go_promote.py for exact
-    # certification binding. This unit still covers the generic helper used by
-    # other callers.
+def test_generic_promotion_cannot_select_same_revision_without_certification(monkeypatch, tmp_path, capsys):
     pointer = tmp_path / "validated-runtime.env"
     monkeypatch.setattr(selection, "POINTER", pointer)
-    monkeypatch.setattr(selection, "_refresh_origin_main", lambda: None)
-    monkeypatch.setattr(selection, "_clean_main_head", lambda: HEAD)
-    inspected = []
 
-    def inspect(reference):
-        inspected.append(reference)
-        return DIGEST, HEAD
-
-    monkeypatch.setattr(selection, "_inspect", inspect)
-    assert selection.promote([]) == 0
-    assert inspected == ["sentinel-go-runtime:" + HEAD]
-    assert pointer.read_text(encoding="ascii") == (
-        "SENTINEL_RUNTIME_IMAGE_REF=" + DIGEST + "\n")
-    assert "runtime promotion: BOUND" in capsys.readouterr().out
+    # Even a locally present same-revision image is insufficient. The generic
+    # helper is diagnostics-only; exact promotion belongs to sentinel_go_promote.
+    assert selection.promote([]) == 2
+    assert not pointer.exists()
+    assert "generic runtime promotion is disabled" in capsys.readouterr().err
 
 
 def test_development_input_never_promotes_runtime(monkeypatch, tmp_path, capsys):
