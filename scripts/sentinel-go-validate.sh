@@ -15,6 +15,15 @@ PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
   exit 1
 }
 
+# Serialize the entire lifecycle, not just the mutable database phase. Two GO
+# processes building the same commit-scoped tags or racing cache/promotion files
+# would invalidate single-process identity reasoning even if PostgreSQL itself
+# serialized market-data writes.
+if [ "${SENTINEL_GO_LOCK_HELD:-0}" != "1" ]; then
+  exec "$PYTHON" scripts/sentinel_go_lock.py \
+    bash scripts/sentinel-go-validate.sh "$@"
+fi
+
 case "${SENTINEL_GO_TARGET:-DUAL_RUN_OBSERVATION}" in
   SHADOW|DUAL_RUN_OBSERVATION|HISTORICAL_PAPER_EXECUTION) ;;
   *)
