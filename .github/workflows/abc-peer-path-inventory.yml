@@ -1,0 +1,32 @@
+name: ABC peer path inventory
+on:
+  push:
+    branches: [research/abc-peer-comparison-2026-08-27]
+    paths: ['.github/workflows/abc-peer-path-inventory.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/abc-peer-comparison-2026-08-27
+          fetch-depth: 1
+          sparse-checkout: |
+            research
+            docs
+            .github
+          sparse-checkout-cone-mode: true
+      - name: List candidate assets
+        run: |
+          set -euo pipefail
+          find research docs -type f -printf '%p %s\n' | grep -Ei 'sentinel|ldrc|breadth|control|parity|strict|held|position|daily|sector|sic|ff12|peer|nav|replay' > /tmp/paths.txt || true
+          grep -RIlE '59\.154286|22\.630215|0\.226302156|5032|control_parity' research docs 2>/dev/null > /tmp/content_hits.txt || true
+          { echo '=== PATHS ==='; cat /tmp/paths.txt; echo '=== CONTENT HITS ==='; cat /tmp/content_hits.txt; } > inventory.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: abc-path-inventory
+          path: inventory.txt
