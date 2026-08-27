@@ -14,21 +14,38 @@ jobs:
           fetch-depth: 1
           filter: blob:none
           sparse-checkout: |
-            research
-            docs/sentinel-handoff
-            docs/sentinel-reference-implementation
-      - name: Locate exact replay inputs
+            PIT input data
+            research/sentinel-fastgate
+            docs/sentinel-handoff/04_BREADTH_ORACLES
+            docs/sentinel-reference-implementation/sentinel_1p1_daily.csv
+      - name: Inspect schemas
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p research/ldrc-abc-run
-          OUT=research/ldrc-abc-run/tree_assets.txt
-          {
-            echo '=== PIT / PRICE / POSITION / CONTROL ASSETS ==='
-            git ls-tree -r --name-only HEAD | grep -Ei 'PIT_ONLY|SEP_20|SFP.*PIT|position.*panel|held.*close|sector_diag|sentinel_1p1_daily|control.*daily|shadow.*daily|correct.*pit|sec.*sic|fastgate' | sort
-          } > "$OUT"
+          python - <<'PY'
+          import pandas as pd, glob, json
+          from pathlib import Path
+          out=[]
+          files=[
+            'docs/sentinel-handoff/04_BREADTH_ORACLES/fundamental_portfolio_health_daily.csv',
+            'docs/sentinel-handoff/04_BREADTH_ORACLES/sentinel_1p1_exact_daily_with_breadth.csv',
+            'docs/sentinel-reference-implementation/sentinel_1p1_daily.csv',
+            'PIT input data/SFP_SPY_BIL_PIT_ONLY.csv.gz',
+            'PIT input data/SEP_PRICE_2006_PIT_ONLY.csv.gz',
+            'PIT input data/SEP_2006_PIT_ONLY.csv.gz',
+          ]
+          for f in files:
+            p=Path(f); out.append(f'=== {f} size={p.stat().st_size} ===')
+            try:
+              df=pd.read_csv(p,nrows=5)
+              out.append('columns='+repr(list(df.columns)))
+              out.append(df.head(3).to_csv(index=False))
+            except Exception as e: out.append('ERR '+repr(e))
+          Path('research/ldrc-abc-run/schema.txt').write_text('\n'.join(out))
+          PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add "$OUT"
-          git commit -m 'research: locate exact ABC replay inputs'
+          git add research/ldrc-abc-run/schema.txt
+          git commit -m 'research: inspect exact ABC data schemas'
           git push
