@@ -3,8 +3,9 @@
 
 This module is intentionally import-only for production orchestration. The
 supported operator entry is ``scripts/sentinel-go-validate.sh``. The bounded
-financial-database preparation additionally proves the host GO lifecycle flock
-at its own mutation boundary; clean HEAD/image binding alone is not sufficient.
+financial-database preparation proves both the host GO lifecycle flock and an
+in-process verified-orchestration capability at its own mutation boundary;
+clean HEAD/image binding alone is not sufficient.
 """
 from __future__ import annotations
 
@@ -113,6 +114,18 @@ _DIAGNOSTIC_PREFIXES = (
     "SENTINEL_GO_PREPARATION_RECOVERY=",
     "SENTINEL_GO_PREPARATION_FAILURE=",
 )
+# Process-local capability. It is deliberately not an environment variable and
+# is set only by sentinel_go_verified_entry after that entry proves the inherited
+# kernel flock. Importing this module or manually acquiring the lock is therefore
+# insufficient to reach financial mutation.
+_VERIFIED_ORCHESTRATION = False
+
+
+def authorize_verified_orchestration() -> None:
+    global _VERIFIED_ORCHESTRATION
+    if not go_lock.lifecycle_lock_is_held():
+        raise RuntimeError("verified GO orchestration requires the held lifecycle lock")
+    _VERIFIED_ORCHESTRATION = True
 
 
 def _is_preparation_command(argv: Sequence[str]) -> bool:
@@ -158,9 +171,9 @@ def _emit_sanitized_preparation_diagnostics(completed) -> None:
                 print(text, file=sys.stderr, flush=True)
 
 
-def _lifecycle_refusal(runtime_ref: Optional[str]):
+def _lifecycle_refusal(runtime_ref: Optional[str], *, reason: str = "GO_LIFECYCLE_LOCK_NOT_PROVEN_NO_MUTATION"):
     evidence = {
-        "reason": "GO_LIFECYCLE_LOCK_NOT_PROVEN_NO_MUTATION",
+        "reason": reason,
         "mutation_attempted": False,
     }
     return go.PreparationSummary(
@@ -227,13 +240,16 @@ def probe_prevalidation_preparation(
         runner: go.CommandRunner, *, env: Mapping[str, str],
         runtime_ref: Optional[str], commit: Optional[str], **kwargs):
     """Run one preparation only inside the verified serialized GO lifecycle."""
+    if not _VERIFIED_ORCHESTRATION:
+        return _lifecycle_refusal(
+            runtime_ref, reason="GO_VERIFIED_ORCHESTRATION_NOT_PROVEN_NO_MUTATION")
     if not go_lock.lifecycle_lock_is_held(env):
         return _lifecycle_refusal(runtime_ref)
     if (runtime_ref is None or commit is None
             or go._IMAGE_DIGEST.fullmatch(str(runtime_ref)) is None
             or go._HEX40.fullmatch(str(commit)) is None):
-        return _CORE_PREPARATION_PROBE(
-            runner, env=env, runtime_ref=runtime_ref, commit=commit, **kwargs)
+        return _lifecycle_refusal(
+            runtime_ref, reason="GO_CERTIFIED_IDENTITY_INVALID_NO_MUTATION")
     bound_runner = FeedBoundPreparationRunner(
         runner, runtime_ref=str(runtime_ref), commit=str(commit))
     return _CORE_PREPARATION_PROBE(
