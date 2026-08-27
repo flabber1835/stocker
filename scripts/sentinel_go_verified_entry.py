@@ -151,6 +151,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         phase.StrictDatabaseHealthView = DeploymentCompatibleDatabaseHealthView
         controller.DatabaseHealthView = DeploymentCompatibleDatabaseHealthView
         controller.run_phased_probes = run_verified_probes
+        # Treat the opaque current-run promotion capability as a secret candidate
+        # for the existing bundle scanner. Only its SHA-256 is intentionally
+        # persisted in the local non-uploaded requested-target proof.
+        go._SECRET_NAMES = frozenset(set(go._SECRET_NAMES) | {go_lock.RUN_TOKEN_ENV})
         rc = controller.main(raw)
         if rc == 0 and not development:
             _write_run_pass(target=target)
