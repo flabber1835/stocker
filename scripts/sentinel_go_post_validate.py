@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Finalize a successful GO validation without granting broker authority.
+"""Finalize successful GO validation without granting broker authority.
 
-The GO suite validates local immutable Docker image IDs. The authorized CLI
-consumes those same exact ``sha256:<image-id>`` values through
-SENTINEL_RUNTIME_IMAGE_DIGEST and SENTINEL_TEST_IMAGE_DIGEST. This helper makes
-that handoff explicit, recreates the read-only panel on the promoted ordinary
-runtime, and garbage-collects only old GO scratch tags (never force-removing an
-image in use).
+The helper verifies the same retained exact-image certification state used by
+promotion, recreates the read-only panel on the promoted ordinary runtime, and
+writes the exact authorized/test image IDs consumed by the authorized CLI.
+
+It deliberately performs no automatic image deletion.  Old Sentinel images may
+still be named by an active signed paper-observation certificate even when no
+container is currently running; retention-aware cleanup is a separate
+maintenance concern.
 """
 from __future__ import annotations
 
@@ -20,6 +22,12 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_DIR = ROOT / "scripts"
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import sentinel_go_phase_entry as phase  # noqa: E402
+
 OUT = ROOT / "artifacts" / "sentinel" / "deployment" / "validated-artifact-handoff.json"
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -98,34 +106,30 @@ def atomic_json(path: Path, value: dict) -> None:
             os.unlink(name)
 
 
-def cleanup_old_go_tags(commit: str) -> None:
-    result = run(["docker", "images", "--format", "{{.Repository}}:{{.Tag}}"])
-    if result.returncode != 0:
-        return
-    prefixes = (
-        "sentinel-go-runtime:", "sentinel-go-authorized:", "sentinel-go-test:",
-        "stocker-go-bt-engine:", "stocker-go-bt-engine-test:",
-        "stocker-go-bt-data:", "stocker-go-bt-data-test:",
-    )
-    current = {prefix + commit for prefix in prefixes}
-    for ref in sorted(set((result.stdout or "").splitlines())):
-        ref = ref.strip()
-        if not ref or ref in current or not ref.startswith(prefixes):
-            continue
-        # Deliberately no --force. If an old container still uses an image,
-        # Docker refuses and we preserve it rather than disrupting a process.
-        run(["docker", "image", "rm", ref])
-
-
 def main() -> int:
     env = dict(os.environ)
     try:
         commit = git("rev-parse", "HEAD")
         if HEX40.fullmatch(commit) is None:
             raise Refused("HEAD is not an exact commit")
-        ordinary = inspect_id(f"sentinel-go-runtime:{commit}")
-        authorized = inspect_id(f"sentinel-go-authorized:{commit}")
-        test = inspect_id(f"sentinel-go-test:{commit}")
+
+        runner = phase.controller.DiagnosticRunner()
+        summary = phase._load_with_ordinary(runner, commit=commit)
+        if summary is None or not summary.complete:
+            raise Refused(
+                "exact retained certification is unavailable at post-validation handoff")
+
+        ordinary = phase._ordinary_id(runner, commit)
+        authorized = str(summary.runtime_image_digest or "")
+        test = str(summary.candidate_image_digest or "")
+        if ordinary is None or not IMAGE_ID.fullmatch(authorized) or not IMAGE_ID.fullmatch(test):
+            raise Refused("certified Sentinel image identities are incomplete")
+        if inspect_id(f"sentinel-go-runtime:{commit}") != ordinary:
+            raise Refused("ordinary runtime tag changed after promotion")
+        if inspect_id(f"sentinel-go-authorized:{commit}") != authorized:
+            raise Refused("authorized runtime tag changed after certification")
+        if inspect_id(f"sentinel-go-test:{commit}") != test:
+            raise Refused("test image tag changed after certification")
 
         configured_runtime = validate_configured_image_id(
             env, "SENTINEL_RUNTIME_IMAGE_DIGEST", authorized)
@@ -148,12 +152,15 @@ def main() -> int:
             "authority": "EVIDENCE_ONLY_NOT_BROKER_AUTHORITY",
         })
         recreate_panel(env)
-        cleanup_old_go_tags(commit)
     except Refused as exc:
         print(f"REFUSED: GO post-validation handoff failed: {exc}", file=sys.stderr)
         return 2
 
     print("post-validation: panel recreated on promoted runtime", flush=True)
+    print(
+        "post-validation: preserved prior authority images; no automatic image cleanup performed",
+        flush=True,
+    )
     print(
         "post-validation: wrote exact authorized/test sha256 image IDs for the signed activation wrapper",
         flush=True,
