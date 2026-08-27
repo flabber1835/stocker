@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Promote exactly the ordinary runtime bound by successful GO certification."""
+"""Promote exactly the ordinary runtime from this invocation's requested-target GO."""
 from __future__ import annotations
 
 import hashlib
@@ -42,6 +42,59 @@ def _certified_ordinary(commit: str) -> str:
     return digest
 
 
+def _current_run_target_pass(commit: str) -> dict:
+    token = go_lock.current_run_token()
+    if token is None:
+        raise runtime.RuntimeSelectionRefused(
+            "runtime promotion has no current one-run lifecycle capability")
+    try:
+        payload = json.loads(go_lock.RUN_PASS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError) as exc:
+        raise runtime.RuntimeSelectionRefused(
+            "this GO invocation has no successful requested-target proof") from exc
+    expected_keys = {
+        "schema", "git_commit", "requested_target", "run_token_sha256",
+        "host_boot_id_sha256", "passed_at", "evidence_sha256",
+    }
+    if not isinstance(payload, dict) or set(payload) != expected_keys:
+        raise runtime.RuntimeSelectionRefused(
+            "requested-target GO proof has an unexpected schema")
+    if payload.get("schema") != go_lock.RUN_PASS_SCHEMA:
+        raise runtime.RuntimeSelectionRefused(
+            "requested-target GO proof schema is invalid")
+    supplied = str(payload.get("evidence_sha256") or "")
+    evidence = {k: v for k, v in payload.items() if k != "evidence_sha256"}
+    if supplied != phase._sha(evidence):
+        raise runtime.RuntimeSelectionRefused(
+            "requested-target GO proof integrity is invalid")
+    if payload.get("git_commit") != commit:
+        raise runtime.RuntimeSelectionRefused(
+            "requested-target GO proof does not match current commit")
+    if payload.get("requested_target") not in phase.controller.TARGETS:
+        raise runtime.RuntimeSelectionRefused(
+            "requested-target GO proof names an unsupported target")
+    expected_token = hashlib.sha256(token.encode("ascii")).hexdigest()
+    if payload.get("run_token_sha256") != expected_token:
+        raise runtime.RuntimeSelectionRefused(
+            "requested-target GO proof belongs to a different lifecycle invocation")
+    boot = phase._boot_id_sha256()
+    if boot is None or payload.get("host_boot_id_sha256") != boot:
+        raise runtime.RuntimeSelectionRefused(
+            "requested-target GO proof belongs to a different host boot")
+    if phase._parse_utc(payload.get("passed_at")) is None:
+        raise runtime.RuntimeSelectionRefused(
+            "requested-target GO proof has invalid completion time")
+    return payload
+
+
+def _consume_run_pass() -> None:
+    try:
+        go_lock.RUN_PASS_PATH.unlink()
+    except OSError as exc:
+        raise runtime.RuntimeSelectionRefused(
+            "requested-target GO proof could not be consumed after promotion") from exc
+
+
 def main(argv=None) -> int:
     extra_args = list(argv if argv is not None else sys.argv[1:])
     if "--input" in extra_args or any(str(arg).startswith("--input=") for arg in extra_args):
@@ -53,6 +106,7 @@ def main(argv=None) -> int:
                 "runtime promotion is available only inside the verified locked sentinel-go-validate lifecycle")
         runtime._refresh_origin_main()
         head = runtime._clean_main_head()
+        run_pass = _current_run_target_pass(head)
 
         # Require the complete retained suite record and all exact image IDs,
         # not only the companion ordinary-runtime sidecar. This prevents a
@@ -77,12 +131,15 @@ def main(argv=None) -> int:
         if text != "SENTINEL_RUNTIME_IMAGE_REF=%s\n" % expected:
             raise runtime.RuntimeSelectionRefused(
                 "validated runtime pointer verification failed")
+        _consume_run_pass()
     except (OSError, runtime.RuntimeSelectionRefused) as exc:
         print("REFUSED: runtime promotion failed: %s" % exc, file=sys.stderr)
         return 2
     print(
-        "runtime promotion: BOUND - exact certified ordinary image %s from %s"
-        % (expected[:19] + "...", head[:12]), flush=True)
+        "runtime promotion: BOUND - requested %s GO selected exact certified ordinary image %s from %s"
+        % (run_pass["requested_target"], expected[:19] + "...", head[:12]),
+        flush=True,
+    )
     return 0
 
 
