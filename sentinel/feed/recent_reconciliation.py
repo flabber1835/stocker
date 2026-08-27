@@ -65,6 +65,14 @@ def reconcile_recent(conn, *, through: str, fetch=None):
     reconciliation layer still observes it twice before trusting its content.
     """
     store._assert_corpus_locked(conn)
+    requested = dt.date.fromisoformat(str(through))
+    prior_cursor = load_cursor(conn)
+    if prior_cursor is not None and prior_cursor.processed_through > requested:
+        raise maintenance.SharadarMutationRefused(
+            f"recent SEP reconciliation cursor {prior_cursor.processed_through} "
+            f"is ahead of requested reconciliation through {requested}; refusing "
+            "to traverse source under future durable authority")
+
     source_fetch = _export_fetch if fetch is None else fetch
     sessions = calendar.previous_sessions(str(through), REQUIRED_CLOSES)
     if len(sessions) < REQUIRED_CLOSES:
