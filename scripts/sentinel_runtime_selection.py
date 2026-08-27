@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 POINTER = ROOT / "artifacts" / "sentinel" / "deployment" / "validated-runtime.env"
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
+_ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class RuntimeSelectionRefused(RuntimeError):
@@ -36,6 +37,42 @@ def _git(*args: str) -> str:
         raise RuntimeSelectionRefused(
             "git %s failed" % " ".join(args))
     return (result.stdout or "").strip()
+
+
+def _load_dotenv_literal(path: Path = ROOT / ".env") -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.is_file():
+        return values
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise RuntimeSelectionRefused("local environment file is unreadable") from exc
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        if "=" not in line:
+            raise RuntimeSelectionRefused("local environment file has a malformed line")
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if _ENV_KEY.fullmatch(key) is None:
+            raise RuntimeSelectionRefused("local environment file has an invalid key")
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            quote_char = value[0]
+            value = value[1:-1]
+            if quote_char == '"':
+                value = value.replace('\\"', '"').replace("\\\\", "\\")
+        values[key] = value
+    return values
+
+
+def _merged_environment() -> dict[str, str]:
+    values = _load_dotenv_literal()
+    values.update(os.environ)
+    return values
 
 
 def _clean_main_head() -> str:
@@ -106,7 +143,7 @@ def preflight() -> int:
         head = _git("rev-parse", "HEAD")
         if not _COMMIT.fullmatch(head):
             raise RuntimeSelectionRefused("repository HEAD is not an exact commit")
-        selected = _compose_selected_image(dict(os.environ))
+        selected = _compose_selected_image(_merged_environment())
         digest, revision = _inspect(selected)
     except RuntimeSelectionRefused as exc:
         print("runtime preflight: UNAVAILABLE - %s" % exc, flush=True)
@@ -159,7 +196,6 @@ def promote(extra_args: Sequence[str]) -> int:
             raise RuntimeSelectionRefused(
                 "validated ordinary candidate revision disagrees with current HEAD")
         _write_pointer(digest)
-        # Verify the exact pointer bytes and selected image after the atomic replace.
         text = POINTER.read_text(encoding="ascii")
         if text != "SENTINEL_RUNTIME_IMAGE_REF=%s\n" % digest:
             raise RuntimeSelectionRefused("validated runtime pointer verification failed")
