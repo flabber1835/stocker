@@ -1,0 +1,33 @@
+name: LD-RC ABC diagnostic
+on:
+  push:
+    branches: [research/ldrc-abc-dynamic-2026-08-27]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Inspect retained replay assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== zip inventory: faithful kit ==='
+          unzip -l docs/Sentinel_1_1_Faithful_Reproduction_Kit_NO_SHARADAR.zip | sed -n '1,220p'
+          echo '=== zip inventory: frozen handoff ==='
+          unzip -l docs/Sentinel_1_1_Frozen_Harness_Handoff.zip | sed -n '1,220p'
+          rm -rf /tmp/faith /tmp/frozen
+          mkdir -p /tmp/faith /tmp/frozen
+          unzip -q docs/Sentinel_1_1_Faithful_Reproduction_Kit_NO_SHARADAR.zip -d /tmp/faith
+          unzip -q docs/Sentinel_1_1_Frozen_Harness_Handoff.zip -d /tmp/frozen
+          echo '=== filenames likely relevant ==='
+          find /tmp/faith /tmp/frozen -type f | grep -Ei 'daily|replay|parent|breadth|position|shadow|spy|bil|ldrc|concord|summary|metric' | sort | head -300
+          echo '=== exact control fingerprint occurrences ==='
+          grep -RIlE '22\.630215|0\.226302156|59\.154286' /tmp/faith /tmp/frozen . 2>/dev/null | head -100 || true
+          echo '=== candidate CSV headers ==='
+          while IFS= read -r f; do
+            echo "--- $f"; head -2 "$f" || true
+          done < <(find /tmp/faith /tmp/frozen -type f -name '*.csv' | grep -Ei 'daily|replay|parent|breadth|position|shadow|spy|bil|ldrc|concord' | head -80)
