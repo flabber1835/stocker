@@ -31,25 +31,12 @@ for ARG in "$@"; do
   esac
 done
 
-# Retained certification/retry evidence and the exact post-validation handoff
-# are intentionally bound to this Linux boot. Prove the boot identity exists
-# before any long image build/test work rather than discovering this at
-# promotion time. Never print the boot id itself.
+# Retained certification/retry evidence and exact post-validation handoff are
+# bound to the current Linux boot. This is a deterministic prerequisite, so
+# prove it before any long image build/test work. Development input is neither
+# retained nor promoted and does not need the production host binding.
 if [ "$PRODUCTION_RUN" -eq 1 ]; then
-  "$PYTHON" - <<'PY' || {
-from pathlib import Path
-import sys
-try:
-    value = Path('/proc/sys/kernel/random/boot_id').read_text(
-        encoding='ascii').strip()
-except (OSError, UnicodeError):
-    value = ''
-if not value:
-    print('REFUSED: host boot identity is unavailable; GO certification reuse/promotion cannot be safely bound', file=sys.stderr)
-    raise SystemExit(2)
-PY
-    exit $?
-  }
+  "$PYTHON" scripts/sentinel_go_host_preflight.py
 fi
 
 # Surface ordinary-runtime drift cheaply. A stale prior runtime is diagnostic,
