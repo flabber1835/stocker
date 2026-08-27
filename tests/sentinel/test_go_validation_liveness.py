@@ -212,6 +212,14 @@ def test_final_paper_account_is_reobserved_after_long_phases():
     assert '"final_paper_account_reobserved": True' in text
 
 
+def test_verified_entry_arms_process_local_mutation_capability_only_after_lock():
+    text = VERIFIED_SCRIPT.read_text(encoding="utf-8")
+    lock = text.index("go_lock.lifecycle_lock_is_held()")
+    capability = text.index("controller.entry.authorize_verified_orchestration()")
+    controller_call = text.index("return controller.main(raw)")
+    assert lock < capability < controller_call
+
+
 def test_early_paper_account_preflight_is_get_only_and_target_aware():
     text = (ROOT / "scripts" / "sentinel_go_account_preflight.py").read_text(
         encoding="utf-8")
@@ -239,6 +247,7 @@ def test_runtime_preflight_uses_same_validated_pointer_precedence_as_compose():
     assert 'values["SENTINEL_RUNTIME_IMAGE_REF"] = pointer' in text
     assert "REFUSED: runtime preflight configuration" in text
     assert "validation may build a fresh current candidate" in text
+    assert "generic runtime promotion is disabled" in text
 
 
 def test_runtime_promotion_refreshes_origin_main_at_final_boundary():
@@ -254,6 +263,9 @@ def test_post_validation_recreates_panel_then_publishes_registry_handoff():
     assert 'env = phase.controller.go.merged_environment()' in text
     assert '"scripts/sentinel-compose.sh", "--run"' in text
     assert '"--force-recreate", "sentinel-panel"' in text
+    assert '"ps", "-q", "sentinel-panel"' in text
+    assert '"docker", "container", "inspect", "--format", "{{.Image}}"' in text
+    assert "observed != expected_image_id" in text
     assert '"schema": "sentinel.validated-artifact-handoff/2"' in text
     assert '"output_identity_domain": "REGISTRY_REPODIGEST"' in text
     assert '"authorized_compose_requires_repo_digest": True' in text
@@ -261,7 +273,8 @@ def test_post_validation_recreates_panel_then_publishes_registry_handoff():
     assert "no automatic image deletion" in text
     assert 'docker", "image", "rm"' not in text
     assert "phase._load_with_ordinary" in text
-    assert text.index("recreate_panel(env)") < text.index("atomic_json(OUT, handoff)")
+    assert text.index("recreate_panel(env, expected_image_id=ordinary)") < text.index(
+        "atomic_json(OUT, handoff)")
 
 
 def test_autonomous_deploy_promotes_exact_reviewed_local_ids_to_repo_digests():
