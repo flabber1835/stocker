@@ -47,7 +47,11 @@ def test_host_go_lock_spans_child_lifecycle_and_is_provable_at_membrane():
     assert "fcntl.LOCK_EX | fcntl.LOCK_NB" in text
     assert 'env[LOCK_HELD_ENV] = "1"' in text
     assert 'env[LOCK_FD_ENV] = str(handle.fileno())' in text
+    assert 'env[RUN_TOKEN_ENV] = secrets.token_hex(32)' in text
+    assert "RUN_PASS_SCHEMA" in text
+    assert "RUN_PASS_PATH" in text
     assert "lifecycle_lock_is_held" in text
+    assert "current_run_token" in text
     assert "os.fstat(fd)" in text
     assert "another Sentinel GO validation is already running" in text
     assert "pass_fds=(handle.fileno(),)" in text
@@ -149,11 +153,17 @@ def test_stable_certification_reuse_is_exact_same_boot_and_time_bounded():
     assert "_load_with_ordinary" in entry_text
 
 
-def test_promotion_requires_exact_certified_ordinary_image_id():
+def test_promotion_requires_current_run_go_and_exact_certified_ordinary_image_id():
     text = (ROOT / "scripts" / "sentinel_go_promote.py").read_text(
         encoding="utf-8")
-    assert "_certified_ordinary(head)" in text
-    assert "observed != expected" in text
+    run_pass = text.index("_current_run_target_pass(head)")
+    certification = text.index("phase._load_with_ordinary", run_pass)
+    exact = text.index("_certified_ordinary(head)", certification)
+    pointer = text.index("runtime._write_pointer(expected)", exact)
+    verify = text.index("validated runtime pointer verification failed", pointer)
+    consume = text.index("_consume_run_pass()", verify)
+    assert run_pass < certification < exact < pointer < verify < consume
+    assert "requested-target GO proof belongs to a different lifecycle invocation" in text
     assert "ordinary candidate image id changed after certification" in text
     assert "_refresh_origin_main()" in text
 
@@ -212,12 +222,16 @@ def test_final_paper_account_is_reobserved_after_long_phases():
     assert '"final_paper_account_reobserved": True' in text
 
 
-def test_verified_entry_arms_process_local_mutation_capability_only_after_lock():
+def test_verified_entry_arms_mutation_then_writes_run_pass_only_after_target_go():
     text = VERIFIED_SCRIPT.read_text(encoding="utf-8")
     lock = text.index("go_lock.lifecycle_lock_is_held()")
     capability = text.index("controller.entry.authorize_verified_orchestration()")
-    controller_call = text.index("return controller.main(raw)")
-    assert lock < capability < controller_call
+    controller_call = text.index("rc = controller.main(raw)")
+    pass_guard = text.index("if rc == 0 and not development", controller_call)
+    proof = text.index("_write_run_pass(target=target)", pass_guard)
+    assert lock < capability < controller_call < pass_guard < proof
+    assert "_clean_run_pass_path()" in text
+    assert "go_lock.current_run_token()" in text
 
 
 def test_early_paper_account_preflight_is_get_only_and_target_aware():
