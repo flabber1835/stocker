@@ -1,22 +1,28 @@
 #!/usr/bin/env python3
-"""Fail fast on deterministic Sharadar CDC refusals without mutating the corpus.
+"""Fail fast on deterministic Sharadar/local-feed refusals without mutation.
 
 This preflight is allowed to run before stable artifact certification because it
-is read-only: it builds the exact ordinary runtime for current clean main, opens
-the production PostgreSQL transaction READ ONLY, fetches the pending SEP
-``lastupdated`` interval twice through the normal Sharadar transport, and runs
-the existing mutation-row authority validator. It never creates/migrates schema,
-advances a cursor, creates an ingest run, renormalizes bars, or publishes
-anything.
+is read-only. It builds the exact ordinary runtime for current clean main, opens
+the production PostgreSQL transaction READ ONLY, validates the durable SEP,
+ACTIONS, and recent-complete-reconciliation cursor shapes against the current
+publication and decision frontier, then—only after the reviewed source-final
+boundary—fetches the pending SEP ``lastupdated`` interval twice through the
+normal Sharadar transport and runs the existing mutation-row authority
+validator.
+
+It never creates/migrates schema, advances a cursor, creates an ingest run,
+renormalizes bars, publishes a corpus generation, downloads the complete ACTIONS
+export, or performs the recent complete SEP export. Those stronger source and
+mutation boundaries remain owned by the certified preparation.
 
 If the newest closed session has not reached the reviewed Sharadar source-final
-boundary, this phase deliberately defers source inspection and allows stable
-certification to proceed. A still-publishing vendor view is never negative
-authority.
+boundary, this phase deliberately defers SEP source inspection. A still-
+publishing vendor view is never negative authority. Missing legacy cursor/schema
+state is reported as recovery-required rather than treated as evidence of source
+corruption.
 
 The certified preparation later repeats source observation under the normal feed
-write membrane. This phase is only a liveness filter, never deployment
-authority.
+write membrane. This phase is only a liveness filter, never deployment authority.
 """
 from __future__ import annotations
 
@@ -38,7 +44,9 @@ MARKER = "SENTINEL_GO_READONLY_DATA_PREFLIGHT="
 _READ_ONLY_CODE = r'''
 import datetime as dt
 import json, os
-from sentinel.feed import calendar, maintenance_impl as maintenance, publication, sharadar, store
+from sentinel.feed import (
+    calendar, maintenance_impl as maintenance, publication,
+    recent_reconciliation, sharadar, store)
 from sentinel.shadow_runtime import publication_not_before
 
 MARKER = 'SENTINEL_GO_READONLY_DATA_PREFLIGHT='
@@ -65,7 +73,7 @@ def controlled_detail(exc):
     return detail
 
 
-def cursor_from_row(row, current_version):
+def cursor_from_row(row, *, name, kind, current_version):
     if row is None:
         return None
     raw = row[1]
@@ -76,30 +84,56 @@ def cursor_from_row(row, current_version):
             state = json.loads(str(raw))
         except (TypeError, ValueError) as exc:
             raise maintenance.SharadarMutationRefused(
-                'source cursor %s is not valid JSON' % maintenance.SEP_CURSOR_NAME) from exc
+                'source cursor %s is not valid JSON' % name) from exc
     required = {'kind', 'processed_through', 'publication_version'}
     if (not isinstance(state, dict) or set(state) != required
-            or state.get('kind') != 'sharadar-sep-lastupdated/v1'):
+            or state.get('kind') != kind):
         raise maintenance.SharadarMutationRefused(
-            'source cursor %s has an unknown durable state shape'
-            % maintenance.SEP_CURSOR_NAME)
+            'source cursor %s has an unknown durable state shape' % name)
     try:
         through = dt.date.fromisoformat(str(state['processed_through']))
         version = int(state['publication_version'])
-        row_date = row[0] if isinstance(row[0], dt.date) else dt.date.fromisoformat(str(row[0]))
+        row_date = (row[0] if isinstance(row[0], dt.date)
+                    else dt.date.fromisoformat(str(row[0])))
     except (TypeError, ValueError) as exc:
         raise maintenance.SharadarMutationRefused(
-            'source cursor %s has invalid date/version evidence'
-            % maintenance.SEP_CURSOR_NAME) from exc
+            'source cursor %s has invalid date/version evidence' % name) from exc
     if row_date != through:
         raise maintenance.SharadarMutationRefused(
-            'source cursor %s row date disagrees with its state'
-            % maintenance.SEP_CURSOR_NAME)
+            'source cursor %s row date disagrees with its state' % name)
     if version > current_version:
         raise maintenance.SharadarMutationRefused(
             'source cursor %s is ahead of current publication v%d'
-            % (maintenance.SEP_CURSOR_NAME, current_version))
+            % (name, current_version))
     return through, version
+
+
+def load_cursor_readonly(conn, *, name, kind, current_version):
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s',
+            (name,))
+        row = cur.fetchone()
+    cursor = cursor_from_row(
+        row, name=name, kind=kind, current_version=current_version)
+    if cursor is None:
+        return None
+    through, version = cursor
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT 1 FROM sentinel_corpus_publications WHERE version=%s',
+            (version,))
+        if cur.fetchone() is None:
+            raise maintenance.SharadarMutationRefused(
+                'source cursor %s names missing publication v%d' % (name, version))
+    return through, version
+
+
+def require_not_future(cursor, *, name, target):
+    if cursor is not None and cursor[0] > target:
+        raise maintenance.SharadarMutationRefused(
+            'source cursor %s processed_through %s is ahead of current closed session %s'
+            % (name, cursor[0], target))
 
 
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
@@ -109,60 +143,86 @@ try:
         cur.execute('SHOW transaction_read_only')
         if str(cur.fetchone()[0]).lower() not in {'on', 'true'}:
             raise RuntimeError('read-only transaction could not be established')
+        cur.execute("SELECT to_regclass('public.sentinel_corpus_publications')")
+        publication_table = cur.fetchone()[0]
         cur.execute("SELECT to_regclass('public.sentinel_processed_sessions')")
         cursor_table = cur.fetchone()[0]
-    current = publication.require_current(c)
-    if cursor_table is None:
-        emit({'status': 'RECOVERY_REQUIRED', 'reason_code': 'CURSOR_SCHEMA_NOT_INSTALLED'})
+
+    if publication_table is None:
+        emit({'status': 'RECOVERY_REQUIRED', 'reason_code': 'CORPUS_SCHEMA_NOT_INSTALLED'})
     else:
-        with c.cursor() as cur:
-            cur.execute(
-                'SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s',
-                (maintenance.SEP_CURSOR_NAME,))
-            row = cur.fetchone()
-        cursor = cursor_from_row(row, current.version)
-        if cursor is None:
-            emit({'status': 'RECOVERY_REQUIRED', 'reason_code': 'SEP_CURSOR_MISSING'})
+        current = publication.require_current(c)
+        target_raw = calendar.latest_closed_session()
+        target = dt.date.fromisoformat(str(target_raw))
+        if cursor_table is None:
+            emit({'status': 'RECOVERY_REQUIRED', 'reason_code': 'CURSOR_SCHEMA_NOT_INSTALLED'})
         else:
-            through, version = cursor
-            with c.cursor() as cur:
-                cur.execute(
-                    'SELECT 1 FROM sentinel_corpus_publications WHERE version=%s',
-                    (version,))
-                if cur.fetchone() is None:
-                    raise maintenance.SharadarMutationRefused(
-                        'source cursor %s names missing publication v%d'
-                        % (maintenance.SEP_CURSOR_NAME, version))
-            target_raw = calendar.latest_closed_session()
-            target = dt.date.fromisoformat(str(target_raw))
-            if target <= through:
-                emit({
-                    'status': 'PASS', 'reason_code': 'SEP_CDC_ALREADY_CURRENT',
-                    'source_rows': 0, 'affected_source_dates': 0,
-                })
-            elif dt.datetime.now(dt.timezone.utc) < publication_not_before(target_raw):
-                emit({
-                    'status': 'DEFERRED',
-                    'reason_code': 'SHARADAR_SOURCE_NOT_FINAL',
-                })
+            sep_cursor = load_cursor_readonly(
+                c, name=maintenance.SEP_CURSOR_NAME,
+                kind='sharadar-sep-lastupdated/v1',
+                current_version=current.version)
+            actions_cursor = load_cursor_readonly(
+                c, name=maintenance.ACTIONS_CURSOR_NAME,
+                kind=maintenance.ACTIONS_CURSOR_KIND,
+                current_version=current.version)
+            recent_cursor = load_cursor_readonly(
+                c, name=recent_reconciliation.CURSOR_NAME,
+                kind=recent_reconciliation.CURSOR_KIND,
+                current_version=current.version)
+
+            require_not_future(
+                sep_cursor, name=maintenance.SEP_CURSOR_NAME, target=target)
+            require_not_future(
+                actions_cursor, name=maintenance.ACTIONS_CURSOR_NAME, target=target)
+            require_not_future(
+                recent_cursor, name=recent_reconciliation.CURSOR_NAME, target=target)
+
+            if sep_cursor is None:
+                emit({'status': 'RECOVERY_REQUIRED', 'reason_code': 'SEP_CURSOR_MISSING'})
             else:
-                lo = through - dt.timedelta(days=1)
-                params = {
-                    'lastupdated.gte': lo.isoformat(),
-                    'lastupdated.lte': target.isoformat(),
-                }
-                rows = maintenance._stable_rows(sharadar.fetch_table, sharadar.SEP, params)
-                market_start, market_end = maintenance._retained_market_bounds(c)
-                dates = maintenance._validate_sep_mutation_rows(
-                    c, rows, lo=lo, hi=target,
-                    published_from=dt.date.fromisoformat(market_start),
-                    published_through=dt.date.fromisoformat(market_end),
-                )
-                emit({
-                    'status': 'PASS', 'reason_code': 'SEP_CDC_SOURCE_VALID',
-                    'source_rows': len(rows),
-                    'affected_source_dates': len(set(dates)),
-                })
+                through, _version = sep_cursor
+                local_lag = []
+                if actions_cursor is None:
+                    local_lag.append('ACTIONS_CURSOR_MISSING')
+                elif actions_cursor[0] < target:
+                    local_lag.append('ACTIONS_CURSOR_BEHIND')
+                if recent_cursor is None:
+                    local_lag.append('RECENT_SEP_CURSOR_MISSING')
+                elif recent_cursor[0] < target:
+                    local_lag.append('RECENT_SEP_CURSOR_BEHIND')
+
+                if through == target:
+                    emit({
+                        'status': 'PASS', 'reason_code': 'SEP_CDC_ALREADY_CURRENT',
+                        'source_rows': 0, 'affected_source_dates': 0,
+                        'local_followup': local_lag,
+                    })
+                elif dt.datetime.now(dt.timezone.utc) < publication_not_before(target_raw):
+                    emit({
+                        'status': 'DEFERRED',
+                        'reason_code': 'SHARADAR_SOURCE_NOT_FINAL',
+                        'local_followup': local_lag,
+                    })
+                else:
+                    lo = through - dt.timedelta(days=1)
+                    params = {
+                        'lastupdated.gte': lo.isoformat(),
+                        'lastupdated.lte': target.isoformat(),
+                    }
+                    rows = maintenance._stable_rows(
+                        sharadar.fetch_table, sharadar.SEP, params)
+                    market_start, market_end = maintenance._retained_market_bounds(c)
+                    dates = maintenance._validate_sep_mutation_rows(
+                        c, rows, lo=lo, hi=target,
+                        published_from=dt.date.fromisoformat(market_start),
+                        published_through=dt.date.fromisoformat(market_end),
+                    )
+                    emit({
+                        'status': 'PASS', 'reason_code': 'SEP_CDC_SOURCE_VALID',
+                        'source_rows': len(rows),
+                        'affected_source_dates': len(set(dates)),
+                        'local_followup': local_lag,
+                    })
 except maintenance.SharadarMutationRefused as exc:
     detail = controlled_detail(exc)
     lowered = str(exc).lower()
