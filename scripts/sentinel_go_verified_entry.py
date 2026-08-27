@@ -86,9 +86,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     development = (
         "--input" in raw or any(str(item).startswith("--input=") for item in raw))
     try:
-        if not development and not go_lock.lifecycle_lock_is_held():
-            raise controller.PhaseRefused(
-                "production GO entry is available only through the verified locked scripts/sentinel-go-validate.sh lifecycle")
+        if not development:
+            if not go_lock.lifecycle_lock_is_held():
+                raise controller.PhaseRefused(
+                    "production GO entry is available only through the verified locked scripts/sentinel-go-validate.sh lifecycle")
+            try:
+                controller.entry.authorize_verified_orchestration()
+            except RuntimeError as exc:
+                raise controller.PhaseRefused(str(exc)) from exc
         phase._strict_target(raw)
         phase.install()
         phase.StrictDatabaseHealthView = DeploymentCompatibleDatabaseHealthView
