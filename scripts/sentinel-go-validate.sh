@@ -32,16 +32,24 @@ case "${SENTINEL_GO_TARGET:-DUAL_RUN_OBSERVATION}" in
     ;;
 esac
 
-# Surface ordinary-runtime drift cheaply. A stale prior runtime is diagnostic,
-# never authority: promotion occurs only after the requested GO target passes.
-"$PYTHON" scripts/sentinel_runtime_selection.py preflight
-
 PRODUCTION_RUN=1
 for ARG in "$@"; do
   case "$ARG" in
     --input|--input=*|--dev-input) PRODUCTION_RUN=0 ;;
   esac
 done
+
+# Surface ordinary-runtime drift cheaply. A stale prior runtime is diagnostic,
+# never authority: promotion occurs only after the requested GO target passes.
+"$PYTHON" scripts/sentinel_runtime_selection.py preflight
+
+# The default dual-run target needs a usable PAPER account. Prove that cheap,
+# GET-only volatile prerequisite before starting the multi-image/full-suite work.
+# It is re-observed again at the final verdict boundary; this early pass is only
+# a liveness filter and never retained as final account authority.
+if [ "$PRODUCTION_RUN" -eq 1 ]; then
+  "$PYTHON" scripts/sentinel_go_account_preflight.py
+fi
 
 set +e
 "$PYTHON" scripts/sentinel_go_verified_entry.py "$@"
