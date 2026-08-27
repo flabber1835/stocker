@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Finalize a successful GO validation without granting broker authority.
 
-The local GO suite validates local immutable image IDs. Signed paper activation
-binds registry-qualified RepoDigests. This helper makes that handoff explicit,
-recreates the read-only panel on the promoted ordinary runtime, and garbage
-collects only old GO scratch tags (never force-removing an image in use).
+The GO suite validates local immutable Docker image IDs. The authorized CLI
+consumes those same exact ``sha256:<image-id>`` values through
+SENTINEL_RUNTIME_IMAGE_DIGEST and SENTINEL_TEST_IMAGE_DIGEST. This helper makes
+that handoff explicit, recreates the read-only panel on the promoted ordinary
+runtime, and garbage-collects only old GO scratch tags (never force-removing an
+image in use).
 """
 from __future__ import annotations
 
@@ -21,7 +23,6 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "artifacts" / "sentinel" / "deployment" / "validated-artifact-handoff.json"
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
-REPO_DIGEST = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 
 
 class Refused(RuntimeError):
@@ -70,15 +71,15 @@ def recreate_panel(env) -> None:
         raise Refused("promoted read-only panel could not be recreated")
 
 
-def validated_repo_digest(env, key: str, expected_id: str):
-    ref = str(env.get(key) or "").strip()
-    if not ref:
+def validate_configured_image_id(env, key: str, expected_id: str):
+    configured = str(env.get(key) or "").strip()
+    if not configured:
         return None
-    if REPO_DIGEST.fullmatch(ref) is None:
-        raise Refused(f"{key} is set but is not a registry-qualified RepoDigest")
-    if inspect_id(ref) != expected_id:
-        raise Refused(f"{key} does not resolve to the GO-certified local image")
-    return ref
+    if IMAGE_ID.fullmatch(configured) is None:
+        raise Refused(f"{key} is set but is not an immutable sha256 image id")
+    if configured != expected_id:
+        raise Refused(f"{key} does not equal the GO-certified local image id")
+    return configured
 
 
 def atomic_json(path: Path, value: dict) -> None:
@@ -126,24 +127,24 @@ def main() -> int:
         authorized = inspect_id(f"sentinel-go-authorized:{commit}")
         test = inspect_id(f"sentinel-go-test:{commit}")
 
-        runtime_repo = validated_repo_digest(
+        configured_runtime = validate_configured_image_id(
             env, "SENTINEL_RUNTIME_IMAGE_DIGEST", authorized)
-        test_repo = validated_repo_digest(
+        configured_test = validate_configured_image_id(
             env, "SENTINEL_TEST_IMAGE_DIGEST", test)
 
         atomic_json(OUT, {
             "schema": "sentinel.validated-artifact-handoff/1",
             "git_commit": commit,
-            "local_image_ids": {
-                "ordinary_runtime": ordinary,
-                "authorized_runtime": authorized,
-                "test_lens": test,
+            "ordinary_runtime_image_id": ordinary,
+            "authorized_runtime_image_id": authorized,
+            "test_image_id": test,
+            "authorized_cli_exports": {
+                "SENTINEL_GIT_COMMIT": commit,
+                "SENTINEL_RUNTIME_IMAGE_DIGEST": authorized,
+                "SENTINEL_TEST_IMAGE_DIGEST": test,
             },
-            "activation_repo_digests": {
-                "runtime": runtime_repo,
-                "test": test_repo,
-            },
-            "activation_repo_digest_bound": bool(runtime_repo and test_repo),
+            "configured_activation_digests_match": bool(
+                configured_runtime == authorized and configured_test == test),
             "authority": "EVIDENCE_ONLY_NOT_BROKER_AUTHORITY",
         })
         recreate_panel(env)
@@ -153,14 +154,10 @@ def main() -> int:
         return 2
 
     print("post-validation: panel recreated on promoted runtime", flush=True)
-    if runtime_repo and test_repo:
-        print("post-validation: activation RepoDigest handoff VERIFIED", flush=True)
-    else:
-        print(
-            "post-validation: local GO images verified; signed activation still requires "
-            "registry-qualified SENTINEL_RUNTIME_IMAGE_DIGEST and SENTINEL_TEST_IMAGE_DIGEST",
-            flush=True,
-        )
+    print(
+        "post-validation: wrote exact authorized/test sha256 image IDs for the signed activation wrapper",
+        flush=True,
+    )
     return 0
 
 
