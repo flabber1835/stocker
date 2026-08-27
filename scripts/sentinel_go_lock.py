@@ -14,6 +14,11 @@ LOCK = ROOT / "artifacts" / "sentinel" / "go-validation" / "go-validation.lock"
 LOCK_FD_ENV = "SENTINEL_GO_LOCK_FD"
 LOCK_HELD_ENV = "SENTINEL_GO_LOCK_HELD"
 RUN_TOKEN_ENV = "SENTINEL_GO_RUN_TOKEN"
+RUN_PASS_SCHEMA = "sentinel.go-requested-target-pass/1"
+RUN_PASS_PATH = (
+    ROOT / "artifacts" / "sentinel" / "go-validation" /
+    "current-run-requested-target-pass.json"
+)
 
 
 def lifecycle_lock_is_held(env=None) -> bool:
