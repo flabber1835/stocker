@@ -1,4 +1,4 @@
-"""#185/#108: retry the candidate type that can supersede its own live rows."""
+"""#185/#108: retry failed owners, then refresh identity before routine maintenance."""
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -77,7 +77,8 @@ def test_failed_daily_is_superseded_before_publication_capable_maintenance(
     ]
 
 
-def test_failed_actions_reconciliation_is_retried_before_new_daily(monkeypatch):
+def test_failed_actions_reconciliation_is_retried_then_daily_refreshes_identity(
+        monkeypatch):
     events = []
     state = {"cleared": False}
     failed = recovery.FailedLiveCandidate("old-actions", "actions_reconcile")
@@ -102,8 +103,7 @@ def test_failed_actions_reconciliation_is_retried_before_new_daily(monkeypatch):
 
     assert events == [
         ("actions", "2026-08-17", True),
-        ("sep-cdc", "2026-08-17"),
-        "sep-keyset", "daily", "daily-publish",
+        "daily", "daily-publish", "sep-keyset",
         ("sep-cdc", "2026-08-18"),
         ("actions", "2026-08-18", False),
     ]
@@ -137,7 +137,7 @@ def test_same_day_failed_sep_mutation_gets_exact_retry_before_daily(monkeypatch)
         ("sep-cdc", "2026-08-17"),
         ("sep-cdc", "2026-08-18"),
     ]
-    assert events.index("daily") > events.index("sep-keyset")
+    assert events.index("daily") < events.index("sep-keyset")
     assert events[-2:] == [
         ("sep-cdc", "2026-08-18"),
         ("actions", "2026-08-18", False),
