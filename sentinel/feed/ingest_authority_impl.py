@@ -11,6 +11,8 @@ adds the properties a transport client cannot provide by itself:
   published authority frontier;
 * failed daily vs historical-maintenance candidates are retried by the operation
   that can safely supersede their live rows;
+* production seed/reseed traverses the canonical source-key and structural
+  TICKERS membrane before identity can become authority;
 * pending SEP mutations are identity-proven against the exact current TICKERS
   candidate before daily publication, without moving the CDC cursor;
 * routine SEP maintenance follows the published daily identity refresh so a
@@ -32,7 +34,7 @@ from typing import Callable, Iterable, Optional
 from sentinel.feed import (
     coherence, identity_rebuild, identity_refresh, ingest_impl as _impl,
     maintenance, recent_reconciliation, recovery, reseed, sep_reconciliation,
-    sharadar, snapshot_source, universe)
+    sharadar, snapshot_source, source_authority, universe)
 
 for _name in dir(_impl):
     if not _name.startswith("__"):
@@ -136,7 +138,17 @@ def _prove_recent_frontier(conn, *, fetch) -> None:
 
 
 def _seed_source(fetch, *, final_hi: str):
-    tracked = maintenance.LastUpdatedTrackingFetch(fetch)
+    source = fetch
+    if fetch is snapshot_source.fetch_table:
+        # A complete seed is the most dangerous place to tolerate an invalid
+        # securities master: one overlapping reused ticker can splice or drop
+        # history for the life of the corpus. The production seed/reseed source
+        # therefore earns the same structural TICKERS authority as daily, while
+        # also getting canonical SEP/SFP source-key uniqueness from the existing
+        # source membrane. Injected replay/test fetchers keep their existing seam.
+        source = source_authority.CanonicalSourceFetch(
+            fetch, validate_tickers=True)
+    tracked = maintenance.LastUpdatedTrackingFetch(source)
     guarded = coherence.StableSharadarFetch(
         tracked, protect_sep=lambda _params: True,
         corroborate_reference=(
