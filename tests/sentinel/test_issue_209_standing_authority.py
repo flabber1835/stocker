@@ -37,38 +37,42 @@ def _kwargs(document, *, now):
     }
 
 
-def test_nominal_expiry_stops_ordinary_paper_trial_authority(conn):
+def test_nominal_expiry_does_not_stop_unchanged_paper_trial(conn):
     document = claims(conn)
-    activate(conn, document)
+    digest = activate(conn, document)
     expired = datetime(2026, 10, 1, tzinfo=timezone.utc)
 
+    # Diagnostic/default loading still reports the nominal observation window
+    # as expired. Standing paper operation uses a narrower explicit authority
+    # path rather than globally disabling certificate-time validation.
     with pytest.raises(authority.AuthorityRefused, match="expired"):
         authority.load_active_signed_certificate(
             conn, now=expired, trust_roots=ROOTS)
 
-    with pytest.raises(authority.AuthorityRefused, match="expired"):
-        require_standing_observation_authority(
-            conn, **_kwargs(document, now=expired))
+    standing = require_standing_observation_authority(
+        conn, **_kwargs(document, now=expired))
+    assert standing.certificate_sha256 == digest
+    assert standing.authorization_mode == authority.PAPER_OBSERVATION_ONLY
 
 
-def test_newer_metadata_is_accepted_while_certificate_is_valid(conn):
+def test_newer_metadata_does_not_require_certificate_rotation(conn):
     document = claims(conn)
     activate(conn, document)
-    valid_now = datetime(2026, 8, 25, tzinfo=timezone.utc)
+    expired = datetime(2026, 10, 1, tzinfo=timezone.utc)
 
-    # A forward trial accepts ordinary future TICKERS evolution once the normal
-    # ingest/publication/readiness path has made it current authority. This does
-    # not extend the certificate's signed lifetime.
+    # A forward trial must accept ordinary future TICKERS evolution once the
+    # normal ingest/publication/readiness path has made it current authority.
+    # Model the real path: a new immutable snapshot in a new published run.
     current_version = publish_metadata_snapshot(
-        conn, snapshot_date="2026-08-24", sector="Industrials")
+        conn, snapshot_date="2026-09-30", sector="Industrials")
 
-    kwargs = _kwargs(document, now=valid_now)
+    kwargs = _kwargs(document, now=expired)
     kwargs["current_publication_version"] = current_version
     standing = require_standing_observation_authority(conn, **kwargs)
     assert standing.authorization_mode == authority.PAPER_OBSERVATION_ONLY
 
 
-def test_explicit_revocation_still_stops_observation_authority(conn):
+def test_explicit_revocation_still_stops_standing_authority(conn):
     document = claims(conn)
     digest = activate(conn, document)
     authority.revoke_signed_certificate(
@@ -79,16 +83,16 @@ def test_explicit_revocation_still_stops_observation_authority(conn):
             conn,
             **_kwargs(
                 document,
-                now=datetime(2026, 8, 25, tzinfo=timezone.utc),
+                now=datetime(2026, 10, 1, tzinfo=timezone.utc),
             ),
         )
 
 
-def test_runtime_drift_still_stops_observation_authority(conn):
+def test_runtime_drift_still_stops_standing_authority(conn):
     document = claims(conn)
     activate(conn, document)
     kwargs = _kwargs(
-        document, now=datetime(2026, 8, 25, tzinfo=timezone.utc))
+        document, now=datetime(2026, 10, 1, tzinfo=timezone.utc))
     kwargs["runtime_identity"] = runtime_identity(
         runtime_digest="sha256:" + sha("0"))
 
@@ -96,7 +100,7 @@ def test_runtime_drift_still_stops_observation_authority(conn):
         require_standing_observation_authority(conn, **kwargs)
 
 
-def test_panel_uses_bounded_observation_lifecycle_semantics():
+def test_panel_uses_standing_observation_lifecycle_semantics():
     import inspect
     from sentinel.panel import sources
 
