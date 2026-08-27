@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from pathlib import Path
 import sys
 
@@ -12,6 +11,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import sentinel_go_lock as go_lock  # noqa: E402
 import sentinel_go_phase_entry as phase  # noqa: E402
 import sentinel_runtime_selection as runtime  # noqa: E402
 
@@ -48,9 +48,9 @@ def main(argv=None) -> int:
         print("runtime promotion: SKIPPED for development-input validation", flush=True)
         return 0
     try:
-        if os.environ.get("SENTINEL_GO_LOCK_HELD") != "1":
+        if not go_lock.lifecycle_lock_is_held():
             raise runtime.RuntimeSelectionRefused(
-                "runtime promotion is available only inside the locked sentinel-go-validate lifecycle")
+                "runtime promotion is available only inside the verified locked sentinel-go-validate lifecycle")
         runtime._refresh_origin_main()
         head = runtime._clean_main_head()
 
