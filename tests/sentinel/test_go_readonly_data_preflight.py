@@ -33,9 +33,37 @@ def test_preflight_container_is_transactionally_read_only_and_has_no_write_primi
         "publication.publish",
         "maintenance._write_cursor",
         "establish_sep_cursor",
+        "snapshot_export.fetch_complete_actions",
+        "snapshot_export.fetch_complete_sep",
+        "recent_reconciliation.reconcile_recent",
+        "maintenance.reconcile_actions_if_due",
     )
     for token in forbidden:
         assert token not in code
+
+
+def test_preflight_validates_all_local_maintenance_cursor_authority():
+    code = preflight._READ_ONLY_CODE
+    assert "maintenance.SEP_CURSOR_NAME" in code
+    assert "maintenance.ACTIONS_CURSOR_NAME" in code
+    assert "maintenance.ACTIONS_CURSOR_KIND" in code
+    assert "recent_reconciliation.CURSOR_NAME" in code
+    assert "recent_reconciliation.CURSOR_KIND" in code
+    assert "load_cursor_readonly" in code
+    assert "require_not_future" in code
+    assert "processed_through %s is ahead of current closed session %s" in code
+    assert "target <= through" not in code
+    assert "if through == target" in code
+
+
+def test_missing_legacy_cursor_state_is_recovery_not_source_corruption():
+    code = preflight._READ_ONLY_CODE
+    assert "CORPUS_SCHEMA_NOT_INSTALLED" in code
+    assert "CURSOR_SCHEMA_NOT_INSTALLED" in code
+    assert "SEP_CURSOR_MISSING" in code
+    assert "ACTIONS_CURSOR_MISSING" in code
+    assert "RECENT_SEP_CURSOR_MISSING" in code
+    assert "local_followup" in code
 
 
 def test_preflight_never_receives_broker_authority():
