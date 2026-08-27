@@ -1,10 +1,11 @@
-"""Typed SEP identity diagnostics and read-only current-TICKERS refresh proof.
+"""Typed SEP identity diagnostics and current-TICKERS refresh proof.
 
 The mutation engine may only consume a published resolver.  The GO preflight is
-different: it is a read-only liveness probe and may prove that a refusal is only
-local staleness by observing the current complete TICKERS source without making
-it authority.  This module keeps those two uses on one validator so diagnostics
-cannot drift from the production mutation boundary.
+read-only liveness evidence.  Production daily preparation additionally uses a
+stable current TICKERS candidate to prove known pending CDC identities before it
+publishes, then pins that exact candidate as daily's first TICKERS observation.
+The normal post-SEP corroboration still re-observes the live source, so a source
+change during daily preparation refuses before publication.
 """
 from __future__ import annotations
 
@@ -35,9 +36,9 @@ def validate_sep_mutation_rows(
         resolver: universe.IdentityResolver | None = None) -> list[str]:
     """Validate CDC rows with typed permanent-identity refusal reasons.
 
-    `resolver=None` is the production boundary and therefore loads only the
-    published projection.  A supplied resolver is used only by the read-only GO
-    candidate proof; the mutation engine never passes one.
+    ``resolver=None`` is the production mutation boundary and therefore loads
+    only the published projection.  A supplied resolver is used by read-only or
+    prepublication proofs; no mutation cursor is advanced by this function.
     """
     identity = resolver or universe.load_resolver(conn)
     dates: list[str] = []
@@ -89,7 +90,7 @@ def _candidate_payload(rows: Iterable[Mapping]) -> list[tuple]:
 
 
 def assert_candidate_history_safe(conn, rows: Iterable[Mapping]) -> None:
-    """Apply the same routine-ingest identity guard without writing source rows."""
+    """Apply the routine-ingest identity guard without writing source rows."""
     payload = _candidate_payload(rows)
     if not payload:
         raise maintenance_impl.SharadarMutationRefused(
@@ -142,11 +143,72 @@ def stable_current_tickers(
     return second
 
 
+class PinnedInitialTickersFetch:
+    """Use one proven TICKERS candidate once, then re-observe live authority.
+
+    Daily coherence asks for TICKERS before its SEP window and corroborates it
+    again after the protected SEP traversal.  Serving the pre-proven candidate
+    on the first call binds daily to the exact identity used for CDC preflight;
+    delegating every later call preserves the existing live bracketing check.
+    """
+
+    def __init__(self, fetch, rows: Iterable[Mapping]):
+        self._fetch = fetch
+        self._rows = tuple(dict(row) for row in rows)
+        self._served_tickers = False
+
+    def __call__(self, table, params=None, **kwargs):
+        if table == sharadar.TICKERS and not self._served_tickers:
+            self._served_tickers = True
+            return [dict(row) for row in self._rows]
+        return self._fetch(table, params, **kwargs)
+
+
+def prevalidate_pending_sep_mutations(
+        conn, *, fetch, through: str,
+        resolver: universe.IdentityResolver) -> list[str]:
+    """Prove known pending CDC rows without opening a run or moving a cursor.
+
+    This uses the same exact ``lastupdated`` envelope, canonical source-key
+    validation, double source observation, retained market bounds and row
+    economics checks as the real CDC path.  It is intentionally validation only:
+    correction publication and watermark advancement remain post-daily and use
+    published identity.
+    """
+    cursor = maintenance_impl.load_sep_cursor(conn)
+    if cursor is None:
+        raise maintenance_impl.MutationCursorUnavailable(
+            "SEP lastupdated cursor is absent; prepublication validation cannot "
+            "invent a mutation watermark")
+    hi = dt.date.fromisoformat(str(through))
+    # This is a proof, not an advancement request. A same-day retry can already
+    # have a cursor newer than yesterday; in that case there is nothing known
+    # pending in this bounded prepublication interval.
+    if cursor.processed_through >= hi:
+        return []
+    lo = cursor.processed_through - dt.timedelta(days=1)
+    params = {
+        "lastupdated.gte": lo.isoformat(),
+        "lastupdated.lte": hi.isoformat(),
+    }
+    envelope = source_authority.SepUpdateEnvelope.interval(
+        lo, hi, context="prepublication SEP CDC identity proof")
+    guarded = source_authority.CanonicalSourceFetch(
+        fetch, sep_update_envelope=envelope)
+    rows = maintenance_impl._stable_rows(guarded, sharadar.SEP, params)
+    market_start, market_end = maintenance_impl._retained_market_bounds(conn)
+    return validate_sep_mutation_rows(
+        conn, rows, lo=lo, hi=hi,
+        published_from=dt.date.fromisoformat(market_start),
+        published_through=dt.date.fromisoformat(market_end),
+        resolver=resolver)
+
+
 def validate_with_current_tickers_if_refreshable(
         conn, rows: Iterable[Mapping], *, lo: dt.date, hi: dt.date,
         published_from: dt.date, published_through: dt.date,
         fetch=snapshot_source.fetch_table) -> tuple[list[str], bool]:
-    """Return `(dates, refresh_required)` without publishing the candidate.
+    """Return ``(dates, refresh_required)`` without publishing the candidate.
 
     Only a locally absent identity or a single-identity interval gap is eligible
     for current-source refresh proof. Reused/ambiguous ticker states remain hard
@@ -175,7 +237,8 @@ def validate_with_current_tickers_if_refreshable(
 
 
 __all__ = [
-    "SepMutationIdentityRefused", "assert_candidate_history_safe",
+    "PinnedInitialTickersFetch", "SepMutationIdentityRefused",
+    "assert_candidate_history_safe", "prevalidate_pending_sep_mutations",
     "resolver_with_candidate", "stable_current_tickers",
     "validate_sep_mutation_rows", "validate_with_current_tickers_if_refreshable",
 ]
