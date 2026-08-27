@@ -1,4 +1,4 @@
-"""Regression for GO preparation crossing the certified feed mutation boundary."""
+"""Regression for GO preparation crossing every certified mutation boundary."""
 from __future__ import annotations
 
 import importlib.util
@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+
+import pytest
 
 
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT")
@@ -68,7 +70,26 @@ def _env():
     }
 
 
-def test_go_preparation_reuses_host_feed_gate_and_forwards_exact_binding():
+@pytest.fixture()
+def lifecycle_lock(monkeypatch):
+    monkeypatch.setattr(
+        entry.go_lock, "lifecycle_lock_is_held", lambda _env=None: True)
+
+
+def test_go_preparation_without_lifecycle_lock_is_non_mutating():
+    runner = Runner()
+    summary = entry.probe_prevalidation_preparation(
+        runner, env=_env(), runtime_ref=DIGEST, commit=COMMIT)
+
+    assert summary.status == entry.go.NOT_PROVEN
+    assert summary.schema_migration_attempted is False
+    assert summary.bounded_sharadar_daily_attempted is False
+    assert summary.complete is False
+    assert runner.calls == []
+
+
+def test_go_preparation_reuses_host_feed_gate_and_forwards_exact_binding(
+        lifecycle_lock):
     runner = Runner()
     summary = entry.probe_prevalidation_preparation(
         runner, env=_env(), runtime_ref=DIGEST, commit=COMMIT)
@@ -100,7 +121,8 @@ def test_go_preparation_reuses_host_feed_gate_and_forwards_exact_binding():
     assert not entry.go._BROKER_AUTH_ENV.intersection(bind_env)
 
 
-def test_go_preparation_fails_closed_before_mutation_when_binding_unavailable():
+def test_go_preparation_fails_closed_before_mutation_when_binding_unavailable(
+        lifecycle_lock):
     runner = Runner(bind_returncode=2)
     summary = entry.probe_prevalidation_preparation(
         runner, env=_env(), runtime_ref=DIGEST, commit=COMMIT)
@@ -109,6 +131,11 @@ def test_go_preparation_fails_closed_before_mutation_when_binding_unavailable():
     assert summary.complete is False
     assert not any(call[0][:2] == ["docker", "compose"]
                    for call in runner.calls)
+
+
+def test_legacy_direct_entry_is_not_an_operator_path(capsys):
+    assert entry.main([]) == 2
+    assert "internal; use scripts/sentinel-go-validate.sh" in capsys.readouterr().err
 
 
 def test_nas_launcher_reaches_feed_bound_entry_only_through_guarded_phase_chain():
