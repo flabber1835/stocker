@@ -4,7 +4,7 @@
 # The Python producer parses .env literally; this launcher never sources it and
 # therefore never evaluates or echoes a credential. Production corpus mutation
 # happens only after the exact candidate artifacts pass the stable certification
-# boundary installed by sentinel_go_phase_entry.py.
+# boundary installed by the phased GO entry.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -44,7 +44,7 @@ for ARG in "$@"; do
 done
 
 set +e
-"$PYTHON" scripts/sentinel_go_phase_entry.py "$@"
+"$PYTHON" scripts/sentinel_go_verified_entry.py "$@"
 VALIDATION_RC=$?
 set -e
 
