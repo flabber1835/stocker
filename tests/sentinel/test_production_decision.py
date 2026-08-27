@@ -62,6 +62,7 @@ def _state(*, episodes=(), pending=(), equity="2000",
     portfolio = PortfolioState.fresh(2_000)
     for episode in episodes:
         portfolio.episodes[episode.slot_id] = episode
+        portfolio.slots[episode.slot_id].occupied_by = episode.security_id
     anchors = {}
     for security_id, ticker, issuer_id in [
             (item.security_id, item.ticker, item.issuer_id)

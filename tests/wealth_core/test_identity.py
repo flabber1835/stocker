@@ -313,7 +313,8 @@ class TestRestartAcrossARename:
         st = self._state_after_rename()
         blob = json.loads(json.dumps(st.to_dict()))
         blob["episodes"]["0"]["security_id"] = "P:999"
-        assert PortfolioState.from_dict(blob).state_hash() != st.state_hash()
+        with pytest.raises(ValueError, match="occupant disagrees with its holding episode"):
+            PortfolioState.from_dict(blob)
 
     def test_MUTATING_THE_CURRENT_TICKER_is_detectable(self):
         """Independently of the identity. A label that silently reverted would

@@ -97,7 +97,7 @@ def run(*, mid_grace_bars=(), carry_mark=90.0, shares=10):
 
 
 def test_terminal_audit_serialization_has_no_nested_mutable_aliases():
-    state = PortfolioState.fresh(10_000.0)
+    state = seated()
     state.terminal_carry_audit["S1"] = {
         "carry_session": "d1", "shares_at_carry": 10,
         "carry_price": 90.0, "last_trustworthy_print_session": "d0",
@@ -239,7 +239,7 @@ class TestTheAuditMovesNoOtherHash:
         """The other half. Excluded from the hash but NOT from the blob: a carry
         can outlive a redeploy, and provenance lost on restart would be missing
         from precisely the long graces most worth auditing."""
-        st = PortfolioState.fresh(10_000.0)
+        st = seated()
         st.terminal_carry_audit["S1"] = {"carry_price": 90.0,
                                          "shares_at_carry": 10}
         st.last_valid_mark_session["S1"] = "d0"
