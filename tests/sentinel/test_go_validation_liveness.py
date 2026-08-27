@@ -18,8 +18,8 @@ spec.loader.exec_module(controller)
 def test_launcher_never_runs_mutable_data_preflight_before_certification():
     text = (ROOT / "scripts" / "sentinel-go-validate.sh").read_text(encoding="utf-8")
     assert "sentinel_go_data_preflight.py" not in text
-    assert "sentinel_go_phase_controller.py" in text
-    assert text.index("sentinel_go_phase_controller.py") < text.index(
+    assert 'scripts/sentinel_go_phase_entry.py "$@"' in text
+    assert text.index("sentinel_go_phase_entry.py") < text.index(
         "sentinel_runtime_selection.py promote")
 
 
@@ -81,6 +81,13 @@ def test_stable_certification_cache_is_bound_to_exact_images_and_commit():
     assert "summary.complete" in text
     assert "_image_exact" in text
     assert "stable certification: REUSED exact unchanged commit/image evidence" in text
+
+    entry_text = (ROOT / "scripts" / "sentinel_go_phase_entry.py").read_text(
+        encoding="utf-8")
+    assert "ordinary_runtime_image_digest" in entry_text
+    assert 'ref = "sentinel-go-runtime:%s" % commit' in entry_text
+    assert "_ordinary_binding_matches" in entry_text
+    assert "_load_with_ordinary" in entry_text
 
 
 def test_actual_wall_clock_deadline_is_reobserved_after_readiness_work():
