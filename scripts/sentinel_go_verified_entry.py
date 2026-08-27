@@ -13,6 +13,20 @@ go = controller.go
 _ORIGINAL_PHASED = controller.run_phased_probes
 
 
+class DeploymentCompatibleDatabaseHealthView(phase.StrictDatabaseHealthView):
+    """Enforce fresh margin without silently changing the public bundle schema.
+
+    The autonomous deployment parser intentionally requires the exact v1
+    database-health field set. Fresh wall-clock margin is enforced by
+    ``complete`` and by the bundle ``valid_until`` cap in phase_entry; adding a
+    new top-level field here would make an otherwise valid GO bundle
+    undeployable.
+    """
+
+    def to_dict(self) -> dict:
+        return dict(self.base.to_dict())
+
+
 def _final_account_probe(*, env, urlopen=None):
     mutation_counter = [0]
     gate, subjects = go.probe_alpaca_account(
@@ -30,10 +44,6 @@ def run_verified_probes(*, runner=None, env=None, now=None, urlopen=None,
         runner=runner, env=env, now=now, urlopen=urlopen,
         run_suite=run_suite)
 
-    # Development input never reaches this production probe function. For the
-    # production target, re-observe the paper account only after the long stable
-    # and volatile data/readiness phases. The first observation remains a cheap
-    # preflight diagnostic; it is not final DUAL_RUN authority.
     resolved_env = dict(env) if env is not None else go.merged_environment()
     alpaca, account_subjects, final_mutations = _final_account_probe(
         env=resolved_env, urlopen=urlopen)
@@ -75,6 +85,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         phase._strict_target(raw)
         phase.install()
+        phase.StrictDatabaseHealthView = DeploymentCompatibleDatabaseHealthView
+        controller.DatabaseHealthView = DeploymentCompatibleDatabaseHealthView
         controller.run_phased_probes = run_verified_probes
         return controller.main(raw)
     except controller.PhaseRefused as exc:
