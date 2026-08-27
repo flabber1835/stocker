@@ -1,0 +1,40 @@
+name: ABC peer comparison discovery
+
+on:
+  push:
+    branches:
+      - research/abc-peer-comparison-2026-08-27
+    paths:
+      - '.github/workflows/abc-peer-discovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/abc-peer-comparison-2026-08-27
+          fetch-depth: 0
+      - name: Fetch research lineage
+        run: |
+          set -euo pipefail
+          git fetch origin research/pit-sector-signal-2026-08-23 research/correct-pit-sector-ab-2026-08-23
+      - name: Inventory retained harnesses and research scripts
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/abc
+          for z in docs/Sentinel_1_1_Frozen_Harness_Handoff.zip docs/Sentinel_1_1_Faithful_Reproduction_Kit_NO_SHARADAR.zip docs/Sentinel_1_1_Terminal_and_Issuer_Corrected.zip; do
+            echo "=== ZIP $z ==="
+            unzip -l "$z" | grep -Ei '(\.py|\.csv|\.pkl|\.json|\.md)$' | head -n 250 || true
+          done
+          echo '=== CURRENT BRANCH LIKELY ASSETS ==='
+          find research docs 'PIT input data' -type f \( -name '*.py' -o -name '*.csv' -o -name '*.json' -o -name '*.pkl' \) -printf '%p %s\n' 2>/dev/null | grep -Ei 'breadth|sentinel|ldrc|candidate|daily|shadow|held|close|sector|sic|ff12|spy|bil|control|oracle' | head -n 500 || true
+          echo '=== DYNAMIC BRANCH FILES ==='
+          git ls-tree -r --name-only origin/research/pit-sector-signal-2026-08-23 | grep -Ei 'pit-sector-signal|strict|diag|held|close|sentinel_1p1|spy|bil' | head -n 500 || true
+          echo '=== CORRECTED AB BRANCH FILES ==='
+          git ls-tree -r --name-only origin/research/correct-pit-sector-ab-2026-08-23 | grep -Ei 'sector|sic|ff12|sentinel|breadth|daily|control' | head -n 500 || true
