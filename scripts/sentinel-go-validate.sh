@@ -4,7 +4,7 @@
 # The Python producer parses .env literally; this launcher never sources it and
 # therefore never evaluates or echoes a credential. Production corpus mutation
 # happens only after the exact candidate artifacts pass the stable certification
-# boundary inside sentinel_go_phase_controller.py.
+# boundary installed by sentinel_go_phase_entry.py.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -43,15 +43,13 @@ if [ "$VALIDATION_RC" -ne 0 ]; then
   exit "$VALIDATION_RC"
 fi
 
-# Successful production validation leaves ordinary Sentinel Compose bound to
-# the exact validated candidate. The promotion helper refreshes origin/main at
-# this final boundary so a long validation cannot promote a commit superseded
-# upstream while the suite was running.
-"$PYTHON" scripts/sentinel_runtime_selection.py promote -- "$@" || exit $?
+# Promotion re-fetches origin/main and requires the ordinary tag to resolve to
+# the exact immutable image id recorded when the certification suite passed.
+# A same-revision retag/substitution therefore cannot cross this boundary.
+"$PYTHON" scripts/sentinel_go_promote.py "$@" || exit $?
 
 if [ "$PRODUCTION_RUN" -eq 1 ]; then
-  # Recreate the read-only panel on the promoted runtime, write an explicit
-  # exact authorized/test image-id handoff record, and garbage-collect only old
-  # GO scratch tags that Docker confirms are not in use.
+  # Recreate the read-only panel on the promoted runtime and write the exact
+  # authorized/test image-id handoff required by the signed activation wrapper.
   "$PYTHON" scripts/sentinel_go_post_validate.py || exit $?
 fi
