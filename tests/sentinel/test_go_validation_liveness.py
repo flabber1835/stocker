@@ -22,6 +22,14 @@ assert entry_spec.loader is not None
 sys.modules[entry_spec.name] = phase_entry
 entry_spec.loader.exec_module(phase_entry)
 
+VERIFIED_SCRIPT = ROOT / "scripts" / "sentinel_go_verified_entry.py"
+verified_spec = importlib.util.spec_from_file_location(
+    "sentinel_go_verified_entry_test", VERIFIED_SCRIPT)
+verified = importlib.util.module_from_spec(verified_spec)
+assert verified_spec.loader is not None
+sys.modules[verified_spec.name] = verified
+verified_spec.loader.exec_module(verified)
+
 
 def test_launcher_serializes_and_uses_guarded_verified_entry():
     text = (ROOT / "scripts" / "sentinel-go-validate.sh").read_text(encoding="utf-8")
@@ -31,14 +39,15 @@ def test_launcher_serializes_and_uses_guarded_verified_entry():
     assert 'scripts/sentinel_go_promote.py "$@"' in text
     assert text.index("sentinel_go_verified_entry.py") < text.index(
         "sentinel_go_promote.py")
+    assert 'if [ "$VALIDATION_RC" -ne 0 ]' in text
 
 
-def test_host_go_lock_spans_child_lifecycle_and_is_nonblocking():
+def test_host_go_lock_spans_child_lifecycle_and_survives_parent_loss():
     text = (ROOT / "scripts" / "sentinel_go_lock.py").read_text(encoding="utf-8")
     assert "fcntl.LOCK_EX | fcntl.LOCK_NB" in text
     assert 'env["SENTINEL_GO_LOCK_HELD"] = "1"' in text
     assert "another Sentinel GO validation is already running" in text
-    assert "subprocess.run" in text
+    assert "pass_fds=(handle.fileno(),)" in text
 
 
 def test_phase_controller_orders_certification_before_single_preparation():
@@ -151,7 +160,7 @@ def test_actual_wall_clock_deadline_requires_reviewed_margin():
         complete = True
 
         def to_dict(self):
-            return {"schema": "test"}
+            return {"schema": "test", "status": "PASS"}
 
     minimum = controller.go.MIN_REMAINING_DEADLINE_MARGIN_MS
     observed = phase_entry._utc(datetime.now(timezone.utc))
@@ -161,7 +170,26 @@ def test_actual_wall_clock_deadline_requires_reviewed_margin():
         Base(), minimum + 60_000, observed)
     assert too_late.complete is False
     assert valid.complete is True
-    assert valid.to_dict()["actual_deadline"]["minimum_required_remaining_ms"] == minimum
+
+
+def test_supported_database_health_view_keeps_v1_public_schema_exact():
+    class Base:
+        complete = True
+
+        def to_dict(self):
+            return {
+                "schema": controller.go.DATABASE_HEALTH_SCHEMA,
+                "status": "PASS",
+                "runtime_image_digest": "sha256:" + "1" * 64,
+            }
+
+    minimum = controller.go.MIN_REMAINING_DEADLINE_MARGIN_MS
+    observed = phase_entry._utc(datetime.now(timezone.utc))
+    view = verified.DeploymentCompatibleDatabaseHealthView(
+        Base(), minimum + 60_000, observed)
+    assert view.complete is True
+    assert view.to_dict() == Base().to_dict()
+    assert "actual_deadline" not in view.to_dict()
 
 
 def test_go_bundle_lifetime_is_capped_by_remaining_readiness_margin():
@@ -173,13 +201,25 @@ def test_go_bundle_lifetime_is_capped_by_remaining_readiness_margin():
 
 
 def test_final_paper_account_is_reobserved_after_long_phases():
-    text = (ROOT / "scripts" / "sentinel_go_verified_entry.py").read_text(
-        encoding="utf-8")
+    text = VERIFIED_SCRIPT.read_text(encoding="utf-8")
     original = text.index("probes = _ORIGINAL_PHASED(")
     fresh = text.index("_final_account_probe(", original)
     replace = text.index('gates["alpaca_paper_account"] = alpaca', fresh)
     assert original < fresh < replace
     assert '"final_paper_account_reobserved": True' in text
+
+
+def test_early_paper_account_preflight_is_get_only_and_target_aware():
+    text = (ROOT / "scripts" / "sentinel_go_account_preflight.py").read_text(
+        encoding="utf-8")
+    launcher = (ROOT / "scripts" / "sentinel-go-validate.sh").read_text(
+        encoding="utf-8")
+    assert "probe_alpaca_account" in text
+    assert 'target == "SHADOW"' in text
+    assert "parse_known_args" in text
+    assert 'scripts/sentinel_go_account_preflight.py "$@"' in launcher
+    assert launcher.index("sentinel_go_account_preflight.py") < launcher.index(
+        "sentinel_go_verified_entry.py")
 
 
 def test_command_deadlines_are_enforced_not_post_hoc_only():
@@ -194,7 +234,8 @@ def test_runtime_preflight_uses_same_validated_pointer_precedence_as_compose():
         encoding="utf-8")
     assert "def _pointer_digest" in text
     assert 'values["SENTINEL_RUNTIME_IMAGE_REF"] = pointer' in text
-    assert "validated Sentinel runtime pointer is malformed" in text
+    assert "REFUSED: runtime preflight configuration" in text
+    assert "validation may build a fresh current candidate" in text
 
 
 def test_runtime_promotion_refreshes_origin_main_at_final_boundary():
@@ -204,13 +245,25 @@ def test_runtime_promotion_refreshes_origin_main_at_final_boundary():
     assert '["git", "fetch", "--quiet", "origin", "main"]' in text
 
 
-def test_post_validation_recreates_panel_through_pointer_and_preserves_images():
+def test_post_validation_recreates_panel_and_separates_local_from_registry_identity():
     text = (ROOT / "scripts" / "sentinel_go_post_validate.py").read_text(
         encoding="utf-8")
     assert '"scripts/sentinel-compose.sh", "--run"' in text
     assert '"--force-recreate", "sentinel-panel"' in text
-    assert '"SENTINEL_RUNTIME_IMAGE_DIGEST": authorized' in text
-    assert '"SENTINEL_TEST_IMAGE_DIGEST": test' in text
+    assert '"schema": "sentinel.validated-artifact-handoff/2"' in text
+    assert '"output_identity_domain": "REGISTRY_REPODIGEST"' in text
+    assert '"authorized_compose_requires_repo_digest": True' in text
+    assert "Local Docker image IDs are *not* authorized-service RepoDigests" in text
     assert "no automatic image deletion" in text
     assert 'docker", "image", "rm"' not in text
     assert "phase._load_with_ordinary" in text
+
+
+def test_autonomous_deploy_promotes_exact_reviewed_local_ids_to_repo_digests():
+    text = (ROOT / "scripts" / "sentinel_autonomous_deploy.py").read_text(
+        encoding="utf-8")
+    assert '"docker", "tag", reviewed.runtime_image_digest' in text
+    assert '"docker", "push", runtime_tag' in text
+    assert '"capture-promotion"' in text
+    assert '"resolve-promotion"' in text
+    assert 'self.runtime_repo_digest, self.runtime_digest = _repo_digest' in text
