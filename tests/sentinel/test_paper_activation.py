@@ -240,7 +240,9 @@ def _state(*, session=PRIOR, data_version=1, with_target=False) -> SessionState:
         strategy_identity=IDENTITY)
     if with_target:
         portfolio = PortfolioState.from_dict(state.wealth_core)
-        portfolio.episodes[0] = _episode()
+        episode = _episode()
+        portfolio.episodes[episode.slot_id] = episode
+        portfolio.slots[episode.slot_id].occupied_by = episode.security_id
         state.wealth_core = portfolio.to_dict()
         state.last_known = {AAA.security_id: 100.0}
         state.feed["series"][AAA.security_id] = {
