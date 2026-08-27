@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# One-command NAS financial validation with a bounded prevalidation DB upgrade.
+# One-command NAS financial validation with a certified, bounded preparation.
 #
 # The Python producer parses .env literally; this launcher never sources it and
-# therefore never evaluates or echoes a credential. The candidate runtime may
-# migrate schema and run one bounded Sharadar daily ingest before its read-only
-# evidence boundary; no production mode accepts a hand-authored PASS input.
+# therefore never evaluates or echoes a credential. Production corpus mutation
+# happens only after the exact candidate artifacts pass the stable certification
+# boundary inside sentinel_go_phase_controller.py.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -15,29 +15,12 @@ PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
   exit 1
 }
 
-# Surface operational image drift before the expensive candidate builds/tests.
-# A stale prior runtime is diagnostic, not authority: the candidate is promoted
-# only after successful production validation below.
+# Surface ordinary-runtime drift cheaply. A stale prior runtime is diagnostic,
+# never authority: promotion occurs only after the requested GO target passes.
 "$PYTHON" scripts/sentinel_runtime_selection.py preflight
 
-# Production validation must prove the volatile data/session preparation before
-# spending the long NAS certification budget. Development-input validation is a
-# non-deployable test seam and must never mutate the financial database.
-RUN_DATA_PREFLIGHT=1
-for ARG in "$@"; do
-  case "$ARG" in
-    --input|--input=*|--dev-input) RUN_DATA_PREFLIGHT=0 ;;
-  esac
-done
-if [ "$RUN_DATA_PREFLIGHT" -eq 1 ]; then
-  "$PYTHON" scripts/sentinel_go_data_preflight.py
-fi
-
-# The production entrypoint wraps scripts/sentinel_go_validate.py and reuses
-# sentinel_feed_gate.py to bind the one prevalidation corpus mutation to clean
-# HEAD and the exact candidate image.
 set +e
-"$PYTHON" scripts/sentinel_go_validate_entry.py "$@"
+"$PYTHON" scripts/sentinel_go_phase_controller.py "$@"
 VALIDATION_RC=$?
 set -e
 
@@ -45,7 +28,6 @@ if [ "$VALIDATION_RC" -ne 0 ]; then
   exit "$VALIDATION_RC"
 fi
 
-# Successful production validation must leave ordinary Sentinel Compose bound
-# to the exact ordinary runtime candidate that was just validated. Development
-# input runs are explicitly skipped by the helper and can never promote.
+# Successful production validation leaves ordinary Sentinel Compose bound to
+# the exact validated candidate. Development input is skipped by the helper.
 "$PYTHON" scripts/sentinel_runtime_selection.py promote -- "$@" || exit $?
