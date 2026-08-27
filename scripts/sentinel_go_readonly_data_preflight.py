@@ -7,8 +7,8 @@ the production PostgreSQL transaction READ ONLY, validates the durable SEP,
 ACTIONS, and recent-complete-reconciliation cursor shapes against the current
 publication and decision frontier, then—only after the reviewed source-final
 boundary—fetches the pending SEP ``lastupdated`` interval twice through the
-normal Sharadar transport and runs the production mutation-row authority
-validator.
+canonical production CDC source membrane and runs the production mutation-row
+authority validator.
 
 If a pending mutation fails only because local permanent identity is absent or a
 single known listing interval is stale, the preflight may observe current TICKERS
@@ -53,7 +53,7 @@ import datetime as dt
 import json, os
 from sentinel.feed import (
     calendar, identity_refresh, maintenance_impl as maintenance, publication,
-    recent_reconciliation, sharadar, store, universe)
+    recent_reconciliation, sharadar, source_authority, store, universe)
 from sentinel.shadow_runtime import publication_not_before
 
 MARKER = 'SENTINEL_GO_READONLY_DATA_PREFLIGHT='
@@ -217,8 +217,12 @@ try:
                         'lastupdated.gte': lo.isoformat(),
                         'lastupdated.lte': target.isoformat(),
                     }
+                    envelope = source_authority.SepUpdateEnvelope.interval(
+                        lo, target, context='read-only SEP CDC preflight')
+                    guarded = source_authority.CanonicalSourceFetch(
+                        sharadar.fetch_table, sep_update_envelope=envelope)
                     rows = maintenance._stable_rows(
-                        sharadar.fetch_table, sharadar.SEP, params)
+                        guarded, sharadar.SEP, params)
                     market_start, market_end = maintenance._retained_market_bounds(c)
                     dates, refresh_required = (
                         identity_refresh.validate_with_current_tickers_if_refreshable(
@@ -248,6 +252,8 @@ except identity_refresh.SepMutationIdentityRefused as exc:
         identity_reason=exc.reason_code)
 except universe.HistoricalIdentityMutation as exc:
     refuse('SOURCE_IDENTITY_HISTORY_MUTATION', controlled_detail(exc))
+except source_authority.SourceAuthorityRefused as exc:
+    refuse('SOURCE_CDC_AUTHORITY_REFUSED', controlled_detail(exc))
 except maintenance.SharadarMutationRefused as exc:
     detail = controlled_detail(exc)
     lowered = str(exc).lower()
@@ -266,7 +272,7 @@ except Exception as exc:
         code = 'SOURCE_PUBLICATION_UNSTABLE'
     elif name in {
             'TickersStructureInvalid', 'TickerMetadataIncomplete',
-            'SourceAuthorityRefused', 'SnapshotExportIncomplete'}:
+            'SnapshotExportIncomplete'}:
         code = 'SOURCE_IDENTITY_CANDIDATE_INVALID'
     else:
         code = 'READONLY_PREFLIGHT_UNAVAILABLE'
