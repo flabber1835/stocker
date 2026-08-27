@@ -24,14 +24,6 @@ if [ "${SENTINEL_GO_LOCK_HELD:-0}" != "1" ]; then
     bash scripts/sentinel-go-validate.sh "$@"
 fi
 
-case "${SENTINEL_GO_TARGET:-DUAL_RUN_OBSERVATION}" in
-  SHADOW|DUAL_RUN_OBSERVATION|HISTORICAL_PAPER_EXECUTION) ;;
-  *)
-    echo "REFUSED: SENTINEL_GO_TARGET must be SHADOW, DUAL_RUN_OBSERVATION, or HISTORICAL_PAPER_EXECUTION" >&2
-    exit 2
-    ;;
-esac
-
 PRODUCTION_RUN=1
 for ARG in "$@"; do
   case "$ARG" in
@@ -39,14 +31,35 @@ for ARG in "$@"; do
   esac
 done
 
+# Retained certification/retry evidence and the exact post-validation handoff
+# are intentionally bound to this Linux boot. Prove the boot identity exists
+# before any long image build/test work rather than discovering this at
+# promotion time. Never print the boot id itself.
+if [ "$PRODUCTION_RUN" -eq 1 ]; then
+  "$PYTHON" - <<'PY' || {
+from pathlib import Path
+import sys
+try:
+    value = Path('/proc/sys/kernel/random/boot_id').read_text(
+        encoding='ascii').strip()
+except (OSError, UnicodeError):
+    value = ''
+if not value:
+    print('REFUSED: host boot identity is unavailable; GO certification reuse/promotion cannot be safely bound', file=sys.stderr)
+    raise SystemExit(2)
+PY
+    exit $?
+  }
+fi
+
 # Surface ordinary-runtime drift cheaply. A stale prior runtime is diagnostic,
 # never authority: promotion occurs only after the requested GO target passes.
 "$PYTHON" scripts/sentinel_runtime_selection.py preflight
 
-# The default dual-run target needs a usable PAPER account. Prove that cheap,
+# A broker-capable target needs a usable PAPER account. Prove that cheap,
 # GET-only volatile prerequisite before starting the multi-image/full-suite work.
 # It is re-observed again at the final verdict boundary; this early pass is only
-# a liveness filter and never retained as final account authority.
+# a liveness filter and never retained as final account authority. SHADOW skips.
 if [ "$PRODUCTION_RUN" -eq 1 ]; then
   "$PYTHON" scripts/sentinel_go_account_preflight.py "$@"
 fi
@@ -66,7 +79,8 @@ fi
 "$PYTHON" scripts/sentinel_go_promote.py "$@" || exit $?
 
 if [ "$PRODUCTION_RUN" -eq 1 ]; then
-  # Recreate the read-only panel on the promoted runtime and write the exact
-  # authorized/test image-id handoff required by the signed activation wrapper.
+  # Recreate the read-only panel on the promoted runtime and record the local
+  # certified image IDs that autonomous deployment must promote unchanged to
+  # registry RepoDigests before any broker-authorized service can use them.
   "$PYTHON" scripts/sentinel_go_post_validate.py || exit $?
 fi
