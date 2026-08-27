@@ -20,6 +20,19 @@ PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
 # only after successful production validation below.
 "$PYTHON" scripts/sentinel_runtime_selection.py preflight
 
+# Production validation must prove the volatile data/session preparation before
+# spending the long NAS certification budget. Development-input validation is a
+# non-deployable test seam and must never mutate the financial database.
+RUN_DATA_PREFLIGHT=1
+for ARG in "$@"; do
+  case "$ARG" in
+    --input|--input=*|--dev-input) RUN_DATA_PREFLIGHT=0 ;;
+  esac
+done
+if [ "$RUN_DATA_PREFLIGHT" -eq 1 ]; then
+  "$PYTHON" scripts/sentinel_go_data_preflight.py
+fi
+
 # The production entrypoint wraps scripts/sentinel_go_validate.py and reuses
 # sentinel_feed_gate.py to bind the one prevalidation corpus mutation to clean
 # HEAD and the exact candidate image.
