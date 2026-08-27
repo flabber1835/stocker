@@ -1,0 +1,43 @@
+name: LD-RC ABC archive inspect
+on:
+  push:
+    branches: [research/ldrc-abc-dynamic-2026-08-27]
+    paths: ['.github/workflows/ldrc-abc-archive-inspect.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            docs/Sentinel_1_1_Faithful_Reproduction_Kit_NO_SHARADAR.zip
+            docs/Sentinel_1_1_Frozen_Harness_Handoff.zip
+      - name: Inspect nested replay archives
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import io, zipfile, re
+          roots=[Path('docs/Sentinel_1_1_Faithful_Reproduction_Kit_NO_SHARADAR.zip'),Path('docs/Sentinel_1_1_Frozen_Harness_Handoff.zip')]
+          pat=re.compile(r'(position|holding|panel|daily|close|shadow|wealth|replay|firewall|sector|breadth|ticker|sep|spy)',re.I)
+          def scan_bytes(label,data,depth=0):
+              z=zipfile.ZipFile(io.BytesIO(data))
+              names=[x.filename for x in z.infolist() if not x.is_dir()]
+              print(f'=== ARCHIVE {label} depth={depth} members={len(names)} ===')
+              for n in names:
+                  if pat.search(n) or depth==0:
+                      info=z.getinfo(n); print(f'{info.file_size:>12} {n}')
+              if depth<2:
+                  for n in names:
+                      if n.lower().endswith('.zip'):
+                          b=z.read(n)
+                          try: scan_bytes(label+'::'+n,b,depth+1)
+                          except zipfile.BadZipFile: pass
+          for p in roots:
+              with zipfile.ZipFile(p) as z:
+                  data=p.read_bytes()
+              scan_bytes(str(p),data)
+          PY
