@@ -39,6 +39,14 @@ def _git(*args: str) -> str:
     return (result.stdout or "").strip()
 
 
+def _refresh_origin_main() -> None:
+    """Refresh upstream immediately before promotion, closing the long-run TOCTOU."""
+    result = _run(["git", "fetch", "--quiet", "origin", "main"])
+    if result.returncode != 0:
+        raise RuntimeSelectionRefused(
+            "could not refresh origin/main immediately before runtime promotion")
+
+
 def _load_dotenv_literal(path: Path = ROOT / ".env") -> dict[str, str]:
     values: dict[str, str] = {}
     if not path.is_file():
@@ -88,7 +96,7 @@ def _clean_main_head() -> str:
         raise RuntimeSelectionRefused("runtime promotion requires a clean worktree")
     if origin != head:
         raise RuntimeSelectionRefused(
-            "runtime promotion requires HEAD to equal origin/main")
+            "runtime promotion requires HEAD to equal freshly fetched origin/main")
     return head
 
 
@@ -189,6 +197,9 @@ def promote(extra_args: Sequence[str]) -> int:
         print("runtime promotion: SKIPPED for development-input validation", flush=True)
         return 0
     try:
+        # Validation can run for hours. Re-read remote truth now, not the cached
+        # origin/main ref observed at the beginning of the run.
+        _refresh_origin_main()
         head = _clean_main_head()
         candidate = "sentinel-go-runtime:%s" % head
         digest, revision = _inspect(candidate)
