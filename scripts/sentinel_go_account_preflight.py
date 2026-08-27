@@ -2,7 +2,9 @@
 """Cheap GET-only paper-account preflight for dual-run GO validation."""
 from __future__ import annotations
 
+import argparse
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 import sys
 
@@ -12,19 +14,20 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import sentinel_go_validate as go  # noqa: E402
 
+TARGETS = ("SHADOW", "DUAL_RUN_OBSERVATION", "HISTORICAL_PAPER_EXECUTION")
 
-def main() -> int:
-    target = str(__import__("os").environ.get(
-        "SENTINEL_GO_TARGET", "DUAL_RUN_OBSERVATION"))
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "--target", choices=TARGETS,
+        default=os.environ.get("SENTINEL_GO_TARGET", "DUAL_RUN_OBSERVATION"))
+    args, _remaining = parser.parse_known_args(
+        list(argv if argv is not None else sys.argv[1:]))
+    target = args.target
     if target == "SHADOW":
         print("paper account preflight: SKIPPED for SHADOW target", flush=True)
         return 0
-    if target == "HISTORICAL_PAPER_EXECUTION":
-        # Historical paper certification also requires the account gate.
-        pass
-    elif target != "DUAL_RUN_OBSERVATION":
-        print("REFUSED: unsupported GO target", file=sys.stderr)
-        return 2
 
     gate, _subjects = go.probe_alpaca_account(
         env=go.merged_environment(),
