@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import os
 import sys
 from typing import Optional, Sequence
 
@@ -82,7 +83,12 @@ def run_verified_probes(*, runner=None, env=None, now=None, urlopen=None,
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     raw = list(argv if argv is not None else sys.argv[1:])
+    development = (
+        "--input" in raw or any(str(item).startswith("--input=") for item in raw))
     try:
+        if not development and os.environ.get("SENTINEL_GO_LOCK_HELD") != "1":
+            raise controller.PhaseRefused(
+                "production GO entry is available only through scripts/sentinel-go-validate.sh")
         phase._strict_target(raw)
         phase.install()
         phase.StrictDatabaseHealthView = DeploymentCompatibleDatabaseHealthView
