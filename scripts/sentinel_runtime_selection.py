@@ -77,9 +77,34 @@ def _load_dotenv_literal(path: Path = ROOT / ".env") -> dict[str, str]:
     return values
 
 
+def _pointer_digest(path: Path = POINTER) -> str | None:
+    """Read the exact selector with the same strict one-line contract as Compose."""
+    if not path.is_file():
+        return None
+    try:
+        lines = path.read_text(encoding="ascii").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise RuntimeSelectionRefused(
+            "validated Sentinel runtime pointer is unreadable") from exc
+    prefix = "SENTINEL_RUNTIME_IMAGE_REF="
+    if len(lines) != 1 or not lines[0].startswith(prefix):
+        raise RuntimeSelectionRefused(
+            "validated Sentinel runtime pointer is malformed")
+    digest = lines[0][len(prefix):]
+    if _DIGEST.fullmatch(digest) is None:
+        raise RuntimeSelectionRefused(
+            "validated Sentinel runtime pointer has no immutable sha256 image id")
+    return digest
+
+
 def _merged_environment() -> dict[str, str]:
     values = _load_dotenv_literal()
     values.update(os.environ)
+    # Match sentinel-compose.sh precedence exactly: a successful GO pointer is
+    # the operational selector and overrides a stale shell/.env export.
+    pointer = _pointer_digest()
+    if pointer is not None:
+        values["SENTINEL_RUNTIME_IMAGE_REF"] = pointer
     return values
 
 
@@ -197,8 +222,6 @@ def promote(extra_args: Sequence[str]) -> int:
         print("runtime promotion: SKIPPED for development-input validation", flush=True)
         return 0
     try:
-        # Validation can run for hours. Re-read remote truth now, not the cached
-        # origin/main ref observed at the beginning of the run.
         _refresh_origin_main()
         head = _clean_main_head()
         candidate = "sentinel-go-runtime:%s" % head
