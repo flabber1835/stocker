@@ -14,34 +14,21 @@ jobs:
           fetch-depth: 1
           filter: blob:none
           sparse-checkout: |
-            docs/Sentinel_1_1_Faithful_Reproduction_Kit_NO_SHARADAR.zip
-            docs/Sentinel_1_1_Frozen_Harness_Handoff.zip
+            research
             docs/sentinel-handoff
             docs/sentinel-reference-implementation
-            docs/sentinel-concordance-ldrc-authoritative-spec.md
-            sentinel/controller
-            research
-      - name: Inspect and persist retained replay assets
+      - name: Locate exact replay inputs
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/faith /tmp/frozen
-          mkdir -p /tmp/faith /tmp/frozen research/ldrc-abc-run
-          unzip -q docs/Sentinel_1_1_Faithful_Reproduction_Kit_NO_SHARADAR.zip -d /tmp/faith
-          unzip -q docs/Sentinel_1_1_Frozen_Harness_Handoff.zip -d /tmp/frozen
-          OUT=research/ldrc-abc-run/diagnostic.txt
+          mkdir -p research/ldrc-abc-run
+          OUT=research/ldrc-abc-run/tree_assets.txt
           {
-            echo '=== FAITHFUL KIT INVENTORY ==='
-            find /tmp/faith -type f | sort
-            echo '=== FROZEN HANDOFF INVENTORY ==='
-            find /tmp/frozen -type f | sort
-            echo '=== EXACT CONTROL FINGERPRINT OCCURRENCES ==='
-            grep -RIlE '22\.630215|0\.226302156|59\.154286' /tmp/faith /tmp/frozen docs sentinel research 2>/dev/null || true
-            echo '=== RELEVANT CSV HEADERS ==='
-            while IFS= read -r f; do echo "--- $f"; head -2 "$f" || true; done < <(find /tmp/faith /tmp/frozen -type f -name '*.csv' | grep -Ei 'daily|replay|parent|breadth|position|shadow|spy|bil|ldrc|concord' | sort)
+            echo '=== PIT / PRICE / POSITION / CONTROL ASSETS ==='
+            git ls-tree -r --name-only HEAD | grep -Ei 'PIT_ONLY|SEP_20|SFP.*PIT|position.*panel|held.*close|sector_diag|sentinel_1p1_daily|control.*daily|shadow.*daily|correct.*pit|sec.*sic|fastgate' | sort
           } > "$OUT"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add "$OUT"
-          git commit -m 'research: persist LD-RC replay inventory'
+          git commit -m 'research: locate exact ABC replay inputs'
           git push
