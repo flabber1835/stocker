@@ -11,9 +11,8 @@ controller without duplicating its financial probes:
 * final readiness requires the reviewed minimum *actual* pre-open margin;
 * the public GO lifetime cannot outlive that remaining readiness margin.
 
-The supported NAS entry is ``scripts/sentinel-go-validate.sh``, which invokes
-this module. The lower-level controller remains an implementation module, not
-an operator entrypoint.
+The supported NAS entry is ``scripts/sentinel-go-validate.sh``. The lower-level
+controller remains an implementation module, not an operator entrypoint.
 """
 from __future__ import annotations
 
@@ -259,6 +258,23 @@ def _actual_guarded(*args, **kwargs):
     return _ORIGINAL_ACTUAL(*args, **kwargs)
 
 
+def _install_reviewed_preparation_contract() -> None:
+    """Install and verify the source-owned single-preparation implementation."""
+    controller.entry.install()
+    code = controller.go._PREPARATION_CODE
+    marker = "if recovered.mode == 'ALREADY_CURRENT':"
+    try:
+        start = code.index(marker)
+        end = code.index("elif recovered.mode == 'RETAINED_FULL_RESEED':", start)
+    except ValueError as exc:
+        raise controller.PhaseRefused(
+            "GO preparation implementation no longer exposes the reviewed recovery contract") from exc
+    block = code[start:end]
+    if "ingest.daily" in block or "pass" not in block:
+        raise controller.PhaseRefused(
+            "GO ALREADY_CURRENT preparation is not terminal single-preparation success")
+
+
 class StrictDatabaseHealthView(_ORIGINAL_DATABASE_VIEW):
     def remaining_now_ms(self) -> Optional[int]:
         if type(self.actual_remaining_to_execution_open_ms) is not int:
@@ -299,9 +315,6 @@ def _emit_at_completion(*args, **kwargs):
     if isinstance(health, StrictDatabaseHealthView) and health.complete:
         remaining = health.remaining_now_ms()
         if type(remaining) is int:
-            # A GO verdict is meaningful only while the reviewed minimum margin
-            # still remains. The public evidence lifetime cannot extend beyond
-            # the point at which that volatile predicate becomes false.
             usable = remaining - controller.go.MIN_REMAINING_DEADLINE_MARGIN_MS
             if usable <= 0:
                 raise controller.go.ValidationRefused(
@@ -321,6 +334,8 @@ def install() -> None:
     controller.go.probe_sharadar_readiness = _readiness_guarded
     controller.go.probe_database_financial_health = _database_guarded
     controller._actual_remaining_ms = _actual_guarded
+    controller._install_single_preparation_contract = (
+        _install_reviewed_preparation_contract)
     controller.DatabaseHealthView = StrictDatabaseHealthView
     controller.go.emit_bundle = _emit_at_completion
 
