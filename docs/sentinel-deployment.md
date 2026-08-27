@@ -379,6 +379,14 @@ from backup as well as to new operator-authored files. Service installation is
 also inert: Stage 4 starts disabled and killed. Certificate installation,
 automation activation, and kill release are three separate audited boundaries.
 
+Stage-4 operational relations are covered by their own closed semantic catalog
+fingerprint. Runtime checks the complete set of table kinds, columns, types,
+nullability, defaults, constraints, indexes (including validity/readiness), and
+triggers before it reads automation, lease, certificate, cycle, alert, or trial
+authority. An extra column or trigger is as incompatible as a missing primary
+key. Routine startup never blesses or repairs a partial Stage-4 upgrade; only
+the explicit transactional schema migration may install the reviewed shape.
+
 The current certification harness also does not emit an activation profile
 while the known strict xfails and Wealth Core `NO-GO` remain. Even after those
 evidence gaps are resolved, a signed profile must explicitly allow

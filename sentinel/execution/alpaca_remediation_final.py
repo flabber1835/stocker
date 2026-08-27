@@ -229,37 +229,7 @@ def install() -> None:
                         broker_order_id=broker_order_id or None,
                         detail=f"incomplete 2xx acknowledgement: {exc}")
                 return alpaca._submit_outcome(order)
-            if resp.status_code in (401, 403):
-                raise alpaca.AlpacaCredentialsRefused(
-                    f"Alpaca submit authority refused with HTTP "
-                    f"{resp.status_code}: {(resp.text or '')[:500]}")
-            if resp.status_code == 429:
-                retry_after = alpaca._retry_after_seconds(resp)
-                return alpaca.RetryableCommandOutcome(
-                    state=CommandState.UNKNOWN,
-                    retry_after_seconds=retry_after,
-                    detail=("HTTP 429 rate limit; same-key retry eligible after "
-                            f"{retry_after}s"))
-            if resp.status_code == 408:
-                return contract.CommandOutcome(
-                    state=CommandState.UNKNOWN,
-                    detail="HTTP 408 transport ambiguity")
-            if resp.status_code == 422:
-                text = (resp.text or "")[:500]
-                if "client_order_id" in text or "duplicate" in text.lower():
-                    return contract.CommandOutcome(
-                        state=CommandState.UNKNOWN,
-                        detail=f"duplicate key at broker: {text}")
-                return contract.CommandOutcome(
-                    state=CommandState.REJECTED, detail=text)
-            if 400 <= resp.status_code < 500:
-                return contract.CommandOutcome(
-                    state=CommandState.REJECTED,
-                    detail=(f"HTTP {resp.status_code}: "
-                            f"{(resp.text or '')[:500]}"))
-            return contract.CommandOutcome(
-                state=CommandState.UNKNOWN,
-                detail=f"HTTP {resp.status_code}")
+            return alpaca._submit_error_outcome(resp)
 
         async def _bounded_activity_events(
                 self, *, after: datetime,

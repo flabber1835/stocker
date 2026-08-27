@@ -359,6 +359,15 @@ send and response — all of these are `UNKNOWN`. None of them are evidence that
 the order does not exist.
 
 `REJECTED` requires the broker to have *said so*. There is no inferred rejection.
+At the Alpaca create-order boundary this is an endpoint-specific allowlist, not
+the generic HTTP class: the documented `403` buying-power/share refusal and a
+documented `422` input refusal prove non-acceptance, except that any duplicate
+`client_order_id` response remains `UNKNOWN` until exact-key lookup. `401` is a
+typed credential refusal. A terminal `403`/`422` must also carry Alpaca's
+documented `X-Request-ID` origin witness. An undocumented `400`, `404`, `409`,
+other 4xx, or nominal refusal without that witness is `UNKNOWN`; a proxy or
+changed vendor contract does not become proof that an order never landed merely
+because its status code begins with four.
 
 ### 3.2 What UNKNOWN forbids
 

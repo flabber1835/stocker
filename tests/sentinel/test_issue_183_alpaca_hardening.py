@@ -133,24 +133,52 @@ def test_transport_or_service_status_is_unknown_not_rejected(status):
     assert outcome.state is S.UNKNOWN
 
 
-@pytest.mark.parametrize("status", [401, 403])
-def test_credentials_or_authority_status_is_typed_not_economic(status):
-    broker, _ = adapter(post=Response(status_code=status, text="denied"))
+def test_credentials_status_is_typed_not_economic():
+    broker, _ = adapter(post=Response(status_code=401, text="denied"))
     with pytest.raises(AlpacaCredentialsRefused):
         run(broker.submit(
             client_key="key-1", instrument=INSTRUMENT,
             side=Side.BUY, quantity=Decimal(2)))
 
 
-@pytest.mark.parametrize("status", [400, 409, 422])
-def test_definite_validation_4xx_is_rejected(status):
-    outcome, _ = submit(Response(status_code=status, text="invalid quantity"))
+@pytest.mark.parametrize("status", [403, 422])
+def test_documented_create_order_refusal_is_rejected(status):
+    outcome, _ = submit(Response(
+        status_code=status, text="invalid quantity",
+        headers={"X-Request-ID": "request-123"}))
     assert outcome.state is S.REJECTED
+
+
+@pytest.mark.parametrize("status", [403, 422])
+def test_nominal_refusal_without_alpaca_origin_witness_is_unknown(status):
+    outcome, _ = submit(Response(status_code=status, text="invalid quantity"))
+    assert outcome.state is S.UNKNOWN
+
+
+@pytest.mark.parametrize("status", [400, 404, 409, 418])
+def test_undocumented_create_order_4xx_is_unknown(status):
+    outcome, _ = submit(Response(status_code=status, text="intermediary error"))
+    assert outcome.state is S.UNKNOWN
 
 
 def test_duplicate_client_key_422_is_unknown_until_exact_lookup():
     outcome, _ = submit(Response(
         status_code=422, text="client_order_id must be unique"))
+    assert outcome.state is S.UNKNOWN
+
+
+def test_nonduplicate_client_key_validation_is_rejected():
+    outcome, _ = submit(Response(
+        status_code=422, text="client_order_id exceeds 128 characters",
+        headers={"X-Request-ID": "request-123"}))
+    assert outcome.state is S.REJECTED
+
+
+def test_structured_duplicate_client_key_is_unknown_until_exact_lookup():
+    outcome, _ = submit(Response(
+        payload={"code": 42210000,
+                 "message": "duplicate client_order_id already exists"},
+        status_code=422))
     assert outcome.state is S.UNKNOWN
 
 

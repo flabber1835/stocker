@@ -190,6 +190,13 @@ _TARGET_CATALOG_SHA256 = {
         "99bba3659cac35f9b6e797f861e2dbffd191824bfc6c02f5db66d693cf9cfd66"),
 }
 
+# Closed semantic fingerprint of the additive Stage-4 authority/automation
+# surface.  Like the behavioral fingerprint, this covers table kinds, every
+# column/type/null/default, constraints, indexes and triggers while ignoring
+# deployment-local OIDs and column order.
+_STAGE4_CATALOG_SHA256 = (
+    "e93e68accdc7ebcc5b0f987e799623929e372df746bea669b9c532f3493d4d79")
+
 # Corpus tables may legitimately be installed before behavioral schema (the
 # prepare CLI does exactly that).  They do not disqualify a database from being
 # behaviorally empty.  An unknown ``sentinel_*`` table does: it may be evidence
@@ -1747,7 +1754,7 @@ def _validate_ledgered(cur, catalog) -> None:
 
 
 def _validate_stage4_runtime(cur, catalog) -> None:
-    relations, columns, _constraints, _indexes, _triggers = catalog
+    relations, columns, constraints, indexes, triggers = catalog
     missing = sorted(_STAGE4_TABLES - set(relations))
     if missing:
         raise _operator_refusal(
@@ -1767,6 +1774,12 @@ def _validate_stage4_runtime(cur, catalog) -> None:
             raise _operator_refusal(
                 f"Stage-4 relation {table} is missing migration columns "
                 f"{absent}; routine startup will not repair authority schema")
+    catalog_sha = _semantic_catalog_sha256(
+        relations, columns, constraints, indexes, triggers, _STAGE4_TABLES)
+    if catalog_sha != _STAGE4_CATALOG_SHA256:
+        raise _operator_refusal(
+            "Stage-4 complete operational catalog fingerprint is incompatible "
+            f"(observed {catalog_sha})")
     for table in ("sentinel_automation_control", "sentinel_automation_lease"):
         cur.execute(f"SELECT COUNT(*) FROM public.{table} WHERE id=1")
         if int(cur.fetchone()[0]) != 1:

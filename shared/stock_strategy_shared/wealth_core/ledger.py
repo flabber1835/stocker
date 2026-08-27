@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Mapping
 
 
 class EventType(str, Enum):
@@ -182,6 +184,8 @@ class Ledger:
 
     @classmethod
     def from_dict(cls, d: dict) -> "Ledger":
+        if not isinstance(d, Mapping):
+            raise ValueError("persisted Wealth Core ledger is not an object")
         raw = d.get("receivables") or []
         if isinstance(raw, dict):
             # The pre-lag shape: {security_id: amount}, with no due date because
@@ -189,23 +193,110 @@ class Ledger:
             # IMMEDIATELY DUE, which is what those receivables meant. Tolerated
             # rather than rejected so a state blob written by the old code
             # resumes instead of losing money the book was owed.
-            raw = [{"security_id": k, "ticker": None, "amount": float(v),
+            raw = [{"security_id": k, "ticker": None, "amount": v,
                     "accrued_session": "", "due_in": 0} for k, v in sorted(raw.items())]
-        return cls(events=[LedgerEvent(
-                       session=e["session"],
-                       event_type=EventType(e["event_type"]),
-                       security_id=e["security_id"], ticker=e["ticker"],
-                       shares_delta=e["shares_delta"], cash_delta=e["cash_delta"],
-                       price=e["price"], fees=e["fees"],
-                       cash_before=e["cash_before"], cash_after=e["cash_after"],
-                       reason=e["reason"], detail=dict(e.get("detail") or {}))
-                   for e in d.get("events", [])],
-                   receivables=[{"security_id": r.get("security_id"),
-                                 "ticker": r.get("ticker"),
-                                 "amount": float(r["amount"]),
-                                 "accrued_session": r.get("accrued_session") or "",
-                                 "due_in": int(r.get("due_in", 0))}
-                                for r in raw])
+        if not isinstance(raw, list):
+            raise ValueError(
+                "persisted Wealth Core receivables are not a list")
+
+        def finite(value, *, field_name: str, non_negative: bool = False) -> float:
+            if isinstance(value, bool):
+                raise ValueError(
+                    f"persisted Wealth Core {field_name} is not a finite number")
+            try:
+                result = float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"persisted Wealth Core {field_name} is not a finite number") from exc
+            if not math.isfinite(result) or (non_negative and result < 0):
+                suffix = " finite and non-negative" if non_negative else " finite"
+                raise ValueError(
+                    f"persisted Wealth Core {field_name} must be{suffix}")
+            return result
+
+        events: list[LedgerEvent] = []
+        raw_events = d.get("events", [])
+        if not isinstance(raw_events, list):
+            raise ValueError("persisted Wealth Core events are not a list")
+        for index, event in enumerate(raw_events):
+            if not isinstance(event, Mapping):
+                raise ValueError(
+                    f"persisted Wealth Core ledger event {index} is not an object")
+            finite(
+                event.get("shares_delta"),
+                field_name=f"ledger event {index} shares_delta")
+            cash_delta = finite(
+                event.get("cash_delta"),
+                field_name=f"ledger event {index} cash_delta")
+            price = event.get("price")
+            if price is not None:
+                finite(
+                    price, field_name=f"ledger event {index} price",
+                    non_negative=True)
+            finite(
+                event.get("fees"), field_name=f"ledger event {index} fees",
+                non_negative=True)
+            cash_before = finite(
+                event.get("cash_before"),
+                field_name=f"ledger event {index} cash_before",
+                non_negative=True)
+            cash_after = finite(
+                event.get("cash_after"),
+                field_name=f"ledger event {index} cash_after",
+                non_negative=True)
+            if cash_after != cash_before + cash_delta:
+                raise ValueError(
+                    "persisted Wealth Core ledger event "
+                    f"{index} violates cash_after = cash_before + cash_delta")
+            detail = event.get("detail") or {}
+            if not isinstance(detail, Mapping):
+                raise ValueError(
+                    f"persisted Wealth Core ledger event {index} detail is not an object")
+            events.append(LedgerEvent(
+                session=event["session"],
+                event_type=EventType(event["event_type"]),
+                security_id=event["security_id"], ticker=event["ticker"],
+                # Validate through the finite numeric views above, but retain
+                # the exact persisted int/float representation.  Ledger hashes
+                # predate this validator and deliberately distinguish those
+                # JSON forms; restore validation must not rewrite history.
+                shares_delta=event["shares_delta"],
+                cash_delta=event["cash_delta"], price=event.get("price"),
+                fees=event["fees"], cash_before=event["cash_before"],
+                cash_after=event["cash_after"], reason=event["reason"],
+                detail=dict(detail)))
+
+        receivables: list[dict] = []
+        for index, receivable in enumerate(raw):
+            if not isinstance(receivable, Mapping):
+                raise ValueError(
+                    f"persisted Wealth Core receivable {index} is not an object")
+            amount = finite(
+                receivable.get("amount"),
+                field_name=f"receivable {index} amount", non_negative=True)
+            raw_due = receivable.get("due_in", 0)
+            if isinstance(raw_due, bool):
+                raise ValueError(
+                    f"persisted Wealth Core receivable {index} due_in is not an integer")
+            try:
+                due_in = int(raw_due)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"persisted Wealth Core receivable {index} due_in is not an integer") from exc
+            if str(raw_due).strip() != str(due_in):
+                raise ValueError(
+                    f"persisted Wealth Core receivable {index} due_in is not an exact integer")
+            if due_in < 0:
+                raise ValueError(
+                    f"persisted Wealth Core receivable {index} due_in must be non-negative")
+            receivables.append({
+                "security_id": receivable.get("security_id"),
+                "ticker": receivable.get("ticker"),
+                "amount": amount,
+                "accrued_session": receivable.get("accrued_session") or "",
+                "due_in": due_in,
+            })
+        return cls(events=events, receivables=receivables)
 
     def ledger_hash(self) -> str:
         """Events AND outstanding receivables.

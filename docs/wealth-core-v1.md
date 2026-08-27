@@ -616,6 +616,16 @@ only later, when the payment silently failed to appear. A hash that cannot see a
 difference until its downstream consequence shows up is worth much less than one
 that sees it at once — the same argument as the seven ordered parity hashes.
 
+### A valid hash is not a substitute for economic restore validation
+
+Persistence decoders treat restored JSON as untrusted even when an enclosing
+hash is self-consistent. A portfolio snapshot refuses non-finite or negative
+cash and a negative/non-integral session index. A ledger refuses non-finite or
+negative receivables, negative settlement clocks, and any event whose
+`cash_after` does not equal `cash_before + cash_delta`. Hashes detect changed
+bytes; these invariants prevent a newly supplied, re-hashed, but economically
+impossible payload from becoming restart authority.
+
 `RunResult` also reports `outstanding_receivables` as its own number. A run that
 stops between ex and pay is owed money, and reporting cash alone understates it
 silently: an accrual has no cash delta, so the ledger reconciles perfectly

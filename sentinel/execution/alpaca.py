@@ -201,6 +201,80 @@ def _retry_after_seconds(resp) -> Decimal:
     return value
 
 
+def _submit_error_detail(resp) -> str:
+    """Return bounded Alpaca error evidence without trusting one wire shape."""
+    text = str(getattr(resp, "text", "") or "").strip()
+    try:
+        payload = resp.json()
+    except Exception:                                      # noqa: BLE001
+        payload = None
+    if isinstance(payload, dict):
+        code = payload.get("code")
+        message = str(payload.get("message") or "").strip()
+        structured = " ".join(
+            part for part in (
+                f"code={code}" if code not in (None, "") else "",
+                message,
+            ) if part)
+        if structured and structured not in text:
+            text = f"{structured}; {text}" if text else structured
+    return text[:500]
+
+
+def _submit_error_outcome(resp) -> CommandOutcome:
+    """Classify only documented create-order non-acceptance as REJECTED.
+
+    HTTP's 4xx class is not an order lifecycle.  An undocumented status may be
+    emitted by an intermediary or by a changed vendor contract after the order
+    reached Alpaca, so exact-key recovery remains mandatory unless this
+    endpoint's contract positively proves non-acceptance.
+    """
+    status = int(resp.status_code)
+    detail = _submit_error_detail(resp)
+    lowered = detail.lower()
+    duplicate_key = (
+        "duplicate" in lowered
+        or (("client_order_id" in lowered or "client order id" in lowered)
+            and any(token in lowered for token in (
+                "unique", "already exists", "already been used"))))
+
+    if status == 401:
+        raise AlpacaCredentialsRefused(
+            f"Alpaca submit credentials refused with HTTP 401: {detail}")
+    if status == 429:
+        retry_after = _retry_after_seconds(resp)
+        return RetryableCommandOutcome(
+            state=S.UNKNOWN,
+            retry_after_seconds=retry_after,
+            detail=("HTTP 429 rate limit; same-key retry eligible after "
+                    f"{retry_after}s"))
+    if status == 408:
+        return CommandOutcome(
+            state=S.UNKNOWN, detail="HTTP 408 transport ambiguity")
+    if status == 422 and duplicate_key:
+        return CommandOutcome(
+            state=S.UNKNOWN,
+            detail=f"duplicate key at broker: {detail}")
+    if status in {403, 422}:
+        headers = getattr(resp, "headers", {}) or {}
+        request_id = str(
+            headers.get("X-Request-ID")
+            or headers.get("x-request-id") or "").strip()
+        if not request_id:
+            return CommandOutcome(
+                state=S.UNKNOWN,
+                detail=(f"HTTP {status} omitted Alpaca X-Request-ID; "
+                        f"response origin/non-acceptance is unproven: {detail}"))
+        return CommandOutcome(
+            state=S.REJECTED,
+            detail=(f"HTTP {status} documented Alpaca order refusal "
+                    f"(request_id={request_id}): {detail}"))
+    return CommandOutcome(
+        state=S.UNKNOWN,
+        detail=(f"HTTP {status} is not documented as definitive order "
+                f"non-acceptance: {detail}"))
+
+
 def parse_portfolio_history_close(
         payload, *, identity: BrokerAccountIdentity, requested_session: date,
         request_started_at: datetime, request_completed_at: datetime,
@@ -1061,33 +1135,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
                     broker_order_id=broker_order_id or None,
                     detail=f"incomplete 2xx acknowledgement: {exc}")
             return _submit_outcome(order)
-        if resp.status_code in (401, 403):
-            raise AlpacaCredentialsRefused(
-                f"Alpaca submit authority refused with HTTP {resp.status_code}: "
-                f"{(resp.text or '')[:500]}")
-        if resp.status_code == 429:
-            retry_after = _retry_after_seconds(resp)
-            return RetryableCommandOutcome(
-                state=S.UNKNOWN,
-                retry_after_seconds=retry_after,
-                detail=(f"HTTP 429 rate limit; same-key retry eligible after "
-                        f"{retry_after}s"))
-        if resp.status_code == 408:
-            return CommandOutcome(
-                state=S.UNKNOWN, detail="HTTP 408 transport ambiguity")
-        if resp.status_code == 422:
-            text = (resp.text or "")[:500]
-            if "client_order_id" in text or "duplicate" in text.lower():
-                return CommandOutcome(
-                    state=S.UNKNOWN,
-                    detail=f"duplicate key at broker: {text}")
-            return CommandOutcome(state=S.REJECTED, detail=text)
-        if 400 <= resp.status_code < 500:
-            return CommandOutcome(
-                state=S.REJECTED,
-                detail=f"HTTP {resp.status_code}: {(resp.text or '')[:500]}")
-        return CommandOutcome(
-            state=S.UNKNOWN, detail=f"HTTP {resp.status_code}")
+        return _submit_error_outcome(resp)
 
     async def cancel(self, broker_order_id: str) -> CommandOutcome:
         try:
