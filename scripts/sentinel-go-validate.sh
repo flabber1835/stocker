@@ -19,6 +19,13 @@ PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
 # never authority: promotion occurs only after the requested GO target passes.
 "$PYTHON" scripts/sentinel_runtime_selection.py preflight
 
+PRODUCTION_RUN=1
+for ARG in "$@"; do
+  case "$ARG" in
+    --input|--input=*|--dev-input) PRODUCTION_RUN=0 ;;
+  esac
+done
+
 set +e
 "$PYTHON" scripts/sentinel_go_phase_controller.py "$@"
 VALIDATION_RC=$?
@@ -29,5 +36,14 @@ if [ "$VALIDATION_RC" -ne 0 ]; then
 fi
 
 # Successful production validation leaves ordinary Sentinel Compose bound to
-# the exact validated candidate. Development input is skipped by the helper.
+# the exact validated candidate. The promotion helper refreshes origin/main at
+# this final boundary so a long validation cannot promote a commit superseded
+# upstream while the suite was running.
 "$PYTHON" scripts/sentinel_runtime_selection.py promote -- "$@" || exit $?
+
+if [ "$PRODUCTION_RUN" -eq 1 ]; then
+  # Recreate the read-only panel on the promoted runtime, write an explicit
+  # local-image -> activation-RepoDigest handoff record, and garbage-collect
+  # only old GO scratch tags that Docker confirms are not in use.
+  "$PYTHON" scripts/sentinel_go_post_validate.py || exit $?
+fi
