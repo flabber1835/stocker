@@ -100,8 +100,6 @@ def _pointer_digest(path: Path = POINTER) -> str | None:
 def _merged_environment() -> dict[str, str]:
     values = _load_dotenv_literal()
     values.update(os.environ)
-    # Match sentinel-compose.sh precedence exactly: a successful GO pointer is
-    # the operational selector and overrides a stale shell/.env export.
     pointer = _pointer_digest()
     if pointer is not None:
         values["SENTINEL_RUNTIME_IMAGE_REF"] = pointer
@@ -172,14 +170,25 @@ def _compose_selected_image(env: Mapping[str, str]) -> str:
 
 
 def preflight() -> int:
+    # Configuration and pointer errors are deterministic prerequisites: do not
+    # spend the certification budget when Compose cannot later consume the
+    # promoted runtime. The absence of an *existing image* is different—a first
+    # deployment can legitimately build the candidate from scratch.
     try:
         head = _git("rev-parse", "HEAD")
         if not _COMMIT.fullmatch(head):
             raise RuntimeSelectionRefused("repository HEAD is not an exact commit")
-        selected = _compose_selected_image(_merged_environment())
+        env = _merged_environment()
+        selected = _compose_selected_image(env)
+    except RuntimeSelectionRefused as exc:
+        print("REFUSED: runtime preflight configuration: %s" % exc, file=sys.stderr)
+        return 2
+    try:
         digest, revision = _inspect(selected)
     except RuntimeSelectionRefused as exc:
-        print("runtime preflight: UNAVAILABLE - %s" % exc, flush=True)
+        print(
+            "runtime preflight: UNAVAILABLE - %s; validation may build a fresh current candidate"
+            % exc, flush=True)
         return 0
     if revision == head:
         print(
