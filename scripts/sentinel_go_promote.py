@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -47,8 +48,21 @@ def main(argv=None) -> int:
         print("runtime promotion: SKIPPED for development-input validation", flush=True)
         return 0
     try:
+        if os.environ.get("SENTINEL_GO_LOCK_HELD") != "1":
+            raise runtime.RuntimeSelectionRefused(
+                "runtime promotion is available only inside the locked sentinel-go-validate lifecycle")
         runtime._refresh_origin_main()
         head = runtime._clean_main_head()
+
+        # Require the complete retained suite record and all exact image IDs,
+        # not only the companion ordinary-runtime sidecar. This prevents a
+        # hand-edited/stale sidecar from becoming runtime-selection authority.
+        runner = phase.controller.DiagnosticRunner()
+        summary = phase._load_with_ordinary(runner, commit=head)
+        if summary is None or not summary.complete:
+            raise runtime.RuntimeSelectionRefused(
+                "complete exact certification evidence is unavailable at promotion")
+
         expected = _certified_ordinary(head)
         candidate = "sentinel-go-runtime:%s" % head
         observed, revision = runtime._inspect(candidate)
