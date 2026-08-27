@@ -11,8 +11,8 @@ adds the properties a transport client cannot provide by itself:
   published authority frontier;
 * failed daily vs historical-maintenance candidates are retried by the operation
   that can safely supersede their live rows;
-* production seed/reseed traverses the canonical source-key and structural
-  TICKERS membrane before identity can become authority;
+* production seed/reseed validates structural TICKERS authority before identity
+  can become authoritative;
 * pending SEP mutations are identity-proven against the exact current TICKERS
   candidate before daily publication, without moving the CDC cursor;
 * routine SEP maintenance follows the published daily identity refresh so a
@@ -140,14 +140,20 @@ def _prove_recent_frontier(conn, *, fetch) -> None:
 def _seed_source(fetch, *, final_hi: str):
     source = fetch
     if fetch is snapshot_source.fetch_table:
-        # A complete seed is the most dangerous place to tolerate an invalid
-        # securities master: one overlapping reused ticker can splice or drop
-        # history for the life of the corpus. The production seed/reseed source
-        # therefore earns the same structural TICKERS authority as daily, while
-        # also getting canonical SEP/SFP source-key uniqueness from the existing
-        # source membrane. Injected replay/test fetchers keep their existing seam.
-        source = source_authority.CanonicalSourceFetch(
+        # Keep this hardening on the securities master only. Full-history SEP
+        # already has canonical duplicate defense in the PostgreSQL staging
+        # boundary; adding a second disk-spooled uniqueness pass here would make
+        # a 20+ year NAS seed materially more expensive without adding identity
+        # protection. TICKERS is small and is the authority that can splice or
+        # ambiguously drop history if structurally invalid.
+        canonical_tickers = source_authority.CanonicalSourceFetch(
             fetch, validate_tickers=True)
+
+        def source(table, params=None, **kwargs):
+            if table == sharadar.TICKERS:
+                return canonical_tickers(table, params, **kwargs)
+            return fetch(table, params, **kwargs)
+
     tracked = maintenance.LastUpdatedTrackingFetch(source)
     guarded = coherence.StableSharadarFetch(
         tracked, protect_sep=lambda _params: True,
