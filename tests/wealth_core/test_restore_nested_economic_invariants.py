@@ -115,21 +115,17 @@ def test_restore_refuses_invalid_security_cooldown(value):
         PortfolioState.from_dict(payload)
 
 
-def test_restore_refuses_held_or_reserved_security_in_security_cooldown():
+def test_restore_allows_held_security_with_preexisting_security_cooldown():
+    # A corporate-action conversion can deliver a security that is still in a
+    # cooldown created by an older, unrelated episode. The cooldown remains a
+    # valid historical clock and does not change the already-held episode.
     payload = _occupied_state().to_dict()
     payload["security_cooldowns"] = {"SEC-A": 3}
-    with pytest.raises(ValueError, match="held or reserved"):
-        PortfolioState.from_dict(payload)
 
-    payload = PortfolioState.fresh(1_000.0, n_slots=2).to_dict()
-    payload["slots"]["0"].update({
-        "reserved_for": "SEC-A",
-        "reserved_ticker": "AAA",
-        "reserved_issuer": "ISS-A",
-    })
-    payload["security_cooldowns"] = {"SEC-A": 3}
-    with pytest.raises(ValueError, match="held or reserved"):
-        PortfolioState.from_dict(payload)
+    restored = PortfolioState.from_dict(payload)
+
+    assert restored.security_cooldowns["SEC-A"] == 3
+    assert restored.episodes[0].security_id == "SEC-A"
 
 
 @pytest.mark.parametrize("field,value", [
