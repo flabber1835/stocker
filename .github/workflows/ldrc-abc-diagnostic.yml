@@ -2,8 +2,9 @@ name: LD-RC ABC diagnostic
 on:
   push:
     branches: [research/ldrc-abc-dynamic-2026-08-27]
+    paths: ['.github/workflows/ldrc-abc-diagnostic.yml']
 permissions:
-  contents: read
+  contents: write
 jobs:
   inspect:
     runs-on: ubuntu-24.04
@@ -20,23 +21,27 @@ jobs:
             docs/sentinel-concordance-ldrc-authoritative-spec.md
             sentinel/controller
             research
-      - name: Inspect retained replay assets
+      - name: Inspect and persist retained replay assets
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== zip inventory: faithful kit ==='
-          unzip -l docs/Sentinel_1_1_Faithful_Reproduction_Kit_NO_SHARADAR.zip | sed -n '1,260p'
-          echo '=== zip inventory: frozen handoff ==='
-          unzip -l docs/Sentinel_1_1_Frozen_Harness_Handoff.zip | sed -n '1,260p'
           rm -rf /tmp/faith /tmp/frozen
-          mkdir -p /tmp/faith /tmp/frozen
+          mkdir -p /tmp/faith /tmp/frozen research/ldrc-abc-run
           unzip -q docs/Sentinel_1_1_Faithful_Reproduction_Kit_NO_SHARADAR.zip -d /tmp/faith
           unzip -q docs/Sentinel_1_1_Frozen_Harness_Handoff.zip -d /tmp/frozen
-          echo '=== filenames likely relevant ==='
-          find /tmp/faith /tmp/frozen -type f | grep -Ei 'daily|replay|parent|breadth|position|shadow|spy|bil|ldrc|concord|summary|metric' | sort | head -400
-          echo '=== exact control fingerprint occurrences ==='
-          grep -RIlE '22\.630215|0\.226302156|59\.154286' /tmp/faith /tmp/frozen docs sentinel research 2>/dev/null | head -150 || true
-          echo '=== candidate CSV headers ==='
-          while IFS= read -r f; do
-            echo "--- $f"; head -2 "$f" || true
-          done < <(find /tmp/faith /tmp/frozen -type f -name '*.csv' | grep -Ei 'daily|replay|parent|breadth|position|shadow|spy|bil|ldrc|concord' | head -120)
+          OUT=research/ldrc-abc-run/diagnostic.txt
+          {
+            echo '=== FAITHFUL KIT INVENTORY ==='
+            find /tmp/faith -type f | sort
+            echo '=== FROZEN HANDOFF INVENTORY ==='
+            find /tmp/frozen -type f | sort
+            echo '=== EXACT CONTROL FINGERPRINT OCCURRENCES ==='
+            grep -RIlE '22\.630215|0\.226302156|59\.154286' /tmp/faith /tmp/frozen docs sentinel research 2>/dev/null || true
+            echo '=== RELEVANT CSV HEADERS ==='
+            while IFS= read -r f; do echo "--- $f"; head -2 "$f" || true; done < <(find /tmp/faith /tmp/frozen -type f -name '*.csv' | grep -Ei 'daily|replay|parent|breadth|position|shadow|spy|bil|ldrc|concord' | sort)
+          } > "$OUT"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$OUT"
+          git commit -m 'research: persist LD-RC replay inventory'
+          git push
