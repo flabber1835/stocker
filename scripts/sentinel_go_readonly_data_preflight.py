@@ -7,8 +7,15 @@ the production PostgreSQL transaction READ ONLY, validates the durable SEP,
 ACTIONS, and recent-complete-reconciliation cursor shapes against the current
 publication and decision frontier, then—only after the reviewed source-final
 boundary—fetches the pending SEP ``lastupdated`` interval twice through the
-normal Sharadar transport and runs the existing mutation-row authority
-validator.
+canonical production CDC source membrane and runs the production mutation-row
+authority validator.
+
+If a pending mutation fails only because local permanent identity is absent or a
+single known listing interval is stale, the preflight may observe current TICKERS
+GET-only. It accepts that as liveness evidence only after the production TICKERS
+source membrane proves complete keys, structural validity and a stable second
+observation; the routine historical-identity guard must also prove the candidate
+is forward-only. The candidate is never written or published here.
 
 It never creates/migrates schema, advances a cursor, creates an ingest run,
 renormalizes bars, publishes a corpus generation, downloads the complete ACTIONS
@@ -45,8 +52,8 @@ _READ_ONLY_CODE = r'''
 import datetime as dt
 import json, os
 from sentinel.feed import (
-    calendar, maintenance_impl as maintenance, publication,
-    recent_reconciliation, sharadar, store)
+    calendar, identity_refresh, maintenance_impl as maintenance, publication,
+    recent_reconciliation, sharadar, source_authority, store, universe)
 from sentinel.shadow_runtime import publication_not_before
 
 MARKER = 'SENTINEL_GO_READONLY_DATA_PREFLIGHT='
@@ -56,10 +63,11 @@ def emit(value):
     print(MARKER + json.dumps(value, sort_keys=True), flush=True)
 
 
-def refuse(code, detail=None):
+def refuse(code, detail=None, **extra):
     value = {'status': 'REFUSED', 'reason_code': code}
     if detail:
         value['detail'] = detail
+    value.update(extra)
     emit(value)
 
 
@@ -209,27 +217,48 @@ try:
                         'lastupdated.gte': lo.isoformat(),
                         'lastupdated.lte': target.isoformat(),
                     }
+                    envelope = source_authority.SepUpdateEnvelope.interval(
+                        lo, target, context='read-only SEP CDC preflight')
+                    guarded = source_authority.CanonicalSourceFetch(
+                        sharadar.fetch_table, sep_update_envelope=envelope)
                     rows = maintenance._stable_rows(
-                        sharadar.fetch_table, sharadar.SEP, params)
+                        guarded, sharadar.SEP, params)
                     market_start, market_end = maintenance._retained_market_bounds(c)
-                    dates = maintenance._validate_sep_mutation_rows(
-                        c, rows, lo=lo, hi=target,
-                        published_from=dt.date.fromisoformat(market_start),
-                        published_through=dt.date.fromisoformat(market_end),
-                    )
+                    dates, refresh_required = (
+                        identity_refresh.validate_with_current_tickers_if_refreshable(
+                            c, rows, lo=lo, hi=target,
+                            published_from=dt.date.fromisoformat(market_start),
+                            published_through=dt.date.fromisoformat(market_end),
+                        ))
                     emit({
-                        'status': 'PASS', 'reason_code': 'SEP_CDC_SOURCE_VALID',
+                        'status': 'PASS',
+                        'reason_code': (
+                            'LOCAL_IDENTITY_REFRESH_REQUIRED'
+                            if refresh_required else 'SEP_CDC_SOURCE_VALID'),
                         'source_rows': len(rows),
                         'affected_source_dates': len(set(dates)),
                         'local_followup': local_lag,
                     })
+except identity_refresh.SepMutationIdentityRefused as exc:
+    detail = controlled_detail(exc)
+    codes = {
+        'NO_PERMANENT_ID': 'SOURCE_IDENTITY_NO_PERMANENT_ID',
+        'IDENTITY_INTERVAL_GAP': 'SOURCE_IDENTITY_INTERVAL_GAP',
+        'TICKER_REUSE_UNRESOLVED': 'SOURCE_IDENTITY_TICKER_REUSE_UNRESOLVED',
+        'AMBIGUOUS_IDENTITY': 'SOURCE_IDENTITY_AMBIGUOUS',
+    }
+    refuse(
+        codes.get(exc.reason_code, 'SOURCE_IDENTITY_UNRESOLVED'), detail,
+        identity_reason=exc.reason_code)
+except universe.HistoricalIdentityMutation as exc:
+    refuse('SOURCE_IDENTITY_HISTORY_MUTATION', controlled_detail(exc))
+except source_authority.SourceAuthorityRefused as exc:
+    refuse('SOURCE_CDC_AUTHORITY_REFUSED', controlled_detail(exc))
 except maintenance.SharadarMutationRefused as exc:
     detail = controlled_detail(exc)
     lowered = str(exc).lower()
     if 'source cursor' in lowered:
         code = 'LOCAL_CURSOR_CORRUPT'
-    elif 'no permanent identity' in lowered:
-        code = 'SOURCE_IDENTITY_UNRESOLVED'
     elif 'no positive raw close' in lowered:
         code = 'SOURCE_RAW_CLOSE_INVALID'
     elif 'lastupdated' in lowered or 'invalid date' in lowered:
@@ -238,11 +267,17 @@ except maintenance.SharadarMutationRefused as exc:
         code = 'SOURCE_AUTHORITY_REFUSED'
     refuse(code, detail)
 except Exception as exc:
-    code = ('SOURCE_PUBLICATION_UNSTABLE'
-            if type(exc).__name__ == 'VendorPublicationUnstable'
-            else 'READONLY_PREFLIGHT_UNAVAILABLE')
+    name = type(exc).__name__
+    if name == 'VendorPublicationUnstable':
+        code = 'SOURCE_PUBLICATION_UNSTABLE'
+    elif name in {
+            'TickersStructureInvalid', 'TickerMetadataIncomplete',
+            'SnapshotExportIncomplete'}:
+        code = 'SOURCE_IDENTITY_CANDIDATE_INVALID'
+    else:
+        code = 'READONLY_PREFLIGHT_UNAVAILABLE'
     emit({'status': 'REFUSED', 'reason_code': code,
-          'error_type': type(exc).__name__})
+          'error_type': name})
 finally:
     try:
         c.rollback()

@@ -9,8 +9,14 @@ adds the properties a transport client cannot provide by itself:
 * ambiguous legacy multi-candidate state has a supported complete-reseed recovery;
 * a failed physical frontier may never shorten the next retry below the
   published authority frontier;
-* failed daily vs historical-maintenance candidates are retried in the order
-  that can actually supersede their physical rows;
+* failed daily vs historical-maintenance candidates are retried by the operation
+  that can safely supersede their live rows;
+* production seed/reseed validates structural TICKERS authority before identity
+  can become authoritative;
+* pending SEP mutations are identity-proven against the exact current TICKERS
+  candidate before daily publication, without moving the CDC cursor;
+* routine SEP maintenance follows the published daily identity refresh so a
+  stale listing interval cannot deadlock the refresh that would extend it;
 * historical TICKERS corrections can advance only through a complete,
   identity-aware full-history replacement;
 * SEP's vendor-update clock is maintained independently from market-session
@@ -26,9 +32,9 @@ import datetime as _dt
 from typing import Callable, Iterable, Optional
 
 from sentinel.feed import (
-    coherence, identity_rebuild, ingest_impl as _impl, maintenance,
-    recent_reconciliation, recovery, reseed, sep_reconciliation, sharadar,
-    snapshot_source, universe)
+    coherence, identity_rebuild, identity_refresh, ingest_impl as _impl,
+    maintenance, recent_reconciliation, recovery, reseed, sep_reconciliation,
+    sharadar, snapshot_source, source_authority, universe)
 
 for _name in dir(_impl):
     if not _name.startswith("__"):
@@ -132,7 +138,23 @@ def _prove_recent_frontier(conn, *, fetch) -> None:
 
 
 def _seed_source(fetch, *, final_hi: str):
-    tracked = maintenance.LastUpdatedTrackingFetch(fetch)
+    source = fetch
+    if fetch is snapshot_source.fetch_table:
+        # Keep this hardening on the securities master only. Full-history SEP
+        # already has canonical duplicate defense in the PostgreSQL staging
+        # boundary; adding a second disk-spooled uniqueness pass here would make
+        # a 20+ year NAS seed materially more expensive without adding identity
+        # protection. TICKERS is small and is the authority that can splice or
+        # ambiguously drop history if structurally invalid.
+        canonical_tickers = source_authority.CanonicalSourceFetch(
+            fetch, validate_tickers=True)
+
+        def source(table, params=None, **kwargs):
+            if table == sharadar.TICKERS:
+                return canonical_tickers(table, params, **kwargs)
+            return fetch(table, params, **kwargs)
+
+    tracked = maintenance.LastUpdatedTrackingFetch(source)
     guarded = coherence.StableSharadarFetch(
         tracked, protect_sep=lambda _params: True,
         corroborate_reference=(
@@ -230,11 +252,18 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
                 "overlap cannot prove old rows current.")
 
         failed = _single_failed_live_candidate(conn)
-        retry_daily_first = False
         if failed is not None:
             if failed.kind == "daily":
-                retry_daily_first = True
+                # The new daily generation is the only operation whose complete
+                # overlap can safely supersede these live rows. Do not open a
+                # publication-capable maintenance generation first.
+                pass
             elif failed.kind == "sep_mutations":
+                # A failed mutation generation already owns historical live rows.
+                # Retrying its exact replay contract is the one deliberate
+                # pre-daily exception. Identity-interval refusal happens before
+                # a mutation run opens, so the YHNAU deadlock has no failed
+                # candidate here and cannot enter this branch.
                 maintenance.reconcile_sep_mutations(
                     conn, fetch=fetch, through=yesterday)
                 still_failed = _single_failed_live_candidate(conn)
@@ -266,33 +295,52 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
                     "supported complete `feed-seed` recovery.")
 
         published_frontier = _impl.feed_store.latest_visible_session(conn)
-        if not retry_daily_first:
-            maintenance.reconcile_sep_mutations(
-                conn, fetch=fetch, through=yesterday)
-            sep_reconciliation.reconcile_next(
-                conn, fetch=fetch, through=published_frontier)
+        daily_fetch = fetch
 
-        # The 99.9% TICKERS-vs-SEP population witness is a source-completeness
-        # assertion, not a generic property of any injected callback. Only the
-        # production snapshot membrane has independently established whole-table
-        # TICKERS authority. Synthetic/replay fetchers still exercise stability,
-        # identity, and ingest semantics, but cannot manufacture that authority.
+        # Production gets one exact current TICKERS candidate before the daily
+        # run opens. It must be complete, structurally valid, stable, and a safe
+        # routine history projection. Known pending CDC rows through yesterday
+        # are then identity/economics-validated against that exact candidate.
+        # Nothing is written and no cursor moves here.
+        #
+        # The first TICKERS request inside _daily_locked is pinned to the proven
+        # candidate. StableSharadarFetch still re-observes the live source after
+        # the protected SEP traversal, so any drift between this proof and daily
+        # completion refuses before publication.
+        if fetch is snapshot_source.fetch_table and resolve_identity is None:
+            tickers_candidate = identity_refresh.stable_current_tickers(fetch)
+            identity_refresh.assert_candidate_history_safe(
+                conn, tickers_candidate)
+            candidate_resolver = identity_refresh.resolver_with_candidate(
+                conn, tickers_candidate)
+            identity_refresh.prevalidate_pending_sep_mutations(
+                conn, fetch=fetch, through=yesterday,
+                resolver=candidate_resolver)
+            daily_fetch = identity_refresh.PinnedInitialTickersFetch(
+                fetch, tickers_candidate)
+
         listing_frontier = (
             published_frontier if fetch is snapshot_source.fetch_table else None)
         guarded = coherence.StableSharadarFetch(
-            fetch, after_session=listing_frontier)
+            daily_fetch, after_session=listing_frontier)
         effective_overlap = recovery.extended_overlap_days(conn, overlap_days)
         progress = _impl._daily_locked(
             conn, fetch=guarded, resolve_identity=resolve_identity,
             overlap_days=effective_overlap, today=resolved_today)
         _finish_publication_or_refuse(conn, progress)
 
-        if retry_daily_first:
+        if failed is not None and failed.kind == "daily":
             _require_failed_owner_cleared(conn, context="daily retry")
-            published_frontier = _impl.feed_store.latest_visible_session(conn)
-            sep_reconciliation.reconcile_next(
-                conn, fetch=fetch, through=published_frontier)
 
+        # From here on, every historical maintenance operation sees the identity
+        # generation that just became published. If daily publication failed, we
+        # never reach this point and no maintenance cursor can advance under an
+        # unpublished candidate. Readiness also requires the SEP watermark and
+        # recent complete proof to cover the published decision frontier, so a
+        # crash here remains fenced until maintenance completes.
+        published_frontier = _impl.feed_store.latest_visible_session(conn)
+        sep_reconciliation.reconcile_next(
+            conn, fetch=fetch, through=published_frontier)
         maintenance.reconcile_sep_mutations(
             conn, fetch=fetch, through=today_date.isoformat())
         maintenance.reconcile_actions_if_due(

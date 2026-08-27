@@ -244,28 +244,34 @@ def _candidate_listing_projection(payload):
     return candidate
 
 
+def _overlap(first_a, last_a, first_b, last_b) -> bool:
+    """Inclusive listing overlap, treating a missing edge as open-ended."""
+    if last_a is not None and first_b is not None and str(last_a) < str(first_b):
+        return False
+    if last_b is not None and first_a is not None and str(last_b) < str(first_a):
+        return False
+    return True
+
+
 def assert_candidate_listing_history_safe(
         conn, *, payload=None, run_id: str | None = None) -> None:
-    """Refuse a full TICKERS snapshot that changes identity over published bars.
+    """Refuse TICKERS changes that can reinterpret already-published identity.
 
-    `sentinel_bars` is keyed by ``(security_id, session)``. Updating the current
-    TICKERS projection can therefore NOT by itself repair a historical identity
-    correction: the old bar key survives even if the candidate resolver would
-    now map that ticker/session elsewhere (or nowhere). Until a complete source
-    rebuild can re-key/tombstone those bars atomically, the only financial-grade
-    action is to keep the candidate unpublished.
+    Listing bounds are authority for one security, not a global-market clock.
+    Comparing every ``lastpricedate`` with the global SEP frontier made an active
+    security whose local interval lagged that frontier impossible to extend. The
+    safe distinction is per identity:
 
-    The same comparison is also a TICKERS negative-space proof. A complete
-    securities-master snapshot may not silently omit a previously published
-    listing pair whose interval overlaps the published SEP corpus. Otherwise a
-    stable partial TICKERS response and a matching stable partial SEP response
-    could corroborate the same truncation and false-green together.
+    * an existing pair's ``firstpricedate`` is immutable in routine ingest;
+    * an existing pair's ``lastpricedate`` may stay unchanged or move forward,
+      never backward or from open-ended to finite;
+    * a previously published pair may not disappear from a complete snapshot;
+    * a genuinely new pair may enter routine ingest only after the published SEP
+      frontier; backfilling historical identity requires the complete rebuild;
+    * projected ticker-reuse intervals may not become ambiguous.
 
-    Ordinary daily movement remains allowed. Active securities normally extend
-    ``lastpricedate`` from the published frontier into the new session; clipped
-    to the already-published corpus, old and candidate intervals are identical.
-    New IPO/listing pairs whose first date is after the frontier likewise do not
-    rewrite history.
+    These rules preserve every already-published ``(security_id,session)`` bar
+    while allowing a causal future listing-window extension such as YHNAU.
     """
     from sentinel.feed import publication
 
@@ -335,32 +341,72 @@ def assert_candidate_listing_history_safe(
                 permaticker, ticker, had_prior, has_candidate,
                 old_first, old_last, new_first, new_last))
 
-    changed = []
+    violations = []
+    projected = {}
     for (permaticker, ticker, had_prior, has_candidate,
          old_first, old_last, new_first, new_last) in candidates:
-        old = (_clipped_listing(old_first, old_last, corpus_lo, corpus_hi)
-               if had_prior else None)
-        new = (_clipped_listing(new_first, new_last, corpus_lo, corpus_hi)
-               if has_candidate else None)
-        if old != new:
-            changed.append({
-                "permaticker": str(permaticker), "ticker": str(ticker),
-                "published": old, "candidate": new,
-            })
+        key = (str(permaticker), str(ticker).upper())
+        if had_prior and not has_candidate:
+            violations.append((key, "published listing pair omitted"))
+            continue
+        if not has_candidate:
+            continue
 
-    if changed:
+        old_first_s = None if old_first is None else str(old_first)
+        old_last_s = None if old_last is None else str(old_last)
+        new_first_s = None if new_first is None else str(new_first)
+        new_last_s = None if new_last is None else str(new_last)
+
+        if had_prior:
+            if new_first_s != old_first_s:
+                violations.append((
+                    key, f"firstpricedate {old_first_s}->{new_first_s}"))
+            elif old_last_s is None and new_last_s is not None:
+                violations.append((
+                    key, f"lastpricedate open->{new_last_s}"))
+            elif (old_last_s is not None and new_last_s is not None
+                  and new_last_s < old_last_s):
+                violations.append((
+                    key, f"lastpricedate {old_last_s}->{new_last_s}"))
+        else:
+            if new_first_s is None or new_first_s <= corpus_hi:
+                violations.append((
+                    key, "new listing enters already-published SEP history "
+                         f"through {corpus_hi}"))
+
+        projected[key] = (new_first_s, new_last_s)
+
+    # The complete candidate must not create two permanent identities that can
+    # claim the same ticker on one session. Production TICKERS structural
+    # authority independently checks this; retaining the invariant here protects
+    # direct/recovery callers too.
+    by_ticker = {}
+    for (permaticker, ticker), interval in projected.items():
+        by_ticker.setdefault(ticker, []).append((permaticker, *interval))
+    for ticker, listings in by_ticker.items():
+        for index, left in enumerate(listings):
+            for right in listings[index + 1:]:
+                if left[0] == right[0]:
+                    continue
+                if _overlap(left[1], left[2], right[1], right[2]):
+                    violations.append((
+                        (f"{left[0]}|{right[0]}", ticker),
+                        "candidate creates overlapping ticker-reuse intervals"))
+
+    if violations:
         shown = "; ".join(
-            f"{item['ticker']}/{item['permaticker']} "
-            f"{item['published']}->{item['candidate']}"
-            for item in changed[:8])
-        suffix = f" (+{len(changed) - 8} more)" if len(changed) > 8 else ""
+            f"{ticker}/{permaticker} {reason}"
+            for (permaticker, ticker), reason in violations[:8])
+        suffix = (
+            f" (+{len(violations) - 8} more)" if len(violations) > 8 else "")
         raise HistoricalIdentityMutation(
-            f"stable TICKERS candidate changes or omits {len(changed)} listing "
-            f"interval(s) inside published SEP history {corpus_lo}..{corpus_hi}: "
-            f"{shown}{suffix}. Publishing metadata alone would leave old "
-            "(security_id,session) bars authoritative under a resolver that no "
-            "longer names them. Refusing until a complete identity-aware source "
-            "rebuild can re-key/tombstone the affected bars atomically.")
+            f"stable TICKERS candidate changes or omits {len(violations)} "
+            f"listing interval(s) against published SEP history "
+            f"{corpus_lo}..{corpus_hi}: {shown}{suffix}. Publishing metadata "
+            "alone would risk changing permanent identity for retained bars. "
+            "Refusing until routine authority is forward-only or a complete "
+            "identity-aware source rebuild can re-key/tombstone affected bars "
+            "atomically.")
 
 
 def assert_published_snapshot_reusable(conn, *, payload) -> None:

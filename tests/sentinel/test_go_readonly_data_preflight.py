@@ -21,7 +21,9 @@ def test_preflight_container_is_transactionally_read_only_and_has_no_write_primi
     assert "REPEATABLE READ READ ONLY" in code
     assert "SHOW transaction_read_only" in code
     assert "maintenance._stable_rows" in code
-    assert "maintenance._validate_sep_mutation_rows" in code
+    assert "source_authority.SepUpdateEnvelope.interval" in code
+    assert "source_authority.CanonicalSourceFetch" in code
+    assert "identity_refresh.validate_with_current_tickers_if_refreshable" in code
     assert "publication_not_before" in code
     assert "SHARADAR_SOURCE_NOT_FINAL" in code
     forbidden = (
@@ -103,9 +105,23 @@ def test_source_final_deferral_is_non_negative_authority():
     assert "SHARADAR_SOURCE_NOT_FINAL" in code
 
 
+def test_safe_identity_refresh_is_diagnostic_pass_not_local_authority():
+    code = preflight._READ_ONLY_CODE
+    assert "LOCAL_IDENTITY_REFRESH_REQUIRED" in code
+    assert "identity_refresh.SepMutationIdentityRefused" in code
+    assert "SOURCE_IDENTITY_NO_PERMANENT_ID" in code
+    assert "SOURCE_IDENTITY_INTERVAL_GAP" in code
+    assert "SOURCE_IDENTITY_TICKER_REUSE_UNRESOLVED" in code
+    assert "SOURCE_IDENTITY_AMBIGUOUS" in code
+    assert "SOURCE_CDC_AUTHORITY_REFUSED" in code
+    # Candidate proof is read-only liveness evidence; no source row is stored.
+    assert "write_universe" not in code
+    assert "feed_universe_current" not in code
+
+
 def test_controlled_detail_scrubs_transport_or_credential_shaped_text():
     assert preflight._safe_detail(
-        "SEP mutation ABC/2026-08-20 has no permanent identity") is not None
+        "SEP mutation ABC/2026-08-20 identity unresolved: IDENTITY_INTERVAL_GAP") is not None
     assert preflight._safe_detail(
         "https://example.invalid?api_key=super-secret") is None
     assert preflight._safe_detail(
