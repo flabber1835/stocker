@@ -43,9 +43,39 @@ def test_runtime_preflight_match_is_explicit(monkeypatch, capsys):
     assert "runtime preflight: MATCH" in capsys.readouterr().out
 
 
-def test_successful_go_promotion_writes_exact_ordinary_digest(monkeypatch, tmp_path, capsys):
+def test_runtime_preflight_missing_prior_image_is_nonfatal(monkeypatch, capsys):
+    monkeypatch.setattr(selection, "_git", lambda *args: HEAD)
+    monkeypatch.setattr(selection, "_merged_environment", lambda: {})
+    monkeypatch.setattr(selection, "_compose_selected_image", lambda env: "sentinel:latest")
+
+    def unavailable(_reference):
+        raise selection.RuntimeSelectionRefused(
+            "selected Sentinel image is not locally inspectable")
+
+    monkeypatch.setattr(selection, "_inspect", unavailable)
+    assert selection.preflight() == 0
+    assert "validation may build a fresh current candidate" in capsys.readouterr().out
+
+
+def test_runtime_preflight_invalid_selector_configuration_fails_immediately(monkeypatch, capsys):
+    monkeypatch.setattr(selection, "_git", lambda *args: HEAD)
+
+    def malformed():
+        raise selection.RuntimeSelectionRefused(
+            "validated Sentinel runtime pointer is malformed")
+
+    monkeypatch.setattr(selection, "_merged_environment", malformed)
+    assert selection.preflight() == 2
+    assert "REFUSED: runtime preflight configuration" in capsys.readouterr().err
+
+
+def test_successful_generic_promotion_writes_exact_ordinary_digest(monkeypatch, tmp_path, capsys):
+    # The supported GO launcher uses sentinel_go_promote.py for exact
+    # certification binding. This unit still covers the generic helper used by
+    # other callers.
     pointer = tmp_path / "validated-runtime.env"
     monkeypatch.setattr(selection, "POINTER", pointer)
+    monkeypatch.setattr(selection, "_refresh_origin_main", lambda: None)
     monkeypatch.setattr(selection, "_clean_main_head", lambda: HEAD)
     inspected = []
 
@@ -69,13 +99,14 @@ def test_development_input_never_promotes_runtime(monkeypatch, tmp_path, capsys)
     assert "SKIPPED" in capsys.readouterr().out
 
 
-def test_go_launcher_orders_preflight_before_validator_and_promotion_after_success():
+def test_go_launcher_orders_preflight_verified_validator_and_exact_promotion():
     text = (ROOT / "scripts" / "sentinel-go-validate.sh").read_text(encoding="utf-8")
     preflight = text.index("sentinel_runtime_selection.py preflight")
-    validator = text.index("sentinel_go_validate_entry.py")
-    promote = text.index("sentinel_runtime_selection.py promote")
+    validator = text.index("sentinel_go_verified_entry.py")
+    promote = text.index("sentinel_go_promote.py")
     assert preflight < validator < promote
     assert 'if [ "$VALIDATION_RC" -ne 0 ]' in text
+    assert "sentinel_runtime_selection.py promote" not in text
 
 
 def test_compose_prefers_validated_runtime_pointer_before_resolution():
