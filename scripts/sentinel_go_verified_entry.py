@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import os
 import sys
 from typing import Optional, Sequence
 
+import sentinel_go_lock as go_lock
 import sentinel_go_phase_entry as phase
 
 controller = phase.controller
@@ -86,9 +86,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     development = (
         "--input" in raw or any(str(item).startswith("--input=") for item in raw))
     try:
-        if not development and os.environ.get("SENTINEL_GO_LOCK_HELD") != "1":
+        if not development and not go_lock.lifecycle_lock_is_held():
             raise controller.PhaseRefused(
-                "production GO entry is available only through scripts/sentinel-go-validate.sh")
+                "production GO entry is available only through the verified locked scripts/sentinel-go-validate.sh lifecycle")
         phase._strict_target(raw)
         phase.install()
         phase.StrictDatabaseHealthView = DeploymentCompatibleDatabaseHealthView
