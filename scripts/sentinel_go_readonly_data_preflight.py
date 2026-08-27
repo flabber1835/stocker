@@ -5,12 +5,17 @@ This preflight is allowed to run before stable artifact certification because it
 is read-only: it builds the exact ordinary runtime for current clean main, opens
 the production PostgreSQL transaction READ ONLY, fetches the pending SEP
 ``lastupdated`` interval twice through the normal Sharadar transport, and runs
-the existing mutation-row authority validator.  It never creates/migrates
-schema, advances a cursor, creates an ingest run, renormalizes bars, or publishes
+the existing mutation-row authority validator. It never creates/migrates schema,
+advances a cursor, creates an ingest run, renormalizes bars, or publishes
 anything.
 
+If the newest closed session has not reached the reviewed Sharadar source-final
+boundary, this phase deliberately defers source inspection and allows stable
+certification to proceed. A still-publishing vendor view is never negative
+authority.
+
 The certified preparation later repeats source observation under the normal feed
-write membrane.  This phase is only a liveness filter, never deployment
+write membrane. This phase is only a liveness filter, never deployment
 authority.
 """
 from __future__ import annotations
@@ -34,6 +39,7 @@ _READ_ONLY_CODE = r'''
 import datetime as dt
 import json, os
 from sentinel.feed import calendar, maintenance_impl as maintenance, publication, sharadar, store
+from sentinel.shadow_runtime import publication_not_before
 
 MARKER = 'SENTINEL_GO_READONLY_DATA_PREFLIGHT='
 
@@ -127,11 +133,17 @@ try:
                     raise maintenance.SharadarMutationRefused(
                         'source cursor %s names missing publication v%d'
                         % (maintenance.SEP_CURSOR_NAME, version))
-            target = dt.date.fromisoformat(str(calendar.latest_closed_session()))
+            target_raw = calendar.latest_closed_session()
+            target = dt.date.fromisoformat(str(target_raw))
             if target <= through:
                 emit({
                     'status': 'PASS', 'reason_code': 'SEP_CDC_ALREADY_CURRENT',
                     'source_rows': 0, 'affected_source_dates': 0,
+                })
+            elif dt.datetime.now(dt.timezone.utc) < publication_not_before(target_raw):
+                emit({
+                    'status': 'DEFERRED',
+                    'reason_code': 'SHARADAR_SOURCE_NOT_FINAL',
                 })
             else:
                 lo = through - dt.timedelta(days=1)
@@ -169,9 +181,8 @@ except Exception as exc:
     code = ('SOURCE_PUBLICATION_UNSTABLE'
             if type(exc).__name__ == 'VendorPublicationUnstable'
             else 'READONLY_PREFLIGHT_UNAVAILABLE')
-    value = {'status': 'REFUSED', 'reason_code': code,
-             'error_type': type(exc).__name__}
-    emit(value)
+    emit({'status': 'REFUSED', 'reason_code': code,
+          'error_type': type(exc).__name__})
 finally:
     try:
         c.rollback()
@@ -226,8 +237,6 @@ def _build_exact_ordinary(runner: go.CommandRunner, commit: str) -> str:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    # No operator options are currently accepted; keeping argv explicit prevents
-    # accidental interpretation of future GO flags by this narrow phase.
     _ = list(argv if argv is not None else sys.argv[1:])
     runner = go.CommandRunner()
     env = go.merged_environment()
@@ -267,9 +276,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if status == "PASS":
             print("read-only Sharadar preflight: PASS - %s" % code, flush=True)
             return 0
+        if status == "DEFERRED":
+            print(
+                "read-only Sharadar preflight: DEFERRED - %s; stable certification may proceed but source is not yet final"
+                % code,
+                flush=True,
+            )
+            return 0
         if status == "RECOVERY_REQUIRED":
-            # Missing legacy cursor/schema can be repaired only after the exact
-            # artifact is certified. Surface it now but do not guess/reseed here.
             print(
                 "read-only Sharadar preflight: RECOVERY_REQUIRED - %s; certified recovery will decide the write path"
                 % code,
