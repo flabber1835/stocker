@@ -111,8 +111,13 @@ def test_go_preparation_fails_closed_before_mutation_when_binding_unavailable():
                    for call in runner.calls)
 
 
-def test_nas_launcher_uses_feed_bound_production_entrypoint():
+def test_nas_launcher_reaches_feed_bound_entry_only_through_guarded_phase_chain():
     launcher = (ROOT / "scripts" / "sentinel-go-validate.sh").read_text(
         encoding="utf-8")
-    assert "scripts/sentinel_go_validate_entry.py" in launcher
+    phase = (ROOT / "scripts" / "sentinel_go_phase_controller.py").read_text(
+        encoding="utf-8")
+    assert "scripts/sentinel_go_verified_entry.py" in launcher
+    assert "scripts/sentinel_go_validate_entry.py" not in launcher
+    assert "import sentinel_go_validate_entry as entry" in phase
+    assert "entry.probe_prevalidation_preparation" in phase
     assert "exec \"$PYTHON\" scripts/sentinel_go_validate.py" not in launcher
