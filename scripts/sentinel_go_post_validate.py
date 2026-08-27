@@ -96,11 +96,11 @@ def atomic_json(path: Path, value: dict) -> None:
 
 
 def main() -> int:
-    # Use the same literal .env + process-environment merge as the GO probes.
-    # A successful validator must not fail the panel handoff merely because a
-    # required Compose setting such as SENTINEL_BACKUP_DIR lives only in .env.
     env = phase.controller.go.merged_environment()
     try:
+        if os.environ.get("SENTINEL_GO_LOCK_HELD") != "1":
+            raise Refused(
+                "GO finalization is available only inside the locked sentinel-go-validate lifecycle")
         commit = git("rev-parse", "HEAD")
         if HEX40.fullmatch(commit) is None:
             raise Refused("HEAD is not an exact commit")
