@@ -9,8 +9,10 @@ adds the properties a transport client cannot provide by itself:
 * ambiguous legacy multi-candidate state has a supported complete-reseed recovery;
 * a failed physical frontier may never shorten the next retry below the
   published authority frontier;
-* failed daily vs historical-maintenance candidates are retried in the order
-  that can actually supersede their physical rows;
+* failed daily vs historical-maintenance candidates are retried by the operation
+  that can safely supersede their live rows;
+* routine SEP maintenance follows the published daily identity refresh so a
+  stale listing interval cannot deadlock the refresh that would extend it;
 * historical TICKERS corrections can advance only through a complete,
   identity-aware full-history replacement;
 * SEP's vendor-update clock is maintained independently from market-session
@@ -230,11 +232,18 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
                 "overlap cannot prove old rows current.")
 
         failed = _single_failed_live_candidate(conn)
-        retry_daily_first = False
         if failed is not None:
             if failed.kind == "daily":
-                retry_daily_first = True
+                # The new daily generation is the only operation whose complete
+                # overlap can safely supersede these live rows. Do not open a
+                # publication-capable maintenance generation first.
+                pass
             elif failed.kind == "sep_mutations":
+                # A failed mutation generation already owns historical live rows.
+                # Retrying its exact replay contract is the one deliberate
+                # pre-daily exception. Identity-interval refusal happens before
+                # a mutation run opens, so the YHNAU deadlock has no failed
+                # candidate here and cannot enter this branch.
                 maintenance.reconcile_sep_mutations(
                     conn, fetch=fetch, through=yesterday)
                 still_failed = _single_failed_live_candidate(conn)
@@ -266,17 +275,14 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
                     "supported complete `feed-seed` recovery.")
 
         published_frontier = _impl.feed_store.latest_visible_session(conn)
-        if not retry_daily_first:
-            maintenance.reconcile_sep_mutations(
-                conn, fetch=fetch, through=yesterday)
-            sep_reconciliation.reconcile_next(
-                conn, fetch=fetch, through=published_frontier)
 
-        # The 99.9% TICKERS-vs-SEP population witness is a source-completeness
-        # assertion, not a generic property of any injected callback. Only the
-        # production snapshot membrane has independently established whole-table
-        # TICKERS authority. Synthetic/replay fetchers still exercise stability,
-        # identity, and ingest semantics, but cannot manufacture that authority.
+        # Refresh current TICKERS authority before routine historical maintenance.
+        # The daily generation itself already resolves its SEP rows against the
+        # exact same-run unpublished TICKERS candidate. Source stability,
+        # structural TICKERS authority, daily domain checks and historical
+        # identity safety all complete before publication. CDC deliberately does
+        # NOT consume that unpublished candidate: it starts only after publication
+        # and therefore depends exclusively on the refreshed published resolver.
         listing_frontier = (
             published_frontier if fetch is snapshot_source.fetch_table else None)
         guarded = coherence.StableSharadarFetch(
@@ -287,12 +293,16 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
             overlap_days=effective_overlap, today=resolved_today)
         _finish_publication_or_refuse(conn, progress)
 
-        if retry_daily_first:
+        if failed is not None and failed.kind == "daily":
             _require_failed_owner_cleared(conn, context="daily retry")
-            published_frontier = _impl.feed_store.latest_visible_session(conn)
-            sep_reconciliation.reconcile_next(
-                conn, fetch=fetch, through=published_frontier)
 
+        # From here on, every historical maintenance operation sees the identity
+        # generation that just became published. If daily publication failed, we
+        # never reach this point and no maintenance cursor can advance under an
+        # unpublished candidate.
+        published_frontier = _impl.feed_store.latest_visible_session(conn)
+        sep_reconciliation.reconcile_next(
+            conn, fetch=fetch, through=published_frontier)
         maintenance.reconcile_sep_mutations(
             conn, fetch=fetch, through=today_date.isoformat())
         maintenance.reconcile_actions_if_due(
