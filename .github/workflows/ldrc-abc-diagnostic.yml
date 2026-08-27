@@ -18,13 +18,18 @@ jobs:
             research/sentinel-fastgate
             docs/sentinel-handoff/04_BREADTH_ORACLES
             docs/sentinel-reference-implementation/sentinel_1p1_daily.csv
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install analysis dependencies
+        run: python -m pip install --disable-pip-version-check pandas numpy
       - name: Inspect schemas
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p research/ldrc-abc-run
           python - <<'PY'
-          import pandas as pd, glob, json
+          import pandas as pd
           from pathlib import Path
           out=[]
           files=[
