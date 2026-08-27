@@ -160,15 +160,25 @@ def test_regenesis_approval_is_forwarded_to_authorized_automation():
     ) in text
 
 
-def test_nas_schema_and_daily_mutations_cannot_bypass_backup_guard():
+def test_nas_schema_mutation_is_guarded_and_already_current_does_not_remutate():
     text = (_repo_root() / "scripts" / "sentinel_go_validate_entry.py").read_text(
         encoding="utf-8")
     assert "from sentinel import backup_guard, schema" in text
+
+    # Schema bootstrap/migration is a real financial-database mutation and must
+    # remain behind the external-WAL durability fence.
     schema_guard = text.index("operation='NAS validation schema migration'")
     schema_mutation = text.index("schema.ensure_schema(c)")
-    daily_guard = text.index("operation='NAS validation explicit daily publication'")
-    daily_mutation = text.index("ingest.daily(c, today=target)", daily_guard)
-
     assert schema_guard < schema_mutation
-    assert daily_guard < daily_mutation
     assert "backup_guard.require_writes_permitted" in text
+
+    # outage_recovery.catch_up() is the single daily/cursor reconciliation path.
+    # If it reports ALREADY_CURRENT, there is deliberately no second vendor
+    # ingest or other mutation to guard: current publication is terminal success.
+    assert "outage_recovery.catch_up(c, target_session=target)" in text
+    marker = "if recovered.mode == 'ALREADY_CURRENT':"
+    start = text.index(marker)
+    end = text.index("elif recovered.mode == 'RETAINED_FULL_RESEED':", start)
+    already_current = text[start:end]
+    assert "ingest.daily" not in already_current
+    assert "backup_guard.require_writes_permitted" not in already_current
