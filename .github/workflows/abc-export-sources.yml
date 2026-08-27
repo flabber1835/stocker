@@ -1,0 +1,23 @@
+name: ABC export sources
+on:
+  push:
+    branches: [research/abc-peer-comparison-2026-08-27]
+    paths: ['.github/workflows/abc-export-sources.yml']
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/abc-peer-comparison-2026-08-27
+          fetch-depth: 1
+          sparse-checkout: |
+            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+          sparse-checkout-cone-mode: false
+      - run: cp research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py ldrc_base.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: abc-source-base
+          path: ldrc_base.py
