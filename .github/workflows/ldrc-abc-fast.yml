@@ -1,0 +1,38 @@
+name: LD-RC ABC fast
+on:
+  push:
+    branches: [research/ldrc-abc-dynamic-2026-08-27]
+    paths: ['.github/workflows/ldrc-abc-fast.yml']
+permissions:
+  contents: write
+jobs:
+  run:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            research/sentinel-fastgate
+            research/alpha-recovery-narrow
+            docs/sentinel-handoff/04_BREADTH_ORACLES
+            docs/sentinel-reference-implementation/sentinel_1p1_daily.csv
+            sentinel/controller
+      - name: Inspect compact inputs
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          from pathlib import Path
+          fs=['docs/sentinel-handoff/04_BREADTH_ORACLES/fundamental_portfolio_health_daily.csv','docs/sentinel-handoff/04_BREADTH_ORACLES/sentinel_1p1_exact_daily_with_breadth.csv','docs/sentinel-reference-implementation/sentinel_1p1_daily.csv']
+          o=[]
+          for f in fs:
+            d=pd.read_csv(f,nrows=5); o += [f, repr(list(d.columns)), d.to_csv(index=False)]
+          Path('research/ldrc-abc-run').mkdir(parents=True,exist_ok=True)
+          Path('research/ldrc-abc-run/compact_schema.txt').write_text('\n'.join(o))
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add research/ldrc-abc-run/compact_schema.txt
+          git commit -m 'research: persist compact ABC schemas'
+          git push
