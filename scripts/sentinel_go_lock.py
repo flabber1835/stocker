@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hold the host GO-validation lock across validation, promotion, and handoff."""
+"""Hold and prove the host GO lock across validation, promotion, and handoff."""
 from __future__ import annotations
 
 import fcntl
@@ -10,6 +10,42 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = ROOT / "artifacts" / "sentinel" / "go-validation" / "go-validation.lock"
+LOCK_FD_ENV = "SENTINEL_GO_LOCK_FD"
+LOCK_HELD_ENV = "SENTINEL_GO_LOCK_HELD"
+
+
+def lifecycle_lock_is_held(env=None) -> bool:
+    """Prove this process inherited the open description holding the GO flock.
+
+    The shell marker alone is not authority: an unsupported direct Python call
+    could set an environment variable.  The supported lock parent passes its
+    actually locked descriptor into the child.  We verify that descriptor names
+    the exact lock inode, then open the lock path independently and require the
+    second non-blocking exclusive flock to conflict.  If it succeeds, no other
+    open description currently owns the lifecycle lock and mutation must refuse.
+    """
+    values = os.environ if env is None else env
+    if str(values.get(LOCK_HELD_ENV) or "") != "1":
+        return False
+    try:
+        fd = int(str(values.get(LOCK_FD_ENV) or ""))
+        inherited = os.fstat(fd)
+        target = LOCK.stat()
+    except (OSError, TypeError, ValueError):
+        return False
+    if (inherited.st_dev, inherited.st_ino) != (target.st_dev, target.st_ino):
+        return False
+    try:
+        with LOCK.open("a+", encoding="ascii") as probe:
+            try:
+                fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            else:
+                fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
+                return False
+    except OSError:
+        return False
 
 
 def main(argv=None) -> int:
@@ -30,7 +66,8 @@ def main(argv=None) -> int:
                 )
                 return 2
             env = dict(os.environ)
-            env["SENTINEL_GO_LOCK_HELD"] = "1"
+            env[LOCK_HELD_ENV] = "1"
+            env[LOCK_FD_ENV] = str(handle.fileno())
             # Pass the locked open-file description into the child. If this
             # small parent is SIGKILLed while the real validation survives, the
             # child still holds the kernel flock and a second GO cannot start.
