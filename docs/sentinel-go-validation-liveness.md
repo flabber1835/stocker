@@ -16,7 +16,7 @@ Production operators use only:
 bash scripts/sentinel-go-validate.sh
 ```
 
-The launcher holds one nonblocking host lock across image builds, retained-certification state, bounded financial mutation, final readiness, runtime promotion, panel recreation, and the post-validation handoff. The lock file descriptor is inherited by the child process tree so loss of the small lock-holder parent cannot release serialization while a validation still runs.
+The launcher holds one nonblocking host lock across image builds, retained-certification state, bounded financial mutation, final readiness, runtime promotion, panel recreation, and the post-validation handoff. The lock file descriptor is inherited by the child process tree so loss of the small lock-holder parent cannot release serialization while a validation still runs. The financial preparation membrane additionally requires a process-local verified-orchestration capability armed only by the supported verified entry after that kernel lock has been proven; merely acquiring the lock and invoking a lower-level module is not mutation authority.
 
 ## Required phase order
 
@@ -28,6 +28,8 @@ A  cheap READ-ONLY prerequisites
    - stale/missing prior ordinary image is diagnostic, not authority
    - GET-only paper-account preflight for broker-capable targets
    - SHADOW target skips the paper-account preflight
+   - exact ordinary-runtime READ-ONLY SEP CDC diagnostic after source-finality
+   - no schema/cursor/bar/publication mutation in that diagnostic
         |
         v
 B  stable exact-artifact certification
@@ -42,6 +44,7 @@ B  stable exact-artifact certification
         v
 C  ONE feed-bound mutable preparation
    - only after phase B is PASS and complete
+   - verified process-local orchestration capability + inherited host flock
    - clean-HEAD + exact-image feed gate
    - external-WAL durability before every write
    - schema migration
@@ -68,8 +71,10 @@ E  explicit requested target verdict
 F  local deployment finalization
    - refresh origin/main again
    - promote only the exact ordinary image ID recorded by certification
+   - generic same-revision promotion is disabled
    - recreate the read-only panel through the validated-runtime Compose wrapper
-   - record the exact local authorized/test image IDs for the next deployment boundary
+   - inspect the running panel container and prove its image ID is the exact promoted ordinary image
+   - record the exact local authorized/test image IDs for the next deployment boundary only after that postcondition passes
         |
         v
 G  separately reviewed autonomous deployment / signed activation
@@ -81,22 +86,23 @@ G  separately reviewed autonomous deployment / signed activation
 ## Non-negotiable rules
 
 1. A cheap preflight may not mutate the production financial database merely to save time. Production corpus mutation is allowed only after exact-artifact certification is PASS and complete.
-2. A certification failure cannot reach schema migration, Sharadar catch-up, or any other production-corpus mutation.
+2. A certification failure cannot reach schema migration, Sharadar catch-up, or any other production-corpus mutation. The preparation membrane requires both the inherited GO flock and the verified-entry process capability.
 3. Mutable preparation happens once per validation attempt. An already-current coherent corpus is success; a second explicit daily ingest adds source risk without proving application semantics.
 4. A preparation failure does not spend additional parity/readiness time after its verdict is already necessarily NO_GO.
 5. A source-authority ambiguity does not automatically trigger a reseed. Preparation diagnostics distinguish local cursor state from ambiguous vendor/source evidence; the latter remains fail-closed.
-6. Runtime deadlines are enforced by subprocess timeouts, not merely evaluated after a command eventually returns.
-7. Time-sensitive readiness uses an actual wall-clock observation after the long readiness work. GO requires the reviewed minimum remaining pre-open margin, not merely `next_open > now`.
-8. The GO bundle keeps the established public v1 database-health schema so the autonomous-deploy parser remains exact-key compatible. Fresh wall-clock timing is an enforced predicate and caps the bundle `valid_until`; it is not smuggled in as an incompatible new public field.
-9. The paper account is read cheaply before long work for broker-capable targets and re-read at the final verdict boundary. Both observations are GET-only; the first is a liveness filter, not retained final authority.
-10. Historical `PAPER_EXECUTION_GO` is distinct from the accepted `PAPER_OBSERVATION_ONLY` forward-observation path. Production defaults to `DUAL_RUN_OBSERVATION`; a historical paper verdict is never fabricated to make observation mode green.
-11. Ordinary paper-observation authority expires with its signed certificate. Expiry removes ordinary PREPARE/EXECUTE/SUBMIT/CANCEL/AUTOMATION authority; separately constrained safety-read/safety-cancel behavior remains fail-safe.
-12. Runtime promotion refreshes `origin/main` immediately after validation and requires the current `sentinel-go-runtime:<HEAD>` tag to resolve to the exact ordinary image ID recorded when the certification suite passed. A same-revision retag cannot cross promotion.
-13. The runtime preflight honors the same `validated-runtime.env` pointer precedence as `sentinel-compose.sh`. Malformed pointer/Compose state fails immediately; a merely absent prior image may continue because GO can build a fresh candidate.
-14. Panel recreation executes through `sentinel-compose.sh --run`; it never resolves the graph in a child shell and then loses the pointer-selected runtime in a different process.
-15. GO never treats a local Docker image ID as an authorized-service RepoDigest. Post-validation records local IDs only. `sentinel_autonomous_deploy.py` is the reviewed boundary that tags/pushes those exact bytes and freezes the registry RepoDigests consumed by authorized Compose.
-16. GO performs no automatic old-image deletion. An image with no currently running container may still be required for restart of an active signed deployment; cleanup must be retention/authority aware.
-17. Successful GO validation and local runtime promotion do not themselves grant broker authority.
+6. The early read-only Sharadar diagnostic is deliberately narrower than the certified daily path. It can fail fast on deterministic SEP CDC cursor/source/identity/raw-close defects, but it does not claim to pre-certify every TICKERS, ACTIONS, reconciliation, failed-candidate-recovery, or publication condition that the real daily transaction must still prove.
+7. Runtime deadlines are enforced by subprocess timeouts, not merely evaluated after a command eventually returns.
+8. Time-sensitive readiness uses an actual wall-clock observation after the long readiness work. GO requires the reviewed minimum remaining pre-open margin, not merely `next_open > now`.
+9. The GO bundle keeps the established public v1 database-health schema so the autonomous-deploy parser remains exact-key compatible. Fresh wall-clock timing is an enforced predicate and caps the bundle `valid_until`; it is not smuggled in as an incompatible new public field.
+10. The paper account is read cheaply before long work for broker-capable targets and re-read at the final verdict boundary. Both observations are GET-only; the first is a liveness filter, not retained final authority.
+11. Historical `PAPER_EXECUTION_GO` is distinct from the accepted `PAPER_OBSERVATION_ONLY` forward-observation path. Production defaults to `DUAL_RUN_OBSERVATION`; a historical paper verdict is never fabricated to make observation mode green.
+12. `PAPER_OBSERVATION_ONLY` preserves the deliberately reviewed standing forward-trial semantics from PR #210. Its signed certificate retains a bounded nominal observation window as evidence, but nominal expiry alone does not end an otherwise unchanged paper-only trial. The narrow standing loader still requires signature/trust-root validity, durable active lifecycle, no key/certificate revocation, exact account/deployment/rollout/runtime/strategy/configuration bindings, publication lineage, and all operational gates. Explicit revocation/kill or any binding/readiness drift stops authority; historical/admin authority does not inherit this exception.
+13. Runtime promotion refreshes `origin/main` immediately after validation and requires the current `sentinel-go-runtime:<HEAD>` tag to resolve to the exact ordinary image ID recorded when the certification suite passed. A same-revision retag cannot cross promotion. The older generic promotion seam is fail-closed and cannot write the pointer.
+14. The runtime preflight honors the same `validated-runtime.env` pointer precedence as `sentinel-compose.sh`. Malformed pointer/Compose state fails immediately; a merely absent prior image may continue because GO can build a fresh candidate.
+15. Panel recreation executes through `sentinel-compose.sh --run`; it never resolves the graph in a child shell and then loses the pointer-selected runtime in a different process. Successful Compose exit is insufficient: GO inspects the resulting panel container and requires its `.Image` to equal the exact promoted ordinary image ID.
+16. GO never treats a local Docker image ID as an authorized-service RepoDigest. Post-validation records local IDs only. `sentinel_autonomous_deploy.py` is the reviewed boundary that tags/pushes those exact bytes and freezes the registry RepoDigests consumed by authorized Compose.
+17. GO performs no automatic old-image deletion. An image with no currently running container may still be required for restart of an active signed deployment; cleanup must be retention/authority aware.
+18. Successful GO validation and local runtime promotion do not themselves grant broker authority.
 
 ## Retained certification / retry behavior
 
