@@ -261,10 +261,9 @@ def _validate_pending_record(sec, raw, held_shares):
     if terms.security_id != sec:
         _fail("terminal_pending_terms[%s].terms" % sec,
               "security_id disagrees with its map key")
-    if terms.reference is not None:
-        _text(terms.reference,
-              "terminal_pending_terms[%s].terms.reference" % sec,
-              allow_empty=True)
+    _text(terms.reference,
+          "terminal_pending_terms[%s].terms.reference" % sec,
+          allow_empty=True)
 
     if terms.cash_per_share is not None:
         _finite(terms.cash_per_share,
@@ -286,6 +285,8 @@ def _validate_pending_record(sec, raw, held_shares):
         if value is not None:
             _text(value, "terminal_pending_terms[%s].terms.%s" % (sec, name))
 
+    # Exercise the kind-specific arithmetic against the restored holding.  An
+    # incomplete event is valid here; exceptions or non-finite arithmetic are not.
     try:
         terms.completeness(held_shares)
     except Exception as exc:
@@ -310,7 +311,8 @@ def _validate_payload(d):
     if sorted(slots) != list(range(len(slots))):
         _fail("slots", "are not a contiguous zero-based domain")
 
-    raw_episodes = _mapping(d.get("episodes") or {}, "episodes")
+    raw_episodes = _mapping(
+        d.get("episodes"), "episodes", absent_empty=True)
     episodes = {}
     for raw_key, raw_episode in raw_episodes.items():
         slot_id = _index_key(raw_key, "episode key")
@@ -350,13 +352,9 @@ def _validate_payload(d):
     if overlap:
         _fail("slots", "reserve already-held securities: %s" % sorted(overlap))
 
-    security_cooldowns = _validate_counter_map(
+    _validate_counter_map(
         d.get("security_cooldowns"), "security_cooldowns",
         maximum_exclusive=COOLDOWN_SESSIONS)
-    overlap = (held | set(reserved)).intersection(security_cooldowns)
-    if overlap:
-        _fail("security_cooldowns",
-              "contain held or reserved securities: %s" % sorted(overlap))
 
     unresolved = _validate_text_map(
         d.get("unresolved_terminals"), "unresolved_terminals")
@@ -368,7 +366,8 @@ def _validate_payload(d):
         d.get("terminal_pending_sessions"), "terminal_pending_sessions",
         maximum_exclusive=C1_GRACE_SESSIONS)
     pending_terms = _mapping(
-        d.get("terminal_pending_terms") or {}, "terminal_pending_terms")
+        d.get("terminal_pending_terms"), "terminal_pending_terms",
+        absent_empty=True)
     pending_term_keys = {
         _text(key, "terminal_pending_terms key") for key in pending_terms
     }
@@ -391,7 +390,8 @@ def _validate_payload(d):
         _validate_pending_record(sec, pending_terms[sec], held_shares[sec])
 
     carry_audit = _mapping(
-        d.get("terminal_carry_audit") or {}, "terminal_carry_audit")
+        d.get("terminal_carry_audit"), "terminal_carry_audit",
+        absent_empty=True)
     for sec, record in carry_audit.items():
         _text(sec, "terminal_carry_audit key")
         if sec not in held:
@@ -400,7 +400,8 @@ def _validate_payload(d):
         _mapping(record, "terminal_carry_audit[%s]" % sec)
 
     last_mark_session = _mapping(
-        d.get("last_valid_mark_session") or {}, "last_valid_mark_session")
+        d.get("last_valid_mark_session"), "last_valid_mark_session",
+        absent_empty=True)
     for sec, session in last_mark_session.items():
         _text(sec, "last_valid_mark_session key")
         if sec not in held:
