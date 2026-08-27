@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import importlib.util
 import os
 from pathlib import Path
@@ -22,13 +23,22 @@ sys.modules[entry_spec.name] = phase_entry
 entry_spec.loader.exec_module(phase_entry)
 
 
-def test_launcher_never_runs_mutable_data_preflight_before_certification():
+def test_launcher_serializes_and_uses_guarded_verified_entry():
     text = (ROOT / "scripts" / "sentinel-go-validate.sh").read_text(encoding="utf-8")
     assert "sentinel_go_data_preflight.py" not in text
-    assert 'scripts/sentinel_go_phase_entry.py "$@"' in text
+    assert "scripts/sentinel_go_lock.py" in text
+    assert 'scripts/sentinel_go_verified_entry.py "$@"' in text
     assert 'scripts/sentinel_go_promote.py "$@"' in text
-    assert text.index("sentinel_go_phase_entry.py") < text.index(
+    assert text.index("sentinel_go_verified_entry.py") < text.index(
         "sentinel_go_promote.py")
+
+
+def test_host_go_lock_spans_child_lifecycle_and_is_nonblocking():
+    text = (ROOT / "scripts" / "sentinel_go_lock.py").read_text(encoding="utf-8")
+    assert "fcntl.LOCK_EX | fcntl.LOCK_NB" in text
+    assert 'env["SENTINEL_GO_LOCK_HELD"] = "1"' in text
+    assert "another Sentinel GO validation is already running" in text
+    assert "subprocess.run" in text
 
 
 def test_phase_controller_orders_certification_before_single_preparation():
@@ -111,7 +121,7 @@ def test_requested_target_exit_is_not_shadow_only():
     assert controller._target_ok(Result(), controller.TARGET_PAPER) is False
 
 
-def test_stable_certification_cache_is_bound_to_exact_images_and_commit():
+def test_stable_certification_reuse_is_exact_same_boot_and_time_bounded():
     text = SCRIPT.read_text(encoding="utf-8")
     assert 'payload.get("git_commit") != commit' in text
     assert "summary.complete" in text
@@ -121,6 +131,8 @@ def test_stable_certification_cache_is_bound_to_exact_images_and_commit():
     entry_text = ENTRY_SCRIPT.read_text(encoding="utf-8")
     assert "ordinary_runtime_image_digest" in entry_text
     assert 'ref = "sentinel-go-runtime:%s" % commit' in entry_text
+    assert "host_boot_id_sha256" in entry_text
+    assert "MAX_REUSE_AGE = timedelta(hours=24)" in entry_text
     assert "_ordinary_binding_matches" in entry_text
     assert "_load_with_ordinary" in entry_text
 
@@ -142,21 +154,32 @@ def test_actual_wall_clock_deadline_requires_reviewed_margin():
             return {"schema": "test"}
 
     minimum = controller.go.MIN_REMAINING_DEADLINE_MARGIN_MS
+    observed = phase_entry._utc(datetime.now(timezone.utc))
     too_late = phase_entry.StrictDatabaseHealthView(
-        Base(), minimum - 1, "2026-08-27T12:00:00Z")
+        Base(), minimum - 1, observed)
     valid = phase_entry.StrictDatabaseHealthView(
-        Base(), minimum, "2026-08-27T12:00:00Z")
+        Base(), minimum + 60_000, observed)
     assert too_late.complete is False
     assert valid.complete is True
     assert valid.to_dict()["actual_deadline"]["minimum_required_remaining_ms"] == minimum
 
 
-def test_actual_wall_clock_deadline_is_reobserved_after_readiness_work():
-    text = SCRIPT.read_text(encoding="utf-8")
-    assert "SENTINEL_GO_ACTUAL_DEADLINE=" in text
-    assert "actual_remaining_to_execution_open_ms" in text
-    entry_text = ENTRY_SCRIPT.read_text(encoding="utf-8")
-    assert "MIN_REMAINING_DEADLINE_MARGIN_MS" in entry_text
+def test_go_bundle_lifetime_is_capped_by_remaining_readiness_margin():
+    text = ENTRY_SCRIPT.read_text(encoding="utf-8")
+    assert "_emit_at_completion" in text
+    assert "remaining - controller.go.MIN_REMAINING_DEADLINE_MARGIN_MS" in text
+    assert "GO evidence lost its minimum pre-open margin before emission" in text
+    assert 'kwargs["valid_for"] = min(' in text
+
+
+def test_final_paper_account_is_reobserved_after_long_phases():
+    text = (ROOT / "scripts" / "sentinel_go_verified_entry.py").read_text(
+        encoding="utf-8")
+    original = text.index("probes = _ORIGINAL_PHASED(")
+    fresh = text.index("_final_account_probe(", original)
+    replace = text.index('gates["alpaca_paper_account"] = alpaca', fresh)
+    assert original < fresh < replace
+    assert '"final_paper_account_reobserved": True' in text
 
 
 def test_command_deadlines_are_enforced_not_post_hoc_only():
@@ -166,10 +189,12 @@ def test_command_deadlines_are_enforced_not_post_hoc_only():
     assert "timeout=timeout" in text
 
 
-def test_bundle_created_at_is_completion_time_not_start_time():
-    text = ENTRY_SCRIPT.read_text(encoding="utf-8")
-    assert "_emit_at_completion" in text
-    assert 'kwargs["created_at"] = datetime.now(timezone.utc)' in text
+def test_runtime_preflight_uses_same_validated_pointer_precedence_as_compose():
+    text = (ROOT / "scripts" / "sentinel_runtime_selection.py").read_text(
+        encoding="utf-8")
+    assert "def _pointer_digest" in text
+    assert 'values["SENTINEL_RUNTIME_IMAGE_REF"] = pointer' in text
+    assert "validated Sentinel runtime pointer is malformed" in text
 
 
 def test_runtime_promotion_refreshes_origin_main_at_final_boundary():
@@ -179,9 +204,10 @@ def test_runtime_promotion_refreshes_origin_main_at_final_boundary():
     assert '["git", "fetch", "--quiet", "origin", "main"]' in text
 
 
-def test_post_validation_recreates_panel_and_preserves_prior_authority_images():
+def test_post_validation_recreates_panel_through_pointer_and_preserves_images():
     text = (ROOT / "scripts" / "sentinel_go_post_validate.py").read_text(
         encoding="utf-8")
+    assert '"scripts/sentinel-compose.sh", "--run"' in text
     assert '"--force-recreate", "sentinel-panel"' in text
     assert '"SENTINEL_RUNTIME_IMAGE_DIGEST": authorized' in text
     assert '"SENTINEL_TEST_IMAGE_DIGEST": test' in text
