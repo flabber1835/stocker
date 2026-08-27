@@ -10,6 +10,7 @@ cd "$(dirname "$0")/.."
 CANONICAL="docker-compose.sentinel.yml"
 BACKUP="docker-compose.sentinel-backup.yml"
 GENERATED="artifacts/compose/docker-compose.sentinel.nocpu.yml"
+RUNTIME_POINTER="artifacts/sentinel/deployment/validated-runtime.env"
 PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
 EXPLAIN=0
 RUN=0
@@ -28,6 +29,38 @@ note() { [ "$EXPLAIN" -eq 1 ] && printf '%s\n' "$*" >&2 || true; }
   echo "REFUSED: host Python is incompatible; minimum Python is 3.8.15" >&2
   exit 1
 }
+
+# Successful GO validation atomically writes one non-secret immutable runtime
+# selector. Prefer it over shell/.env state so an old operator export cannot
+# silently resurrect a stale image. This is selection only; feed writers still
+# pass sentinel_feed_gate.py against clean HEAD below on every mutation.
+if [ -f "$RUNTIME_POINTER" ]; then
+  VALIDATED_RUNTIME_REF="$(
+    "$PYTHON" - "$RUNTIME_POINTER" <<'PY'
+import pathlib,re,sys
+path=pathlib.Path(sys.argv[1])
+try:
+    lines=path.read_text(encoding='ascii').splitlines()
+except OSError:
+    raise SystemExit(2)
+if len(lines) != 1:
+    raise SystemExit(2)
+prefix='SENTINEL_RUNTIME_IMAGE_REF='
+if not lines[0].startswith(prefix):
+    raise SystemExit(2)
+value=lines[0][len(prefix):]
+if re.fullmatch(r'sha256:[0-9a-f]{64}', value) is None:
+    raise SystemExit(2)
+print(value)
+PY
+  )" || {
+    echo "REFUSED: validated Sentinel runtime pointer is malformed" >&2
+    exit 2
+  }
+  SENTINEL_RUNTIME_IMAGE_REF="$VALIDATED_RUNTIME_REF"
+  export SENTINEL_RUNTIME_IMAGE_REF
+  note "validated runtime selector active"
+fi
 
 [ -n "${SENTINEL_BACKUP_DIR:-}" ] || {
   echo "REFUSED: SENTINEL_BACKUP_DIR is required; every supported Sentinel" >&2
