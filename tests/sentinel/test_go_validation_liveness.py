@@ -104,10 +104,11 @@ def test_runtime_promotion_refreshes_origin_main_at_final_boundary():
     assert '["git", "fetch", "--quiet", "origin", "main"]' in text
 
 
-def test_post_validation_recreates_panel_and_makes_repo_digest_handoff_explicit():
+def test_post_validation_recreates_panel_and_hands_off_exact_authorized_cli_ids():
     text = (ROOT / "scripts" / "sentinel_go_post_validate.py").read_text(
         encoding="utf-8")
     assert '"--force-recreate", "sentinel-panel"' in text
-    assert "activation_repo_digest_bound" in text
-    assert "registry-qualified SENTINEL_RUNTIME_IMAGE_DIGEST" in text
+    assert '"SENTINEL_RUNTIME_IMAGE_DIGEST": authorized' in text
+    assert '"SENTINEL_TEST_IMAGE_DIGEST": test' in text
+    assert "immutable sha256 image id" in text
     assert 'run(["docker", "image", "rm", ref])' in text
