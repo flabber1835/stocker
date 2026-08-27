@@ -42,10 +42,13 @@ def test_launcher_serializes_and_uses_guarded_verified_entry():
     assert 'if [ "$VALIDATION_RC" -ne 0 ]' in text
 
 
-def test_host_go_lock_spans_child_lifecycle_and_survives_parent_loss():
+def test_host_go_lock_spans_child_lifecycle_and_is_provable_at_membrane():
     text = (ROOT / "scripts" / "sentinel_go_lock.py").read_text(encoding="utf-8")
     assert "fcntl.LOCK_EX | fcntl.LOCK_NB" in text
-    assert 'env["SENTINEL_GO_LOCK_HELD"] = "1"' in text
+    assert 'env[LOCK_HELD_ENV] = "1"' in text
+    assert 'env[LOCK_FD_ENV] = str(handle.fileno())' in text
+    assert "lifecycle_lock_is_held" in text
+    assert "os.fstat(fd)" in text
     assert "another Sentinel GO validation is already running" in text
     assert "pass_fds=(handle.fileno(),)" in text
 
@@ -86,10 +89,10 @@ def test_failed_preparation_short_circuits_expensive_readiness():
     assert 'reason="PREPARATION_NOT_PASS"' in entry_text
 
 
-def test_already_current_contract_removes_second_vendor_ingest():
+def test_already_current_contract_is_source_owned_and_has_no_second_ingest():
     original = controller.go._PREPARATION_CODE
     try:
-        controller._install_single_preparation_contract()
+        phase_entry._install_reviewed_preparation_contract()
         code = controller.go._PREPARATION_CODE
         marker = "if recovered.mode == 'ALREADY_CURRENT':"
         start = code.index(marker)
@@ -245,9 +248,10 @@ def test_runtime_promotion_refreshes_origin_main_at_final_boundary():
     assert '["git", "fetch", "--quiet", "origin", "main"]' in text
 
 
-def test_post_validation_recreates_panel_and_separates_local_from_registry_identity():
+def test_post_validation_recreates_panel_then_publishes_registry_handoff():
     text = (ROOT / "scripts" / "sentinel_go_post_validate.py").read_text(
         encoding="utf-8")
+    assert 'env = phase.controller.go.merged_environment()' in text
     assert '"scripts/sentinel-compose.sh", "--run"' in text
     assert '"--force-recreate", "sentinel-panel"' in text
     assert '"schema": "sentinel.validated-artifact-handoff/2"' in text
@@ -257,6 +261,7 @@ def test_post_validation_recreates_panel_and_separates_local_from_registry_ident
     assert "no automatic image deletion" in text
     assert 'docker", "image", "rm"' not in text
     assert "phase._load_with_ordinary" in text
+    assert text.index("recreate_panel(env)") < text.index("atomic_json(OUT, handoff)")
 
 
 def test_autonomous_deploy_promotes_exact_reviewed_local_ids_to_repo_digests():
