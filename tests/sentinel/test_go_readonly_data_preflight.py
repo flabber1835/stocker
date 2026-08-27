@@ -21,6 +21,8 @@ def test_preflight_container_is_transactionally_read_only_and_has_no_write_primi
     assert "REPEATABLE READ READ ONLY" in code
     assert "SHOW transaction_read_only" in code
     assert "maintenance._stable_rows" in code
+    assert "source_authority.SepUpdateEnvelope.interval" in code
+    assert "source_authority.CanonicalSourceFetch" in code
     assert "identity_refresh.validate_with_current_tickers_if_refreshable" in code
     assert "publication_not_before" in code
     assert "SHARADAR_SOURCE_NOT_FINAL" in code
@@ -111,6 +113,7 @@ def test_safe_identity_refresh_is_diagnostic_pass_not_local_authority():
     assert "SOURCE_IDENTITY_INTERVAL_GAP" in code
     assert "SOURCE_IDENTITY_TICKER_REUSE_UNRESOLVED" in code
     assert "SOURCE_IDENTITY_AMBIGUOUS" in code
+    assert "SOURCE_CDC_AUTHORITY_REFUSED" in code
     # Candidate proof is read-only liveness evidence; no source row is stored.
     assert "write_universe" not in code
     assert "feed_universe_current" not in code
