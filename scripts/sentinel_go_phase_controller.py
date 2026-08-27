@@ -40,6 +40,12 @@ TARGET_SHADOW = "SHADOW"
 TARGET_DUAL = "DUAL_RUN_OBSERVATION"
 TARGET_PAPER = "HISTORICAL_PAPER_EXECUTION"
 TARGETS = (TARGET_SHADOW, TARGET_DUAL, TARGET_PAPER)
+_TEST_CACHE_KEYS = frozenset({
+    "schema", "candidate_image_digest", "runtime_image_digest",
+    "source_identity_sha256", "passed", "failed", "errors", "skipped",
+    "xfailed", "xpassed", "exit_code", "suites_completed",
+    "auxiliary_image_digests", "non_forward_historical_exclusions", "complete",
+})
 
 
 class PhaseRefused(RuntimeError):
@@ -192,6 +198,7 @@ def _classify_preparation_failure(text: str) -> tuple[Optional[str], Optional[st
         "source cursor", "durable state shape", "row date disagrees",
         "names missing publication", "ahead of current publication",
         "cannot move backward", "nonexistent publication",
+        "ahead of requested reconciliation",
     )
     if any(fragment in lowered for fragment in local_fragments):
         return "LOCAL_CURSOR_CORRUPT", safe_detail
@@ -254,17 +261,25 @@ def _load_certification_cache(runner: go.CommandRunner, *, commit: str) -> Optio
         payload = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
         return None
-    if not isinstance(payload, dict) or payload.get("schema") != CACHE_SCHEMA:
+    if (not isinstance(payload, dict)
+            or set(payload) != {"schema", "git_commit", "tests", "evidence_sha256"}
+            or payload.get("schema") != CACHE_SCHEMA):
         return None
     supplied = str(payload.get("evidence_sha256") or "")
     evidence = {k: v for k, v in payload.items() if k != "evidence_sha256"}
     if supplied != _digest(evidence) or payload.get("git_commit") != commit:
         return None
+    tests = payload.get("tests")
+    if (not isinstance(tests, dict)
+            or set(tests) != _TEST_CACHE_KEYS
+            or tests.get("schema") != go.TEST_SCHEMA
+            or tests.get("complete") is not True):
+        return None
     try:
-        summary = _summary_from_dict(payload.get("tests") or {})
+        summary = _summary_from_dict(tests)
     except (TypeError, ValueError):
         return None
-    if not summary.complete:
+    if not summary.complete or summary.to_dict() != tests:
         return None
     images = (
         summary.candidate_image_digest,
@@ -285,7 +300,12 @@ def _certify_exact_artifacts(runner: DiagnosticRunner, *, git: go.GitIdentity,
                          {"reason": "CERTIFIED_SUITE_NOT_RUN"}),
         )
     if not (git.commit and git.branch_is_main and git.clean and git.matches_origin_main):
-        return go.probe_certified_suite(runner, commit=git.commit, now_text=now_text)
+        return (
+            go.TestSummary(None, None, None),
+            go.make_gate(
+                "certified_suite_no_skips", go.NOT_PROVEN, now_text,
+                {"reason": "GIT_IDENTITY_NOT_PASS_NO_CERTIFICATION_WORK"}),
+        )
     cached = _load_certification_cache(runner, commit=git.commit)
     if cached is not None:
         print("stable certification: REUSED exact unchanged commit/image evidence", flush=True)
