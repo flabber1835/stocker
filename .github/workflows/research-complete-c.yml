@@ -1,0 +1,35 @@
+name: research-complete-c
+on:
+  push:
+    branches:
+      - research/complete-c-dynamic-peers-2026-08-27
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Inspect retained archives and candidate replay inputs
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -V
+          echo '=== candidate repo files ==='
+          find docs research -type f | grep -Ei '(held|position|ledger|equity|close|spy|bil|replay|oracle|daily|sector|peer|breadth|archive|zip)' | sort > /tmp/candidates.txt
+          cat /tmp/candidates.txt
+          echo '=== archive manifests ==='
+          for z in docs/*.zip docs/sentinel-handoff/08_SOURCE_ARCHIVES/*.zip; do
+            [ -f "$z" ] || continue
+            echo "### $z"
+            unzip -l "$z" | grep -Ei '(held|position|ledger|equity|close|spy|bil|replay|daily|pkl|parquet|csv)' || true
+          done | tee /tmp/archive_manifest.txt
+      - name: Upload inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: c-input-inspection
+          path: |
+            /tmp/candidates.txt
+            /tmp/archive_manifest.txt
