@@ -35,7 +35,7 @@ for ARG in "$@"; do
 done
 
 set +e
-"$PYTHON" scripts/sentinel_go_phase_controller.py "$@"
+"$PYTHON" scripts/sentinel_go_phase_entry.py "$@"
 VALIDATION_RC=$?
 set -e
 
