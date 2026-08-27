@@ -5,9 +5,6 @@
 # therefore never evaluates or echoes a credential. Production corpus mutation
 # happens only after the exact candidate artifacts pass the stable certification
 # boundary installed by the phased GO entry.
-#
-# The lower-level scripts/sentinel_go_validate.py producer is deliberately not
-# invoked directly. Production enters only through sentinel_go_verified_entry.py.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -109,6 +106,9 @@ set +e
 VALIDATION_RC=$?
 set -e
 
+# The lower-level scripts/sentinel_go_validate.py producer is deliberately not
+# executed directly by this launcher; production authority enters through the
+# verified lifecycle command above.
 if [ "$VALIDATION_RC" -ne 0 ]; then
   go_warn "GO validation returned NO_GO/REFUSED (exit $VALIDATION_RC)"
   exit "$VALIDATION_RC"
