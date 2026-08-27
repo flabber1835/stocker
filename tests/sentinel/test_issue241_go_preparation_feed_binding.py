@@ -71,12 +71,19 @@ def _env():
 
 
 @pytest.fixture()
-def lifecycle_lock(monkeypatch):
+def verified_lifecycle(monkeypatch):
     monkeypatch.setattr(
         entry.go_lock, "lifecycle_lock_is_held", lambda _env=None: True)
+    monkeypatch.setattr(entry, "_VERIFIED_ORCHESTRATION", True)
 
 
-def test_go_preparation_without_lifecycle_lock_is_non_mutating():
+def test_go_preparation_without_verified_orchestration_is_non_mutating(monkeypatch):
+    # Even possession of the real lifecycle lock is insufficient. This
+    # falsifies the direct lower-level path: only sentinel_go_verified_entry may
+    # arm the process-local preparation capability after proving the lock.
+    monkeypatch.setattr(
+        entry.go_lock, "lifecycle_lock_is_held", lambda _env=None: True)
+    monkeypatch.setattr(entry, "_VERIFIED_ORCHESTRATION", False)
     runner = Runner()
     summary = entry.probe_prevalidation_preparation(
         runner, env=_env(), runtime_ref=DIGEST, commit=COMMIT)
@@ -88,8 +95,25 @@ def test_go_preparation_without_lifecycle_lock_is_non_mutating():
     assert runner.calls == []
 
 
+def test_verified_orchestration_cannot_be_armed_without_kernel_lock(monkeypatch):
+    monkeypatch.setattr(
+        entry.go_lock, "lifecycle_lock_is_held", lambda _env=None: False)
+    monkeypatch.setattr(entry, "_VERIFIED_ORCHESTRATION", False)
+    with pytest.raises(RuntimeError, match="held lifecycle lock"):
+        entry.authorize_verified_orchestration()
+    assert entry._VERIFIED_ORCHESTRATION is False
+
+
+def test_verified_orchestration_arms_only_after_kernel_lock(monkeypatch):
+    monkeypatch.setattr(
+        entry.go_lock, "lifecycle_lock_is_held", lambda _env=None: True)
+    monkeypatch.setattr(entry, "_VERIFIED_ORCHESTRATION", False)
+    entry.authorize_verified_orchestration()
+    assert entry._VERIFIED_ORCHESTRATION is True
+
+
 def test_go_preparation_reuses_host_feed_gate_and_forwards_exact_binding(
-        lifecycle_lock):
+        verified_lifecycle):
     runner = Runner()
     summary = entry.probe_prevalidation_preparation(
         runner, env=_env(), runtime_ref=DIGEST, commit=COMMIT)
@@ -122,7 +146,7 @@ def test_go_preparation_reuses_host_feed_gate_and_forwards_exact_binding(
 
 
 def test_go_preparation_fails_closed_before_mutation_when_binding_unavailable(
-        lifecycle_lock):
+        verified_lifecycle):
     runner = Runner(bind_returncode=2)
     summary = entry.probe_prevalidation_preparation(
         runner, env=_env(), runtime_ref=DIGEST, commit=COMMIT)
@@ -143,8 +167,11 @@ def test_nas_launcher_reaches_feed_bound_entry_only_through_guarded_phase_chain(
         encoding="utf-8")
     phase = (ROOT / "scripts" / "sentinel_go_phase_controller.py").read_text(
         encoding="utf-8")
+    verified = (ROOT / "scripts" / "sentinel_go_verified_entry.py").read_text(
+        encoding="utf-8")
     assert "scripts/sentinel_go_verified_entry.py" in launcher
     assert "scripts/sentinel_go_validate_entry.py" not in launcher
     assert "import sentinel_go_validate_entry as entry" in phase
     assert "entry.probe_prevalidation_preparation" in phase
+    assert "authorize_verified_orchestration()" in verified
     assert "exec \"$PYTHON\" scripts/sentinel_go_validate.py" not in launcher
