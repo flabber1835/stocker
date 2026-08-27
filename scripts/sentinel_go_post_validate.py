@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Finalize successful GO validation without granting broker authority.
 
-The helper verifies the same retained exact-image certification state used by
-promotion, recreates the read-only panel through the supported Compose wrapper
-so the validated-runtime pointer remains in force, and writes the exact
-authorized/test image IDs consumed by the authorized CLI.
+The helper verifies the retained local exact-image certification state, recreates
+the read-only panel through the supported Compose wrapper, and records the local
+image IDs that the reviewed autonomous-deploy path must promote unchanged.
+
+Local Docker image IDs are *not* authorized-service RepoDigests. The autonomous
+deploy path tags/pushes these exact IDs and freezes the resulting registry
+manifest digests before `sentinel-authorized-cli.sh` or automation may consume
+them.
 
 It deliberately performs no automatic image deletion. Old Sentinel images may
-still be named by an active signed paper-observation certificate even when no
-container is currently running; retention-aware cleanup is a separate
-maintenance concern.
+still back an active signed paper-observation deployment even when no container
+is currently running; retention-aware cleanup is a separate maintenance concern.
 """
 from __future__ import annotations
 
@@ -60,26 +63,12 @@ def inspect_id(ref: str) -> str:
 
 
 def recreate_panel(env) -> None:
-    # Keep runtime selection and Compose execution in the same wrapper process.
-    # `--explain` alone cannot export the pointer-selected image back into this
-    # Python process; using `--run` prevents a fall-back to sentinel:latest.
     completed = run([
         "bash", "scripts/sentinel-compose.sh", "--run",
         "up", "-d", "--no-deps", "--force-recreate", "sentinel-panel",
     ], env=env)
     if completed.returncode != 0:
         raise Refused("promoted read-only panel could not be recreated")
-
-
-def validate_configured_image_id(env, key: str, expected_id: str):
-    configured = str(env.get(key) or "").strip()
-    if not configured:
-        return None
-    if IMAGE_ID.fullmatch(configured) is None:
-        raise Refused(f"{key} is set but is not an immutable sha256 image id")
-    if configured != expected_id:
-        raise Refused(f"{key} does not equal the GO-certified local image id")
-    return configured
 
 
 def atomic_json(path: Path, value: dict) -> None:
@@ -123,24 +112,18 @@ def main() -> int:
         if inspect_id(f"sentinel-go-test:{commit}") != test:
             raise Refused("test image tag changed after certification")
 
-        configured_runtime = validate_configured_image_id(
-            env, "SENTINEL_RUNTIME_IMAGE_DIGEST", authorized)
-        configured_test = validate_configured_image_id(
-            env, "SENTINEL_TEST_IMAGE_DIGEST", test)
-
         atomic_json(OUT, {
-            "schema": "sentinel.validated-artifact-handoff/1",
+            "schema": "sentinel.validated-artifact-handoff/2",
             "git_commit": commit,
-            "ordinary_runtime_image_id": ordinary,
-            "authorized_runtime_image_id": authorized,
-            "test_image_id": test,
-            "authorized_cli_exports": {
-                "SENTINEL_GIT_COMMIT": commit,
-                "SENTINEL_RUNTIME_IMAGE_DIGEST": authorized,
-                "SENTINEL_TEST_IMAGE_DIGEST": test,
+            "ordinary_runtime_local_image_id": ordinary,
+            "authorized_runtime_local_image_id": authorized,
+            "test_local_image_id": test,
+            "next_boundary": {
+                "operation": "AUTONOMOUS_DEPLOY_REGISTRY_PROMOTION",
+                "require_exact_local_ids": True,
+                "output_identity_domain": "REGISTRY_REPODIGEST",
+                "authorized_compose_requires_repo_digest": True,
             },
-            "configured_activation_digests_match": bool(
-                configured_runtime == authorized and configured_test == test),
             "authority": "EVIDENCE_ONLY_NOT_BROKER_AUTHORITY",
         })
         recreate_panel(env)
@@ -154,7 +137,7 @@ def main() -> int:
         flush=True,
     )
     print(
-        "post-validation: wrote exact authorized/test sha256 image IDs for the signed activation wrapper",
+        "post-validation: local certified IDs recorded; autonomous deploy must promote those exact IDs to registry RepoDigests before authorized execution",
         flush=True,
     )
     return 0
