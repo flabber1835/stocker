@@ -25,9 +25,26 @@ class SepMutationIdentityRefused(maintenance_impl.SharadarMutationRefused):
         self.session = str(session)
         self.reason_code = str(reason_code)
         super().__init__(
-            f"SEP mutation {self.ticker}/{self.session} identity unresolved: "
-            f"{self.reason_code}; refusing to advance the mutation watermark "
+            f"SEP mutation {self.ticker}/{self.session} has no permanent identity "
+            f"({self.reason_code}); refusing to advance the mutation watermark "
             "past a row whose permanent security identity is not authoritative")
+
+
+def _resolve_with_reason(identity, ticker: str,
+                         session: str) -> tuple[str | None, str]:
+    """Use typed resolution when available, preserving the legacy resolver seam.
+
+    Production ``IdentityResolver`` always exposes ``resolve_with_reason``. Some
+    focused tests and injected replay seams intentionally provide only the older
+    ``resolve`` callable; treating their bare ``None`` as ``NO_PERMANENT_ID``
+    preserves that interface without weakening production's typed ambiguity and
+    interval-gap diagnostics.
+    """
+    typed = getattr(identity, "resolve_with_reason", None)
+    if callable(typed):
+        return typed(ticker, session)
+    security_id = identity.resolve(ticker, session)
+    return security_id, ("" if security_id is not None else "NO_PERMANENT_ID")
 
 
 def validate_sep_mutation_rows(
@@ -65,7 +82,7 @@ def validate_sep_mutation_rows(
         # a deliberately wider complete seed and cannot widen CDC's authority.
         if session_date < published_from or session_date > published_through:
             continue
-        security_id, reason = identity.resolve_with_reason(ticker, session)
+        security_id, reason = _resolve_with_reason(identity, ticker, session)
         if security_id is None:
             raise SepMutationIdentityRefused(ticker, session, reason)
         if not maintenance_impl._positive(row.get("closeunadj")):
