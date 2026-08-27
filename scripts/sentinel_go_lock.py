@@ -31,9 +31,12 @@ def main(argv=None) -> int:
                 return 2
             env = dict(os.environ)
             env["SENTINEL_GO_LOCK_HELD"] = "1"
+            # Pass the locked open-file description into the child. If this
+            # small parent is SIGKILLed while the real validation survives, the
+            # child still holds the kernel flock and a second GO cannot start.
             completed = subprocess.run(
                 [str(item) for item in command], cwd=str(ROOT), env=env,
-                check=False)
+                pass_fds=(handle.fileno(),), check=False)
             return int(completed.returncode)
     except OSError as exc:
         print(
