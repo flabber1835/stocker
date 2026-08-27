@@ -1,0 +1,207 @@
+=== PIT / PRICE / POSITION / CONTROL ASSETS ===
+PIT input data/ACTIONS_PIT_ONLY.csv.gz
+PIT input data/SEP_1998_PIT_ONLY.csv.gz
+PIT input data/SEP_1999_PIT_ONLY.csv.gz
+PIT input data/SEP_2000_PIT_ONLY.csv.gz
+PIT input data/SEP_2001_PIT_ONLY.csv.gz
+PIT input data/SEP_2002_PIT_ONLY.csv.gz
+PIT input data/SEP_2003_PIT_ONLY.csv.gz
+PIT input data/SEP_2004_PIT_ONLY.csv.gz
+PIT input data/SEP_2005_PIT_ONLY.csv.gz
+PIT input data/SEP_2006_PIT_ONLY.csv.gz
+PIT input data/SEP_2007_PIT_ONLY.csv.gz
+PIT input data/SEP_2008_PIT_ONLY.csv.gz
+PIT input data/SEP_2009_PIT_ONLY.csv.gz
+PIT input data/SEP_2010_PIT_ONLY.csv.gz
+PIT input data/SEP_2011_PIT_ONLY.csv.gz
+PIT input data/SEP_2012_PIT_ONLY.csv.gz
+PIT input data/SEP_2013_PIT_ONLY.csv.gz
+PIT input data/SEP_2014_PIT_ONLY.csv.gz
+PIT input data/SEP_2015_PIT_ONLY.csv.gz
+PIT input data/SEP_2016_PIT_ONLY.csv.gz
+PIT input data/SEP_2017_PIT_ONLY.csv.gz
+PIT input data/SEP_2018_PIT_ONLY.csv.gz
+PIT input data/SEP_2019_PIT_ONLY.csv.gz
+PIT input data/SEP_2020_PIT_ONLY.csv.gz
+PIT input data/SEP_2021_PIT_ONLY.csv.gz
+PIT input data/SEP_2022_PIT_ONLY.csv.gz
+PIT input data/SEP_2023_PIT_ONLY.csv.gz
+PIT input data/SEP_2024_PIT_ONLY.csv.gz
+PIT input data/SEP_2025_PIT_ONLY.csv.gz
+PIT input data/SEP_2026_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_1998_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_1999_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2000_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2001_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2002_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2003_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2004_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2005_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2006_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2007_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2008_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2009_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2010_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2011_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2012_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2013_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2014_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2015_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2016_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2017_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2018_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2019_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2020_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2021_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2022_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2023_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2024_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2025_PIT_ONLY.csv.gz
+PIT input data/SEP_PRICE_2026_PIT_ONLY.csv.gz
+PIT input data/SFP_SPY_BIL_PIT_ONLY.csv.gz
+PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
+docs/sentinel-handoff/06_RESEARCH_SOURCE_FRAGMENTS/position_replay/enrich_panel.py
+docs/sentinel-reference-implementation/sentinel_1p1_daily.csv
+research/sentinel-fastgate/README.md
+research/sentinel-fastgate/RESULTS.md
+research/sentinel-fastgate/SOURCE_MANIFEST.md
+research/sentinel-fastgate/STRATEGY_IDENTITY.json
+research/sentinel-fastgate/STRATEGY_PRINCIPLES.md
+research/sentinel-fastgate/TEST_RESULTS.txt
+research/sentinel-fastgate/control_parity.json
+research/sentinel-fastgate/episode_attribution.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/HARNESS_WIP.md
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/REJECTED_CONTROL_MISMATCH.md
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recover_issue266_runner.py
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/ARCHIVE_INVENTORY.json
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/RECOVERED_SHA256SUMS.txt
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/faithful_reproduction_no_sharadar/Sentinel_1_1_Faithful_Reproduction_Kit/00_README/EXTERNAL_SHARADAR_SHA256SUMS.txt
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/faithful_reproduction_no_sharadar/Sentinel_1_1_Faithful_Reproduction_Kit/00_README/FILE_MANIFEST.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/faithful_reproduction_no_sharadar/Sentinel_1_1_Faithful_Reproduction_Kit/00_README/README_REPRODUCTION_KIT.md
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/faithful_reproduction_no_sharadar/Sentinel_1_1_Faithful_Reproduction_Kit/00_README/SHA256SUMS.txt
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/faithful_reproduction_no_sharadar/Sentinel_1_1_Faithful_Reproduction_Kit/04_EXACT_BREADTH_RECOVERY/RECOVERY_STATUS.md
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/faithful_reproduction_no_sharadar/Sentinel_1_1_Faithful_Reproduction_Kit/04_EXACT_BREADTH_RECOVERY/recovered_breadth_classifier.py
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/00_README/FILE_MANIFEST.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/00_README/FROZEN_SENTINEL_1P1_RULE.json
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/00_README/HANDOFF_README.md
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/00_README/SHA256SUMS.txt
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/00_README/SOURCE_PROVENANCE.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/01_exact_replay_summary.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/02_recovery_gate_flags.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/03_exact_candidate_daily.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/04_delay_cost_sensitivity.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/05_exact_parameter_plateau.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/06_exact_gate_plateau.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/07_leave_one_crisis_out.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/08_rolling_start_validation.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/09_fixed_5y_windows.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/10_time_blocks.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/11_controlled_recovery_adversarial_worlds.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/12_controlled_recovery_adversarial_summary.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/13_exact_open_transition_audit.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/14_promotion_scorecard.json
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/sentinel_1p1_transition_oracle.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/zero_gate_comparison.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/02_SENTINEL_1P1_FROZEN_ORACLE/zero_gate_decision.txt
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/03_SENTINEL_1P0_PARENT/sentinel_1p0_simplification_equivalence_proof.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/04_BREADTH_ORACLES/fundamental_portfolio_health_daily.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/04_BREADTH_ORACLES/sentinel_1p1_exact_daily_with_breadth.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/01_exact_replay_summary.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/02_recovery_gate_flags.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/03_exact_candidate_daily.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/04_delay_cost_sensitivity.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/05_exact_parameter_plateau.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/06_exact_gate_plateau.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/07_leave_one_crisis_out.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/08_rolling_start_validation.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/09_fixed_5y_windows.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/10_time_blocks.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/11_controlled_recovery_adversarial_worlds.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/12_controlled_recovery_adversarial_summary.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/13_exact_open_transition_audit.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/14_promotion_scorecard.json
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/15_crisis_comparison.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/16_worst_drawdown_locations.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/17_promotion_test_scorecard.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/promotion_suite_plus1pp/18_promotion_decision.txt
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/05_RECOVERY_RAMP_LINEAGE/recovery_ramp_candidate_spec.txt
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/position_replay/SURVIVOR_FIREWALL_REPORT.md
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/position_replay/enrich_panel.py
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/position_replay/run_firewall_v2_fixed.py
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/position_replay/run_position_replay.py
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/SHOCK_OVERRIDE_FORENSICS_REPORT.md
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/SYSTEMIC_SHOCK_OVERRIDE_REPORT.md
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/best_override_daily.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/best_override_transitions.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/best_systemic_confirmation_daily.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/best_systemic_confirmation_transitions.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/run_shock_phase2_fast.py
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/run_shock_systemic_confirmation_small.py
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/06_RESEARCH_SOURCE_FRAGMENTS/systemic_shock/run_systemic_shock_override.py
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/frozen_harness_handoff/Sentinel_1_1_Frozen_Harness_Handoff/09_GAPS/MISSING_OR_UNRECOVERED.md
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/ISSUER_CORRECTION_REPORT.md
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/README.md
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/SHA256SUMS.txt
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/VALIDATION.json
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/alphabet_issuer_identity_audit.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/daily_path_delta_vs_terminal_corrected.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/ending_holdings.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/ending_holdings_named.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/executed_buys.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/issuer_correction_metric_delta.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/issuer_correction_trade_diff.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/issuer_identity_patch.diff
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/issuer_key_parser_changes.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/sentinel_1p1_daily.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/sentinel_1p1_standalone.py
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/sentinel_1p1_summary.json
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/terminal_close_admission_blocks.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/terminal_pending_entry_blocks.csv
+research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/recovered/terminal_issuer_corrected/output/trailing_scorecard_vs_spy.csv
+research/sentinel-fastgate/factorial_attribution.csv
+research/sentinel-fastgate/metrics_5_10_15_20.csv
+research/sentinel-fastgate/pit-evidence/README.md
+research/sentinel-fastgate/pit-evidence/SEC_SIC_PROVENANCE.md
+research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
+research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
+research/sentinel-fastgate/pit-evidence/generated/SHA256SUMS.txt
+research/sentinel-fastgate/pit-evidence/generated/coverage.json
+research/sentinel-fastgate/pit-evidence/generated/observations.csv.gz
+research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+research/sentinel-fastgate/pit-evidence/generated/sec_sic_provenance.json
+research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+research/sentinel-fastgate/pit-evidence/generated/symbol_cik_evidence.csv.gz
+research/sentinel-fastgate/pit-evidence/sec_issuer_pilot_results.csv
+research/sentinel-fastgate/provenance.json
+research/sentinel-fastgate/retained_confirmation_mapping.csv
+research/sentinel-fastgate/sentinel_fastgate_reference.py
+research/sentinel-fastgate/sentinel_fastgate_transitions.csv
+research/sentinel-fastgate/test_sentinel_fastgate_reference.py
+sharadar/SHARADAR_SEP_2000.csv.gz
+sharadar/SHARADAR_SEP_2001.csv.gz
+sharadar/SHARADAR_SEP_2002.csv.gz
+sharadar/SHARADAR_SEP_2003.csv.gz
+sharadar/SHARADAR_SEP_2004.csv.gz
+sharadar/SHARADAR_SEP_2005.csv.gz
+sharadar/SHARADAR_SEP_2006.csv.gz
+sharadar/SHARADAR_SEP_2007.csv.gz
+sharadar/SHARADAR_SEP_2008.csv.gz
+sharadar/SHARADAR_SEP_2009.csv.gz
+sharadar/SHARADAR_SEP_2010.csv.gz
+sharadar/SHARADAR_SEP_2011.csv.gz
+sharadar/SHARADAR_SEP_2012.csv.gz
+sharadar/SHARADAR_SEP_2013.csv.gz
+sharadar/SHARADAR_SEP_2014.csv.gz
+sharadar/SHARADAR_SEP_2015.csv.gz
+sharadar/SHARADAR_SEP_2016.csv.gz
+sharadar/SHARADAR_SEP_2017.csv.gz
+sharadar/SHARADAR_SEP_2018.csv.gz
+sharadar/SHARADAR_SEP_2019.csv.gz
+sharadar/SHARADAR_SEP_2020.csv.gz
+sharadar/SHARADAR_SEP_2021.csv.gz
+sharadar/SHARADAR_SEP_2022.csv.gz
+sharadar/SHARADAR_SEP_2023.csv.gz
+sharadar/SHARADAR_SEP_2024.csv.gz
+sharadar/SHARADAR_SEP_2025.csv.gz
+sharadar/SHARADAR_SEP_2026.csv.gz
