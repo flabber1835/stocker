@@ -336,7 +336,12 @@ def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
             "complete value/key reconciliation must establish the initial "
             "watermark; a moving price-date window cannot prove old rows current.")
     hi = dt.date.fromisoformat(str(through))
-    if hi <= cursor.processed_through:
+    if cursor.processed_through > hi:
+        raise SharadarMutationRefused(
+            f"SEP mutation cursor {cursor.processed_through} is ahead of "
+            f"requested reconciliation through {hi}; refusing to treat future "
+            "durable authority as already current")
+    if cursor.processed_through == hi:
         return cursor
     lo = cursor.processed_through - dt.timedelta(days=1)
     params = {"lastupdated.gte": lo.isoformat(),
@@ -561,6 +566,11 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
         raise ValueError("SHARADAR_ACTIONS_RECONCILE_DAYS must be >= 1")
     hi = dt.date.fromisoformat(str(through))
     prior_cursor = load_actions_cursor(conn)
+    if prior_cursor is not None and prior_cursor.processed_through > hi:
+        raise SharadarMutationRefused(
+            f"ACTIONS reconciliation cursor {prior_cursor.processed_through} is "
+            f"ahead of requested reconciliation through {hi}; refusing to treat "
+            "future durable authority as inside the reconciliation cadence")
     if (not force and prior_cursor is not None
             and (hi - prior_cursor.processed_through).days < ACTIONS_RECONCILE_DAYS):
         return prior_cursor
