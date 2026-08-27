@@ -10,6 +10,7 @@ import sys
 from typing import Optional, Sequence
 
 import sentinel_go_lock as go_lock
+import sentinel_go_observability as observability
 import sentinel_go_phase_entry as phase
 
 controller = phase.controller
@@ -148,6 +149,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             except RuntimeError as exc:
                 raise controller.PhaseRefused(str(exc)) from exc
         phase.install()
+        # Production GO is intentionally verbose: safe build/test output streams
+        # live, sensitive probes emit colored progress/heartbeat lines, suites run
+        # shortest-first, and sanitized failing pytest nodes enter the review bundle.
+        observability.install(go=go, controller=controller)
         phase.StrictDatabaseHealthView = DeploymentCompatibleDatabaseHealthView
         controller.DatabaseHealthView = DeploymentCompatibleDatabaseHealthView
         controller.run_phased_probes = run_verified_probes
