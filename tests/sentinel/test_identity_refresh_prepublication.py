@@ -5,9 +5,11 @@ from contextlib import contextmanager
 import datetime as dt
 from types import SimpleNamespace
 
+import pytest
+
 from sentinel.feed import (
     coherence, identity_refresh, ingest, maintenance, recovery,
-    sep_reconciliation, sharadar, snapshot_source, universe)
+    sep_reconciliation, sharadar, snapshot_source, source_authority, universe)
 
 
 def test_pinned_initial_tickers_fetch_serves_proven_candidate_once():
@@ -63,6 +65,30 @@ def test_prevalidation_uses_candidate_resolver_without_cursor_write(monkeypatch)
     assert identity_refresh.prevalidate_pending_sep_mutations(
         object(), fetch=lambda *a, **k: (), through="2026-08-24",
         resolver=resolver) == ["2026-08-21"]
+
+
+def test_prevalidation_refuses_source_row_outside_exact_lastupdated_envelope(
+        monkeypatch):
+    monkeypatch.setattr(
+        identity_refresh.maintenance_impl, "load_sep_cursor",
+        lambda conn: SimpleNamespace(processed_through=dt.date(2026, 8, 23)))
+    monkeypatch.setattr(
+        identity_refresh.maintenance_impl, "_retained_market_bounds",
+        lambda conn: ("2026-08-01", "2026-08-21"))
+
+    def malformed_source(table, params=None, **kwargs):
+        assert table == sharadar.SEP
+        return [{
+            "ticker": "YHNAU", "date": "2026-08-21",
+            "closeunadj": 11.04, "lastupdated": "2026-08-25",
+        }]
+
+    resolver = universe.IdentityResolver([
+        universe.Listing("642732", "YHNAU", "2024-11-08", "2026-08-25")])
+    with pytest.raises(source_authority.SepUpdateEnvelopeViolation):
+        identity_refresh.prevalidate_pending_sep_mutations(
+            object(), fetch=malformed_source, through="2026-08-24",
+            resolver=resolver)
 
 
 def test_production_daily_prevalidates_exact_candidate_before_publication(
