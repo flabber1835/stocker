@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Production entrypoint for NAS GO validation.
+"""Feed-bound preparation implementation for the supported phased GO lifecycle.
 
-The core validator executes its bounded preparation as a custom ``python -c``
-Compose command. This entrypoint binds that mutation to clean HEAD + the exact
-candidate image and installs the same retained-range outage recovery primitive
-used by unattended runtime. Vendor/network/source-authority failures never
-trigger a reseed by guess.
+This module is intentionally import-only for production orchestration. The
+supported operator entry is ``scripts/sentinel-go-validate.sh``. The bounded
+financial-database preparation additionally proves the host GO lifecycle flock
+at its own mutation boundary; clean HEAD/image binding alone is not sufficient.
 """
 from __future__ import annotations
 
@@ -19,6 +18,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import sentinel_go_lock as go_lock  # noqa: E402
 import sentinel_go_validate as go  # noqa: E402
 
 
@@ -26,7 +26,7 @@ _RECOVERY_PREPARATION_CODE = r'''
 import json, os
 from datetime import datetime, timezone
 from sentinel import backup_guard, schema
-from sentinel.feed import calendar, ingest, outage_recovery, publication, store
+from sentinel.feed import calendar, outage_recovery, publication, store
 from sentinel.shadow_runtime import publication_not_before
 
 SUCCESS_MARKER = 'SENTINEL_GO_PREPARATION='
@@ -46,8 +46,7 @@ phase = 'BACKUP_DURABILITY'
 try:
     # Schema bootstrap/migration is PostgreSQL WAL mutation just like market-data
     # publication. Prove the external archive target *before* the validator may
-    # change even one financial-database row. On a brand-new archive-enabled
-    # cluster this actively establishes the first exact durable WAL segment.
+    # change even one financial-database row.
     backup_guard.require_writes_permitted(
         c, operation='NAS validation schema migration')
     phase = 'SCHEMA_MIGRATION'
@@ -66,13 +65,9 @@ try:
         recovered = outage_recovery.catch_up(c, target_session=target)
         daily_attempted = True
         if recovered.mode == 'ALREADY_CURRENT':
-            # Validation proves the explicit-through daily path itself even when
-            # no catch-up was necessary. The common recovery helper did not
-            # mutate in ALREADY_CURRENT mode, so this separate proof must apply
-            # the same external-WAL durability fence before calling ingest.
-            backup_guard.require_writes_permitted(
-                c, operation='NAS validation explicit daily publication')
-            ingest.daily(c, today=target)
+            # Current publication is terminal success. Re-contacting mutable
+            # vendor data adds source risk without proving a new condition.
+            pass
         elif recovered.mode == 'RETAINED_FULL_RESEED':
             print(RECOVERY_MARKER + json.dumps({
                 'mode': recovered.mode,
@@ -132,7 +127,7 @@ def _is_preparation_command(argv: Sequence[str]) -> bool:
 def _binding_or_none(
         runner: go.CommandRunner, *, env: Mapping[str, str], cwd: Path,
         runtime_ref: str, commit: str) -> Optional[tuple[str, str]]:
-    """Ask the existing host gate for the binding; never mint it locally."""
+    """Ask the existing host feed gate for the binding; never mint it locally."""
     binding_env = go._without_broker_authority(env)
     binding_env["SENTINEL_GIT_COMMIT"] = str(commit)
     binding_env["SENTINEL_RUNTIME_IMAGE_DIGEST"] = str(runtime_ref)
@@ -161,6 +156,25 @@ def _emit_sanitized_preparation_diagnostics(completed) -> None:
             text = line.strip()
             if any(text.startswith(prefix) for prefix in _DIAGNOSTIC_PREFIXES):
                 print(text, file=sys.stderr, flush=True)
+
+
+def _lifecycle_refusal(runtime_ref: Optional[str]):
+    evidence = {
+        "reason": "GO_LIFECYCLE_LOCK_NOT_PROVEN_NO_MUTATION",
+        "mutation_attempted": False,
+    }
+    return go.PreparationSummary(
+        status=go.NOT_PROVEN,
+        runtime_image_digest=(
+            str(runtime_ref)
+            if runtime_ref is not None
+            and go._IMAGE_DIGEST.fullmatch(str(runtime_ref)) is not None
+            else None),
+        schema_migration_attempted=False,
+        bounded_sharadar_daily_attempted=False,
+        broker_mutation_attempts=0,
+        evidence_sha256=go._evidence_digest(evidence),
+    )
 
 
 class FeedBoundPreparationRunner:
@@ -212,7 +226,9 @@ class FeedBoundPreparationRunner:
 def probe_prevalidation_preparation(
         runner: go.CommandRunner, *, env: Mapping[str, str],
         runtime_ref: Optional[str], commit: Optional[str], **kwargs):
-    """Run the core probe with feed binding enforced at its mutation boundary."""
+    """Run one preparation only inside the verified serialized GO lifecycle."""
+    if not go_lock.lifecycle_lock_is_held(env):
+        return _lifecycle_refusal(runtime_ref)
     if (runtime_ref is None or commit is None
             or go._IMAGE_DIGEST.fullmatch(str(runtime_ref)) is None
             or go._HEX40.fullmatch(str(commit)) is None):
@@ -230,8 +246,14 @@ def install() -> None:
 
 
 def main(argv=None) -> int:
-    install()
-    return go.main(argv)
+    # The legacy direct producer bypasses the phased certification/preparation
+    # ordering even if it happens to be launched under a lock. Keep the module
+    # importable, but refuse it as an operator entrypoint.
+    print(
+        "REFUSED: sentinel_go_validate_entry.py is internal; use scripts/sentinel-go-validate.sh",
+        file=sys.stderr,
+    )
+    return 2
 
 
 if __name__ == "__main__":
