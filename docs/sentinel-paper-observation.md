@@ -1,9 +1,10 @@
 # PAPER_OBSERVATION_ONLY authority
 
-> **Decision record, 2026-08-15.** This mode authorizes a bounded Alpaca PAPER
-> observation lease. It does not certify historical Wealth Core results, does
-> not change the `NO-GO`/`HISTORICAL_CAUSALITY_UNVERIFIED` historical record,
-> and cannot authorize a live endpoint or account.
+> **Decision record, 2026-08-15; standing-semantics clarification, 2026-08-21.**
+> This mode authorizes an explicitly revocable Alpaca PAPER forward-observation
+> trial. It does not certify historical Wealth Core results, does not change the
+> `NO-GO`/`HISTORICAL_CAUSALITY_UNVERIFIED` historical record, and cannot
+> authorize a live endpoint or account.
 
 ## Accepted boundary
 
@@ -50,23 +51,25 @@ supersession, key/certificate revocation, rollout transition, and account
 binding remain the authority infrastructure. An unsigned candidate or retained
 evidence record never confers authority.
 
-## Short leases, unlimited observation horizon
+## Standing forward-trial authority and explicit stop
 
-One certificate is a short lease. Its default lifetime is 31 days and its hard
-maximum is 35 days. The mode itself has no total lifetime. An operator may
-review, issue, install, and rotate another short certificate before expiry and
-continue observation for as many months as desired. There is no automatic
-promotion, renewal, or extension: every continuation is another signed,
-monotonically newer certificate bound to current facts.
+The signed observation certificate retains a nominal `not_before`/`expires_at`
+window as reviewed evidence and is issued under the existing bounded certificate
+schema. That nominal expiry is **not**, by itself, an economic or integrity
+failure for an otherwise unchanged `PAPER_OBSERVATION_ONLY` forward trial.
+Once activated, ordinary paper-only authority may continue past the nominal
+observation window only through the narrow standing-authority loader, which
+still requires the same signed certificate, trusted key, active durable
+lifecycle, no key/certificate revocation, exact account/deployment binding,
+exact rollout, runtime/strategy/configuration identity, publication-chain
+lineage, maximum exposure, and current operational gates.
 
-Expiry removes `PREPARE_READ`, `EXECUTE_READ`, `SUBMIT`, and `AUTOMATION`
-authority before broker construction. It does not erase state. An expired
-observation certificate may retain only the degraded `SAFETY_READ` and
-`SAFETY_CANCEL` scope, under the exact signed/durable paper account and rollout,
-an unrevoked certificate/key, a current fence, and an exact Sentinel-owned
-command identity. Safety scope cannot resolve a new instrument, prepare/adopt a
-plan, increase exposure, or submit an order. A certified historical certificate
-does not inherit this exception.
+Explicit certificate/key revocation, the durable kill switch, deployment or
+account drift, rollout drift, runtime/strategy/configuration drift, publication
+or readiness failure, or operator deactivation stops authority independently.
+Historical and administrative authority families do **not** inherit this
+standing exception. The exception is paper-only and cannot authorize a live
+endpoint or turn forward observation into historical certification.
 
 ## Signed bindings
 
@@ -77,8 +80,8 @@ Every observation certificate binds all of the following:
 - current runtime and strategy identity;
 - exact execution configuration and automation configuration fingerprint;
 - current published corpus version and publication-chain root;
-- the complete current visible TICKERS snapshot date, row count, and canonical
-  content digest;
+- the complete visible TICKERS snapshot that formed the reviewed activation
+  root: date, row count, and canonical content digest;
 - exact deployment id, broker, paper account id, takeover epoch, environment,
   and paper URL;
 - the next rollout mode/version and predecessor certificate;
@@ -86,15 +89,19 @@ Every observation certificate binds all of the following:
 - a Decimal maximum core exposure in `[0, 1]`;
 - the canonical retained observation-evidence digest.
 
-The current metadata identity is recomputed from the newest complete visible
-`sentinel_universe` snapshot in deterministic row order. Missing, empty,
-older, differently sized, or content-different metadata refuses ordinary
-authority. A newer complete delivery with identical canonical content remains
-valid. Publication version/root, runtime image,
-Git commit, strategy, automation config, deployment/account, rollout, and
-maximum exposure are also rechecked before the first broker read in an
-execution attempt. The plan is held under the execution writer lock; its target
-exposure must not exceed the signed maximum.
+The activation-day metadata identity is a **minimum reviewed root**, not a
+permanent freeze of TICKERS bytes. The current metadata identity is recomputed
+from the newest complete visible `sentinel_universe` snapshot. Missing, empty,
+or older-than-root metadata refuses ordinary authority. A newer complete
+published snapshot may legitimately differ in row count or content during a
+forward trial; the ordinary ingest/publication/readiness path must first make
+that newer snapshot authoritative for the relevant decision session. Freezing
+activation-day metadata would itself create an artificial kill switch and would
+prevent legitimate symbol/listing metadata evolution. Publication policy/root,
+runtime image, Git commit, strategy, automation config, deployment/account,
+rollout, and maximum exposure remain rechecked before ordinary execution. The
+plan is held under the execution writer lock; its target exposure must not exceed
+the signed maximum.
 
 The broker-facing adapter still permits exactly
 `https://paper-api.alpaca.markets`. The first typed account response must name
@@ -258,16 +265,18 @@ certification requirements are unchanged. Never run it twice. The postcondition 
 `SENTINEL_OWNED` binding and two stable flat observations, not merely an
 accepted cancel or sell.
 
-### 3. Create, review, sign, install, and activate the lease
+### 3. Create, review, sign, install, and activate the standing trial root
 
-Candidate creation is database-read-only and broker-free. The command
-captures one UTC lifecycle reference **before** readiness and the 253-session
-warmup are computed; `issued_at` and the `not_before >= issued_at` check use
-that same reference, so construction time cannot consume the operator's
-validity margin. A correctly signed future-dated certificate may be installed
-as `STAGED` before `not_before`, but activation and all ordinary authority remain
-refused until `not_before` is reached. Omit `--expires-at` for the 31-day
-default; an instant more than 35 days after `--not-before` is refused.
+Candidate creation is database-read-only and broker-free. The command captures
+one UTC lifecycle reference **before** readiness and the 253-session warmup are
+computed; `issued_at` and the `not_before >= issued_at` check use that same
+reference, so construction time cannot consume the operator's activation
+margin. A correctly signed future-dated certificate may be installed as
+`STAGED` before `not_before`, but activation and all ordinary authority remain
+refused until `not_before` is reached. The certificate schema still requires a
+bounded nominal expiry window (use the issuer's default or an accepted explicit
+`--expires-at`); standing `PAPER_OBSERVATION_ONLY` operation does not treat that
+nominal expiry alone as an automatic stop after activation.
 
 ```bash
 $COMPOSE run --rm sentinel create-paper-observation-candidate \
@@ -327,13 +336,17 @@ $COMPOSE run --rm sentinel status
 ```
 
 Status and the SELECT-only panel must visibly show
-`PAPER_OBSERVATION_ONLY`, certificate expiry,
+`PAPER_OBSERVATION_ONLY`, nominal certificate expiry,
 `HISTORICAL_CAUSALITY_UNVERIFIED`, maximum exposure, lifecycle/current verdict,
 leader fence/expiry, last clean reconciliation, next cycle, and alert counts.
+The nominal certificate expiry remains evidence; standing paper authority still
+fails on explicit revocation/kill or any of the exact runtime/account/data/config
+checks described above.
 
-### 5. Kill, stop, or continue
+### 5. Kill, stop, or deliberately rotate
 
-Emergency kill and planned stop do not require a valid certificate:
+Emergency kill and planned stop do not require a currently time-valid nominal
+certificate window:
 
 ```bash
 bash scripts/sentinel-authorized-cli.sh engage-paper-automation-kill-switch \
@@ -347,44 +360,45 @@ $COMPOSE run --rm sentinel automation-status
 Those are also the exact commands for a planned stop whenever the operator
 chooses; there is no hardcoded observation end date.
 
-To continue, repeat candidate creation and offline issuance before expiry with
-a greater issuer generation. Candidate creation reads the active predecessor
-from the durable rollout; it does not take a hand-entered predecessor flag.
-Install the replacement, then use `rotate-system-certificate` with the exact
-predecessor confirmation. Rotation recomputes current corpus, metadata,
+Rotation is **not required merely because the nominal observation window has
+passed**. Rotate deliberately when changing the reviewed authority root (for
+example configuration, maximum exposure, deployment/runtime lineage, or an
+operator-selected credential refresh). Candidate creation reads the active
+predecessor from durable rollout state; it does not take a hand-entered
+predecessor flag. Rotation recomputes current corpus, metadata,
 runtime, strategy/controller, account, configuration, warmup, and exposure
-facts. This is a credential refresh, not a new historical certification.
-Repeat it as often as desired.
+facts. It remains a paper-only authority transition, not historical
+certification.
 
-After repeating the candidate and issuer commands from step 3 into
-`observation-certificate-next.json`, rotate without an unfenced writer:
+If a rotation is deliberately chosen, create and issue
+`observation-certificate-next.json`, then rotate without an unfenced writer:
 
 ```bash
 CURRENT_OBS_CERT_SHA256="$OBS_CERT_SHA256"
 NEXT_OBS_CERT_SHA256="$(sha256sum "$SENTINEL_AUTHORITY_ARTIFACTS_DIR/observation-certificate-next.json" | awk '{print $1}')"
 bash scripts/sentinel-authorized-cli.sh engage-paper-automation-kill-switch \
-  --actor <OPERATOR> --reason '<LEASE_ROTATION>'
+  --actor <OPERATOR> --reason '<AUTHORITY_ROTATION>'
 bash scripts/sentinel-authorized-cli.sh deactivate-paper-automation \
-  --actor <OPERATOR> --reason '<LEASE_ROTATION>'
+  --actor <OPERATOR> --reason '<AUTHORITY_ROTATION>'
 bash scripts/sentinel-automation-compose.sh stop sentinel-automation
 bash scripts/sentinel-authorized-cli.sh install-system-certificate \
   --certificate /var/lib/sentinel-authority/observation-certificate-next.json \
   --confirm-certificate-sha256 "$NEXT_OBS_CERT_SHA256" \
-  --reason '<LEASE_ROTATION>' \
+  --reason '<AUTHORITY_ROTATION>' \
   --confirm-install-alpaca-paper-execution-certificate
 bash scripts/sentinel-authorized-cli.sh rotate-system-certificate \
   --certificate-sha256 "$NEXT_OBS_CERT_SHA256" \
   --confirm-supersedes-certificate-sha256 "$CURRENT_OBS_CERT_SHA256" \
   --confirm-paper-account <PAPER_ACCOUNT_ID> \
   --confirm-deployment-id <STABLE_DEPLOYMENT_ID> \
-  --reason '<LEASE_ROTATION>' --confirm-controller-rollout \
+  --reason '<AUTHORITY_ROTATION>' --confirm-controller-rollout \
   --confirm-rotate-alpaca-paper-execution-certificate
 OBS_CERT_SHA256="$NEXT_OBS_CERT_SHA256"
 bash scripts/sentinel-authorized-cli.sh activate-paper-automation \
   --confirm-paper-account <PAPER_ACCOUNT_ID> \
   --confirm-deployment-id <STABLE_DEPLOYMENT_ID> \
   --confirm-certificate-sha256 "$OBS_CERT_SHA256" \
-  --actor <OPERATOR> --reason '<LEASE_ROTATION>' \
+  --actor <OPERATOR> --reason '<AUTHORITY_ROTATION>' \
   --confirm-old-writer-fenced \
   --confirm-enable-unattended-alpaca-paper-automation
 bash scripts/sentinel-automation-compose.sh up -d sentinel-automation
@@ -392,7 +406,7 @@ bash scripts/sentinel-authorized-cli.sh release-paper-automation-kill-switch \
   --confirm-paper-account <PAPER_ACCOUNT_ID> \
   --confirm-deployment-id <STABLE_DEPLOYMENT_ID> \
   --confirm-certificate-sha256 "$OBS_CERT_SHA256" \
-  --actor <OPERATOR> --reason '<LEASE_ROTATION>' \
+  --actor <OPERATOR> --reason '<AUTHORITY_ROTATION>' \
   --confirm-release-unattended-paper-kill-switch
 $COMPOSE run --rm sentinel automation-status
 ```
