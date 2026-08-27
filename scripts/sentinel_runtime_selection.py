@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Preflight and promote the ordinary Sentinel runtime selected by Compose."""
+"""Preflight the ordinary Sentinel runtime selected by Compose.
+
+Runtime promotion is intentionally *not* implemented in this generic selector.
+The only supported promotion path is ``scripts/sentinel_go_promote.py`` inside
+the locked GO lifecycle, because promotion is authority-bearing selection and
+must prove the exact ordinary image recorded by successful certification.
+"""
 from __future__ import annotations
 
 import argparse
@@ -203,6 +209,7 @@ def preflight() -> int:
 
 
 def _write_pointer(digest: str) -> None:
+    """Internal primitive used only by the exact-certification promoter."""
     POINTER.parent.mkdir(parents=True, exist_ok=True)
     payload = "SENTINEL_RUNTIME_IMAGE_REF=%s\n" % digest
     fd, tmp_name = tempfile.mkstemp(prefix=".validated-runtime-", dir=str(POINTER.parent))
@@ -227,28 +234,21 @@ def _write_pointer(digest: str) -> None:
 
 
 def promote(extra_args: Sequence[str]) -> int:
+    """Refuse the legacy generic promotion seam.
+
+    A source-revision label is not certification. Keeping this function callable
+    but fail-closed preserves import compatibility while preventing an operator,
+    old script, or accidental caller from selecting an untested same-revision
+    image. ``sentinel_go_promote.py`` owns the exact certified promotion path.
+    """
     if "--input" in extra_args or any(str(arg).startswith("--input=") for arg in extra_args):
         print("runtime promotion: SKIPPED for development-input validation", flush=True)
         return 0
-    try:
-        _refresh_origin_main()
-        head = _clean_main_head()
-        candidate = "sentinel-go-runtime:%s" % head
-        digest, revision = _inspect(candidate)
-        if revision != head:
-            raise RuntimeSelectionRefused(
-                "validated ordinary candidate revision disagrees with current HEAD")
-        _write_pointer(digest)
-        text = POINTER.read_text(encoding="ascii")
-        if text != "SENTINEL_RUNTIME_IMAGE_REF=%s\n" % digest:
-            raise RuntimeSelectionRefused("validated runtime pointer verification failed")
-    except (OSError, RuntimeSelectionRefused) as exc:
-        print("REFUSED: runtime promotion failed: %s" % exc, file=sys.stderr)
-        return 2
     print(
-        "runtime promotion: BOUND - ordinary Sentinel selector now uses %s from %s"
-        % (digest[:19] + "...", head[:12]), flush=True)
-    return 0
+        "REFUSED: generic runtime promotion is disabled; use the verified scripts/sentinel-go-validate.sh lifecycle",
+        file=sys.stderr,
+    )
+    return 2
 
 
 def main(argv: Sequence[str] | None = None) -> int:
