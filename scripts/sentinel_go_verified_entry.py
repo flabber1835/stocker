@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
+import os
+import subprocess
 import sys
 from typing import Optional, Sequence
 
@@ -18,7 +21,7 @@ class DeploymentCompatibleDatabaseHealthView(phase.StrictDatabaseHealthView):
     """Enforce fresh margin without silently changing the public bundle schema.
 
     The autonomous deployment parser intentionally requires the exact v1
-    database-health field set. Fresh wall-clock margin is enforced by
+    database-health field set. Fresh wall-clock margin is enforced through
     ``complete`` and by the bundle ``valid_until`` cap in phase_entry; adding a
     new top-level field here would make an otherwise valid GO bundle
     undeployable.
@@ -81,25 +84,77 @@ def run_verified_probes(*, runner=None, env=None, now=None, urlopen=None,
     )
 
 
+def _clean_run_pass_path() -> None:
+    try:
+        go_lock.RUN_PASS_PATH.unlink()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise controller.PhaseRefused(
+            "prior GO requested-target proof cannot be cleared") from exc
+
+
+def _current_head() -> str:
+    completed = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=str(go.ROOT),
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    value = (completed.stdout or "").strip()
+    if completed.returncode != 0 or go._HEX40.fullmatch(value) is None:
+        raise controller.PhaseRefused(
+            "current Git identity is unavailable at requested-target proof")
+    return value
+
+
+def _write_run_pass(*, target: str) -> None:
+    token = go_lock.current_run_token()
+    if token is None:
+        raise controller.PhaseRefused(
+            "GO requested-target proof has no current lifecycle token")
+    boot = phase._boot_id_sha256()
+    if boot is None:
+        raise controller.PhaseRefused(
+            "GO requested-target proof has no current host boot identity")
+    evidence = {
+        "schema": go_lock.RUN_PASS_SCHEMA,
+        "git_commit": _current_head(),
+        "requested_target": target,
+        "run_token_sha256": hashlib.sha256(token.encode("ascii")).hexdigest(),
+        "host_boot_id_sha256": boot,
+        "passed_at": go._utc_text(datetime.now(timezone.utc)),
+    }
+    phase._atomic_write(
+        go_lock.RUN_PASS_PATH,
+        {**evidence, "evidence_sha256": phase._sha(evidence)},
+    )
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     raw = list(argv if argv is not None else sys.argv[1:])
     development = (
         "--input" in raw or any(str(item).startswith("--input=") for item in raw))
     try:
+        phase._strict_target(raw)
+        target, _forwarded = controller._target_from_argv(raw)
         if not development:
             if not go_lock.lifecycle_lock_is_held():
                 raise controller.PhaseRefused(
                     "production GO entry is available only through the verified locked scripts/sentinel-go-validate.sh lifecycle")
+            if go_lock.current_run_token() is None:
+                raise controller.PhaseRefused(
+                    "production GO entry has no one-run lifecycle capability")
+            _clean_run_pass_path()
             try:
                 controller.entry.authorize_verified_orchestration()
             except RuntimeError as exc:
                 raise controller.PhaseRefused(str(exc)) from exc
-        phase._strict_target(raw)
         phase.install()
         phase.StrictDatabaseHealthView = DeploymentCompatibleDatabaseHealthView
         controller.DatabaseHealthView = DeploymentCompatibleDatabaseHealthView
         controller.run_phased_probes = run_verified_probes
-        return controller.main(raw)
+        rc = controller.main(raw)
+        if rc == 0 and not development:
+            _write_run_pass(target=target)
+        return rc
     except controller.PhaseRefused as exc:
         print("REFUSED: %s" % exc, file=sys.stderr)
         return 2
