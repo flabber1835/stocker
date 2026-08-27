@@ -15,29 +15,43 @@ jobs:
           filter: blob:none
           sparse-checkout: |
             docs/Sentinel_1_1_Faithful_Reproduction_Kit_NO_SHARADAR.zip
-            docs/Sentinel_1_1_Frozen_Harness_Handoff.zip
-      - name: Inspect nested replay archives
+            docs/sentinel-handoff/04_BREADTH_ORACLES/sentinel_1p1_exact_daily_with_breadth.csv
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --disable-pip-version-check pandas numpy
+      - name: Verify certified ledger against Sentinel oracle
         run: |
           python - <<'PY'
           from pathlib import Path
-          import io, zipfile, re
-          roots=[Path('docs/Sentinel_1_1_Faithful_Reproduction_Kit_NO_SHARADAR.zip'),Path('docs/Sentinel_1_1_Frozen_Harness_Handoff.zip')]
-          pat=re.compile(r'(position|holding|panel|daily|close|shadow|wealth|replay|firewall|sector|breadth|ticker|sep|spy)',re.I)
-          def scan_bytes(label,data,depth=0):
-              z=zipfile.ZipFile(io.BytesIO(data))
-              names=[x.filename for x in z.infolist() if not x.is_dir()]
-              print(f'=== ARCHIVE {label} depth={depth} members={len(names)} ===')
-              for n in names:
-                  if pat.search(n) or depth==0:
-                      info=z.getinfo(n); print(f'{info.file_size:>12} {n}')
-              if depth<2:
-                  for n in names:
-                      if n.lower().endswith('.zip'):
-                          b=z.read(n)
-                          try: scan_bytes(label+'::'+n,b,depth+1)
-                          except zipfile.BadZipFile: pass
-          for p in roots:
-              with zipfile.ZipFile(p) as z:
-                  data=p.read_bytes()
-              scan_bytes(str(p),data)
+          import io, zipfile
+          import numpy as np, pandas as pd
+          outer=zipfile.ZipFile('docs/Sentinel_1_1_Faithful_Reproduction_Kit_NO_SHARADAR.zip')
+          nested='Sentinel_1_1_Faithful_Reproduction_Kit/02_CERTIFIED_WEALTH_CORE/stocker_certified_wealth_core_v1.zip'
+          z=zipfile.ZipFile(io.BytesIO(outer.read(nested)))
+          base='stocker_certified_wealth_core/'
+          def readcsv(name): return pd.read_csv(io.BytesIO(z.read(base+name)))
+          daily=readcsv('wealth_core_119_daily.csv')
+          entries=readcsv('wealth_core_119_entries.csv')
+          exits=readcsv('wealth_core_119_exits.csv')
+          orders=readcsv('wealth_core_119_orders.csv')
+          print('DAILY columns',list(daily.columns)); print(daily.head(3).to_csv(index=False)); print(daily.tail(3).to_csv(index=False))
+          print('ENTRIES columns',list(entries.columns)); print(entries.head(5).to_csv(index=False))
+          print('EXITS columns',list(exits.columns)); print(exits.head(5).to_csv(index=False))
+          print('ORDERS columns',list(orders.columns)); print(orders.head(5).to_csv(index=False))
+          oracle=pd.read_csv('docs/sentinel-handoff/04_BREADTH_ORACLES/sentinel_1p1_exact_daily_with_breadth.csv',parse_dates=['date'])
+          d=daily.copy(); d['date']=pd.to_datetime(d['date']); m=d.merge(oracle[['date','wealth_core_nav']],on='date',how='inner')
+          print('OVERLAP sessions',len(m),'dates',m.date.min(),m.date.max())
+          target=m.wealth_core_nav.astype(float)/float(m.wealth_core_nav.iloc[0])
+          for c in daily.columns:
+              if c=='date': continue
+              q=pd.to_numeric(m[c],errors='coerce') if c in m else None
+              if q is None or q.notna().sum()<100 or not np.isfinite(q.iloc[0]) or q.iloc[0]==0: continue
+              qq=q.astype(float)/float(q.iloc[0]); ok=np.isfinite(qq)&np.isfinite(target)
+              if ok.sum()<100: continue
+              err=float(np.max(np.abs(qq[ok]-target[ok]))); corr=float(np.corrcoef(qq[ok],target[ok])[0,1])
+              if corr>0.99 or err<0.1: print('PARITY_CANDIDATE',c,'n',int(ok.sum()),'max_abs_norm_err',err,'corr',corr)
+          for name in ['replay_wealth_core_119_trusted.py','SIMULATOR_CERTIFICATION.json','RUN_VERIFICATION.json','trusted_ledger_replay.json']:
+              b=z.read(base+name)
+              print('===',name,'==='); print(b.decode('utf-8','replace')[:12000])
           PY
