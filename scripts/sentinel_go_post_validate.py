@@ -29,6 +29,7 @@ SCRIPT_DIR = ROOT / "scripts"
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import sentinel_go_lock as go_lock  # noqa: E402
 import sentinel_go_phase_entry as phase  # noqa: E402
 
 OUT = ROOT / "artifacts" / "sentinel" / "deployment" / "validated-artifact-handoff.json"
@@ -98,9 +99,9 @@ def atomic_json(path: Path, value: dict) -> None:
 def main() -> int:
     env = phase.controller.go.merged_environment()
     try:
-        if os.environ.get("SENTINEL_GO_LOCK_HELD") != "1":
+        if not go_lock.lifecycle_lock_is_held():
             raise Refused(
-                "GO finalization is available only inside the locked sentinel-go-validate lifecycle")
+                "GO finalization is available only inside the verified locked sentinel-go-validate lifecycle")
         commit = git("rev-parse", "HEAD")
         if HEX40.fullmatch(commit) is None:
             raise Refused("HEAD is not an exact commit")
