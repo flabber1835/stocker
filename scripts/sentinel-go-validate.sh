@@ -118,20 +118,28 @@ fi
 # the exact immutable image id recorded when the certification suite passed.
 # A same-revision retag/substitution therefore cannot cross this boundary.
 go_phase "PROMOTE EXACT CERTIFIED RUNTIME"
-"$PYTHON" scripts/sentinel_go_promote.py "$@" || {
-  go_error "certified runtime promotion failed"
-  exit $?
-}
+set +e
+"$PYTHON" scripts/sentinel_go_promote.py "$@"
+PROMOTE_RC=$?
+set -e
+if [ "$PROMOTE_RC" -ne 0 ]; then
+  go_error "certified runtime promotion failed (exit $PROMOTE_RC)"
+  exit "$PROMOTE_RC"
+fi
 
 if [ "$PRODUCTION_RUN" -eq 1 ]; then
   # Recreate the read-only panel on the promoted runtime and record the local
   # certified image IDs that autonomous deployment must promote unchanged to
   # registry RepoDigests before any broker-authorized service can use them.
   go_phase "POST-VALIDATION HANDOFF"
-  "$PYTHON" scripts/sentinel_go_post_validate.py || {
-    go_error "post-validation handoff failed"
-    exit $?
-  }
+  set +e
+  "$PYTHON" scripts/sentinel_go_post_validate.py
+  POST_RC=$?
+  set -e
+  if [ "$POST_RC" -ne 0 ]; then
+    go_error "post-validation handoff failed (exit $POST_RC)"
+    exit "$POST_RC"
+  fi
 fi
 
 go_info "GO lifecycle completed successfully"
