@@ -11,6 +11,8 @@ adds the properties a transport client cannot provide by itself:
   published authority frontier;
 * failed daily vs historical-maintenance candidates are retried by the operation
   that can safely supersede their live rows;
+* pending SEP mutations are identity-proven against the exact current TICKERS
+  candidate before daily publication, without moving the CDC cursor;
 * routine SEP maintenance follows the published daily identity refresh so a
   stale listing interval cannot deadlock the refresh that would extend it;
 * historical TICKERS corrections can advance only through a complete,
@@ -28,9 +30,9 @@ import datetime as _dt
 from typing import Callable, Iterable, Optional
 
 from sentinel.feed import (
-    coherence, identity_rebuild, ingest_impl as _impl, maintenance,
-    recent_reconciliation, recovery, reseed, sep_reconciliation, sharadar,
-    snapshot_source, universe)
+    coherence, identity_rebuild, identity_refresh, ingest_impl as _impl,
+    maintenance, recent_reconciliation, recovery, reseed, sep_reconciliation,
+    sharadar, snapshot_source, universe)
 
 for _name in dir(_impl):
     if not _name.startswith("__"):
@@ -275,18 +277,34 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
                     "supported complete `feed-seed` recovery.")
 
         published_frontier = _impl.feed_store.latest_visible_session(conn)
+        daily_fetch = fetch
 
-        # Refresh current TICKERS authority before routine historical maintenance.
-        # The daily generation itself already resolves its SEP rows against the
-        # exact same-run unpublished TICKERS candidate. Source stability,
-        # structural TICKERS authority, daily domain checks and historical
-        # identity safety all complete before publication. CDC deliberately does
-        # NOT consume that unpublished candidate: it starts only after publication
-        # and therefore depends exclusively on the refreshed published resolver.
+        # Production gets one exact current TICKERS candidate before the daily
+        # run opens. It must be complete, structurally valid, stable, and a safe
+        # routine history projection. Known pending CDC rows through yesterday
+        # are then identity/economics-validated against that exact candidate.
+        # Nothing is written and no cursor moves here.
+        #
+        # The first TICKERS request inside _daily_locked is pinned to the proven
+        # candidate. StableSharadarFetch still re-observes the live source after
+        # the protected SEP traversal, so any drift between this proof and daily
+        # completion refuses before publication.
+        if fetch is snapshot_source.fetch_table and resolve_identity is None:
+            tickers_candidate = identity_refresh.stable_current_tickers(fetch)
+            identity_refresh.assert_candidate_history_safe(
+                conn, tickers_candidate)
+            candidate_resolver = identity_refresh.resolver_with_candidate(
+                conn, tickers_candidate)
+            identity_refresh.prevalidate_pending_sep_mutations(
+                conn, fetch=fetch, through=yesterday,
+                resolver=candidate_resolver)
+            daily_fetch = identity_refresh.PinnedInitialTickersFetch(
+                fetch, tickers_candidate)
+
         listing_frontier = (
             published_frontier if fetch is snapshot_source.fetch_table else None)
         guarded = coherence.StableSharadarFetch(
-            fetch, after_session=listing_frontier)
+            daily_fetch, after_session=listing_frontier)
         effective_overlap = recovery.extended_overlap_days(conn, overlap_days)
         progress = _impl._daily_locked(
             conn, fetch=guarded, resolve_identity=resolve_identity,
@@ -299,7 +317,9 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
         # From here on, every historical maintenance operation sees the identity
         # generation that just became published. If daily publication failed, we
         # never reach this point and no maintenance cursor can advance under an
-        # unpublished candidate.
+        # unpublished candidate. Readiness also requires the SEP watermark and
+        # recent complete proof to cover the published decision frontier, so a
+        # crash here remains fenced until maintenance completes.
         published_frontier = _impl.feed_store.latest_visible_session(conn)
         sep_reconciliation.reconcile_next(
             conn, fetch=fetch, through=published_frontier)
