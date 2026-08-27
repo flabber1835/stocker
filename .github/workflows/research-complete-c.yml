@@ -6,30 +6,66 @@ on:
   workflow_dispatch:
 
 jobs:
-  inspect:
+  recover:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-      - name: Inspect retained archives and candidate replay inputs
+      - name: Recover nested retained inputs
         shell: bash
+        env:
+          HAS_SHARADAR_API_KEY: ${{ secrets.SHARADAR_API_KEY != '' }}
         run: |
-          set -euxo pipefail
-          python -V
-          echo '=== candidate repo files ==='
-          find docs research -type f | grep -Ei '(held|position|ledger|equity|close|spy|bil|replay|oracle|daily|sector|peer|breadth|archive|zip)' | sort > /tmp/candidates.txt
-          cat /tmp/candidates.txt
-          echo '=== archive manifests ==='
-          for z in docs/*.zip docs/sentinel-handoff/08_SOURCE_ARCHIVES/*.zip; do
-            [ -f "$z" ] || continue
-            echo "### $z"
-            unzip -l "$z" | grep -Ei '(held|position|ledger|equity|close|spy|bil|replay|daily|pkl|parquet|csv)' || true
-          done | tee /tmp/archive_manifest.txt
-      - name: Upload inspection
+          set -euo pipefail
+          echo "HAS_SHARADAR_API_KEY=${HAS_SHARADAR_API_KEY}" | tee /tmp/secret_status.txt
+          rm -rf /tmp/recover && mkdir -p /tmp/recover/root
+          cp -a docs/. /tmp/recover/root/
+          python - <<'PY'
+          from pathlib import Path
+          import zipfile, shutil
+          root=Path('/tmp/recover/root')
+          seen=set()
+          for depth in range(5):
+              zips=[p for p in root.rglob('*.zip') if p not in seen]
+              if not zips: break
+              for z in zips:
+                  seen.add(z)
+                  out=z.with_name(z.name+'.unzipped')
+                  out.mkdir(parents=True,exist_ok=True)
+                  try:
+                      with zipfile.ZipFile(z) as zz: zz.extractall(out)
+                  except Exception as e:
+                      print('ZIPFAIL',z,e)
+          print('zips expanded',len(seen))
+          PY
+          find /tmp/recover/root -type f | sort > /tmp/all_recovered_files.txt
+          grep -Ei '(entry|entries|exit|exits|ledger|baseline_daily|position|hold|close|price|spy|bil|sep|panel|replay|oracle)' /tmp/all_recovered_files.txt > /tmp/relevant_recovered_files.txt || true
+          cat /tmp/relevant_recovered_files.txt
+          echo '=== likely csv schemas ===' > /tmp/relevant_schemas.txt
+          while IFS= read -r f; do
+            case "$f" in
+              *.csv) echo "### $f" >> /tmp/relevant_schemas.txt; head -n 2 "$f" >> /tmp/relevant_schemas.txt || true ;;
+            esac
+          done < /tmp/relevant_recovered_files.txt
+          cat /tmp/relevant_schemas.txt
+          mkdir -p /tmp/c-recovered
+          cp /tmp/secret_status.txt /tmp/all_recovered_files.txt /tmp/relevant_recovered_files.txt /tmp/relevant_schemas.txt /tmp/c-recovered/
+          # Preserve compact candidate ledgers/tapes for the next job/run.
+          while IFS= read -r f; do
+            case "$f" in
+              *.csv|*.json|*.pkl|*.parquet)
+                sz=$(stat -c %s "$f" 2>/dev/null || echo 999999999)
+                if [ "$sz" -le 25000000 ]; then
+                  safe=$(echo "$f" | sed 's#^/tmp/recover/root/##; s#/#__#g')
+                  cp "$f" "/tmp/c-recovered/$safe" || true
+                fi
+                ;;
+            esac
+          done < /tmp/relevant_recovered_files.txt
+      - name: Upload recovered C inputs
         uses: actions/upload-artifact@v4
         with:
-          name: c-input-inspection
-          path: |
-            /tmp/candidates.txt
-            /tmp/archive_manifest.txt
+          name: c-recovered-inputs
+          path: /tmp/c-recovered/
+          retention-days: 7
