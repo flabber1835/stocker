@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Preflight and promote the ordinary Sentinel runtime selected by Compose."""
+"""Preflight the ordinary Sentinel runtime selected by Compose.
+
+Runtime promotion is intentionally *not* implemented in this generic selector.
+The only supported promotion path is ``scripts/sentinel_go_promote.py`` inside
+the locked GO lifecycle, because promotion is authority-bearing selection and
+must prove the exact ordinary image recorded by successful certification.
+"""
 from __future__ import annotations
 
 import argparse
@@ -39,6 +45,14 @@ def _git(*args: str) -> str:
     return (result.stdout or "").strip()
 
 
+def _refresh_origin_main() -> None:
+    """Refresh upstream immediately before promotion, closing the long-run TOCTOU."""
+    result = _run(["git", "fetch", "--quiet", "origin", "main"])
+    if result.returncode != 0:
+        raise RuntimeSelectionRefused(
+            "could not refresh origin/main immediately before runtime promotion")
+
+
 def _load_dotenv_literal(path: Path = ROOT / ".env") -> dict[str, str]:
     values: dict[str, str] = {}
     if not path.is_file():
@@ -69,9 +83,32 @@ def _load_dotenv_literal(path: Path = ROOT / ".env") -> dict[str, str]:
     return values
 
 
+def _pointer_digest(path: Path = POINTER) -> str | None:
+    """Read the exact selector with the same strict one-line contract as Compose."""
+    if not path.is_file():
+        return None
+    try:
+        lines = path.read_text(encoding="ascii").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise RuntimeSelectionRefused(
+            "validated Sentinel runtime pointer is unreadable") from exc
+    prefix = "SENTINEL_RUNTIME_IMAGE_REF="
+    if len(lines) != 1 or not lines[0].startswith(prefix):
+        raise RuntimeSelectionRefused(
+            "validated Sentinel runtime pointer is malformed")
+    digest = lines[0][len(prefix):]
+    if _DIGEST.fullmatch(digest) is None:
+        raise RuntimeSelectionRefused(
+            "validated Sentinel runtime pointer has no immutable sha256 image id")
+    return digest
+
+
 def _merged_environment() -> dict[str, str]:
     values = _load_dotenv_literal()
     values.update(os.environ)
+    pointer = _pointer_digest()
+    if pointer is not None:
+        values["SENTINEL_RUNTIME_IMAGE_REF"] = pointer
     return values
 
 
@@ -88,7 +125,7 @@ def _clean_main_head() -> str:
         raise RuntimeSelectionRefused("runtime promotion requires a clean worktree")
     if origin != head:
         raise RuntimeSelectionRefused(
-            "runtime promotion requires HEAD to equal origin/main")
+            "runtime promotion requires HEAD to equal freshly fetched origin/main")
     return head
 
 
@@ -139,14 +176,25 @@ def _compose_selected_image(env: Mapping[str, str]) -> str:
 
 
 def preflight() -> int:
+    # Configuration and pointer errors are deterministic prerequisites: do not
+    # spend the certification budget when Compose cannot later consume the
+    # promoted runtime. The absence of an *existing image* is different—a first
+    # deployment can legitimately build the candidate from scratch.
     try:
         head = _git("rev-parse", "HEAD")
         if not _COMMIT.fullmatch(head):
             raise RuntimeSelectionRefused("repository HEAD is not an exact commit")
-        selected = _compose_selected_image(_merged_environment())
+        env = _merged_environment()
+        selected = _compose_selected_image(env)
+    except RuntimeSelectionRefused as exc:
+        print("REFUSED: runtime preflight configuration: %s" % exc, file=sys.stderr)
+        return 2
+    try:
         digest, revision = _inspect(selected)
     except RuntimeSelectionRefused as exc:
-        print("runtime preflight: UNAVAILABLE - %s" % exc, flush=True)
+        print(
+            "runtime preflight: UNAVAILABLE - %s; validation may build a fresh current candidate"
+            % exc, flush=True)
         return 0
     if revision == head:
         print(
@@ -161,6 +209,7 @@ def preflight() -> int:
 
 
 def _write_pointer(digest: str) -> None:
+    """Internal primitive used only by the exact-certification promoter."""
     POINTER.parent.mkdir(parents=True, exist_ok=True)
     payload = "SENTINEL_RUNTIME_IMAGE_REF=%s\n" % digest
     fd, tmp_name = tempfile.mkstemp(prefix=".validated-runtime-", dir=str(POINTER.parent))
@@ -185,27 +234,21 @@ def _write_pointer(digest: str) -> None:
 
 
 def promote(extra_args: Sequence[str]) -> int:
+    """Refuse the legacy generic promotion seam.
+
+    A source-revision label is not certification. Keeping this function callable
+    but fail-closed preserves import compatibility while preventing an operator,
+    old script, or accidental caller from selecting an untested same-revision
+    image. ``sentinel_go_promote.py`` owns the exact certified promotion path.
+    """
     if "--input" in extra_args or any(str(arg).startswith("--input=") for arg in extra_args):
         print("runtime promotion: SKIPPED for development-input validation", flush=True)
         return 0
-    try:
-        head = _clean_main_head()
-        candidate = "sentinel-go-runtime:%s" % head
-        digest, revision = _inspect(candidate)
-        if revision != head:
-            raise RuntimeSelectionRefused(
-                "validated ordinary candidate revision disagrees with current HEAD")
-        _write_pointer(digest)
-        text = POINTER.read_text(encoding="ascii")
-        if text != "SENTINEL_RUNTIME_IMAGE_REF=%s\n" % digest:
-            raise RuntimeSelectionRefused("validated runtime pointer verification failed")
-    except (OSError, RuntimeSelectionRefused) as exc:
-        print("REFUSED: runtime promotion failed: %s" % exc, file=sys.stderr)
-        return 2
     print(
-        "runtime promotion: BOUND - ordinary Sentinel selector now uses %s from %s"
-        % (digest[:19] + "...", head[:12]), flush=True)
-    return 0
+        "REFUSED: generic runtime promotion is disabled; use the verified scripts/sentinel-go-validate.sh lifecycle",
+        file=sys.stderr,
+    )
+    return 2
 
 
 def main(argv: Sequence[str] | None = None) -> int:

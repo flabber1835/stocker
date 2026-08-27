@@ -100,7 +100,6 @@ def test_runtime_drift_still_stops_standing_authority(conn):
         require_standing_observation_authority(conn, **kwargs)
 
 
-
 def test_panel_uses_standing_observation_lifecycle_semantics():
     import inspect
     from sentinel.panel import sources

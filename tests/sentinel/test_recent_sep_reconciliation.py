@@ -4,6 +4,8 @@ import datetime as dt
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
+
 from sentinel.feed import maintenance, readiness, recent_reconciliation as R
 
 
@@ -18,6 +20,7 @@ def test_recent_reconciliation_splits_cross_year_window_without_gaps(monkeypatch
     sessions = ["2025-12-30", "2025-12-31", "2026-01-02"]
     monkeypatch.setattr(R, "REQUIRED_CLOSES", len(sessions))
     monkeypatch.setattr(R.store, "_assert_corpus_locked", lambda conn: None)
+    monkeypatch.setattr(R, "load_cursor", lambda conn: None)
     monkeypatch.setattr(R.calendar, "previous_sessions",
                         lambda through, count: list(sessions))
     calls = []
@@ -47,6 +50,7 @@ def test_recent_reconciliation_preserves_an_explicit_injected_source(monkeypatch
     sessions = ["2026-01-02"]
     monkeypatch.setattr(R, "REQUIRED_CLOSES", 1)
     monkeypatch.setattr(R.store, "_assert_corpus_locked", lambda conn: None)
+    monkeypatch.setattr(R, "load_cursor", lambda conn: None)
     monkeypatch.setattr(R.calendar, "previous_sessions",
                         lambda through, count: list(sessions))
     injected = lambda table, params=None, **kwargs: []
@@ -61,6 +65,22 @@ def test_recent_reconciliation_preserves_an_explicit_injected_source(monkeypatch
 
     R.reconcile_recent(object(), through="2026-01-02", fetch=injected)
     assert seen == [injected]
+
+
+def test_recent_reconciliation_refuses_backward_source_traversal(monkeypatch):
+    monkeypatch.setattr(R.store, "_assert_corpus_locked", lambda conn: None)
+    monkeypatch.setattr(
+        R, "load_cursor", lambda conn: _cursor(day="2026-01-03", version=11))
+    reconciled = []
+    monkeypatch.setattr(
+        R.sep_reconciliation, "reconcile_year",
+        lambda *args, **kwargs: reconciled.append((args, kwargs)))
+
+    with pytest.raises(
+            maintenance.SharadarMutationRefused,
+            match="ahead of requested reconciliation"):
+        R.reconcile_recent(object(), through="2026-01-02")
+    assert reconciled == []
 
 
 def test_ingest_recent_source_selects_export_only_for_production_wrapper():

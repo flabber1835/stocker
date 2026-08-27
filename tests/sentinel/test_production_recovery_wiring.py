@@ -160,15 +160,42 @@ def test_regenesis_approval_is_forwarded_to_authorized_automation():
     ) in text
 
 
-def test_nas_schema_and_daily_mutations_cannot_bypass_backup_guard():
-    text = (_repo_root() / "scripts" / "sentinel_go_validate_entry.py").read_text(
+def test_nas_schema_and_recovery_mutations_cannot_bypass_backup_guard():
+    root = _repo_root()
+    entry = (root / "scripts" / "sentinel_go_validate_entry.py").read_text(
         encoding="utf-8")
-    assert "from sentinel import backup_guard, schema" in text
-    schema_guard = text.index("operation='NAS validation schema migration'")
-    schema_mutation = text.index("schema.ensure_schema(c)")
-    daily_guard = text.index("operation='NAS validation explicit daily publication'")
-    daily_mutation = text.index("ingest.daily(c, today=target)", daily_guard)
+    recovery = (root / "sentinel" / "feed" / "outage_recovery.py").read_text(
+        encoding="utf-8")
+    assert "from sentinel import backup_guard, schema" in entry
 
+    # Schema bootstrap/migration is a real financial-database mutation and must
+    # remain behind the external-WAL durability fence.
+    schema_guard = entry.index("operation='NAS validation schema migration'")
+    schema_mutation = entry.index("schema.ensure_schema(c)")
     assert schema_guard < schema_mutation
+
+    # outage_recovery.catch_up() is the single daily/cursor reconciliation path.
+    # Every branch that can still write independently proves the appropriate WAL
+    # durability before the write: ordinary daily, bulk retained reseed, and the
+    # final post-reseed daily publication.
+    assert "outage_recovery.catch_up(c, target_session=target)" in entry
+    daily_guard = recovery.index('operation="canonical outage daily catch-up"')
+    daily_mutation = recovery.index("ingest.daily(conn, today=target)", daily_guard)
+    bulk_guard = recovery.index('operation="retained full corpus reseed"')
+    bulk_mutation = recovery.index(
+        "ingest.seed(conn, date_from=retained_start, date_to=target)", bulk_guard)
+    post_guard = recovery.index(
+        'operation="post-reseed canonical daily publication"')
+    post_mutation = recovery.index("ingest.daily(conn, today=target)", post_guard)
     assert daily_guard < daily_mutation
-    assert "backup_guard.require_writes_permitted" in text
+    assert bulk_guard < bulk_mutation
+    assert post_guard < post_mutation
+
+    # If catch_up reports ALREADY_CURRENT, there is deliberately no second vendor
+    # ingest or other mutation to guard: current publication is terminal success.
+    marker = "if recovered.mode == 'ALREADY_CURRENT':"
+    start = entry.index(marker)
+    end = entry.index("elif recovered.mode == 'RETAINED_FULL_RESEED':", start)
+    already_current = entry[start:end]
+    assert "ingest.daily" not in already_current
+    assert "backup_guard.require_writes_permitted" not in already_current
