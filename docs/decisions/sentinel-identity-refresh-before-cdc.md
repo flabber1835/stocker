@@ -12,22 +12,26 @@ The existing historical-identity guard also clips listing intervals to the globa
 
 ## Decision
 
-1. Routine daily preparation publishes its fully source-stable daily generation before routine SEP key-set and CDC reconciliation.
-2. The daily generation continues to use the exact unpublished TICKERS candidate resolver only for SEP rows in that same generation. It must satisfy the existing source-stability, structural TICKERS, domain, publication and historical-identity checks before becoming authority.
-3. After daily publication, SEP key-set reconciliation and CDC run against the refreshed published resolver. The CDC cursor remains advanceable only after the correction generation it names is published.
-4. A failed pre-existing `sep_mutations` generation is still retried before a new daily run, because its live historical rows must be superseded by the operation that owns their complete replay contract. An identity interval-gap refusal occurs before opening that mutation run, so this recovery exception does not recreate the observed cycle.
-5. Historical identity safety is evaluated per identity rather than by requiring every listing bound to be unchanged inside the global market horizon. For an existing `(permaticker,ticker)` pair, `firstpricedate` cannot change and `lastpricedate` cannot move backward; a forward-only `lastpricedate` extension is allowed. Previously published pairs cannot disappear. A genuinely new pair is allowed only when its first session is after the published SEP frontier. Existing structural TICKERS overlap/ambiguity checks remain fail-closed.
-6. The read-only GO preflight may classify an `IDENTITY_INTERVAL_GAP` as `LOCAL_IDENTITY_REFRESH_REQUIRED` only after a second, GET-only current TICKERS observation is stable, structurally valid, complete under the production TICKERS source membrane, historically safe, and resolves every otherwise-valid pending mutation row. Unknown, reused, ambiguous, structurally invalid, unstable, or historically rewriting candidates remain refusals.
+1. Before a production daily run opens, observe the current complete TICKERS source twice through the production source membrane and require structural validity, metadata completeness, complete-key proof, source stability, and routine historical-identity safety.
+2. Construct a resolver from the published projection plus that exact current TICKERS candidate. Validate the already-known pending SEP `lastupdated` rows through yesterday against it using the canonical CDC envelope, duplicate-key checks, double source observation, permanent identity, and positive raw-close checks. This step is read-only against the corpus and cannot move a cursor.
+3. Pin that exact proven TICKERS candidate as the first TICKERS observation inside the ordinary daily generation. The existing protected-SEP coherence bracket then re-observes live TICKERS after SEP; if source identity changed during preparation, daily refuses before publication.
+4. The daily generation still writes TICKERS and SEP in one `IngestRun` and resolves its own SEP rows with `load_resolver(include_run_id=...)`. It must satisfy the existing source, domain, publication and historical-identity checks before becoming authority.
+5. Only after successful daily publication do routine SEP key-set reconciliation and actual SEP CDC run. They consume the refreshed published resolver. A correction publication precedes its CDC watermark advancement exactly as before.
+6. A failed pre-existing `sep_mutations` generation is still retried before a new daily run, because its live historical rows must be superseded by the operation that owns their complete replay contract. An identity interval-gap refusal occurs before opening that mutation run, so this recovery exception does not recreate the observed cycle.
+7. Historical identity safety is evaluated per identity rather than by requiring every listing bound to be unchanged inside the global market horizon. For an existing `(permaticker,ticker)` pair, `firstpricedate` cannot change and `lastpricedate` cannot move backward; a forward-only `lastpricedate` extension is allowed. Previously published pairs cannot disappear. A genuinely new pair is allowed only when its first session is after the published SEP frontier. Existing structural TICKERS overlap/ambiguity checks remain fail-closed.
+8. The read-only GO preflight may classify a locally missing single identity or `IDENTITY_INTERVAL_GAP` as `LOCAL_IDENTITY_REFRESH_REQUIRED` only after current TICKERS passes the same source/history checks and resolves every otherwise-valid pending mutation row. Reused, ambiguous, structurally invalid, unstable, or historically rewriting candidates remain refusals.
 
 ## Invariants
 
 - No ticker-string fallback is introduced.
 - No historical bar may be re-keyed by metadata-only publication.
+- Prepublication CDC work is validation only; it cannot create a correction run or advance the watermark.
 - No SEP mutation cursor may advance under unpublished identity.
-- A failed daily publication leaves the prior resolver authoritative and CDC untouched.
+- A failed daily publication leaves the prior resolver authoritative and routine CDC untouched.
 - A failed CDC publication leaves its watermark unchanged and retryable.
+- If the process dies after daily publication but before maintenance completes, readiness remains FAIL because the SEP watermark and recent complete proof do not cover the new published decision frontier.
 - TICKERS negative-space, source-stability, same-day immutability, WAL/publication, exact-runtime and broker-separation boundaries remain unchanged.
 
-## Why not validate CDC under unpublished identity?
+## Why this shape
 
-The daily path already has a transactionally coherent same-run TICKERS candidate resolver for its own SEP rows. Extending that unpublished authority into historical CDC would create a new cross-generation dependency and additional recovery states. Publishing the already-validated daily identity first breaks the cycle while keeping CDC dependent only on published identity, which is the simpler financial boundary.
+Publishing identity before any examination of pending mutations would break the liveness cycle but create an avoidable failure window: a deterministic historical ambiguity could be discovered only after daily publication. Using the exact proven current TICKERS candidate for a read-only prepublication CDC proof removes that window without granting unpublished identity mutation authority. Actual historical correction and cursor movement still happen only after the identity generation has published.
