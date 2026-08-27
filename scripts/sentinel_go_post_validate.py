@@ -82,13 +82,24 @@ def atomic_json(path: Path, value: dict) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(name, path)
+        try:
+            directory_fd = os.open(str(path.parent), os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except OSError:
+            pass
     finally:
         if os.path.exists(name):
             os.unlink(name)
 
 
 def main() -> int:
-    env = dict(os.environ)
+    # Use the same literal .env + process-environment merge as the GO probes.
+    # A successful validator must not fail the panel handoff merely because a
+    # required Compose setting such as SENTINEL_BACKUP_DIR lives only in .env.
+    env = phase.controller.go.merged_environment()
     try:
         commit = git("rev-parse", "HEAD")
         if HEX40.fullmatch(commit) is None:
@@ -112,7 +123,7 @@ def main() -> int:
         if inspect_id(f"sentinel-go-test:{commit}") != test:
             raise Refused("test image tag changed after certification")
 
-        atomic_json(OUT, {
+        handoff = {
             "schema": "sentinel.validated-artifact-handoff/2",
             "git_commit": commit,
             "ordinary_runtime_local_image_id": ordinary,
@@ -125,8 +136,13 @@ def main() -> int:
                 "authorized_compose_requires_repo_digest": True,
             },
             "authority": "EVIDENCE_ONLY_NOT_BROKER_AUTHORITY",
-        })
+        }
+
+        # Do not publish a fresh handoff artifact until the promoted panel is
+        # actually recreated successfully. Otherwise a failed finalization can
+        # leave evidence that falsely appears to describe a completed state.
         recreate_panel(env)
+        atomic_json(OUT, handoff)
     except Refused as exc:
         print(f"REFUSED: GO post-validation handoff failed: {exc}", file=sys.stderr)
         return 2
