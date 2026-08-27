@@ -2,10 +2,11 @@
 """Finalize successful GO validation without granting broker authority.
 
 The helper verifies the same retained exact-image certification state used by
-promotion, recreates the read-only panel on the promoted ordinary runtime, and
-writes the exact authorized/test image IDs consumed by the authorized CLI.
+promotion, recreates the read-only panel through the supported Compose wrapper
+so the validated-runtime pointer remains in force, and writes the exact
+authorized/test image IDs consumed by the authorized CLI.
 
-It deliberately performs no automatic image deletion.  Old Sentinel images may
+It deliberately performs no automatic image deletion. Old Sentinel images may
 still be named by an active signed paper-observation certificate even when no
 container is currently running; retention-aware cleanup is a separate
 maintenance concern.
@@ -16,7 +17,6 @@ import json
 import os
 from pathlib import Path
 import re
-import shlex
 import subprocess
 import sys
 import tempfile
@@ -59,21 +59,13 @@ def inspect_id(ref: str) -> str:
     return value
 
 
-def compose_args(env) -> list[str]:
-    result = run(["bash", "scripts/sentinel-compose.sh", "--explain"], env=env)
-    if result.returncode != 0:
-        raise Refused("Sentinel Compose graph unavailable after promotion")
-    try:
-        return shlex.split((result.stdout or "").strip())
-    except ValueError as exc:
-        raise Refused("Sentinel Compose graph malformed") from exc
-
-
 def recreate_panel(env) -> None:
-    args = compose_args(env)
+    # Keep runtime selection and Compose execution in the same wrapper process.
+    # `--explain` alone cannot export the pointer-selected image back into this
+    # Python process; using `--run` prevents a fall-back to sentinel:latest.
     completed = run([
-        "docker", "compose", *args, "up", "-d", "--no-deps",
-        "--force-recreate", "sentinel-panel",
+        "bash", "scripts/sentinel-compose.sh", "--run",
+        "up", "-d", "--no-deps", "--force-recreate", "sentinel-panel",
     ], env=env)
     if completed.returncode != 0:
         raise Refused("promoted read-only panel could not be recreated")
@@ -156,7 +148,7 @@ def main() -> int:
         print(f"REFUSED: GO post-validation handoff failed: {exc}", file=sys.stderr)
         return 2
 
-    print("post-validation: panel recreated on promoted runtime", flush=True)
+    print("post-validation: panel recreated through validated runtime selector", flush=True)
     print(
         "post-validation: preserved prior authority images; no automatic image cleanup performed",
         flush=True,
