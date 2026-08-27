@@ -15,6 +15,14 @@ PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
   exit 1
 }
 
+case "${SENTINEL_GO_TARGET:-DUAL_RUN_OBSERVATION}" in
+  SHADOW|DUAL_RUN_OBSERVATION|HISTORICAL_PAPER_EXECUTION) ;;
+  *)
+    echo "REFUSED: SENTINEL_GO_TARGET must be SHADOW, DUAL_RUN_OBSERVATION, or HISTORICAL_PAPER_EXECUTION" >&2
+    exit 2
+    ;;
+esac
+
 # Surface ordinary-runtime drift cheaply. A stale prior runtime is diagnostic,
 # never authority: promotion occurs only after the requested GO target passes.
 "$PYTHON" scripts/sentinel_runtime_selection.py preflight
@@ -43,7 +51,7 @@ fi
 
 if [ "$PRODUCTION_RUN" -eq 1 ]; then
   # Recreate the read-only panel on the promoted runtime, write an explicit
-  # local-image -> activation-RepoDigest handoff record, and garbage-collect
-  # only old GO scratch tags that Docker confirms are not in use.
+  # exact authorized/test image-id handoff record, and garbage-collect only old
+  # GO scratch tags that Docker confirms are not in use.
   "$PYTHON" scripts/sentinel_go_post_validate.py || exit $?
 fi
