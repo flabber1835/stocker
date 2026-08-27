@@ -5,6 +5,7 @@ import datetime as dt
 import pytest
 
 from sentinel.feed import maintenance_impl as maintenance
+from sentinel.feed import recent_reconciliation
 
 
 FUTURE = dt.date(2026, 8, 28)
@@ -63,6 +64,33 @@ def test_actions_future_cursor_refuses_before_export_or_vendor_fetch(monkeypatch
     ):
         maintenance.reconcile_actions_if_due(
             object(), fetch=forbidden_fetch, through=THROUGH)
+
+    assert calls == []
+
+
+def test_recent_sep_future_cursor_refuses_before_complete_export(monkeypatch):
+    monkeypatch.setattr(
+        recent_reconciliation.store,
+        "_assert_corpus_locked",
+        lambda _conn: None,
+    )
+    monkeypatch.setattr(
+        recent_reconciliation,
+        "load_cursor",
+        lambda _conn: _future_cursor(recent_reconciliation.CURSOR_KIND),
+    )
+    calls = []
+
+    def forbidden_fetch(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("future recent cursor must refuse before export")
+
+    with pytest.raises(
+        maintenance.SharadarMutationRefused,
+        match="recent SEP reconciliation cursor .* is ahead of requested reconciliation",
+    ):
+        recent_reconciliation.reconcile_recent(
+            object(), through=THROUGH, fetch=forbidden_fetch)
 
     assert calls == []
 
