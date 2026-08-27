@@ -48,7 +48,7 @@ done
 # It is re-observed again at the final verdict boundary; this early pass is only
 # a liveness filter and never retained as final account authority.
 if [ "$PRODUCTION_RUN" -eq 1 ]; then
-  "$PYTHON" scripts/sentinel_go_account_preflight.py
+  "$PYTHON" scripts/sentinel_go_account_preflight.py "$@"
 fi
 
 set +e
