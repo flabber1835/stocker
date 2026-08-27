@@ -44,11 +44,21 @@ fi
 "$PYTHON" scripts/sentinel_runtime_selection.py preflight
 
 # A broker-capable target needs a usable PAPER account. Prove that cheap,
-# GET-only volatile prerequisite before starting the multi-image/full-suite work.
-# It is re-observed again at the final verdict boundary; this early pass is only
-# a liveness filter and never retained as final account authority. SHADOW skips.
+# GET-only volatile prerequisite before starting image/test work. It is
+# re-observed again at the final verdict boundary; this early pass is only a
+# liveness filter and never retained as final account authority. SHADOW skips.
 if [ "$PRODUCTION_RUN" -eq 1 ]; then
   "$PYTHON" scripts/sentinel_go_account_preflight.py "$@"
+fi
+
+# Before the multi-image/full-suite certification, build only the exact ordinary
+# runtime and use it for a READ-ONLY diagnostic of the current SEP CDC interval.
+# This catches deterministic cursor/source authority refusals early without
+# allowing uncertified code to create schema, advance cursors, renormalize bars,
+# or publish a corpus generation. The certified preparation still repeats the
+# source observation later at the real write boundary.
+if [ "$PRODUCTION_RUN" -eq 1 ]; then
+  "$PYTHON" scripts/sentinel_go_readonly_data_preflight.py
 fi
 
 set +e
