@@ -6,6 +6,9 @@
 # is inherited across exec, including the re-exec after a successful ff-only
 # update. The Python bootstrap recovers only facts already authoritative in the
 # existing deployment; it never guesses account authority or an arbitrary key.
+# Session/source timing is handled by the fenced installation entry after exact
+# reviewed software has been staged; it is never a prerequisite for starting an
+# installation command.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -74,4 +77,4 @@ if [ "$before" != "$after" ]; then
   exec bash scripts/sentinel-autonomous-deploy.sh "$@"
 fi
 
-exec "$PYTHON" scripts/sentinel_autonomous_deploy_bootstrap.py "$@"
+exec "$PYTHON" scripts/sentinel_autonomous_deploy_install_entry.py "$@"
