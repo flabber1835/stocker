@@ -130,14 +130,25 @@ def _write_run_pass(*, target: str) -> None:
 
 
 def _install_wallclock_independent_dual_overlay(*, development: bool) -> None:
-    """Extend this vetted entry without creating a second operator entrypoint."""
+    """Extend this vetted entry without creating another operator entrypoint."""
     if development:
         return
     # When executed as a script, make this exact module instance importable by
-    # its canonical name before loading the overlay. This prevents Python from
-    # constructing a second copy of the verified-entry globals under a different
-    # module name; the overlay must modify the exact authority path executing now.
+    # its canonical name before loading either overlay. Both overlays must patch
+    # the authority path executing under the public lifecycle lock, not a second
+    # imported copy of this module.
     sys.modules.setdefault("sentinel_go_verified_entry", sys.modules[__name__])
+
+    # First define the causal deployment frontier: preparation may advance only
+    # through the newest session whose reviewed Sharadar not-before has elapsed.
+    # A newer closed but non-final session stays a waiting condition.
+    import sentinel_go_24x7_entry as source_final  # noqa: PLC0415
+    source_final.install()
+
+    # Then layer the installation/session split. This retains the public
+    # SHADOW/DUAL/PAPER NO_GO verdicts until an actual session has sufficient
+    # pre-open margin, while permitting exact runtime promotion under the
+    # separate fenced-installation contract.
     import sentinel_go_install_entry as install_anytime  # noqa: PLC0415
     install_anytime._install_overlay()
 
