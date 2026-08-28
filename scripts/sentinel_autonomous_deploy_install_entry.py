@@ -12,6 +12,10 @@ The original bundle remains the reviewed installation artifact. The later
 publication binding is a separate local evidence record linked to that bundle.
 No waiting state grants broker or shadow-session authority, and no vendor ingest
 is attempted before the reviewed source-final not-before instant.
+
+This module is import-only. The supported operator entry remains
+``scripts/sentinel-autonomous-deploy.sh``, which acquires the host-global lock,
+fast-forwards Git safely, and enters the vetted bootstrap.
 """
 from __future__ import annotations
 
@@ -364,8 +368,6 @@ finally:
                 print("  following open future: %s" % timing["prospective"], flush=True)
                 print("  remaining pre-open ms: %s" % timing["remaining_ms"], flush=True)
             else:
-                # Only after the owed target itself is source-final may the
-                # existing vendor stabilization/catch-up path contact Sharadar.
                 verdict = self._readiness_verdict()
                 if verdict.get("ready") is True:
                     if timing["frontier"] != timing["target"]:
@@ -381,8 +383,6 @@ finally:
                         verdict, attempt=attempt,
                         reason="installation data readiness has a non-temporal failure")
                 self._wait_for_data(deadline=deadline)
-                # Re-observe target/finality/margin after every potentially long
-                # vendor/ingest path before using the resulting publication.
                 attempt += 1
                 continue
 
@@ -396,7 +396,6 @@ finally:
             attempt += 1
 
     def _bind_current_publication(self, expected_timing: Mapping) -> None:
-        """Re-earn economic data authority and recheck remaining session margin."""
         reviewed = self.reviewed_validation
         if reviewed is None:
             raise core.DeployRefused(
@@ -477,8 +476,6 @@ finally:
                 self._bind_current_publication(timing)
                 return
             except CausalSessionExpired as exc:
-                # No authority was persisted. Continue under the same disabled+
-                # kill fence and wait for the next causally eligible close.
                 self._write_deployment_state(
                     "WAITING_FOR_NEXT_CAUSAL_SESSION", attempt=1,
                     failures=[{"name": "session_timing", "detail": str(exc)}])
@@ -492,8 +489,12 @@ def _install_overlay() -> None:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    _install_overlay()
-    return bootstrap.main(list(argv if argv is not None else sys.argv[1:]))
+    print(
+        "REFUSED: sentinel_autonomous_deploy_install_entry.py is internal; "
+        "use scripts/sentinel-autonomous-deploy.sh",
+        file=sys.stderr,
+    )
+    return 2
 
 
 if __name__ == "__main__":
