@@ -64,13 +64,16 @@ spec.loader.exec_module(runner)
 
 TERMS_PATH = LAB_ROOT / "backtester" / "data" / "causal-terminal-terms-v1.json"
 TERMS_CHECKSUM_PATH = LAB_ROOT / "backtester" / "data" / "causal-terminal-terms-v1.SHA256"
+BOUNDARY_SESSION = "2001-06-04"
 
 _session_axis: Sequence[str] | None = None
 _exact_by_session: dict[str, tuple[object, ...]] | None = None
 _terms_digest: str | None = None
+_boundary_witness: dict | None = None
 
 _real_build_sfp_levels = runner.build_sfp_levels
 _real_build_terminal_events = runner.build_terminal_events
+_real_wealth_equities = runner.wealth_equities
 
 
 def _capture_session_axis(*args, **kwargs):
@@ -141,8 +144,30 @@ def _terminal_events_with_exact_terms(
     return merge_terminal_events(str(session), vendor_events, exact)
 
 
+def _wealth_equities_with_boundary_witness(state):
+    global _boundary_witness
+    core_open, core_close = _real_wealth_equities(state)
+    if str(state.last_processed_session) == BOUNDARY_SESSION:
+        wealth = ((state.last_evidence or {}).get("wealth_core") or {})
+        unresolved = tuple(map(str, wealth.get("open_unresolved_security_ids") or ()))
+        if core_open is None or unresolved:
+            raise RuntimeError(
+                f"causal terminal repair failed at {BOUNDARY_SESSION}: "
+                f"resolved_open_equity={core_open!r} unresolved={unresolved!r}")
+        _boundary_witness = {
+            "session": BOUNDARY_SESSION,
+            "resolved_open_equity": float(core_open),
+            "open_unresolved_security_ids": [],
+        }
+        print(
+            f"[PASS] {BOUNDARY_SESSION} Wealth Core open resolved exactly: "
+            f"{float(core_open):.6f}", flush=True)
+    return core_open, core_close
+
+
 runner.build_sfp_levels = _capture_session_axis
 runner.build_terminal_events = _terminal_events_with_exact_terms
+runner.wealth_equities = _wealth_equities_with_boundary_witness
 
 # Bounded verification may stop at the original failing session while using the
 # same chronological runner and terminal-input seam.  The full Actions replay
@@ -156,6 +181,10 @@ if _bounded_end:
 def _postprocess_provenance() -> None:
     if _terms_digest is None or _exact_by_session is None:
         raise RuntimeError("causal terminal terms were never loaded by the replay")
+    if str(runner.END_SESSION) >= BOUNDARY_SESSION and _boundary_witness is None:
+        raise RuntimeError(
+            f"replay reached {runner.END_SESSION} but never proved the "
+            f"{BOUNDARY_SESSION} open boundary")
     summary_path = OUTPUT / "summary.json"
     manifest_path = OUTPUT / "manifest.json"
     sums_path = OUTPUT / "SHA256SUMS.txt"
@@ -180,6 +209,7 @@ def _postprocess_provenance() -> None:
         "sha256": _terms_digest,
         "events": events,
         "production_type": "stock_strategy_shared.wealth_core.terminal.TerminalTerms",
+        "original_failure_boundary": _boundary_witness,
     }
     summary_path.write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
