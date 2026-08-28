@@ -1,0 +1,142 @@
+name: Backtester - unresolved open diagnostic
+
+on:
+  push:
+    branches:
+      - research/backtester
+    paths:
+      - '.github/workflows/backtester-unresolved-open-diagnostic.yml'
+      - 'backtester/diagnostics/unresolved_open_transition.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backtester-unresolved-open-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    name: Fresh A-only unresolved-open diagnostic
+    if: github.ref_name == 'research/backtester'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+
+    steps:
+      - name: Check out frozen research inputs
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/backtester
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-unresolved-open-diagnostic.yml
+            /backtester/diagnostics/unresolved_open_transition.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /docs/backtester-experiment-contract.md
+            /PIT input data/MANIFEST.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
+            /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/SHA256SUMS.txt
+            /research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
+
+      - name: Enforce research-only boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "research/backtester"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test -z "$(git status --porcelain)"
+          echo "BACKTESTER_BRANCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+
+      - name: Check out exact strategy source read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: c502d077cae9c494f8b74a41ee8be7f40b25837d
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+            docs/sentinel-handoff/00_README
+
+      - name: Verify exact main identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED=c502d077cae9c494f8b74a41ee8be7f40b25837d
+          ACTUAL="$(git -C main-src rev-parse HEAD)"
+          test "${ACTUAL}" = "${EXPECTED}"
+          test -z "$(git -C main-src status --porcelain)"
+          test -f main-src/docs/sentinel-handoff/00_README/FROZEN_SENTINEL_1P1_RULE.json
+          test -f main-src/docs/sentinel-handoff/00_README/SHA256SUMS.txt
+          echo "BACKTESTER_MAIN_SHA=${ACTUAL}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_MAIN_ROOT=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install exact main runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+
+      - name: Compile diagnostic and strategy sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile backtester/diagnostics/unresolved_open_transition.py
+          python -m py_compile backtester/experiments/2026-08-27-sector-abc/run.py
+          python -m compileall -q -f main-src/sentinel main-src/shared/stock_strategy_shared
+
+      - name: Run fresh A-only diagnostic replay
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: '1'
+          BACKTESTER_LAB_ROOT: ${{ github.workspace }}
+          BACKTESTER_DIAG_OUTPUT: ${{ github.workspace }}/backtester-results/unresolved-open-diagnostic.json
+        run: |
+          set +e
+          rm -rf backtester-results
+          python backtester/diagnostics/unresolved_open_transition.py \
+            --lab-root . \
+            --main-root main-src \
+            --output backtester-results/diagnostic-run \
+            2>&1 | tee backtester-unresolved-open.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if test -f backtester-results/unresolved-open-diagnostic.json; then
+            echo "Expected unresolved-open boundary captured (runner exit ${rc})."
+            cat backtester-results/unresolved-open-diagnostic.json
+          else
+            echo "Diagnostic replay did not capture the target boundary; runner exit ${rc}." >&2
+            exit 1
+          fi
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: backtester-unresolved-open-${{ github.run_id }}
+          path: |
+            backtester-results/unresolved-open-diagnostic.json
+            backtester-unresolved-open.log
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
