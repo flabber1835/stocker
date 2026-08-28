@@ -1,5 +1,47 @@
 # AGENTS.md
 
+## `research/backtester` branch — mandatory experiment contract
+
+When the current task is on or explicitly concerns `research/backtester`, read
+`docs/backtester-experiment-contract.md` before creating experiment code,
+workflows, datasets, or reporting backtest results.
+
+This branch-specific section takes precedence over the generic PR-to-`main`
+workflow below for backtester-only research work.
+
+Hard rules for `research/backtester`:
+
+1. **`main` is read-only.** Backtester work must never push, merge, commit, tag,
+   rewrite, or otherwise mutate `main`. Do not automatically open or merge a PR
+   into `main`. An exact `main` SHA may be fetched/checked out only as strategy
+   source material.
+2. **Experiment input data must already exist on `research/backtester` before a
+   backtest starts.** Raw Sharadar data, finished PIT reconstructions, benchmark
+   data, and causal metadata must be frozen and hash-pinned. PIT synthesis,
+   historical-data repair, scraping, or metadata reconstruction is a separate
+   dataset-maintenance task and must never happen inside an economic backtest.
+3. **No prerecorded decisions may drive a simulation.** Do not use tapes,
+   oracles, prior holdings, trades, pending orders, Sentinel/LD-RC decisions,
+   crisis/confirmation schedules, transition paths, or prior NAV/equity curves
+   as replay inputs. Historical files of that kind may be used only after a
+   fresh replay for comparison/debugging.
+4. **Every economic result must come from a fresh causal chronological replay.**
+   Start from explicit initial state and advance one historical session at a
+   time. All positions, cash, stops, cooldowns, controller state, pending orders,
+   allocations and NAV must arise inside that run. For A/B/C experiments, run
+   every arm on the same session before advancing to the next session, changing
+   only the declared experimental dimension.
+5. **Record exact provenance.** Every result must retain the strategy SHA,
+   backtester experiment-code SHA, dataset/manifest hashes, date window, PIT
+   status, execution timing, and sufficient daily output to audit the result.
+6. **Backtester writes stay on the backtester side.** Prefer GitHub Actions
+   artifacts for results. Any workflow granted repository write permission must
+   prove its only branch write target is `research/backtester`.
+
+The governing principle is: **frozen inputs are allowed; frozen decisions are
+not.** If any hard rule cannot be proven, do not present CAGR, Sharpe, or maximum
+drawdown as an authoritative backtest result.
+
 # Sentinel
 
 This repository contains one production architecture. Stocker is gone.
