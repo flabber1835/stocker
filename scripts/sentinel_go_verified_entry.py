@@ -129,6 +129,19 @@ def _write_run_pass(*, target: str) -> None:
     )
 
 
+def _install_wallclock_independent_dual_overlay(*, development: bool) -> None:
+    """Extend this vetted entry without creating a second operator entrypoint."""
+    if development:
+        return
+    # When executed as a script, make this exact module instance importable by
+    # its canonical name before loading the overlay. This prevents Python from
+    # constructing a second copy of the verified-entry globals under a different
+    # module name; the overlay must modify the exact authority path executing now.
+    sys.modules.setdefault("sentinel_go_verified_entry", sys.modules[__name__])
+    import sentinel_go_install_entry as install_anytime  # noqa: PLC0415
+    install_anytime._install_overlay()
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     raw = list(argv if argv is not None else sys.argv[1:])
     development = (
@@ -148,6 +161,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 controller.entry.authorize_verified_orchestration()
             except RuntimeError as exc:
                 raise controller.PhaseRefused(str(exc)) from exc
+        _install_wallclock_independent_dual_overlay(development=development)
         phase.install()
         # Production GO is intentionally verbose: safe build/test output streams
         # live, sensitive probes emit colored progress/heartbeat lines, suites run
