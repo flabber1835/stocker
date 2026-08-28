@@ -1,0 +1,43 @@
+{
+  "records": [
+    {
+      "cash_per_share": 80.0,
+      "effective_session": "2001-05-30",
+      "kind": "CASH_MERGER",
+      "known_by": "2001-04-30",
+      "reference": "Northrop/Litton residual merger: $80 cash per common share, effective 2001-05-30",
+      "security_id": "120448",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/72945/000007294501500013/form10k.pdf",
+        "https://investor.northropgrumman.com/news-releases/news-release-details/northrop-grumman-sets-special-meeting-stockholders-litton",
+        "https://investor.northropgrumman.com/news-releases/news-release-details/northrop-grumman-announces-completion-merger-litton-industries"
+      ],
+      "ticker": "LIT1"
+    },
+    {
+      "cash_in_lieu_price_per_delivered_share": 57.45,
+      "delivered_security_id": "573113",
+      "delivered_ticker": "TYC",
+      "effective_session": "2001-06-01",
+      "exchange_ratio": 0.6907,
+      "kind": "CONVERSION",
+      "known_by": "2001-03-29",
+      "price_witness": {
+        "closeunadj": 57.45,
+        "security_id": "573113",
+        "session": "2001-05-31",
+        "source_sep_sha256": "23f8a84400e69077ad251563c25ece80632d00fe9cce317ac421b0525a0da140",
+        "ticker": "TYC"
+      },
+      "reference": "Tyco/CIT merger: 0.6907 TYC per CIT common share; fractional cash at prior-trading-day TYC NYSE close",
+      "security_id": "122131",
+      "sources": [
+        "https://contracts.justia.com/companies/tyco-capital-corp-82500/contract/1143615/",
+        "https://www.sec.gov/Archives/edgar/data/833444/000104746903025320/a2113549z10-ka.htm",
+        "https://www.bcsc.bc.ca/securities-law/law-and-policy/exemption-orders-prior-to-2002/2001/the-cit-group-inc-et-al-mrrs1"
+      ],
+      "ticker": "CIT.A"
+    }
+  ],
+  "schema": "backtester.causal-terminal-terms/1"
+}
