@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
-# One-command NAS financial validation with certified installation preparation.
+# One-command NAS financial validation with a certified, bounded preparation.
 #
 # The Python producer parses .env literally; this launcher never sources it and
 # therefore never evaluates or echoes a credential. Production corpus mutation
 # happens only after the exact candidate artifacts pass the stable certification
-# boundary installed by the phased GO entry. DUAL_RUN_OBSERVATION installation
-# may complete while session data is waiting; session/economic authority remains
-# separately fail-closed until source finality and the execution window pass.
+# boundary installed by the phased GO entry.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -96,8 +94,7 @@ fi
 # This catches deterministic cursor/source authority refusals early without
 # allowing uncertified code to create schema, advance cursors, renormalize bars,
 # or publish a corpus generation. The certified preparation still repeats the
-# source observation later at the real write boundary when that session is
-# causally eligible.
+# source observation later at the real write boundary.
 if [ "$PRODUCTION_RUN" -eq 1 ]; then
   go_phase "READ-ONLY SHARADAR PREFLIGHT"
   "$PYTHON" scripts/sentinel_go_readonly_data_preflight.py
@@ -105,13 +102,13 @@ fi
 
 go_phase "CERTIFICATION + FINANCIAL READINESS"
 set +e
-"$PYTHON" scripts/sentinel_go_install_entry.py "$@"
+"$PYTHON" scripts/sentinel_go_verified_entry.py "$@"
 VALIDATION_RC=$?
 set -e
 
 # The lower-level scripts/sentinel_go_validate.py producer is deliberately not
 # executed directly by this launcher; production authority enters through the
-# verified, installation-aware lifecycle command above.
+# verified lifecycle command above.
 if [ "$VALIDATION_RC" -ne 0 ]; then
   go_warn "GO validation returned NO_GO/REFUSED (exit $VALIDATION_RC)"
   exit "$VALIDATION_RC"
