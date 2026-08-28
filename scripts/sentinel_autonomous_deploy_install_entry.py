@@ -338,6 +338,46 @@ finally:
             and type(value.get("remaining_ms")) is int
             and value["remaining_ms"] >= go.MIN_REMAINING_DEADLINE_MARGIN_MS)
 
+    def _assert_causal_vendor_window(
+            self, *, sessions: Optional[Sequence[str]] = None) -> None:
+        """Recheck the exact session window before any Sharadar-side operation."""
+        target = getattr(self, "_causal_wait_target", None)
+        if target is None:
+            return
+        timing = self._causal_timing()
+        if (timing.get("target") != target
+                or not self._timing_eligible(timing)):
+            raise CausalSessionExpired(
+                "causal vendor wait lost its exact target or minimum pre-open margin")
+        if sessions is None:
+            return
+        requested = tuple(str(item) for item in sessions)
+        if not requested:
+            raise core.DeployRefused("causal vendor wait requested no sessions")
+        try:
+            target_date = datetime.strptime(target, "%Y-%m-%d").date()
+            requested_dates = tuple(
+                datetime.strptime(item, "%Y-%m-%d").date()
+                for item in requested)
+        except ValueError as exc:
+            raise core.DeployRefused(
+                "causal vendor wait session identity is malformed") from exc
+        if any(item > target_date for item in requested_dates):
+            raise core.DeployRefused(
+                "causal vendor wait requested a session newer than its final target")
+
+    def _vendor_publication_probe(
+            self, sessions: Sequence[str], minimum_rows: int) -> Mapping:
+        self._assert_causal_vendor_window(sessions=sessions)
+        return super()._vendor_publication_probe(sessions, minimum_rows)
+
+    def _base_cli(self, args: Sequence[str], *, capture: bool = False,
+                  check: bool = True) -> subprocess.CompletedProcess:
+        if (list(args) == ["feed-daily"]
+                and getattr(self, "_causal_wait_target", None) is not None):
+            self._assert_causal_vendor_window()
+        return super()._base_cli(args, capture=capture, check=check)
+
     def _wait_until_causal_ready(self) -> Mapping:
         """Wait without vendor mutation until the target itself is source-final."""
         deadline = time.monotonic() + self.cfg.data_wait_timeout_seconds
@@ -371,7 +411,16 @@ finally:
                     self._refuse_data_readiness(
                         verdict, attempt=attempt,
                         reason="installation data readiness has a non-temporal failure")
-                self._wait_for_data(deadline=deadline)
+                self._causal_wait_target = str(timing["target"])
+                try:
+                    self._wait_for_data(deadline=deadline)
+                except CausalSessionExpired as exc:
+                    self._write_deployment_state(
+                        "WAITING_FOR_NEXT_CAUSAL_SESSION", attempt=attempt,
+                        failures=[{
+                            "name": "session_timing", "detail": str(exc)}])
+                finally:
+                    self._causal_wait_target = None
                 attempt += 1
                 continue
 
