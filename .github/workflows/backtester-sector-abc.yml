@@ -73,6 +73,7 @@ jobs:
           sparse-checkout: |
             sentinel
             shared
+            docs/sentinel-handoff/00_README
 
       - name: Verify exact main source identity
         shell: bash
@@ -82,6 +83,8 @@ jobs:
           ACTUAL="$(git -C main-src rev-parse HEAD)"
           test "${ACTUAL}" = "${EXPECTED}"
           test -z "$(git -C main-src status --porcelain)"
+          test -f main-src/docs/sentinel-handoff/00_README/FROZEN_SENTINEL_1P1_RULE.json
+          test -f main-src/docs/sentinel-handoff/00_README/SHA256SUMS.txt
           echo "BACKTESTER_MAIN_SHA=${ACTUAL}" >> "${GITHUB_ENV}"
           echo "BACKTESTER_MAIN_ROOT=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
           printf 'Exact strategy source: main@%s\n' "${ACTUAL}"
