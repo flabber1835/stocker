@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Wall-clock-independent DUAL_RUN_OBSERVATION installation authority.
 
-The retained GO verdicts remain session/economic verdicts.  This entry adds a
-separate requested-target rule for installing the exact certified dual-run
-software while it is fenced and waiting for a causally eligible session.
+This import-only overlay separates exact software installation from volatile
+session authority.  The public SHADOW/DUAL/PAPER verdicts keep their original
+economic meanings.  A separate fenced-installation acceptance may promote the
+exact certified runtime while the next decision session is waiting.
 
-A waiting installation never becomes SHADOW_GO, DUAL_RUN_GO, or
-PAPER_EXECUTION_GO merely because the software can be installed.  Those verdicts
-continue to require current Sharadar readiness and the reviewed pre-open timing
-window.  Runtime promotion is permitted from a waiting bundle only when every
-non-session installation invariant is independently proved.
+The source-final preparation overlay has already caught the corpus up through
+the newest causally final session.  This layer never converts an arbitrary
+Sharadar readiness failure into a waiting state: a private read-only classifier
+must prove that the sole failure is freshness for sessions whose reviewed
+source-final not-before has not elapsed.
 """
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import json
 import sys
-from typing import Mapping, Optional, Sequence
+from typing import Mapping, Optional
 import zipfile
 
 import sentinel_go_verified_entry as verified
@@ -29,8 +30,6 @@ phase = verified.phase
 
 WAIT_POLICY = "CAUSAL_SESSION_BINDING_AFTER_SOURCE_FINAL_V1"
 WAIT_POLICY_SUBJECT = "deployment_wait_policy"
-_PREPARATION_MARKER = "SENTINEL_GO_PREPARATION="
-_PREPARATION_FAILURE_MARKER = "SENTINEL_GO_PREPARATION_FAILURE="
 _ALLOWED_WAIT_DUAL_FAILURES = frozenset({
     "GATE_SHARADAR_READINESS_NOT_PASS",
     "SHADOW_STATE_NOT_FRESH",
@@ -43,120 +42,85 @@ _BASE_EMIT = phase._ORIGINAL_EMIT
 _BASE_TARGET_OK = controller._target_ok
 
 
-@dataclass(frozen=True)
-class DeploymentPreparationView:
-    """Installation-complete preparation with session catch-up explicitly deferred."""
+_WAIT_READINESS_CODE = r'''
+import json, os
+from datetime import datetime, timezone
+from sentinel.feed import readiness, store
+from sentinel.shadow_runtime import publication_not_before
 
-    base: object
-    deferred: bool
-    deferred_reason: Optional[str] = None
-
-    def __getattr__(self, name):
-        return getattr(self.base, name)
-
-    @property
-    def status(self):
-        return go.PASS if self.deferred else self.base.status
-
-    @property
-    def elapsed_milliseconds(self):
-        # No Sharadar ingest occurred in the deferred case.  The base elapsed
-        # measurement includes schema/bootstrap work and must not be relabelled
-        # as bounded vendor-ingest latency by the downstream database probe.
-        return 0 if self.deferred else self.base.elapsed_milliseconds
-
-    @property
-    def complete(self):
-        if not self.deferred:
-            return bool(self.base.complete)
-        return bool(
-            self.base.runtime_image_digest is not None
-            and go._IMAGE_DIGEST.fullmatch(
-                str(self.base.runtime_image_digest)) is not None
-            and self.base.schema_migration_attempted is True
-            and self.base.bounded_sharadar_daily_attempted is False
-            and self.base.broker_mutation_attempts == 0
-            and go._HEX64.fullmatch(
-                str(self.base.evidence_sha256 or "")) is not None
-        )
-
-    def to_dict(self):
-        value = dict(self.base.to_dict())
-        if not self.deferred:
-            return value
-        value["status"] = go.PASS
-        value["completed_before_validation_boundary"] = True
-        value["bounded_sharadar_daily_attempted"] = False
-        value["evidence_sha256"] = go._evidence_digest({
-            "base_preparation_evidence_sha256": self.base.evidence_sha256,
-            "installation_policy": WAIT_POLICY,
-            "deferred_reason": self.deferred_reason,
-        })
-        return value
+c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
+try:
+    with c.cursor() as cur:
+        cur.execute('BEGIN TRANSACTION READ ONLY')
+        cur.execute('SHOW transaction_read_only')
+        assert str(cur.fetchone()[0]).lower() == 'on'
+    result = readiness.check_readiness(c)
+    failures = list(result.failures)
+    freshness = [item for item in failures if str(item.name) == 'freshness']
+    missing = []
+    if len(freshness) == 1 and isinstance(freshness[0].value, dict):
+        raw = freshness[0].value.get('missing_sessions')
+        if isinstance(raw, list) and all(isinstance(item, str) for item in raw):
+            missing = raw
+    now = datetime.now(timezone.utc)
+    nonfinal = bool(
+        missing
+        and all(now < publication_not_before(session) for session in missing))
+    only_nonfinal_freshness = bool(
+        not result.ready and len(failures) == 1
+        and len(freshness) == 1 and nonfinal)
+    print('SENTINEL_GO_WAIT_READINESS=' + json.dumps({
+        'ready': bool(result.ready),
+        'only_nonfinal_freshness': only_nonfinal_freshness,
+        'failure_count': len(failures),
+        'missing_session_count': len(missing),
+        'transaction_read_only': True,
+    }, sort_keys=True))
+finally:
+    c.rollback(); c.close()
+'''.strip()
 
 
-def _preparation_payload(runner) -> Optional[Mapping[str, object]]:
-    text = str(getattr(runner, "last_preparation_output", "") or "")
-    if _PREPARATION_FAILURE_MARKER in text:
-        return None
+def _readiness_wait_is_temporal(
+        runner, *, env: Mapping[str, str], runtime_ref: Optional[str]) -> bool:
+    if (not runtime_ref
+            or go._IMAGE_DIGEST.fullmatch(str(runtime_ref)) is None
+            or not env.get("SENTINEL_POSTGRES_PASSWORD")):
+        return False
+    run_env = go._without_broker_authority(env)
+    compose_args = go._resolve_compose_args(runner, run_env)
+    if compose_args is None:
+        return False
+    run_env["SENTINEL_RUNTIME_IMAGE_REF"] = str(runtime_ref)
+    completed = runner.run([
+        "docker", "compose", *compose_args, "--profile", "cli", "run",
+        "--rm", "-T", "--no-deps", "--entrypoint", "python", "sentinel",
+        "-c", _WAIT_READINESS_CODE,
+    ], env=run_env)
+    marker = "SENTINEL_GO_WAIT_READINESS="
     payload = None
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line.startswith(_PREPARATION_MARKER):
-            continue
-        try:
-            candidate = json.loads(line[len(_PREPARATION_MARKER):])
-        except (TypeError, ValueError):
-            return None
-        payload = candidate if isinstance(candidate, dict) else None
-    return payload
-
-
-def _deferred_preparation(result, runner) -> Optional[str]:
-    """Return the exact benign timing reason; None keeps the base hard failure."""
-    payload = _preparation_payload(runner)
+    if completed.returncode == 0:
+        for line in (completed.stdout or "").splitlines():
+            if line.startswith(marker):
+                try:
+                    payload = json.loads(line[len(marker):])
+                except json.JSONDecodeError:
+                    payload = None
     expected = {
-        "schema_migrated", "source_not_before_satisfied",
-        "following_open_future", "bounded_sharadar_daily",
-        "publication_current",
+        "ready", "only_nonfinal_freshness", "failure_count",
+        "missing_session_count", "transaction_read_only",
     }
-    if (not isinstance(payload, dict) or set(payload) != expected
-            or payload.get("schema_migrated") is not True
-            or payload.get("bounded_sharadar_daily") is not False
-            or type(payload.get("source_not_before_satisfied")) is not bool
-            or type(payload.get("following_open_future")) is not bool
-            or type(payload.get("publication_current")) is not bool
-            or result.schema_migration_attempted is not True
-            or result.bounded_sharadar_daily_attempted is not False
-            or result.broker_mutation_attempts != 0):
-        return None
-    source_final = payload["source_not_before_satisfied"]
-    prospective = payload["following_open_future"]
-    if source_final and prospective:
-        return None
-    if not source_final:
-        return "SHARADAR_SOURCE_NOT_FINAL"
-    return "FOLLOWING_EXECUTION_OPEN_NOT_FUTURE"
-
-
-def _preparation_guarded(*args, **kwargs):
-    if not phase._PHASE["certified"]:
-        phase._PHASE["prepared"] = False
-        return phase._unavailable_preparation(
-            kwargs.get("runtime_ref"), "CERTIFICATION_NOT_PASS_NO_MUTATION")
-    result = phase._ORIGINAL_PREPARATION(*args, **kwargs)
-    runner = args[0] if args else kwargs.get("runner")
-    reason = _deferred_preparation(result, runner)
-    view = DeploymentPreparationView(
-        result, deferred=reason is not None, deferred_reason=reason)
-    phase._PHASE["prepared"] = bool(view.complete)
-    if view.deferred:
-        print(
-            "GO installation preparation: PASS - %s; session catch-up deferred"
-            % reason,
-            flush=True,
-        )
-    return view
+    return bool(
+        isinstance(payload, dict)
+        and set(payload) == expected
+        and payload.get("transaction_read_only") is True
+        and type(payload.get("ready")) is bool
+        and type(payload.get("only_nonfinal_freshness")) is bool
+        and type(payload.get("failure_count")) is int
+        and payload["failure_count"] >= 0
+        and type(payload.get("missing_session_count")) is int
+        and payload["missing_session_count"] >= 0
+        and payload.get("only_nonfinal_freshness") is True)
 
 
 def _structural_database_complete(base) -> bool:
@@ -231,8 +195,7 @@ def _structural_database_complete(base) -> bool:
         and deadline["observed_source_final_to_following_open"]
             >= go.MIN_SOURCE_FINAL_TO_OPEN_MS
         and deadline["minimum_remaining_margin"]
-            == go.MIN_REMAINING_DEADLINE_MARGIN_MS
-    )
+            == go.MIN_REMAINING_DEADLINE_MARGIN_MS)
 
 
 @dataclass(frozen=True)
@@ -254,8 +217,7 @@ class InstallCompatibleDatabaseHealthView:
             self.base.complete
             and type(self.actual_remaining_to_execution_open_ms) is int
             and self.actual_remaining_to_execution_open_ms
-                >= go.MIN_REMAINING_DEADLINE_MARGIN_MS
-        )
+                >= go.MIN_REMAINING_DEADLINE_MARGIN_MS)
 
     def remaining_now_ms(self):
         if type(self.actual_remaining_to_execution_open_ms) is not int:
@@ -294,16 +256,23 @@ def run_installable_phased(*args, **kwargs):
             go._utc_text(datetime.now(timezone.utc)),
             {"installation_structural_health": True,
              "session_timing_ready": _session_ready(health),
-             "base_evidence_sha256": health.base.evidence_sha256},
-        )
+             "base_evidence_sha256": health.base.evidence_sha256})
 
     subjects = dict(probes.subject_values)
-    waiting = bool(
-        isinstance(probes.preparation, DeploymentPreparationView)
-        and probes.preparation.deferred)
-    waiting = waiting or gates["sharadar_readiness"].status != go.PASS
-    waiting = waiting or not _session_ready(health)
-    if waiting:
+    readiness_pass = gates["sharadar_readiness"].status == go.PASS
+    temporal_readiness_wait = False
+    if not readiness_pass:
+        runner = args[0] if args else kwargs.get("runner")
+        if runner is None:
+            runner = controller.DiagnosticRunner()
+        resolved_env = dict(kwargs.get("env") or go.merged_environment())
+        temporal_readiness_wait = _readiness_wait_is_temporal(
+            runner, env=resolved_env,
+            runtime_ref=probes.tests.runtime_image_digest)
+
+    waiting = (not readiness_pass) or not _session_ready(health)
+    safe_wait = readiness_pass or temporal_readiness_wait
+    if waiting and safe_wait:
         subjects.pop("data_publication", None)
         subjects[WAIT_POLICY_SUBJECT] = WAIT_POLICY
 
@@ -314,8 +283,7 @@ def run_installable_phased(*args, **kwargs):
         production_db_writes=probes.production_db_writes,
         input_mode=probes.input_mode,
         preparation=probes.preparation,
-        database_health=health,
-    )
+        database_health=health)
 
 
 def derive_installable_verdicts(probes):
@@ -338,12 +306,10 @@ def _wait_failures_safe(validation: Mapping) -> bool:
         return False
     dual = failures.get("dual_run")
     return bool(
-        isinstance(dual, list)
-        and dual
+        isinstance(dual, list) and dual
         and len(set(dual)) == len(dual)
         and all(isinstance(item, str) for item in dual)
-        and set(dual).issubset(_ALLOWED_WAIT_DUAL_FAILURES)
-    )
+        and set(dual).issubset(_ALLOWED_WAIT_DUAL_FAILURES))
 
 
 def _document_install_safe(validation: Mapping, tests: Mapping) -> bool:
@@ -360,13 +326,15 @@ def _document_install_safe(validation: Mapping, tests: Mapping) -> bool:
         if (subjects.get(WAIT_POLICY_SUBJECT) != expected_wait
                 or "data_publication" in subjects):
             return False
+
         prep = validation["preparation"]
         if (prep.get("status") != go.PASS
                 or prep.get("schema_migration_attempted") is not True
-                or type(prep.get("bounded_sharadar_daily_attempted")) is not bool
+                or prep.get("bounded_sharadar_daily_attempted") is not True
                 or prep.get("completed_before_validation_boundary") is not True
                 or prep.get("broker_mutation_attempts") != 0):
             return False
+
         database = validation["database_financial_health"]
         if database.get("status") != go.PASS:
             return False
@@ -376,15 +344,16 @@ def _document_install_safe(validation: Mapping, tests: Mapping) -> bool:
                 or any(checks[name] is not True for name in structural)
                 or type(checks["prospective_trading_window"]) is not bool):
             return False
+
         gates = {item["id"]: item["status"] for item in validation["gates"]}
         install_gates = (
             "git_identity", "certified_suite_no_skips",
             "database_financial_health", "wealth_core_nas_parity",
-            "alpaca_paper_account", "zero_mutation_boundary",
-        )
+            "alpaca_paper_account", "zero_mutation_boundary")
         if (set(gates) != set(go.GATE_IDS)
                 or any(gates[name] != go.PASS for name in install_gates)):
             return False
+
         git = validation["git"]
         runtime = validation["runtime"]
         if (git.get("branch") != "main" or git.get("clean") is not True
@@ -405,8 +374,7 @@ def _document_install_safe(validation: Mapping, tests: Mapping) -> bool:
                 or tests.get("source_identity_sha256")
                     != runtime.get("source_identity_sha256")):
             return False
-        shadow_state = validation["shadow_state"]
-        return bool(shadow_state.get("internally_coherent") is True)
+        return validation["shadow_state"].get("internally_coherent") is True
     except (KeyError, TypeError, ValueError):
         return False
 
@@ -423,16 +391,16 @@ def install_target_ok(result, target: str) -> bool:
         with zipfile.ZipFile(result.path, "r") as archive:
             validation = json.loads(archive.read("validation.json").decode("ascii"))
             tests = json.loads(archive.read("test-summary.json").decode("ascii"))
-    except (OSError, KeyError, ValueError, zipfile.BadZipFile, go.ValidationRefused):
+    except (OSError, KeyError, ValueError, zipfile.BadZipFile,
+            go.ValidationRefused):
         return False
     safe = _document_install_safe(validation, tests)
     if safe:
         print(
-            "requested DUAL_RUN_OBSERVATION installation: GO - runtime may be "
-            "promoted fenced; session verdict remains %s"
+            "requested DUAL_RUN_OBSERVATION installation: GO - exact runtime "
+            "may be promoted fenced; session verdict remains %s"
             % result.dual_run_verdict,
-            flush=True,
-        )
+            flush=True)
     return safe
 
 
@@ -455,8 +423,7 @@ def emit_installable(*args, **kwargs):
     return _BASE_EMIT(*args, **kwargs)
 
 
-def _install_overlay():
-    phase._preparation_guarded = _preparation_guarded
+def _install_overlay() -> None:
     phase.StrictDatabaseHealthView = InstallCompatibleDatabaseHealthView
     controller.DatabaseHealthView = InstallCompatibleDatabaseHealthView
     verified.DeploymentCompatibleDatabaseHealthView = InstallCompatibleDatabaseHealthView
@@ -466,9 +433,12 @@ def _install_overlay():
     controller._target_ok = install_target_ok
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
-    _install_overlay()
-    return verified.main(list(argv if argv is not None else sys.argv[1:]))
+def main(argv=None) -> int:
+    print(
+        "REFUSED: sentinel_go_install_entry.py is internal; use "
+        "scripts/sentinel-go-validate.sh",
+        file=sys.stderr)
+    return 2
 
 
 if __name__ == "__main__":
