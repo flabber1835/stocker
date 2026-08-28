@@ -1,0 +1,136 @@
+name: Backtester - scan full-corpus unresolved splits with adjudication
+
+on:
+  push:
+    branches: [research/backtester]
+    paths:
+      - '.github/workflows/backtester-scan-full-corpus-unresolved-splits-adjudicated.yml'
+      - 'backtester/diagnostics/scan_full_corpus_unresolved_splits_adjudicated.py'
+      - 'backtester/causal_split_overrides.py'
+      - 'backtester/data/causal-split-overrides-v1.json'
+      - 'backtester/data/causal-split-overrides-v1.SHA256'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Full normalization audit with four adjudicated splits
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out frozen research inputs
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/backtester
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-scan-full-corpus-unresolved-splits-adjudicated.yml
+            /backtester/diagnostics/scan_full_corpus_unresolved_splits_adjudicated.py
+            /backtester/causal_split_overrides.py
+            /backtester/data/causal-split-overrides-v1.json
+            /backtester/data/causal-split-overrides-v1.SHA256
+            /backtester/experiments/2026-08-27-sector-abc/**
+            /PIT input data/MANIFEST.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
+            /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SHARADAR_SEP_*.csv.gz
+
+      - name: Record research identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          echo "BACKTESTER_BRANCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_LAB_ROOT=${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_SPLIT_ADJUDICATED_SCAN_OUTPUT=${GITHUB_WORKSPACE}/backtester-results/full-corpus-unresolved-splits-adjudicated.json" >> "${GITHUB_ENV}"
+
+      - name: Check out exact main source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: c502d077cae9c494f8b74a41ee8be7f40b25837d
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - name: Verify exact main identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTUAL="$(git -C main-src rev-parse HEAD)"
+          test "${ACTUAL}" = "c502d077cae9c494f8b74a41ee8be7f40b25837d"
+          echo "BACKTESTER_MAIN_SHA=${ACTUAL}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_MAIN_ROOT=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install exact main runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+
+      - name: Compile adjudicated audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile backtester/causal_split_overrides.py
+          python -m py_compile backtester/diagnostics/scan_full_corpus_unresolved_splits_adjudicated.py
+          python -m py_compile backtester/experiments/2026-08-27-sector-abc/run.py
+          (cd backtester/data && sha256sum -c causal-split-overrides-v1.SHA256)
+
+      - name: Scan exact full normalization path
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p backtester-results
+          python backtester/diagnostics/scan_full_corpus_unresolved_splits_adjudicated.py \
+            2>&1 | tee backtester-full-corpus-split-adjudication.log
+
+      - name: Require exact four-event reduction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('backtester-results/full-corpus-unresolved-splits-adjudicated.json').read_text())
+          if x.get('status')!='PASS': raise SystemExit('adjudicated scan did not PASS')
+          if x.get('bars_processed')!=46238394 or x.get('last_session')!='2026-07-31':
+              raise SystemExit(f"wrong corpus boundary: {x.get('bars_processed')} {x.get('last_session')}")
+          if x.get('adjudicated_split_count')!=4:
+              raise SystemExit(f"expected four adjudicated splits: {x.get('adjudicated_split_count')}")
+          if x.get('unresolved_split_count')!=124:
+              raise SystemExit(f"expected unresolved 128->124, got {x.get('unresolved_split_count')}")
+          print(json.dumps({'status':'PASS','bars':46238394,'adjudicated':4,'unresolved':124},sort_keys=True))
+          PY
+
+      - name: Upload audit evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: backtester-full-corpus-splits-adjudicated-${{ github.run_id }}
+          path: |
+            backtester-results/full-corpus-unresolved-splits-adjudicated.json
+            backtester-full-corpus-split-adjudication.log
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
