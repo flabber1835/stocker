@@ -102,13 +102,15 @@ def _database_base(*, prospective=False, structural_failure=None):
 def _waiting_probes():
     database = install_go.InstallCompatibleDatabaseHealthView(
         _database_base(prospective=False), 0, NOW_TEXT)
-    gates = {
-        gate_id: go.make_gate(
-            gate_id,
-            go.NOT_PROVEN if gate_id == "sharadar_readiness" else go.PASS,
-            NOW_TEXT, {"test": True})
-        for gate_id in go.GATE_IDS
-    }
+    gates = {}
+    for gate_id in go.GATE_IDS:
+        status = go.PASS
+        if gate_id == "sharadar_readiness":
+            status = go.NOT_PROVEN
+        elif gate_id == "database_financial_health":
+            status = go.FAIL
+        gates[gate_id] = go.make_gate(
+            gate_id, status, NOW_TEXT, {"test": True})
     return go.ProbeResults(
         git=go.GitIdentity(
             commit=COMMIT, branch_is_main=True, clean=True,
@@ -152,8 +154,10 @@ def test_structural_database_health_survives_expired_session_window_only():
     assert view.complete is True
     assert view.session_ready is False
     public = view.to_dict()
-    assert public["status"] == go.PASS
+    assert public["status"] == go.FAIL
     assert public["checks"]["prospective_trading_window"] is False
+    assert install_go._database_document_install_safe(
+        public, runtime_image_digest=RUNTIME_DIGEST) is True
 
     broken = install_go.InstallCompatibleDatabaseHealthView(
         _database_base(
@@ -161,6 +165,8 @@ def test_structural_database_health_survives_expired_session_window_only():
             structural_failure="frontier_security_keys_unique"),
         0, NOW_TEXT)
     assert broken.complete is False
+    assert install_go._database_document_install_safe(
+        broken.to_dict(), runtime_image_digest=RUNTIME_DIGEST) is False
 
 
 def test_temporal_readiness_classifier_accepts_only_nonfinal_freshness(monkeypatch):
@@ -211,12 +217,13 @@ def test_temporal_readiness_classifier_rejects_real_data_failure(monkeypatch):
         runtime_ref=RUNTIME_DIGEST) is False
 
 
-def test_waiting_install_preserves_all_session_verdicts_as_no_go():
+def test_waiting_install_preserves_truthful_session_and_database_no_go():
     probes = _waiting_probes()
     shadow, dual, paper, failures = install_go.derive_installable_verdicts(probes)
     assert shadow == go.SHADOW_NO_GO
     assert dual == go.DUAL_RUN_NO_GO
     assert paper == go.PAPER_NO_GO
+    assert "GATE_DATABASE_FINANCIAL_HEALTH_NOT_PASS" in failures["dual_run"]
     assert "SESSION_TIMING_NOT_READY" in failures["shadow"]
     assert "SESSION_TIMING_NOT_READY" in failures["dual_run"]
     assert "SESSION_TIMING_NOT_READY" in failures["paper_execution"]
@@ -237,6 +244,9 @@ def test_waiting_bundle_is_install_safe_but_not_session_go(tmp_path):
     with install_go.zipfile.ZipFile(result.path, "r") as archive:
         validation = json.loads(archive.read("validation.json"))
         tests = json.loads(archive.read("test-summary.json"))
+    assert validation["database_financial_health"]["status"] == go.FAIL
+    assert validation["gates"][2]["id"] == "database_financial_health"
+    assert validation["gates"][2]["status"] == go.FAIL
     assert install_go._document_install_safe(validation, tests) is True
     assert install_go.install_target_ok(
         result, install_go.controller.TARGET_DUAL) is True
