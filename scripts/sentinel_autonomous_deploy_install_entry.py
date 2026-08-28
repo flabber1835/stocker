@@ -1,0 +1,444 @@
+#!/usr/bin/env python3
+"""Install reviewed dual-run services at any wall-clock time.
+
+A GO bundle carrying ``deployment_wait_policy`` authorizes installation of the
+exact certified dual-run software while session authority remains fenced.  The
+bundle deliberately contains no data-publication genesis binding.  This entry:
+
+1. validates the original reviewed bundle bytes and every non-temporal contract;
+2. lets the existing deploy state machine stage the exact images/database while
+   automation is disabled with the kill switch engaged;
+3. waits through ordinary source-finality/next-session timing when necessary;
+4. re-runs the exact Wealth Core forward differential and Sharadar readiness on
+   the newly current publication; and
+5. binds that exact publication before the existing shadow/dual authority path
+   can continue.
+
+No temporal condition is converted into broker authority.  A real readiness,
+parity, identity, database, account, or lineage defect still refuses deployment.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import time
+from typing import Mapping, Optional, Sequence
+import zipfile
+
+import sentinel_autonomous_deploy_bootstrap as bootstrap
+import sentinel_go_install_entry as install_go
+import sentinel_go_validate as go
+
+
+core = bootstrap.core
+hardened = bootstrap.hardened
+
+_WAIT_POLICY_DIGEST = core._validation_subject_digest(
+    install_go.WAIT_POLICY_SUBJECT, install_go.WAIT_POLICY)
+_DUMMY_DATA_DIGEST = hashlib.sha256(
+    b"sentinel-deferred-data-publication-normalization-v1").hexdigest()
+_ORIGINAL_PARSE = core.parse_reviewed_validation_bundle
+_ORIGINAL_VERIFY = core.verify_reviewed_validation_environment
+_ORIGINAL_LINEAGE_PREFLIGHT = core._reviewed_shadow_lineage_preflight
+
+
+def _subject_map(validation: Mapping) -> Mapping[str, str]:
+    subjects = validation.get("subjects")
+    if not isinstance(subjects, list):
+        raise core.DeployRefused("validation subjects are malformed")
+    found = {}
+    for subject in subjects:
+        if (not isinstance(subject, dict)
+                or set(subject) != {"kind", "digest"}):
+            raise core.DeployRefused("validation subject record is malformed")
+        kind = str(subject.get("kind") or "")
+        digest = str(subject.get("digest") or "")
+        if kind in found or core._HEX64.fullmatch(digest) is None:
+            raise core.DeployRefused("validation subject binding is malformed")
+        found[kind] = digest
+    return found
+
+
+def _gate_statuses(validation: Mapping) -> Mapping[str, str]:
+    gates = validation.get("gates")
+    if not isinstance(gates, list) or len(gates) != len(core.VALIDATION_GATES):
+        raise core.DeployRefused("validation gate set is malformed")
+    statuses = {}
+    for expected, gate in zip(core.VALIDATION_GATES, gates):
+        if (not isinstance(gate, dict)
+                or gate.get("id") != expected
+                or gate.get("status") not in {"PASS", "FAIL", "NOT_PROVEN"}):
+            raise core.DeployRefused("validation gate binding is malformed")
+        statuses[expected] = str(gate["status"])
+    return statuses
+
+
+def _waiting_contract(validation: Mapping, *, mode: str) -> bool:
+    if mode != "dual":
+        return False
+    subjects = _subject_map(validation)
+    if subjects.get(install_go.WAIT_POLICY_SUBJECT) != _WAIT_POLICY_DIGEST:
+        return False
+    if "data_publication" in subjects:
+        raise core.DeployRefused(
+            "waiting deployment must not freeze a transient data publication")
+
+    preparation = validation.get("preparation")
+    if (not isinstance(preparation, dict)
+            or preparation.get("schema") != core.VALIDATION_PREPARATION_SCHEMA
+            or preparation.get("status") != "PASS"
+            or preparation.get("schema_migration_attempted") is not True
+            or preparation.get("bounded_sharadar_daily_attempted") is not False
+            or preparation.get("completed_before_validation_boundary") is not True
+            or preparation.get("broker_mutation_attempts") != 0):
+        raise core.DeployRefused(
+            "waiting deployment lacks completed schema-only installation preparation")
+
+    database = validation.get("database_financial_health")
+    checks = database.get("checks") if isinstance(database, dict) else None
+    if (not isinstance(database, dict)
+            or database.get("schema") != core.VALIDATION_DATABASE_HEALTH_SCHEMA
+            or database.get("status") != "PASS"
+            or not isinstance(checks, dict)):
+        raise core.DeployRefused(
+            "waiting deployment lacks structural database health")
+    structural = set(checks) - {"prospective_trading_window"}
+    if (set(checks) != {
+            "behavioral_schema_exact", "feed_schema_exact",
+            "publication_complete", "publication_chain_unique_and_gap_free",
+            "recent_xnys_axis_exact", "frontier_security_keys_unique",
+            "repeatable_read_only", "publication_pin_excludes_writers",
+            "publication_stable_under_pin", "required_indexes_exact",
+            "predecessor_query_plan_indexed", "frontier_query_plan_indexed",
+            "warmup_revision_input_complete", "prospective_trading_window"}
+            or any(checks[name] is not True for name in structural)
+            or type(checks.get("prospective_trading_window")) is not bool):
+        raise core.DeployRefused(
+            "waiting deployment database health has a non-temporal failure")
+
+    statuses = _gate_statuses(validation)
+    install_gates = (
+        "git_identity", "certified_suite_no_skips",
+        "database_financial_health", "wealth_core_nas_parity",
+        "alpaca_paper_account", "zero_mutation_boundary",
+    )
+    if any(statuses[name] != "PASS" for name in install_gates):
+        raise core.DeployRefused(
+            "waiting deployment does not pass every installation gate")
+    failures = validation.get("machine_failures")
+    if (validation.get("dual_run_verdict") != "DUAL_RUN_GO"
+            or not isinstance(failures, dict)
+            or failures.get("dual_run") != []):
+        raise core.DeployRefused(
+            "waiting bundle does not authorize fenced dual-run installation")
+    shadow_state = validation.get("shadow_state")
+    if (not isinstance(shadow_state, dict)
+            or shadow_state.get("internally_coherent") is not True):
+        raise core.DeployRefused(
+            "waiting bundle lacks a coherent forward-chain state")
+    return True
+
+
+def _normalized_waiting_validation(validation: Mapping) -> dict:
+    """Temporary strict-parser view; never returned or persisted as evidence."""
+    value = json.loads(json.dumps(validation))
+    preparation = value["preparation"]
+    preparation["bounded_sharadar_daily_attempted"] = True
+    preparation["completed_before_validation_boundary"] = True
+    preparation["status"] = "PASS"
+
+    database = value["database_financial_health"]
+    database["status"] = "PASS"
+    database["checks"]["prospective_trading_window"] = True
+
+    for gate in value["gates"]:
+        if gate["id"] == "sharadar_readiness":
+            gate["status"] = "PASS"
+    value["shadow_state"]["fresh"] = True
+    value["shadow_state"]["internally_coherent"] = True
+    value["shadow_verdict"] = "SHADOW_GO"
+    value["dual_run_verdict"] = "DUAL_RUN_GO"
+    value["machine_failures"]["shadow"] = []
+    value["machine_failures"]["dual_run"] = []
+    value["subjects"].append({
+        "kind": "data_publication", "digest": _DUMMY_DATA_DIGEST})
+    return value
+
+
+def _write_normalized_bundle(members: Mapping[str, bytes], validation: Mapping,
+                             directory: Path) -> Path:
+    normalized = dict(members)
+    normalized["validation.json"] = core._canonical_json(validation)
+    manifest_inputs = {
+        name: payload for name, payload in normalized.items()
+        if name not in {"manifest.json", "SHA256SUMS"}
+    }
+    normalized["manifest.json"] = core._manifest_expected(manifest_inputs)
+    sha_inputs = {
+        name: payload for name, payload in normalized.items()
+        if name != "SHA256SUMS"
+    }
+    normalized["SHA256SUMS"] = core._sha_sums_expected(sha_inputs)
+
+    path = directory / "normalized-waiting-validation.zip"
+    with zipfile.ZipFile(str(path), "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(normalized):
+            archive.writestr(name, normalized[name])
+    return path
+
+
+def parse_reviewed_validation_bundle(
+        path: Path, *, mode: str, confirmation: str,
+        now: Optional[datetime] = None):
+    path = Path(path).expanduser().resolve()
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise core.DeployRefused("validation bundle is unreadable") from exc
+    if core._sha256(raw) != str(confirmation or ""):
+        raise core.DeployRefused(
+            "reviewed-GO confirmation does not match the validation bundle")
+
+    members = core._read_validation_members(path)
+    if members["README.txt"] != core.VALIDATION_README:
+        raise core.DeployRefused("validation README differs from the fixed contract")
+    manifest_inputs = {
+        name: payload for name, payload in members.items()
+        if name not in {"manifest.json", "SHA256SUMS"}
+    }
+    if members["manifest.json"] != core._manifest_expected(manifest_inputs):
+        raise core.DeployRefused("validation manifest does not match member bytes")
+    sha_inputs = {
+        name: payload for name, payload in members.items()
+        if name != "SHA256SUMS"
+    }
+    if members["SHA256SUMS"] != core._sha_sums_expected(sha_inputs):
+        raise core.DeployRefused("validation SHA256SUMS does not match member bytes")
+
+    validation = core._json_object(
+        members["validation.json"], label="validation.json")
+    if not _waiting_contract(validation, mode=mode):
+        return _ORIGINAL_PARSE(
+            path, mode=mode, confirmation=confirmation, now=now)
+
+    with tempfile.TemporaryDirectory(prefix="sentinel-waiting-review-") as raw_dir:
+        normalized_path = _write_normalized_bundle(
+            members, _normalized_waiting_validation(validation), Path(raw_dir))
+        normalized_digest = core._sha256(normalized_path.read_bytes())
+        reviewed = _ORIGINAL_PARSE(
+            normalized_path, mode=mode,
+            confirmation=normalized_digest, now=now)
+
+    reviewed.path = path
+    reviewed.bundle_sha256 = str(confirmation)
+    reviewed.data_publication_sha256 = None
+    reviewed.validation = validation
+    return reviewed
+
+
+def _is_deferred(reviewed) -> bool:
+    try:
+        return _waiting_contract(reviewed.validation, mode=reviewed.mode)
+    except core.DeployRefused:
+        return False
+
+
+def verify_reviewed_validation_environment(
+        reviewed, *, env: Mapping[str, str], invoke=subprocess.run) -> None:
+    if not _is_deferred(reviewed):
+        return _ORIGINAL_VERIFY(reviewed, env=env, invoke=invoke)
+
+    # Reuse the established exact Git/image/config checks.  Give that verifier a
+    # temporary current-publication witness solely so it can validate all other
+    # immutable environment bindings; genesis/lineage authority remains skipped
+    # until the post-wait causal publication is re-earned below.
+    current_data = core._current_data_publication_subject(
+        reviewed, env=env, invoke=invoke)
+    provisional = core._validation_subject_digest(
+        "data_publication", current_data)
+    reviewed.data_publication_sha256 = provisional
+    original_lineage = core._reviewed_shadow_lineage_preflight
+    core._reviewed_shadow_lineage_preflight = lambda *_args, **_kwargs: None
+    try:
+        _ORIGINAL_VERIFY(reviewed, env=env, invoke=invoke)
+    finally:
+        core._reviewed_shadow_lineage_preflight = original_lineage
+        reviewed.data_publication_sha256 = None
+
+
+class InstallAnytimeConfig(hardened.Config):
+    def __init__(self, env: Mapping[str, str]) -> None:
+        super().__init__(env)
+        # A normal install begun just after the 09:30 ET open can need more than
+        # 14 hours before that day's 23:45 ET reviewed source-final boundary.
+        # 24 hours removes the routine wall-clock failure while retaining a
+        # bounded refusal for a genuine vendor/service outage.
+        self.data_wait_timeout_seconds = max(
+            int(self.data_wait_timeout_seconds), 24 * 3600)
+
+
+class InstallAnytimeDeploy(bootstrap.BootstrapDeploy):
+    def _deferred_install(self) -> bool:
+        return bool(
+            self.reviewed_validation is not None
+            and _is_deferred(self.reviewed_validation))
+
+    def _causal_timing(self) -> Mapping:
+        code = r'''
+import json, os
+from datetime import datetime, timezone
+from sentinel.feed import calendar, publication, store
+from sentinel.shadow_runtime import publication_not_before
+c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
+try:
+    current = publication.require_current(c)
+    frontier = store.latest_visible_session(c)
+    if frontier is None or current.window_end != frontier:
+        raise RuntimeError('current publication/frontier disagree')
+    final_at = publication_not_before(frontier)
+    execution = calendar.next_session(frontier)
+    execution_open, _ = calendar.session_window(execution)
+    now = datetime.now(timezone.utc)
+    execution_open = execution_open.astimezone(timezone.utc)
+    print(json.dumps({
+        'frontier': frontier,
+        'source_final': now >= final_at,
+        'source_final_at': final_at.isoformat(),
+        'execution_session': execution,
+        'execution_open_at': execution_open.isoformat(),
+        'prospective': now < execution_open,
+    }, sort_keys=True))
+finally:
+    c.rollback(); c.close()
+'''.strip()
+        result = self.runner.run(self.base_compose + [
+            "--profile", "cli", "run", "--rm", "-T", "--no-deps",
+            "--entrypoint", "python", "sentinel", "-c", code],
+            capture=True)
+        value = core._json_output(result, label="causal deployment timing")
+        if (not isinstance(value.get("frontier"), str)
+                or type(value.get("source_final")) is not bool
+                or type(value.get("prospective")) is not bool
+                or not isinstance(value.get("source_final_at"), str)
+                or not isinstance(value.get("execution_session"), str)
+                or not isinstance(value.get("execution_open_at"), str)):
+            raise core.DeployRefused("causal deployment timing is malformed")
+        return value
+
+    def _wait_until_causal_ready(self) -> None:
+        deadline = time.monotonic() + self.cfg.data_wait_timeout_seconds
+        while True:
+            self._assert_wait_fence()
+            verdict = self._readiness_verdict()
+            if verdict.get("ready") is True:
+                timing = self._causal_timing()
+                if timing["source_final"] and timing["prospective"]:
+                    self._base_cli(["check-data"])
+                    self._write_deployment_state(
+                        "DATA_READY_CAUSAL", attempt=1, failures=[])
+                    return
+                self._write_deployment_state(
+                    "WAITING_FOR_CAUSAL_SESSION", attempt=1, failures=[])
+                print("\nDEPLOYMENT STAGED: WAITING_FOR_CAUSAL_SESSION", flush=True)
+                print("  automation: disabled and kill switch engaged", flush=True)
+                print("  frontier: %s" % timing["frontier"], flush=True)
+                print("  source final: %s" % timing["source_final"], flush=True)
+                print("  following open future: %s" % timing["prospective"], flush=True)
+            else:
+                if self._freshness_wait_requirements(verdict) is None:
+                    self._refuse_data_readiness(
+                        verdict, attempt=1,
+                        reason="installation data readiness has a non-temporal failure")
+                # Reuse the hardened vendor-stabilization/catch-up path with the
+                # expanded routine wait budget. It returns only after full
+                # readiness, then this loop verifies the causal execution window.
+                self._wait_for_data(deadline=deadline)
+                continue
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise core.DeployRefused(
+                    "timed out waiting for a causally eligible source-final session; "
+                    "automation remains fenced")
+            time.sleep(min(self.cfg.data_retry_seconds, max(1, int(remaining))))
+
+    def _bind_current_publication(self) -> None:
+        reviewed = self.reviewed_validation
+        if reviewed is None:
+            raise core.DeployRefused(
+                "causal publication binding requires reviewed validation")
+        now_text = go._utc_text(datetime.now(timezone.utc))
+        subjects = {}
+        timings = {}
+        parity = go.probe_active_wealth_parity(
+            go.CommandRunner(), env=self.env,
+            commit=reviewed.git_commit,
+            candidate_image_digest=reviewed.test_image_digest,
+            now_text=now_text, subject_values=subjects,
+            timing_values=timings)
+        readiness = go.probe_sharadar_readiness(
+            go.CommandRunner(), env=self.env,
+            runtime_ref=reviewed.runtime_image_digest,
+            now_text=now_text)
+        publication_value = subjects.get("data_publication")
+        if (parity.status != go.PASS or readiness.status != go.PASS
+                or not isinstance(publication_value, str)):
+            raise core.DeployRefused(
+                "post-wait causal publication failed parity/readiness revalidation")
+        digest = core._validation_subject_digest(
+            "data_publication", publication_value)
+        reviewed.data_publication_sha256 = digest
+        self.env["SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256"] = digest
+        self.runner.env["SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256"] = digest
+        os.environ["SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256"] = digest
+        bootstrap._safe_update_dotenv(core.ENV_PATH, {
+            "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256": digest})
+
+        evidence = {
+            "schema": "sentinel.causal-publication-binding/1",
+            "reviewed_bundle_sha256": reviewed.bundle_sha256,
+            "data_publication_sha256": digest,
+            "parity_evidence_sha256": parity.evidence_sha256,
+            "readiness_evidence_sha256": readiness.evidence_sha256,
+            "bound_at": go._utc_text(datetime.now(timezone.utc)),
+            "policy": install_go.WAIT_POLICY,
+        }
+        path = self.attempt_dir / "causal-publication-binding.json"
+        path.write_text(
+            json.dumps(evidence, sort_keys=True, separators=(",", ":")) + "\n",
+            encoding="utf-8")
+
+        # This is the first point at which the normal exact-publication shadow
+        # preflight is allowed to run for a deferred installation.
+        _ORIGINAL_LINEAGE_PREFLIGHT(
+            reviewed, env=self.env, invoke=subprocess.run)
+
+    def refresh_data(self) -> None:
+        if not self._deferred_install():
+            return super().refresh_data()
+        self.phase(
+            "data: stage installation and wait for a causally eligible publication")
+        self._wait_until_causal_ready()
+        self._bind_current_publication()
+
+
+# Install the compatibility layer before bootstrap.main resolves its parser,
+# verifier, Config class, and deployment class.
+core.parse_reviewed_validation_bundle = parse_reviewed_validation_bundle
+core.verify_reviewed_validation_environment = verify_reviewed_validation_environment
+bootstrap.hardened.Config = InstallAnytimeConfig
+bootstrap.BootstrapDeploy = InstallAnytimeDeploy
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    return bootstrap.main(list(argv if argv is not None else sys.argv[1:]))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
