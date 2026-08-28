@@ -154,6 +154,23 @@ def _waiting_probes():
     )
 
 
+def _timing(*, source_final, prospective, frontier="2026-08-26",
+            target="2026-08-27", remaining=None):
+    if remaining is None:
+        remaining = (go.MIN_REMAINING_DEADLINE_MARGIN_MS + 1_000
+                     if prospective else 0)
+    return {
+        "frontier": frontier,
+        "target": target,
+        "target_source_final": source_final,
+        "target_source_final_at": "2026-08-28T03:45:00+00:00",
+        "execution_session": "2026-08-28",
+        "execution_open_at": "2026-08-28T13:30:00+00:00",
+        "prospective": prospective,
+        "remaining_ms": remaining,
+    }
+
+
 def test_source_not_final_is_installation_complete_without_claiming_ingest():
     base, _runner, reason = _deferred_preparation(
         source_final=False, prospective=True)
@@ -234,6 +251,8 @@ def test_waiting_bundle_is_install_safe_but_not_session_go(tmp_path):
         validation = json.loads(archive.read("validation.json"))
         tests = json.loads(archive.read("test-summary.json"))
     assert install_go._document_install_safe(validation, tests) is True
+    assert install_go.install_target_ok(
+        result, install_go.controller.TARGET_DUAL) is True
     assert validation["shadow_verdict"] == go.SHADOW_NO_GO
     assert validation["dual_run_verdict"] == go.DUAL_RUN_NO_GO
     assert validation["paper_execution_verdict"] == go.PAPER_NO_GO
@@ -268,14 +287,92 @@ def test_waiting_contract_rejects_transient_publication_binding():
         install_deploy._waiting_contract(document, mode="dual")
 
 
+def test_deferred_wait_never_enters_vendor_path_before_target_source_final(
+        monkeypatch):
+    instance = object.__new__(install_deploy.InstallAnytimeDeploy)
+    instance.cfg = SimpleNamespace(
+        data_wait_timeout_seconds=60,
+        data_retry_seconds=1)
+    timings = iter([
+        _timing(source_final=False, prospective=True),
+        _timing(
+            source_final=True, prospective=True,
+            frontier="2026-08-27"),
+    ])
+    events = []
+    instance._assert_wait_fence = lambda: events.append("fence")
+    instance._causal_timing = lambda: next(timings)
+    instance._write_deployment_state = lambda *args, **kwargs: events.append("state")
+    instance._readiness_verdict = lambda: (
+        events.append("readiness") or {"ready": True})
+    instance._base_cli = lambda *_args, **_kwargs: events.append("check-data")
+    instance._wait_for_data = lambda **_kwargs: events.append("vendor-wait")
+    monkeypatch.setattr(install_deploy.time, "sleep", lambda _seconds: None)
+
+    result = instance._wait_until_causal_ready()
+    assert result["target_source_final"] is True
+    assert "vendor-wait" not in events
+    assert events.count("readiness") == 1
+    assert events.index("readiness") > events.index("state")
+
+
+def test_vendor_catchup_is_allowed_only_after_target_source_final(monkeypatch):
+    instance = object.__new__(install_deploy.InstallAnytimeDeploy)
+    instance.cfg = SimpleNamespace(
+        data_wait_timeout_seconds=60,
+        data_retry_seconds=1)
+    timings = iter([
+        _timing(source_final=True, prospective=True),
+        _timing(
+            source_final=True, prospective=True,
+            frontier="2026-08-27"),
+    ])
+    verdicts = iter([
+        {
+            "ready": False,
+            "failures": [{
+                "name": "freshness",
+                "value": {
+                    "evaluable": True,
+                    "ahead": False,
+                    "missing_sessions": ["2026-08-27"],
+                },
+            }],
+            "checks": [{
+                "name": "frontier population",
+                "status": "PASS",
+                "value": {"minimum": 100},
+            }],
+        },
+        {"ready": True},
+    ])
+    events = []
+    instance._assert_wait_fence = lambda: events.append("fence")
+    instance._causal_timing = lambda: next(timings)
+    instance._readiness_verdict = lambda: next(verdicts)
+    instance._wait_for_data = lambda **_kwargs: events.append("vendor-wait")
+    instance._base_cli = lambda *_args, **_kwargs: events.append("check-data")
+    instance._write_deployment_state = lambda *args, **kwargs: events.append("state")
+    monkeypatch.setattr(install_deploy.time, "sleep", lambda _seconds: None)
+
+    result = instance._wait_until_causal_ready()
+    assert result["frontier"] == "2026-08-27"
+    assert events.count("vendor-wait") == 1
+
+
 def test_deferred_dual_uses_quiesced_boundary_before_publication_binding(monkeypatch):
     instance = object.__new__(install_deploy.InstallAnytimeDeploy)
     instance.reviewed_validation = SimpleNamespace(mode="dual", validation={})
     events = []
     monkeypatch.setattr(install_deploy, "_is_deferred", lambda _reviewed: True)
+    timing = _timing(
+        source_final=True, prospective=True,
+        frontier="2026-08-27")
     instance.phase = lambda text: events.append(("phase", text))
-    instance._wait_until_causal_ready = lambda: events.append(("wait", None))
-    instance._bind_current_publication = lambda: events.append(("bind", None))
+    instance._wait_until_causal_ready = lambda: (
+        events.append(("wait", None)) or timing)
+    instance._bind_current_publication = lambda value: events.append(("bind", value))
 
     instance.verify_reviewed_shadow_bindings_quiesced()
     assert [item[0] for item in events] == ["phase", "wait", "bind"]
+    assert events[-1][1] == timing
