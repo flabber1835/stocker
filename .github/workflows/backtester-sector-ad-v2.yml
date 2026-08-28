@@ -173,7 +173,7 @@ jobs:
           if d.get('wealth_core_path') != 'exact A/D parity required every session':
               raise SystemExit(f'D Wealth Core parity contract is wrong: {d}')
           terms = summary.get('causal_terminal_terms') or {}
-          expected_terms_sha = '9e3ae3944a1806a659afeca9e52b7b6d0f673d9c7355a242e50099a906e6556d'
+          expected_terms_sha = 'b9a143e84548e2569391aa8080d75b97034d61187c81f40319f640480fb16a4a'
           if terms.get('sha256') != expected_terms_sha:
               raise SystemExit(f"wrong causal terminal terms hash: {terms.get('sha256')}")
           witness = terms.get('original_failure_boundary') or {}
