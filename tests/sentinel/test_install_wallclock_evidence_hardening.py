@@ -25,13 +25,15 @@ def _validation(*failures):
     }
 
 
-def test_waiting_install_accepts_only_session_readiness_failure_vocabulary():
+def test_waiting_install_accepts_only_temporal_failure_vocabulary():
     assert install_go._wait_failures_safe(_validation(
+        "GATE_DATABASE_FINANCIAL_HEALTH_NOT_PASS",
         "GATE_SHARADAR_READINESS_NOT_PASS",
         "SESSION_TIMING_NOT_READY",
         "SHADOW_STATE_NOT_FRESH",
     )) is True
     assert install_go._wait_failures_safe(_validation(
+        "GATE_DATABASE_FINANCIAL_HEALTH_NOT_PASS",
         "SESSION_TIMING_NOT_READY")) is True
 
 
