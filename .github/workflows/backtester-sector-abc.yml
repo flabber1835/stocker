@@ -1,4 +1,4 @@
-name: Backtester - sector A/B/C fresh replay
+name: Backtester - sector A/B fresh replay
 
 on:
   push:
@@ -15,12 +15,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: backtester-sector-abc-${{ github.ref }}
+  group: backtester-sector-ab-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  fresh-sector-abc:
-    name: Fresh chronological A/B/C replay
+  fresh-sector-ab:
+    name: Fresh chronological A/B replay
     if: github.ref_name == 'research/backtester'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
@@ -125,24 +125,24 @@ jobs:
           test "${count}" -ge 29
           echo "Frozen-input preflight PASS (${count} SEP annual source files present)."
 
-      - name: Run fresh chronological A/B/C experiment
+      - name: Run fresh chronological A/B experiment
         shell: bash
         env:
           PYTHONUNBUFFERED: '1'
         run: |
           set -euo pipefail
-          rm -rf backtester-results/sector-abc
+          rm -rf backtester-results/sector-ab
           python backtester/experiments/2026-08-27-sector-abc/run.py \
             --lab-root . \
             --main-root main-src \
-            --output backtester-results/sector-abc \
-            2>&1 | tee backtester-sector-abc.log
+            --output backtester-results/sector-ab \
+            2>&1 | tee backtester-sector-ab.log
 
       - name: Verify result bundle and print headline table
         shell: bash
         run: |
           set -euo pipefail
-          cd backtester-results/sector-abc
+          cd backtester-results/sector-ab
           sha256sum -c SHA256SUMS.txt
           python - <<'PY'
           import json
@@ -155,7 +155,7 @@ jobs:
           if summary.get('prerecorded_decision_inputs') is not False:
               raise SystemExit('prerecorded-decision boundary is not false')
           if summary.get('wealth_core_parity') is not True:
-              raise SystemExit('A/B/C Wealth Core parity is not true')
+              raise SystemExit('A/B Wealth Core parity is not true')
           print(Path('metrics.csv').read_text())
           PY
 
@@ -163,10 +163,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: backtester-sector-abc-${{ github.run_id }}
+          name: backtester-sector-ab-${{ github.run_id }}
           path: |
-            backtester-results/sector-abc/**
-            backtester-sector-abc.log
+            backtester-results/sector-ab/**
+            backtester-sector-ab.log
           if-no-files-found: warn
           retention-days: 30
           compression-level: 6
