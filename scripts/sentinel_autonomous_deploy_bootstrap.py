@@ -483,7 +483,19 @@ print(actual)
         self.cfg.signing_key_id = actual
 
 
+def _install_wallclock_independent_dual_overlay() -> None:
+    """Extend this vetted bootstrap without changing the operator entrypoint."""
+    # When executed as a script, bind the canonical module name to this exact
+    # instance before importing the overlay. The overlay must patch the classes
+    # and globals used by this running bootstrap, not a second imported copy.
+    sys.modules.setdefault(
+        "sentinel_autonomous_deploy_bootstrap", sys.modules[__name__])
+    import sentinel_autonomous_deploy_install_entry as install_anytime  # noqa: PLC0415
+    install_anytime._install_overlay()
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    _install_wallclock_independent_dual_overlay()
     parser = core.argparse.ArgumentParser(
         description="Bootstrap and deploy reviewed Sentinel observation modes")
     parser.add_argument("--explain", action="store_true")

@@ -129,6 +129,30 @@ def _write_run_pass(*, target: str) -> None:
     )
 
 
+def _install_wallclock_independent_dual_overlay(*, development: bool) -> None:
+    """Add fenced installation authority without changing session verdicts."""
+    if development:
+        return
+    # When executed as a script, make this exact module instance importable by
+    # its canonical name before loading the overlays. They must patch the
+    # authority path executing under the public lifecycle lock, not a second
+    # imported copy of this module.
+    sys.modules.setdefault("sentinel_go_verified_entry", sys.modules[__name__])
+
+    # Prepare the database through the newest session that is already causally
+    # source-final. A newer closed session remains an explicit readiness/session
+    # wait and cannot block installation of the certified software.
+    import sentinel_go_24x7_entry as source_final  # noqa: PLC0415
+    source_final.install()
+
+    # The installation overlay recognizes only explicitly classified temporal
+    # waiting states. SHADOW_GO, DUAL_RUN_GO and PAPER_EXECUTION_GO remain
+    # session/economic verdicts and stay NO_GO until current data and pre-open
+    # timing are re-earned.
+    import sentinel_go_install_entry as install_anytime  # noqa: PLC0415
+    install_anytime._install_overlay()
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     raw = list(argv if argv is not None else sys.argv[1:])
     development = (
@@ -148,6 +172,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 controller.entry.authorize_verified_orchestration()
             except RuntimeError as exc:
                 raise controller.PhaseRefused(str(exc)) from exc
+        _install_wallclock_independent_dual_overlay(development=development)
         phase.install()
         # Production GO is intentionally verbose: safe build/test output streams
         # live, sensitive probes emit colored progress/heartbeat lines, suites run
