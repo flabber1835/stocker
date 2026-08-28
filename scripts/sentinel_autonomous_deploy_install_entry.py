@@ -2,15 +2,16 @@
 """Install reviewed dual-run services at any wall-clock time.
 
 A GO bundle carrying ``deployment_wait_policy`` may promote and stage the exact
-certified dual-run software while session authority remains NO_GO.  At the
+certified dual-run software while session authority remains NO_GO. At the
 existing quiesced pre-shadow boundary this entry waits for a causally eligible
 source-final publication, re-runs the exact Wealth Core parity and Sharadar
 readiness probes, binds that publication, and only then lets the retained shadow
 lineage/authority path continue.
 
-The original bundle remains the reviewed installation artifact.  The later
+The original bundle remains the reviewed installation artifact. The later
 publication binding is a separate local evidence record linked to that bundle.
-No waiting state grants broker or shadow-session authority.
+No waiting state grants broker or shadow-session authority, and no vendor ingest
+is attempted before the reviewed source-final not-before instant.
 """
 from __future__ import annotations
 
@@ -40,6 +41,10 @@ _DUMMY_DATA_DIGEST = hashlib.sha256(
     b"sentinel-deferred-data-publication-normalization-v1").hexdigest()
 _ORIGINAL_PARSE = core.parse_reviewed_validation_bundle
 _ORIGINAL_VERIFY = core.verify_reviewed_validation_environment
+
+
+class CausalSessionExpired(RuntimeError):
+    """A safe current-session attempt ran out of reviewed pre-open margin."""
 
 
 def _subject_map(validation: Mapping) -> Mapping[str, str]:
@@ -285,6 +290,7 @@ class InstallAnytimeDeploy(bootstrap.BootstrapDeploy):
             and _is_deferred(self.reviewed_validation))
 
     def _causal_timing(self) -> Mapping:
+        """Observe both the owed closed session and the current publication."""
         code = r'''
 import json, os
 from datetime import datetime, timezone
@@ -296,18 +302,22 @@ try:
     frontier = store.latest_visible_session(c)
     if frontier is None or current.window_end != frontier:
         raise RuntimeError('current publication/frontier disagree')
-    final_at = publication_not_before(frontier)
-    execution = calendar.next_session(frontier)
-    execution_open, _ = calendar.session_window(execution)
     now = datetime.now(timezone.utc)
+    target = calendar.latest_closed_session(now)
+    final_at = publication_not_before(target)
+    execution = calendar.next_session(target)
+    execution_open, _ = calendar.session_window(execution)
     execution_open = execution_open.astimezone(timezone.utc)
+    remaining_ms = max(0, int((execution_open - now).total_seconds() * 1000))
     print(json.dumps({
         'frontier': frontier,
-        'source_final': now >= final_at,
-        'source_final_at': final_at.isoformat(),
+        'target': target,
+        'target_source_final': now >= final_at,
+        'target_source_final_at': final_at.isoformat(),
         'execution_session': execution,
         'execution_open_at': execution_open.isoformat(),
         'prospective': now < execution_open,
+        'remaining_ms': remaining_ms,
     }, sort_keys=True))
 finally:
     c.rollback(); c.close()
@@ -318,40 +328,64 @@ finally:
             capture=True)
         value = core._json_output(result, label="causal deployment timing")
         if (not isinstance(value.get("frontier"), str)
-                or type(value.get("source_final")) is not bool
+                or not isinstance(value.get("target"), str)
+                or type(value.get("target_source_final")) is not bool
                 or type(value.get("prospective")) is not bool
-                or not isinstance(value.get("source_final_at"), str)
+                or type(value.get("remaining_ms")) is not int
+                or value["remaining_ms"] < 0
+                or not isinstance(value.get("target_source_final_at"), str)
                 or not isinstance(value.get("execution_session"), str)
                 or not isinstance(value.get("execution_open_at"), str)):
             raise core.DeployRefused("causal deployment timing is malformed")
         return value
 
-    def _wait_until_causal_ready(self) -> None:
+    @staticmethod
+    def _timing_eligible(value: Mapping) -> bool:
+        return bool(
+            value.get("target_source_final") is True
+            and value.get("prospective") is True
+            and type(value.get("remaining_ms")) is int
+            and value["remaining_ms"] >= go.MIN_REMAINING_DEADLINE_MARGIN_MS
+        )
+
+    def _wait_until_causal_ready(self) -> Mapping:
+        """Wait without vendor mutation until the target itself is source-final."""
         deadline = time.monotonic() + self.cfg.data_wait_timeout_seconds
         attempt = 1
         while True:
             self._assert_wait_fence()
-            verdict = self._readiness_verdict()
-            if verdict.get("ready") is True:
-                timing = self._causal_timing()
-                if timing["source_final"] and timing["prospective"]:
-                    self._base_cli(["check-data"])
-                    self._write_deployment_state(
-                        "DATA_READY_CAUSAL", attempt=attempt, failures=[])
-                    return
+            timing = self._causal_timing()
+            if not self._timing_eligible(timing):
                 self._write_deployment_state(
                     "WAITING_FOR_CAUSAL_SESSION", attempt=attempt, failures=[])
                 print("\nDEPLOYMENT STAGED: WAITING_FOR_CAUSAL_SESSION", flush=True)
                 print("  automation: disabled and kill switch engaged", flush=True)
-                print("  frontier: %s" % timing["frontier"], flush=True)
-                print("  source final: %s" % timing["source_final"], flush=True)
+                print("  current frontier: %s" % timing["frontier"], flush=True)
+                print("  target close: %s" % timing["target"], flush=True)
+                print("  target source final: %s" %
+                      timing["target_source_final"], flush=True)
                 print("  following open future: %s" % timing["prospective"], flush=True)
+                print("  remaining pre-open ms: %s" % timing["remaining_ms"], flush=True)
             else:
+                # Only after the owed target itself is source-final may the
+                # existing vendor stabilization/catch-up path contact Sharadar.
+                verdict = self._readiness_verdict()
+                if verdict.get("ready") is True:
+                    if timing["frontier"] != timing["target"]:
+                        raise core.DeployRefused(
+                            "readiness passed on a frontier different from the "
+                            "causally eligible target")
+                    self._base_cli(["check-data"])
+                    self._write_deployment_state(
+                        "DATA_READY_CAUSAL", attempt=attempt, failures=[])
+                    return timing
                 if self._freshness_wait_requirements(verdict) is None:
                     self._refuse_data_readiness(
                         verdict, attempt=attempt,
                         reason="installation data readiness has a non-temporal failure")
                 self._wait_for_data(deadline=deadline)
+                # Re-observe target/finality/margin after every potentially long
+                # vendor/ingest path before using the resulting publication.
                 attempt += 1
                 continue
 
@@ -364,7 +398,8 @@ finally:
                 self.cfg.data_retry_seconds, max(1, int(remaining))))
             attempt += 1
 
-    def _bind_current_publication(self) -> None:
+    def _bind_current_publication(self, expected_timing: Mapping) -> None:
+        """Re-earn economic data authority and recheck remaining session margin."""
         reviewed = self.reviewed_validation
         if reviewed is None:
             raise core.DeployRefused(
@@ -389,6 +424,14 @@ finally:
             raise core.DeployRefused(
                 "post-wait causal publication failed parity/readiness revalidation")
 
+        final_timing = self._causal_timing()
+        if (final_timing.get("target") != expected_timing.get("target")
+                or final_timing.get("frontier") != expected_timing.get("target")
+                or not self._timing_eligible(final_timing)):
+            raise CausalSessionExpired(
+                "causal target changed or lost minimum pre-open margin during "
+                "post-wait parity/readiness")
+
         digest = core._validation_subject_digest(
             "data_publication", publication_value)
         reviewed.data_publication_sha256 = digest
@@ -408,6 +451,8 @@ finally:
             "data_publication_sha256": digest,
             "parity_evidence_sha256": parity.evidence_sha256,
             "readiness_evidence_sha256": readiness.evidence_sha256,
+            "decision_session": final_timing["target"],
+            "remaining_preopen_ms": final_timing["remaining_ms"],
             "bound_at": go._utc_text(datetime.now(timezone.utc)),
             "policy": install_go.WAIT_POLICY,
         }
@@ -429,8 +474,17 @@ finally:
 
         self.phase(
             "review: quiesced install waits for causal source and binds publication")
-        self._wait_until_causal_ready()
-        self._bind_current_publication()
+        while True:
+            timing = self._wait_until_causal_ready()
+            try:
+                self._bind_current_publication(timing)
+                return
+            except CausalSessionExpired as exc:
+                # No authority was persisted. Continue under the same disabled+
+                # kill fence and wait for the next causally eligible close.
+                self._write_deployment_state(
+                    "WAITING_FOR_NEXT_CAUSAL_SESSION", attempt=1,
+                    failures=[{"name": "session_timing", "detail": str(exc)}])
 
 
 def _install_overlay() -> None:
