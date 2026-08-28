@@ -1,0 +1,177 @@
+name: Backtester - shared Wealth Core equivalence
+
+on:
+  push:
+    branches:
+      - research/backtester
+    paths:
+      - '.github/workflows/backtester-shared-wealth-core-equivalence.yml'
+      - 'backtester/run_sector_ad_shared_wealth_core.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backtester-shared-wealth-core-equivalence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  equivalence:
+    name: Verify shared Wealth Core acceleration
+    if: github.ref_name == 'research/backtester'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Check out frozen research inputs
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/backtester
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-shared-wealth-core-equivalence.yml
+            /backtester/experiments/2026-08-27-sector-abc/**
+            /backtester/run_sector_ad_causal_terminal_terms_v2.py
+            /backtester/run_sector_ad_shared_wealth_core.py
+            /backtester/causal_terminal_terms.py
+            /backtester/data/causal-terminal-terms-v1.json
+            /backtester/data/causal-terminal-terms-v1.SHA256
+            /PIT input data/MANIFEST.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
+            /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/SHA256SUMS.txt
+            /research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
+
+      - name: Record research identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "research/backtester"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          echo "BACKTESTER_BRANCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+
+      - name: Check out exact main source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: c502d077cae9c494f8b74a41ee8be7f40b25837d
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+            docs/sentinel-handoff/00_README
+
+      - name: Verify exact main identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTUAL="$(git -C main-src rev-parse HEAD)"
+          test "${ACTUAL}" = "c502d077cae9c494f8b74a41ee8be7f40b25837d"
+          echo "BACKTESTER_MAIN_SHA=${ACTUAL}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_MAIN_ROOT=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_LAB_ROOT=${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install exact main runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+
+      - name: Compile acceleration sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile backtester/run_sector_ad_shared_wealth_core.py
+          python -m py_compile backtester/run_sector_ad_causal_terminal_terms_v2.py
+          python -m py_compile backtester/experiments/2026-08-27-sector-abc/run.py
+
+      - name: Run baseline through 1998-12-31
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: '1'
+          BOUNDED_END: '1998-12-31'
+        run: |
+          set -euo pipefail
+          rm -rf backtester-results/equiv-baseline
+          /usr/bin/time -f 'BASELINE_ELAPSED_SECONDS=%e' python - <<'PY'
+          import importlib.util, os, sys
+          from pathlib import Path
+          root = Path('.').resolve()
+          sys.path.insert(0, str(root / 'main-src' / 'shared'))
+          sys.path.insert(0, str(root / 'main-src'))
+          path = root / 'backtester/experiments/2026-08-27-sector-abc/run.py'
+          spec = importlib.util.spec_from_file_location('equiv_baseline', path)
+          runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
+          runner.END_SESSION = os.environ['BOUNDED_END']
+          runner.MEASUREMENT_WINDOWS = {}
+          sys.argv = [str(path), '--lab-root', '.', '--main-root', 'main-src', '--output', 'backtester-results/equiv-baseline']
+          raise SystemExit(runner.main())
+          PY
+
+      - name: Run accelerated through 1998-12-31
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: '1'
+          BACKTESTER_CAUSAL_END_SESSION: '1998-12-31'
+          BACKTESTER_ACCEL_RAW_RUN: '1'
+          BACKTESTER_PROGRESS_INTERVAL_SESSIONS: '63'
+        run: |
+          set -euo pipefail
+          rm -rf backtester-results/equiv-optimized
+          /usr/bin/time -f 'OPTIMIZED_ELAPSED_SECONDS=%e' \
+            python backtester/run_sector_ad_shared_wealth_core.py \
+              --lab-root . --main-root main-src \
+              --output backtester-results/equiv-optimized \
+              2>&1 | tee backtester-shared-wc-equivalence.log
+
+      - name: Require byte-identical economic path
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp backtester-results/equiv-baseline/daily.csv.gz backtester-results/equiv-optimized/daily.csv.gz
+          cmp backtester-results/equiv-baseline/metrics.csv backtester-results/equiv-optimized/metrics.csv
+          python - <<'PY'
+          import gzip, hashlib, json
+          from pathlib import Path
+          a = Path('backtester-results/equiv-baseline/daily.csv.gz')
+          b = Path('backtester-results/equiv-optimized/daily.csv.gz')
+          def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          sa, sb = sha(a), sha(b)
+          if sa != sb:
+              raise SystemExit('daily replay hashes differ')
+          rows = gzip.open(a, 'rt', encoding='utf-8').read().splitlines()
+          if len(rows) != 253:  # header + 252 sessions
+              raise SystemExit(f'unexpected bounded daily rows: {len(rows)}')
+          print(json.dumps({'status':'PASS','daily_sha256':sa,'sessions':252}, sort_keys=True))
+          PY
+
+      - name: Upload equivalence evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: backtester-shared-wc-equivalence-${{ github.run_id }}
+          path: |
+            backtester-results/equiv-baseline/daily.csv.gz
+            backtester-results/equiv-optimized/daily.csv.gz
+            backtester-shared-wc-equivalence.log
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
