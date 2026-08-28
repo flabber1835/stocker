@@ -1,0 +1,219 @@
+name: Backtester - causal terminal terms verification
+
+on:
+  push:
+    branches: [research/backtester]
+    paths:
+      - '.github/workflows/backtester-causal-terminal-terms-verify.yml'
+      - 'backtester/causal_terminal_terms.py'
+      - 'backtester/data/causal-terminal-terms-v1.json'
+      - 'backtester/data/causal-terminal-terms-v1.SHA256'
+      - 'docs/backtester-causal-terminal-terms.md'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify frozen settlement terms and price witnesses
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out frozen research inputs
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/backtester
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/causal_terminal_terms.py
+            /backtester/data/causal-terminal-terms-v1.json
+            /backtester/data/causal-terminal-terms-v1.SHA256
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SHARADAR_SEP_2001.csv.gz
+            /PIT input data/MANIFEST.csv
+
+      - name: Check out exact production source read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: c502d077cae9c494f8b74a41ee8be7f40b25837d
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - name: Verify causal settlement inputs against production types
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv
+          import gzip
+          import hashlib
+          import io
+          import json
+          import math
+          import zipfile
+          from pathlib import Path
+
+          from backtester.causal_terminal_terms import load_frozen_terminal_terms
+          from sentinel.feed.domains import NormalisationReport, normalise_sep_rows
+          from stock_strategy_shared.wealth_core.feed import SecurityMeta
+          from stock_strategy_shared.wealth_core.terminal import TerminalKind, TerminalTerms
+
+          EXPECTED_MAIN = 'c502d077cae9c494f8b74a41ee8be7f40b25837d'
+          import subprocess
+          actual_main = subprocess.check_output(
+              ['git', '-C', 'main-src', 'rev-parse', 'HEAD'], text=True).strip()
+          if actual_main != EXPECTED_MAIN:
+              raise SystemExit(f'main source mismatch: {actual_main}')
+
+          data_path = Path('backtester/data/causal-terminal-terms-v1.json')
+          checksum_path = Path('backtester/data/causal-terminal-terms-v1.SHA256')
+          sep_path = Path('sharadar/SHARADAR_SEP_2001.csv.gz')
+          tickers_path = Path('sharadar/SHARADAR_TICKERS.zip')
+
+          def norm_sid(value):
+              try:
+                  return str(int(float(str(value).strip())))
+              except Exception:
+                  return str(value).strip()
+
+          manifest = {}
+          with Path('PIT input data/MANIFEST.csv').open(newline='', encoding='utf-8') as f:
+              for row in csv.DictReader(f):
+                  manifest[row['file']] = row
+          sep_pin = manifest['SEP_2001_PIT_ONLY.csv.gz']['source_sha256']
+          sep_digest = hashlib.sha256(sep_path.read_bytes()).hexdigest()
+          if sep_digest != sep_pin:
+              raise SystemExit(f'2001 SEP hash mismatch: {sep_digest} != {sep_pin}')
+
+          with zipfile.ZipFile(tickers_path) as zf:
+              members = [n for n in zf.namelist() if n.lower().endswith('.csv')]
+              if len(members) != 1:
+                  raise SystemExit(f'unexpected TICKERS members: {members}')
+              with zf.open(members[0]) as raw:
+                  ticker_rows = list(csv.DictReader(
+                      io.TextIOWrapper(raw, encoding='utf-8', newline='')))
+          sep_meta_rows = [r for r in ticker_rows if str(r.get('table') or '') == 'SEP']
+          by_ticker = {}
+          for row in sep_meta_rows:
+              ticker = str(row.get('ticker') or '').strip()
+              if ticker:
+                  by_ticker.setdefault(ticker, []).append(row)
+
+          def resolve(ticker, session):
+              rows = by_ticker.get(str(ticker), [])
+              active, all_ids = set(), set()
+              for row in rows:
+                  sid = norm_sid(row.get('permaticker'))
+                  if not sid:
+                      continue
+                  all_ids.add(sid)
+                  first = str(row.get('firstpricedate') or '0001-01-01')[:10]
+                  last = str(row.get('lastpricedate') or '9999-12-31')[:10]
+                  if first <= session <= last:
+                      active.add(sid)
+              if len(active) == 1:
+                  return next(iter(active))
+              if not active and len(all_ids) == 1:
+                  return next(iter(all_ids))
+              return None
+
+          identity_expectations = {
+              ('LIT1', '2001-05-30'): '120448',
+              ('CIT.A', '2001-06-01'): '122131',
+              ('TYC', '2001-05-31'): '573113',
+              ('TYC', '2001-06-04'): '573113',
+          }
+          for key, expected in identity_expectations.items():
+              got = resolve(*key)
+              if got != expected:
+                  raise SystemExit(f'identity mismatch {key}: {got} != {expected}')
+
+          meta = {
+              sid: SecurityMeta(
+                  security_id=sid, ticker=ticker, permaticker=sid,
+                  related_tickers=())
+              for ticker, sid in [('LIT1','120448'), ('CIT.A','122131'), ('TYC','573113')]
+          }
+          terms_by_session, terms_digest = load_frozen_terminal_terms(
+              data_path, checksum_path,
+              sessions=['2001-05-30', '2001-06-01'],
+              resolve_identity=resolve, meta=meta,
+              TerminalTerms=TerminalTerms, TerminalKind=TerminalKind)
+
+          lit = terms_by_session['2001-05-30'][0]
+          if (lit.security_id != '120448' or lit.kind is not TerminalKind.CASH_MERGER
+                  or lit.cash_per_share != 80.0):
+              raise SystemExit(f'unexpected LIT terms: {lit}')
+          cit = terms_by_session['2001-06-01'][0]
+          if (cit.security_id != '122131' or cit.kind is not TerminalKind.CONVERSION
+                  or cit.delivered_security_id != '573113'
+                  or cit.delivered_ticker != 'TYC'
+                  or cit.delivered_issuer_id != 'P:573113'
+                  or cit.exchange_ratio != 0.6907
+                  or cit.cash_in_lieu_price_per_delivered_share != 57.45):
+              raise SystemExit(f'unexpected CIT terms: {cit}')
+          complete, why = cit.completeness(1)
+          if not complete:
+              raise SystemExit(f'CIT terms are incomplete: {why}')
+
+          payload = json.loads(data_path.read_text(encoding='utf-8'))
+          cit_source = next(r for r in payload['records'] if r['security_id'] == '122131')
+          witness = cit_source['price_witness']
+          if witness['source_sep_sha256'] != sep_digest:
+              raise SystemExit('CIT price witness source hash is not the frozen SEP hash')
+
+          wanted_dates = {'2001-05-31', '2001-06-01', '2001-06-04'}
+          tyc_rows = []
+          with gzip.open(sep_path, 'rt', encoding='utf-8', newline='') as f:
+              reader = csv.DictReader(f)
+              for row in reader:
+                  if row.get('ticker') == 'TYC' and row.get('date') in wanted_dates:
+                      tyc_rows.append(row)
+          tyc_rows.sort(key=lambda row: row['date'])
+          if [row['date'] for row in tyc_rows] != sorted(wanted_dates):
+              raise SystemExit(f'missing frozen TYC witness rows: {tyc_rows}')
+          may31 = next(row for row in tyc_rows if row['date'] == '2001-05-31')
+          if float(may31['closeunadj']) != 57.45:
+              raise SystemExit(f'wrong TYC prior-day raw close: {may31["closeunadj"]}')
+
+          report = NormalisationReport()
+          normalised = list(normalise_sep_rows(
+              tyc_rows, resolve_identity=resolve,
+              dividends={}, authoritative_splits=None, report=report))
+          june4 = next(row.vendor for row in normalised
+                       if row.vendor.session == '2001-06-04')
+          if june4.security_id != '573113' or june4.raw_open != 56.9:
+              raise SystemExit(
+                  f'production normalization mismatch on 2001-06-04: {june4}')
+
+          exact_entitlement = 295584 * cit.exchange_ratio
+          whole = math.floor(exact_entitlement + 1e-9)
+          fraction = exact_entitlement - whole
+          cil_cash = fraction * cit.cash_in_lieu_price_per_delivered_share
+          print(json.dumps({
+              'status': 'PASS',
+              'main_sha': actual_main,
+              'terminal_terms_sha256': terms_digest,
+              'sep_2001_sha256': sep_digest,
+              'lit1_cash_per_share': lit.cash_per_share,
+              'cit_exchange_ratio': cit.exchange_ratio,
+              'cit_delivered_security_id': cit.delivered_security_id,
+              'tyc_2001_05_31_raw_close': float(may31['closeunadj']),
+              'tyc_2001_06_04_vendor_raw_open': june4.raw_open,
+              'diagnostic_share_count_entitlement_check': {
+                  'shares_in': 295584,
+                  'whole_tyc_shares': whole,
+                  'fractional_tyc_share': round(fraction, 10),
+                  'cash_in_lieu': round(cil_cash, 6),
+              },
+          }, indent=2, sort_keys=True))
+          PY
