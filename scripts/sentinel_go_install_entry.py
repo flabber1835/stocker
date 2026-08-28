@@ -31,6 +31,11 @@ WAIT_POLICY = "CAUSAL_SESSION_BINDING_AFTER_SOURCE_FINAL_V1"
 WAIT_POLICY_SUBJECT = "deployment_wait_policy"
 _PREPARATION_MARKER = "SENTINEL_GO_PREPARATION="
 _PREPARATION_FAILURE_MARKER = "SENTINEL_GO_PREPARATION_FAILURE="
+_ALLOWED_WAIT_DUAL_FAILURES = frozenset({
+    "GATE_SHARADAR_READINESS_NOT_PASS",
+    "SHADOW_STATE_NOT_FRESH",
+    "SESSION_TIMING_NOT_READY",
+})
 
 _BASE_PHASED = verified._ORIGINAL_PHASED
 _BASE_DERIVE = go.derive_verdicts
@@ -327,8 +332,25 @@ def derive_installable_verdicts(probes):
     return shadow, dual, paper, failures
 
 
+def _wait_failures_safe(validation: Mapping) -> bool:
+    failures = validation.get("machine_failures")
+    if not isinstance(failures, dict):
+        return False
+    dual = failures.get("dual_run")
+    return bool(
+        isinstance(dual, list)
+        and dual
+        and len(set(dual)) == len(dual)
+        and all(isinstance(item, str) for item in dual)
+        and set(dual).issubset(_ALLOWED_WAIT_DUAL_FAILURES)
+    )
+
+
 def _document_install_safe(validation: Mapping, tests: Mapping) -> bool:
     try:
+        if (validation.get("dual_run_verdict") != go.DUAL_RUN_NO_GO
+                or not _wait_failures_safe(validation)):
+            return False
         subjects = {
             str(item["kind"]): str(item["digest"])
             for item in validation["subjects"]
@@ -375,7 +397,13 @@ def _document_install_safe(validation: Mapping, tests: Mapping) -> bool:
                 or go._HEX64.fullmatch(
                     str(runtime.get("source_identity_sha256") or "")) is None):
             return False
-        if tests.get("complete") is not True:
+        if (tests.get("complete") is not True
+                or tests.get("candidate_image_digest")
+                    != runtime.get("candidate_image_digest")
+                or tests.get("runtime_image_digest")
+                    != runtime.get("runtime_image_digest")
+                or tests.get("source_identity_sha256")
+                    != runtime.get("source_identity_sha256")):
             return False
         shadow_state = validation["shadow_state"]
         return bool(shadow_state.get("internally_coherent") is True)
@@ -389,10 +417,13 @@ def install_target_ok(result, target: str) -> bool:
     if target != controller.TARGET_DUAL or not result.upload_permitted:
         return False
     try:
+        if go.sha256_bytes(result.path.read_bytes()) != result.sha256:
+            return False
+        go.validate_zip_members(result.path)
         with zipfile.ZipFile(result.path, "r") as archive:
             validation = json.loads(archive.read("validation.json").decode("ascii"))
             tests = json.loads(archive.read("test-summary.json").decode("ascii"))
-    except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+    except (OSError, KeyError, ValueError, zipfile.BadZipFile, go.ValidationRefused):
         return False
     safe = _document_install_safe(validation, tests)
     if safe:
