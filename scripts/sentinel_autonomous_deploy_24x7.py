@@ -7,19 +7,18 @@ That constraint must not become an installation-time window.
 
 For a brand-new shadow/dual lineage this entry installs/promotes/quiesces exactly
 as the hardened deployer already does, then waits under the durable disabled +
-kill-switch fence until a causally eligible first close exists.  It performs the
+kill-switch fence until a causally eligible first close exists. It performs the
 normal authoritative data refresh, derives a new exact publication binding from
 the promoted runtime, records that rebind, and only then starts shadow genesis.
 
-Existing shadow lineages are not rebound.  Their immutable genesis continues to
+Existing shadow lineages are not rebound. Their immutable genesis continues to
 own its original publication identity and the ordinary shadow service handles
 one-session waiting/catch-up.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
-import sys
+import shlex
 import time
 
 import sentinel_autonomous_deploy as core
@@ -74,6 +73,107 @@ finally:
 '''.strip()
 
 
+_STRUCTURAL_PREFLIGHT_CODE = r'''
+import json, os
+from decimal import Decimal
+from sentinel import shadow_runtime
+from sentinel.feed import store
+c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
+try:
+    value = shadow_runtime.classify_shadow_lineage(
+        c,
+        observation_id=os.environ.get('SENTINEL_SHADOW_OBSERVATION_ID','primary'),
+        starting_cash=Decimal(os.environ.get(
+            'SENTINEL_SHADOW_STARTING_CASH','100000')),
+        structural_only=True)
+    print('SENTINEL_DEPLOY_SHADOW_STRUCTURAL=' + json.dumps(
+        value, sort_keys=True))
+finally:
+    c.rollback(); c.close()
+'''.strip()
+
+
+def _structural_shadow_lineage_preflight(
+        reviewed, *, env, invoke) -> None:
+    """Prove immutable lineage structure without imposing a wall-clock start."""
+    explained = core._read_only_command(
+        invoke, ['bash', 'scripts/sentinel-compose.sh', '--explain'], env=env)
+    if explained.returncode != 0:
+        raise core.DeployRefused('shadow lineage Compose graph is unavailable')
+    try:
+        compose_args = shlex.split((explained.stdout or '').strip())
+    except ValueError as exc:
+        raise core.DeployRefused('shadow lineage Compose graph is malformed') from exc
+    if not compose_args or '-f' not in compose_args:
+        raise core.DeployRefused('shadow lineage Compose graph is unavailable')
+
+    run_env = {
+        key: value for key, value in env.items()
+        if key not in {
+            'ALPACA_API_KEY', 'ALPACA_SECRET_KEY', 'SENTINEL_PAPER_ACCOUNT_ID'}
+    }
+    retained_runtime_digest = str(
+        env.get('SENTINEL_RUNTIME_IMAGE_DIGEST') or '').strip()
+    runtime_artifact_digest = (
+        retained_runtime_digest
+        if core._DIGEST.fullmatch(retained_runtime_digest)
+        else reviewed.runtime_image_digest)
+    run_env.update({
+        'SENTINEL_RUNTIME_IMAGE_REF': reviewed.runtime_image_digest,
+        'SENTINEL_SHADOW_OBSERVATION_ENABLED': '1',
+        'SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256': (
+            reviewed.source_identity_sha256),
+        'SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256': (
+            reviewed.shadow_configuration_sha256 or ''),
+        'SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256': (
+            reviewed.data_publication_sha256 or ''),
+        'SENTINEL_GIT_COMMIT': reviewed.git_commit,
+        'SENTINEL_RUNTIME_IMAGE_DIGEST': runtime_artifact_digest,
+    })
+    forwarded = (
+        'SENTINEL_SHADOW_OBSERVATION_ENABLED',
+        'SENTINEL_SHADOW_OBSERVATION_ID',
+        'SENTINEL_SHADOW_STARTING_CASH',
+        'SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256',
+        'SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256',
+        'SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256',
+        'SENTINEL_GIT_COMMIT',
+        'SENTINEL_RUNTIME_IMAGE_DIGEST',
+    )
+    env_args = [item for name in forwarded for item in ('-e', name)]
+    completed = core._read_only_command(invoke, [
+        'docker', 'compose', *compose_args, '--profile', 'cli', 'run',
+        '--rm', '-T', '--no-deps', *env_args,
+        '--entrypoint', 'python', 'sentinel', '-c', _STRUCTURAL_PREFLIGHT_CODE,
+    ], env=run_env)
+    marker = 'SENTINEL_DEPLOY_SHADOW_STRUCTURAL='
+    payload = None
+    if completed.returncode == 0:
+        for line in (completed.stdout or '').splitlines():
+            if line.startswith(marker):
+                try:
+                    payload = json.loads(line[len(marker):])
+                except json.JSONDecodeError:
+                    payload = None
+    if not isinstance(payload, dict):
+        raise core.DeployRefused(
+            'configured shadow lineage structural preflight is unavailable')
+    status = payload.get('status')
+    if status not in {
+            'NOT_STARTED', 'ATTESTED_STRUCTURAL', 'RECOVERY_REQUIRED'}:
+        raise core.DeployRefused(
+            'configured shadow lineage is not structurally safe to stage')
+    if status == 'RECOVERY_REQUIRED':
+        required = {
+            'status', 'recovery_kind', 'recovery_session', 'execution_session',
+            'recovery_cutoff_at'}
+        if (set(payload) != required
+                or payload.get('recovery_kind') not in {
+                    'GENESIS_ONLY', 'TRAILING_CANDIDATE'}):
+            raise core.DeployRefused(
+                'recoverable shadow lineage structural evidence is malformed')
+
+
 class InstallAnytimeBootstrapDeploy(bootstrap.BootstrapDeploy):
     """Add a fenced, causal genesis staging boundary to reviewed shadow deploys."""
 
@@ -120,7 +220,9 @@ class InstallAnytimeBootstrapDeploy(bootstrap.BootstrapDeploy):
                     failures=[{
                         'name': 'source finality',
                         'status': 'WAITING',
-                        'detail': 'fresh shadow genesis is waiting for fixed reviewed source-final boundary',
+                        'detail': (
+                            'fresh shadow genesis is waiting for fixed reviewed '
+                            'source-final boundary'),
                         'value': {
                             'target_session': target,
                             'ready_at': ready_at,
@@ -131,9 +233,6 @@ class InstallAnytimeBootstrapDeploy(bootstrap.BootstrapDeploy):
                 print('  target session: %s' % target, flush=True)
                 print('  source final at: %s' % ready_at, flush=True)
                 last_target = target
-            # Polling is bounded but the installation itself has no arbitrary
-            # wall-clock deadline. The next source-final boundary is determined
-            # by XNYS + the reviewed Sharadar timing policy.
             time.sleep(min(self.cfg.data_retry_seconds, 300))
 
     def _rebind_fresh_genesis_publication(self, target_session: str) -> None:
@@ -179,15 +278,17 @@ class InstallAnytimeBootstrapDeploy(bootstrap.BootstrapDeploy):
             and not self._shadow_genesis_exists())
         if fresh_shadow:
             target = self._wait_for_causal_genesis_session()
-            # Use the existing hardened vendor-publication/readiness machinery
-            # only after the fixed source-final boundary has elapsed.
+            # The hardened vendor readiness loop is entered only after the
+            # fixed source-final boundary; it may no longer publish early data.
             self.refresh_data()
             self._rebind_fresh_genesis_publication(target)
         return super().start_fenced_runtime()
 
 
 def main(argv=None) -> int:
-    # bootstrap.main resolves config/account/key facts and invokes this symbol.
+    # Keep exact config/publication verification from the core deployer while
+    # replacing only the lineage timing part with a structural staging proof.
+    core._reviewed_shadow_lineage_preflight = _structural_shadow_lineage_preflight
     bootstrap.BootstrapDeploy = InstallAnytimeBootstrapDeploy
     return bootstrap.main(argv)
 
