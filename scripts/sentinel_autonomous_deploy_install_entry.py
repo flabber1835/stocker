@@ -238,8 +238,6 @@ def parse_reviewed_validation_bundle(
             normalized_path, mode=mode,
             confirmation=normalized_digest, now=now)
 
-    # Restore the only reviewed external artifact. The normalized ZIP existed
-    # solely to reuse all immutable v1 parser checks without weakening them.
     reviewed.path = path
     reviewed.bundle_sha256 = str(confirmation)
     reviewed.data_publication_sha256 = None
@@ -259,10 +257,6 @@ def verify_reviewed_validation_environment(
     if not _is_deferred(reviewed):
         return _ORIGINAL_VERIFY(reviewed, env=env, invoke=invoke)
 
-    # Installation preflight still reuses every established immutable
-    # Git/image/config/database check. A provisional current publication is used
-    # only to satisfy the old parser's session-bound field; lineage is explicitly
-    # postponed to the quiesced post-wait binding below.
     current_data = core._current_data_publication_subject(
         reviewed, env=env, invoke=invoke)
     provisional = core._validation_subject_digest(
@@ -280,9 +274,6 @@ def verify_reviewed_validation_environment(
 class InstallAnytimeConfig(hardened.Config):
     def __init__(self, env: Mapping[str, str]) -> None:
         super().__init__(env)
-        # Just after the 09:30 ET open, the next reviewed source-final boundary
-        # is more than fourteen hours away. 24h covers every ordinary daily
-        # installation start while retaining a bounded vendor/service refusal.
         self.data_wait_timeout_seconds = max(
             int(self.data_wait_timeout_seconds), 24 * 3600)
 
@@ -336,7 +327,6 @@ finally:
         return value
 
     def _wait_until_causal_ready(self) -> None:
-        """Keep the staged deployment fenced until one current close is causal."""
         deadline = time.monotonic() + self.cfg.data_wait_timeout_seconds
         attempt = 1
         while True:
@@ -361,8 +351,6 @@ finally:
                     self._refuse_data_readiness(
                         verdict, attempt=attempt,
                         reason="installation data readiness has a non-temporal failure")
-                # Reuse the hardened vendor-stabilization/catch-up path. It
-                # returns only after the full readiness contract passes.
                 self._wait_for_data(deadline=deadline)
                 attempt += 1
                 continue
@@ -377,7 +365,6 @@ finally:
             attempt += 1
 
     def _bind_current_publication(self) -> None:
-        """Re-earn exact economic data authority after the waiting period."""
         reviewed = self.reviewed_validation
         if reviewed is None:
             raise core.DeployRefused(
@@ -409,9 +396,6 @@ finally:
         self.runner.env["SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256"] = digest
         os.environ["SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256"] = digest
 
-        # Re-run the retained exact Git/image/current-publication/lineage verifier
-        # now that the final session binding exists. This is the authority
-        # boundary; the temporary installation verifier is no longer used.
         def invoke(argv, **_kwargs):
             return self.runner.run(argv, capture=True)
 
@@ -434,35 +418,30 @@ finally:
             encoding="utf-8")
         os.chmod(str(temporary), 0o600)
         temporary.replace(path)
-
-        # Persist only after the complete original verifier passed. A failed
-        # lineage or environment recheck therefore leaves no durable authority
-        # claim in .env.
         bootstrap._safe_update_dotenv(core.ENV_PATH, {
             "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256": digest})
 
     def verify_reviewed_shadow_bindings_quiesced(self) -> None:
         reviewed = self.reviewed_validation
-        if reviewed is None or reviewed.mode not in {"shadow", "dual"}:
-            return super().verify_reviewed_shadow_bindings_quiesced()
-        if not self._deferred_install():
+        if (reviewed is None or reviewed.mode not in {"shadow", "dual"}
+                or not self._deferred_install()):
             return super().verify_reviewed_shadow_bindings_quiesced()
 
         self.phase(
             "review: quiesced install waits for causal source and binds publication")
         self._wait_until_causal_ready()
         self._bind_current_publication()
-        # _bind_current_publication has already executed the original exact
-        # verifier including lineage against the final bound publication.
 
 
-core.parse_reviewed_validation_bundle = parse_reviewed_validation_bundle
-core.verify_reviewed_validation_environment = verify_reviewed_validation_environment
-bootstrap.hardened.Config = InstallAnytimeConfig
-bootstrap.BootstrapDeploy = InstallAnytimeDeploy
+def _install_overlay() -> None:
+    core.parse_reviewed_validation_bundle = parse_reviewed_validation_bundle
+    core.verify_reviewed_validation_environment = verify_reviewed_validation_environment
+    bootstrap.hardened.Config = InstallAnytimeConfig
+    bootstrap.BootstrapDeploy = InstallAnytimeDeploy
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    _install_overlay()
     return bootstrap.main(list(argv if argv is not None else sys.argv[1:]))
 
 
