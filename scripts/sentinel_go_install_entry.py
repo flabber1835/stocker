@@ -2,15 +2,15 @@
 """Wall-clock-independent DUAL_RUN_OBSERVATION installation authority.
 
 This import-only overlay separates exact software installation from volatile
-session authority.  The public SHADOW/DUAL/PAPER verdicts keep their original
-economic meanings.  A separate fenced-installation acceptance may promote the
-exact certified runtime while the next decision session is waiting.
+session authority. Public SHADOW/DUAL/PAPER verdicts retain their economic
+meaning. A separate fenced-installation acceptance may promote the exact
+certified runtime while the next decision session is waiting.
 
 The source-final preparation overlay has already caught the corpus up through
-the newest causally final session.  This layer never converts an arbitrary
-Sharadar readiness failure into a waiting state: a private read-only classifier
-must prove that the sole failure is freshness for sessions whose reviewed
-source-final not-before has not elapsed.
+the newest causally final session. This layer never converts an arbitrary
+Sharadar readiness or database-health failure into a waiting state. Public gate
+records remain truthful, including ``database_financial_health=FAIL`` when the
+only failed database-health check is ``prospective_trading_window``.
 """
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ phase = verified.phase
 WAIT_POLICY = "CAUSAL_SESSION_BINDING_AFTER_SOURCE_FINAL_V1"
 WAIT_POLICY_SUBJECT = "deployment_wait_policy"
 _ALLOWED_WAIT_DUAL_FAILURES = frozenset({
+    "GATE_DATABASE_FINANCIAL_HEALTH_NOT_PASS",
     "GATE_SHARADAR_READINESS_NOT_PASS",
     "SHADOW_STATE_NOT_FRESH",
     "SESSION_TIMING_NOT_READY",
@@ -123,29 +124,9 @@ def _readiness_wait_is_temporal(
         and payload.get("only_nonfinal_freshness") is True)
 
 
-def _structural_database_complete(base) -> bool:
-    """Database properties invariant with respect to the current wall clock."""
-    try:
-        checks = dict(base.checks)
-        counts = dict(base.counts)
-        measured = dict(base.measured_milliseconds)
-        thresholds = dict(base.threshold_milliseconds)
-        deadline = dict(base.deadline_milliseconds)
-    except (AttributeError, TypeError, ValueError):
-        return False
-
-    if (base.runtime_image_digest is None
-            or go._IMAGE_DIGEST.fullmatch(
-                str(base.runtime_image_digest)) is None
-            or go._HEX64.fullmatch(str(base.evidence_sha256 or "")) is None
-            or base.production_db_writes != 0
-            or set(checks) != set(go.DATABASE_CHECK_IDS)
-            or any(type(value) is not bool for value in checks.values())):
-        return False
-    structural_checks = set(go.DATABASE_CHECK_IDS) - {"prospective_trading_window"}
-    if any(checks[name] is not True for name in structural_checks):
-        return False
-
+def _database_maps_structurally_safe(
+        checks: Mapping, counts: Mapping, measured: Mapping,
+        thresholds: Mapping, deadline: Mapping) -> bool:
     expected_counts = {
         "publication_versions", "publication_chain_gaps",
         "duplicate_publication_run_ids", "recent_xnys_sessions",
@@ -161,7 +142,9 @@ def _structural_database_complete(base) -> bool:
         "observed_source_final_to_following_open",
         "minimum_remaining_margin", "measured_remaining_margin",
     }
-    if (set(counts) != expected_counts
+    if (set(checks) != set(go.DATABASE_CHECK_IDS)
+            or any(type(value) is not bool for value in checks.values())
+            or set(counts) != expected_counts
             or set(measured) != expected_timings
             or set(thresholds) != expected_timings
             or set(deadline) != expected_deadline):
@@ -169,6 +152,10 @@ def _structural_database_complete(base) -> bool:
     for values in (counts, measured, thresholds, deadline):
         if any(type(value) is not int or value < 0 for value in values.values()):
             return False
+
+    structural_checks = set(go.DATABASE_CHECK_IDS) - {"prospective_trading_window"}
+    if any(checks[name] is not True for name in structural_checks):
+        return False
 
     fixed_thresholds = {
         "bounded_sharadar_ingest": go.MAX_BOUNDED_INGEST_MS,
@@ -195,7 +182,53 @@ def _structural_database_complete(base) -> bool:
         and deadline["observed_source_final_to_following_open"]
             >= go.MIN_SOURCE_FINAL_TO_OPEN_MS
         and deadline["minimum_remaining_margin"]
-            == go.MIN_REMAINING_DEADLINE_MARGIN_MS)
+            == go.MIN_REMAINING_DEADLINE_MARGIN_MS
+        and deadline["measured_remaining_margin"]
+            == go.MIN_SOURCE_FINAL_TO_OPEN_MS - measured["combined_pretrade_work"]
+        and deadline["measured_remaining_margin"]
+            >= go.MIN_REMAINING_DEADLINE_MARGIN_MS)
+
+
+def _structural_database_complete(base) -> bool:
+    try:
+        if (base.runtime_image_digest is None
+                or go._IMAGE_DIGEST.fullmatch(
+                    str(base.runtime_image_digest)) is None
+                or go._HEX64.fullmatch(str(base.evidence_sha256 or "")) is None
+                or base.production_db_writes != 0):
+            return False
+        return _database_maps_structurally_safe(
+            dict(base.checks), dict(base.counts),
+            dict(base.measured_milliseconds),
+            dict(base.threshold_milliseconds),
+            dict(base.deadline_milliseconds))
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def _database_document_install_safe(
+        value: Mapping, *, runtime_image_digest: str) -> bool:
+    if (not isinstance(value, Mapping)
+            or value.get("schema") != go.DATABASE_HEALTH_SCHEMA
+            or value.get("runtime_image_digest") != runtime_image_digest
+            or value.get("production_db_writes") != 0
+            or go._HEX64.fullmatch(
+                str(value.get("evidence_sha256") or "")) is None):
+        return False
+    try:
+        checks = value["checks"]
+        counts = value["counts"]
+        measured = value["measured_milliseconds"]
+        thresholds = value["threshold_milliseconds"]
+        deadline = value["deadline_milliseconds"]
+    except KeyError:
+        return False
+    if not _database_maps_structurally_safe(
+            checks, counts, measured, thresholds, deadline):
+        return False
+    expected_status = (
+        go.PASS if checks["prospective_trading_window"] is True else go.FAIL)
+    return value.get("status") == expected_status
 
 
 @dataclass(frozen=True)
@@ -209,6 +242,8 @@ class InstallCompatibleDatabaseHealthView:
 
     @property
     def complete(self):
+        # Internal installation completeness. Public serialization below stays
+        # byte-for-byte faithful to the base financial-health verdict.
         return _structural_database_complete(self.base)
 
     @property
@@ -230,16 +265,7 @@ class InstallCompatibleDatabaseHealthView:
         return max(0, self.actual_remaining_to_execution_open_ms - elapsed)
 
     def to_dict(self):
-        value = dict(self.base.to_dict())
-        if self.complete:
-            value["status"] = go.PASS
-            value["evidence_sha256"] = go._evidence_digest({
-                "base_database_evidence_sha256": self.base.evidence_sha256,
-                "installation_policy": WAIT_POLICY,
-                "prospective_trading_window": bool(
-                    self.base.checks.get("prospective_trading_window")),
-            })
-        return value
+        return dict(self.base.to_dict())
 
 
 def _session_ready(health) -> bool:
@@ -248,17 +274,10 @@ def _session_ready(health) -> bool:
 
 def run_installable_phased(*args, **kwargs):
     probes = _BASE_PHASED(*args, **kwargs)
-    gates = dict(probes.gates)
     health = probes.database_health
-    if health is not None and health.complete:
-        gates["database_financial_health"] = go.make_gate(
-            "database_financial_health", go.PASS,
-            go._utc_text(datetime.now(timezone.utc)),
-            {"installation_structural_health": True,
-             "session_timing_ready": _session_ready(health),
-             "base_evidence_sha256": health.base.evidence_sha256})
-
     subjects = dict(probes.subject_values)
+    gates = dict(probes.gates)
+
     readiness_pass = gates["sharadar_readiness"].status == go.PASS
     temporal_readiness_wait = False
     if not readiness_pass:
@@ -271,7 +290,9 @@ def run_installable_phased(*args, **kwargs):
             runtime_ref=probes.tests.runtime_image_digest)
 
     waiting = (not readiness_pass) or not _session_ready(health)
-    safe_wait = readiness_pass or temporal_readiness_wait
+    safe_wait = bool(
+        health is not None and health.complete
+        and (readiness_pass or temporal_readiness_wait))
     if waiting and safe_wait:
         subjects.pop("data_publication", None)
         subjects[WAIT_POLICY_SUBJECT] = WAIT_POLICY
@@ -335,42 +356,40 @@ def _document_install_safe(validation: Mapping, tests: Mapping) -> bool:
                 or prep.get("broker_mutation_attempts") != 0):
             return False
 
-        database = validation["database_financial_health"]
-        if database.get("status") != go.PASS:
-            return False
-        checks = database["checks"]
-        structural = set(go.DATABASE_CHECK_IDS) - {"prospective_trading_window"}
-        if (set(checks) != set(go.DATABASE_CHECK_IDS)
-                or any(checks[name] is not True for name in structural)
-                or type(checks["prospective_trading_window"]) is not bool):
-            return False
-
-        gates = {item["id"]: item["status"] for item in validation["gates"]}
-        install_gates = (
-            "git_identity", "certified_suite_no_skips",
-            "database_financial_health", "wealth_core_nas_parity",
-            "alpaca_paper_account", "zero_mutation_boundary")
-        if (set(gates) != set(go.GATE_IDS)
-                or any(gates[name] != go.PASS for name in install_gates)):
-            return False
-
         git = validation["git"]
         runtime = validation["runtime"]
+        runtime_digest = str(runtime.get("runtime_image_digest") or "")
         if (git.get("branch") != "main" or git.get("clean") is not True
                 or git.get("matches_origin_main") is not True
                 or go._HEX40.fullmatch(str(git.get("commit") or "")) is None
                 or go._IMAGE_DIGEST.fullmatch(
                     str(runtime.get("candidate_image_digest") or "")) is None
-                or go._IMAGE_DIGEST.fullmatch(
-                    str(runtime.get("runtime_image_digest") or "")) is None
+                or go._IMAGE_DIGEST.fullmatch(runtime_digest) is None
                 or go._HEX64.fullmatch(
                     str(runtime.get("source_identity_sha256") or "")) is None):
             return False
+
+        database = validation["database_financial_health"]
+        if not _database_document_install_safe(
+                database, runtime_image_digest=runtime_digest):
+            return False
+
+        gates = {item["id"]: item["status"] for item in validation["gates"]}
+        if set(gates) != set(go.GATE_IDS):
+            return False
+        install_gates = (
+            "git_identity", "certified_suite_no_skips",
+            "wealth_core_nas_parity", "alpaca_paper_account",
+            "zero_mutation_boundary")
+        if any(gates[name] != go.PASS for name in install_gates):
+            return False
+        if gates["database_financial_health"] != database["status"]:
+            return False
+
         if (tests.get("complete") is not True
                 or tests.get("candidate_image_digest")
                     != runtime.get("candidate_image_digest")
-                or tests.get("runtime_image_digest")
-                    != runtime.get("runtime_image_digest")
+                or tests.get("runtime_image_digest") != runtime_digest
                 or tests.get("source_identity_sha256")
                     != runtime.get("source_identity_sha256")):
             return False
