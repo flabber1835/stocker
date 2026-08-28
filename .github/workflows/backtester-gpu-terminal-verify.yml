@@ -39,6 +39,7 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           sparse-checkout: |
+            sentinel
             shared
 
       - name: Set up Python 3.12
@@ -47,10 +48,11 @@ jobs:
           python-version: '3.12'
           check-latest: false
 
-      - name: Install exact shared package
+      - name: Install exact production dependency closure
         shell: bash
         run: |
           set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
           python -m pip install --no-build-isolation --no-deps -e main-src/shared
 
       - name: Verify checksum and exact production settlement
@@ -76,22 +78,19 @@ jobs:
           shares = 204677
           expected_cash_per_share = 36.50
           expected_proceeds = 7470710.50
-          meta = {sid: SecurityMeta(security_id=sid, ticker='GPU', permaticker=sid, related_tickers=())}
-
+          identity = {'GPU':'121383', 'LIT1':'120448', 'CIT.A':'122131', 'TYC':'573113'}
+          meta = {
+              security_id: SecurityMeta(
+                  security_id=security_id, ticker=ticker,
+                  permaticker=security_id, related_tickers=())
+              for ticker, security_id in identity.items()
+          }
           terms_by_session, digest = load_frozen_terminal_terms(
               Path('backtester/data/causal-terminal-terms-v1.json'),
               Path('backtester/data/causal-terminal-terms-v1.SHA256'),
               sessions=['2001-05-30', '2001-06-01', '2001-11-07'],
-              resolve_identity=lambda ticker, session: sid if ticker == 'GPU' else ({'LIT1':'120448','CIT.A':'122131','TYC':'573113'}.get(ticker)),
-              meta={
-                  **meta,
-                  '120448': SecurityMeta(security_id='120448', ticker='LIT1', permaticker='120448', related_tickers=()),
-                  '122131': SecurityMeta(security_id='122131', ticker='CIT.A', permaticker='122131', related_tickers=()),
-                  '573113': SecurityMeta(security_id='573113', ticker='TYC', permaticker='573113', related_tickers=()),
-              },
-              TerminalTerms=TerminalTerms,
-              TerminalKind=TerminalKind,
-          )
+              resolve_identity=lambda ticker, session: identity.get(ticker),
+              meta=meta, TerminalTerms=TerminalTerms, TerminalKind=TerminalKind)
           gpu = terms_by_session['2001-11-07'][0]
           if gpu.security_id != sid or gpu.kind is not TerminalKind.CASH_MERGER:
               raise SystemExit(f'wrong GPU terminal terms: {gpu}')
@@ -104,23 +103,20 @@ jobs:
               security_id=sid, ticker='GPU', issuer_id='P:121383', slot_id=0,
               signal_date='2001-10-24', entry_date='2001-10-25',
               entry_raw_open=40.2, entry_split_adjusted_price=40.2,
-              initial_shares=shares, current_shares=shares,
-          )
+              initial_shares=shares, current_shares=shares)
           ledger = Ledger()
           result = apply_terminal(
               state, gpu, ledger=ledger, session='2001-11-07',
               cfg=WealthCoreConfig(), last_valid_mark=40.39,
-              sessions_since_last_valid_print=1,
-          )
+              sessions_since_last_valid_print=1)
           if not result.get('applied') or result.get('kind') != 'CASH_MERGER':
               raise SystemExit(f'GPU settlement did not apply: {result}')
           if state.episodes:
               raise SystemExit('GPU holding was not extinguished')
           if not math.isclose(state.cash, expected_proceeds, rel_tol=0, abs_tol=1e-8):
               raise SystemExit(f'GPU proceeds wrong: {state.cash} != {expected_proceeds}')
-          event = ledger.events[-1]
-          if event.event_type is not EventType.CASH_MERGER:
-              raise SystemExit(f'GPU ledger event wrong: {event}')
+          if ledger.events[-1].event_type is not EventType.CASH_MERGER:
+              raise SystemExit(f'GPU ledger event wrong: {ledger.events[-1]}')
 
           print(json.dumps({
               'status': 'PASS',
