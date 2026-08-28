@@ -1,0 +1,138 @@
+name: Backtester - triage all unresolved split windows
+
+on:
+  push:
+    branches: [research/backtester]
+    paths:
+      - '.github/workflows/backtester-triage-all-unresolved-split-windows.yml'
+      - 'backtester/diagnostics/triage_all_unresolved_split_windows.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  triage:
+    name: Classify nearby transitions for all 128 split conflicts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out frozen research inputs
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/backtester
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-triage-all-unresolved-split-windows.yml
+            /backtester/diagnostics/scan_full_corpus_unresolved_splits.py
+            /backtester/diagnostics/triage_all_unresolved_split_windows.py
+            /backtester/experiments/2026-08-27-sector-abc/**
+            /PIT input data/MANIFEST.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
+            /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SHARADAR_SEP_*.csv.gz
+
+      - name: Record research identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          echo "BACKTESTER_BRANCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_LAB_ROOT=${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_SPLIT_SCAN_OUTPUT=${GITHUB_WORKSPACE}/backtester-results/full-corpus-unresolved-splits.json" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_SPLIT_WINDOW_OUTPUT=${GITHUB_WORKSPACE}/backtester-results/all-unresolved-split-window-triage.json" >> "${GITHUB_ENV}"
+
+      - name: Check out exact main source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: c502d077cae9c494f8b74a41ee8be7f40b25837d
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - name: Verify exact main identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTUAL="$(git -C main-src rev-parse HEAD)"
+          test "${ACTUAL}" = "c502d077cae9c494f8b74a41ee8be7f40b25837d"
+          echo "BACKTESTER_MAIN_SHA=${ACTUAL}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_MAIN_ROOT=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install exact main runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+
+      - name: Compile diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile backtester/diagnostics/scan_full_corpus_unresolved_splits.py
+          python -m py_compile backtester/diagnostics/triage_all_unresolved_split_windows.py
+
+      - name: Reproduce exact 128-conflict population
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p backtester-results
+          python backtester/diagnostics/scan_full_corpus_unresolved_splits.py \
+            2>&1 | tee backtester-split-window-source-scan.log
+
+      - name: Classify nearby trading-session transitions
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          python backtester/diagnostics/triage_all_unresolved_split_windows.py \
+            2>&1 | tee backtester-all-unresolved-split-window-triage.log
+
+      - name: Verify triage evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('backtester-results/all-unresolved-split-window-triage.json')
+          x=json.loads(p.read_text())
+          if x.get('status')!='PASS' or x.get('event_count')!=128:
+              raise SystemExit(f"invalid all-split triage: {x.get('status')} {x.get('event_count')}")
+          print(json.dumps(x.get('classification_counts'),sort_keys=True))
+          PY
+
+      - name: Upload triage evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: backtester-all-unresolved-split-window-triage-${{ github.run_id }}
+          path: |
+            backtester-results/full-corpus-unresolved-splits.json
+            backtester-results/all-unresolved-split-window-triage.json
+            backtester-split-window-source-scan.log
+            backtester-all-unresolved-split-window-triage.log
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
