@@ -23,9 +23,6 @@ jobs:
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /.github/workflows/backtester-ab-one-time-fix-fast.yml
-            /.github/workflows/backtester-ab-one-time-fix.yml
-            /.github/workflows/backtester-sector-abc.yml
             /backtester/experiments/2026-08-27-sector-abc/run.py
 
       - name: Enforce backtester-only boundary
@@ -65,27 +62,17 @@ jobs:
           rep('''        "dynamic_peer_diagnostics": {\n            "pair_correlations_evaluated": dynamic.peer_calculations,\n            "insufficient_history_requests": dynamic.insufficient_histories,\n        },\n''','')
           rep('print("[PASS] fresh A/B/C replay completed", flush=True)','print("[PASS] fresh A/B replay completed", flush=True)')
           p.write_text(s)
-
-          w=Path('.github/workflows/backtester-sector-abc.yml')
-          t=w.read_text()
-          t=t.replace('Backtester - sector A/B/C fresh replay','Backtester - sector A/B fresh replay')
-          t=t.replace('Fresh chronological A/B/C replay','Fresh chronological A/B replay')
-          t=t.replace('Run fresh chronological A/B/C experiment','Run fresh chronological A/B experiment')
-          t=t.replace('backtester-sector-abc.log','backtester-sector-ab.log')
-          t=t.replace('backtester-sector-abc-${{ github.run_id }}','backtester-sector-ab-${{ github.run_id }}')
-          w.write_text(t)
           PY
           python -m py_compile backtester/experiments/2026-08-27-sector-abc/run.py
           ! grep -q 'state_c = SessionState.fresh' backtester/experiments/2026-08-27-sector-abc/run.py
 
-      - name: Commit only to research/backtester
+      - name: Commit runner to research/backtester only
         shell: bash
         run: |
           set -euo pipefail
           test "$(git branch --show-current)" = "research/backtester"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add backtester/experiments/2026-08-27-sector-abc/run.py .github/workflows/backtester-sector-abc.yml
-          git rm -f .github/workflows/backtester-ab-one-time-fix-fast.yml .github/workflows/backtester-ab-one-time-fix.yml
+          git add backtester/experiments/2026-08-27-sector-abc/run.py
           git commit -m 'research(backtester): fix unresolved-open accounting and run A/B only'
           git push origin HEAD:research/backtester
