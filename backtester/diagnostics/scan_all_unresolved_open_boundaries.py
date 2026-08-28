@@ -52,7 +52,8 @@ def main() -> int:
     v2 = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(v2)
     runner = v2.runner
-    production = runner.production
+
+    import sentinel.core.production as production
 
     real_advance = production.advance_state
     advance_cache = {"session": None, "result": None, "a_calls": 0, "collapsed": 0}
