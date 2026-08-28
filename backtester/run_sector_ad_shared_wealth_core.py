@@ -26,7 +26,8 @@ if spec is None or spec.loader is None:
 v2 = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(v2)
 
-production = v2.runner.production
+import sentinel.core.production as production
+
 _real_plan_session = production.plan_session
 
 _cache: dict[str, object] = {
