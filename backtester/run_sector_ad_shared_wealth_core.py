@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import os
 from pathlib import Path
-import sys
 
 
 V2_PATH = Path(__file__).with_name("run_sector_ad_causal_terminal_terms_v2.py")
@@ -124,7 +124,10 @@ production.plan_session = _shared_plan_session
 
 def main() -> int:
     print("[OPTIMIZATION] shared Wealth Core plan enabled: A real, D exact deep-copy reuse", flush=True)
-    rc = int(v2.main())
+    if os.environ.get("BACKTESTER_ACCEL_RAW_RUN") == "1":
+        rc = int(v2.runner.main())
+    else:
+        rc = int(v2.main())
     if _cache["session"] is not None and _cache["calls"] != 2:
         raise RuntimeError(
             f"final session {_cache['session']} did not execute exactly two plan calls")
