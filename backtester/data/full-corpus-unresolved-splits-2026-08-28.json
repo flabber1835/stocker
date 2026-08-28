@@ -1,0 +1,200 @@
+{
+  "backtester_sha": "668f088097f98beabba4e67b0bf17649501deddc",
+  "bars_processed": 46238394,
+  "end_session": "2026-07-31",
+  "records": [
+    {
+      "applied_ratio": 1.0,
+      "derived": 1.0,
+      "disposition": "unresolved",
+      "session": "2006-04-03",
+      "stated": 6.0,
+      "ticker": "AAWW",
+      "triage_category": "no_sep_transition_on_action_date"
+    },
+    {
+      "applied_ratio": 1.0,
+      "derived": 1.000064956462201,
+      "disposition": "unresolved",
+      "session": "1999-12-13",
+      "stated": 1.2,
+      "ticker": "ABCB",
+      "triage_category": "no_sep_transition_on_action_date"
+    },
+    {
+      "applied_ratio": 1.0,
+      "derived": 1.0000000000000002,
+      "disposition": "unresolved",
+      "session": "2005-06-09",
+      "stated": 1.2,
+      "ticker": "ABEV",
+      "triage_category": "no_sep_transition_on_action_date"
+    },
+    {
+      "applied_ratio": 1.0,
+      "derived": 1.0,
+      "disposition": "unresolved",
+      "session": "2013-11-11",
+      "stated": 5.0,
+      "ticker": "ABV",
+      "triage_category": "no_sep_transition_on_action_date"
+    },
+    {
+      "applied_ratio": 1.0,
+      "derived": 0.09996041171813144,
+      "disposition": "unresolved",
+      "session": "2017-09-21",
+      "stated": 0.09662,
+      "ticker": "ACER",
+      "triage_category": "direct_ratio_near_match_within_5pct"
+    },
+    {
+      "applied_ratio": 1.0,
+      "derived": 1.0,
+      "disposition": "unresolved",
+      "session": "1998-02-05",
+      "stated": 3.0,
+      "ticker": "ALBC",
+      "triage_category": "no_sep_transition_on_action_date"
+    },
+    {
+      "applied_ratio": 1.0,
+      "derived": 1.0,
+      "disposition": "unresolved",
+      "session": "2000-03-15",
+      "stated": 2.0,
+      "ticker": "ALLR1",
+      "triage_category": "no_sep_transition_on_action_date"
+    },
+    {
+      "applied_ratio": 1.0,
+      "derived": 1.0,
+      "disposition": "unresolved",
+      "session": "2004-03-02",
+      "stated": 0.25,
+      "ticker": "AQQSQ",
+      "triage_category": "no_sep_transition_on_action_date"
+    },
+    {
+      "applied_ratio": 1.0,
+      "derived": 1.0,
+      "disposition": "unresolved",
+      "session": "2010-05-10",
+      "stated": 2.0,
+      "ticker": "AQQSQ",
+      "triage_category": "no_sep_transition_on_action_date"
+    },
+    {
+      "applied_ratio": 1.0,
+      "derived": 1.0,
+      "disposition": "unresolved",
+      "session": "2000-11-10",
+      "stated": 2.0,
+      "ticker": "AZA.A",
+      "triage_category": "no_sep_transition_on_action_date"
+    },
+    {
+      "applied_ratio": 1.0,
+      "derived": 3.000021476279449,
+      "disposition": "unresolved",
+      "session": "1998-04-08",
+      "stated": 0.33333,
+      "ticker": "AZN",
+      "triage_category": "inverse_ratio_match_within_1pct"
+    },
+    {
+      "applied_ratio": 1.0,
+      "derived": 0.9999974262453847,
+      "disposition": "unresolved",
+      "session": "2017-07-13",
+      "stated": 1.05,
+      "ticker": "BKJ",
+      "triage_category": "no_sep_transition_on_action_date"
+    },
+    {
+      "applied_ratio": 1.0,
+      "derived": 1.0,
+      "disposition": "unresolved",
+      "session": "1999-07-15",
+      "stated": 0.33333,
+      "ticker": "BMAN",
+      "triage_category": "no_sep_transition_on_action_date"
+    },
+    {
+      "applied_ratio": 1.0,
+      "derived": 1.0,
+      "disposition": "unresolved",
+      "session": "1998-09-02",
+      "stated": 3.0,
+      "ticker": "BNI",
+      "triage_category": "no_sep_transition_on_action_date"
+    },
+    {
+      "applied_ratio": 1.0,
+      "derived": 1.0,
+      "disposition": "unresolved",
+      "session": "1999-08-30",
+      "stated": 1.25,
+      "ticker": "BZBC",
+      "triage_category": "no_sep_transition_on_action_date"
+    },
+    {
+      "applied_ratio": 1.0,
+      "derived": 1.0,
+      "disposition": "unresolved",
+      "session": "1998-03-03",
+      "stated": 3.0,
+      "ticker": "CB",
+      "triage_category": "no_sep_transition_on_action_date"
+    },
+    {
+      "applied_ratio": 1.0,
+      "derived": 1.0,
+      "disposition": "unresolved",
+      "session": "2002-05-29",
+      "stated": 1.1,
+      "ticker": "CBN",
+      "triage_category": "no_sep_transition_on_action_date"
+    },
+    {
+      "applied_ratio": 1.0,
+      "derived": 1.0,
+      "disposition": "unresolved",
+      "session": "1998-04-15",
+      "stated": 1.5,
+      "ticker": "CCIL",
+      "triage_category": "no_sep_transition_on_action_date"
+    },
+    {
+      "applied_ratio": 1.0,
+      "derived": 1.0,
+      "disposition": "unresolved",
+      "session": "2000-03-24",
+      "stated": 1.1,
+      "ticker": "CFCP",
+      "triage_category": "no_sep_transition_on_action_date"
+    },
+    {
+      "applied_ratio": 1.0,
+      "derived": 1.0,
+      "disposition": "unresolved",
+      "session": "1998-06-26",
+      "stated": 1.5,
+      "ticker": "CIBN",
+      "triage_category": "no_sep_transition_on_action_date"
+    }
+  ],
+  "schema": "backtester.unresolved-split-scan-retained/1",
+  "source_artifact_id": 9702956209,
+  "source_artifact_zip_sha256": "2df5fa78404e41ea437240dd64ce4495e4fcc131f83143c48a3c124b81724cba",
+  "source_json_sha256": "ea821c8c63d463438c8e9e77352957751268e9a357d7d05b11823086c2240feb",
+  "source_workflow_run": 33213682310,
+  "strategy_main_sha": "c502d077cae9c494f8b74a41ee8be7f40b25837d",
+  "triage_counts": {
+    "direct_ratio_near_match_within_5pct": 1,
+    "inverse_ratio_match_within_1pct": 3,
+    "no_sep_transition_on_action_date": 114,
+    "other_price_domain_conflict": 10
+  },
+  "unresolved_split_count": 128
+}
