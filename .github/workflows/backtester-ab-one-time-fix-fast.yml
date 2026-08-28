@@ -1,0 +1,91 @@
+name: Backtester sparse one-time A/B replay fix
+
+on:
+  push:
+    branches:
+      - research/backtester
+    paths:
+      - '.github/workflows/backtester-ab-one-time-fix-fast.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-ab-runner:
+    if: github.ref_name == 'research/backtester' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/backtester
+          fetch-depth: 1
+          persist-credentials: true
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-ab-one-time-fix-fast.yml
+            /.github/workflows/backtester-ab-one-time-fix.yml
+            /.github/workflows/backtester-sector-abc.yml
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+
+      - name: Enforce backtester-only boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "research/backtester"
+          test "$(git branch --show-current)" = "research/backtester"
+
+      - name: Patch A/B-only replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('backtester/experiments/2026-08-27-sector-abc/run.py')
+          s=p.read_text()
+          def rep(old,new):
+              global s
+              n=s.count(old)
+              if n!=1: raise SystemExit(f'expected one match, got {n}: {old[:80]!r}')
+              s=s.replace(old,new)
+          rep('EXPERIMENT_ID = "2026-08-27-sector-abc"','EXPERIMENT_ID = "2026-08-27-sector-ab"')
+          rep('''def state_wc_parity(a, b, c, session: str) -> None:\n    fields = (\n        "wealth_core", "pending", "ledger", "last_known",\n        "shadow_nav_history", "shadow_peak_nav", "trailing_stop_sessions",\n        "recent_leadership",\n    )\n    for field in fields:\n        av, bv, cv = getattr(a, field), getattr(b, field), getattr(c, field)\n        if not (av == bv == cv):\n            raise RuntimeError(f"A/B/C shared economic state diverged at {session}: {field}")\n\n\ndef wealth_equities(state) -> tuple[float, float]:\n    evidence = (state.last_evidence or {}).get("wealth_core") or {}\n    close = evidence.get("estimated_equity")\n    op = evidence.get("resolved_open_equity")\n    if not positive(close) or not positive(op):\n        raise RuntimeError(\n            f"Wealth Core lacks resolved positive open/close equity on "\n            f"{state.last_processed_session}: open={op}, close={close}")\n    return float(op), float(close)\n''','''def state_wc_parity(a, b, session: str) -> None:\n    fields = (\n        "wealth_core", "pending", "ledger", "last_known",\n        "shadow_nav_history", "shadow_peak_nav", "trailing_stop_sessions",\n        "recent_leadership",\n    )\n    for field in fields:\n        av, bv = getattr(a, field), getattr(b, field)\n        if av != bv:\n            raise RuntimeError(f"A/B shared economic state diverged at {session}: {field}")\n\n\ndef wealth_equities(state) -> tuple[Optional[float], float]:\n    evidence = (state.last_evidence or {}).get("wealth_core") or {}\n    close = evidence.get("estimated_equity")\n    op = evidence.get("resolved_open_equity")\n    if not positive(close):\n        raise RuntimeError(f"Wealth Core lacks positive close equity on {state.last_processed_session}: close={close}")\n    if op is not None and not positive(op):\n        raise RuntimeError(f"Wealth Core has invalid resolved open equity on {state.last_processed_session}: open={op}")\n    return (None if op is None else float(op)), float(close)\n''')
+          rep('''    def step(self, core_open: float, core_close: float, prior_core_close: Optional[float],\n             bil_gap: float, bil_intraday: float, next_target: float) -> float:\n        if not self.initialized or prior_core_close is None:\n            self.initialized = True\n            self.pending = next_target\n            return self.nav\n        core_gap = core_open / prior_core_close\n        core_intraday = core_close / core_open\n        if not positive(core_gap) or not positive(core_intraday):\n            raise RuntimeError(f"invalid Wealth Core return factors for {self.name}")\n''','''    def step(self, core_open: Optional[float], core_close: float, prior_core_close: Optional[float],\n             bil_gap: float, bil_intraday: float, next_target: float) -> float:\n        if not self.initialized or prior_core_close is None:\n            self.initialized = True\n            self.pending = next_target\n            return self.nav\n        if core_open is None:\n            if abs(self.pending - self.effective) > 1e-15:\n                raise RuntimeError(f"{self.name} allocation transition coincides with unresolved Wealth Core open; exact next-open attribution is impossible")\n            core_c2c = core_close / prior_core_close\n            bil_c2c = bil_gap * bil_intraday\n            if not positive(core_c2c) or not positive(bil_c2c):\n                raise RuntimeError(f"invalid close-to-close return factor for {self.name}")\n            self.nav *= self.effective * core_c2c + (1.0-self.effective) * bil_c2c\n            self.pending = next_target\n            if not positive(self.nav):\n                raise RuntimeError(f"non-positive overlay NAV for {self.name}")\n            return self.nav\n        core_gap = core_open / prior_core_close\n        core_intraday = core_close / core_open\n        if not positive(core_gap) or not positive(core_intraday):\n            raise RuntimeError(f"invalid Wealth Core return factors for {self.name}")\n''')
+          rep('''    c_sectors = SidSectorMap(meta)\n\n    controller_config''','''    controller_config''')
+          rep('''    state_c = SessionState.fresh(\n        starting_cash=STARTING_CASH, controller=Controller(controller_config),\n        strategy_identity=strategy_identity)\n\n    accounts = {name: OverlayAccount(name) for name in ("A", "B", "C")}\n    dynamic = DynamicPeerEngine(breadth)\n''','''    accounts = {name: OverlayAccount(name) for name in ("A", "B")}\n''')
+          rep('''        anchors_c = build_anchor_map(\n            state_c, bars, meta, prior_split_factor, seen_count, main_api)\n        if not (anchors_a == anchors_b == anchors_c):\n            raise RuntimeError(f"A/B/C feed-anchor sets diverged at {session}")\n''','''        if anchors_a != anchors_b:\n            raise RuntimeError(f"A/B feed-anchor sets diverged at {session}")\n''')
+          rep('''        pub_c = PublishedSession(sectors=c_sectors, **common)\n\n        state_a''','''        state_a''')
+          rep('''        dynamic.current_index = idx\n        dynamic.current_session = session\n        production.session_breadth = dynamic.session_breadth\n        try:\n            state_c = production.advance_state(\n                state_c, pub_c, controller_config=controller_config,\n                strategy_identity=strategy_identity)\n        finally:\n            production.session_breadth = original_session_breadth\n\n        state_wc_parity(state_a, state_b, state_c, session)\n''','''        state_wc_parity(state_a, state_b, session)\n''')
+          rep('''        targets = {\n            "A": target_allocation(state_a),\n            "B": target_allocation(state_b),\n            "C": target_allocation(state_c),\n        }\n''','''        targets = {\n            "A": target_allocation(state_a),\n            "B": target_allocation(state_b),\n        }\n''')
+          rep('''        ev_c = state_c.last_evidence or {}\n        ob_a = ev_a.get("observation") or {}\n        ob_b = ev_b.get("observation") or {}\n        ob_c = ev_c.get("observation") or {}\n        daily_rows.append({\n            "date": session,\n            "A_nav": navs["A"], "B_nav": navs["B"], "C_nav": navs["C"],\n            "SPY_level": spy_level[session],\n            "wealth_core_equity": core_close,\n            "A_allocation": targets["A"], "B_allocation": targets["B"],\n            "C_allocation": targets["C"],\n            "A_native": (state_a.last_decision or {}).get("native_target_core_exposure"),\n            "B_native": (state_b.last_decision or {}).get("native_target_core_exposure"),\n            "C_native": (state_c.last_decision or {}).get("native_target_core_exposure"),\n            "A_damaged": ob_a.get("damaged_breadth"),\n            "B_damaged": ob_b.get("damaged_breadth"),\n            "C_damaged": ob_c.get("damaged_breadth"),\n            "green": ob_a.get("green_breadth"),\n        })\n''','''        ob_a = ev_a.get("observation") or {}\n        ob_b = ev_b.get("observation") or {}\n        daily_rows.append({\n            "date": session,\n            "A_nav": navs["A"], "B_nav": navs["B"],\n            "SPY_level": spy_level[session],\n            "wealth_core_equity": core_close,\n            "A_allocation": targets["A"], "B_allocation": targets["B"],\n            "A_native": (state_a.last_decision or {}).get("native_target_core_exposure"),\n            "B_native": (state_b.last_decision or {}).get("native_target_core_exposure"),\n            "A_damaged": ob_a.get("damaged_breadth"),\n            "B_damaged": ob_b.get("damaged_breadth"),\n            "green": ob_a.get("green_breadth"),\n        })\n''')
+          rep('''        dynamic.update_assets(idx, current_asset_returns)\n        dynamic.update_market(idx, spy_return.get(session))\n        prior_core_close = core_close\n\n        if idx % 252 == 0 or session == END_SESSION:\n            print(\n                f"[RUN] {session} sessions={idx+1:,} "\n                f"A={accounts['A'].nav:.6f} B={accounts['B'].nav:.6f} "\n                f"C={accounts['C'].nav:.6f}", flush=True)\n''','''        prior_core_close = core_close\n\n        if idx % 252 == 0 or session == END_SESSION:\n            print(\n                f"[RUN] {session} sessions={idx+1:,} "\n                f"A={accounts['A'].nav:.6f} B={accounts['B'].nav:.6f}", flush=True)\n''')
+          rep('''            ("A", "A_nav"), ("B", "B_nav"), ("C", "C_nav"),\n            ("SPY", "SPY_level"),\n''','''            ("A", "A_nav"), ("B", "B_nav"),\n            ("SPY", "SPY_level"),\n''')
+          rep('''            "C": "A with sector contagion grouping replaced only by strict-prior residual-correlation peers",\n''','')
+          rep('''        "dynamic_peer_parameters": {\n            "lookback_sessions": PEER_LOOKBACK,\n            "minimum_observations": PEER_MIN_OBSERVATIONS,\n            "maximum_peers": PEER_COUNT,\n            "correlation_floor": PEER_CORRELATION_FLOOR,\n        },\n''','')
+          rep('''        "dynamic_peer_diagnostics": {\n            "pair_correlations_evaluated": dynamic.peer_calculations,\n            "insufficient_history_requests": dynamic.insufficient_histories,\n        },\n''','')
+          rep('print("[PASS] fresh A/B/C replay completed", flush=True)','print("[PASS] fresh A/B replay completed", flush=True)')
+          p.write_text(s)
+
+          w=Path('.github/workflows/backtester-sector-abc.yml')
+          t=w.read_text()
+          t=t.replace('Backtester - sector A/B/C fresh replay','Backtester - sector A/B fresh replay')
+          t=t.replace('Fresh chronological A/B/C replay','Fresh chronological A/B replay')
+          t=t.replace('Run fresh chronological A/B/C experiment','Run fresh chronological A/B experiment')
+          t=t.replace('backtester-sector-abc.log','backtester-sector-ab.log')
+          t=t.replace('backtester-sector-abc-${{ github.run_id }}','backtester-sector-ab-${{ github.run_id }}')
+          w.write_text(t)
+          PY
+          python -m py_compile backtester/experiments/2026-08-27-sector-abc/run.py
+          ! grep -q 'state_c = SessionState.fresh' backtester/experiments/2026-08-27-sector-abc/run.py
+
+      - name: Commit only to research/backtester
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git branch --show-current)" = "research/backtester"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add backtester/experiments/2026-08-27-sector-abc/run.py .github/workflows/backtester-sector-abc.yml
+          git rm -f .github/workflows/backtester-ab-one-time-fix-fast.yml .github/workflows/backtester-ab-one-time-fix.yml
+          git commit -m 'research(backtester): fix unresolved-open accounting and run A/B only'
+          git push origin HEAD:research/backtester
