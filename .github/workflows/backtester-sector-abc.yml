@@ -7,7 +7,12 @@ on:
     paths:
       - '.github/workflows/backtester-sector-abc.yml'
       - 'backtester/experiments/2026-08-27-sector-abc/**'
+      - 'backtester/run_sector_ab_causal_terminal_terms.py'
+      - 'backtester/causal_terminal_terms.py'
+      - 'backtester/data/causal-terminal-terms-v1.json'
+      - 'backtester/data/causal-terminal-terms-v1.SHA256'
       - 'docs/backtester-experiment-contract.md'
+      - 'docs/backtester-causal-terminal-terms.md'
   workflow_dispatch:
 
 # HARD BACKTESTER BOUNDARY: this workflow cannot write repository contents.
@@ -37,7 +42,12 @@ jobs:
           sparse-checkout: |
             /.github/workflows/backtester-sector-abc.yml
             /backtester/experiments/2026-08-27-sector-abc/**
+            /backtester/run_sector_ab_causal_terminal_terms.py
+            /backtester/causal_terminal_terms.py
+            /backtester/data/causal-terminal-terms-v1.json
+            /backtester/data/causal-terminal-terms-v1.SHA256
             /docs/backtester-experiment-contract.md
+            /docs/backtester-causal-terminal-terms.md
             /PIT input data/MANIFEST.csv
             /PIT input data/ACTIONS_PIT_ONLY.csv.gz
             /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
@@ -107,7 +117,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile backtester/experiments/2026-08-27-sector-abc/run.py
+          python -m py_compile \
+            backtester/causal_terminal_terms.py \
+            backtester/run_sector_ab_causal_terminal_terms.py \
+            backtester/experiments/2026-08-27-sector-abc/run.py
           python -m compileall -q -f main-src/sentinel main-src/shared/stock_strategy_shared
 
       - name: Verify all declared frozen input files are present
@@ -119,6 +132,9 @@ jobs:
           test -f 'PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv'
           test -f 'PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz'
           test -f sharadar/SHARADAR_TICKERS.zip
+          test -f backtester/data/causal-terminal-terms-v1.json
+          test -f backtester/data/causal-terminal-terms-v1.SHA256
+          (cd backtester/data && sha256sum -c causal-terminal-terms-v1.SHA256)
           test -f research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
           test -f research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
           count="$(find sharadar -maxdepth 1 -type f -name 'SHARADAR_SEP_*.csv.gz' | wc -l)"
@@ -132,7 +148,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf backtester-results/sector-ab
-          python backtester/experiments/2026-08-27-sector-abc/run.py \
+          python backtester/run_sector_ab_causal_terminal_terms.py \
             --lab-root . \
             --main-root main-src \
             --output backtester-results/sector-ab \
@@ -156,6 +172,31 @@ jobs:
               raise SystemExit('prerecorded-decision boundary is not false')
           if summary.get('wealth_core_parity') is not True:
               raise SystemExit('A/B Wealth Core parity is not true')
+          terms = summary.get('causal_terminal_terms') or {}
+          expected_terms_sha = 'f93a3ac12452f2f29a9c57ee93474ce14a44c51d2e81b538a3e150e9089129c9'
+          if terms.get('sha256') != expected_terms_sha:
+              raise SystemExit(
+                  f"wrong causal terminal terms hash: {terms.get('sha256')}")
+          expected_events = {
+              ('2001-05-30', '120448', 'CASH_MERGER'),
+              ('2001-06-01', '122131', 'CONVERSION'),
+          }
+          actual_events = {
+              (str(row.get('session')), str(row.get('security_id')), str(row.get('kind')))
+              for row in terms.get('events') or []
+          }
+          if not expected_events.issubset(actual_events):
+              raise SystemExit(
+                  f'causal terminal event provenance is incomplete: {actual_events}')
+          witness = terms.get('original_failure_boundary') or {}
+          if witness.get('session') != '2001-06-04':
+              raise SystemExit(f'wrong original-failure witness: {witness}')
+          if not isinstance(witness.get('resolved_open_equity'), (int, float)) \
+                  or witness['resolved_open_equity'] <= 0:
+              raise SystemExit(f'original-failure open remains unresolved: {witness}')
+          if witness.get('open_unresolved_security_ids') != []:
+              raise SystemExit(
+                  f'original-failure unresolved security IDs remain: {witness}')
           print(Path('metrics.csv').read_text())
           PY
 
