@@ -1,0 +1,143 @@
+name: Backtester - unresolved open source probe
+
+on:
+  push:
+    branches: [research/backtester]
+    paths:
+      - '.github/workflows/backtester-unresolved-open-source-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe 2001-06-04 source rows
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out pinned research source inputs
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/backtester
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SHARADAR_SEP_2001.csv.gz
+            /PIT input data/MANIFEST.csv
+
+      - name: Probe exact raw rows and TICKERS aliases
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv, gzip, hashlib, json, zipfile
+          from pathlib import Path
+
+          session = '2001-06-04'
+          target_sids = {'120448', '122131'}
+          sep_path = Path('sharadar/SHARADAR_SEP_2001.csv.gz')
+          tickers_path = Path('sharadar/SHARADAR_TICKERS.zip')
+
+          def norm_sid(value):
+              try:
+                  return str(int(float(str(value).strip())))
+              except Exception:
+                  return str(value).strip()
+
+          manifest = {}
+          with Path('PIT input data/MANIFEST.csv').open(newline='', encoding='utf-8') as f:
+              for row in csv.DictReader(f):
+                  manifest[row['file']] = row
+          pin = manifest['SEP_2001_PIT_ONLY.csv.gz']
+          digest = hashlib.sha256(sep_path.read_bytes()).hexdigest()
+          if digest != pin['source_sha256']:
+              raise SystemExit(f'raw SEP hash mismatch: {digest} != {pin["source_sha256"]}')
+
+          with zipfile.ZipFile(tickers_path) as zf:
+              members = [n for n in zf.namelist() if n.lower().endswith('.csv')]
+              if len(members) != 1:
+                  raise SystemExit(f'unexpected TICKERS members: {members}')
+              with zf.open(members[0]) as raw:
+                  import io
+                  rows = list(csv.DictReader(io.TextIOWrapper(raw, encoding='utf-8', newline='')))
+
+          sep_meta = [r for r in rows if str(r.get('table','')) == 'SEP']
+          by_ticker = {}
+          sid_rows = []
+          aliases = set()
+          for r in sep_meta:
+              ticker = str(r.get('ticker') or '').strip()
+              sid = norm_sid(r.get('permaticker'))
+              if ticker:
+                  by_ticker.setdefault(ticker, []).append(r)
+              if sid in target_sids:
+                  aliases.add(ticker)
+                  sid_rows.append({k: r.get(k) for k in (
+                      'permaticker','ticker','name','firstpricedate','lastpricedate',
+                      'relatedtickers','category','sector','exchange','isdelisted') if k in r})
+
+          def resolve(ticker, date):
+              candidates = by_ticker.get(ticker, [])
+              active = set()
+              all_ids = set()
+              for r in candidates:
+                  sid = norm_sid(r.get('permaticker'))
+                  if not sid:
+                      continue
+                  all_ids.add(sid)
+                  first = str(r.get('firstpricedate') or '0001-01-01')[:10]
+                  last = str(r.get('lastpricedate') or '9999-12-31')[:10]
+                  if first <= date <= last:
+                      active.add(sid)
+              if len(active) == 1:
+                  return next(iter(active))
+              if not active and len(all_ids) == 1:
+                  return next(iter(all_ids))
+              return None
+
+          session_rows = []
+          target_rows = []
+          alias_nearby = []
+          with gzip.open(sep_path, 'rt', encoding='utf-8', newline='') as f:
+              reader = csv.DictReader(f)
+              required = {'ticker','date','open','close','closeunadj','volume'}
+              if not required.issubset(reader.fieldnames or []):
+                  raise SystemExit(f'missing raw columns: {reader.fieldnames}')
+              for r in reader:
+                  date = str(r.get('date') or '')[:10]
+                  ticker = str(r.get('ticker') or '').strip()
+                  if date == session:
+                      rr = {k: r.get(k) for k in ('ticker','date','open','high','low','close','volume','closeadj','closeunadj') if k in r}
+                      rr['resolver_sid'] = resolve(ticker, date)
+                      session_rows.append(rr)
+                      if ticker in aliases or rr['resolver_sid'] in target_sids:
+                          target_rows.append(rr)
+                  if ticker in aliases and '2001-05-25' <= date <= '2001-06-08':
+                      rr = {k: r.get(k) for k in ('ticker','date','open','high','low','close','volume','closeadj','closeunadj') if k in r}
+                      rr['resolver_sid'] = resolve(ticker, date)
+                      alias_nearby.append(rr)
+
+          payload = {
+              'session': session,
+              'target_security_ids': sorted(target_sids),
+              'raw_sep_sha256': digest,
+              'raw_sep_pinned_sha256': pin['source_sha256'],
+              'ticker_aliases_from_current_tickers': sorted(aliases),
+              'tickers_rows_for_target_security_ids': sid_rows,
+              'raw_rows_on_session_for_target_alias_or_resolved_sid': target_rows,
+              'nearby_rows_for_target_aliases': alias_nearby,
+              'session_row_count': len(session_rows),
+              'session_unresolved_identity_rows': [r for r in session_rows if r['resolver_sid'] is None],
+          }
+          Path('source-probe.json').write_text(json.dumps(payload, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          print(json.dumps(payload, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload source probe
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: unresolved-open-source-probe-${{ github.run_id }}
+          path: source-probe.json
+          retention-days: 30
