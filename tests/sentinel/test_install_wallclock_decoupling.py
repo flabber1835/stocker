@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
+import subprocess
 import sys
 
 import pytest
@@ -35,44 +36,23 @@ def _tests():
         candidate_image_digest=TEST_DIGEST,
         runtime_image_digest=RUNTIME_DIGEST,
         source_identity_sha256=SOURCE_IDENTITY,
-        passed=4703,
-        failed=0,
-        errors=0,
-        skipped=0,
-        xfailed=0,
-        xpassed=0,
-        exit_code=0,
-        suites_completed=6,
+        passed=4703, failed=0, errors=0, skipped=0,
+        xfailed=0, xpassed=0, exit_code=0, suites_completed=6,
         auxiliary_image_digests=(
             "sha256:" + "e" * 64,
-            "sha256:" + "f" * 64,
-        ),
-        non_forward_historical_exclusions=go.NON_FORWARD_HISTORICAL_EXCLUSIONS,
-    )
+            "sha256:" + "f" * 64),
+        non_forward_historical_exclusions=go.NON_FORWARD_HISTORICAL_EXCLUSIONS)
 
 
-def _deferred_preparation(*, source_final=False, prospective=True):
-    base = go.PreparationSummary(
-        status=go.FAIL,
+def _preparation():
+    return go.PreparationSummary(
+        status=go.PASS,
         runtime_image_digest=RUNTIME_DIGEST,
         schema_migration_attempted=True,
-        bounded_sharadar_daily_attempted=False,
+        bounded_sharadar_daily_attempted=True,
         broker_mutation_attempts=0,
         evidence_sha256="1" * 64,
-        elapsed_milliseconds=61_000,
-    )
-    payload = {
-        "schema_migrated": True,
-        "source_not_before_satisfied": source_final,
-        "following_open_future": prospective,
-        "bounded_sharadar_daily": False,
-        "publication_current": False,
-    }
-    runner = SimpleNamespace(
-        last_preparation_output=(
-            "SENTINEL_GO_PREPARATION=" + json.dumps(payload, sort_keys=True)))
-    reason = install_go._deferred_preparation(base, runner)
-    return base, runner, reason
+        elapsed_milliseconds=1_000)
 
 
 def _database_base(*, prospective=False, structural_failure=None):
@@ -81,10 +61,10 @@ def _database_base(*, prospective=False, structural_failure=None):
     if structural_failure is not None:
         checks[structural_failure] = False
     measured = {
-        "bounded_sharadar_ingest": 0,
+        "bounded_sharadar_ingest": 1_000,
         "full_forward_decision_replay": 2_000,
         "warmup_revision_scan": 3_000,
-        "combined_pretrade_work": 5_000,
+        "combined_pretrade_work": 6_000,
     }
     return go.DatabaseHealthSummary(
         status=go.FAIL if not all(checks.values()) else go.PASS,
@@ -116,24 +96,17 @@ def _database_base(*, prospective=False, structural_failure=None):
                 go.MIN_SOURCE_FINAL_TO_OPEN_MS - measured["combined_pretrade_work"],
         },
         production_db_writes=0,
-        evidence_sha256="2" * 64,
-    )
+        evidence_sha256="2" * 64)
 
 
 def _waiting_probes():
-    base, _runner, reason = _deferred_preparation()
-    assert reason == "SHARADAR_SOURCE_NOT_FINAL"
-    preparation = install_go.DeploymentPreparationView(
-        base, deferred=True, deferred_reason=reason)
     database = install_go.InstallCompatibleDatabaseHealthView(
         _database_base(prospective=False), 0, NOW_TEXT)
     gates = {
         gate_id: go.make_gate(
             gate_id,
             go.NOT_PROVEN if gate_id == "sharadar_readiness" else go.PASS,
-            NOW_TEXT,
-            {"test": True},
-        )
+            NOW_TEXT, {"test": True})
         for gate_id in go.GATE_IDS
     }
     return go.ProbeResults(
@@ -149,9 +122,8 @@ def _waiting_probes():
         broker_mutation_attempts=0,
         production_db_writes=0,
         input_mode="PRODUCTION",
-        preparation=preparation,
-        database_health=database,
-    )
+        preparation=_preparation(),
+        database_health=database)
 
 
 def _timing(*, source_final, prospective, frontier="2026-08-26",
@@ -169,35 +141,6 @@ def _timing(*, source_final, prospective, frontier="2026-08-26",
         "prospective": prospective,
         "remaining_ms": remaining,
     }
-
-
-def test_source_not_final_is_installation_complete_without_claiming_ingest():
-    base, _runner, reason = _deferred_preparation(
-        source_final=False, prospective=True)
-    assert reason == "SHARADAR_SOURCE_NOT_FINAL"
-    view = install_go.DeploymentPreparationView(
-        base, deferred=True, deferred_reason=reason)
-    assert view.complete is True
-    assert view.elapsed_milliseconds == 0
-    public = view.to_dict()
-    assert public["status"] == go.PASS
-    assert public["schema_migration_attempted"] is True
-    assert public["bounded_sharadar_daily_attempted"] is False
-    assert public["completed_before_validation_boundary"] is True
-
-
-def test_skipped_daily_is_not_relaxed_when_both_timing_prerequisites_exist():
-    _base, _runner, reason = _deferred_preparation(
-        source_final=True, prospective=True)
-    assert reason is None
-
-
-def test_preparation_failure_marker_cannot_be_reclassified_as_timing_wait():
-    base, runner, _reason = _deferred_preparation()
-    runner.last_preparation_output += (
-        "\nSENTINEL_GO_PREPARATION_FAILURE="
-        + json.dumps({"phase": "SCHEMA_MIGRATION", "error_type": "RuntimeError"}))
-    assert install_go._deferred_preparation(base, runner) is None
 
 
 def test_structural_database_health_survives_expired_session_window_only():
@@ -220,6 +163,54 @@ def test_structural_database_health_survives_expired_session_window_only():
     assert broken.complete is False
 
 
+def test_temporal_readiness_classifier_accepts_only_nonfinal_freshness(monkeypatch):
+    monkeypatch.setattr(
+        go, "_resolve_compose_args", lambda runner, env: ["-f", "compose.yml"])
+
+    class Runner:
+        def run(self, argv, *, env=None, cwd=ROOT):
+            payload = {
+                "ready": False,
+                "only_nonfinal_freshness": True,
+                "failure_count": 1,
+                "missing_session_count": 1,
+                "transaction_read_only": True,
+            }
+            return subprocess.CompletedProcess(
+                argv, 0,
+                stdout="SENTINEL_GO_WAIT_READINESS=" + json.dumps(payload) + "\n",
+                stderr="")
+
+    assert install_go._readiness_wait_is_temporal(
+        Runner(),
+        env={"SENTINEL_POSTGRES_PASSWORD": "x"},
+        runtime_ref=RUNTIME_DIGEST) is True
+
+
+def test_temporal_readiness_classifier_rejects_real_data_failure(monkeypatch):
+    monkeypatch.setattr(
+        go, "_resolve_compose_args", lambda runner, env: ["-f", "compose.yml"])
+
+    class Runner:
+        def run(self, argv, *, env=None, cwd=ROOT):
+            payload = {
+                "ready": False,
+                "only_nonfinal_freshness": False,
+                "failure_count": 2,
+                "missing_session_count": 1,
+                "transaction_read_only": True,
+            }
+            return subprocess.CompletedProcess(
+                argv, 0,
+                stdout="SENTINEL_GO_WAIT_READINESS=" + json.dumps(payload) + "\n",
+                stderr="")
+
+    assert install_go._readiness_wait_is_temporal(
+        Runner(),
+        env={"SENTINEL_POSTGRES_PASSWORD": "x"},
+        runtime_ref=RUNTIME_DIGEST) is False
+
+
 def test_waiting_install_preserves_all_session_verdicts_as_no_go():
     probes = _waiting_probes()
     shadow, dual, paper, failures = install_go.derive_installable_verdicts(probes)
@@ -237,12 +228,8 @@ def test_waiting_bundle_is_install_safe_but_not_session_go(tmp_path):
     go.derive_verdicts = install_go.derive_installable_verdicts
     try:
         result = go.emit_bundle(
-            probes,
-            output_dir=tmp_path,
-            created_at=NOW,
-            valid_for=install_go.timedelta(hours=24),
-            scan_env={},
-        )
+            probes, output_dir=tmp_path, created_at=NOW,
+            valid_for=install_go.timedelta(hours=24), scan_env={})
     finally:
         go.derive_verdicts = original_derive
 
@@ -291,14 +278,12 @@ def test_deferred_wait_never_enters_vendor_path_before_target_source_final(
         monkeypatch):
     instance = object.__new__(install_deploy.InstallAnytimeDeploy)
     instance.cfg = SimpleNamespace(
-        data_wait_timeout_seconds=60,
-        data_retry_seconds=1)
+        data_wait_timeout_seconds=60, data_retry_seconds=1)
     timings = iter([
         _timing(source_final=False, prospective=True),
         _timing(
             source_final=True, prospective=True,
-            frontier="2026-08-27"),
-    ])
+            frontier="2026-08-27")])
     events = []
     instance._assert_wait_fence = lambda: events.append("fence")
     instance._causal_timing = lambda: next(timings)
@@ -319,14 +304,12 @@ def test_deferred_wait_never_enters_vendor_path_before_target_source_final(
 def test_vendor_catchup_is_allowed_only_after_target_source_final(monkeypatch):
     instance = object.__new__(install_deploy.InstallAnytimeDeploy)
     instance.cfg = SimpleNamespace(
-        data_wait_timeout_seconds=60,
-        data_retry_seconds=1)
+        data_wait_timeout_seconds=60, data_retry_seconds=1)
     timings = iter([
         _timing(source_final=True, prospective=True),
         _timing(
             source_final=True, prospective=True,
-            frontier="2026-08-27"),
-    ])
+            frontier="2026-08-27")])
     verdicts = iter([
         {
             "ready": False,
@@ -335,17 +318,11 @@ def test_vendor_catchup_is_allowed_only_after_target_source_final(monkeypatch):
                 "value": {
                     "evaluable": True,
                     "ahead": False,
-                    "missing_sessions": ["2026-08-27"],
-                },
-            }],
+                    "missing_sessions": ["2026-08-27"]}}],
             "checks": [{
-                "name": "frontier population",
-                "status": "PASS",
-                "value": {"minimum": 100},
-            }],
-        },
-        {"ready": True},
-    ])
+                "name": "frontier population", "status": "PASS",
+                "value": {"minimum": 100}}]},
+        {"ready": True}])
     events = []
     instance._assert_wait_fence = lambda: events.append("fence")
     instance._causal_timing = lambda: next(timings)
