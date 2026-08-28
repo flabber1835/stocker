@@ -74,7 +74,4 @@ if [ "$before" != "$after" ]; then
   exec bash scripts/sentinel-autonomous-deploy.sh "$@"
 fi
 
-# The 24x7 wrapper preserves the bootstrap's identity/key/account discovery and
-# adds only the fresh-shadow staging boundary. Existing lineages follow the
-# unchanged deployment path.
-exec "$PYTHON" scripts/sentinel_autonomous_deploy_24x7.py "$@"
+exec "$PYTHON" scripts/sentinel_autonomous_deploy_bootstrap.py "$@"
