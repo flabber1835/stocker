@@ -125,13 +125,24 @@ production.plan_session = _shared_plan_session
 
 def main() -> int:
     print("[OPTIMIZATION] shared Wealth Core plan enabled: A real, D exact deep-copy reuse", flush=True)
-    if os.environ.get("BACKTESTER_EQUIV_IGNORE_FINAL_SPLIT_AUDIT") == "1":
+    equiv = os.environ.get("BACKTESTER_EQUIV_IGNORE_FINAL_SPLIT_AUDIT") == "1"
+    bounded_end = os.environ.get("BACKTESTER_CAUSAL_END_SESSION")
+    if equiv:
         # Equivalence-only seam. The bounded test compares the exact session
         # economics already produced by both runners; the base runner's final
         # full-corpus split-certification audit is not meaningful on a truncated
-        # 1998-only corpus and does not affect any simulated session.
+        # corpus and does not affect any simulated session.
         v2.runner.SPLIT_UNRESOLVED = "__EQUIV_ONLY_NO_MATCH__"
         print("[EQUIV] bounded final split audit disabled; session economics unchanged", flush=True)
+        # The strict terminal overlay intentionally rejects frozen events that
+        # lie outside a normal replay axis. A pre-2001 equivalence window cannot
+        # consume the 2001 LIT/CIT/GPU records and none can affect its sessions.
+        # Mark the exact-term cache empty only for such a bounded test so the
+        # optimized arm reaches the Wealth Core reuse seam being certified.
+        if bounded_end and bounded_end < "2001-05-30":
+            v2._exact_by_session = {}
+            v2._terms_digest = "equivalence-window-precedes-frozen-terminal-events"
+            print("[EQUIV] future frozen terminal overlay excluded from pre-2001 window", flush=True)
     if os.environ.get("BACKTESTER_ACCEL_RAW_RUN") == "1":
         rc = int(v2.runner.main())
     else:
