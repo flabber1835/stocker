@@ -139,16 +139,13 @@ def _waiting_contract(validation: Mapping, *, mode: str) -> bool:
         raise core.DeployRefused(
             "waiting deployment does not pass every installation gate")
 
-    failures = validation.get("machine_failures")
     shadow_state = validation.get("shadow_state")
     if (validation.get("dual_run_verdict") != "DUAL_RUN_NO_GO"
-            or not isinstance(failures, dict)
-            or not isinstance(failures.get("dual_run"), list)
-            or not failures.get("dual_run")
+            or not install_go._wait_failures_safe(validation)
             or not isinstance(shadow_state, dict)
             or shadow_state.get("internally_coherent") is not True):
         raise core.DeployRefused(
-            "waiting bundle does not represent a fenced dual-run NO_GO state")
+            "waiting bundle does not represent a session-only fenced dual-run NO_GO state")
     return True
 
 
