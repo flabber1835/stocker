@@ -1,0 +1,54 @@
+{
+  "records": [
+    {
+      "effective_session": "2017-09-21",
+      "expected_sep_derived": 0.09996041171813144,
+      "expected_vendor_stated": 0.09662,
+      "known_by": "2017-09-19",
+      "multiplier": 0.09656678988910945,
+      "reference": "Acer/Opexa 1-for-10.355527 reverse stock split; post-split ACER began trading 2017-09-21",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/1069308/000156459018004714/R8.htm"
+      ],
+      "ticker": "ACER"
+    },
+    {
+      "effective_session": "2017-11-22",
+      "expected_sep_derived": 2.5000000000000004,
+      "expected_vendor_stated": 2.0,
+      "known_by": "2017-11-09",
+      "multiplier": 2.5,
+      "reference": "GOL ADS ratio changed from 1 ADS:5 preferred shares to 1 ADS:2 preferred shares; 1.5 additional ADS per ADS",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/1291733/000129281417002835/gol20171109_6k2.htm"
+      ],
+      "ticker": "GOLLQ"
+    },
+    {
+      "effective_session": "2008-05-20",
+      "expected_sep_derived": 3.0000088894420096,
+      "expected_vendor_stated": 0.5,
+      "known_by": "2008-05-19",
+      "multiplier": 3.0,
+      "reference": "Mechel ADS/common-share ratio changed 1:3 to 1:1; two additional ADS issued per old ADS",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/1302362/000104746908007591/a2186351z20-f.htm"
+      ],
+      "ticker": "MTL"
+    },
+    {
+      "effective_session": "2016-01-12",
+      "expected_sep_derived": 0.5,
+      "expected_vendor_stated": 3.0,
+      "known_by": "2016-01-12",
+      "multiplier": 0.5,
+      "reference": "Mechel ADS ratio changed from 1 ADS per 1 common share to 1 ADS per 2 common shares effective 2016-01-12",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/1302362/000119312521085807/d29899dex21.htm",
+        "https://mechel.com/upload/iblock/7ca/7ca0c375c51d12adc8df55c1b69ae5bc.pdf"
+      ],
+      "ticker": "MTL"
+    }
+  ],
+  "schema": "backtester.causal-split-overrides/1"
+}
