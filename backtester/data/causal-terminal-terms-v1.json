@@ -37,6 +37,20 @@
         "https://www.bcsc.bc.ca/securities-law/law-and-policy/exemption-orders-prior-to-2002/2001/the-cit-group-inc-et-al-mrrs1"
       ],
       "ticker": "CIT.A"
+    },
+    {
+      "cash_per_share": 36.5,
+      "effective_session": "2001-11-07",
+      "kind": "CASH_MERGER",
+      "known_by": "2001-11-07",
+      "reference": "FirstEnergy/GPU merger: strategy made no shareholder election; stock elections were oversubscribed, so the merger agreement converts No Election Shares to $36.50 cash per GPU share",
+      "security_id": "121383",
+      "sources": [
+        "https://www.lawinsider.com/contracts/5GfOwwISbSM",
+        "https://www.sec.gov/Archives/edgar/data/1031296/0001031296-02-000017-index.htm",
+        "https://www.govinfo.gov/content/pkg/FR-2001-09-10/pdf/FR-2001-09-10.pdf"
+      ],
+      "ticker": "GPU"
     }
   ],
   "schema": "backtester.causal-terminal-terms/1"
