@@ -1,0 +1,90 @@
+{
+  "schema": "backtester.unresolved-open-source-boundary/1",
+  "strategy_main_sha": "c502d077cae9c494f8b74a41ee8be7f40b25837d",
+  "diagnostic_run_id": 33144373501,
+  "source_probe_run_ids": [33148187067, 33148239737],
+  "session": "2001-06-04",
+  "processed_a_sessions": 862,
+  "allocation": {
+    "effective_before_open": 1.0,
+    "pending_target_for_this_open": 0.55
+  },
+  "wealth_core": {
+    "prior_core_close": 242257053.05,
+    "resolved_open_equity": null,
+    "core_close": 244783807.64,
+    "open_unresolved_security_ids": ["120448", "122131"]
+  },
+  "normalized_publication": {
+    "120448": {
+      "ticker": "LIT1",
+      "published_bar": null,
+      "raw_open": null
+    },
+    "122131": {
+      "ticker": "CIT.A",
+      "published_bar": null,
+      "raw_open": null
+    }
+  },
+  "frozen_raw_sep": {
+    "source": "sharadar/SHARADAR_SEP_2001.csv.gz",
+    "sha256": "23f8a84400e69077ad251563c25ece80632d00fe9cce317ac421b0525a0da140",
+    "manifest_sha256": "23f8a84400e69077ad251563c25ece80632d00fe9cce317ac421b0525a0da140",
+    "session_row_count": 7340,
+    "target_rows_on_2001-06-04": [],
+    "last_target_rows": {
+      "122131": {
+        "ticker": "CIT.A",
+        "date": "2001-06-01",
+        "open": 38.96,
+        "close": 38.95,
+        "closeunadj": 38.95,
+        "volume": 4778800.0
+      },
+      "120448": {
+        "ticker": "LIT1",
+        "date": "2001-05-29",
+        "open": 79.99,
+        "close": 79.97,
+        "closeunadj": 79.97,
+        "volume": 5200.0
+      }
+    }
+  },
+  "current_tickers_identity": {
+    "122131": {
+      "ticker": "CIT.A",
+      "name": "CIT GROUP INC",
+      "firstpricedate": "1997-11-13",
+      "lastpricedate": "2001-06-01",
+      "isdelisted": "Y",
+      "exchange": "NYSE"
+    },
+    "120448": {
+      "ticker": "LIT1",
+      "name": "LITTON INDUSTRIES INC",
+      "firstpricedate": "1986-01-01",
+      "lastpricedate": "2001-05-29",
+      "isdelisted": "Y",
+      "exchange": "NYSE",
+      "relatedtickers": "LIT"
+    }
+  },
+  "pit_actions": [
+    {"date": "2001-06-01", "action": "acquisitionby", "ticker": "CIT.A", "value": 10224.4},
+    {"date": "2001-06-01", "action": "delisted", "ticker": "CIT.A", "value": 10224.4},
+    {"date": "2001-05-29", "action": "acquisitionby", "ticker": "LIT1", "value": 3662.1},
+    {"date": "2001-05-29", "action": "delisted", "ticker": "LIT1", "value": 3662.1},
+    {"date": "2001-05-29", "action": "tickerchangeto", "ticker": "LIT1", "value": null},
+    {"date": "2001-05-29", "action": "tickerchangefrom", "ticker": "LIT1", "value": null}
+  ],
+  "conclusion": {
+    "identity_resolution": "RESOLVED",
+    "normalization_defect": false,
+    "same_session_authoritative_raw_open_exists": false,
+    "source_boundary": "The two held securities had already stopped printing after documented acquisition/delisting events. The frozen Sharadar source contains no 2001-06-04 row or opening price for either security.",
+    "exact_next_open_attribution": "UNAVAILABLE_FROM_FROZEN_SOURCE",
+    "reason": "The allocation changes from 1.0 to 0.55 at the 2001-06-04 open while two terminal claims have no contemporaneous executable/open valuation. Sharadar ACTIONS value is aggregate deal value, not per-share consideration. Production settlement can carry a last trustworthy mark as a declared proxy, but that mark does not identify the 2001-06-04 opening value or overnight/intraday split."
+  }
+}
