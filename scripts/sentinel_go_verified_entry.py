@@ -134,10 +134,16 @@ def _install_wallclock_independent_dual_overlay(*, development: bool) -> None:
     if development:
         return
     # When executed as a script, make this exact module instance importable by
-    # its canonical name before loading the overlay. The overlay must patch the
+    # its canonical name before loading the overlays. They must patch the
     # authority path executing under the public lifecycle lock, not a second
     # imported copy of this module.
     sys.modules.setdefault("sentinel_go_verified_entry", sys.modules[__name__])
+
+    # Prepare the database through the newest session that is already causally
+    # source-final. A newer closed session remains an explicit readiness/session
+    # wait and cannot block installation of the certified software.
+    import sentinel_go_24x7_entry as source_final  # noqa: PLC0415
+    source_final.install()
 
     # The installation overlay recognizes only explicitly classified temporal
     # waiting states. SHADOW_GO, DUAL_RUN_GO and PAPER_EXECUTION_GO remain
