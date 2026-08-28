@@ -1,0 +1,176 @@
+name: Backtester - causal terminal boundary verification
+
+on:
+  push:
+    branches: [research/backtester]
+    paths:
+      - '.github/workflows/backtester-causal-terminal-boundary-verify.yml'
+      - 'backtester/run_sector_ab_causal_terminal_terms.py'
+      - 'backtester/causal_terminal_terms.py'
+      - 'backtester/data/causal-terminal-terms-v1.json'
+      - 'backtester/data/causal-terminal-terms-v1.SHA256'
+      - 'backtester/experiments/2026-08-27-sector-abc/run.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backtester-causal-terminal-boundary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-boundary:
+    name: Replay through original 2001-06-04 failure boundary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out frozen research inputs
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/backtester
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/run_sector_ab_causal_terminal_terms.py
+            /backtester/causal_terminal_terms.py
+            /backtester/data/causal-terminal-terms-v1.json
+            /backtester/data/causal-terminal-terms-v1.SHA256
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /PIT input data/MANIFEST.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
+            /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SHARADAR_SEP_1998.csv.gz
+            /sharadar/SHARADAR_SEP_1999.csv.gz
+            /sharadar/SHARADAR_SEP_2000.csv.gz
+            /sharadar/SHARADAR_SEP_2001.csv.gz
+            /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/SHA256SUMS.txt
+            /research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
+
+      - name: Enforce research-side identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "research/backtester"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test -z "$(git status --porcelain)"
+          echo "BACKTESTER_BRANCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+
+      - name: Check out exact production source read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: c502d077cae9c494f8b74a41ee8be7f40b25837d
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+            docs/sentinel-handoff/00_README
+
+      - name: Verify exact main source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED=c502d077cae9c494f8b74a41ee8be7f40b25837d
+          ACTUAL="$(git -C main-src rev-parse HEAD)"
+          test "${ACTUAL}" = "${EXPECTED}"
+          test -z "$(git -C main-src status --porcelain)"
+          echo "BACKTESTER_MAIN_SHA=${ACTUAL}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_MAIN_ROOT=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install exact current-main runtime dependency closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+
+      - name: Compile research launcher and exact production source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            backtester/causal_terminal_terms.py \
+            backtester/run_sector_ab_causal_terminal_terms.py \
+            backtester/experiments/2026-08-27-sector-abc/run.py
+          python -m compileall -q -f main-src/sentinel main-src/shared/stock_strategy_shared
+
+      - name: Replay chronologically through original failure session
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: '1'
+          BACKTESTER_CAUSAL_END_SESSION: '2001-06-04'
+        run: |
+          set -euo pipefail
+          rm -rf backtester-results/causal-terminal-boundary
+          python backtester/run_sector_ab_causal_terminal_terms.py \
+            --lab-root . \
+            --main-root main-src \
+            --output backtester-results/causal-terminal-boundary \
+            2>&1 | tee backtester-causal-terminal-boundary.log
+
+      - name: Verify original open boundary is resolved
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd backtester-results/causal-terminal-boundary
+          sha256sum -c SHA256SUMS.txt
+          python - <<'PY'
+          import gzip
+          import csv
+          import json
+          from pathlib import Path
+
+          summary = json.loads(Path('summary.json').read_text())
+          if summary.get('status') != 'PASS':
+              raise SystemExit('bounded replay summary is not PASS')
+          if summary.get('end_session') != '2001-06-04':
+              raise SystemExit(f"wrong bounded end: {summary.get('end_session')}")
+          terms = summary.get('causal_terminal_terms') or {}
+          if terms.get('sha256') != 'f93a3ac12452f2f29a9c57ee93474ce14a44c51d2e81b538a3e150e9089129c9':
+              raise SystemExit('unexpected causal terminal terms hash')
+          witness = terms.get('original_failure_boundary') or {}
+          if witness.get('session') != '2001-06-04':
+              raise SystemExit(f'wrong boundary witness: {witness}')
+          if not isinstance(witness.get('resolved_open_equity'), (int, float)) \
+                  or witness['resolved_open_equity'] <= 0:
+              raise SystemExit(f'open equity remains unresolved: {witness}')
+          if witness.get('open_unresolved_security_ids') != []:
+              raise SystemExit(f'unresolved security IDs remain: {witness}')
+          with gzip.open('daily.csv.gz', 'rt', encoding='utf-8', newline='') as f:
+              rows = list(csv.DictReader(f))
+          if not rows or rows[-1].get('date') != '2001-06-04':
+              raise SystemExit('daily replay did not reach 2001-06-04')
+          print(json.dumps({
+              'status': 'PASS',
+              'boundary': witness,
+              'terminal_terms_sha256': terms['sha256'],
+              'last_daily_row': rows[-1],
+          }, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload bounded verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: backtester-causal-terminal-boundary-${{ github.run_id }}
+          path: |
+            backtester-results/causal-terminal-boundary/**
+            backtester-causal-terminal-boundary.log
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
