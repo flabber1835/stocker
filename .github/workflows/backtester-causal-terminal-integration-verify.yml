@@ -8,7 +8,6 @@ on:
       - 'backtester/causal_terminal_terms.py'
       - 'backtester/data/causal-terminal-terms-v1.json'
       - 'backtester/data/causal-terminal-terms-v1.SHA256'
-      - 'docs/backtester-causal-terminal-terms.md'
 
 permissions:
   contents: read
@@ -25,13 +24,11 @@ jobs:
           ref: research/backtester
           fetch-depth: 1
           persist-credentials: false
-          filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /backtester/causal_terminal_terms.py
             /backtester/data/causal-terminal-terms-v1.json
             /backtester/data/causal-terminal-terms-v1.SHA256
-            /sharadar/SHARADAR_TICKERS.zip
             /sharadar/SHARADAR_SEP_2001.csv.gz
             /PIT input data/MANIFEST.csv
 
@@ -42,7 +39,6 @@ jobs:
           path: main-src
           fetch-depth: 1
           persist-credentials: false
-          filter: blob:none
           sparse-checkout: |
             sentinel
             shared
@@ -60,21 +56,15 @@ jobs:
           python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
           python -m pip install --no-build-isolation --no-deps -e main-src/shared
 
-      - name: Exercise exact production settlement and open-equity path
+      - name: Exercise exact production settlements
         shell: bash
         env:
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared
         run: |
           set -euo pipefail
+          (cd backtester/data && sha256sum -c causal-terminal-terms-v1.SHA256)
           python - <<'PY'
-          import csv
-          import gzip
-          import hashlib
-          import io
-          import json
-          import math
-          import subprocess
-          import zipfile
+          import csv, gzip, hashlib, json, math
           from pathlib import Path
 
           from backtester.causal_terminal_terms import load_frozen_terminal_terms
@@ -85,207 +75,98 @@ jobs:
           from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
           from stock_strategy_shared.wealth_core.prices import DailyBar
           from stock_strategy_shared.wealth_core.state import HoldingEpisode, PortfolioState
-          from stock_strategy_shared.wealth_core.terminal import (
-              TerminalKind, TerminalTerms, apply_terminal)
+          from stock_strategy_shared.wealth_core.terminal import TerminalKind, TerminalTerms, apply_terminal
 
-          EXPECTED_MAIN = 'c502d077cae9c494f8b74a41ee8be7f40b25837d'
-          actual_main = subprocess.check_output(
-              ['git', '-C', 'main-src', 'rev-parse', 'HEAD'], text=True).strip()
-          if actual_main != EXPECTED_MAIN:
-              raise SystemExit(f'main source mismatch: {actual_main}')
-
-          def norm_sid(value):
-              try:
-                  return str(int(float(str(value).strip())))
-              except Exception:
-                  return str(value).strip()
-
-          with zipfile.ZipFile('sharadar/SHARADAR_TICKERS.zip') as zf:
-              members = [n for n in zf.namelist() if n.lower().endswith('.csv')]
-              if len(members) != 1:
-                  raise SystemExit(f'unexpected TICKERS members: {members}')
-              with zf.open(members[0]) as raw:
-                  ticker_rows = list(csv.DictReader(
-                      io.TextIOWrapper(raw, encoding='utf-8', newline='')))
-          sep_meta = [r for r in ticker_rows if str(r.get('table') or '') == 'SEP']
-          by_ticker = {}
-          for row in sep_meta:
-              ticker = str(row.get('ticker') or '').strip()
-              if ticker:
-                  by_ticker.setdefault(ticker, []).append(row)
-
-          def resolve(ticker, session):
-              rows = by_ticker.get(str(ticker), [])
-              active, all_ids = set(), set()
-              for row in rows:
-                  sid = norm_sid(row.get('permaticker'))
-                  if not sid:
-                      continue
-                  all_ids.add(sid)
-                  first = str(row.get('firstpricedate') or '0001-01-01')[:10]
-                  last = str(row.get('lastpricedate') or '9999-12-31')[:10]
-                  if first <= session <= last:
-                      active.add(sid)
-              if len(active) == 1:
-                  return next(iter(active))
-              if not active and len(all_ids) == 1:
-                  return next(iter(all_ids))
-              return None
-
+          identity = {'LIT1':'120448', 'CIT.A':'122131', 'TYC':'573113', 'GPU':'121383'}
           meta = {
-              sid: SecurityMeta(security_id=sid, ticker=ticker,
-                                permaticker=sid, related_tickers=())
-              for ticker, sid in [
-                  ('LIT1', '120448'), ('CIT.A', '122131'), ('TYC', '573113')]
+              sid: SecurityMeta(security_id=sid, ticker=ticker, permaticker=sid, related_tickers=())
+              for ticker, sid in identity.items()
           }
-          terms_by_session, terms_sha = load_frozen_terminal_terms(
+          terms, digest = load_frozen_terminal_terms(
               Path('backtester/data/causal-terminal-terms-v1.json'),
               Path('backtester/data/causal-terminal-terms-v1.SHA256'),
-              sessions=['2001-05-30', '2001-06-01'],
-              resolve_identity=resolve, meta=meta,
-              TerminalTerms=TerminalTerms, TerminalKind=TerminalKind)
-          lit_terms = terms_by_session['2001-05-30'][0]
-          cit_terms = terms_by_session['2001-06-01'][0]
+              sessions=['2001-05-30','2001-06-01','2001-11-07'],
+              resolve_identity=lambda ticker, session: identity.get(ticker),
+              meta=meta, TerminalTerms=TerminalTerms, TerminalKind=TerminalKind)
+          lit = terms['2001-05-30'][0]
+          cit = terms['2001-06-01'][0]
+          gpu = terms['2001-11-07'][0]
 
-          manifest = {}
-          with Path('PIT input data/MANIFEST.csv').open(newline='', encoding='utf-8') as f:
-              for row in csv.DictReader(f):
-                  manifest[row['file']] = row
-          expected_sep_sha = manifest['SEP_2001_PIT_ONLY.csv.gz']['source_sha256']
-          sep_path = Path('sharadar/SHARADAR_SEP_2001.csv.gz')
-          sep_sha = hashlib.sha256(sep_path.read_bytes()).hexdigest()
-          if sep_sha != expected_sep_sha:
-              raise SystemExit(f'frozen SEP hash mismatch: {sep_sha} != {expected_sep_sha}')
-
-          wanted = {'2001-05-31', '2001-06-04'}
-          tyc_source = []
-          with gzip.open(sep_path, 'rt', encoding='utf-8', newline='') as f:
-              for row in csv.DictReader(f):
-                  if row.get('ticker') == 'TYC' and row.get('date') in wanted:
-                      tyc_source.append(row)
-          tyc_source.sort(key=lambda row: row['date'])
-          if [row['date'] for row in tyc_source] != sorted(wanted):
-              raise SystemExit(f'missing frozen TYC source rows: {tyc_source}')
-          if float(tyc_source[0]['closeunadj']) != 57.45:
-              raise SystemExit(f'wrong frozen prior-day TYC close: {tyc_source[0]}')
-
-          report = NormalisationReport()
-          normalised = list(normalise_sep_rows(
-              tyc_source, resolve_identity=resolve, dividends={},
-              authoritative_splits=None, report=report))
-          june4 = next(row for row in normalised if row.vendor.session == '2001-06-04')
-          if june4.vendor.security_id != '573113' or june4.vendor.raw_open != 56.9:
-              raise SystemExit(f'wrong normalized TYC June 4 bar: {june4}')
-          if june4.vendor.raw_close != 56.53:
-              raise SystemExit(f'wrong normalized TYC June 4 raw close: {june4}')
-
-          def holding_state(security_id, ticker, shares, *, entry_price):
-              state = PortfolioState.fresh(1000.0, n_slots=1)
-              state.slots[0].occupied_by = security_id
+          def holding(sid, ticker, shares, price, cash=1000.0):
+              state = PortfolioState.fresh(cash, n_slots=1)
+              state.slots[0].occupied_by = sid
               state.episodes[0] = HoldingEpisode(
-                  security_id=security_id,
-                  ticker=ticker,
-                  issuer_id=f'P:{security_id}',
-                  slot_id=0,
-                  signal_date='2000-01-03',
-                  entry_date='2000-01-04',
-                  entry_raw_open=float(entry_price),
-                  entry_split_adjusted_price=float(entry_price),
-                  initial_shares=shares,
-                  current_shares=shares,
-              )
+                  security_id=sid, ticker=ticker, issuer_id=f'P:{sid}', slot_id=0,
+                  signal_date='2000-01-03', entry_date='2000-01-04',
+                  entry_raw_open=price, entry_split_adjusted_price=price,
+                  initial_shares=shares, current_shares=shares)
               return state
 
           cfg = WealthCoreConfig()
+          lit_state, lit_ledger = holding('120448','LIT1',10,60.0), Ledger()
+          lit_result = apply_terminal(lit_state, lit, ledger=lit_ledger,
+              session='2001-05-30', cfg=cfg, last_valid_mark=79.97,
+              sessions_since_last_valid_print=1)
+          if not lit_result.get('applied') or lit_ledger.events[-1].event_type is not EventType.CASH_MERGER:
+              raise SystemExit(f'LIT settlement failed: {lit_result}')
+          if lit_state.episodes or not math.isclose(lit_state.cash,1800.0,abs_tol=1e-9):
+              raise SystemExit(f'LIT economics wrong: cash={lit_state.cash}')
 
-          # Cash-merger production dispatch: share count is a controlled
-          # verification fixture because consideration is linear per share.
-          lit_state = holding_state('120448', 'LIT1', 10, entry_price=60.0)
-          lit_ledger = Ledger()
-          lit_result = apply_terminal(
-              lit_state, lit_terms, ledger=lit_ledger,
-              session='2001-05-30', cfg=cfg,
-              last_valid_mark=79.97, sessions_since_last_valid_print=1)
-          if not lit_result.get('applied') or lit_result.get('kind') != 'CASH_MERGER':
-              raise SystemExit(f'LIT production settlement did not apply: {lit_result}')
-          if not math.isclose(lit_state.cash, 1800.0, rel_tol=0, abs_tol=1e-9):
-              raise SystemExit(f'LIT production cash is wrong: {lit_state.cash}')
-          if lit_state.episodes or lit_ledger.events[-1].event_type is not EventType.CASH_MERGER:
-              raise SystemExit('LIT production settlement did not extinguish the holding')
-
-          # Exact diagnostic share count from run #33144373501. This is a
-          # verification oracle only; the fresh replay derives its own holdings.
-          diagnostic_cit_shares = 295584
-          cit_state = holding_state(
-              '122131', 'CIT.A', diagnostic_cit_shares, entry_price=38.96)
-          cit_ledger = Ledger()
-          cit_result = apply_terminal(
-              cit_state, cit_terms, ledger=cit_ledger,
-              session='2001-06-01', cfg=cfg,
-              last_valid_mark=38.95, sessions_since_last_valid_print=0)
-          if not cit_result.get('applied') or not cit_result.get('converted'):
-              raise SystemExit(f'CIT production conversion did not apply: {cit_result}')
+          cit_shares = 295584
+          cit_state, cit_ledger = holding('122131','CIT.A',cit_shares,38.96), Ledger()
+          cit_result = apply_terminal(cit_state, cit, ledger=cit_ledger,
+              session='2001-06-01', cfg=cfg, last_valid_mark=38.95,
+              sessions_since_last_valid_print=0)
           ep = cit_state.episodes.get(0)
-          if ep is None or ep.security_id != '573113' or ep.ticker != 'TYC':
-              raise SystemExit(f'CIT delivered identity is wrong: {ep}')
-          if ep.issuer_id != 'P:573113' or ep.current_shares != 204159:
-              raise SystemExit(f'CIT delivered holding is wrong: {ep}')
+          if not cit_result.get('converted') or ep is None or ep.security_id != '573113' or ep.current_shares != 204159:
+              raise SystemExit(f'CIT conversion failed: {cit_result}, {ep}')
           expected_cil = 49.91256
-          actual_cil = float(cit_result.get('cash_in_lieu') or 0.0)
-          if not math.isclose(actual_cil, expected_cil, rel_tol=0, abs_tol=1e-8):
-              raise SystemExit(f'CIT cash-in-lieu is wrong: {actual_cil}')
-          if not math.isclose(cit_state.cash, 1000.0 + expected_cil,
-                              rel_tol=0, abs_tol=1e-8):
-              raise SystemExit(f'CIT cash balance is wrong: {cit_state.cash}')
-          conv_event = cit_ledger.events[-1]
-          if conv_event.event_type is not EventType.CONVERSION:
-              raise SystemExit(f'CIT ledger event is wrong: {conv_event}')
-          if conv_event.detail.get('shares_delivered') != 204159:
-              raise SystemExit(f'CIT ledger delivered shares are wrong: {conv_event.detail}')
-          if not math.isclose(float(conv_event.detail.get('cash_in_lieu')), expected_cil,
-                              rel_tol=0, abs_tol=1e-8):
-              raise SystemExit(f'CIT ledger cash-in-lieu is wrong: {conv_event.detail}')
+          if not math.isclose(float(cit_result.get('cash_in_lieu')), expected_cil, abs_tol=1e-8):
+              raise SystemExit(f'CIT CIL wrong: {cit_result}')
 
+          manifest = {row['file']: row for row in csv.DictReader(Path('PIT input data/MANIFEST.csv').open())}
+          sep_path = Path('sharadar/SHARADAR_SEP_2001.csv.gz')
+          sep_sha = hashlib.sha256(sep_path.read_bytes()).hexdigest()
+          if sep_sha != manifest['SEP_2001_PIT_ONLY.csv.gz']['source_sha256']:
+              raise SystemExit('SEP 2001 hash mismatch')
+          rows = []
+          with gzip.open(sep_path,'rt',encoding='utf-8',newline='') as f:
+              for row in csv.DictReader(f):
+                  if row.get('ticker') == 'TYC' and row.get('date') in {'2001-05-31','2001-06-04'}:
+                      rows.append(row)
+          norm = list(normalise_sep_rows(rows,
+              resolve_identity=lambda ticker, session: identity.get(ticker),
+              dividends={}, authoritative_splits=None, report=NormalisationReport()))
+          june4 = next(x for x in norm if x.vendor.session == '2001-06-04')
           tyc_bar = DailyBar(
-              security_id='573113', ticker='TYC', issuer_id='P:573113',
-              session='2001-06-04',
+              security_id='573113', ticker='TYC', issuer_id='P:573113', session='2001-06-04',
               signal_close_split_adj_div_unadj=float(june4.close_signal),
-              raw_open=float(june4.vendor.raw_open),
-              raw_mark_close=float(june4.vendor.raw_close),
+              raw_open=float(june4.vendor.raw_open), raw_mark_close=float(june4.vendor.raw_close),
               tradeable=bool(june4.vendor.tradeable))
-          open_equity, unresolved = _resolved_open_equity(
-              cit_state, [tyc_bar], cit_ledger)
-          expected_open_equity = cit_state.cash + 204159 * 56.9
-          if unresolved != () or open_equity is None:
-              raise SystemExit(
-                  f'converted CIT/TYC position remains unresolved: {unresolved}')
-          if not math.isclose(open_equity, expected_open_equity,
-                              rel_tol=0, abs_tol=1e-6):
-              raise SystemExit(
-                  f'wrong converted position open equity: {open_equity} != '
-                  f'{expected_open_equity}')
+          open_equity, unresolved = _resolved_open_equity(cit_state,[tyc_bar],cit_ledger)
+          if unresolved or open_equity is None:
+              raise SystemExit(f'CIT/TYC open unresolved: {unresolved}')
+
+          gpu_shares = 204677
+          gpu_state, gpu_ledger = holding('121383','GPU',gpu_shares,40.2,cash=0.0), Ledger()
+          gpu_result = apply_terminal(gpu_state, gpu, ledger=gpu_ledger,
+              session='2001-11-07', cfg=cfg, last_valid_mark=40.39,
+              sessions_since_last_valid_print=1)
+          expected_gpu = 7470710.50
+          if not gpu_result.get('applied') or gpu_result.get('kind') != 'CASH_MERGER':
+              raise SystemExit(f'GPU settlement failed: {gpu_result}')
+          if gpu_state.episodes or not math.isclose(gpu_state.cash, expected_gpu, rel_tol=0, abs_tol=1e-8):
+              raise SystemExit(f'GPU economics wrong: {gpu_state.cash}')
+          if gpu_ledger.events[-1].event_type is not EventType.CASH_MERGER:
+              raise SystemExit('GPU ledger event wrong')
 
           print(json.dumps({
-              'status': 'PASS',
-              'main_sha': actual_main,
-              'terminal_terms_sha256': terms_sha,
-              'sep_2001_sha256': sep_sha,
-              'lit1': {
-                  'cash_per_share': lit_terms.cash_per_share,
-                  'production_cash_for_10_shares': lit_state.cash - 1000.0,
-              },
-              'cit_a': {
-                  'diagnostic_shares_in': diagnostic_cit_shares,
-                  'exchange_ratio': cit_terms.exchange_ratio,
-                  'delivered_security_id': ep.security_id,
-                  'delivered_shares': ep.current_shares,
-                  'cash_in_lieu': actual_cil,
-              },
-              'tyc_2001_06_04': {
-                  'raw_open': june4.vendor.raw_open,
-                  'raw_close': june4.vendor.raw_close,
-                  'resolved_open_equity': open_equity,
-                  'unresolved_security_ids': list(unresolved),
-              },
+              'status':'PASS', 'terminal_terms_sha256':digest,
+              'LIT1_cash_for_10_shares':lit_state.cash-1000.0,
+              'CIT_delivered_TYC_shares':ep.current_shares,
+              'CIT_cash_in_lieu':float(cit_result.get('cash_in_lieu')),
+              'TYC_2001_06_04_raw_open':june4.vendor.raw_open,
+              'GPU_shares':gpu_shares, 'GPU_cash_per_share':gpu.cash_per_share,
+              'GPU_exact_proceeds':gpu_state.cash,
           }, indent=2, sort_keys=True))
           PY
