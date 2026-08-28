@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   probe:
-    name: Probe 2001-06-04 source rows
+    name: Probe 2001-06-04 source rows and terminal actions
     runs-on: ubuntu-24.04
     steps:
       - name: Check out pinned research source inputs
@@ -26,8 +26,9 @@ jobs:
             /sharadar/SHARADAR_TICKERS.zip
             /sharadar/SHARADAR_SEP_2001.csv.gz
             /PIT input data/MANIFEST.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
 
-      - name: Probe exact raw rows and TICKERS aliases
+      - name: Probe exact raw rows, TICKERS aliases, and actions
         shell: bash
         run: |
           set -euo pipefail
@@ -39,6 +40,7 @@ jobs:
           target_sids = {'120448', '122131'}
           sep_path = Path('sharadar/SHARADAR_SEP_2001.csv.gz')
           tickers_path = Path('sharadar/SHARADAR_TICKERS.zip')
+          actions_path = Path('PIT input data/ACTIONS_PIT_ONLY.csv.gz')
 
           def norm_sid(value):
               try:
@@ -67,6 +69,7 @@ jobs:
           by_ticker = {}
           sid_rows = []
           aliases = set()
+          related_aliases = set()
           for r in sep_meta:
               ticker = str(r.get('ticker') or '').strip()
               sid = norm_sid(r.get('permaticker'))
@@ -74,6 +77,10 @@ jobs:
                   by_ticker.setdefault(ticker, []).append(r)
               if sid in target_sids:
                   aliases.add(ticker)
+                  related = str(r.get('relatedtickers') or '').strip()
+                  for token in related.replace(',', ' ').split():
+                      if token:
+                          related_aliases.add(token)
                   sid_rows.append({k: r.get(k) for k in (
                       'permaticker','ticker','name','firstpricedate','lastpricedate',
                       'relatedtickers','category','sector','exchange','isdelisted') if k in r})
@@ -114,10 +121,20 @@ jobs:
                       session_rows.append(rr)
                       if ticker in aliases or rr['resolver_sid'] in target_sids:
                           target_rows.append(rr)
-                  if ticker in aliases and '2001-05-25' <= date <= '2001-06-08':
+                  if ticker in aliases and '2001-05-20' <= date <= '2001-06-08':
                       rr = {k: r.get(k) for k in ('ticker','date','open','high','low','close','volume','closeadj','closeunadj') if k in r}
                       rr['resolver_sid'] = resolve(ticker, date)
                       alias_nearby.append(rr)
+
+          action_names = aliases | related_aliases
+          action_rows = []
+          with gzip.open(actions_path, 'rt', encoding='utf-8', newline='') as f:
+              reader = csv.DictReader(f)
+              for r in reader:
+                  ticker = str(r.get('ticker') or '').strip()
+                  date = str(r.get('date') or '')[:10]
+                  if ticker in action_names and '2001-01-01' <= date <= '2001-12-31':
+                      action_rows.append({k: r.get(k) for k in ('date','action','ticker','value')})
 
           payload = {
               'session': session,
@@ -125,9 +142,11 @@ jobs:
               'raw_sep_sha256': digest,
               'raw_sep_pinned_sha256': pin['source_sha256'],
               'ticker_aliases_from_current_tickers': sorted(aliases),
+              'related_aliases_from_current_tickers': sorted(related_aliases),
               'tickers_rows_for_target_security_ids': sid_rows,
               'raw_rows_on_session_for_target_alias_or_resolved_sid': target_rows,
               'nearby_rows_for_target_aliases': alias_nearby,
+              'actions_2001_for_target_or_related_aliases': action_rows,
               'session_row_count': len(session_rows),
               'session_unresolved_identity_rows': [r for r in session_rows if r['resolver_sid'] is None],
           }
