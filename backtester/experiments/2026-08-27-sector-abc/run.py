@@ -27,7 +27,7 @@ import numpy as np
 import pandas as pd
 
 
-EXPERIMENT_ID = "2026-08-27-sector-abc"
+EXPERIMENT_ID = "2026-08-27-sector-ab"
 EXPECTED_MAIN_SHA = "c502d077cae9c494f8b74a41ee8be7f40b25837d"
 CHAIN_START = "1998-01-02"
 END_SESSION = "2026-07-31"
@@ -604,27 +604,27 @@ def build_anchor_map(state, bars, meta, prior_split_factor: Mapping[str, float],
     return anchors
 
 
-def state_wc_parity(a, b, c, session: str) -> None:
+def state_wc_parity(a, b, session: str) -> None:
     fields = (
         "wealth_core", "pending", "ledger", "last_known",
         "shadow_nav_history", "shadow_peak_nav", "trailing_stop_sessions",
         "recent_leadership",
     )
     for field in fields:
-        av, bv, cv = getattr(a, field), getattr(b, field), getattr(c, field)
-        if not (av == bv == cv):
-            raise RuntimeError(f"A/B/C shared economic state diverged at {session}: {field}")
+        av, bv = getattr(a, field), getattr(b, field)
+        if av != bv:
+            raise RuntimeError(f"A/B shared economic state diverged at {session}: {field}")
 
 
-def wealth_equities(state) -> tuple[float, float]:
+def wealth_equities(state) -> tuple[Optional[float], float]:
     evidence = (state.last_evidence or {}).get("wealth_core") or {}
     close = evidence.get("estimated_equity")
     op = evidence.get("resolved_open_equity")
-    if not positive(close) or not positive(op):
-        raise RuntimeError(
-            f"Wealth Core lacks resolved positive open/close equity on "
-            f"{state.last_processed_session}: open={op}, close={close}")
-    return float(op), float(close)
+    if not positive(close):
+        raise RuntimeError(f"Wealth Core lacks positive close equity on {state.last_processed_session}: close={close}")
+    if op is not None and not positive(op):
+        raise RuntimeError(f"Wealth Core has invalid resolved open equity on {state.last_processed_session}: open={op}")
+    return (None if op is None else float(op)), float(close)
 
 
 def target_allocation(state) -> float:
@@ -646,11 +646,23 @@ class OverlayAccount:
         self.transition_cost = 0.0
         self.transitions = 0
 
-    def step(self, core_open: float, core_close: float, prior_core_close: Optional[float],
+    def step(self, core_open: Optional[float], core_close: float, prior_core_close: Optional[float],
              bil_gap: float, bil_intraday: float, next_target: float) -> float:
         if not self.initialized or prior_core_close is None:
             self.initialized = True
             self.pending = next_target
+            return self.nav
+        if core_open is None:
+            if abs(self.pending - self.effective) > 1e-15:
+                raise RuntimeError(f"{self.name} allocation transition coincides with unresolved Wealth Core open; exact next-open attribution is impossible")
+            core_c2c = core_close / prior_core_close
+            bil_c2c = bil_gap * bil_intraday
+            if not positive(core_c2c) or not positive(bil_c2c):
+                raise RuntimeError(f"invalid close-to-close return factor for {self.name}")
+            self.nav *= self.effective * core_c2c + (1.0-self.effective) * bil_c2c
+            self.pending = next_target
+            if not positive(self.nav):
+                raise RuntimeError(f"non-positive overlay NAV for {self.name}")
             return self.nav
         core_gap = core_open / prior_core_close
         core_intraday = core_close / core_open
@@ -814,8 +826,6 @@ def main() -> int:
 
     meta, a_sectors, resolver, sid_to_ticker = load_current_metadata(tickers_path, main_api)
     ff12 = PITFF12(cik_path, sic_path, sid_to_ticker)
-    c_sectors = SidSectorMap(meta)
-
     controller_config = load_concordance_parent()
     strategy_identity = runtime_strategy_identity(controller_config, concordance=True)
     state_a = SessionState.fresh(
@@ -824,12 +834,7 @@ def main() -> int:
     state_b = SessionState.fresh(
         starting_cash=STARTING_CASH, controller=Controller(controller_config),
         strategy_identity=strategy_identity)
-    state_c = SessionState.fresh(
-        starting_cash=STARTING_CASH, controller=Controller(controller_config),
-        strategy_identity=strategy_identity)
-
-    accounts = {name: OverlayAccount(name) for name in ("A", "B", "C")}
-    dynamic = DynamicPeerEngine(breadth)
+    accounts = {name: OverlayAccount(name) for name in ("A", "B")}
     prior_split_factor: dict[str, float] = defaultdict(lambda: 1.0)
     seen_count: dict[str, int] = defaultdict(int)
     prior_signal_close: dict[str, tuple[int, float]] = {}
@@ -873,10 +878,8 @@ def main() -> int:
             state_a, bars, meta, prior_split_factor, seen_count, main_api)
         anchors_b = build_anchor_map(
             state_b, bars, meta, prior_split_factor, seen_count, main_api)
-        anchors_c = build_anchor_map(
-            state_c, bars, meta, prior_split_factor, seen_count, main_api)
-        if not (anchors_a == anchors_b == anchors_c):
-            raise RuntimeError(f"A/B/C feed-anchor sets diverged at {session}")
+        if anchors_a != anchors_b:
+            raise RuntimeError(f"A/B feed-anchor sets diverged at {session}")
 
         tail_start = max(0, idx - 20)
         spy_sessions = sessions[tail_start:idx+1]
@@ -894,32 +897,19 @@ def main() -> int:
         pub_b = PublishedSession(
             sectors=FF12SectorMap(
                 ff12, session, causal_ticker_by_sid, meta), **common)
-        pub_c = PublishedSession(sectors=c_sectors, **common)
-
         state_a = production.advance_state(
             state_a, pub_a, controller_config=controller_config,
             strategy_identity=strategy_identity)
         state_b = production.advance_state(
             state_b, pub_b, controller_config=controller_config,
             strategy_identity=strategy_identity)
-        dynamic.current_index = idx
-        dynamic.current_session = session
-        production.session_breadth = dynamic.session_breadth
-        try:
-            state_c = production.advance_state(
-                state_c, pub_c, controller_config=controller_config,
-                strategy_identity=strategy_identity)
-        finally:
-            production.session_breadth = original_session_breadth
-
-        state_wc_parity(state_a, state_b, state_c, session)
+        state_wc_parity(state_a, state_b, session)
         core_open, core_close = wealth_equities(state_a)
         bil_gap, bil_intraday = bil_factors.get(session, (1.0, 1.0))
         navs = {}
         targets = {
             "A": target_allocation(state_a),
             "B": target_allocation(state_b),
-            "C": target_allocation(state_c),
         }
         for name, account in accounts.items():
             navs[name] = account.step(
@@ -928,23 +918,18 @@ def main() -> int:
 
         ev_a = state_a.last_evidence or {}
         ev_b = state_b.last_evidence or {}
-        ev_c = state_c.last_evidence or {}
         ob_a = ev_a.get("observation") or {}
         ob_b = ev_b.get("observation") or {}
-        ob_c = ev_c.get("observation") or {}
         daily_rows.append({
             "date": session,
-            "A_nav": navs["A"], "B_nav": navs["B"], "C_nav": navs["C"],
+            "A_nav": navs["A"], "B_nav": navs["B"],
             "SPY_level": spy_level[session],
             "wealth_core_equity": core_close,
             "A_allocation": targets["A"], "B_allocation": targets["B"],
-            "C_allocation": targets["C"],
             "A_native": (state_a.last_decision or {}).get("native_target_core_exposure"),
             "B_native": (state_b.last_decision or {}).get("native_target_core_exposure"),
-            "C_native": (state_c.last_decision or {}).get("native_target_core_exposure"),
             "A_damaged": ob_a.get("damaged_breadth"),
             "B_damaged": ob_b.get("damaged_breadth"),
-            "C_damaged": ob_c.get("damaged_breadth"),
             "green": ob_a.get("green_breadth"),
         })
 
@@ -961,15 +946,12 @@ def main() -> int:
             prior_split_factor[sid] = current_factor
             seen_count[sid] += 1
             latest_ticker_by_sid[sid] = str(bar.ticker)
-        dynamic.update_assets(idx, current_asset_returns)
-        dynamic.update_market(idx, spy_return.get(session))
         prior_core_close = core_close
 
         if idx % 252 == 0 or session == END_SESSION:
             print(
                 f"[RUN] {session} sessions={idx+1:,} "
-                f"A={accounts['A'].nav:.6f} B={accounts['B'].nav:.6f} "
-                f"C={accounts['C'].nav:.6f}", flush=True)
+                f"A={accounts['A'].nav:.6f} B={accounts['B'].nav:.6f}", flush=True)
 
     production.session_breadth = original_session_breadth
     if expected_pointer != len(sessions):
@@ -1000,7 +982,7 @@ def main() -> int:
     for years, start in sorted(MEASUREMENT_WINDOWS.items()):
         summary_metrics[str(years)] = {}
         for label, column in (
-            ("A", "A_nav"), ("B", "B_nav"), ("C", "C_nav"),
+            ("A", "A_nav"), ("B", "B_nav"),
             ("SPY", "SPY_level"),
         ):
             block = metric_block(daily, column, start, years)
@@ -1036,13 +1018,6 @@ def main() -> int:
         "variant_definition": {
             "A": "current-main current Sharadar sector grouping; historical metadata causality not claimed",
             "B": "A with sector contagion grouping replaced only by strict-prior SEC SIC -> FF12",
-            "C": "A with sector contagion grouping replaced only by strict-prior residual-correlation peers",
-        },
-        "dynamic_peer_parameters": {
-            "lookback_sessions": PEER_LOOKBACK,
-            "minimum_observations": PEER_MIN_OBSERVATIONS,
-            "maximum_peers": PEER_COUNT,
-            "correlation_floor": PEER_CORRELATION_FLOOR,
         },
         "overlay_accounting": {
             "decision_timing": "close decision -> following session open",
@@ -1061,10 +1036,6 @@ def main() -> int:
             "splits_detected": normalization.splits_detected,
             "identity_partial_sessions": [
                 {"session": s, "coverage": c} for s, c in bad_identity],
-        },
-        "dynamic_peer_diagnostics": {
-            "pair_correlations_evaluated": dynamic.peer_calculations,
-            "insufficient_history_requests": dynamic.insufficient_histories,
         },
     }
     summary_path.write_text(
@@ -1092,7 +1063,7 @@ def main() -> int:
         "".join(f"{sha256_file(path)}  {path.name}\n" for path in files),
         encoding="utf-8")
 
-    print("[PASS] fresh A/B/C replay completed", flush=True)
+    print("[PASS] fresh A/B replay completed", flush=True)
     print(pd.DataFrame(metrics_rows).to_string(index=False), flush=True)
     return 0
 
