@@ -468,6 +468,21 @@ finally:
 
         digest = core._validation_subject_digest(
             "data_publication", publication_value)
+        prior_reviewed_digest = reviewed.data_publication_sha256
+        missing = object()
+        prior_self_env = self.env.get(
+            "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256", missing)
+        prior_runner_env = self.runner.env.get(
+            "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256", missing)
+        prior_process_env = os.environ.get(
+            "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256", missing)
+
+        def restore(mapping, key, prior):
+            if prior is missing:
+                mapping.pop(key, None)
+            else:
+                mapping[key] = prior
+
         reviewed.data_publication_sha256 = digest
         self.env["SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256"] = digest
         self.runner.env["SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256"] = digest
@@ -476,8 +491,29 @@ finally:
         def invoke(argv, **_kwargs):
             return self.runner.run(argv, capture=True)
 
-        _ORIGINAL_VERIFY(reviewed, env=self.env, invoke=invoke)
-        core.verify_reviewed_account_binding(reviewed, self.cfg.account_id)
+        try:
+            _ORIGINAL_VERIFY(reviewed, env=self.env, invoke=invoke)
+            core.verify_reviewed_account_binding(reviewed, self.cfg.account_id)
+            binding_timing = self._causal_timing()
+            if (binding_timing.get("target") != expected_timing.get("target")
+                    or binding_timing.get("frontier")
+                        != expected_timing.get("target")
+                    or not self._timing_eligible(binding_timing)):
+                raise CausalSessionExpired(
+                    "causal target changed or lost minimum pre-open margin "
+                    "before publication authority could be persisted")
+        except BaseException:
+            reviewed.data_publication_sha256 = prior_reviewed_digest
+            restore(
+                self.env, "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256",
+                prior_self_env)
+            restore(
+                self.runner.env, "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256",
+                prior_runner_env)
+            restore(
+                os.environ, "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256",
+                prior_process_env)
+            raise
 
         evidence = {
             "schema": "sentinel.causal-publication-binding/1",
@@ -485,8 +521,8 @@ finally:
             "data_publication_sha256": digest,
             "parity_evidence_sha256": parity.evidence_sha256,
             "readiness_evidence_sha256": readiness.evidence_sha256,
-            "decision_session": final_timing["target"],
-            "remaining_preopen_ms": final_timing["remaining_ms"],
+            "decision_session": binding_timing["target"],
+            "remaining_preopen_ms": binding_timing["remaining_ms"],
             "bound_at": go._utc_text(datetime.now(timezone.utc)),
             "policy": install_go.WAIT_POLICY,
         }
