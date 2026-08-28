@@ -47,6 +47,10 @@ go_phase "HOST COMPATIBILITY"
 }
 go_info "host Python compatibility passed"
 
+# Serialize the entire lifecycle, not just the mutable database phase. Two GO
+# processes building the same commit-scoped tags or racing cache/promotion files
+# would invalidate single-process identity reasoning even if PostgreSQL itself
+# serialized market-data writes.
 if [ "${SENTINEL_GO_LOCK_HELD:-0}" != "1" ]; then
   go_phase "ACQUIRE SINGLE GO LIFECYCLE LOCK"
   exec "$PYTHON" scripts/sentinel_go_lock.py \
@@ -62,23 +66,35 @@ for ARG in "$@"; do
   esac
 done
 
+# Retained certification/retry evidence and exact post-validation handoff are
+# bound to the current Linux boot. This is a deterministic prerequisite, so
+# prove it before any long image build/test work. Development input is neither
+# retained nor promoted and does not need the production host binding.
 if [ "$PRODUCTION_RUN" -eq 1 ]; then
   go_phase "HOST GO IDENTITY PREFLIGHT"
   "$PYTHON" scripts/sentinel_go_host_preflight.py
 fi
 
+# Surface ordinary-runtime drift cheaply. A stale prior runtime is diagnostic,
+# never authority: promotion occurs only after the requested GO target passes.
 go_phase "RUNTIME SELECTION PREFLIGHT"
 "$PYTHON" scripts/sentinel_runtime_selection.py preflight
 
+# A broker-capable target needs a usable PAPER account. Prove that cheap,
+# GET-only volatile prerequisite before starting image/test work. It is
+# re-observed again at the final verdict boundary; this early pass is only a
+# liveness filter and never retained as final account authority. SHADOW skips.
 if [ "$PRODUCTION_RUN" -eq 1 ]; then
   go_phase "PAPER ACCOUNT PREFLIGHT - GET ONLY"
   "$PYTHON" scripts/sentinel_go_account_preflight.py "$@"
 fi
 
-# Diagnostic only. A just-closed session that has not reached the reviewed
-# Sharadar source-final boundary is a legitimate waiting state. The 24x7 entry
-# certifies the newest causally final frontier and leaves the newer session for
-# the deployment/runtime catch-up boundary.
+# Before the multi-image/full-suite certification, build only the exact ordinary
+# runtime and use it for a READ-ONLY diagnostic of the current SEP CDC interval.
+# This catches deterministic cursor/source authority refusals early without
+# allowing uncertified code to create schema, advance cursors, renormalize bars,
+# or publish a corpus generation. The certified preparation still repeats the
+# source observation later at the real write boundary.
 if [ "$PRODUCTION_RUN" -eq 1 ]; then
   go_phase "READ-ONLY SHARADAR PREFLIGHT"
   "$PYTHON" scripts/sentinel_go_readonly_data_preflight.py
@@ -86,15 +102,21 @@ fi
 
 go_phase "CERTIFICATION + FINANCIAL READINESS"
 set +e
-"$PYTHON" scripts/sentinel_go_24x7_entry.py "$@"
+"$PYTHON" scripts/sentinel_go_verified_entry.py "$@"
 VALIDATION_RC=$?
 set -e
 
+# The lower-level scripts/sentinel_go_validate.py producer is deliberately not
+# executed directly by this launcher; production authority enters through the
+# verified lifecycle command above.
 if [ "$VALIDATION_RC" -ne 0 ]; then
   go_warn "GO validation returned NO_GO/REFUSED (exit $VALIDATION_RC)"
   exit "$VALIDATION_RC"
 fi
 
+# Promotion re-fetches origin/main and requires the ordinary tag to resolve to
+# the exact immutable image id recorded when the certification suite passed.
+# A same-revision retag/substitution therefore cannot cross this boundary.
 go_phase "PROMOTE EXACT CERTIFIED RUNTIME"
 set +e
 "$PYTHON" scripts/sentinel_go_promote.py "$@"
@@ -106,6 +128,9 @@ if [ "$PROMOTE_RC" -ne 0 ]; then
 fi
 
 if [ "$PRODUCTION_RUN" -eq 1 ]; then
+  # Recreate the read-only panel on the promoted runtime and record the local
+  # certified image IDs that autonomous deployment must promote unchanged to
+  # registry RepoDigests before any broker-authorized service can use them.
   go_phase "POST-VALIDATION HANDOFF"
   set +e
   "$PYTHON" scripts/sentinel_go_post_validate.py
