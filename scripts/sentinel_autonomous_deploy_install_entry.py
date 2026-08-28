@@ -101,47 +101,36 @@ def _waiting_contract(validation: Mapping, *, mode: str) -> bool:
             or preparation.get("schema") != core.VALIDATION_PREPARATION_SCHEMA
             or preparation.get("status") != "PASS"
             or preparation.get("schema_migration_attempted") is not True
-            or type(preparation.get("bounded_sharadar_daily_attempted")) is not bool
+            or preparation.get("bounded_sharadar_daily_attempted") is not True
             or preparation.get("completed_before_validation_boundary") is not True
             or preparation.get("broker_mutation_attempts") != 0
             or core._HEX64.fullmatch(
                 str(preparation.get("evidence_sha256") or "")) is None):
         raise core.DeployRefused(
-            "waiting deployment lacks completed installation preparation")
+            "waiting deployment lacks completed source-final preparation")
 
+    runtime = validation.get("runtime")
+    runtime_digest = (
+        str(runtime.get("runtime_image_digest") or "")
+        if isinstance(runtime, dict) else "")
     database = validation.get("database_financial_health")
-    checks = database.get("checks") if isinstance(database, dict) else None
-    if (not isinstance(database, dict)
-            or database.get("schema") != core.VALIDATION_DATABASE_HEALTH_SCHEMA
-            or database.get("status") != "PASS"
-            or not isinstance(checks, dict)):
-        raise core.DeployRefused(
-            "waiting deployment lacks structural database health")
-    expected_checks = {
-        "behavioral_schema_exact", "feed_schema_exact",
-        "publication_complete", "publication_chain_unique_and_gap_free",
-        "recent_xnys_axis_exact", "frontier_security_keys_unique",
-        "repeatable_read_only", "publication_pin_excludes_writers",
-        "publication_stable_under_pin", "required_indexes_exact",
-        "predecessor_query_plan_indexed", "frontier_query_plan_indexed",
-        "warmup_revision_input_complete", "prospective_trading_window",
-    }
-    structural = expected_checks - {"prospective_trading_window"}
-    if (set(checks) != expected_checks
-            or any(checks[name] is not True for name in structural)
-            or type(checks.get("prospective_trading_window")) is not bool):
+    if not install_go._database_document_install_safe(
+            database, runtime_image_digest=runtime_digest):
         raise core.DeployRefused(
             "waiting deployment database health has a non-temporal failure")
 
     statuses = _gate_statuses(validation)
     install_gates = (
         "git_identity", "certified_suite_no_skips",
-        "database_financial_health", "wealth_core_nas_parity",
-        "alpaca_paper_account", "zero_mutation_boundary",
+        "wealth_core_nas_parity", "alpaca_paper_account",
+        "zero_mutation_boundary",
     )
     if any(statuses[name] != "PASS" for name in install_gates):
         raise core.DeployRefused(
-            "waiting deployment does not pass every installation gate")
+            "waiting deployment does not pass every non-temporal installation gate")
+    if statuses["database_financial_health"] != database.get("status"):
+        raise core.DeployRefused(
+            "waiting deployment database gate disagrees with its health record")
 
     shadow_state = validation.get("shadow_state")
     if (validation.get("dual_run_verdict") != "DUAL_RUN_NO_GO"
@@ -154,19 +143,20 @@ def _waiting_contract(validation: Mapping, *, mode: str) -> bool:
 
 
 def _normalized_waiting_validation(validation: Mapping) -> dict:
-    """Temporary strict-parser view; never returned or persisted as evidence."""
-    value = json.loads(json.dumps(validation))
-    preparation = value["preparation"]
-    preparation["bounded_sharadar_daily_attempted"] = True
-    preparation["completed_before_validation_boundary"] = True
-    preparation["status"] = "PASS"
+    """Temporary strict-parser view; never returned or persisted as evidence.
 
+    The original waiting bundle remains truthful. This private copy changes only
+    the temporal fields already independently proved safe above so the retained
+    v1 strict parser can be reused for every immutable/non-temporal contract.
+    """
+    value = json.loads(json.dumps(validation))
     database = value["database_financial_health"]
     database["status"] = "PASS"
     database["checks"]["prospective_trading_window"] = True
 
     for gate in value["gates"]:
-        if gate["id"] == "sharadar_readiness":
+        if gate["id"] in {
+                "database_financial_health", "sharadar_readiness"}:
             gate["status"] = "PASS"
     value["shadow_state"]["fresh"] = True
     value["shadow_state"]["internally_coherent"] = True
@@ -346,8 +336,7 @@ finally:
             value.get("target_source_final") is True
             and value.get("prospective") is True
             and type(value.get("remaining_ms")) is int
-            and value["remaining_ms"] >= go.MIN_REMAINING_DEADLINE_MARGIN_MS
-        )
+            and value["remaining_ms"] >= go.MIN_REMAINING_DEADLINE_MARGIN_MS)
 
     def _wait_until_causal_ready(self) -> Mapping:
         """Wait without vendor mutation until the target itself is source-final."""
@@ -492,8 +481,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(
         "REFUSED: sentinel_autonomous_deploy_install_entry.py is internal; "
         "use scripts/sentinel-autonomous-deploy.sh",
-        file=sys.stderr,
-    )
+        file=sys.stderr)
     return 2
 
 
