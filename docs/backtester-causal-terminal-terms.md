@@ -81,4 +81,6 @@ Before a full A/B replay is launched, a branch-side verification job must prove 
 6. production SEP normalization yields `TYC` 2001-06-04 `VendorBar.raw_open == 56.90` from the frozen row;
 7. a fractional CIT entitlement, when present, uses the frozen `57.45` cash-in-lieu price through the production terminal settlement type.
 
+A fast integration verification may use the diagnostic's observed `295584` CIT share count solely as a verification oracle. It must call production `apply_terminal` and production open-equity valuation, prove delivery of `204159` TYC shares plus `$49.91256` cash-in-lieu, and prove the delivered position is exactly open-valued at the frozen `2001-06-04` TYC raw open. This share count is never an economic replay input and is never stored in the frozen terminal-terms dataset.
+
 The full replay then remains a fresh chronological A/B run. The source terms do not encode holdings, decisions, allocations, trades, NAV, or any other prerecorded strategy path.
