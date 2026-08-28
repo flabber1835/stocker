@@ -14,8 +14,10 @@ If a pending mutation fails only because local permanent identity is absent or a
 single known listing interval is stale, the preflight may observe current TICKERS
 GET-only. It accepts that as liveness evidence only after the production TICKERS
 source membrane proves complete keys, structural validity and a stable second
-observation; the routine historical-identity guard must also prove the candidate
-is forward-only. The candidate is never written or published here.
+observation. A stable candidate that proves a historical identity correction is
+reported as recovery-required so the certified preparation can invoke the
+complete identity-aware rebuild. The candidate is never written or published
+here.
 
 It never creates/migrates schema, advances a cursor, creates an ingest run,
 renormalizes bars, publishes a corpus generation, downloads the complete ACTIONS
@@ -251,7 +253,14 @@ except identity_refresh.SepMutationIdentityRefused as exc:
         codes.get(exc.reason_code, 'SOURCE_IDENTITY_UNRESOLVED'), detail,
         identity_reason=exc.reason_code)
 except universe.HistoricalIdentityMutation as exc:
-    refuse('SOURCE_IDENTITY_HISTORY_MUTATION', controlled_detail(exc))
+    detail = controlled_detail(exc)
+    value = {
+        'status': 'RECOVERY_REQUIRED',
+        'reason_code': 'SOURCE_IDENTITY_HISTORY_MUTATION',
+    }
+    if detail:
+        value['detail'] = detail
+    emit(value)
 except source_authority.SourceAuthorityRefused as exc:
     refuse('SOURCE_CDC_AUTHORITY_REFUSED', controlled_detail(exc))
 except maintenance.SharadarMutationRefused as exc:
