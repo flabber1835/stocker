@@ -134,6 +134,7 @@ jobs:
               for row in csv.DictReader(f):
                   if row.get('ticker') == 'TYC' and row.get('date') in {'2001-05-31','2001-06-04'}:
                       rows.append(row)
+          rows.sort(key=lambda row: (row['date'], row['ticker']))
           norm = list(normalise_sep_rows(rows,
               resolve_identity=lambda ticker, session: identity.get(ticker),
               dividends={}, authoritative_splits=None, report=NormalisationReport()))
