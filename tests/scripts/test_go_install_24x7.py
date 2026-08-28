@@ -25,10 +25,6 @@ def _load(name: str, path: str):
 
 
 go24 = _load("sentinel_go_24x7_entry_test", "scripts/sentinel_go_24x7_entry.py")
-deploy24 = _load(
-    "sentinel_autonomous_deploy_24x7_test",
-    "scripts/sentinel_autonomous_deploy_24x7.py")
-
 
 DIGEST = "sha256:" + "a" * 64
 COMMIT = "b" * 40
@@ -69,7 +65,11 @@ def test_preparation_accepts_source_final_frontier_after_its_following_open(monk
     assert summary.schema_migration_attempted is True
     assert summary.bounded_sharadar_daily_attempted is True
     assert summary.elapsed_milliseconds == 250
-    assert "ALPACA_API_KEY" not in runner.calls[-1][1]
+    # This layer must not mint feed or broker authority itself. The real
+    # FeedBoundPreparationRunner injects the exact feed capability at runtime.
+    call_env = runner.calls[-1][1]
+    assert "ALPACA_API_KEY" not in call_env
+    assert "SENTINEL_FEED_AUTHORIZED" not in call_env
 
 
 def test_preparation_still_refuses_non_final_target(monkeypatch):
@@ -91,49 +91,6 @@ def test_preparation_still_refuses_non_final_target(monkeypatch):
     assert summary.complete is False
 
 
-def test_readiness_can_defer_only_not_source_final_freshness(monkeypatch):
-    monkeypatch.setattr(
-        go24.go, "_resolve_compose_args", lambda runner, env: ["-f", "compose.yml"])
-
-    class Runner:
-        def run(self, argv, *, env=None, cwd=ROOT):
-            payload = {
-                "ready": False,
-                "deployment_ready": True,
-                "deferred_not_source_final": True,
-                "deferred_sessions": 1,
-                "checks_total": 20,
-                "checks_passed": 19,
-                "failures": 1,
-                "transaction_read_only": True,
-            }
-            return subprocess.CompletedProcess(
-                argv, 0,
-                stdout="SENTINEL_GO_READINESS=" + json.dumps(payload) + "\n",
-                stderr="")
-
-    gate = go24._deployment_readiness_probe(
-        Runner(),
-        env={"SHARADAR_API_KEY": "x", "SENTINEL_POSTGRES_PASSWORD": "y"},
-        runtime_ref=DIGEST, now_text="2026-08-28T01:30:00Z")
-    assert gate.status == go24.go.PASS
-
-
-def test_database_view_does_not_turn_deployment_into_a_clock_window():
-    class Base:
-        complete = True
-
-        def to_dict(self):
-            return {"status": "PASS"}
-
-    view = go24.DeploymentDatabaseHealthView(
-        Base(), actual_remaining_to_execution_open_ms=0,
-        observed_at="2026-08-28T01:30:00Z")
-    assert view.complete is True
-    assert view.remaining_now_ms() is None
-    assert view.to_dict() == {"status": "PASS"}
-
-
 def test_go_preparation_selects_latest_source_final_session_not_latest_close():
     code = go24._PREPARATION_CODE
     assert "def latest_source_final" in code
@@ -142,28 +99,25 @@ def test_go_preparation_selects_latest_source_final_session_not_latest_close():
     assert "eligible = source_final and prospective" not in code
 
 
-def test_fresh_shadow_staging_has_no_arbitrary_install_deadline():
-    code = deploy24._SOURCE_FINAL_CODE
-    assert "publication_not_before" in code
-    assert "target = following" in code
-    source = (ROOT / "scripts" / "sentinel_autonomous_deploy_24x7.py").read_text(
+def test_source_final_overlay_does_not_redefine_public_readiness_or_db_gate():
+    source = (ROOT / "scripts" / "sentinel_go_24x7_entry.py").read_text(
         encoding="utf-8")
-    assert "WAITING_FOR_SOURCE_FINAL" in source
-    assert "data_wait_timeout_seconds" not in source
+    assert "_deployment_readiness_probe" not in source
+    assert "prospective_trading_window" not in source
+    assert "probe_sharadar_readiness" not in source
 
 
-def test_structural_preflight_is_separate_from_fresh_genesis_timing():
-    code = deploy24._STRUCTURAL_PREFLIGHT_CODE
-    assert "classify_shadow_lineage" in code
-    assert "structural_only=True" in code
-    assert "publication_not_before" not in code
+def test_24x7_overlay_is_internal_and_public_launcher_stays_verified(capsys):
+    assert go24.main([]) == 2
+    captured = capsys.readouterr()
+    assert "internal" in captured.err
+    assert "scripts/sentinel-go-validate.sh" in captured.err
 
-
-def test_launcher_routes_through_24x7_entries():
     go_launcher = (ROOT / "scripts" / "sentinel-go-validate.sh").read_text(
         encoding="utf-8")
     deploy_launcher = (
         ROOT / "scripts" / "sentinel-autonomous-deploy.sh").read_text(
             encoding="utf-8")
-    assert "scripts/sentinel_go_24x7_entry.py" in go_launcher
-    assert "scripts/sentinel_autonomous_deploy_24x7.py" in deploy_launcher
+    assert 'scripts/sentinel_go_verified_entry.py "$@"' in go_launcher
+    assert "scripts/sentinel_go_24x7_entry.py" not in go_launcher
+    assert 'scripts/sentinel_autonomous_deploy_bootstrap.py "$@"' in deploy_launcher
