@@ -1,0 +1,136 @@
+name: Backtester - GPU terminal settlement verification
+
+on:
+  push:
+    branches: [research/backtester]
+    paths:
+      - '.github/workflows/backtester-gpu-terminal-verify.yml'
+      - 'backtester/causal_terminal_terms.py'
+      - 'backtester/data/causal-terminal-terms-v1.json'
+      - 'backtester/data/causal-terminal-terms-v1.SHA256'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify GPU no-election cash merger
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out frozen research terms
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/backtester
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/causal_terminal_terms.py
+            /backtester/data/causal-terminal-terms-v1.json
+            /backtester/data/causal-terminal-terms-v1.SHA256
+
+      - name: Check out exact production source read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: c502d077cae9c494f8b74a41ee8be7f40b25837d
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            shared
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install exact shared package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+
+      - name: Verify checksum and exact production settlement
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/main-src/shared
+        run: |
+          set -euo pipefail
+          (cd backtester/data && sha256sum -c causal-terminal-terms-v1.SHA256)
+          python - <<'PY'
+          import json
+          import math
+          from pathlib import Path
+
+          from backtester.causal_terminal_terms import load_frozen_terminal_terms
+          from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
+          from stock_strategy_shared.wealth_core.feed import SecurityMeta
+          from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
+          from stock_strategy_shared.wealth_core.state import HoldingEpisode, PortfolioState
+          from stock_strategy_shared.wealth_core.terminal import TerminalKind, TerminalTerms, apply_terminal
+
+          sid = '121383'
+          shares = 204677
+          expected_cash_per_share = 36.50
+          expected_proceeds = 7470710.50
+          meta = {sid: SecurityMeta(security_id=sid, ticker='GPU', permaticker=sid, related_tickers=())}
+
+          terms_by_session, digest = load_frozen_terminal_terms(
+              Path('backtester/data/causal-terminal-terms-v1.json'),
+              Path('backtester/data/causal-terminal-terms-v1.SHA256'),
+              sessions=['2001-05-30', '2001-06-01', '2001-11-07'],
+              resolve_identity=lambda ticker, session: sid if ticker == 'GPU' else ({'LIT1':'120448','CIT.A':'122131','TYC':'573113'}.get(ticker)),
+              meta={
+                  **meta,
+                  '120448': SecurityMeta(security_id='120448', ticker='LIT1', permaticker='120448', related_tickers=()),
+                  '122131': SecurityMeta(security_id='122131', ticker='CIT.A', permaticker='122131', related_tickers=()),
+                  '573113': SecurityMeta(security_id='573113', ticker='TYC', permaticker='573113', related_tickers=()),
+              },
+              TerminalTerms=TerminalTerms,
+              TerminalKind=TerminalKind,
+          )
+          gpu = terms_by_session['2001-11-07'][0]
+          if gpu.security_id != sid or gpu.kind is not TerminalKind.CASH_MERGER:
+              raise SystemExit(f'wrong GPU terminal terms: {gpu}')
+          if not math.isclose(float(gpu.cash_per_share), expected_cash_per_share, rel_tol=0, abs_tol=1e-12):
+              raise SystemExit(f'wrong GPU cash/share: {gpu.cash_per_share}')
+
+          state = PortfolioState.fresh(0.0, n_slots=1)
+          state.slots[0].occupied_by = sid
+          state.episodes[0] = HoldingEpisode(
+              security_id=sid, ticker='GPU', issuer_id='P:121383', slot_id=0,
+              signal_date='2001-10-24', entry_date='2001-10-25',
+              entry_raw_open=40.2, entry_split_adjusted_price=40.2,
+              initial_shares=shares, current_shares=shares,
+          )
+          ledger = Ledger()
+          result = apply_terminal(
+              state, gpu, ledger=ledger, session='2001-11-07',
+              cfg=WealthCoreConfig(), last_valid_mark=40.39,
+              sessions_since_last_valid_print=1,
+          )
+          if not result.get('applied') or result.get('kind') != 'CASH_MERGER':
+              raise SystemExit(f'GPU settlement did not apply: {result}')
+          if state.episodes:
+              raise SystemExit('GPU holding was not extinguished')
+          if not math.isclose(state.cash, expected_proceeds, rel_tol=0, abs_tol=1e-8):
+              raise SystemExit(f'GPU proceeds wrong: {state.cash} != {expected_proceeds}')
+          event = ledger.events[-1]
+          if event.event_type is not EventType.CASH_MERGER:
+              raise SystemExit(f'GPU ledger event wrong: {event}')
+
+          print(json.dumps({
+              'status': 'PASS',
+              'terminal_terms_sha256': digest,
+              'security_id': sid,
+              'ticker': 'GPU',
+              'effective_session': '2001-11-07',
+              'diagnostic_shares': shares,
+              'cash_per_share': expected_cash_per_share,
+              'exact_cash_proceeds': state.cash,
+              'holding_extinguished': True,
+          }, indent=2, sort_keys=True))
+          PY
