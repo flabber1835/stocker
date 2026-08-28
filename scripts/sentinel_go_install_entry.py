@@ -1,29 +1,15 @@
 #!/usr/bin/env python3
 """Wall-clock-independent DUAL_RUN_OBSERVATION installation authority.
 
-The existing GO implementation correctly proves session-level causal authority,
-but it historically used those volatile facts as prerequisites for selecting and
-installing an exact certified runtime.  That made installation possible only in
-the narrow source-final -> following-open window.
+The retained GO verdicts remain session/economic verdicts.  This entry adds a
+separate requested-target rule for installing the exact certified dual-run
+software while it is fenced and waiting for a causally eligible session.
 
-This entry keeps every session/economic gate fail-closed and adds one narrower
-meaning for DUAL_RUN_GO: the reviewed dual-run services may be installed while
-fenced and wait for a causally eligible session.  SHADOW_GO and
-PAPER_EXECUTION_GO retain their original session-level semantics.
-
-A deferred installation is allowed only when:
-* exact artifact certification passed;
-* backup durability and schema migration actually ran;
-* the preparation subprocess returned its normal success marker and skipped the
-  daily catch-up only because source-finality or the following-open window was
-  not currently eligible;
-* structural database health, the full forward differential, Git identity,
-  Alpaca PAPER GET-only inspection, and the zero-mutation boundary pass.
-
-The resulting public bundle states that bounded Sharadar daily ingest was not
-attempted and omits a stale data-publication genesis binding.  The autonomous
-installer must re-earn readiness/parity and bind the exact publication before it
-may create observation authority.
+A waiting installation never becomes SHADOW_GO, DUAL_RUN_GO, or
+PAPER_EXECUTION_GO merely because the software can be installed.  Those verdicts
+continue to require current Sharadar readiness and the reviewed pre-open timing
+window.  Runtime promotion is permitted from a waiting bundle only when every
+non-session installation invariant is independently proved.
 """
 from __future__ import annotations
 
@@ -32,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import sys
 from typing import Mapping, Optional, Sequence
+import zipfile
 
 import sentinel_go_verified_entry as verified
 
@@ -48,6 +35,7 @@ _PREPARATION_FAILURE_MARKER = "SENTINEL_GO_PREPARATION_FAILURE="
 _BASE_PHASED = verified._ORIGINAL_PHASED
 _BASE_DERIVE = go.derive_verdicts
 _BASE_EMIT = phase._ORIGINAL_EMIT
+_BASE_TARGET_OK = controller._target_ok
 
 
 @dataclass(frozen=True)
@@ -64,6 +52,13 @@ class DeploymentPreparationView:
     @property
     def status(self):
         return go.PASS if self.deferred else self.base.status
+
+    @property
+    def elapsed_milliseconds(self):
+        # No Sharadar ingest occurred in the deferred case.  The base elapsed
+        # measurement includes schema/bootstrap work and must not be relabelled
+        # as bounded vendor-ingest latency by the downstream database probe.
+        return 0 if self.deferred else self.base.elapsed_milliseconds
 
     @property
     def complete(self):
@@ -86,8 +81,6 @@ class DeploymentPreparationView:
             return value
         value["status"] = go.PASS
         value["completed_before_validation_boundary"] = True
-        # Keep the economically important fact visible.  PASS here means the
-        # *installation* preparation completed; it never claims a daily ingest.
         value["bounded_sharadar_daily_attempted"] = False
         value["evidence_sha256"] = go._evidence_digest({
             "base_preparation_evidence_sha256": self.base.evidence_sha256,
@@ -115,7 +108,7 @@ def _preparation_payload(runner) -> Optional[Mapping[str, object]]:
 
 
 def _deferred_preparation(result, runner) -> Optional[str]:
-    """Return the exact benign timing reason; None means no relaxation."""
+    """Return the exact benign timing reason; None keeps the base hard failure."""
     payload = _preparation_payload(runner)
     expected = {
         "schema_migrated", "source_not_before_satisfied",
@@ -135,8 +128,6 @@ def _deferred_preparation(result, runner) -> Optional[str]:
     source_final = payload["source_not_before_satisfied"]
     prospective = payload["following_open_future"]
     if source_final and prospective:
-        # Both timing prerequisites were available.  Skipping the daily path in
-        # that state is not benign and must remain a hard failure.
         return None
     if not source_final:
         return "SHARADAR_SOURCE_NOT_FINAL"
@@ -164,7 +155,7 @@ def _preparation_guarded(*args, **kwargs):
 
 
 def _structural_database_complete(base) -> bool:
-    """Database properties that are invariant with respect to current wall clock."""
+    """Database properties invariant with respect to the current wall clock."""
     try:
         checks = dict(base.checks)
         counts = dict(base.counts)
@@ -264,10 +255,7 @@ class InstallCompatibleDatabaseHealthView:
     def remaining_now_ms(self):
         if type(self.actual_remaining_to_execution_open_ms) is not int:
             return None
-        try:
-            observed = phase._parse_utc(self.observed_at)
-        except Exception:  # fail closed on a malformed clock witness
-            return None
+        observed = phase._parse_utc(self.observed_at)
         if observed is None:
             return None
         elapsed = max(
@@ -311,10 +299,6 @@ def run_installable_phased(*args, **kwargs):
     waiting = waiting or gates["sharadar_readiness"].status != go.PASS
     waiting = waiting or not _session_ready(health)
     if waiting:
-        # A current publication may be perfectly coherent yet already be too
-        # late for genesis, or it may be one source-final session behind.  Never
-        # freeze that transient publication into a deployment that is explicitly
-        # going to wait for a later causal session.
         subjects.pop("data_publication", None)
         subjects[WAIT_POLICY_SUBJECT] = WAIT_POLICY
 
@@ -332,42 +316,97 @@ def run_installable_phased(*args, **kwargs):
 def derive_installable_verdicts(probes):
     shadow, dual, paper, failures = _BASE_DERIVE(probes)
     failures = {key: list(value) for key, value in failures.items()}
-
     health = probes.database_health
     if health is None or not _session_ready(health):
         shadow = go.SHADOW_NO_GO
+        dual = go.DUAL_RUN_NO_GO
         paper = go.PAPER_NO_GO
-        for key in ("shadow", "paper_execution"):
+        for key in ("shadow", "dual_run", "paper_execution"):
             failures[key].append("SESSION_TIMING_NOT_READY")
             failures[key] = sorted(set(failures[key]))
-
-    gates = go._gate_map(probes.gates)
-    install_gates = (
-        "git_identity", "certified_suite_no_skips",
-        "database_financial_health", "wealth_core_nas_parity",
-        "alpaca_paper_account", "zero_mutation_boundary",
-    )
-    install_safe = bool(
-        probes.input_mode == "PRODUCTION"
-        and probes.broker_mutation_attempts == 0
-        and probes.production_db_writes == 0
-        and probes.preparation is not None
-        and probes.preparation.complete
-        and health is not None and health.complete
-        and all(gates[name].status == go.PASS for name in install_gates)
-        and probes.tests.complete
-        and probes.git.branch_is_main
-        and probes.git.clean
-        and probes.git.matches_origin_main
-    )
-    if install_safe:
-        dual = go.DUAL_RUN_GO
-        failures["dual_run"] = []
     return shadow, dual, paper, failures
 
 
+def _document_install_safe(validation: Mapping, tests: Mapping) -> bool:
+    try:
+        subjects = {
+            str(item["kind"]): str(item["digest"])
+            for item in validation["subjects"]
+            if isinstance(item, dict) and set(item) == {"kind", "digest"}
+        }
+        expected_wait = go._subject_digest(WAIT_POLICY_SUBJECT, WAIT_POLICY)
+        if (subjects.get(WAIT_POLICY_SUBJECT) != expected_wait
+                or "data_publication" in subjects):
+            return False
+        prep = validation["preparation"]
+        if (prep.get("status") != go.PASS
+                or prep.get("schema_migration_attempted") is not True
+                or type(prep.get("bounded_sharadar_daily_attempted")) is not bool
+                or prep.get("completed_before_validation_boundary") is not True
+                or prep.get("broker_mutation_attempts") != 0):
+            return False
+        database = validation["database_financial_health"]
+        if database.get("status") != go.PASS:
+            return False
+        checks = database["checks"]
+        structural = set(go.DATABASE_CHECK_IDS) - {"prospective_trading_window"}
+        if (set(checks) != set(go.DATABASE_CHECK_IDS)
+                or any(checks[name] is not True for name in structural)
+                or type(checks["prospective_trading_window"]) is not bool):
+            return False
+        gates = {item["id"]: item["status"] for item in validation["gates"]}
+        install_gates = (
+            "git_identity", "certified_suite_no_skips",
+            "database_financial_health", "wealth_core_nas_parity",
+            "alpaca_paper_account", "zero_mutation_boundary",
+        )
+        if (set(gates) != set(go.GATE_IDS)
+                or any(gates[name] != go.PASS for name in install_gates)):
+            return False
+        git = validation["git"]
+        runtime = validation["runtime"]
+        if (git.get("branch") != "main" or git.get("clean") is not True
+                or git.get("matches_origin_main") is not True
+                or go._HEX40.fullmatch(str(git.get("commit") or "")) is None
+                or go._IMAGE_DIGEST.fullmatch(
+                    str(runtime.get("candidate_image_digest") or "")) is None
+                or go._IMAGE_DIGEST.fullmatch(
+                    str(runtime.get("runtime_image_digest") or "")) is None
+                or go._HEX64.fullmatch(
+                    str(runtime.get("source_identity_sha256") or "")) is None):
+            return False
+        if tests.get("complete") is not True:
+            return False
+        shadow_state = validation["shadow_state"]
+        return bool(shadow_state.get("internally_coherent") is True)
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def install_target_ok(result, target: str) -> bool:
+    if _BASE_TARGET_OK(result, target):
+        return True
+    if target != controller.TARGET_DUAL or not result.upload_permitted:
+        return False
+    try:
+        with zipfile.ZipFile(result.path, "r") as archive:
+            validation = json.loads(archive.read("validation.json").decode("ascii"))
+            tests = json.loads(archive.read("test-summary.json").decode("ascii"))
+    except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+        return False
+    safe = _document_install_safe(validation, tests)
+    if safe:
+        print(
+            "requested DUAL_RUN_OBSERVATION installation: GO - runtime may be "
+            "promoted fenced; session verdict remains %s"
+            % result.dual_run_verdict,
+            flush=True,
+        )
+    return safe
+
+
 def emit_installable(*args, **kwargs):
-    """Cap session-ready bundles; waiting installation evidence is not time-windowed."""
+    """Cap session-ready evidence; waiting installation evidence is not windowed."""
     completed_at = datetime.now(timezone.utc).replace(microsecond=0)
     kwargs["created_at"] = completed_at
     probes = args[0] if args else None
@@ -386,7 +425,6 @@ def emit_installable(*args, **kwargs):
 
 
 def _install_overlay():
-    # phase.install() resolves these globals when called by the verified entry.
     phase._preparation_guarded = _preparation_guarded
     phase.StrictDatabaseHealthView = InstallCompatibleDatabaseHealthView
     controller.DatabaseHealthView = InstallCompatibleDatabaseHealthView
@@ -394,6 +432,7 @@ def _install_overlay():
     phase._emit_at_completion = emit_installable
     go.derive_verdicts = derive_installable_verdicts
     verified._ORIGINAL_PHASED = run_installable_phased
+    controller._target_ok = install_target_ok
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
