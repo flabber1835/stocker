@@ -1,0 +1,182 @@
+name: Backtester - checkpoint resume equivalence
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [research/backtester]
+    paths:
+      - '.github/workflows/backtester-checkpoint-resume-equivalence.yml'
+      - 'backtester/checkpoint_runner.py'
+      - 'backtester/run_checkpoint_equivalence_base.py'
+
+permissions:
+  contents: read
+
+jobs:
+  equivalence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      PYTHONUNBUFFERED: '1'
+      BACKTESTER_CHECKPOINT_EQUIV_END: '1998-06-30'
+      BACKTESTER_EQUIV_IGNORE_FINAL_SPLIT_AUDIT: '1'
+    steps:
+      - name: Check out frozen research inputs
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/backtester
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-checkpoint-resume-equivalence.yml
+            /backtester/checkpoint_runner.py
+            /backtester/run_checkpoint_equivalence_base.py
+            /backtester/experiments/2026-08-27-sector-abc/**
+            /PIT input data/MANIFEST.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
+            /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SHARADAR_SEP_1998.csv.gz
+            /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/SHA256SUMS.txt
+            /research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
+
+      - name: Record research identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          echo "BACKTESTER_BRANCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_LAB_ROOT=${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+
+      - name: Check out exact main source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: c502d077cae9c494f8b74a41ee8be7f40b25837d
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            sentinel
+            shared
+            docs/sentinel-handoff/00_README
+
+      - name: Verify exact main identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTUAL="$(git -C main-src rev-parse HEAD)"
+          test "${ACTUAL}" = "c502d077cae9c494f8b74a41ee8be7f40b25837d"
+          echo "BACKTESTER_MAIN_SHA=${ACTUAL}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_MAIN_ROOT=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install exact main runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+
+      - name: Compile checkpoint sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile backtester/checkpoint_runner.py
+          python -m py_compile backtester/run_checkpoint_equivalence_base.py
+          python -m py_compile backtester/experiments/2026-08-27-sector-abc/run.py
+
+      - name: Run uninterrupted control
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf backtester-results/continuous
+          python backtester/run_checkpoint_equivalence_base.py \
+            --lab-root . --main-root main-src \
+            --output backtester-results/continuous \
+            2>&1 | tee checkpoint-continuous.log
+
+      - name: Run first segment and write checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf backtester-results/segmented
+          mkdir -p backtester-results/checkpoints
+          python backtester/run_checkpoint_equivalence_base.py \
+            --lab-root . --main-root main-src \
+            --output backtester-results/segmented \
+            --stop-after-session 1998-03-31 \
+            --checkpoint-out backtester-results/checkpoints/1998-03-31.json \
+            2>&1 | tee checkpoint-segment-1.log
+          test -s backtester-results/checkpoints/1998-03-31.json
+          test -s backtester-results/checkpoints/1998-03-31.json.SHA256
+
+      - name: Resume second segment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python backtester/run_checkpoint_equivalence_base.py \
+            --lab-root . --main-root main-src \
+            --output backtester-results/segmented \
+            --resume-checkpoint backtester-results/checkpoints/1998-03-31.json \
+            2>&1 | tee checkpoint-segment-2.log
+
+      - name: Require byte-identical economic result
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp backtester-results/continuous/daily.csv.gz backtester-results/segmented/daily.csv.gz
+          cmp backtester-results/continuous/metrics.csv backtester-results/segmented/metrics.csv
+          cmp backtester-results/continuous/summary.json backtester-results/segmented/summary.json
+          python - <<'PY'
+          import gzip, hashlib, json
+          from pathlib import Path
+          a=Path('backtester-results/continuous/daily.csv.gz')
+          b=Path('backtester-results/segmented/daily.csv.gz')
+          ck=Path('backtester-results/checkpoints/1998-03-31.json')
+          def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          x=json.loads(ck.read_text())
+          payload=x['payload']
+          assert x['schema']=='backtester.replay-checkpoint/1'
+          assert payload['checkpoint_session']=='1998-03-31'
+          assert payload['next_session']=='1998-04-01'
+          assert payload['state_hash_a'] and payload['state_hash_b']
+          assert sha(a)==sha(b)
+          print(json.dumps({
+              'status':'PASS',
+              'daily_sha256':sha(a),
+              'checkpoint_file_sha256':sha(ck),
+              'checkpoint_session':payload['checkpoint_session'],
+              'next_session':payload['next_session'],
+          }, sort_keys=True))
+          PY
+
+      - name: Upload checkpoint equivalence evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: backtester-checkpoint-equivalence-${{ github.run_id }}
+          path: |
+            backtester-results/continuous/daily.csv.gz
+            backtester-results/continuous/metrics.csv
+            backtester-results/continuous/summary.json
+            backtester-results/segmented/daily.csv.gz
+            backtester-results/segmented/metrics.csv
+            backtester-results/segmented/summary.json
+            backtester-results/checkpoints/1998-03-31.json
+            backtester-results/checkpoints/1998-03-31.json.SHA256
+            checkpoint-continuous.log
+            checkpoint-segment-1.log
+            checkpoint-segment-2.log
+          if-no-files-found: warn
+          retention-days: 30
