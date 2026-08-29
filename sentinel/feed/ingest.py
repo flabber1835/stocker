@@ -31,6 +31,12 @@ DAILY_OVERLAP_DAYS = _impl.DAILY_OVERLAP_DAYS
 DEFAULT_SEED_START = _impl.DEFAULT_SEED_START
 SFP_REFERENCE_TICKERS = _impl.SFP_REFERENCE_TICKERS
 
+# Explicit static helper bindings retained for direct behavioral tests and
+# adjacent callers.  They do not install module proxies or mutate _impl.
+_action_maps = _impl._action_maps
+_ordered_sep = _impl._ordered_sep
+_resolution_tombstones = _impl._resolution_tombstones
+
 _authoritative_source = _authority._authoritative_source
 _actions_reconciliation_source = _authority._actions_reconciliation_source
 _recent_reconciliation_source = _authority._recent_reconciliation_source
@@ -214,7 +220,7 @@ def _seed_authority(*, boundary, tracked, source_fetch, market_start,
 
 
 def _run_seed_generation(conn, *, recovery_plan, fetch, final_hi: str,
-                         boundary: str | None, resolve_identity=None):
+                         boundary: str | None = None, resolve_identity=None):
     """Run one seed/reseed engine with source-specific proof hooks."""
     seed_from, seed_to = recovery_plan.date_from, recovery_plan.date_to
     tracked, guarded = _seed_source(fetch, final_hi=final_hi)
