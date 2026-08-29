@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 import pathlib
 
 
@@ -59,6 +60,34 @@ def test_public_facade_imports_do_not_replace_implementation_callables():
     assert staging_impl.staged is originals["staged"]
 
 
+def test_reverse_import_order_keeps_implementation_callables_stable():
+    from sentinel.feed import (
+        _publication_impl, maintenance_impl, sep_reconciliation_impl,
+        staging_impl,
+    )
+
+    originals = (
+        _publication_impl.publish,
+        maintenance_impl._validate_sep_mutation_rows,
+        sep_reconciliation_impl._source_fingerprint,
+        sep_reconciliation_impl.reconcile_year,
+        staging_impl.staged,
+    )
+    modules = (
+        "sentinel.feed.staging", "sentinel.feed.sep_reconciliation",
+        "sentinel.feed.maintenance", "sentinel.feed.publication",
+    )
+    for module_name in modules:
+        importlib.reload(importlib.import_module(module_name))
+    assert originals == (
+        _publication_impl.publish,
+        maintenance_impl._validate_sep_mutation_rows,
+        sep_reconciliation_impl._source_fingerprint,
+        sep_reconciliation_impl.reconcile_year,
+        staging_impl.staged,
+    )
+
+
 def test_public_monkeypatch_does_not_propagate_to_hidden_implementation(monkeypatch):
     from sentinel.feed import maintenance, maintenance_impl, staging, staging_impl
 
@@ -68,6 +97,22 @@ def test_public_monkeypatch_does_not_propagate_to_hidden_implementation(monkeypa
     monkeypatch.setattr(maintenance, "validate_sep_mutation_rows", object())
     assert staging_impl.staged is hidden_staged
     assert maintenance_impl._validate_sep_mutation_rows is hidden_validator
+
+
+def test_seed_has_one_public_generation_path():
+    from sentinel.feed import ingest
+
+    source = inspect.getsource(ingest.seed)
+    assert "_authority.seed(" not in source
+    assert "_run_seed_generation(" in source
+    assert ingest._ordinary_seed_generation.__module__ == "sentinel.feed.ingest"
+
+
+def test_seed_coherence_keeps_success_reopen_private():
+    from sentinel.feed import seed_coherence
+
+    assert not hasattr(seed_coherence, "reopen_successful_run")
+    assert "reopen_successful_run" not in seed_coherence.__all__
 
 
 def test_canonical_entrypoints_are_owned_by_public_modules():
