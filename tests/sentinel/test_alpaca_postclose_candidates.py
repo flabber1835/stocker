@@ -16,7 +16,7 @@ from sentinel.execution.alpaca import (
     AlpacaExecutionBroker,
     MalformedBrokerPayload,
 )
-from sentinel.execution.alpaca_remediation_final import (
+from sentinel.execution.alpaca import (
     ACTIVITY_FILL_INTERVAL_SEMANTICS,
     ACTIVITY_FILL_INTERVAL_SOURCE,
 )

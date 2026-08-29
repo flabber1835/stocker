@@ -14,7 +14,7 @@ from tests.support.postgres import _EphemeralPostgres, drop_public_tables
 from sentinel import binding as B, schema
 from sentinel.execution import journal
 from sentinel.execution import broker_cash
-from sentinel.execution import alpaca_remediation_compat as compat
+from sentinel.execution import reconcile as compat
 from sentinel.execution.alpaca import (
     AccountBoundObservation,
     ActivityCorrectionRequiresRecovery,
