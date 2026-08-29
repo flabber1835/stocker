@@ -3,14 +3,17 @@ from __future__ import annotations
 
 import ast
 import importlib
+import inspect
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 import sentinel.paper as paper
 
-ROOT = Path(__file__).resolve().parents[2]
+TEST_ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT", TEST_ROOT)).resolve()
 PACKAGE = ROOT / "sentinel" / "paper"
 MODULES = ['model', 'inspection', 'validation', 'cash', 'targets', 'reconciliation', 'finalization', 'preparation', 'execution', 'recovery']
 PUBLIC_OWNERS = {'DEFENSIVE_SYMBOL': 'inspection', 'ExecutionResult': 'model', 'PaperAccountInspection': 'model', 'PaperActivationRefused': 'model', 'PaperRetryableRefused': 'model', 'PreOpenShareUnitAuthorityUnavailable': 'model', 'PreparationResult': 'model', 'build_security_resolver': 'inspection', 'current_paper_plan': 'preparation', 'execute_automated_paper_plan': 'execution', 'execute_paper_plan': 'execution', 'inspect_paper_account': 'inspection', 'prepare_paper_plan': 'preparation', 'recover_automated_paper_cycle': 'recovery'}
@@ -48,17 +51,21 @@ def _import_fingerprint(order):
         + "    importlib.import_module('sentinel.paper.' + name)\n"
         + "import sentinel.paper as paper\n"
         + "names = " + repr(['DEFENSIVE_SYMBOL', 'ExecutionResult', 'PaperAccountInspection', 'PaperActivationRefused', 'PaperRetryableRefused', 'PreOpenShareUnitAuthorityUnavailable', 'PreparationResult', 'build_security_resolver', 'current_paper_plan', 'execute_automated_paper_plan', 'execute_paper_plan', 'inspect_paper_account', 'prepare_paper_plan', 'recover_automated_paper_cycle']) + "\n"
-        + "print(json.dumps({name: [getattr(getattr(paper, name), '__module__', "
-          "type(getattr(paper, name)).__module__), "
-          "getattr(getattr(paper, name), '__qualname__', "
-          "type(getattr(paper, name)).__qualname__), "
-          "str(inspect.signature(getattr(paper, name))) "
-          "if callable(getattr(paper, name)) else repr(getattr(paper, name))] "
-          "for name in names}, sort_keys=True))\n"
+        + "def describe(value):\n"
+        + "    module = getattr(value, '__module__', type(value).__module__)\n"
+        + "    qualname = getattr(value, '__qualname__', type(value).__qualname__)\n"
+        + "    if inspect.isfunction(value) or inspect.ismethod(value):\n"
+        + "        detail = str(inspect.signature(value))\n"
+        + "    elif inspect.isclass(value):\n"
+        + "        detail = 'class'\n"
+        + "    else:\n"
+        + "        detail = repr(value)\n"
+        + "    return [module, qualname, detail]\n"
+        + "print(json.dumps({name: describe(getattr(paper, name)) for name in names}, sort_keys=True))\n"
     )
     result = subprocess.run(
         [sys.executable, "-c", script],
-        cwd=ROOT,
+        cwd=TEST_ROOT,
         check=True,
         capture_output=True,
         text=True,
