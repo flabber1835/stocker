@@ -77,7 +77,10 @@ jobs:
           from stock_strategy_shared.wealth_core.state import HoldingEpisode, PortfolioState
           from stock_strategy_shared.wealth_core.terminal import TerminalKind, TerminalTerms, apply_terminal
 
-          identity = {'LIT1':'120448', 'CIT.A':'122131', 'TYC':'573113', 'GPU':'121383'}
+          identity = {
+              'LIT1':'120448', 'CIT.A':'122131', 'TYC':'573113',
+              'GPU':'121383', 'EFD1':'182962',
+          }
           meta = {
               sid: SecurityMeta(security_id=sid, ticker=ticker, permaticker=sid, related_tickers=())
               for ticker, sid in identity.items()
@@ -85,12 +88,13 @@ jobs:
           terms, digest = load_frozen_terminal_terms(
               Path('backtester/data/causal-terminal-terms-v1.json'),
               Path('backtester/data/causal-terminal-terms-v1.SHA256'),
-              sessions=['2001-05-30','2001-06-01','2001-11-07'],
+              sessions=['2001-05-30','2001-06-01','2001-11-07','2007-09-12'],
               resolve_identity=lambda ticker, session: identity.get(ticker),
               meta=meta, TerminalTerms=TerminalTerms, TerminalKind=TerminalKind)
           lit = terms['2001-05-30'][0]
           cit = terms['2001-06-01'][0]
           gpu = terms['2001-11-07'][0]
+          efd = terms['2007-09-12'][0]
 
           def holding(sid, ticker, shares, price, cash=1000.0):
               state = PortfolioState.fresh(cash, n_slots=1)
@@ -161,6 +165,19 @@ jobs:
           if gpu_ledger.events[-1].event_type is not EventType.CASH_MERGER:
               raise SystemExit('GPU ledger event wrong')
 
+          efd_shares = 100
+          efd_state, efd_ledger = holding('182962','EFD1',efd_shares,35.5,cash=0.0), Ledger()
+          efd_result = apply_terminal(efd_state, efd, ledger=efd_ledger,
+              session='2007-09-12', cfg=cfg, last_valid_mark=36.45,
+              sessions_since_last_valid_print=1)
+          expected_efd = 3650.0
+          if not efd_result.get('applied') or efd_result.get('kind') != 'CASH_MERGER':
+              raise SystemExit(f'EFD settlement failed: {efd_result}')
+          if efd_state.episodes or not math.isclose(efd_state.cash, expected_efd, rel_tol=0, abs_tol=1e-9):
+              raise SystemExit(f'EFD economics wrong: {efd_state.cash}')
+          if efd_ledger.events[-1].event_type is not EventType.CASH_MERGER:
+              raise SystemExit('EFD ledger event wrong')
+
           print(json.dumps({
               'status':'PASS', 'terminal_terms_sha256':digest,
               'LIT1_cash_for_10_shares':lit_state.cash-1000.0,
@@ -169,5 +186,7 @@ jobs:
               'TYC_2001_06_04_raw_open':june4.vendor.raw_open,
               'GPU_shares':gpu_shares, 'GPU_cash_per_share':gpu.cash_per_share,
               'GPU_exact_proceeds':gpu_state.cash,
+              'EFD1_shares':efd_shares, 'EFD1_cash_per_share':efd.cash_per_share,
+              'EFD1_exact_proceeds':efd_state.cash,
           }, indent=2, sort_keys=True))
           PY
