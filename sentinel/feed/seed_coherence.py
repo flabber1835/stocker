@@ -8,11 +8,8 @@ from __future__ import annotations
 
 import json
 
-from sentinel.feed import _seed_coherence_impl as _base
-
-for _name, _value in tuple(vars(_base).items()):
-    if not _name.startswith("__") and _name != "reopen_successful_run":
-        globals()[_name] = _value
+from sentinel.feed import _seed_coherence_impl as _core
+from sentinel.feed._seed_coherence_impl import *  # noqa: F403
 
 
 def _durable_json(value):
@@ -28,7 +25,7 @@ def record_seed_coverage(conn, *, run_id: str, evidence: dict) -> None:
             or payload.get("missing_eligible_total") != 0
             or payload.get("unexpected_eligible_total") != 0
             or payload.get("unresolved_eligible_risk_total") != 0):
-        raise SeedCoherenceRefused(
+        raise _core.SeedCoherenceRefused(
             f"seed {run_id} coverage evidence is absent or not an exact pass")
     with conn.cursor() as cur:
         cur.execute(
@@ -43,7 +40,7 @@ def record_seed_coverage(conn, *, run_id: str, evidence: dict) -> None:
         changed = int(cur.rowcount)
     if changed != 1:
         conn.rollback()
-        raise SeedCoherenceRefused(
+        raise _core.SeedCoherenceRefused(
             f"seed {run_id} lost unpublished RUNNING authority before coverage save")
     conn.commit()
 
@@ -64,7 +61,7 @@ def require_for_publication(conn, *, run_id: str, window_start=None,
             (str(run_id),))
         row = cur.fetchone()
     if row is None:
-        raise SeedCoherenceRefused(
+        raise _core.SeedCoherenceRefused(
             f"run-backed publication {run_id} has no lifecycle row")
     if str(row[0]) != "seed":
         return None
@@ -73,16 +70,14 @@ def require_for_publication(conn, *, run_id: str, window_start=None,
     recovery = raw if isinstance(raw, dict) else json.loads(raw or "{}")
     recovery = _durable_json(recovery)
     if not isinstance(recovery, dict) or "seed_coherence" not in recovery:
-        # Explicit injected/replay seed seam: it never claimed production
-        # generation authority and therefore contributes no #259 evidence.
         return None
 
     if str(row[1]) != "success":
-        raise SeedCoherenceRefused(
+        raise _core.SeedCoherenceRefused(
             f"seed {run_id} is {row[1]!r}; only SUCCESS can publish")
     date_from, date_to = str(row[2]), str(row[3])
     if (str(window_start), str(window_end)) != (date_from, date_to):
-        raise SeedCoherenceRefused(
+        raise _core.SeedCoherenceRefused(
             f"seed publication window {window_start}..{window_end} differs from "
             f"durable run window {date_from}..{date_to}")
 
@@ -94,12 +89,12 @@ def require_for_publication(conn, *, run_id: str, window_start=None,
                 or coverage.get("missing_eligible_total") != 0
                 or coverage.get("unexpected_eligible_total") != 0
                 or coverage.get("unresolved_eligible_risk_total") != 0):
-            raise SeedCoherenceRefused(
+            raise _core.SeedCoherenceRefused(
                 f"seed {run_id} retained source coverage evidence is invalid")
 
     payload = recovery.get("seed_coherence")
-    if not isinstance(payload, dict) or payload.get("schema") != SCHEMA:
-        raise SeedCoherenceRefused(
+    if not isinstance(payload, dict) or payload.get("schema") != _core.SCHEMA:
+        raise _core.SeedCoherenceRefused(
             f"seed {run_id} lacks durable post-seed source/local coherence proof")
     required = {
         "schema", "phase", "run_id", "market_interval",
@@ -108,29 +103,27 @@ def require_for_publication(conn, *, run_id: str, window_start=None,
         "normalized_source", "normalized_local", "final_mutation_cursor",
     }
     if not required.issubset(payload) or payload.get("phase") != "complete":
-        raise SeedCoherenceRefused(
+        raise _core.SeedCoherenceRefused(
             f"seed {run_id} post-seed proof is incomplete")
     if (str(payload.get("run_id")) != str(run_id)
             or payload.get("market_interval") != [date_from, date_to]):
-        raise SeedCoherenceRefused(
+        raise _core.SeedCoherenceRefused(
             f"seed {run_id} proof is bound to a different run/window")
     if payload.get("mutation_source_first") != payload.get("mutation_source_second"):
-        raise SeedCoherenceRefused(
+        raise _core.SeedCoherenceRefused(
             f"seed {run_id} mutation source observations are not stable")
     overlap = payload.get("overlap")
     if (not isinstance(overlap, dict)
             or overlap.get("source_first") != overlap.get("source_second")):
-        raise SeedCoherenceRefused(
+        raise _core.SeedCoherenceRefused(
             f"seed {run_id} trailing source observations are not stable")
     if payload.get("normalized_source") != payload.get("normalized_local"):
-        raise SeedCoherenceRefused(
+        raise _core.SeedCoherenceRefused(
             f"seed {run_id} normalized source/local proof does not match")
-    _base._strict_date(payload.get("final_mutation_cursor"),
+    _core._strict_date(payload.get("final_mutation_cursor"),
                        label="final mutation cursor")
     return dict(payload)
 
 
-# Intentionally omit ``reopen_successful_run``. #259 finalization must execute
-# while the candidate is still RUNNING; reopening SUCCESS is not supported.
-__all__ = [name for name in getattr(_base, "__all__", ())
+__all__ = [name for name in getattr(_core, "__all__", ())
            if name != "reopen_successful_run"] + ["record_seed_coverage"]
