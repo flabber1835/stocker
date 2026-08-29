@@ -1,0 +1,60 @@
+name: Backtester - targeted unreachable split proof
+
+on:
+  push:
+    branches: [research/backtester]
+    paths:
+      - '.github/workflows/backtester-classify-unreachable-splits-fast.yml'
+      - 'backtester/diagnostics/classify_unreachable_split_conflicts_fast.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  classify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out targeted research inputs
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/backtester
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-classify-unreachable-splits-fast.yml
+            /backtester/diagnostics/classify_unreachable_split_conflicts_fast.py
+            /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SHARADAR_SEP_*.csv.gz
+      - name: Record identity
+        run: |
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          echo "BACKTESTER_BRANCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_LAB_ROOT=${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_SPLIT_UNREACHABLE_FAST_OUTPUT=${GITHUB_WORKSPACE}/backtester-results/split-unreachable-fast.json" >> "${GITHUB_ENV}"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+      - name: Install analysis dependencies
+        run: python -m pip install pandas==3.0.5 numpy==2.4.6
+      - name: Run targeted proof
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          mkdir -p backtester-results
+          python backtester/diagnostics/classify_unreachable_split_conflicts_fast.py 2>&1 | tee backtester-split-unreachable-fast.log
+      - name: Upload proof evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: backtester-split-unreachable-fast-${{ github.run_id }}
+          path: |
+            backtester-results/split-unreachable-fast.json
+            backtester-split-unreachable-fast.log
+          if-no-files-found: warn
+          retention-days: 30
