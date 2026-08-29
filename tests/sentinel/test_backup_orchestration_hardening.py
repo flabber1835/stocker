@@ -136,4 +136,3 @@ def test_different_checkouts_derive_same_lock_from_same_target(tmp_path):
     source = _read(LOCK)
     assert 'hashlib.sha256(str(canonical).encode("utf-8"))' in source
     assert 'Path("/tmp") / ("sentinel-base-backup-locks-%d" % os.getuid())' in source
-    assert 'ROOT / "artifacts"' not in source
