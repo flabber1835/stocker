@@ -341,7 +341,8 @@ def _preparation_with_backup_refresh(*args, **kwargs):
     runner = args[0] if args else kwargs.get("runner")
     commit = kwargs.get("commit")
     runtime_ref = kwargs.get("runtime_ref")
-    if (runner is None or commit is None or runtime_ref is None
+    if (runner is None or not callable(getattr(runner, "run", None))
+            or commit is None or runtime_ref is None
             or go._HEX40.fullmatch(str(commit)) is None
             or go._IMAGE_DIGEST.fullmatch(str(runtime_ref)) is None):
         return _refused_preparation(
