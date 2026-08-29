@@ -11,6 +11,7 @@ import pytest
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
 BASE = ROOT / "scripts" / "sentinel-base-backup.sh"
 STATUS = ROOT / "scripts" / "sentinel-backup-status.sh"
+RESTORE = ROOT / "scripts" / "sentinel-restore-drill.sh"
 LOCK = ROOT / "scripts" / "sentinel_backup_lock.py"
 
 
@@ -21,7 +22,7 @@ def _read(path: Path) -> str:
 def test_backup_shell_contracts_are_syntax_valid():
     if os.name == "nt":
         return
-    for path in (BASE, STATUS):
+    for path in (BASE, STATUS, RESTORE):
         completed = subprocess.run(
             ["bash", "-n", str(path)], cwd=ROOT,
             capture_output=True, text=True, check=False)
@@ -52,6 +53,15 @@ def test_status_considers_only_exact_completed_backup_names():
     assert "BASE_BACKUP_MANIFEST_MISSING" in source
     assert "BASE_BACKUP_RECOVERY_MARKER_MISSING" in source
     assert "WAL_ARCHIVE_UNRESOLVED_FAILURE" in source
+
+
+def test_restore_considers_only_exact_completed_backup_names():
+    source = _read(RESTORE)
+    assert "COMPLETED_NAME_RE='^base-[0-9]{8}T[0-9]{6}Z$'" in source
+    assert '[[ "$NAME" =~ $COMPLETED_NAME_RE ]]' in source
+    assert 'grep -E "$COMPLETED_NAME_RE"' in source
+    assert '-name "base-*"' not in source
+    assert 'case "$NAME" in base-*)' not in source
 
 
 def test_base_backup_requires_kernel_backed_dedicated_lock():
