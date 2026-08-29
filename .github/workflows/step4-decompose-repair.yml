@@ -25,19 +25,36 @@ jobs:
           from hashlib import sha256
           from pathlib import Path
 
+          expected = '6507b27416abd6e90e0dc1ae5635581a74275525b2452face41005e7c614dca4'
           workflow = Path('.github/workflows/step4-paper-lifecycle-inventory.yml')
           text = workflow.read_text(encoding='utf-8')
           marker = "<<'PAYLOAD'\n"
           payload = text.split(marker, 1)[1].split('\n          PAYLOAD', 1)[0]
           normalized = ''.join(payload.split())
-          path = Path('/tmp/step4_decompose_paper.py.gz.b64')
-          path.write_text(normalized, encoding='ascii')
-          print('payload_length =', len(normalized))
-          print('payload_sha256 =', sha256(normalized.encode()).hexdigest())
+          print('committed_payload_length =', len(normalized))
+          print('committed_payload_sha256 =', sha256(normalized.encode()).hexdigest())
+
+          if sha256(normalized.encode()).hexdigest() != expected:
+              if len(normalized) != 9581:
+                  raise SystemExit('encoded generator has an unexpected shape')
+              repaired = None
+              for index in range(len(normalized)):
+                  candidate = normalized[:index] + normalized[index + 1:]
+                  if sha256(candidate.encode()).hexdigest() == expected:
+                      repaired = candidate
+                      print('removed_extra_character_index =', index)
+                      print('removed_extra_character =', repr(normalized[index]))
+                      break
+              if repaired is None:
+                  raise SystemExit('single-character payload repair did not reproduce the pinned hash')
+              normalized = repaired
+
           if len(normalized) != 9580:
-              raise SystemExit('encoded generator length mismatch')
-          if sha256(normalized.encode()).hexdigest() != '6507b27416abd6e90e0dc1ae5635581a74275525b2452face41005e7c614dca4':
-              raise SystemExit('encoded generator hash mismatch')
+              raise SystemExit('repaired generator length mismatch')
+          if sha256(normalized.encode()).hexdigest() != expected:
+              raise SystemExit('repaired generator hash mismatch')
+          Path('/tmp/step4_decompose_paper.py.gz.b64').write_text(
+              normalized, encoding='ascii')
           PY
           base64 --decode /tmp/step4_decompose_paper.py.gz.b64 | gzip --decompress > /tmp/step4_decompose_paper.py
           echo "e763f6fb93ee1ec6afc72ce0ed67a022ea1a4153eee6f37d0d4e4debba346578  /tmp/step4_decompose_paper.py" | sha256sum --check
