@@ -576,16 +576,18 @@ class Feed:
         for b in visible:
             s = self.series[b.security_id]
             r = results[b.security_id]
-            w = [c for c in s.signal_window() if c is not None]
+            signal_window = s.signal_window()
+            w = [c for c in signal_window if c is not None]
             windows[b.security_id] = w
             sec_bars.append(SecurityBar(
                 security_id=b.security_id, ticker=b.ticker,
                 issuer_id=s.issuer_id,
-                # ELIGIBLE securities carry their window; ineligible ones carry
-                # an EMPTY one. score_universe would otherwise compute a real
-                # momentum for a security §1 already refused, and that number
-                # would sit in the audit trail looking authoritative.
-                closes=w if r.eligible else [],
+                # Admission eligibility controls scoring and admission only.
+                # The positional canonical window remains available to exit
+                # management for held securities even when today's eligibility
+                # fails. Preserve None in-place so a missing current close
+                # cannot turn yesterday's close into a false stop/review price.
+                closes=signal_window,
                 raw_close=b.raw_close if _positive(b.raw_close) else None,
                 eligible=r.eligible,
                 eligibility_reason=r.reason.value))
