@@ -1,0 +1,82 @@
+name: Backtester - VTRS stop domain diagnostic
+
+on:
+  push:
+    branches: [research/backtester]
+    paths: ['.github/workflows/backtester-vtrs-stop-domain-diagnostic.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace-vtrs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out diagnostic data
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/backtester
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /sharadar/SHARADAR_SEP_1998.csv.gz
+            /sharadar/SHARADAR_ACTIONS.zip
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
+
+      - name: Check out exact production source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: c502d077cae9c494f8b74a41ee8be7f40b25837d
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Show production stop implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== matching production source ==='
+          grep -R -n -E 'episode_peak_split_adjusted_close|STOP_RET|trailing.?stop|exit_pending|stop.*peak|peak.*stop' main-src/shared main-src/sentinel | head -n 300 || true
+
+      - name: Show research stop implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== research stop references ==='
+          grep -n -C 8 -E 'STOP_RET|pending_sell.*stop|sell_reason.*stop|peak.*close|close.*peak' research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py | head -n 300 || true
+
+      - name: Trace VTRS market and action data
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import pandas as pd, zipfile
+          sep='sharadar/SHARADAR_SEP_1998.csv.gz'
+          df=pd.read_csv(sep,low_memory=False)
+          print('SEP columns:', list(df.columns))
+          q=df[(df['ticker'].astype(str)=='VTRS')].copy()
+          q['date']=pd.to_datetime(q['date'])
+          q=q[(q.date>=pd.Timestamp('1998-07-01')) & (q.date<=pd.Timestamp('1998-09-02'))]
+          cols=[c for c in ['date','ticker','open','high','low','close','volume','closeunadj','lastupdated'] if c in q.columns]
+          print('=== VTRS SEP ===')
+          print(q[cols].to_string(index=False))
+          with zipfile.ZipFile('sharadar/SHARADAR_ACTIONS.zip') as z:
+              name=[n for n in z.namelist() if n.lower().endswith('.csv')][0]
+              with z.open(name) as f: a=pd.read_csv(f,low_memory=False)
+          aq=a[a['ticker'].astype(str)=='VTRS'].copy()
+          if 'date' in aq: aq['date']=pd.to_datetime(aq['date'])
+          print('=== VTRS vendor ACTIONS ===')
+          print(aq.to_string(index=False))
+          pit=pd.read_csv('PIT input data/ACTIONS_PIT_ONLY.csv.gz',low_memory=False)
+          pq=pit[pit['ticker'].astype(str)=='VTRS'].copy() if 'ticker' in pit.columns else pit.iloc[0:0]
+          print('=== VTRS PIT ACTIONS ===')
+          print(pq.to_string(index=False))
+          print('=== reconstruction manifest ===')
+          print(open('PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv').read())
+          PY
