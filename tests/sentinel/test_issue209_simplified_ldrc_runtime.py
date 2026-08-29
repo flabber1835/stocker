@@ -1,4 +1,5 @@
 from sentinel import paper
+from sentinel.paper import preparation as paper_preparation
 from sentinel.controller.concordance_parent import (
     FAST_DAMAGED_BREADTH_DELTA5, STRATEGY_ID as PARENT_STRATEGY_ID,
 )
@@ -29,7 +30,7 @@ def test_simplified_v3_entry_and_recovery_constants_are_frozen():
 
 
 def test_paper_gateway_has_no_legacy_runtime_identity_default():
-    source = open(paper.__file__, encoding="utf-8").read()
+    source = open(paper_preparation.__file__, encoding="utf-8").read()
     assert "runtime_strategy_identity(load_controller())" not in source
     assert source.count("load_controller()") == 1
     assert source.count("_default_paper_strategy()") >= 7
