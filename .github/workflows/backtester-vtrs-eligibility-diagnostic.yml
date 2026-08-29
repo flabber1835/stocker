@@ -1,0 +1,50 @@
+name: Backtester - VTRS Aug 31 eligibility diagnostic
+
+on:
+  push:
+    branches: [research/backtester]
+    paths: ['.github/workflows/backtester-vtrs-eligibility-diagnostic.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/backtester
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /sharadar/SHARADAR_SEP_1998.csv.gz
+      - name: Calculate VTRS rolling liquidity at Aug 31
+        shell: bash
+        run: |
+          python - <<'PY'
+          import csv,gzip
+          rows=[]
+          with gzip.open('sharadar/SHARADAR_SEP_1998.csv.gz','rt',newline='') as f:
+              for r in csv.DictReader(f):
+                  if r['ticker']=='VTRS' and r['date'] <= '1998-08-31':
+                      try:
+                          close=float(r['close']); vol=float(r['volume'])
+                      except Exception:
+                          continue
+                      rows.append((r['date'],close,vol,close*vol))
+          rows.sort()
+          last=rows[-20:]
+          print('last20_count=',len(last))
+          for x in last: print(x)
+          adv=sum(x[3] for x in last)/20
+          print('AUG31_CLOSE=',rows[-1][1])
+          print('AUG31_DAY_DV=',rows[-1][3])
+          print('ADV20=',adv)
+          print('MIN_DAY_DV_PASS=',rows[-1][3] >= 5_000_000)
+          print('MIN_ADV20_PASS=',adv >= 20_000_000)
+          PY
