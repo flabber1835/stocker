@@ -9,6 +9,7 @@ cd "$(dirname "$0")/.."
 BACKUP_ROOT="$(sentinel_backup_root)"
 COMPOSE=(docker compose -f docker-compose.sentinel.yml \
   -f docker-compose.sentinel-backup.yml)
+COMPLETED_NAME_RE='^base-[0-9]{8}T[0-9]{6}Z$'
 
 EXPECTED=""
 PHYSICAL_ONLY=0
@@ -34,18 +35,29 @@ while [ "$#" -gt 0 ]; do
 done
 if [ -n "$EXPECTED" ]; then
   NAME="${EXPECTED##*/}"
-  case "$NAME" in base-*) ;; *)
-    echo "REFUSED: requested backup has an invalid name" >&2; exit 4 ;;
-  esac
+  [[ "$NAME" =~ $COMPLETED_NAME_RE ]] || {
+    echo "REFUSED: requested backup has an invalid name" >&2; exit 4; }
   [ "$EXPECTED" = "$BACKUP_ROOT/base/$NAME" ] || {
     echo "REFUSED: requested backup is outside the Sentinel base-backup root" >&2; exit 4; }
 else
-  NAME="$(${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
-    find /sentinel-backup/base -mindepth 1 -maxdepth 1 -type d \
-      -name "base-*" -printf "%f\n" | sort | tail -1
+  CANDIDATES="$(${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
+    find /sentinel-backup/base -mindepth 1 -maxdepth 1 -type d -printf "%f\n"
   ')"
+  NAME=""
+  while IFS= read -r CANDIDATE; do
+    [ -n "$CANDIDATE" ] || continue
+    if ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
+      name="$1"
+      test -f "/sentinel-backup/base/$name/backup_manifest"
+      test -f "/sentinel-backup/base/$name/sentinel-recovery-marker"
+    ' sh "$CANDIDATE" >/dev/null 2>&1; then
+      NAME="$CANDIDATE"
+      break
+    fi
+  done < <(printf '%s\n' "$CANDIDATES" \
+    | grep -E "$COMPLETED_NAME_RE" | sort -r || true)
 fi
-[ -n "$NAME" ] || { echo "REFUSED: no base backup exists" >&2; exit 4; }
+[ -n "$NAME" ] || { echo "REFUSED: no complete base backup exists" >&2; exit 4; }
 LATEST="$BACKUP_ROOT/base/$NAME"
 ${COMPOSE[@]} exec -T sentinel-postgres test -d "/sentinel-backup/base/$NAME" || {
   echo "REFUSED: requested base backup does not exist: $LATEST" >&2; exit 4; }

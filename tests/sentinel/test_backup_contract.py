@@ -147,7 +147,12 @@ def test_base_backup_is_physical_streamed_and_verified_before_promotion():
     text = _read("scripts/sentinel-base-backup.sh")
     assert "pg_basebackup" in text and "-Xs" in text
     assert "pg_verifybackup" in text
-    assert text.index("pg_verifybackup") < text.index('mv "/sentinel-backup/base/')
+    promotion = (
+        'mv -T --no-clobber -- "/sentinel-backup/base/$staging" '
+        '"/sentinel-backup/base/$final"')
+    assert promotion in text
+    assert text.index("pg_verifybackup") < text.index(promotion)
+    assert 'sync -f /sentinel-backup/base' in text
     assert "SHOW archive_mode" in text
 
 
@@ -343,11 +348,12 @@ def test_base_backup_requires_post_base_marker_wal_before_metadata():
     assert "sentinel_backup_recovery_markers" in text
     assert "pg_switch_wal" in text
     wal_proof = 'test -f "/sentinel-backup/wal/$wal"'
-    metadata_publish = '> "/sentinel-backup/base/$name/sentinel-recovery-marker"'
+    metadata_publish = 'metadata="/sentinel-backup/base/$name/sentinel-recovery-marker"'
     assert wal_proof in text
     assert 'test -r "/sentinel-backup/wal/$wal"' in text
     assert metadata_publish in text
     assert text.index(wal_proof) < text.index(metadata_publish)
+    assert 'sync "$metadata"' in text
     assert 'test -f "/sentinel-backup/base/$NAME/sentinel-recovery-marker"' in text
 
 

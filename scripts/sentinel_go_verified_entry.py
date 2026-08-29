@@ -174,6 +174,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 raise controller.PhaseRefused(str(exc)) from exc
         _install_wallclock_independent_dual_overlay(development=development)
         phase.install()
+        if not development:
+            # Base-backup freshness is a host durability prerequisite. Install
+            # its self-heal only after phase.install() has established the exact
+            # artifact-certification guard around mutable preparation.
+            import sentinel_go_backup_refresh as backup_refresh  # noqa: PLC0415
+            backup_refresh.install()
         # Production GO is intentionally verbose: safe build/test output streams
         # live, sensitive probes emit colored progress/heartbeat lines, suites run
         # shortest-first, and sanitized failing pytest nodes enter the review bundle.
