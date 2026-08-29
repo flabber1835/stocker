@@ -68,30 +68,31 @@ def test_actions_split_correction_replays_against_candidate_before_publication(
     }]
     monkeypatch.setattr(store, "_assert_corpus_locked", lambda conn: None)
     monkeypatch.setattr(store, "IngestRun", _Run)
-    monkeypatch.setattr(maintenance, "load_actions_cursor", lambda conn: None)
+    monkeypatch.setattr(maintenance._core, "load_actions_cursor", lambda conn: None)
 
     def stable_rows(fetch, table, params):
         action_params.append(dict(params))
         return rows
 
-    monkeypatch.setattr(maintenance, "_stable_rows", stable_rows)
+    monkeypatch.setattr(maintenance._core, "_stable_rows", stable_rows)
     monkeypatch.setattr(
-        maintenance, "_active_action_rows",
+        maintenance._core, "_active_action_rows",
         lambda conn: {"old-row-id": dict(rows[0], value=1.5)})
     monkeypatch.setattr(
-        maintenance, "_action_change_dates", lambda conn, current: ["2020-01-02"])
+        maintenance._core, "_action_change_dates", lambda conn, current: ["2020-01-02"])
     monkeypatch.setattr(
-        maintenance, "_retained_market_bounds",
+        maintenance._core, "_retained_market_bounds",
         lambda conn: ("2019-01-02", "2026-08-18"))
     monkeypatch.setattr(
-        maintenance, "_failed_action_reconcile_bar_footprint",
+        maintenance._core, "_failed_action_reconcile_bar_footprint",
         lambda conn, **kwargs: ([], False))
     monkeypatch.setattr(
-        maintenance, "_semantic_upgrade_replay_dates",
+        maintenance._core, "_semantic_upgrade_replay_dates",
         lambda conn, **kwargs: [])
     monkeypatch.setattr(
         renormalize, "correction_windows",
         lambda dates, **kwargs: [("2019-12-31", "2020-01-03")])
+
     def write_actions(conn, current, *, run_id, window_start, window_end):
         events.append(("actions", run_id))
         return len(current)
@@ -117,7 +118,7 @@ def test_actions_split_correction_replays_against_candidate_before_publication(
 
     monkeypatch.setattr(publication, "publish", publish)
     monkeypatch.setattr(
-        maintenance, "_write_cursor",
+        maintenance._core, "_write_cursor",
         lambda conn, **kwargs: events.append(("cursor", kwargs["publication_version"]))
         or maintenance.SourceCursor(
             kind=kwargs["kind"], processed_through=kwargs["through"],
@@ -154,24 +155,24 @@ def test_full_actions_history_does_not_expand_a_short_price_seed(monkeypatch):
     }
     monkeypatch.setattr(store, "_assert_corpus_locked", lambda conn: None)
     monkeypatch.setattr(store, "IngestRun", _Run)
-    monkeypatch.setattr(maintenance, "load_actions_cursor", lambda conn: None)
+    monkeypatch.setattr(maintenance._core, "load_actions_cursor", lambda conn: None)
     monkeypatch.setattr(
-        maintenance, "_stable_rows",
+        maintenance._core, "_stable_rows",
         lambda fetch, table, params: [old, recent])
     monkeypatch.setattr(
-        maintenance, "_active_action_rows",
+        maintenance._core, "_active_action_rows",
         lambda conn: {"recent": recent})
     monkeypatch.setattr(
-        maintenance, "_action_change_dates",
+        maintenance._core, "_action_change_dates",
         lambda conn, rows: ["1998-01-02"])
     monkeypatch.setattr(
-        maintenance, "_retained_market_bounds",
+        maintenance._core, "_retained_market_bounds",
         lambda conn: ("2025-07-01", "2026-08-21"))
     monkeypatch.setattr(
-        maintenance, "_failed_action_reconcile_bar_footprint",
+        maintenance._core, "_failed_action_reconcile_bar_footprint",
         lambda conn, **kwargs: ([], False))
     monkeypatch.setattr(
-        maintenance, "_semantic_upgrade_replay_dates",
+        maintenance._core, "_semantic_upgrade_replay_dates",
         lambda conn, **kwargs: [])
     monkeypatch.setattr(
         recovery, "record_action_reconcile_retirement_plan",
@@ -187,7 +188,7 @@ def test_full_actions_history_does_not_expand_a_short_price_seed(monkeypatch):
         lambda conn, *, run_id, **kwargs: events.append(kwargs["evidence"])
         or _pub(run_id))
     monkeypatch.setattr(
-        maintenance, "_write_cursor",
+        maintenance._core, "_write_cursor",
         lambda conn, **kwargs: maintenance.SourceCursor(
             kind=kwargs["kind"], processed_through=kwargs["through"],
             publication_version=kwargs["publication_version"]))
@@ -213,24 +214,24 @@ def test_semantic_cursor_upgrade_replays_old_blockers_with_unchanged_source(
     identity = "source-row"
     monkeypatch.setattr(store, "_assert_corpus_locked", lambda conn: None)
     monkeypatch.setattr(store, "IngestRun", _Run)
-    monkeypatch.setattr(maintenance, "load_actions_cursor", lambda conn: None)
+    monkeypatch.setattr(maintenance._core, "load_actions_cursor", lambda conn: None)
     monkeypatch.setattr(
-        maintenance, "_stable_rows", lambda fetch, table, params: [row])
+        maintenance._core, "_stable_rows", lambda fetch, table, params: [row])
     monkeypatch.setattr(
         maintenance.action_source, "distinct_rows",
         lambda rows: [(identity, {}, row)])
     monkeypatch.setattr(
-        maintenance, "_active_action_rows", lambda conn: {identity: {}})
+        maintenance._core, "_active_action_rows", lambda conn: {identity: {}})
     monkeypatch.setattr(
-        maintenance, "_action_change_dates", lambda conn, rows: [])
+        maintenance._core, "_action_change_dates", lambda conn, rows: [])
     monkeypatch.setattr(
-        maintenance, "_retained_market_bounds",
+        maintenance._core, "_retained_market_bounds",
         lambda conn: ("2025-07-01", "2026-08-21"))
     monkeypatch.setattr(
-        maintenance, "_failed_action_reconcile_bar_footprint",
+        maintenance._core, "_failed_action_reconcile_bar_footprint",
         lambda conn, **kwargs: ([], False))
     monkeypatch.setattr(
-        maintenance, "_semantic_upgrade_replay_dates",
+        maintenance._core, "_semantic_upgrade_replay_dates",
         lambda conn, **kwargs: ["2026-08-14"])
     monkeypatch.setattr(
         renormalize, "correction_windows",
@@ -251,7 +252,7 @@ def test_semantic_cursor_upgrade_replays_old_blockers_with_unchanged_source(
             ("publish", kwargs["evidence"]["semantic_upgrade_dates"]))
         or _pub(run_id))
     monkeypatch.setattr(
-        maintenance, "_write_cursor",
+        maintenance._core, "_write_cursor",
         lambda conn, **kwargs: maintenance.SourceCursor(
             kind=kwargs["kind"], processed_through=kwargs["through"],
             publication_version=kwargs["publication_version"]))
