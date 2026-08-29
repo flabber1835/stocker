@@ -71,8 +71,8 @@ def main() -> int:
         sessions=sessions,
         resolve_identity=resolver.resolve,
     )
-    if len(overrides) != 11:
-        raise RuntimeError(f"expected eleven frozen split overrides, got {len(overrides)}")
+    if len(overrides) != 12:
+        raise RuntimeError(f"expected twelve frozen split overrides, got {len(overrides)}")
     real_decide = install_primary_split_adjudication(split_module, overrides)
 
     by_year: dict[int, pd.DataFrame] = {}
@@ -122,34 +122,21 @@ def main() -> int:
                 raise RuntimeError(f"no split disposition for adjudicated event {key}")
             if disposition.get("disposition") != ADJUDICATED_DISPOSITION:
                 raise RuntimeError(f"wrong split disposition for {key}: {disposition}")
-            if not math.isclose(
-                    float(disposition.get("stated")), float(frozen["expected_vendor_stated"]),
-                    rel_tol=0, abs_tol=1e-12):
+            if not math.isclose(float(disposition.get("stated")), float(frozen["expected_vendor_stated"]), rel_tol=0, abs_tol=1e-12):
                 raise RuntimeError(f"vendor witness drift for {key}: {disposition}")
-            if not math.isclose(
-                    float(disposition.get("derived")), float(frozen["expected_sep_derived"]),
-                    rel_tol=1e-9, abs_tol=1e-12):
+            if not math.isclose(float(disposition.get("derived")), float(frozen["expected_sep_derived"]), rel_tol=1e-9, abs_tol=1e-12):
                 raise RuntimeError(f"SEP witness drift for {key}: {disposition}")
-            if not math.isclose(
-                    float(disposition.get("applied_ratio")), float(frozen["multiplier"]),
-                    rel_tol=0, abs_tol=1e-12):
+            if not math.isclose(float(disposition.get("applied_ratio")), float(frozen["multiplier"]), rel_tol=0, abs_tol=1e-12):
                 raise RuntimeError(f"legal multiplier not applied for {key}: {disposition}")
 
             event_bars = [bar.vendor for bar in bars if bar.vendor.session == session]
             if len(event_bars) != 1:
                 raise RuntimeError(f"expected exactly one normalized event bar for {key}")
             event_bar = event_bars[0]
-            if not math.isclose(
-                    float(event_bar.split_ratio), float(frozen["multiplier"]),
-                    rel_tol=0, abs_tol=1e-12):
+            if not math.isclose(float(event_bar.split_ratio), float(frozen["multiplier"]), rel_tol=0, abs_tol=1e-12):
                 raise RuntimeError(f"VendorBar split ratio wrong for {key}: {event_bar.split_ratio}")
 
-            results.append({
-                **frozen,
-                "previous_session": str(pair.iloc[-2]["date"]),
-                "runtime_disposition": disposition,
-                "vendor_bar_split_ratio": float(event_bar.split_ratio),
-            })
+            results.append({**frozen, "previous_session": str(pair.iloc[-2]["date"]), "runtime_disposition": disposition, "vendor_bar_split_ratio": float(event_bar.split_ratio)})
     finally:
         split_module.SplitStreamReconciler.decide = real_decide
 
@@ -166,18 +153,15 @@ def main() -> int:
     print(json.dumps({
         "status": "PASS",
         "split_override_sha256": override_sha,
-        "results": [
-            {
-                "ticker": row["ticker"],
-                "effective_session": row["effective_session"],
-                "security_id": row["security_id"],
-                "vendor_stated": row["expected_vendor_stated"],
-                "sep_derived": row["expected_sep_derived"],
-                "legal_multiplier": row["multiplier"],
-                "disposition": row["runtime_disposition"]["disposition"],
-            }
-            for row in results
-        ],
+        "results": [{
+            "ticker": row["ticker"],
+            "effective_session": row["effective_session"],
+            "security_id": row["security_id"],
+            "vendor_stated": row["expected_vendor_stated"],
+            "sep_derived": row["expected_sep_derived"],
+            "legal_multiplier": row["multiplier"],
+            "disposition": row["runtime_disposition"]["disposition"],
+        } for row in results],
     }, indent=2, sort_keys=True), flush=True)
     return 0
 
