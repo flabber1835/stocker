@@ -44,6 +44,44 @@ def test_cli_run_routes_feed_daily_to_feed_owner(monkeypatch):
     )]
 
 
+def test_cli_run_routes_feed_daily_after_global_verbose(monkeypatch):
+    calls = []
+
+    def retained(argv):
+        return 23
+
+    def routed(argv, *, retained_main, exit_ok, exit_config):
+        calls.append(argv)
+        return 29
+
+    monkeypatch.setattr(_main_impl, "main", retained)
+    monkeypatch.setattr(cli_main, "run_feed_daily", routed)
+
+    assert cli_main.run(["--verbose", "feed-daily"]) == 29
+    assert calls == [["--verbose", "feed-daily"]]
+
+
+def test_cli_run_does_not_route_argument_value_named_feed_daily(monkeypatch):
+    retained_calls = []
+    routed_calls = []
+
+    def retained(argv):
+        retained_calls.append(argv)
+        return 37
+
+    def routed(*args, **kwargs):
+        routed_calls.append((args, kwargs))
+        return 41
+
+    monkeypatch.setattr(_main_impl, "main", retained)
+    monkeypatch.setattr(cli_main, "run_feed_daily", routed)
+
+    argv = ["migration-plan", "--deployment-id", "feed-daily"]
+    assert cli_main.run(argv) == 37
+    assert retained_calls == [argv]
+    assert routed_calls == []
+
+
 def test_feed_daily_scopes_explicit_session_to_retained_dispatch(monkeypatch):
     calls = []
 
