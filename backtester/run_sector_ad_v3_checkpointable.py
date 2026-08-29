@@ -13,8 +13,12 @@ import json
 from pathlib import Path
 import sys
 
-from backtester import checkpoint_runner
-from backtester import run_sector_ad_causal_terminal_splits_v3 as v3
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+
+from backtester import checkpoint_runner  # noqa: E402
+from backtester import run_sector_ad_causal_terminal_splits_v3 as v3  # noqa: E402
 
 
 runner = v3.runner
