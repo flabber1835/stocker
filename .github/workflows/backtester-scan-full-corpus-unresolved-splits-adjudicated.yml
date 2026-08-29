@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   scan:
-    name: Full normalization audit with four adjudicated splits
+    name: Full normalization audit with seven adjudicated splits
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -105,7 +105,7 @@ jobs:
           python backtester/diagnostics/scan_full_corpus_unresolved_splits_adjudicated.py \
             2>&1 | tee backtester-full-corpus-split-adjudication.log
 
-      - name: Require exact four-event reduction
+      - name: Require exact seven-event reduction
         shell: bash
         run: |
           set -euo pipefail
@@ -116,11 +116,14 @@ jobs:
           if x.get('status')!='PASS': raise SystemExit('adjudicated scan did not PASS')
           if x.get('bars_processed')!=46238394 or x.get('last_session')!='2026-07-31':
               raise SystemExit(f"wrong corpus boundary: {x.get('bars_processed')} {x.get('last_session')}")
-          if x.get('adjudicated_split_count')!=4:
-              raise SystemExit(f"expected four adjudicated splits: {x.get('adjudicated_split_count')}")
-          if x.get('unresolved_split_count')!=124:
-              raise SystemExit(f"expected unresolved 128->124, got {x.get('unresolved_split_count')}")
-          print(json.dumps({'status':'PASS','bars':46238394,'adjudicated':4,'unresolved':124},sort_keys=True))
+          if x.get('adjudicated_split_count')!=7:
+              raise SystemExit(f"expected seven adjudicated splits: {x.get('adjudicated_split_count')}")
+          if x.get('unresolved_split_count')!=121:
+              raise SystemExit(f"expected unresolved 128->121, got {x.get('unresolved_split_count')}")
+          expected='95e6c4f9519d70f88a3f4f17fccfb9bc6df772989b14210bd801a3d2e2c22557'
+          if x.get('split_override_sha256')!=expected:
+              raise SystemExit(f"wrong split override digest: {x.get('split_override_sha256')}")
+          print(json.dumps({'status':'PASS','bars':46238394,'adjudicated':7,'unresolved':121,'sha256':expected},sort_keys=True))
           PY
 
       - name: Upload audit evidence
