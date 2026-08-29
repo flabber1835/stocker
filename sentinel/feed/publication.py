@@ -4,6 +4,9 @@ from __future__ import annotations
 from sentinel.feed import _publication_impl as _core
 from sentinel.feed._publication_impl import *  # noqa: F403
 
+# Explicit static seam retained for provenance/certification tests.
+_run_producer_identity = _core._run_producer_identity
+
 
 def publish(conn, *, run_id=None, window_start=None, window_end=None,
             evidence=None):
