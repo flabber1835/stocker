@@ -302,100 +302,18 @@ def _validate_sep_mutation_rows(conn, rows: Iterable[Mapping], *,
         if not ticker:
             raise SharadarMutationRefused(
                 f"SEP mutation row on {session} has no ticker")
-        # CDC owns historical rows already inside published market authority.
-        # A row outside that retained horizon belongs to a future ordinary daily
-        # load or a deliberately wider complete seed. Letting a current
-        # lastupdated row widen either edge would recreate the ACTIONS defect one
-        # source membrane over.
         if session_date < published_from or session_date > published_through:
             continue
         if resolver(ticker, session) is None:
             raise SharadarMutationRefused(
                 f"SEP mutation {ticker}/{session} has no permanent identity; "
                 "refusing to advance the mutation watermark past it")
-        # The canonical normalizer drops a row with no raw close. That is safe on
-        # ordinary source ingest but NOT on a mutation cursor: dropping the new
-        # observation and advancing the watermark would leave the old stored bar
-        # silently authoritative forever.
         if not _positive(row.get("closeunadj")):
             raise SharadarMutationRefused(
                 f"SEP mutation {ticker}/{session} has no positive raw close; "
                 "refusing to preserve stale local economics while advancing CDC")
         dates.append(session_date.isoformat())
     return dates
-
-
-def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
-                            through: str) -> Optional[SourceCursor]:
-    """Apply every SEP mutation through the normal bounded ingest normalizer."""
-    store._assert_corpus_locked(conn)
-    cursor = load_sep_cursor(conn)
-    if cursor is None:
-        raise MutationCursorUnavailable(
-            "SEP lastupdated cursor is absent. A complete source-stable seed or "
-            "complete value/key reconciliation must establish the initial "
-            "watermark; a moving price-date window cannot prove old rows current.")
-    hi = dt.date.fromisoformat(str(through))
-    if cursor.processed_through > hi:
-        raise SharadarMutationRefused(
-            f"SEP mutation cursor {cursor.processed_through} is ahead of "
-            f"requested reconciliation through {hi}; refusing to treat future "
-            "durable authority as already current")
-    if cursor.processed_through == hi:
-        return cursor
-    lo = cursor.processed_through - dt.timedelta(days=1)
-    params = {"lastupdated.gte": lo.isoformat(),
-              "lastupdated.lte": hi.isoformat()}
-    rows = _stable_rows(fetch, sharadar.SEP, params)
-    market_start, market_end = _retained_market_bounds(conn)
-    published_from = dt.date.fromisoformat(market_start)
-    published_through = dt.date.fromisoformat(market_end)
-    dates = _validate_sep_mutation_rows(
-        conn, rows, lo=lo, hi=hi, published_from=published_from,
-        published_through=published_through)
-
-    if not dates:
-        current = publication.require_current(conn)
-        return _write_cursor(
-            conn, name=SEP_CURSOR_NAME, kind="sharadar-sep-lastupdated/v1",
-            through=hi, publication_version=current.version)
-
-    windows = renormalize.correction_windows(
-        dates, market_start=market_start, market_end=market_end)
-    run = store.IngestRun(
-        conn, "sep_mutations", date_from=windows[0][0], date_to=windows[-1][1],
-        chunks_total=len(windows))
-    try:
-        replayed = renormalize.renormalize(
-            conn, fetch=fetch, run=run, dates=dates,
-            chunk_prefix="lastupdated", market_start=market_start,
-            market_end=market_end)
-    except BaseException:
-        # ``run.chunk`` records failures that occur inside a chunk. A failure
-        # constructing the first window before entering it still needs a durable
-        # failed terminal state rather than an orphan RUNNING row.
-        if run.progress.chunks_done == 0:
-            run.finish("failed", "historical SEP mutation re-normalization failed")
-        raise
-    run.finish("success")
-    published = publication.publish(
-        conn, run_id=run.progress.run_id,
-        window_start=windows[0][0], window_end=windows[-1][1],
-        evidence={
-            "kind": "sep_mutations",
-            "lastupdated_window": [lo.isoformat(), hi.isoformat()],
-            "source_rows": len(rows),
-            "affected_source_dates": len(set(dates)),
-            "replay_windows": [
-                {"start": item.start, "end": item.end,
-                 "source_rows": item.source_rows,
-                 "bars_written": item.bars_written,
-                 "rows_dropped": item.rows_dropped}
-                for item in replayed],
-        })
-    return _write_cursor(
-        conn, name=SEP_CURSOR_NAME, kind="sharadar-sep-lastupdated/v1",
-        through=hi, publication_version=published.version)
 
 
 def _active_action_rows(conn) -> dict[str, dict]:
@@ -456,14 +374,7 @@ def _validate_action_snapshot_window(rows: Iterable[Mapping], *, hi: dt.date) ->
 
 
 def _retained_market_bounds(conn) -> tuple[str, str]:
-    """Return the published SEP horizon, resilient to a failed in-place write.
-
-    Visible rows normally provide the exact bounds.  A failed upsert can hide a
-    formerly published edge row by taking ownership of its key, so the durable
-    windows of published market-writing runs are included as a second witness.
-    ACTIONS reconciliations are deliberately excluded: their 1900 authority
-    window is metadata scope, not price scope.
-    """
+    """Return the published SEP horizon, resilient to a failed in-place write."""
     candidates: list[str] = []
     with conn.cursor() as cur:
         cur.execute(
@@ -522,16 +433,6 @@ def _semantic_upgrade_replay_dates(
         conn, *, market_start: str, market_end: str,
         current_action_rows: Iterable[Mapping],
         prior_action_rows: Iterable[Mapping]) -> list[str]:
-    """Every retained split date whose pre-v6 economics must be re-earned.
-
-    Blocking evidence is not enough: older code could publish an accepted ADR
-    resize, reciprocal stock-split orientation, or suppress a real sub-2% split
-    before comparing it with explicit ACTIONS authority. Include every active
-    split disposition, every current or previously active raw source row from
-    either side of the split/ADR semantic boundary, and every published effective
-    non-unit ratio. The corpus selector covers a legacy derived or repaired bar
-    with no surviving disposition or source row.
-    """
     rows = anomalies.active_rows(
         conn, start=str(market_start), end=str(market_end),
         kinds=anomalies.SPLIT_DISPOSITION_KINDS)
@@ -542,8 +443,7 @@ def _semantic_upgrade_replay_dates(
             conn, start=str(market_start), end=str(market_end)))
     for action_rows in (current_action_rows, prior_action_rows):
         for row in action_rows:
-            if str(row.get("action") or "").lower() not in (
-                    _SPLIT_SEMANTIC_ACTIONS):
+            if str(row.get("action") or "").lower() not in _SPLIT_SEMANTIC_ACTIONS:
                 continue
             day = str(row.get("date") or "")
             effective = calendar.session_on_or_after(day)
@@ -555,12 +455,7 @@ def _semantic_upgrade_replay_dates(
 def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
                              through: str, force: bool = False
                              ) -> Optional[SourceCursor]:
-    """Reconcile complete ACTIONS and replay affected split/dividend bar windows.
-
-    Production removal/negative-space authority comes from Nasdaq's whole-table
-    Exporter snapshot. Injected test/simulation fetches retain the deterministic
-    two-complete-observation seam so unit tests never require network access.
-    """
+    """Reconcile complete ACTIONS and replay affected split/dividend bar windows."""
     store._assert_corpus_locked(conn)
     if ACTIONS_RECONCILE_DAYS < 1:
         raise ValueError("SHARADAR_ACTIONS_RECONCILE_DAYS must be >= 1")
@@ -667,5 +562,5 @@ __all__ = [
     "MutationCursorUnavailable", "SEP_CURSOR_NAME", "SharadarMutationRefused",
     "SourceCursor", "establish_sep_cursor_after_complete_reconciliation",
     "establish_sep_cursor_after_seed", "load_actions_cursor", "load_sep_cursor",
-    "reconcile_actions_if_due", "reconcile_sep_mutations",
+    "reconcile_actions_if_due",
 ]
