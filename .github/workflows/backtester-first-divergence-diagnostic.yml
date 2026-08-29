@@ -46,11 +46,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat sharadar/SFP/SHARADAR_SFP.zip.001 \
-              sharadar/SFP/SHARADAR_SFP.zip.002 \
-              sharadar/SFP/SHARADAR_SFP.zip.003 \
-              sharadar/SFP/SHARADAR_SFP.zip.004 \
-              > sharadar/SHARADAR_SFP.zip
+          cat sharadar/SFP/SHARADAR_SFP.zip.001 sharadar/SFP/SHARADAR_SFP.zip.002 sharadar/SFP/SHARADAR_SFP.zip.003 sharadar/SFP/SHARADAR_SFP.zip.004 > sharadar/SHARADAR_SFP.zip
           unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
 
       - name: Check out exact production source
@@ -105,8 +101,7 @@ jobs:
 
       - name: Run retained research Wealth Core through 1998
         shell: bash
-        env:
-          PYTHONUNBUFFERED: '1'
+        env: {PYTHONUNBUFFERED: '1'}
         run: |
           set -euo pipefail
           python /tmp/research_diag.py 2>&1 | tee backtester-results/research-control/run.log
@@ -125,9 +120,15 @@ jobs:
           text=text.replace(old,new,1)
           old="        daily_rows.append({\n"
           new=("        wc = state_a.wealth_core\n"
-               "        for slot_id, slot in sorted(wc.slots.items()):\n"
-               "            ep = wc.episodes.get(slot_id)\n"
-               "            diagnostic_holdings_rows.append({'date':session,'slot_id':slot_id,'held':ep is not None,'security_id':ep.security_id if ep is not None else '','ticker':ep.ticker if ep is not None else (slot.reserved_ticker or ''),'shares':float(ep.current_shares) if ep is not None else 0.0,'entry_date':ep.entry_date if ep is not None else '','entry_raw_open':float(ep.entry_raw_open) if ep is not None else float('nan'),'entry_signal':float(ep.entry_split_adjusted_price) if ep is not None else float('nan'),'peak':float(ep.episode_peak_split_adjusted_close) if ep is not None and ep.episode_peak_split_adjusted_close is not None else float('nan'),'age':int(ep.market_sessions_held) if ep is not None else -1,'reviewed':bool(ep.review_completed) if ep is not None else False,'exit_pending':bool(ep.exit_pending) if ep is not None else False,'exit_reason':ep.exit_reason if ep is not None else '','reserved_for':slot.reserved_for or ''})\n"
+               "        def _gv(obj, key, default=None):\n"
+               "            return obj.get(key, default) if isinstance(obj, dict) else getattr(obj, key, default)\n"
+               "        slots = wc.get('slots', {}) if isinstance(wc, dict) else wc.slots\n"
+               "        episodes = wc.get('episodes', {}) if isinstance(wc, dict) else wc.episodes\n"
+               "        slot_items = slots.items() if isinstance(slots, dict) else enumerate(slots)\n"
+               "        for slot_id, slot in sorted(slot_items, key=lambda kv: str(kv[0])):\n"
+               "            ep = episodes.get(slot_id) if isinstance(episodes, dict) else None\n"
+               "            if ep is None and isinstance(episodes, dict): ep = episodes.get(str(slot_id))\n"
+               "            diagnostic_holdings_rows.append({'date':session,'slot_id':slot_id,'held':ep is not None,'security_id':_gv(ep,'security_id','') if ep is not None else '','ticker':_gv(ep,'ticker',_gv(slot,'reserved_ticker','')) if ep is not None else _gv(slot,'reserved_ticker',''),'shares':float(_gv(ep,'current_shares',0.0) or 0.0) if ep is not None else 0.0,'entry_date':_gv(ep,'entry_date','') if ep is not None else '','entry_raw_open':_gv(ep,'entry_raw_open',float('nan')) if ep is not None else float('nan'),'entry_signal':_gv(ep,'entry_split_adjusted_price',float('nan')) if ep is not None else float('nan'),'peak':_gv(ep,'episode_peak_split_adjusted_close',float('nan')) if ep is not None else float('nan'),'age':int(_gv(ep,'market_sessions_held',-1) or -1) if ep is not None else -1,'reviewed':bool(_gv(ep,'review_completed',False)) if ep is not None else False,'exit_pending':bool(_gv(ep,'exit_pending',False)) if ep is not None else False,'exit_reason':_gv(ep,'exit_reason','') if ep is not None else '','reserved_for':_gv(slot,'reserved_for','') or ''})\n"
                "        daily_rows.append({\n")
           if text.count(old)!=1: raise SystemExit('production row seam mismatch')
           text=text.replace(old,new,1)
