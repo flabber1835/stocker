@@ -4,8 +4,7 @@ import datetime as dt
 
 import pytest
 
-from sentinel.feed import maintenance_impl as maintenance
-from sentinel.feed import recent_reconciliation
+from sentinel.feed import maintenance, maintenance_impl, recent_reconciliation
 
 
 FUTURE = dt.date(2026, 8, 28)
@@ -21,7 +20,8 @@ def _future_cursor(kind: str) -> maintenance.SourceCursor:
 
 
 def test_sep_future_cursor_refuses_before_vendor_fetch(monkeypatch):
-    monkeypatch.setattr(maintenance.store, "_assert_corpus_locked", lambda _conn: None)
+    monkeypatch.setattr(
+        maintenance_impl.store, "_assert_corpus_locked", lambda _conn: None)
     monkeypatch.setattr(
         maintenance,
         "load_sep_cursor",
@@ -45,9 +45,10 @@ def test_sep_future_cursor_refuses_before_vendor_fetch(monkeypatch):
 
 
 def test_actions_future_cursor_refuses_before_export_or_vendor_fetch(monkeypatch):
-    monkeypatch.setattr(maintenance.store, "_assert_corpus_locked", lambda _conn: None)
     monkeypatch.setattr(
-        maintenance,
+        maintenance_impl.store, "_assert_corpus_locked", lambda _conn: None)
+    monkeypatch.setattr(
+        maintenance_impl,
         "load_actions_cursor",
         lambda _conn: _future_cursor(maintenance.ACTIONS_CURSOR_KIND),
     )
@@ -96,7 +97,8 @@ def test_recent_sep_future_cursor_refuses_before_complete_export(monkeypatch):
 
 
 def test_equal_sep_cursor_is_terminal_current_without_vendor_fetch(monkeypatch):
-    monkeypatch.setattr(maintenance.store, "_assert_corpus_locked", lambda _conn: None)
+    monkeypatch.setattr(
+        maintenance_impl.store, "_assert_corpus_locked", lambda _conn: None)
     current = maintenance.SourceCursor(
         kind="sharadar-sep-lastupdated/v1",
         processed_through=dt.date.fromisoformat(THROUGH),

@@ -10,7 +10,7 @@ import pytest
 
 from sentinel.feed import (
     authority, coherence, identity_refresh, ingest, maintenance,
-    maintenance_impl, publication as P, recovery, sep_reconciliation,
+    publication as P, recovery, sep_reconciliation,
     store as S, tickers_authority, universe as U)
 from tests.support.postgres import _EphemeralPostgres
 
@@ -115,8 +115,6 @@ def test_case_1_yhnau_forward_extension_resolves_without_rewriting_history(conn)
             conn, _mutation(), **_validate_args())
     assert caught.value.reason_code == "IDENTITY_INTERVAL_GAP"
 
-    # This is the incident's crucial distinction: global SEP already reaches
-    # Aug-21, but YHNAU's same permanent identity may safely extend past Aug-05.
     U.assert_candidate_listing_history_safe(
         conn, payload=identity_refresh._candidate_payload(current))
     resolver = identity_refresh.resolver_with_candidate(conn, current)
@@ -273,7 +271,7 @@ def test_production_maintenance_facade_uses_typed_validator():
 
 
 def test_cdc_cursor_follows_correction_publication():
-    source = inspect.getsource(maintenance_impl.reconcile_sep_mutations)
-    publication = source.index("published = publication.publish")
+    source = inspect.getsource(maintenance._reconcile_sep_mutations_core)
+    publication = source.index("published = _core.publication.publish")
     cursor = source.index("publication_version=published.version")
     assert publication < cursor

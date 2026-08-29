@@ -193,7 +193,12 @@ def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
         return maintenance._reconcile_sep_mutations_core(
             conn, fetch=fetch, through=through)
     hi = _strict_date(through, field="SEP reconciliation through")
-    if hi <= cursor.processed_through:
+    if cursor.processed_through > hi:
+        raise maintenance.SharadarMutationRefused(
+            f"SEP mutation cursor {cursor.processed_through} is ahead of "
+            f"requested reconciliation through {hi}; refusing to treat future "
+            "durable authority as already current")
+    if cursor.processed_through == hi:
         return cursor
     lo = cursor.processed_through - dt.timedelta(days=1)
     envelope = SepUpdateEnvelope.interval(lo, hi, context="SEP CDC request")
