@@ -1,0 +1,195 @@
+name: Backtester - held terminal gap checkpoint segment
+
+on:
+  workflow_call:
+    inputs:
+      runner_sha: {required: true, type: string}
+      segment_name: {required: true, type: string}
+      stop_after: {required: false, type: string, default: ''}
+      resume_cache_key: {required: false, type: string, default: ''}
+      resume_sha256: {required: false, type: string, default: ''}
+      checkpoint_cache_key: {required: false, type: string, default: ''}
+      final_segment: {required: true, type: boolean}
+    outputs:
+      checkpoint_sha256:
+        value: ${{ jobs.segment.outputs.checkpoint_sha256 }}
+
+permissions:
+  contents: read
+
+jobs:
+  segment:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    outputs:
+      checkpoint_sha256: ${{ steps.digest.outputs.sha256 }}
+    env:
+      PYTHONUNBUFFERED: '1'
+      BACKTESTER_PROGRESS_INTERVAL_SESSIONS: '252'
+      BACKTESTER_TERMINAL_GAP_OUTPUT: ${{ github.workspace }}/backtester-results/all-held-terminal-gaps.json
+    steps:
+      - name: Check out immutable research inputs
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.runner_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/**
+            /PIT input data/MANIFEST.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
+            /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/SHA256SUMS.txt
+            /research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
+
+      - name: Bind immutable research identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTUAL="$(git rev-parse HEAD)"
+          test "${ACTUAL}" = "${{ inputs.runner_sha }}"
+          echo "BACKTESTER_BRANCH_SHA=${ACTUAL}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_LAB_ROOT=${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+
+      - name: Check out exact production main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: c502d077cae9c494f8b74a41ee8be7f40b25837d
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            sentinel
+            shared
+            docs/sentinel-handoff/00_README
+
+      - name: Bind exact production main
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTUAL="$(git -C main-src rev-parse HEAD)"
+          test "${ACTUAL}" = "c502d077cae9c494f8b74a41ee8be7f40b25837d"
+          echo "BACKTESTER_MAIN_SHA=${ACTUAL}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_MAIN_ROOT=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install exact main dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+
+      - name: Compile scanner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile backtester/checkpoint_runner.py
+          python -m py_compile backtester/diagnostics/scan_all_held_terminal_gaps_checkpointable.py
+          python -m py_compile backtester/run_sector_ad_causal_terminal_splits_v3.py
+          python -m py_compile backtester/run_sector_ad_causal_terminal_terms_v2.py
+
+      - name: Restore prior checkpoint
+        if: ${{ inputs.resume_cache_key != '' }}
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: checkpoint
+          key: ${{ inputs.resume_cache_key }}
+          fail-on-cache-miss: true
+
+      - name: Verify restored checkpoint digest
+        if: ${{ inputs.resume_cache_key != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA="$(sha256sum checkpoint/checkpoint.json | awk '{print $1}')"
+          test "${SHA}" = "${{ inputs.resume_sha256 }}"
+
+      - name: Run scanner segment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p checkpoint backtester-results/replay
+          args=(--lab-root . --main-root main-src --output backtester-results/replay)
+          if [[ -n "${{ inputs.resume_cache_key }}" ]]; then
+            args+=(--resume-checkpoint checkpoint/checkpoint.json)
+          fi
+          if [[ "${{ inputs.final_segment }}" != "true" ]]; then
+            args+=(--stop-after-session "${{ inputs.stop_after }}" --checkpoint-out checkpoint/checkpoint.json)
+          fi
+          python backtester/diagnostics/scan_all_held_terminal_gaps_checkpointable.py "${args[@]}" \
+            2>&1 | tee "terminal-gap-${{ inputs.segment_name }}.log"
+
+      - name: Verify checkpoint
+        id: digest
+        if: ${{ !inputs.final_segment }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA="$(sha256sum checkpoint/checkpoint.json | awk '{print $1}')"
+          SIDE="$(awk '{print $1}' checkpoint/checkpoint.json.SHA256)"
+          test "${SHA}" = "${SIDE}"
+          echo "sha256=${SHA}" >> "${GITHUB_OUTPUT}"
+
+      - name: Save checkpoint
+        if: ${{ !inputs.final_segment }}
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: checkpoint
+          key: ${{ inputs.checkpoint_cache_key }}
+
+      - name: Upload checkpoint evidence
+        if: ${{ !inputs.final_segment }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: terminal-gap-checkpoint-${{ inputs.segment_name }}-${{ github.run_id }}
+          path: |
+            checkpoint/checkpoint.json
+            checkpoint/checkpoint.json.SHA256
+            terminal-gap-${{ inputs.segment_name }}.log
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Verify final scan evidence
+        if: ${{ inputs.final_segment }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s backtester-results/all-held-terminal-gaps.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('backtester-results/all-held-terminal-gaps.json').read_text())
+          if x.get('status')!='PASS' or not x.get('checkpoint_resume_capable'):
+              raise SystemExit('checkpointed terminal-gap scan did not complete')
+          print(json.dumps({
+              'status':'PASS',
+              'distinct_gaps':x['distinct_held_terminal_gap_count'],
+              'collisions':x['allocation_transition_collision_count'],
+              'a_production_transitions':x['a_production_transitions'],
+          }, sort_keys=True))
+          PY
+
+      - name: Upload final scan evidence
+        if: ${{ inputs.final_segment }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: checkpointed-terminal-gap-scan-${{ github.run_id }}
+          path: |
+            backtester-results/all-held-terminal-gaps.json
+            terminal-gap-${{ inputs.segment_name }}.log
+          if-no-files-found: error
+          retention-days: 30
