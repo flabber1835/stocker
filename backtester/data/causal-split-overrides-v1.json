@@ -171,6 +171,18 @@
         "https://www.sec.gov/Archives/edgar/data/909990/000089973301500072/ka.htm"
       ],
       "ticker": "OATS"
+    },
+    {
+      "effective_session": "1998-09-02",
+      "expected_sep_derived": 1.0,
+      "expected_vendor_stated": 3.0,
+      "known_by": "1998-08-17",
+      "multiplier": 3.0,
+      "reference": "Burlington Northern Santa Fe split common stock three-for-one effective 1998-09-01 through a stock dividend; two shares distributed for each share held as of 1998-08-17; Sharadar applies it on the next trading session 1998-09-02",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/934612/000118143104005727/xslF345X03/rrd31208.xml"
+      ],
+      "ticker": "BNI"
     }
   ],
   "schema": "backtester.causal-split-overrides/1"
