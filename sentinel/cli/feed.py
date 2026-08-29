@@ -60,15 +60,15 @@ def run_feed_daily(
         f"({boundary.calendar_version}; latest-closed={boundary.latest_closed})"
     )
 
-    producer_refusal = _require_feed_producer(exit_not_established)
-    if producer_refusal is not None:
-        return producer_refusal
-
     try:
         config = SentinelConfig.from_env()
     except (LiveEndpointRefused, ValueError) as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return exit_config
+
+    producer_refusal = _require_feed_producer(exit_not_established)
+    if producer_refusal is not None:
+        return producer_refusal
     if not config.database_url:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
         return exit_config
