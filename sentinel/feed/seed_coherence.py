@@ -21,6 +21,9 @@ from sentinel.feed._seed_coherence_impl import (
     record_start_boundary,
 )
 
+# Explicit static seam retained for deterministic mutation-boundary tests.
+_observe_mutations = _core._observe_mutations
+
 
 def _durable_json(value):
     """Model PostgreSQL jsonb's value semantics, including alias separation."""
