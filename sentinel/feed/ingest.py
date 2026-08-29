@@ -1,8 +1,8 @@
 """Canonical Sharadar seed/daily ingestion and PIT/source authority.
 
-Production orchestration is explicit in this module. Low-level row normalization
-and recovery helpers remain ordinary static dependencies; no feed module, class,
-or method is replaced at import time or for the duration of an ingest call.
+The public module owns seed/daily orchestration. Lower-level normalization,
+storage and recovery helpers are static dependencies; import order and
+monkeypatch location are not part of the production control path.
 """
 from __future__ import annotations
 
@@ -14,9 +14,6 @@ from sentinel.feed import ingest_impl as _impl
 from sentinel.feed import source_authority
 from sentinel.feed import store as feed_store
 
-# Static compatibility exports used by existing callers/tests. Production
-# orchestration below resolves these names in this module, so a deliberate patch
-# of the canonical API cannot mutate or select a second hidden implementation.
 coherence = _authority.coherence
 identity_rebuild = _authority.identity_rebuild
 identity_refresh = _authority.identity_refresh
@@ -49,7 +46,12 @@ _today = _impl._today
 
 
 def _seed_source(fetch, *, final_hi: str):
-    """Return one source-stable, causal production seed observation."""
+    """Return one stable canonical seed observation.
+
+    Exact listing coverage is enabled only for the production snapshot source.
+    Injected/replay sources still receive canonical key/date/duplicate and
+    stability checks.
+    """
     production_snapshot = fetch is snapshot_source.fetch_table
     guarded = source_authority.StableSharadarFetch(
         fetch, protect_sep=lambda _params: True,
@@ -61,8 +63,21 @@ def _seed_source(fetch, *, final_hi: str):
     return tracked, tracked
 
 
+class _InjectedSeedAuthority:
+    """Non-certifying lifecycle hooks for deterministic injected/replay seeds."""
+
+    def run_started(self, run) -> None:
+        return None
+
+    def before_success(self, run, resolver) -> None:
+        return None
+
+    def record_identity_plan(self, conn, *, run_id: str, plan) -> None:
+        identity_rebuild.record_plan(conn, run_id=run_id, plan=plan)
+
+
 class _SeedAuthority:
-    """Call-bound seed proof state with explicit lifecycle transitions."""
+    """Production seed proof state with explicit lifecycle transitions."""
 
     def __init__(self, *, boundary: str, tracked, source_fetch,
                  market_start: str, market_end: str, resolve_identity):
@@ -89,7 +104,6 @@ class _SeedAuthority:
             raise
 
     def record_identity_plan(self, conn, *, run_id: str, plan) -> None:
-        """Record the rebuild plan, then restore the causal start marker."""
         from sentinel.feed import seed_coherence
 
         identity_rebuild.record_plan(conn, run_id=run_id, plan=plan)
@@ -129,9 +143,8 @@ class _SeedAuthority:
 
 
 def _ordinary_seed_generation(conn, *, date_from: str, date_to: str,
-                              fetch, resolve_identity,
-                              seed_authority: _SeedAuthority):
-    """Canonical ordinary seed engine with proof before SUCCESS/publication."""
+                              fetch, resolve_identity, seed_authority):
+    """Canonical ordinary seed engine used by every source seam."""
     chunks = sharadar.year_chunks(date_from, date_to)
     run = feed_store.IngestRun(
         conn, "seed", date_from=date_from, date_to=date_to,
@@ -190,12 +203,22 @@ def _ordinary_seed_generation(conn, *, date_from: str, date_to: str,
     return run.progress
 
 
+def _seed_authority(*, boundary, tracked, source_fetch, market_start,
+                    market_end, resolve_identity):
+    if boundary is None:
+        return _InjectedSeedAuthority()
+    return _SeedAuthority(
+        boundary=boundary, tracked=tracked, source_fetch=source_fetch,
+        market_start=market_start, market_end=market_end,
+        resolve_identity=resolve_identity)
+
+
 def _run_seed_generation(conn, *, recovery_plan, fetch, final_hi: str,
-                         boundary: str, resolve_identity=None):
-    """Run seed/reseed with explicit proof hooks and identity escalation."""
+                         boundary: str | None, resolve_identity=None):
+    """Run one seed/reseed engine with source-specific proof hooks."""
     seed_from, seed_to = recovery_plan.date_from, recovery_plan.date_to
     tracked, guarded = _seed_source(fetch, final_hi=final_hi)
-    proof = _SeedAuthority(
+    authority = _seed_authority(
         boundary=boundary, tracked=tracked, source_fetch=fetch,
         market_start=seed_from, market_end=seed_to,
         resolve_identity=resolve_identity)
@@ -204,19 +227,19 @@ def _run_seed_generation(conn, *, recovery_plan, fetch, final_hi: str,
             progress = reseed.full_reseed_locked(
                 conn, date_from=seed_from, date_to=seed_to,
                 fetch=guarded, resolve_identity=resolve_identity,
-                on_run_started=proof.run_started,
-                before_success=proof.before_success)
+                on_run_started=authority.run_started,
+                before_success=authority.before_success)
         else:
             progress = _ordinary_seed_generation(
                 conn, date_from=seed_from, date_to=seed_to,
                 fetch=guarded, resolve_identity=resolve_identity,
-                seed_authority=proof)
+                seed_authority=authority)
         return progress, tracked
     except universe.HistoricalIdentityMutation:
         plan = identity_rebuild.prepare(
             conn, date_from=seed_from, date_to=seed_to)
         tracked, guarded = _seed_source(fetch, final_hi=final_hi)
-        proof = _SeedAuthority(
+        authority = _seed_authority(
             boundary=boundary, tracked=tracked, source_fetch=fetch,
             market_start=seed_from, market_end=seed_to,
             resolve_identity=resolve_identity)
@@ -224,9 +247,9 @@ def _run_seed_generation(conn, *, recovery_plan, fetch, final_hi: str,
             conn, date_from=seed_from, date_to=seed_to,
             fetch=guarded, resolve_identity=resolve_identity,
             identity_rebuild_plan=plan,
-            on_run_started=proof.run_started,
-            before_success=proof.before_success,
-            record_identity_plan=proof.record_identity_plan)
+            on_run_started=authority.run_started,
+            before_success=authority.before_success,
+            record_identity_plan=authority.record_identity_plan)
         return progress, tracked
 
 
@@ -234,18 +257,15 @@ def seed(conn, *, date_from: str = DEFAULT_SEED_START,
          date_to: Optional[str] = None,
          fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
          resolve_identity=None):
-    """Complete production seed plus bounded concurrent-mutation proof."""
+    """Run the canonical seed path; production adds durable source authority."""
     from sentinel.feed import seed_coherence
 
-    authoritative_fetch = _authoritative_source(fetch)
-    if authoritative_fetch is not snapshot_source.fetch_table:
-        return _authority.seed(
-            conn, date_from=date_from, date_to=date_to, fetch=fetch,
-            resolve_identity=resolve_identity)
-
-    fetch = authoritative_fetch
+    fetch = _authoritative_source(fetch)
     _validate_source_before_run(fetch)
-    boundary = seed_coherence.capture_update_boundary()
+    production_snapshot = fetch is snapshot_source.fetch_table
+    boundary = (
+        seed_coherence.capture_update_boundary() if production_snapshot else None)
+
     with feed_store.corpus_write_lock(conn):
         resolved_to = date_to or _today()
         recovery_plan = _recover_before_seed(
@@ -253,19 +273,28 @@ def seed(conn, *, date_from: str = DEFAULT_SEED_START,
         seed_from, seed_to = recovery_plan.date_from, recovery_plan.date_to
         chunks = sharadar.year_chunks(seed_from, seed_to)
         final_hi = chunks[-1][1]
-        progress, _tracked = _run_seed_generation(
+        progress, tracked = _run_seed_generation(
             conn, recovery_plan=recovery_plan, fetch=fetch,
             final_hi=final_hi, boundary=boundary,
             resolve_identity=resolve_identity)
 
-        proof = seed_coherence.load(conn, run_id=progress.run_id)
-        if proof is None:
-            raise seed_coherence.SeedCoherenceRefused(
-                f"seed {progress.run_id} reached completion without its durable "
-                "post-seed proof; refusing publication/cursor authority")
         published = _finish_publication_or_refuse(conn, progress)
+        if production_snapshot:
+            proof = seed_coherence.load(conn, run_id=progress.run_id)
+            if proof is None:
+                raise seed_coherence.SeedCoherenceRefused(
+                    f"seed {progress.run_id} reached completion without its durable "
+                    "post-seed proof; refusing publication/cursor authority")
+            cursor_through = proof.final_cursor
+        else:
+            if tracked.max_sep_lastupdated is None:
+                raise maintenance.MutationCursorUnavailable(
+                    "complete seed published but exposed no SEP lastupdated value; "
+                    "refusing to invent a mutation watermark")
+            cursor_through = tracked.max_sep_lastupdated
+
         maintenance.establish_sep_cursor_after_seed(
-            conn, through=proof.final_cursor,
+            conn, through=cursor_through,
             publication_version=published.version)
         maintenance.reconcile_actions_if_due(
             conn, fetch=_actions_reconciliation_source(fetch),
@@ -277,7 +306,7 @@ def seed(conn, *, date_from: str = DEFAULT_SEED_START,
 def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
           resolve_identity=None, overlap_days: int = DAILY_OVERLAP_DAYS,
           today: Optional[str] = None):
-    """Run one explicit-session daily ingest and all publication-bound maintenance."""
+    """Run one explicit-session daily ingest and publication-bound maintenance."""
     if today is None:
         if fetch is not sharadar.fetch_table:
             try:
@@ -376,9 +405,3 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
             through=today_date.isoformat())
         _prove_recent_frontier(conn, fetch=fetch)
         return progress
-
-
-__all__ = [
-    "DAILY_OVERLAP_DAYS", "DEFAULT_SEED_START", "SFP_REFERENCE_TICKERS",
-    "daily", "seed",
-]
