@@ -1,0 +1,258 @@
+name: Backtester - v3 checkpoint segment worker
+
+on:
+  workflow_call:
+    inputs:
+      runner_sha:
+        required: true
+        type: string
+      segment_name:
+        required: true
+        type: string
+      stop_after:
+        required: false
+        type: string
+        default: ''
+      resume_cache_key:
+        required: false
+        type: string
+        default: ''
+      resume_sha256:
+        required: false
+        type: string
+        default: ''
+      checkpoint_cache_key:
+        required: false
+        type: string
+        default: ''
+      final_segment:
+        required: true
+        type: boolean
+    outputs:
+      checkpoint_sha256:
+        description: SHA-256 of the checkpoint emitted by this segment
+        value: ${{ jobs.segment.outputs.checkpoint_sha256 }}
+
+permissions:
+  contents: read
+
+jobs:
+  segment:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    outputs:
+      checkpoint_sha256: ${{ steps.checkpoint_digest.outputs.sha256 }}
+    env:
+      PYTHONUNBUFFERED: '1'
+      BACKTESTER_PROGRESS_INTERVAL_SESSIONS: '126'
+    steps:
+      - name: Check out immutable research runner and frozen inputs
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.runner_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/**
+            /PIT input data/MANIFEST.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
+            /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/SHA256SUMS.txt
+            /research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
+
+      - name: Bind immutable research identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTUAL="$(git rev-parse HEAD)"
+          test "${ACTUAL}" = "${{ inputs.runner_sha }}"
+          echo "BACKTESTER_BRANCH_SHA=${ACTUAL}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_LAB_ROOT=${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+
+      - name: Check out exact production main read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: c502d077cae9c494f8b74a41ee8be7f40b25837d
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            sentinel
+            shared
+            docs/sentinel-handoff/00_README
+
+      - name: Verify exact production main identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTUAL="$(git -C main-src rev-parse HEAD)"
+          test "${ACTUAL}" = "c502d077cae9c494f8b74a41ee8be7f40b25837d"
+          echo "BACKTESTER_MAIN_SHA=${ACTUAL}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_MAIN_ROOT=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install exact main runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+
+      - name: Compile checkpointed v3 sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile backtester/checkpoint_runner.py
+          python -m py_compile backtester/run_sector_ad_v3_checkpointable.py
+          python -m py_compile backtester/run_sector_ad_causal_terminal_splits_v3.py
+          python -m py_compile backtester/run_sector_ad_causal_terminal_terms_v2.py
+          python -m py_compile backtester/causal_terminal_terms.py
+          python -m py_compile backtester/causal_split_overrides.py
+          python -m py_compile backtester/experiments/2026-08-27-sector-abc/run.py
+
+      - name: Restore prior checkpoint
+        if: ${{ inputs.resume_cache_key != '' }}
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: checkpoint
+          key: ${{ inputs.resume_cache_key }}
+          fail-on-cache-miss: true
+
+      - name: Verify restored checkpoint transport digest
+        if: ${{ inputs.resume_cache_key != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s checkpoint/checkpoint.json
+          test -s checkpoint/checkpoint.json.SHA256
+          OBSERVED="$(sha256sum checkpoint/checkpoint.json | awk '{print $1}')"
+          test "${OBSERVED}" = "${{ inputs.resume_sha256 }}"
+          echo "[CHECKPOINT] restored sha256=${OBSERVED}"
+
+      - name: Run bounded chronological v3 segment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p checkpoint backtester-results/final
+          args=(
+            --lab-root .
+            --main-root main-src
+            --output backtester-results/final
+          )
+          if [[ -n "${{ inputs.resume_cache_key }}" ]]; then
+            args+=(
+              --resume-checkpoint checkpoint/checkpoint.json
+              --resume-checkpoint-sha256 "${{ inputs.resume_sha256 }}"
+            )
+          fi
+          if [[ "${{ inputs.final_segment }}" != "true" ]]; then
+            test -n "${{ inputs.stop_after }}"
+            args+=(
+              --stop-after-session "${{ inputs.stop_after }}"
+              --checkpoint-out checkpoint/checkpoint.json
+            )
+          fi
+          python backtester/run_sector_ad_v3_checkpointable.py "${args[@]}" \
+            2>&1 | tee "segment-${{ inputs.segment_name }}.log"
+
+      - name: Verify and expose checkpoint digest
+        id: checkpoint_digest
+        if: ${{ !inputs.final_segment }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s checkpoint/checkpoint.json
+          test -s checkpoint/checkpoint.json.SHA256
+          SHA="$(sha256sum checkpoint/checkpoint.json | awk '{print $1}')"
+          SIDECAR="$(awk '{print $1}' checkpoint/checkpoint.json.SHA256)"
+          test "${SHA}" = "${SIDECAR}"
+          echo "sha256=${SHA}" >> "${GITHUB_OUTPUT}"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('checkpoint/checkpoint.json').read_text())
+          p=x['payload']
+          print(json.dumps({
+            'schema': x['schema'],
+            'checkpoint_session': p['checkpoint_session'],
+            'next_session': p['next_session'],
+            'expected_pointer': p['expected_pointer'],
+            'state_hash_a': p['state_hash_a'],
+            'state_hash_b': p['state_hash_b'],
+            'daily_prefix_sha256': p['daily_prefix_sha256'],
+          }, sort_keys=True))
+          PY
+
+      - name: Save checkpoint for next segment
+        if: ${{ !inputs.final_segment }}
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: checkpoint
+          key: ${{ inputs.checkpoint_cache_key }}
+
+      - name: Upload segment checkpoint evidence
+        if: ${{ !inputs.final_segment }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: checkpoint-${{ inputs.segment_name }}-${{ github.run_id }}
+          path: |
+            checkpoint/checkpoint.json
+            checkpoint/checkpoint.json.SHA256
+            segment-${{ inputs.segment_name }}.log
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Verify final result bundle
+        if: ${{ inputs.final_segment }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s backtester-results/final/daily.csv.gz
+          test -s backtester-results/final/metrics.csv
+          test -s backtester-results/final/summary.json
+          test -s backtester-results/final/manifest.json
+          test -s backtester-results/final/SHA256SUMS.txt
+          (cd backtester-results/final && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          s=json.loads(Path('backtester-results/final/summary.json').read_text())
+          if s.get('status')!='PASS' or s.get('end_session')!='2026-07-31':
+              raise SystemExit('final checkpointed v3 result is incomplete')
+          if not s.get('causal_terminal_terms') or not s.get('causal_split_overrides'):
+              raise SystemExit('final checkpointed v3 provenance is incomplete')
+          print(json.dumps({
+              'status':'PASS',
+              'end_session':s['end_session'],
+              'terminal_sha256':s['causal_terminal_terms']['sha256'],
+              'split_sha256':s['causal_split_overrides']['sha256'],
+          }, sort_keys=True))
+          PY
+
+      - name: Upload final checkpointed v3 result
+        if: ${{ inputs.final_segment }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: checkpointed-v3-final-${{ github.run_id }}
+          path: |
+            backtester-results/final/daily.csv.gz
+            backtester-results/final/metrics.csv
+            backtester-results/final/summary.json
+            backtester-results/final/manifest.json
+            backtester-results/final/SHA256SUMS.txt
+            segment-${{ inputs.segment_name }}.log
+          if-no-files-found: error
+          retention-days: 30
