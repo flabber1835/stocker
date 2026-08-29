@@ -65,6 +65,40 @@ def _env():
     }
 
 
+@pytest.fixture(autouse=True)
+def _verified_go_authority(monkeypatch):
+    monkeypatch.setitem(backup.phase._PHASE, "certified", True)
+    monkeypatch.setattr(
+        backup.go_lock, "lifecycle_lock_is_held", lambda env=None: True)
+    monkeypatch.setattr(
+        backup.go_lock, "current_run_token", lambda: "one-run-capability")
+
+
+def test_direct_refresh_refuses_without_exact_artifact_certification(monkeypatch):
+    monkeypatch.setitem(backup.phase._PHASE, "certified", False)
+    runner = FakeRunner(_cp(0, out="backup_ready:true\n"))
+
+    with pytest.raises(backup.BackupRefreshRefused) as exc:
+        backup.ensure_recent_verified_base_backup(
+            runner, env=_env(), commit=COMMIT)
+
+    assert exc.value.reason_code == "BACKUP_REFRESH_CERTIFICATION_NOT_PROVEN"
+    assert runner.calls == []
+
+
+def test_direct_refresh_refuses_without_lifecycle_lock(monkeypatch):
+    monkeypatch.setattr(
+        backup.go_lock, "lifecycle_lock_is_held", lambda env=None: False)
+    runner = FakeRunner(_cp(0, out="backup_ready:true\n"))
+
+    with pytest.raises(backup.BackupRefreshRefused) as exc:
+        backup.ensure_recent_verified_base_backup(
+            runner, env=_env(), commit=COMMIT)
+
+    assert exc.value.reason_code == "BACKUP_REFRESH_LIFECYCLE_LOCK_NOT_PROVEN"
+    assert runner.calls == []
+
+
 def test_healthy_backup_checkpoint_does_not_create_another_backup():
     runner = FakeRunner(_cp(0, out="backup_ready:true\n"))
 
