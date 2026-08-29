@@ -18,9 +18,21 @@ _number = _core._number
 _local_fingerprint = _core._local_fingerprint
 _visible_bounds = _core._visible_bounds
 _load_state = _core._load_state
-_next_year = _core._next_year
 _save_result = _core._save_result
 _bounded_years = _core._bounded_years
+
+
+def _next_year(conn) -> tuple[int, dt.date, dt.date]:
+    """Select the next rotation year through canonical public dependencies."""
+    lo, hi = _visible_bounds(conn)
+    state = _load_state(conn)
+    year = lo.year if state is None else int(state["last_completed_year"]) + 1
+    if year > hi.year or year < lo.year:
+        year = lo.year
+    start = max(lo, dt.date(year, 1, 1))
+    end = min(hi, dt.date(year, 12, 31))
+    return year, start, end
+
 
 _OBSERVATION_CEILING = contextvars.ContextVar(
     "sentinel_sep_reconciliation_observation_ceiling", default=None)
