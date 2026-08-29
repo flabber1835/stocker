@@ -5,7 +5,7 @@ Generated from the exact `sentinel/paper.py` source on the Step 4 base.
 - Source lines: **3202**
 - Source SHA-256: `c14cc619ca19e91b53e3f618543ea782e97f5a87bdde65af6370bd313bd63ffe`
 - Top-level callables/classes: **59**
-- Repository consumer files: **38**
+- Repository consumer files: **39**
 
 ## Proposed cohesive ownership
 
@@ -217,6 +217,15 @@ No static match; inspect orchestration body and downstream canonical modules.
 `_execute_current_paper_plan`, `_execution_observation_time`, `_provably_clean_empty_noop`, `_readiness_or_refuse`, `_require_certified_paper_broker`, `_state_and_plan_or_refuse`, `_validate_broker_grant`, `current_paper_plan`, `prepare_paper_plan`, `recover_automated_paper_cycle`
 
 ## Repository consumers and direct seams
+
+### `docs/decisions/paper-lifecycle-decomposition.md`
+
+- L5: `**Behavioral source:** `sentinel/paper.py` at SHA-256`
+- L10: `Replace the 3,202-line `sentinel/paper.py` module with a statically readable`
+- L11: ``sentinel.paper` package. Every paper-trading lifecycle rule retains one`
+- L14: `inputs, economic outputs, and public `sentinel.paper` entry points.`
+- L249: ``import sentinel.paper` remains valid. The package initializer explicitly`
+- L289: ``sentinel/paper.py` is deleted after the package compiles and the compatibility`
 
 ### `docs/sentinel-deployment.md`
 

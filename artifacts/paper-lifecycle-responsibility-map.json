@@ -253,6 +253,32 @@
     ]
   },
   "consumer_matches": {
+    "docs/decisions/paper-lifecycle-decomposition.md": [
+      {
+        "line": 5,
+        "text": "**Behavioral source:** `sentinel/paper.py` at SHA-256"
+      },
+      {
+        "line": 10,
+        "text": "Replace the 3,202-line `sentinel/paper.py` module with a statically readable"
+      },
+      {
+        "line": 11,
+        "text": "`sentinel.paper` package. Every paper-trading lifecycle rule retains one"
+      },
+      {
+        "line": 14,
+        "text": "inputs, economic outputs, and public `sentinel.paper` entry points."
+      },
+      {
+        "line": 249,
+        "text": "`import sentinel.paper` remains valid. The package initializer explicitly"
+      },
+      {
+        "line": 289,
+        "text": "`sentinel/paper.py` is deleted after the package compiles and the compatibility"
+      }
+    ],
     "docs/sentinel-deployment.md": [
       {
         "line": 67,
