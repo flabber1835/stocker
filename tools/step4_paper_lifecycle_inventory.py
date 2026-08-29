@@ -281,6 +281,7 @@ def main() -> None:
                     "target", "certif", "paper_url", "execution_readiness",
                 ))
             )
+        )
         records.append({
             "name": node.name,
             "kind": "class" if isinstance(node, ast.ClassDef) else (
