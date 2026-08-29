@@ -1,0 +1,25 @@
+name: Backtester - split sidecar address audit
+
+on:
+  push:
+    branches: [research/backtester]
+    paths:
+      - '.github/workflows/backtester-sidecar-address-audit.yml'
+      - 'backtester/diagnostics/audit_split_sidecar_addresses.py'
+      - 'backtester/data/causal-split-overrides-v1.d/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/backtester
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Audit sidecar content addresses
+        run: python backtester/diagnostics/audit_split_sidecar_addresses.py
