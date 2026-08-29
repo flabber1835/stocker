@@ -48,7 +48,7 @@ def test_actions_future_cursor_refuses_before_export_or_vendor_fetch(monkeypatch
     monkeypatch.setattr(
         maintenance_impl.store, "_assert_corpus_locked", lambda _conn: None)
     monkeypatch.setattr(
-        maintenance,
+        maintenance_impl,
         "load_actions_cursor",
         lambda _conn: _future_cursor(maintenance.ACTIONS_CURSOR_KIND),
     )
