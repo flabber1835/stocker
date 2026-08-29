@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import sys
-
-from sentinel import _main_impl
-from sentinel.cli.feed import run_feed_daily
+from sentinel.cli.main import run
 
 # Runtime certification source-checks the public executable boundary for these
-# command spellings. Parser ownership will move into the CLI package in the
-# subsequent decomposition slices.
+# command spellings. Keep these exact markers at the executable boundary.
 def _static_cli_surface_contract(sub):
     if False:  # pragma: no cover - source-level certification markers only
         sub.add_parser("feed-seed")
@@ -19,15 +15,7 @@ def _static_cli_surface_contract(sub):
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = list(sys.argv[1:] if argv is None else argv)
-    if "feed-daily" in args:
-        return run_feed_daily(
-            args,
-            retained_main=_main_impl.main,
-            exit_ok=_main_impl.EXIT_OK,
-            exit_config=_main_impl.EXIT_CONFIG,
-        )
-    return _main_impl.main(args)
+    return run(argv)
 
 
 if __name__ == "__main__":  # pragma: no cover
