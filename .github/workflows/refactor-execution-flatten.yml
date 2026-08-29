@@ -1,0 +1,74 @@
+name: Apply execution flattening slice
+
+on:
+  push:
+    branches:
+      - codex/flatten-execution-remediation
+
+permissions:
+  contents: write
+
+jobs:
+  flatten:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Flatten self-cancelling authority overlay
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          remediation = Path('sentinel/execution/alpaca_remediation.py')
+          text = remediation.read_text()
+          text = text.replace('from contextlib import contextmanager\n', '')
+          start = text.index('@contextmanager\ndef _authority_transition_lock')
+          end = text.index('def install() -> None:', start)
+          text = text[:start] + text[end:]
+          text = text.replace('\n    install_automation_serialization()\n\n', '\n')
+          text = text.replace('__all__ = ["install", "install_automation_serialization"]', '__all__ = ["install"]')
+          remediation.write_text(text)
+
+          store = Path('sentinel/automation/store.py')
+          text = store.read_text()
+          marker = '# ``execution`` may have been imported by this module\'s journal dependency and\n'
+          start = text.index(marker)
+          end = text.index('__all__ = [', start)
+          store.write_text(text[:start] + text[end:])
+
+          init = Path('sentinel/execution/__init__.py')
+          text = init.read_text()
+          text = text.replace('from sentinel.execution.alpaca_remediation_authority_semantics import install as _install_authority_semantics\n', '')
+          text = text.replace('_install_authority_semantics()\n', '')
+          text = text.replace('del _install_authority_semantics\n', '')
+          init.write_text(text)
+
+          test = Path('tests/sentinel/test_issue222_import_order.py')
+          test.write_text('''"""Import-order regression for immediate emergency authority."""\nfrom __future__ import annotations\n\nimport subprocess\nimport sys\nimport textwrap\n\n\ndef _run(program: str) -> None:\n    result = subprocess.run(\n        [sys.executable, "-c", textwrap.dedent(program)],\n        text=True, capture_output=True, timeout=10, check=False)\n    assert result.returncode == 0, result.stderr or result.stdout\n\n\ndef _assert_immediate_authority_program(imports: str) -> str:\n    return f"""\n    {imports}\n    from sentinel import authority\n    from sentinel.automation import store\n\n    functions = (\n        store.engage_kill,\n        authority.revoke_signed_certificate,\n        authority.revoke_signed_key,\n        authority.revoke_system_certificate,\n    )\n    for function in functions:\n        assert function.__code__.co_freevars == (), (\n            function.__name__, function.__code__.co_freevars)\n    """\n\n\ndef test_execution_first_import_keeps_emergency_authority_immediate():\n    _run(_assert_immediate_authority_program("import sentinel.execution"))\n\n\ndef test_automation_first_import_keeps_emergency_authority_immediate():\n    _run(_assert_immediate_authority_program(\n        "from sentinel.automation import store\\nimport sentinel.execution"))\n''')
+          PY
+
+          git rm sentinel/execution/alpaca_remediation_authority_semantics.py
+
+          ! grep -R "install_automation_serialization\|alpaca_remediation_authority_semantics" \
+              sentinel tests/sentinel/test_issue222_import_order.py
+
+          python -m py_compile \
+              sentinel/execution/alpaca_remediation.py \
+              sentinel/execution/__init__.py \
+              sentinel/automation/store.py \
+              tests/sentinel/test_issue222_import_order.py
+
+          git rm .github/workflows/refactor-execution-flatten.yml
+
+      - name: Commit flattened slice
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "refactor(execution): remove self-cancelling authority overlay"
+          git push origin HEAD:codex/flatten-execution-remediation
