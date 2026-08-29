@@ -7,9 +7,12 @@ on:
       - '.github/workflows/backtester-scan-full-corpus-unresolved-splits-adjudicated.yml'
       - 'backtester/diagnostics/scan_full_corpus_unresolved_splits_adjudicated.py'
       - 'backtester/causal_split_overrides.py'
+      - 'backtester/causal_split_unreachable.py'
       - 'backtester/data/causal-split-overrides-v1.json'
       - 'backtester/data/causal-split-overrides-v1.SHA256'
       - 'backtester/data/causal-split-overrides-v1.d/**'
+      - 'backtester/data/causal-split-unreachable-v1.json'
+      - 'backtester/data/causal-split-unreachable-v1.SHA256'
   workflow_dispatch:
 
 permissions:
@@ -33,9 +36,12 @@ jobs:
             /.github/workflows/backtester-scan-full-corpus-unresolved-splits-adjudicated.yml
             /backtester/diagnostics/scan_full_corpus_unresolved_splits_adjudicated.py
             /backtester/causal_split_overrides.py
+            /backtester/causal_split_unreachable.py
             /backtester/data/causal-split-overrides-v1.json
             /backtester/data/causal-split-overrides-v1.SHA256
             /backtester/data/causal-split-overrides-v1.d/**
+            /backtester/data/causal-split-unreachable-v1.json
+            /backtester/data/causal-split-unreachable-v1.SHA256
             /backtester/experiments/2026-08-27-sector-abc/**
             /PIT input data/MANIFEST.csv
             /PIT input data/ACTIONS_PIT_ONLY.csv.gz
@@ -92,9 +98,11 @@ jobs:
         run: |
           set -euo pipefail
           python -m py_compile backtester/causal_split_overrides.py
+          python -m py_compile backtester/causal_split_unreachable.py
           python -m py_compile backtester/diagnostics/scan_full_corpus_unresolved_splits_adjudicated.py
           python -m py_compile backtester/experiments/2026-08-27-sector-abc/run.py
           (cd backtester/data && sha256sum -c causal-split-overrides-v1.SHA256)
+          (cd backtester/data && sha256sum -c causal-split-unreachable-v1.SHA256)
 
       - name: Scan exact full normalization path
         shell: bash
@@ -107,7 +115,7 @@ jobs:
           python backtester/diagnostics/scan_full_corpus_unresolved_splits_adjudicated.py \
             2>&1 | tee backtester-full-corpus-split-adjudication.log
 
-      - name: Require exact one-for-one reduction
+      - name: Require exact economic blocker reduction
         shell: bash
         run: |
           set -euo pipefail
@@ -118,15 +126,22 @@ jobs:
           evidence=json.loads(Path('backtester-results/full-corpus-unresolved-splits-adjudicated.json').read_text())
           data=Path('backtester/data/causal-split-overrides-v1.json')
           frozen_count=frozen_override_record_count(data)
-          expected_unresolved=128-frozen_count
+          expected_raw_unresolved=128-frozen_count
           if evidence.get('status')!='PASS': raise SystemExit('adjudicated scan did not PASS')
           if evidence.get('bars_processed')!=46238394 or evidence.get('last_session')!='2026-07-31':
               raise SystemExit(f"wrong corpus boundary: {evidence.get('bars_processed')} {evidence.get('last_session')}")
-          if evidence.get('adjudicated_split_count')!=frozen_count:
-              raise SystemExit(f"wrong adjudicated count: {evidence.get('adjudicated_split_count')} expected={frozen_count}")
-          if evidence.get('unresolved_split_count')!=expected_unresolved:
-              raise SystemExit(f"wrong unresolved count: {evidence.get('unresolved_split_count')} expected={expected_unresolved}")
-          print(json.dumps({'status':'PASS','bars':46238394,'adjudicated':frozen_count,'unresolved':expected_unresolved,'sha256':evidence.get('split_override_sha256')},sort_keys=True))
+          if frozen_count != 76 or evidence.get('adjudicated_split_count')!=76:
+              raise SystemExit(f"wrong adjudicated count: frozen={frozen_count} observed={evidence.get('adjudicated_split_count')}")
+          if expected_raw_unresolved != 52 or evidence.get('unresolved_split_count')!=52:
+              raise SystemExit(f"wrong raw unresolved count: {evidence.get('unresolved_split_count')} expected=52")
+          if evidence.get('proven_unreachable_split_count')!=50:
+              raise SystemExit(f"wrong unreachable count: {evidence.get('proven_unreachable_split_count')} expected=50")
+          if evidence.get('blocking_unresolved_split_count')!=2:
+              raise SystemExit(f"wrong blocking count: {evidence.get('blocking_unresolved_split_count')} expected=2")
+          keys={(r['ticker'],r['session']) for r in evidence.get('blocking_unresolved_splits',[])}
+          expected={('ICIX','1998-06-16'),('SEM2','2003-12-23')}
+          if keys != expected: raise SystemExit(f"wrong blocking population: {sorted(keys)}")
+          print(json.dumps({'status':'PASS','bars':46238394,'adjudicated':76,'raw_unresolved':52,'proven_unreachable':50,'blocking':2,'blocking_keys':sorted(keys)},sort_keys=True))
           PY
 
       - name: Upload audit evidence
