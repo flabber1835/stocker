@@ -1,27 +1,14 @@
-"""Complete SEP reconciliation with causal source-update authority."""
+"""Canonical complete SEP reconciliation with causal source-update authority."""
 from __future__ import annotations
 
 import contextlib
 import contextvars
 import datetime as dt
-import sys
-import types
 
-from sentinel.feed import sep_reconciliation_impl as _impl
+from sentinel.feed import sep_reconciliation_impl as _core
+from sentinel.feed.sep_reconciliation_impl import *  # noqa: F403
 from sentinel.feed.source_authority import CanonicalSourceFetch, SepUpdateEnvelope
 
-for _export_name, _export_value in tuple(vars(_impl).items()):
-    if not _export_name.startswith("__") and _export_name != "_impl":
-        globals()[_export_name] = _export_value
-
-_ORIGINAL_SOURCE_FINGERPRINT = globals().get(
-    "_ORIGINAL_SOURCE_FINGERPRINT", _impl._source_fingerprint)
-_ORIGINAL_RECONCILE_YEAR = globals().get(
-    "_ORIGINAL_RECONCILE_YEAR", _impl.reconcile_year)
-_ORIGINAL_RECONCILE_ALL = globals().get(
-    "_ORIGINAL_RECONCILE_ALL", _impl.reconcile_all)
-_ORIGINAL_RECONCILE_NEXT = globals().get(
-    "_ORIGINAL_RECONCILE_NEXT", _impl.reconcile_next)
 _OBSERVATION_CEILING = contextvars.ContextVar(
     "sentinel_sep_reconciliation_observation_ceiling", default=None)
 
@@ -47,56 +34,94 @@ def _ceiling(value):
         _OBSERVATION_CEILING.reset(token)
 
 
-def _guarded_source_fingerprint(conn, *, fetch, start: str, end: str):
+def _source_fingerprint(conn, *, fetch, start: str, end: str):
+    """Fingerprint one source partition behind the explicit observation ceiling."""
     ceiling = _OBSERVATION_CEILING.get() or dt.date.today()
     guarded = CanonicalSourceFetch(
         fetch, sep_update_envelope=SepUpdateEnvelope.through(
             ceiling, context="complete SEP value/key reconciliation"))
-    return _ORIGINAL_SOURCE_FINGERPRINT(
+    return _core._source_fingerprint(
         conn, fetch=guarded, start=start, end=end)
 
 
-_source_fingerprint = _guarded_source_fingerprint
-
-
-def reconcile_year(conn, *, fetch=_impl.sharadar.fetch_table,
+def reconcile_year(conn, *, fetch=_core.sharadar.fetch_table,
                    year: int, start: str, end: str,
                    observation_ceiling=None):
+    """Prove one stable source year equals published keys and strategy values."""
     active_ceiling = _OBSERVATION_CEILING.get()
     if observation_ceiling is None and active_ceiling is not None:
-        return _ORIGINAL_RECONCILE_YEAR(
-            conn, fetch=fetch, year=year, start=start, end=end)
-
+        return _reconcile_year(conn, fetch=fetch, year=year, start=start, end=end)
     ceiling = dt.date.today() if observation_ceiling is None else observation_ceiling
     with _ceiling(ceiling):
-        return _ORIGINAL_RECONCILE_YEAR(
-            conn, fetch=fetch, year=year, start=start, end=end)
+        return _reconcile_year(conn, fetch=fetch, year=year, start=start, end=end)
 
 
-def reconcile_all(conn, *, fetch=_impl.sharadar.fetch_table, through: str):
+def _reconcile_year(conn, *, fetch, year: int, start: str, end: str):
+    _core.store._assert_corpus_locked(conn)
+    if not (str(start).startswith(f"{int(year):04d}-")
+            and str(end).startswith(f"{int(year):04d}-")):
+        raise ValueError("SEP reconciliation window must stay within one year")
+    source = _source_fingerprint(conn, fetch=fetch, start=start, end=end)
+    local = _core._local_fingerprint(conn, start=start, end=end)
+    if source.rows != local.rows or source.key_digest != local.key_digest:
+        raise _core.SepKeysetDrift(
+            f"stable Sharadar SEP {year} normalized key set disagrees with "
+            f"published corpus: source {source.rows:,}/{source.key_digest[:16]}, "
+            f"local {local.rows:,}/{local.key_digest[:16]}. This can be a vendor "
+            "deletion, insertion, identity restatement, or lost local row. "
+            "Refusing to guess which side to repair.")
+    if source.value_digest != local.value_digest:
+        raise _core.SepValueDrift(
+            f"stable Sharadar SEP {year} strategy values disagree with published "
+            f"corpus despite an identical {source.rows:,}-row key set: source "
+            f"{source.value_digest[:16]}, local {local.value_digest[:16]}. "
+            "At least one signal/raw/open/volume value is stale or corrupted; "
+            "refusing to earn/advance reconciliation authority over it.")
+    current = _core.publication.require_current(conn)
+    return _core.ReconciliationResult(
+        year=int(year), start=str(start), end=str(end), rows=source.rows,
+        digest=source.key_digest, value_digest=source.value_digest,
+        max_lastupdated=source.max_lastupdated,
+        publication_version=current.version)
+
+
+def reconcile_all(conn, *, fetch=_core.sharadar.fetch_table,
+                  through: str):
+    """Prove every published SEP partition through one explicit source day."""
     with _ceiling(through):
-        return _ORIGINAL_RECONCILE_ALL(conn, fetch=fetch, through=through)
+        _core.store._assert_corpus_locked(conn)
+        checked_on = dt.date.fromisoformat(str(through))
+        lo, hi = _core._visible_bounds(conn)
+        results = []
+        for year, start, end in _core._bounded_years(lo, hi, checked_on):
+            result = _reconcile_year(
+                conn, fetch=fetch, year=year,
+                start=start.isoformat(), end=end.isoformat())
+            _core._save_result(conn, result, checked_on=checked_on)
+            results.append(result)
+        return results
 
 
-def reconcile_next(conn, *, fetch=_impl.sharadar.fetch_table, through: str):
+def reconcile_next(conn, *, fetch=_core.sharadar.fetch_table,
+                   through: str):
+    """Advance rotating complete SEP proof through one explicit source day."""
     with _ceiling(through):
-        return _ORIGINAL_RECONCILE_NEXT(conn, fetch=fetch, through=through)
+        _core.store._assert_corpus_locked(conn)
+        if _core.YEARS_PER_RUN < 1:
+            raise ValueError("SHARADAR_SEP_RECONCILE_YEARS_PER_RUN must be >= 1")
+        checked_on = dt.date.fromisoformat(str(through))
+        results = []
+        for _ in range(_core.YEARS_PER_RUN):
+            year, start, end = _core._next_year(conn)
+            if start > checked_on:
+                break
+            end = min(end, checked_on)
+            result = _reconcile_year(
+                conn, fetch=fetch, year=year,
+                start=start.isoformat(), end=end.isoformat())
+            _core._save_result(conn, result, checked_on=checked_on)
+            results.append(result)
+        return results
 
 
-# The implementation calls these names internally. Route them through the
-# public wrappers so existing monkeypatch-based seams remain valid.
-_impl._source_fingerprint = _guarded_source_fingerprint
-_impl.reconcile_year = reconcile_year
-
-_FACADE_OWNED = frozenset({"reconcile_all", "reconcile_next"})
-
-
-class _SepReconciliationFacade(types.ModuleType):
-    def __setattr__(self, name, value):
-        if name not in _FACADE_OWNED and hasattr(_impl, name):
-            setattr(_impl, name, value)
-        super().__setattr__(name, value)
-
-
-sys.modules[__name__].__class__ = _SepReconciliationFacade
-__all__ = list(getattr(_impl, "__all__", ()))
+__all__ = list(getattr(_core, "__all__", ()))
