@@ -48,6 +48,43 @@
         "https://mechel.com/upload/iblock/7ca/7ca0c375c51d12adc8df55c1b69ae5bc.pdf"
       ],
       "ticker": "MTL"
+    },
+    {
+      "effective_session": "2003-06-24",
+      "expected_sep_derived": 0.06666666666666667,
+      "expected_vendor_stated": 0.16667,
+      "known_by": "2003-06-20",
+      "multiplier": 0.06666666666666667,
+      "reference": "Visual Data/Onstream one-for-15 reverse stock split effected 2003-06-24; amendment dated 2003-06-20",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/919130/000114420404009887/v04522_prer14a.htm"
+      ],
+      "ticker": "ONSM"
+    },
+    {
+      "effective_session": "2016-07-27",
+      "expected_sep_derived": 6.500260010400415e-05,
+      "expected_vendor_stated": 6e-05,
+      "known_by": "2016-07-27",
+      "multiplier": 6.46674997953112e-05,
+      "reference": "Protagenic/Atrinsic one-for-15,463.7183 reverse split effective 2016-07-27",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/1022899/000143774917001259/atrn20170125_s1a.htm"
+      ],
+      "ticker": "PTIX"
+    },
+    {
+      "effective_session": "2019-11-29",
+      "expected_sep_derived": 0.25,
+      "expected_vendor_stated": 0.4,
+      "known_by": "2019-11-29",
+      "multiplier": 0.25,
+      "reference": "Sequans ADS ratio changed from one ordinary share per ADS to four ordinary shares per ADS effective 2019-11-29",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/1383395/000138339519000053/form6k-insidertradingcomex.htm",
+        "https://www.sec.gov/Archives/edgar/data/1383395/000138339520000011/R13.htm"
+      ],
+      "ticker": "SQNS"
     }
   ],
   "schema": "backtester.causal-split-overrides/1"
