@@ -4,21 +4,23 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# Physical backup creation has a host-wide single-writer contract. The inherited
-# flock is proven by inode and kernel lock state; an environment marker alone is
-# never authority.
 PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
 "$PYTHON" scripts/sentinel_host_python.py >/dev/null || {
   echo "REFUSED: host Python is incompatible; minimum Python is 3.8.15" >&2
   exit 2
 }
+
+. scripts/sentinel-backup-lib.sh
+BACKUP_ROOT="$(sentinel_backup_root)"
+# Physical backup creation has one writer per canonical durable target across
+# every checkout owned by this host user. The inherited flock is proven by
+# inode and kernel lock state; environment markers alone are never authority.
+export SENTINEL_BASE_BACKUP_LOCK_ROOT="$BACKUP_ROOT"
 if ! "$PYTHON" scripts/sentinel_backup_lock.py verify >/dev/null 2>&1; then
   exec "$PYTHON" scripts/sentinel_backup_lock.py hold \
     bash scripts/sentinel-base-backup.sh "$@"
 fi
 
-. scripts/sentinel-backup-lib.sh
-BACKUP_ROOT="$(sentinel_backup_root)"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 NAME="base-$STAMP"
 # Staging never enters the completed base-* namespace. A crash therefore cannot
@@ -43,9 +45,9 @@ cleanup_staging() {
 }
 trap cleanup_staging EXIT
 
-# A SIGKILL/power-loss can bypass the EXIT trap. Under the dedicated host lock,
-# hidden staging directories from earlier versions of this same protocol have
-# no live writer and are safe to remove before starting a new backup.
+# A SIGKILL/power-loss can bypass the EXIT trap. Under the target-bound host
+# lock, hidden staging directories from earlier versions of this same protocol
+# have no live writer and are safe to remove before starting a new backup.
 ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
   find /sentinel-backup/base -mindepth 1 -maxdepth 1 -type d \
     -name ".base-*.part-*" -exec rm -rf -- {} +
