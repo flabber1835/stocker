@@ -51,6 +51,19 @@
         "https://www.govinfo.gov/content/pkg/FR-2001-09-10/pdf/FR-2001-09-10.pdf"
       ],
       "ticker": "GPU"
+    },
+    {
+      "cash_per_share": 36.5,
+      "effective_session": "2007-09-12",
+      "kind": "CASH_MERGER",
+      "known_by": "2007-06-27",
+      "reference": "FIS/eFunds merger: each outstanding eFunds common share converted into the right to receive $36.50 cash; acquisition completed 2007-09-12",
+      "security_id": "182962",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/1109190/000095015307001397/p74026exv99w1.htm",
+        "https://www.sec.gov/Archives/edgar/data/1136893/000089256907001400/a35541e10vq.htm"
+      ],
+      "ticker": "EFD1"
     }
   ],
   "schema": "backtester.causal-terminal-terms/1"
