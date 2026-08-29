@@ -57,21 +57,31 @@ def test_hidden_staging_is_ignored_and_reaped_under_the_backup_lock():
     assert 'case "$staging" in .base-*.part-*)' in source
 
 
-def test_status_considers_only_exact_completed_backup_names():
+def test_status_selects_newest_complete_backup_only():
     source = _read(STATUS)
     assert "COMPLETED_NAME_RE='^base-[0-9]{8}T[0-9]{6}Z$'" in source
-    assert 'grep -E "$COMPLETED_NAME_RE"' in source
+    candidate_sort = 'grep -E "$COMPLETED_NAME_RE" | sort -r'
+    manifest = 'test -f "/sentinel-backup/base/$name/backup_manifest"'
+    marker = 'test -f "/sentinel-backup/base/$name/sentinel-recovery-marker"'
+    assignment = 'NAME="$CANDIDATE"'
+    assert candidate_sort in source
+    assert manifest in source and marker in source and assignment in source
+    assert source.index(candidate_sort) > source.index(manifest)
+    assert source.index(manifest) < source.index(assignment)
+    assert source.index(marker) < source.index(assignment)
+    assert "no complete base backup exists" in source
     assert "SENTINEL_BACKUP_STATUS_REASON=" in source
-    assert "BASE_BACKUP_MANIFEST_MISSING" in source
-    assert "BASE_BACKUP_RECOVERY_MARKER_MISSING" in source
     assert "WAL_ARCHIVE_UNRESOLVED_FAILURE" in source
 
 
-def test_restore_considers_only_exact_completed_backup_names():
+def test_restore_selects_newest_complete_backup_only():
     source = _read(RESTORE)
     assert "COMPLETED_NAME_RE='^base-[0-9]{8}T[0-9]{6}Z$'" in source
     assert '[[ "$NAME" =~ $COMPLETED_NAME_RE ]]' in source
-    assert 'grep -E "$COMPLETED_NAME_RE"' in source
+    assert 'grep -E "$COMPLETED_NAME_RE" | sort -r' in source
+    assert 'test -f "/sentinel-backup/base/$name/backup_manifest"' in source
+    assert 'test -f "/sentinel-backup/base/$name/sentinel-recovery-marker"' in source
+    assert "no complete base backup exists" in source
     assert '-name "base-*"' not in source
     assert 'case "$NAME" in base-*)' not in source
 
