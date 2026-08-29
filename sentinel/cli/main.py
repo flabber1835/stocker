@@ -35,8 +35,8 @@ def run(
     if _command_name(args) == "feed-daily":
         return run_feed_daily(
             args,
-            retained_main=retained_main,
             exit_ok=_main_impl.EXIT_OK,
             exit_config=_main_impl.EXIT_CONFIG,
+            exit_not_established=_main_impl.EXIT_NOT_ESTABLISHED,
         )
     return retained_main(args)
