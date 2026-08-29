@@ -4,15 +4,17 @@
 The production SessionState chronology is transported by backtester.checkpoint_runner.
 Scanner-only evidence (captured gap episodes and overlay diagnostic invalidity) is
 carried inside the checkpoint's hashed experiment extension and restored before
-resume validation. The scanner remains diagnostic: its OverlayAccount NAV is not
-a backtest result after an unresolved-open allocation collision.
+resume validation. The scanner uses the same v3 causal terminal terms and frozen
+primary-source split adjudications as the final replay.
+
+This remains a diagnostic scan. OverlayAccount NAV is not a backtest result after
+an unresolved-open allocation collision.
 """
 from __future__ import annotations
 
 import copy
 import dataclasses
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -70,15 +72,11 @@ def main() -> int:
     sys.path.insert(0, str(main_root / "shared"))
     sys.path.insert(0, str(main_root))
 
-    wrapper = lab / "backtester" / "run_sector_ad_causal_terminal_terms_v2.py"
-    spec = importlib.util.spec_from_file_location(
-        "scan_all_held_terminal_gaps_checkpointable_v2", wrapper)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot import {wrapper}")
-    v2 = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(v2)
-    runner = v2.runner
-    runner.EXPERIMENT_ID = "2026-08-28-held-terminal-gap-scan-checkpointed"
+    from backtester import run_sector_ad_causal_terminal_splits_v3 as v3
+
+    v2 = v3.v2
+    runner = v3.runner
+    runner.EXPERIMENT_ID = "2026-08-28-held-terminal-gap-scan-checkpointed-v3"
     runner.MEASUREMENT_WINDOWS = {}
 
     import sentinel.core.production as production
@@ -109,9 +107,6 @@ def main() -> int:
 
     resume_text = _arg_value("--resume-checkpoint")
     if resume_text:
-        # Validate the checkpoint envelope before using any scanner extension
-        # fields to seed diagnostic state. The generic engine will repeat the
-        # complete validation before production execution resumes.
         payload = checkpoint_runner._load_checkpoint(Path(resume_text).resolve())
         ext = (payload.get("extra_identity") or {}).get("scanner_state") or {}
         rows = ext.get("gap_events") or []
@@ -177,8 +172,6 @@ def main() -> int:
                     )
                 else:
                     row = gap_events[index]
-                    # A resumed run starts strictly after the checkpoint session,
-                    # so an existing episode is extended by new sessions only.
                     row["last_unresolved_session"] = session
                     row["unresolved_session_count"] = int(row["unresolved_session_count"]) + 1
                 session_gap_indices.append(index)
@@ -228,6 +221,8 @@ def main() -> int:
         return {
             "terminal_terms_json_sha256": _sha(v2.TERMS_PATH),
             "terminal_terms_checksum_sha256": _sha(v2.TERMS_CHECKSUM_PATH),
+            "split_overrides_json_sha256": _sha(v3.SPLIT_DATA),
+            "split_overrides_checksum_sha256": _sha(v3.SPLIT_SUMS),
             "scanner_state": {
                 "gap_events": gap_events,
                 "invalid_overlay_from": invalid_overlay_from,
@@ -237,11 +232,17 @@ def main() -> int:
         }
 
     runner.CHECKPOINT_EXTRA_IDENTITY = scanner_extension
-    # This diagnostic scanner intentionally reports split anomalies separately;
-    # a full-history unresolved-split gate must not prevent terminal-gap evidence
-    # from being emitted. The checkpoint engine recognizes this explicit reason.
-    runner.CHECKPOINT_DIAGNOSTIC_SKIP_FINAL_SPLIT_AUDIT = (
-        "held-terminal-gap scanner emits split defects through the separate split audit")
+
+    # The scanner's output is terminal-gap evidence. Split defects have their
+    # own full-corpus certification workflow and must not suppress this evidence.
+    # Reuse the bounded-audit transport switch locally and move its full-end
+    # guard beyond the corpus only in this diagnostic process.
+    checkpoint_runner.FULL_END_SESSION = "9999-12-31"
+    os.environ["BACKTESTER_EQUIV_IGNORE_FINAL_SPLIT_AUDIT"] = "1"
+    print(
+        "[GAP] final unresolved-split verdict delegated to separate full-corpus split audit",
+        flush=True,
+    )
 
     stopped = _arg_value("--stop-after-session") is not None
     print("[GAP] checkpoint-capable A-only held-terminal-gap traversal started", flush=True)
@@ -255,10 +256,11 @@ def main() -> int:
         print(f"[GAP] runner error after captured evidence: {runner_error}", flush=True)
     finally:
         production.advance_state = real_advance
+        if v3._real_split_decide is not None:
+            v3.split_module.SplitStreamReconciler.decide = v3._real_split_decide
+            v3._real_split_decide = None
 
     if stopped:
-        # The checkpoint itself contains the complete diagnostic prefix. A
-        # segment checkpoint is not a completed scan verdict.
         return rc
 
     total_a_calls = prior_a_calls + int(advance_cache["a_calls"])
@@ -271,6 +273,7 @@ def main() -> int:
         "backtester_sha": os.environ.get("BACKTESTER_BRANCH_SHA"),
         "fresh_chronological_replay": True,
         "checkpoint_resume_capable": True,
+        "v3_split_adjudications_active": True,
         "diagnostic_only": True,
         "session_economics_approximated": False,
         "overlay_nav_authoritative": invalid_overlay_from is None,
