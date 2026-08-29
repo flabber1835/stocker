@@ -50,6 +50,7 @@ _READ_OPERATIONS = frozenset({
     BrokerOperation.ACCOUNT_SNAPSHOT,
     BrokerOperation.ACCOUNT_CLOSE_VALUATION,
     BrokerOperation.ACCOUNT_FILL_INTERVAL_EVIDENCE,
+    BrokerOperation.ACCOUNT_CASH_ACTIVITIES,
     BrokerOperation.RESOLVE_INSTRUMENT,
     BrokerOperation.OBSERVE,
     BrokerOperation.OBSERVE_WITH_TERMINAL_RECOVERY,

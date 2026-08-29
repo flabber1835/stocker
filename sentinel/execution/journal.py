@@ -674,32 +674,22 @@ def command_history(conn, client_key: str) -> tuple:
 # ---------------------------------------------------------------------------
 
 def fill_fingerprint(fill: BrokerFill) -> str:
-    """A fill's identity, derived from WHAT IT IS rather than where it appeared.
-
-    The previous key was the fill's ordinal position in the list the broker
-    happened to return. That is not an identity: a query over a different window
-    returns a different list, so the same economic fill lands under a different
-    `seq` — and, worse, a DIFFERENT fill can inherit one already used, which
-    `ON CONFLICT DO NOTHING` then silently discards. An accounting ledger whose
-    primary key depends on how you asked the question will eventually both
-    double-count and drop.
-
-    Derived instead from order, quantity, price and timestamp. Two genuinely
-    distinct fills that agree on all four are economically indistinguishable, so
-    collapsing them is the correct behaviour rather than a lost row.
-
-    NOT the final answer. Brokers expose their own activity ids — and trade
-    corrections and busts, which no content hash can model — so before this
-    table becomes the accounting ledger it must carry broker-native activity
-    identity. Recorded here as the known limit rather than left to be
-    discovered.
-    """
+    """Use the broker-native fill id when the adapter supplies one."""
+    activity_id = getattr(fill, "activity_id", None)
+    if activity_id:
+        payload = {
+            "kind": "broker-native-fill/v1",
+            "activity_id": str(activity_id),
+        }
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"))
+            .encode("utf-8")
+        ).hexdigest()
     blob = "|".join((
         str(fill.broker_order_id), str(fill.quantity), str(fill.price),
         fill.filled_at.isoformat() if fill.filled_at else "",
     ))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:24]
-
 
 def record_fills(conn, fills: Sequence[BrokerFill]) -> int:
     """Idempotent on the fill's CONTENT, not on its position in a response.
@@ -807,8 +797,16 @@ def _terminal_recovery_binding(conn) -> tuple[str, str, datetime]:
 
 def record_observation(conn, observation: BrokerObservation,
                        runtime_state: str = "") -> int:
-    """Retained because a reconciliation dispute is unanswerable without knowing
-    what the broker actually said at the time."""
+    """Persist broker evidence plus its account/asset provenance."""
+    account_identity = observation.account_identity
+    if account_identity is not None:
+        broker_name, account_id, _ = _terminal_recovery_binding(conn)
+        if (account_identity.broker != broker_name
+                or account_identity.account_id != account_id):
+            raise RuntimeError(
+                "broker observation account identity does not match the durable "
+                "account binding; refusing journal mutation")
+
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_observations (observed_at,"
@@ -827,7 +825,7 @@ def record_observation(conn, observation: BrokerObservation,
                          for o in observation.orders]),
              runtime_state))
         seq = int(cur.fetchone()[0])
-        if observation.account_identity is not None:
+        if account_identity is not None:
             position_identity = [{
                 "security_id": p.instrument.security_id,
                 "symbol": p.instrument.symbol,
@@ -838,13 +836,63 @@ def record_observation(conn, observation: BrokerObservation,
                 "INSERT INTO sentinel_observation_provenance"
                 " (observation_seq,broker,broker_account_id,observed_at,positions)"
                 " VALUES (%s,%s,%s,%s,%s)",
-                (seq, observation.account_identity.broker,
-                 observation.account_identity.account_id,
+                (seq, account_identity.broker,
+                 account_identity.account_id,
                  observation.observed_at,
                  json.dumps(position_identity, sort_keys=True)))
     conn.commit()
-    return seq
 
+    if account_identity is not None:
+        payload = {
+            "kind": "broker-observation/v2",
+            "observation_seq": seq,
+            "broker": str(account_identity.broker),
+            "account_id": str(account_identity.account_id),
+            "observed_at": observation.observed_at.astimezone(
+                timezone.utc).isoformat(),
+            "terminal_recovery_through": (
+                observation.terminal_recovery_through.astimezone(
+                    timezone.utc).isoformat()
+                if observation.terminal_recovery_through is not None
+                else None),
+            "completeness": observation.completeness.value,
+            "positions": [
+                {"security_id": p.instrument.security_id,
+                 "symbol": p.instrument.symbol,
+                 "broker_id": p.instrument.broker_id,
+                 "quantity": str(p.quantity)}
+                for p in observation.positions
+            ],
+            "orders": [
+                {"broker_order_id": o.broker_order_id,
+                 "client_key": o.client_key,
+                 "security_id": o.instrument.security_id,
+                 "symbol": o.instrument.symbol,
+                 "broker_id": o.instrument.broker_id,
+                 "side": o.side.value,
+                 "state": o.state.value,
+                 "quantity": str(o.quantity),
+                 "filled_quantity": str(o.filled_quantity),
+                 "filled_average_price": (
+                     str(o.filled_average_price)
+                     if o.filled_average_price is not None else None)}
+                for o in observation.orders
+            ],
+        }
+        cursor_name = f"broker-observation:v2:{seq}"
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_processed_sessions"
+                " (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)"
+                " ON CONFLICT (cursor_name) DO NOTHING",
+                (cursor_name, observation.observed_at.date().isoformat(),
+                 json.dumps(payload, sort_keys=True)))
+            if cur.rowcount != 1:
+                raise RuntimeError(
+                    f"broker observation provenance {seq} already exists; "
+                    "observation identities must be append-only")
+        conn.commit()
+    return seq
 
 def finalize_observation_runtime(conn, seq: int, runtime_state: str) -> None:
     """Attach the completed reconciliation verdict to its exact observation.

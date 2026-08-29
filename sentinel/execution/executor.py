@@ -336,7 +336,14 @@ async def execute_session(*, broker: ExecutionBroker, conn,
             assert_projection(
                 conn, plan=plan, projection=target_projection,
                 through_session=today)
-        fence_reason = next((reason for reason in (
+        adapter_fence_reason = ""
+        if deployment.broker == "alpaca":
+            from sentinel.execution import alpaca as alpaca_adapter
+            adapter_fence_reason = alpaca_adapter.upgrade_restore_reason(conn)
+            if not adapter_fence_reason:
+                adapter_fence_reason = alpaca_adapter.execution_increase_fence_reason(
+                    conn=conn, deployment=deployment, today=today)
+        fence_reason = adapter_fence_reason or next((reason for reason in (
             check(conn=conn, deployment=deployment, today=today)
             for check in _INCREASE_FENCE_REASONS) if reason), "")
         if fence_reason:

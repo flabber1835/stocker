@@ -54,6 +54,17 @@ from sentinel.execution.states import (
 
 log = logging.getLogger(__name__)
 
+
+def _is_broker_instance(broker, broker_type: type) -> bool:
+    """Recognize a concrete adapter through guarded wrappers."""
+    seen: set[int] = set()
+    while broker is not None and id(broker) not in seen:
+        seen.add(id(broker))
+        if isinstance(broker, broker_type):
+            return True
+        broker = getattr(broker, "_inner", None)
+    return False
+
 #: `security_id -> cumulative share-count multiplier over the gap`.
 #: Injected rather than queried inline so the rule can be tested without a
 #: corpus, and so the caller decides which window "the gap" means.
@@ -419,8 +430,17 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     #    `reconcile` directly (as the tests do) is read-mostly and does not
     #    submit.
     try:
-        recovery_checkpoint = journal.terminal_recovery_checkpoint(conn)
-        recovery_floor = journal.terminal_recovery_floor(conn)
+        from sentinel.execution import alpaca as alpaca_adapter
+        strict_recovery = _is_broker_instance(
+            broker, alpaca_adapter.AlpacaExecutionBroker)
+        recovery_checkpoint = (
+            alpaca_adapter.strict_checkpoint(conn)
+            if strict_recovery
+            else journal.terminal_recovery_checkpoint(conn))
+        recovery_floor = (
+            alpaca_adapter.strict_floor(conn)
+            if strict_recovery
+            else journal.terminal_recovery_floor(conn))
         observation = await broker.observe_with_terminal_recovery(
             submitted_after=recovery_floor,
             processed_through=recovery_checkpoint)
@@ -859,8 +879,11 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     # earlier therefore replays the same overlapped broker window. A conflict
     # deliberately leaves the old boundary so the evidence cannot age out.
     if not adoption_conflicts:
-        journal.advance_terminal_recovery_watermark(
-            conn, recovery_through)
+        if strict_recovery:
+            alpaca_adapter.strict_advance(conn, recovery_through)
+        else:
+            journal.advance_terminal_recovery_watermark(
+                conn, recovery_through)
 
     # The evidence row was committed before recovery on purpose. Now that the
     # complete reconciliation has a verdict, bind that verdict to the exact row

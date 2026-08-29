@@ -14,7 +14,7 @@ from tests.support.postgres import _EphemeralPostgres, drop_public_tables
 from sentinel import binding as B, schema
 from sentinel.execution import journal
 from sentinel.execution import broker_cash
-from sentinel.execution import alpaca_remediation_compat as compat
+from sentinel.execution.reconcile import _is_broker_instance
 from sentinel.execution.alpaca import (
     AccountBoundObservation,
     ActivityCorrectionRequiresRecovery,
@@ -22,6 +22,8 @@ from sentinel.execution.alpaca import (
     MalformedBrokerPayload,
     NativeBrokerFill,
     restore_increase_fence_reason,
+    strict_advance,
+    strict_checkpoint,
 )
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
@@ -178,9 +180,9 @@ def test_strict_terminal_witness_is_scoped_to_alpaca_even_through_wrappers():
         def __init__(self, inner):
             self._inner = inner
 
-    assert compat._is_broker_instance(broker, AlpacaExecutionBroker)
-    assert compat._is_broker_instance(Wrapper(broker), AlpacaExecutionBroker)
-    assert not compat._is_broker_instance(object(), AlpacaExecutionBroker)
+    assert _is_broker_instance(broker, AlpacaExecutionBroker)
+    assert _is_broker_instance(Wrapper(broker), AlpacaExecutionBroker)
+    assert not _is_broker_instance(object(), AlpacaExecutionBroker)
 
 
 def test_empty_order_class_is_accepted_and_post_targets_asset_id():
@@ -550,16 +552,6 @@ def test_account_and_asset_provenance_is_retained_with_observation(conn):
     assert state["orders"][0]["broker_id"] == "asset-aapl"
 
 
-def _strict_context():
-    class Strict:
-        def __enter__(self):
-            self.token = compat._RECONCILING.set(True)
-            return self
-
-        def __exit__(self, *_args):
-            compat._RECONCILING.reset(self.token)
-    return Strict()
-
 
 def test_naked_complete_observation_cannot_authenticate_corrupt_watermark(conn):
     with conn.cursor() as cur:
@@ -583,8 +575,7 @@ def test_naked_complete_observation_cannot_authenticate_corrupt_watermark(conn):
         )
     conn.commit()
 
-    with _strict_context():
-        assert journal.terminal_recovery_checkpoint(conn) == established
+    assert strict_checkpoint(conn) == established
 
 
 def test_watermark_cannot_advance_before_recovered_order_is_durable(conn):
@@ -612,9 +603,9 @@ def test_watermark_cannot_advance_before_recovered_order_is_durable(conn):
     )
     journal.record_observation(conn, observation, "RECONCILING")
 
-    with _strict_context(), pytest.raises(
+    with pytest.raises(
             RuntimeError, match="not yet durably reconciled"):
-        journal.advance_terminal_recovery_watermark(conn, through)
+        strict_advance(conn, through)
 
 
 def test_physical_db_incarnation_change_requires_takeover_before_rerisk(conn):

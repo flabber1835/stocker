@@ -393,6 +393,31 @@ class GuardedExecutionBroker(ExecutionBroker):
                     "broker clock reports market closed; increase refused "
                     "before transport")
 
+        from sentinel.execution.alpaca import AlpacaExecutionBroker
+
+        if (isinstance(self._inner, AlpacaExecutionBroker)
+                and self.capabilities.instrument_identity):
+            if not instrument.broker_id:
+                raise PreTransportAuthorityRefused(
+                    "durable command has no broker-native instrument identity")
+            try:
+                current = await self.resolve_instrument(
+                    security_id=instrument.security_id,
+                    symbol=instrument.symbol)
+            except BrokerAuthorityRefused as exc:
+                raise PreTransportAuthorityRefused(
+                    f"instrument identity unavailable before submit: {exc}") from exc
+            except Exception as exc:                          # noqa: BLE001
+                raise PreTransportAuthorityRefused(
+                    "instrument identity unavailable before submit: "
+                    f"{type(exc).__name__}: {exc}") from exc
+            if (current.security_id != instrument.security_id
+                    or current.symbol != instrument.symbol
+                    or current.broker_id != instrument.broker_id):
+                raise PreTransportAuthorityRefused(
+                    "broker-native instrument identity changed before submit; "
+                    f"durable={instrument}, current={current}")
+
         await self._authorize_mutation(BrokerOperation.SUBMIT)
         return await self._inner.submit(
             client_key=client_key, instrument=instrument,
