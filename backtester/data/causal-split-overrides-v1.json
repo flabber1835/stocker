@@ -122,6 +122,18 @@
         "https://www.sec.gov/Archives/edgar/data/909990/000089973301500072/ka.htm"
       ],
       "ticker": "OATS"
+    },
+    {
+      "effective_session": "1998-03-03",
+      "expected_sep_derived": 1.0,
+      "expected_vendor_stated": 3.0,
+      "known_by": "1998-03-03",
+      "multiplier": 3.0,
+      "reference": "The Chubb Corporation 3-for-1 forward stock split effective 1998-03-03",
+      "sources": [
+        "https://stockanalysis.com/stocks/cb/statistics/"
+      ],
+      "ticker": "CB"
     }
   ],
   "schema": "backtester.causal-split-overrides/1"
