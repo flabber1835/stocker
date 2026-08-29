@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import os
 import pathlib
 
 
-FEED = pathlib.Path(__file__).parents[2] / "sentinel" / "feed"
+REPO = pathlib.Path(os.environ.get(
+    "SENTINEL_REPO_ROOT", pathlib.Path(__file__).parents[2]))
+FEED = REPO / "sentinel" / "feed"
 
 
 def test_public_feed_modules_install_no_custom_module_classes():
