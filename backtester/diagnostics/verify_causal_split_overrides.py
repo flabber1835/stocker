@@ -71,8 +71,8 @@ def main() -> int:
         sessions=sessions,
         resolve_identity=resolver.resolve,
     )
-    if len(overrides) != 7:
-        raise RuntimeError(f"expected seven frozen split overrides, got {len(overrides)}")
+    if len(overrides) != 8:
+        raise RuntimeError(f"expected eight frozen split overrides, got {len(overrides)}")
     real_decide = install_primary_split_adjudication(split_module, overrides)
 
     by_year: dict[int, pd.DataFrame] = {}
