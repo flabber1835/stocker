@@ -168,11 +168,11 @@ def test_publication_membrane_embeds_exact_durable_proof(monkeypatch):
     monkeypatch.setattr(
         seed_coherence, "require_for_publication", lambda *_args, **_kwargs: proof)
 
-    def core_publish(_conn, **kwargs):
+    def atomic_publish(_conn, **kwargs):
         observed.update(kwargs)
         return "published"
 
-    monkeypatch.setattr(publication._core, "publish", core_publish)
+    monkeypatch.setattr(publication, "_publish_atomic", atomic_publish)
     result = publication.publish(
         "conn", run_id="seed-1", window_start="2026-01-02",
         window_end="2026-08-24", evidence={"other": "evidence"})
