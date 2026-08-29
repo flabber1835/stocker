@@ -37,7 +37,6 @@ def main() -> int:
     from sentinel.feed.actions_map import dividends_from_actions, split_ratios_from_actions
     from sentinel.feed.universe import parse_related_tickers
     from stock_strategy_shared.wealth_core.feed import SecurityMeta
-
     from backtester.causal_split_overrides import (
         ADJUDICATED_DISPOSITION,
         install_primary_split_adjudication,
@@ -74,27 +73,47 @@ def main() -> int:
     real_decide = install_primary_split_adjudication(split_module, overrides)
 
     by_year: dict[int, pd.DataFrame] = {}
+
+    def load_year(year: int) -> pd.DataFrame:
+        frame = by_year.get(year)
+        if frame is not None:
+            return frame
+        sep_path = lab / "sharadar" / f"SHARADAR_SEP_{year}.csv.gz"
+        if not sep_path.exists():
+            frame = pd.DataFrame(columns=["ticker", "date", "open", "close", "closeunadj", "volume", "_seq"])
+            by_year[year] = frame
+            return frame
+        frame = pd.read_csv(
+            sep_path, compression="gzip",
+            usecols=["ticker", "date", "open", "close", "closeunadj", "volume"],
+            low_memory=False,
+        )
+        frame["ticker"] = frame["ticker"].astype(str)
+        frame["date"] = frame["date"].astype(str).str[:10]
+        frame["_seq"] = range(len(frame))
+        frame.sort_values(["date", "ticker", "_seq"], inplace=True, kind="mergesort")
+        frame.drop_duplicates(["date", "ticker"], keep="last", inplace=True)
+        by_year[year] = frame
+        return frame
+
     results = []
     try:
         for key, frozen in sorted(overrides.items(), key=lambda item: item[0][1]):
             ticker, session = key
             year = int(session[:4])
-            frame = by_year.get(year)
-            if frame is None:
-                sep_path = lab / "sharadar" / f"SHARADAR_SEP_{year}.csv.gz"
-                frame = pd.read_csv(
-                    sep_path, compression="gzip",
-                    usecols=["ticker", "date", "open", "close", "closeunadj", "volume"],
-                    low_memory=False,
-                )
-                frame["ticker"] = frame["ticker"].astype(str)
-                frame["date"] = frame["date"].astype(str).str[:10]
-                frame["_seq"] = range(len(frame))
-                frame.sort_values(["date", "ticker", "_seq"], inplace=True, kind="mergesort")
-                frame.drop_duplicates(["date", "ticker"], keep="last", inplace=True)
-                by_year[year] = frame
+            current = load_year(year)
+            event_rows = current[(current["ticker"] == ticker) & (current["date"] == session)].copy()
+            if len(event_rows) != 1:
+                raise RuntimeError(f"missing/duplicate SEP event row for {ticker} {session}: {len(event_rows)}")
 
-            rows = frame[(frame["ticker"] == ticker) & (frame["date"] <= session)].copy()
+            rows = current[(current["ticker"] == ticker) & (current["date"] <= session)].copy()
+            lookback_year = year - 1
+            while len(rows) < 2 and lookback_year >= 1997:
+                prior = load_year(lookback_year)
+                prior = prior[(prior["ticker"] == ticker) & (prior["date"] < session)]
+                if not prior.empty:
+                    rows = pd.concat([prior, rows], ignore_index=True)
+                lookback_year -= 1
             rows.sort_values("date", inplace=True, kind="mergesort")
             if len(rows) < 2 or str(rows.iloc[-1]["date"]) != session:
                 raise RuntimeError(f"missing immediate SEP predecessor/event rows for {ticker} {session}")
@@ -127,10 +146,10 @@ def main() -> int:
             if not math.isclose(float(disposition.get("applied_ratio")), float(frozen["multiplier"]), rel_tol=0, abs_tol=1e-12):
                 raise RuntimeError(f"legal multiplier not applied for {key}: {disposition}")
 
-            event_bars = [bar.vendor for bar in bars if bar.vendor.session == session]
-            if len(event_bars) != 1:
+            normalized_event = [bar.vendor for bar in bars if bar.vendor.session == session]
+            if len(normalized_event) != 1:
                 raise RuntimeError(f"expected exactly one normalized event bar for {key}")
-            event_bar = event_bars[0]
+            event_bar = normalized_event[0]
             if not math.isclose(float(event_bar.split_ratio), float(frozen["multiplier"]), rel_tol=0, abs_tol=1e-12):
                 raise RuntimeError(f"VendorBar split ratio wrong for {key}: {event_bar.split_ratio}")
 
