@@ -97,6 +97,19 @@
         "https://www.sec.gov/Archives/edgar/data/1178711/000119312512143822/d283543d10k.htm"
       ],
       "ticker": "PRTK"
+    },
+    {
+      "effective_session": "2014-05-29",
+      "expected_sep_derived": 0.07142857142857142,
+      "expected_vendor_stated": 0.06667,
+      "known_by": "2014-05-12",
+      "multiplier": 0.06666666666666667,
+      "reference": "NeoMedia completed a 1-for-15 reverse split through its May 11 merger; post-split trading became effective 2014-05-29",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/1022701/000114420414029543/v378319_8k.htm",
+        "https://www.citibank.com.sg/SGGCB/JPC/portal/LoadSimplePage.do?path=%2Fpopup%2FCorporateAnnouncement.htm"
+      ],
+      "ticker": "NEOM"
     }
   ],
   "schema": "backtester.causal-split-overrides/1"
