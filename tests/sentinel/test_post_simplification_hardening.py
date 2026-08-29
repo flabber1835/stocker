@@ -51,8 +51,15 @@ def test_publication_cannot_be_redirected_through_hidden_implementation(monkeypa
     assert publication.publish(object()) is sentinel
 
 
-def test_duplicate_ingest_orchestration_module_is_removed():
-    assert not (REPO / "sentinel" / "feed" / "ingest_authority_impl.py").exists()
+def test_ingest_support_module_contains_helpers_only():
+    from sentinel.feed import ingest_authority_impl
+
+    assert not hasattr(ingest_authority_impl, "seed")
+    assert not hasattr(ingest_authority_impl, "daily")
+    text = (REPO / "sentinel" / "feed" / "ingest_authority_impl.py").read_text(
+        encoding="utf-8")
+    assert "def seed(" not in text
+    assert "def daily(" not in text
 
 
 def test_maintenance_impl_exposes_no_public_sep_reconciliation_entrypoint():
