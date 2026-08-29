@@ -76,17 +76,7 @@ def test_cli_run_does_not_route_argument_value_named_feed_daily(monkeypatch):
     assert routed_calls == []
 
 
-def test_feed_daily_calls_ingest_with_validated_session(monkeypatch):
-    calls = []
-
-    class Connection:
-        closed = False
-
-        def close(self):
-            self.closed = True
-
-    conn = Connection()
-
+def _valid_manual_boundary(monkeypatch):
     monkeypatch.setattr(
         feed_cli.manual_daily,
         "extract_through",
@@ -101,6 +91,19 @@ def test_feed_daily_calls_ingest_with_validated_session(monkeypatch):
             latest_closed="2026-08-28",
         ),
     )
+
+
+def test_feed_daily_calls_ingest_with_validated_session(monkeypatch):
+    calls = []
+
+    class Connection:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    conn = Connection()
+    _valid_manual_boundary(monkeypatch)
     monkeypatch.setattr(
         feed_cli.runtime_identity,
         "require_feed_producer_identity",
@@ -136,40 +139,27 @@ def test_feed_daily_calls_ingest_with_validated_session(monkeypatch):
     assert conn.closed is True
 
 
-def test_feed_daily_refuses_before_config_when_producer_is_unbound(monkeypatch):
-    config_calls = []
-
-    monkeypatch.setattr(
-        feed_cli.manual_daily,
-        "extract_through",
-        lambda argv: (["feed-daily"], "2026-08-28"),
-    )
-    monkeypatch.setattr(
-        feed_cli.manual_daily,
-        "validate_through",
-        lambda raw: SimpleNamespace(
-            through=raw,
-            calendar_version="XNYS-test",
-            latest_closed="2026-08-28",
-        ),
-    )
-
-    def missing_producer():
-        raise RuntimeError("producer identity missing")
+def test_feed_daily_checks_config_before_producer_identity(monkeypatch):
+    order = []
+    _valid_manual_boundary(monkeypatch)
 
     def config_from_env(cls):
-        config_calls.append(True)
+        order.append("config")
         return SimpleNamespace(database_url="postgres://test")
 
-    monkeypatch.setattr(
-        feed_cli.runtime_identity,
-        "require_feed_producer_identity",
-        missing_producer,
-    )
+    def missing_producer():
+        order.append("producer")
+        raise RuntimeError("producer identity missing")
+
     monkeypatch.setattr(
         feed_cli.SentinelConfig,
         "from_env",
         classmethod(config_from_env),
+    )
+    monkeypatch.setattr(
+        feed_cli.runtime_identity,
+        "require_feed_producer_identity",
+        missing_producer,
     )
 
     assert feed_cli.run_feed_daily(
@@ -178,4 +168,4 @@ def test_feed_daily_refuses_before_config_when_producer_is_unbound(monkeypatch):
         exit_config=1,
         exit_not_established=2,
     ) == 2
-    assert config_calls == []
+    assert order == ["config", "producer"]
