@@ -86,11 +86,15 @@ def test_restore_selects_newest_complete_backup_only():
     assert 'case "$NAME" in base-*)' not in source
 
 
-def test_base_backup_requires_kernel_backed_dedicated_lock():
+def test_base_backup_requires_target_bound_kernel_lock():
     base = _read(BASE)
     helper = _read(LOCK)
+    assert "SENTINEL_BASE_BACKUP_LOCK_ROOT" in base
     assert "sentinel_backup_lock.py verify" in base
     assert "sentinel_backup_lock.py hold" in base
+    assert "LOCK_ROOT_ENV" in helper
+    assert "hashlib.sha256" in helper
+    assert "os.getuid()" in helper
     assert "fcntl.flock" in helper
     assert "LOCK_EX | fcntl.LOCK_NB" in helper
     assert "os.set_inheritable" in helper
@@ -99,19 +103,37 @@ def test_base_backup_requires_kernel_backed_dedicated_lock():
 
 
 @pytest.mark.skipif(os.name == "nt", reason="fcntl host lock is a Linux contract")
-def test_base_backup_lock_serializes_two_processes():
-    child = (
-        "import time; print('LOCKED', flush=True); time.sleep(1.5)")
+def test_base_backup_lock_serializes_two_processes_for_same_target(tmp_path):
+    target = (tmp_path / "durable-target")
+    target.mkdir()
+    env = {
+        **os.environ,
+        "SENTINEL_BASE_BACKUP_LOCK_ROOT": str(target.resolve()),
+    }
+    child = "import time; print('LOCKED', flush=True); time.sleep(1.5)"
     first = subprocess.Popen(
         [sys.executable, str(LOCK), "hold", sys.executable, "-c", child],
-        cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        cwd=ROOT, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     assert first.stdout is not None
     assert first.stdout.readline().strip() == "LOCKED"
 
     second = subprocess.run(
         [sys.executable, str(LOCK), "hold", sys.executable, "-c", "print('SECOND')"],
-        cwd=ROOT, capture_output=True, text=True, check=False)
+        cwd=ROOT, env=env, capture_output=True, text=True, check=False)
 
     assert second.returncode == 2
-    assert "another Sentinel base backup is already running" in second.stderr
+    assert "another Sentinel base backup is already running for this durable target" in second.stderr
     assert first.wait(timeout=5) == 0
+
+
+@pytest.mark.skipif(os.name == "nt", reason="fcntl host lock is a Linux contract")
+def test_different_checkouts_derive_same_lock_from_same_target(tmp_path):
+    target = (tmp_path / "durable-target")
+    target.mkdir()
+    # The lock helper hashes only the canonical durable target into a per-user
+    # host lock path; its Git checkout location is absent from that identity.
+    source = _read(LOCK)
+    assert 'hashlib.sha256(str(canonical).encode("utf-8"))' in source
+    assert 'Path("/tmp") / ("sentinel-base-backup-locks-%d" % os.getuid())' in source
+    assert 'ROOT / "artifacts"' not in source
