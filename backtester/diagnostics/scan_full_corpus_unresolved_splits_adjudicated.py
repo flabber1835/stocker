@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Full-corpus split audit with frozen primary-source adjudications enabled."""
+"""Full-corpus split audit with frozen adjudications and reachability proofs."""
 from __future__ import annotations
 
 import importlib.util
@@ -44,6 +44,7 @@ def main() -> int:
         install_primary_split_adjudication,
         load_frozen_split_overrides,
     )
+    from backtester.causal_split_unreachable import load_frozen_unreachable
 
     expected_main = runner.EXPECTED_MAIN_SHA
     actual_main = os.environ.get("BACKTESTER_MAIN_SHA", "")
@@ -85,6 +86,11 @@ def main() -> int:
         sessions=sessions,
         resolve_identity=resolve_identity,
     )
+    unreachable_sha, unreachable = load_frozen_unreachable(
+        lab / "backtester" / "data" / "causal-split-unreachable-v1.json",
+        lab / "backtester" / "data" / "causal-split-unreachable-v1.SHA256",
+        resolve_identity=resolve_identity,
+    )
     real_decide = install_primary_split_adjudication(split_module, overrides)
     observed_inputs: dict[str, dict] = {}
     report = NormalisationReport()
@@ -106,9 +112,7 @@ def main() -> int:
             if bars % 1_000_000 == 0:
                 print(
                     f"[SPLIT-ADJ-SCAN] bars={bars:,} last_session={last_session} "
-                    f"split_dispositions={len(report.split_dispositions):,}",
-                    flush=True,
-                )
+                    f"split_dispositions={len(report.split_dispositions):,}", flush=True)
     finally:
         split_module.SplitStreamReconciler.decide = real_decide
 
@@ -132,8 +136,22 @@ def main() -> int:
         if abs(float(row["applied_ratio"]) - float(frozen["multiplier"])) > 1e-12:
             raise RuntimeError(f"adjudicated multiplier drift: {row}")
 
+    raw_unresolved_keys = {(row["ticker"], row["session"]) for row in unresolved}
+    unreachable_keys = set(unreachable)
+    if not unreachable_keys.issubset(raw_unresolved_keys):
+        raise RuntimeError(
+            f"unreachable proof contains non-unresolved events: {sorted(unreachable_keys - raw_unresolved_keys)}")
+    proven_unreachable = [
+        {**row, "reachability": "PROVEN_UNREACHABLE",
+         "reachability_proof": unreachable[(row["ticker"], row["session"])]}
+        for row in unresolved if (row["ticker"], row["session"]) in unreachable_keys
+    ]
+    blocking_unresolved = [
+        row for row in unresolved if (row["ticker"], row["session"]) not in unreachable_keys
+    ]
+
     payload = {
-        "schema": "backtester.full-corpus-unresolved-splits-adjudicated/1",
+        "schema": "backtester.full-corpus-unresolved-splits-adjudicated/2",
         "status": "PASS",
         "diagnostic_only": True,
         "strategy_execution": False,
@@ -141,6 +159,7 @@ def main() -> int:
         "strategy_main_sha": actual_main,
         "backtester_sha": os.environ.get("BACKTESTER_BRANCH_SHA"),
         "split_override_sha256": override_sha,
+        "split_unreachable_sha256": unreachable_sha,
         "end_session": runner.END_SESSION,
         "bars_processed": bars,
         "last_session": last_session,
@@ -149,11 +168,16 @@ def main() -> int:
         "adjudicated_splits": adjudicated,
         "unresolved_split_count": len(unresolved),
         "unresolved_splits": unresolved,
+        "proven_unreachable_split_count": len(proven_unreachable),
+        "proven_unreachable_splits": proven_unreachable,
+        "blocking_unresolved_split_count": len(blocking_unresolved),
+        "blocking_unresolved_splits": blocking_unresolved,
     }
     output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(
         f"[SPLIT-ADJ-SCAN] PASS bars={bars:,} last_session={last_session} "
-        f"adjudicated={len(adjudicated)} unresolved={len(unresolved)}",
+        f"adjudicated={len(adjudicated)} raw_unresolved={len(unresolved)} "
+        f"unreachable={len(proven_unreachable)} blocking={len(blocking_unresolved)}",
         flush=True,
     )
     return 0
