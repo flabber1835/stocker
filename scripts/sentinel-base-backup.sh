@@ -36,11 +36,21 @@ cleanup_staging() {
       staging="$1"
       case "$staging" in .base-*.part-*) ;; *) exit 2;; esac
       rm -rf -- "/sentinel-backup/base/$staging"
+      sync -f /sentinel-backup/base
     ' sh "$STAGING" >/dev/null 2>&1 || true
   fi
   return "$rc"
 }
 trap cleanup_staging EXIT
+
+# A SIGKILL/power-loss can bypass the EXIT trap. Under the dedicated host lock,
+# hidden staging directories from earlier versions of this same protocol have
+# no live writer and are safe to remove before starting a new backup.
+${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
+  find /sentinel-backup/base -mindepth 1 -maxdepth 1 -type d \
+    -name ".base-*.part-*" -exec rm -rf -- {} +
+  sync -f /sentinel-backup/base
+'
 
 # Do not silently restart PostgreSQL to turn archiving on. The operator starts
 # the documented overlay; this command verifies that exact durable mode first.
@@ -100,8 +110,9 @@ for _ in $(seq 1 60); do
   fi
   ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
     name="$1" marker="$2" lsn="$3" wal="$4"
-    printf "marker=%s\nlsn=%s\nwal=%s\n" "$marker" "$lsn" "$wal" \
-      > "/sentinel-backup/base/$name/sentinel-recovery-marker"
+    metadata="/sentinel-backup/base/$name/sentinel-recovery-marker"
+    printf "marker=%s\nlsn=%s\nwal=%s\n" "$marker" "$lsn" "$wal" > "$metadata"
+    sync "$metadata"
   ' sh "$STAGING" "$MARKER" "$MARKER_LSN" "$MARKER_WAL"
   break
 done
@@ -110,15 +121,17 @@ ${COMPOSE[@]} exec -T sentinel-postgres \
   echo "REFUSED: marker WAL $MARKER_WAL was not archived" >&2; exit 4; }
 
 # Publish the completed namespace atomically only after pg_verifybackup and the
-# post-base recovery marker/WAL proof are all present. The dedicated host lock
-# makes the destination-name check authoritative for this writer.
+# post-base recovery marker/WAL proof are all present. No-clobber prevents an
+# external filesystem actor from changing the destination between proof and
+# rename. Syncing the parent makes the successful namespace publication durable.
 ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
   staging="$1" final="$2"
   test -d "/sentinel-backup/base/$staging"
   test -f "/sentinel-backup/base/$staging/backup_manifest"
   test -f "/sentinel-backup/base/$staging/sentinel-recovery-marker"
   test ! -e "/sentinel-backup/base/$final"
-  mv "/sentinel-backup/base/$staging" "/sentinel-backup/base/$final"
+  mv -T --no-clobber -- "/sentinel-backup/base/$staging" "/sentinel-backup/base/$final"
+  sync -f /sentinel-backup/base
   test ! -e "/sentinel-backup/base/$staging"
   test -d "/sentinel-backup/base/$final"
 ' sh "$STAGING" "$NAME"
