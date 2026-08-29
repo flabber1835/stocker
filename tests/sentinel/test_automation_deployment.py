@@ -122,7 +122,7 @@ def test_only_authorized_services_receive_broker_and_artifact_authority():
 def test_authorized_runtime_is_a_distinct_marker_bearing_image():
     dockerfile = AUTHORIZED_DOCKERFILE.read_text(encoding="utf-8")
     marker = AUTHORIZED_MARKER.read_bytes()
-    cli_source = (ROOT / "sentinel" / "__main__.py").read_text(
+    dispatch_source = (ROOT / "sentinel" / "_main_impl.py").read_text(
         encoding="utf-8")
 
     assert "ARG SENTINEL_RUNTIME_BASE_IMAGE=sentinel:latest" in dockerfile
@@ -130,8 +130,8 @@ def test_authorized_runtime_is_a_distinct_marker_bearing_image():
     assert "deploy/sentinel-authorized-runtime-v1" in dockerfile
     assert "/opt/sentinel/authorized-runtime-v1" in dockerfile
     assert marker == b"sentinel-authorized-runtime/1\n"
-    assert "AUTHORIZED_RUNTIME_COMMANDS" in cli_source
-    assert "AUTHORIZED_RUNTIME_MARKER.read_bytes()" in cli_source
+    assert "AUTHORIZED_RUNTIME_COMMANDS" in dispatch_source
+    assert "AUTHORIZED_RUNTIME_MARKER.read_bytes()" in dispatch_source
 
 
 def test_test_lens_inherits_authorized_runtime_without_transport_intent():

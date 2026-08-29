@@ -8,6 +8,8 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from sentinel import __main__ as cli
+from sentinel import _main_impl
+from sentinel.cli import feed as feed_cli
 from sentinel.feed import ingest, manual_daily
 
 ET = ZoneInfo("America/New_York")
@@ -120,8 +122,8 @@ def test_cli_missing_boundary_refuses_before_retained_cli(monkeypatch, capsys):
         called = True
         raise AssertionError("retained CLI must not construct DB/vendor state")
 
-    monkeypatch.setattr(cli._base, "main", forbidden)
-    assert cli.main(["feed-daily"]) == cli._base.EXIT_CONFIG
+    monkeypatch.setattr(_main_impl, "main", forbidden)
+    assert cli.main(["feed-daily"]) == _main_impl.EXIT_CONFIG
     assert called is False
     assert "requires" in capsys.readouterr().err
 
@@ -133,19 +135,35 @@ def test_cli_prints_and_passes_resolved_session(monkeypatch, capsys):
         calendar_version="XNYS/test")
     monkeypatch.setattr(
         manual_daily, "validate_through", lambda _value: boundary)
+    monkeypatch.setattr(
+        feed_cli.SentinelConfig,
+        "from_env",
+        classmethod(lambda cls: SimpleNamespace(database_url="postgresql://test/db")),
+    )
+    monkeypatch.setattr(
+        feed_cli.runtime_identity,
+        "require_feed_producer_identity",
+        lambda: {
+            "git_commit": "a" * 40,
+            "runtime_image_digest": "sha256:" + "b" * 64,
+        },
+    )
+
+    class Connection:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(feed_cli.feed_store, "connect", lambda _url: Connection())
+    monkeypatch.setattr(feed_cli.feed_store, "ensure_schema", lambda _conn: None)
+    monkeypatch.setattr(feed_cli.feed_store, "reclaim_orphans", lambda _conn: 0)
 
     def original_daily(_conn, **kwargs):
         observed.update(kwargs)
-        return "done"
+        return SimpleNamespace(
+            kind="daily", chunks_done=1, rows_written=1, rows_dropped=0)
 
     monkeypatch.setattr(ingest, "daily", original_daily)
 
-    def retained(argv):
-        assert argv == ["feed-daily"]
-        ingest.daily("conn")
-        return 0
-
-    monkeypatch.setattr(cli._base, "main", retained)
     assert cli.main(["feed-daily", "--through", "2026-08-24"]) == 0
     assert observed["today"] == "2026-08-24"
     assert "through-session 2026-08-24" in capsys.readouterr().out
