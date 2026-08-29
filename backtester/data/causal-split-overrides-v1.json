@@ -110,6 +110,18 @@
         "https://www.citibank.com.sg/SGGCB/JPC/portal/LoadSimplePage.do?path=%2Fpopup%2FCorporateAnnouncement.htm"
       ],
       "ticker": "NEOM"
+    },
+    {
+      "effective_session": "1998-01-08",
+      "expected_sep_derived": 1.0,
+      "expected_vendor_stated": 1.5,
+      "known_by": "1998-01-07",
+      "multiplier": 1.5,
+      "reference": "Wild Oats Markets declared a 3-for-2 stock split for holders of record 1997-12-22, effective 1998-01-07; the 1998-01-08 Sharadar action is the first trading-session application of the legal split",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/909990/000089973301500072/ka.htm"
+      ],
+      "ticker": "OATS"
     }
   ],
   "schema": "backtester.causal-split-overrides/1"
