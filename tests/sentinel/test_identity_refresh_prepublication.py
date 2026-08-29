@@ -136,7 +136,7 @@ def test_production_daily_prevalidates_exact_candidate_before_publication(
         identity_refresh, "prevalidate_pending_sep_mutations",
         lambda conn, **kwargs: events.append("cdc-prevalidated") or [])
     monkeypatch.setattr(
-        coherence, "StableSharadarFetch",
+        source_authority, "StableSharadarFetch",
         lambda fetch, after_session=None: fetch)
 
     def daily_locked(conn, **kwargs):
