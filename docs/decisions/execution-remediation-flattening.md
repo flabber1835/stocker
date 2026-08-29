@@ -10,7 +10,7 @@ The certified execution behavior remains unchanged, but its implementation will 
 
 The target ownership is:
 
-- `sentinel/execution/alpaca.py` owns the complete Alpaca transport and observation semantics.
+- `sentinel/execution/alpaca.py` owns the complete Alpaca transport and observation semantics as one module and one global namespace.
 - `sentinel/execution/guarded.py` owns the complete guarded broker membrane.
 - `sentinel/execution/journal.py` owns durable command, observation, fill, and terminal-recovery persistence semantics.
 - `sentinel/execution/reconcile.py` owns reconciliation comparisons and broker-evidence conflict detection.
@@ -26,7 +26,9 @@ Flattening proceeds in behavior-preserving slices. Each slice must remove a runt
 
 The first slice removes the self-cancelling emergency-authority serialization overlay. Current `alpaca_remediation.install_automation_serialization()` temporarily wraps kill/revocation operations with the execution writer lock, while `alpaca_remediation_authority_semantics.install()` immediately recovers and restores the original non-blocking functions. The certified net behavior is therefore the original immediate kill/revocation semantics. That net behavior becomes direct again: no temporary wrapper and no restoration layer.
 
-Subsequent slices move the remaining transport, journal, reconciliation, cash-classification, compatibility, and restore-fence behavior into their canonical modules. The legacy remediation modules are deleted only after their last effective behavior has moved.
+The Alpaca transport and hardened adapter remain in the same canonical module. Paging bounds, time capture, paper-endpoint enforcement, and other transport constants are runtime/test seams of that adapter and must resolve from the same module globals as the methods that consume them.
+
+Subsequent slices move the remaining journal, reconciliation, cash-classification, compatibility, and restore-fence behavior into their canonical modules. The legacy remediation modules are deleted only after their last effective behavior has moved.
 
 ## Safety invariants
 
