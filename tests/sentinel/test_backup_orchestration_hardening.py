@@ -34,15 +34,27 @@ def test_completed_backup_namespace_is_published_only_after_recovery_proof():
     pg_verify = source.index("pg_verifybackup")
     wal_proof = source.index('test -f "/sentinel-backup/wal/$wal"')
     marker_publish = source.index(
-        '> "/sentinel-backup/base/$name/sentinel-recovery-marker"')
+        'metadata="/sentinel-backup/base/$name/sentinel-recovery-marker"')
+    marker_sync = source.index('sync "$metadata"', marker_publish)
     final_publish = source.index(
-        'mv "/sentinel-backup/base/$staging" "/sentinel-backup/base/$final"')
+        'mv -T --no-clobber -- "/sentinel-backup/base/$staging" '
+        '"/sentinel-backup/base/$final"')
+    namespace_sync = source.index("sync -f /sentinel-backup/base", final_publish)
 
     assert 'STAGING=".$NAME.part-$$"' in source
-    assert pg_verify < wal_proof < marker_publish < final_publish
+    assert pg_verify < wal_proof < marker_publish < marker_sync < final_publish
+    assert final_publish < namespace_sync
     assert 'test ! -e "/sentinel-backup/base/$final"' in source
     assert 'test ! -e "/sentinel-backup/base/$staging"' in source
     assert "SENTINEL_BASE_BACKUP_DB_MUTATION=RECOVERY_MARKER_SCHEMA_AND_ROW" in source
+
+
+def test_hidden_staging_is_ignored_and_reaped_under_the_backup_lock():
+    source = _read(BASE)
+    assert '-name ".base-*.part-*" -exec rm -rf -- {} +' in source
+    assert source.index("sentinel_backup_lock.py verify") < source.index(
+        '-name ".base-*.part-*" -exec rm -rf -- {} +')
+    assert 'case "$staging" in .base-*.part-*)' in source
 
 
 def test_status_considers_only_exact_completed_backup_names():
