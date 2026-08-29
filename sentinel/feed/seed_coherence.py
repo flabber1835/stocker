@@ -9,7 +9,17 @@ from __future__ import annotations
 import json
 
 from sentinel.feed import _seed_coherence_impl as _core
-from sentinel.feed._seed_coherence_impl import *  # noqa: F403
+from sentinel.feed._seed_coherence_impl import (
+    SCHEMA,
+    START_SCHEMA,
+    SeedCoherenceProof,
+    SeedCoherenceRefused,
+    capture_update_boundary,
+    capture_update_ceiling,
+    load,
+    prove,
+    record_start_boundary,
+)
 
 
 def _durable_json(value):
@@ -125,5 +135,8 @@ def require_for_publication(conn, *, run_id: str, window_start=None,
     return dict(payload)
 
 
-__all__ = [name for name in getattr(_core, "__all__", ())
-           if name != "reopen_successful_run"] + ["record_seed_coverage"]
+__all__ = [
+    "SCHEMA", "START_SCHEMA", "SeedCoherenceProof", "SeedCoherenceRefused",
+    "capture_update_boundary", "capture_update_ceiling", "load", "prove",
+    "record_seed_coverage", "record_start_boundary", "require_for_publication",
+]
