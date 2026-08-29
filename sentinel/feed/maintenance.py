@@ -8,6 +8,24 @@ from sentinel.feed import maintenance_impl as _core
 from sentinel.feed.maintenance_impl import *  # noqa: F403
 from sentinel.feed.identity_refresh import validate_sep_mutation_rows
 
+# Keep the public maintenance module as the canonical static authority for
+# callers, readiness/certification gates, and deterministic test seams.  Star
+# imports intentionally exclude private helpers and may omit non-__all__
+# constants, so bind the retained contract explicitly.
+SEP_CURSOR_NAME = _core.SEP_CURSOR_NAME
+ACTIONS_CURSOR_NAME = _core.ACTIONS_CURSOR_NAME
+ACTIONS_CURSOR_KIND = _core.ACTIONS_CURSOR_KIND
+ACTIONS_RECONCILE_DAYS = _core.ACTIONS_RECONCILE_DAYS
+ACTIONS_FULL_WINDOW_START = _core.ACTIONS_FULL_WINDOW_START
+
+_read_cursor = _core._read_cursor
+_write_cursor = _core._write_cursor
+_active_action_rows = _core._active_action_rows
+_stable_rows = _core._stable_rows
+_mutation_digest = _core._mutation_digest
+_semantic_upgrade_replay_dates = _core._semantic_upgrade_replay_dates
+_validate_sep_mutation_rows = validate_sep_mutation_rows
+
 
 def _reconcile_sep_mutations_core(conn, *, fetch=_core.sharadar.fetch_table,
                                   through: str) -> Optional[_core.SourceCursor]:
