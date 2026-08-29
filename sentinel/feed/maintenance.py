@@ -9,7 +9,7 @@ from sentinel.feed.maintenance_impl import *  # noqa: F403
 from sentinel.feed.identity_refresh import validate_sep_mutation_rows
 
 # Keep the public maintenance module as the canonical static authority for
-# callers, readiness/certification gates, and deterministic test seams.  Star
+# callers, readiness/certification gates, and deterministic test seams. Star
 # imports intentionally exclude private helpers and may omit non-__all__
 # constants, so bind the retained contract explicitly.
 SEP_CURSOR_NAME = _core.SEP_CURSOR_NAME
@@ -23,6 +23,9 @@ _write_cursor = _core._write_cursor
 _active_action_rows = _core._active_action_rows
 _stable_rows = _core._stable_rows
 _mutation_digest = _core._mutation_digest
+_action_change_dates = _core._action_change_dates
+_retained_market_bounds = _core._retained_market_bounds
+_failed_action_reconcile_bar_footprint = _core._failed_action_reconcile_bar_footprint
 _semantic_upgrade_replay_dates = _core._semantic_upgrade_replay_dates
 _validate_sep_mutation_rows = validate_sep_mutation_rows
 
