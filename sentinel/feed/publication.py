@@ -6,9 +6,8 @@ import json
 from sentinel.feed import _publication_impl as _core
 from sentinel.feed._publication_impl import *  # noqa: F403
 
-# Explicit static seams retained for provenance/certification tests.
+# Explicit static seam retained for provenance/certification tests.
 _run_producer_identity = _core._run_producer_identity
-_CORE_PUBLISH = _core.publish
 
 
 def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
@@ -103,8 +102,7 @@ def publish(conn, *, run_id=None, window_start=None, window_end=None,
                     "caller-supplied seed coherence evidence conflicts with the "
                     "durable ingest run")
             merged["seed_coherence"] = proof
-    publisher = _publish_atomic if _core.publish is _CORE_PUBLISH else _core.publish
-    return publisher(
+    return _publish_atomic(
         conn, run_id=run_id, window_start=window_start,
         window_end=window_end, evidence=merged)
 
