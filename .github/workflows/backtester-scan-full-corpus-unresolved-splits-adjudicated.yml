@@ -9,6 +9,7 @@ on:
       - 'backtester/causal_split_overrides.py'
       - 'backtester/data/causal-split-overrides-v1.json'
       - 'backtester/data/causal-split-overrides-v1.SHA256'
+      - 'backtester/data/causal-split-overrides-v1.d/**'
   workflow_dispatch:
 
 permissions:
@@ -34,6 +35,7 @@ jobs:
             /backtester/causal_split_overrides.py
             /backtester/data/causal-split-overrides-v1.json
             /backtester/data/causal-split-overrides-v1.SHA256
+            /backtester/data/causal-split-overrides-v1.d/**
             /backtester/experiments/2026-08-27-sector-abc/**
             /PIT input data/MANIFEST.csv
             /PIT input data/ACTIONS_PIT_ONLY.csv.gz
@@ -112,9 +114,10 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
+          from backtester.causal_split_overrides import frozen_override_record_count
           evidence=json.loads(Path('backtester-results/full-corpus-unresolved-splits-adjudicated.json').read_text())
-          frozen=json.loads(Path('backtester/data/causal-split-overrides-v1.json').read_text())
-          frozen_count=len(frozen['records'])
+          data=Path('backtester/data/causal-split-overrides-v1.json')
+          frozen_count=frozen_override_record_count(data)
           expected_unresolved=128-frozen_count
           if evidence.get('status')!='PASS': raise SystemExit('adjudicated scan did not PASS')
           if evidence.get('bars_processed')!=46238394 or evidence.get('last_session')!='2026-07-31':
