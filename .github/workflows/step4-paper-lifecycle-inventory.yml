@@ -1,0 +1,41 @@
+name: Step 4 paper lifecycle inventory
+
+on:
+  push:
+    branches:
+      - codex/step-4-paper-lifecycle-decomposition
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  inventory:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate responsibility map
+        run: python tools/step4_paper_lifecycle_inventory.py
+
+      - name: Verify generated inventory
+        run: |
+          test -s docs/paper-lifecycle-responsibility-map.md
+          test -s artifacts/paper-lifecycle-responsibility-map.json
+          python -m json.tool artifacts/paper-lifecycle-responsibility-map.json >/dev/null
+
+      - name: Commit generated inventory
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/paper-lifecycle-responsibility-map.md artifacts/paper-lifecycle-responsibility-map.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "docs(step4): map paper lifecycle responsibilities"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
