@@ -43,10 +43,21 @@ else
   CANDIDATES="$(${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
     find /sentinel-backup/base -mindepth 1 -maxdepth 1 -type d -printf "%f\n"
   ')"
-  NAME="$(printf '%s\n' "$CANDIDATES" \
-    | grep -E "$COMPLETED_NAME_RE" | sort | tail -1 || true)"
+  NAME=""
+  while IFS= read -r CANDIDATE; do
+    [ -n "$CANDIDATE" ] || continue
+    if ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
+      name="$1"
+      test -f "/sentinel-backup/base/$name/backup_manifest"
+      test -f "/sentinel-backup/base/$name/sentinel-recovery-marker"
+    ' sh "$CANDIDATE" >/dev/null 2>&1; then
+      NAME="$CANDIDATE"
+      break
+    fi
+  done < <(printf '%s\n' "$CANDIDATES" \
+    | grep -E "$COMPLETED_NAME_RE" | sort -r || true)
 fi
-[ -n "$NAME" ] || { echo "REFUSED: no base backup exists" >&2; exit 4; }
+[ -n "$NAME" ] || { echo "REFUSED: no complete base backup exists" >&2; exit 4; }
 LATEST="$BACKUP_ROOT/base/$NAME"
 ${COMPOSE[@]} exec -T sentinel-postgres test -d "/sentinel-backup/base/$NAME" || {
   echo "REFUSED: requested base backup does not exist: $LATEST" >&2; exit 4; }
