@@ -73,8 +73,12 @@ jobs:
 
           path = Path('tests/sentinel/test_alpaca_boundary_overlay.py')
           text = path.read_text()
-          text = text.replace(
-              'from sentinel.execution import reconcile as compat\n', '', 1)
+          old_compat_import = 'from sentinel.execution import reconcile as compat\n'
+          new_helper_import = 'from sentinel.execution.reconcile import _is_broker_instance\n'
+          if text.count(old_compat_import) != 1:
+              raise RuntimeError('compatibility helper import seam changed')
+          text = text.replace(old_compat_import, new_helper_import, 1)
+          text = text.replace('compat._is_broker_instance(', '_is_broker_instance(')
           old_import = '''    NativeBrokerFill,\n    restore_increase_fence_reason,\n)'''
           new_import = '''    NativeBrokerFill,\n    restore_increase_fence_reason,\n    strict_advance,\n    strict_checkpoint,\n)'''
           if text.count(old_import) != 1:
@@ -97,7 +101,7 @@ jobs:
               '            RuntimeError, match="not yet durably reconciled"):\n'
               '        strict_advance(conn, through)\n',
               1)
-          if '_strict_context' in text or 'compat._RECONCILING' in text:
+          if '_strict_context' in text or 'compat.' in text:
               raise RuntimeError('stale compatibility recovery helper remains')
           path.write_text(text)
           PY
