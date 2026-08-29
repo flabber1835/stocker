@@ -22,18 +22,7 @@ jobs:
 
       - name: Repair and compile mapper
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('tools/step4_paper_lifecycle_inventory.py')
-          text = path.read_text()
-          old = '''            )
-        records.append({'''
-          new = '''            )
-        )
-        records.append({'''
-          if old in text:
-              path.write_text(text.replace(old, new, 1))
-          PY
+          python -c "from pathlib import Path; p=Path('tools/step4_paper_lifecycle_inventory.py'); t=p.read_text(); p.write_text(t.replace('            )\\n        records.append({', '            )\\n        )\\n        records.append({', 1))"
           python -m py_compile tools/step4_paper_lifecycle_inventory.py
 
       - name: Generate responsibility map
