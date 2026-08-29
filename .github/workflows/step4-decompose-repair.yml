@@ -1,4 +1,4 @@
-name: Step 4 decomposition payload repair
+name: Step 4 verified lifecycle decomposition
 
 on:
   push:
@@ -19,44 +19,29 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Extract and verify committed generator payload
+      - name: Verify and assemble generator payload
+        shell: bash
         run: |
-          python - <<'PY'
-          from hashlib import sha256
-          from pathlib import Path
-
-          expected = '6507b27416abd6e90e0dc1ae5635581a74275525b2452face41005e7c614dca4'
-          workflow = Path('.github/workflows/step4-paper-lifecycle-inventory.yml')
-          text = workflow.read_text(encoding='utf-8')
-          marker = "<<'PAYLOAD'\n"
-          payload = text.split(marker, 1)[1].split('\n          PAYLOAD', 1)[0]
-          normalized = ''.join(payload.split())
-          print('committed_payload_length =', len(normalized))
-          print('committed_payload_sha256 =', sha256(normalized.encode()).hexdigest())
-
-          if sha256(normalized.encode()).hexdigest() != expected:
-              if len(normalized) != 9581:
-                  raise SystemExit('encoded generator has an unexpected shape')
-              repaired = None
-              for index in range(len(normalized)):
-                  candidate = normalized[:index] + normalized[index + 1:]
-                  if sha256(candidate.encode()).hexdigest() == expected:
-                      repaired = candidate
-                      print('removed_extra_character_index =', index)
-                      print('removed_extra_character =', repr(normalized[index]))
-                      break
-              if repaired is None:
-                  raise SystemExit('single-character payload repair did not reproduce the pinned hash')
-              normalized = repaired
-
-          if len(normalized) != 9580:
-              raise SystemExit('repaired generator length mismatch')
-          if sha256(normalized.encode()).hexdigest() != expected:
-              raise SystemExit('repaired generator hash mismatch')
-          Path('/tmp/step4_decompose_paper.py.gz.b64').write_text(
-              normalized, encoding='ascii')
-          PY
-          base64 --decode /tmp/step4_decompose_paper.py.gz.b64 | gzip --decompress > /tmp/step4_decompose_paper.py
+          set -euo pipefail
+          echo "47564b6f746b12659b00999d4e4e6def49ce8afc00b54d7bd70247746d1ee29b  tools/step4_payload/part00" | sha256sum --check
+          echo "4b6bad768345c6f6a19f150cf8cfff1aa8916440ab84816829514a1f57d379c1  tools/step4_payload/part01" | sha256sum --check
+          echo "b0207b996e969a62d1325d2519d699f30c5de5dbc07515dfc14750d4d6e55eca  tools/step4_payload/part02" | sha256sum --check
+          echo "6d8be24da742987f0759879714ce4fa0d8fb933f771ee06a971ff022ec35de89  tools/step4_payload/part03" | sha256sum --check
+          echo "61b1e04d20fabcb0c2062f91a70061a7aa6ac2c905f615acfd2e3636ee0f1eff  tools/step4_payload/part04" | sha256sum --check
+          echo "ff190ecd9ced584fc7da15bbc8c38c1de1445792cbd072c2e75910acb4aec7ac  tools/step4_payload/part05" | sha256sum --check
+          echo "015830171dd1e0592979bffb1d0e37ef5dac5c7ece95495bc8bc87090f389fd4  tools/step4_payload/part06" | sha256sum --check
+          cat tools/step4_payload/part00 \
+              tools/step4_payload/part01 \
+              tools/step4_payload/part02 \
+              tools/step4_payload/part03 \
+              tools/step4_payload/part04 \
+              tools/step4_payload/part05 \
+              tools/step4_payload/part06 \
+              > /tmp/step4_decompose_paper.py.gz.b64
+          test "$(wc -c < /tmp/step4_decompose_paper.py.gz.b64)" = "9580"
+          echo "6507b27416abd6e90e0dc1ae5635581a74275525b2452face41005e7c614dca4  /tmp/step4_decompose_paper.py.gz.b64" | sha256sum --check
+          base64 --decode /tmp/step4_decompose_paper.py.gz.b64 \
+            | gzip --decompress > /tmp/step4_decompose_paper.py
           echo "e763f6fb93ee1ec6afc72ce0ed67a022ea1a4153eee6f37d0d4e4debba346578  /tmp/step4_decompose_paper.py" | sha256sum --check
           python -m py_compile /tmp/step4_decompose_paper.py
 
@@ -64,7 +49,9 @@ jobs:
         run: python /tmp/step4_decompose_paper.py
 
       - name: Verify generated source
+        shell: bash
         run: |
+          set -euo pipefail
           test ! -e sentinel/paper.py
           test -f sentinel/paper/__init__.py
           test -f docs/paper-lifecycle-equivalence.json
@@ -75,13 +62,16 @@ jobs:
 
       - name: Remove one-time generation machinery
         run: |
+          rm -rf tools/step4_payload
           rm -f tools/step4_paper_lifecycle_inventory.py
           rm -f artifacts/paper-lifecycle-responsibility-map.json
           rm -f .github/workflows/step4-paper-lifecycle-inventory.yml
           rm -f .github/workflows/step4-decompose-repair.yml
 
       - name: Commit lifecycle decomposition
+        shell: bash
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
