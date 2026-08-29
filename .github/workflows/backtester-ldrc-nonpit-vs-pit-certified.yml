@@ -1,4 +1,4 @@
-name: Backtester - certified LD-RC non-PIT vs PIT
+name: Backtester - certified LD-RC non-PIT vs full-stack PIT
 
 on:
   push:
@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   certified-ldrc-comparison:
-    name: Full certified LD-RC non-PIT vs PIT replay
+    name: Full certified LD-RC non-PIT vs full-stack PIT replay
     if: github.ref_name == 'research/backtester'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
@@ -159,8 +159,15 @@ jobs:
               raise SystemExit('fresh replay flag is not true')
           if summary.get('prerecorded_decision_inputs') is not False:
               raise SystemExit('prerecorded-decision boundary is not false')
-          if summary.get('wealth_core_parity') is not True:
-              raise SystemExit('A/D Wealth Core parity is not true')
+          if summary.get('full_stack_pit') is not True:
+              raise SystemExit('full-stack PIT flag is not true')
+          if summary.get('wealth_core_pit_enabled') is not True:
+              raise SystemExit('Wealth Core PIT flag is not true')
+          if summary.get('wealth_core_parity') is not False:
+              raise SystemExit('A/D Wealth Core parity must be disabled')
+          authority = summary.get('pit_authority') or {}
+          if authority.get('present_day_relatedtickers_in_D') is not False:
+              raise SystemExit(f'D still permits present-day relatedtickers: {authority}')
           contract = summary.get('comparison_contract') or {}
           if expected_main not in str(contract.get('wealth_core')):
               raise SystemExit(f'wrong Wealth Core main pin: {contract}')
@@ -169,6 +176,10 @@ jobs:
           expected_years = [str(y) for y in range(1998, 2026)]
           if years != expected_years:
               raise SystemExit(f'calendar-year checkpoints incomplete: {years}')
+          daily = pd.read_csv('daily.csv.gz', compression='gzip')
+          required_daily = {'date', 'A_nav', 'D_nav', 'A_wealth_core_equity', 'D_wealth_core_equity'}
+          if not required_daily.issubset(daily.columns):
+              raise SystemExit(f'independent Wealth Core evidence missing: {sorted(required_daily-set(daily.columns))}')
           metrics = pd.read_csv('metrics.csv', dtype={'window_years': str})
           windows = set(metrics['window_years'].astype(str))
           if windows != {'5', '10', '15', '20', 'max'}:
