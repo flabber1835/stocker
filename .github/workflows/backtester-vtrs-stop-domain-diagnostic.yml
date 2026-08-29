@@ -56,27 +56,25 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import pandas as pd, zipfile
-          sep='sharadar/SHARADAR_SEP_1998.csv.gz'
-          df=pd.read_csv(sep,low_memory=False)
-          print('SEP columns:', list(df.columns))
-          q=df[(df['ticker'].astype(str)=='VTRS')].copy()
-          q['date']=pd.to_datetime(q['date'])
-          q=q[(q.date>=pd.Timestamp('1998-07-01')) & (q.date<=pd.Timestamp('1998-09-02'))]
-          cols=[c for c in ['date','ticker','open','high','low','close','volume','closeunadj','lastupdated'] if c in q.columns]
+          import csv, gzip, io, zipfile
           print('=== VTRS SEP ===')
-          print(q[cols].to_string(index=False))
+          with gzip.open('sharadar/SHARADAR_SEP_1998.csv.gz','rt',newline='') as f:
+              r=csv.DictReader(f)
+              print('SEP columns:', r.fieldnames)
+              for row in r:
+                  if row.get('ticker')=='VTRS' and '1998-07-01' <= row.get('date','') <= '1998-09-02':
+                      keep=['date','ticker','open','high','low','close','volume','closeunadj','lastupdated']
+                      print({k:row.get(k) for k in keep if k in row})
+          print('=== VTRS vendor ACTIONS ===')
           with zipfile.ZipFile('sharadar/SHARADAR_ACTIONS.zip') as z:
               name=[n for n in z.namelist() if n.lower().endswith('.csv')][0]
-              with z.open(name) as f: a=pd.read_csv(f,low_memory=False)
-          aq=a[a['ticker'].astype(str)=='VTRS'].copy()
-          if 'date' in aq: aq['date']=pd.to_datetime(aq['date'])
-          print('=== VTRS vendor ACTIONS ===')
-          print(aq.to_string(index=False))
-          pit=pd.read_csv('PIT input data/ACTIONS_PIT_ONLY.csv.gz',low_memory=False)
-          pq=pit[pit['ticker'].astype(str)=='VTRS'].copy() if 'ticker' in pit.columns else pit.iloc[0:0]
+              with io.TextIOWrapper(z.open(name),encoding='utf-8-sig',newline='') as f:
+                  for row in csv.DictReader(f):
+                      if row.get('ticker')=='VTRS': print(row)
           print('=== VTRS PIT ACTIONS ===')
-          print(pq.to_string(index=False))
+          with gzip.open('PIT input data/ACTIONS_PIT_ONLY.csv.gz','rt',newline='') as f:
+              for row in csv.DictReader(f):
+                  if row.get('ticker')=='VTRS': print(row)
           print('=== reconstruction manifest ===')
           print(open('PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv').read())
           PY
