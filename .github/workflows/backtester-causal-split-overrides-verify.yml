@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   verify:
-    name: Verify ten primary-source split adjudications
+    name: Verify eleven primary-source split adjudications
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -117,12 +117,12 @@ jobs:
           import json
           from pathlib import Path
           x=json.loads(Path('backtester-results/causal-split-overrides-verify.json').read_text())
-          if x.get('status')!='PASS' or x.get('override_count')!=10:
+          if x.get('status')!='PASS' or x.get('override_count')!=11:
               raise SystemExit(f"invalid split override verification: {x.get('status')} {x.get('override_count')}")
-          expected='0f308fe9238a2e8ddeda2f49188633c0bba7786ad8a1be5e3442124510182ae1'
+          expected='02904c85add7bc25e5ad8d1c5c26a1c02590cc9a059aec8c61309f41d8f6209f'
           if x.get('split_override_sha256')!=expected:
               raise SystemExit(f"wrong split override digest: {x.get('split_override_sha256')}")
-          print(json.dumps({'status':'PASS','override_count':10,'sha256':expected},sort_keys=True))
+          print(json.dumps({'status':'PASS','override_count':11,'sha256':expected},sort_keys=True))
           PY
 
       - name: Upload verification evidence
