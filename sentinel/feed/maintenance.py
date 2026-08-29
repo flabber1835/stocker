@@ -34,7 +34,7 @@ def _reconcile_sep_mutations_core(conn, *, fetch=_core.sharadar.fetch_table,
                                   through: str) -> Optional[_core.SourceCursor]:
     """Apply SEP CDC rows through the canonical typed identity boundary."""
     _core.store._assert_corpus_locked(conn)
-    cursor = _core.load_sep_cursor(conn)
+    cursor = load_sep_cursor(conn)  # noqa: F405
     if cursor is None:
         raise _core.MutationCursorUnavailable(
             "SEP lastupdated cursor is absent. A complete source-stable seed or "
@@ -51,18 +51,18 @@ def _reconcile_sep_mutations_core(conn, *, fetch=_core.sharadar.fetch_table,
     lo = cursor.processed_through - dt.timedelta(days=1)
     params = {"lastupdated.gte": lo.isoformat(),
               "lastupdated.lte": hi.isoformat()}
-    rows = _core._stable_rows(fetch, _core.sharadar.SEP, params)
-    market_start, market_end = _core._retained_market_bounds(conn)
+    rows = _stable_rows(fetch, _core.sharadar.SEP, params)
+    market_start, market_end = _retained_market_bounds(conn)
     published_from = dt.date.fromisoformat(market_start)
     published_through = dt.date.fromisoformat(market_end)
-    dates = validate_sep_mutation_rows(
+    dates = _validate_sep_mutation_rows(
         conn, rows, lo=lo, hi=hi, published_from=published_from,
         published_through=published_through)
 
     if not dates:
         current = _core.publication.require_current(conn)
-        return _core._write_cursor(
-            conn, name=_core.SEP_CURSOR_NAME,
+        return _write_cursor(
+            conn, name=SEP_CURSOR_NAME,
             kind="sharadar-sep-lastupdated/v1", through=hi,
             publication_version=current.version)
 
@@ -96,8 +96,8 @@ def _reconcile_sep_mutations_core(conn, *, fetch=_core.sharadar.fetch_table,
                  "rows_dropped": item.rows_dropped}
                 for item in replayed],
         })
-    return _core._write_cursor(
-        conn, name=_core.SEP_CURSOR_NAME,
+    return _write_cursor(
+        conn, name=SEP_CURSOR_NAME,
         kind="sharadar-sep-lastupdated/v1", through=hi,
         publication_version=published.version)
 
