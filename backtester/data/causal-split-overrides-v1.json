@@ -85,6 +85,18 @@
         "https://www.sec.gov/Archives/edgar/data/1383395/000138339520000011/R13.htm"
       ],
       "ticker": "SQNS"
+    },
+    {
+      "effective_session": "2009-02-06",
+      "expected_sep_derived": 2.4,
+      "expected_vendor_stated": 0.2,
+      "known_by": "2009-01-30",
+      "multiplier": 1.0,
+      "reference": "Transcept/Novacea completed a single 1-for-5 reverse stock split on 2009-01-30; the PRTK identity begins SEP pricing after that legal split, so the 2009-02-06 vendor split row is duplicate economic treatment",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/1178711/000119312512143822/d283543d10k.htm"
+      ],
+      "ticker": "PRTK"
     }
   ],
   "schema": "backtester.causal-split-overrides/1"
