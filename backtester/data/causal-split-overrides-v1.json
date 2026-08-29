@@ -183,6 +183,18 @@
         "https://www.sec.gov/Archives/edgar/data/934612/000118143104005727/xslF345X03/rrd31208.xml"
       ],
       "ticker": "BNI"
+    },
+    {
+      "effective_session": "1998-01-07",
+      "expected_sep_derived": 1.0,
+      "expected_vendor_stated": 1.05,
+      "known_by": "1997-12-12",
+      "multiplier": 1.05,
+      "reference": "Enzo Biochem declared a 5% stock dividend on 1997-12-12, payable 1998-01-23 to shareholders of record 1998-01-09; Sharadar records the corresponding ex-date treatment on 1998-01-07",
+      "sources": [
+        "https://companiesmarketcap.com/sgd/enzo-biochem/sec-reports-10q/0001005477-98-000750/"
+      ],
+      "ticker": "ENZB"
     }
   ],
   "schema": "backtester.causal-split-overrides/1"
