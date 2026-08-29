@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   verify:
-    name: Verify eight primary-source split adjudications
+    name: Verify nine primary-source split adjudications
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -41,6 +41,7 @@ jobs:
             /sharadar/SHARADAR_SEP_2003.csv.gz
             /sharadar/SHARADAR_SEP_2008.csv.gz
             /sharadar/SHARADAR_SEP_2009.csv.gz
+            /sharadar/SHARADAR_SEP_2014.csv.gz
             /sharadar/SHARADAR_SEP_2016.csv.gz
             /sharadar/SHARADAR_SEP_2017.csv.gz
             /sharadar/SHARADAR_SEP_2019.csv.gz
@@ -115,12 +116,12 @@ jobs:
           import json
           from pathlib import Path
           x=json.loads(Path('backtester-results/causal-split-overrides-verify.json').read_text())
-          if x.get('status')!='PASS' or x.get('override_count')!=8:
+          if x.get('status')!='PASS' or x.get('override_count')!=9:
               raise SystemExit(f"invalid split override verification: {x.get('status')} {x.get('override_count')}")
-          expected='08652393afe16f9be46bb03ec244e6986b2c37602224f3f40d4a5e7f1b4157cf'
+          expected='9b408bdb576930d9b6fdb515a0318c8c76f2edccc0213f06d15062177cc4f014'
           if x.get('split_override_sha256')!=expected:
               raise SystemExit(f"wrong split override digest: {x.get('split_override_sha256')}")
-          print(json.dumps({'status':'PASS','override_count':8,'sha256':expected},sort_keys=True))
+          print(json.dumps({'status':'PASS','override_count':9,'sha256':expected},sort_keys=True))
           PY
 
       - name: Upload verification evidence
