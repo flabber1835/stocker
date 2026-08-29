@@ -9,6 +9,19 @@ from sentinel.feed import sep_reconciliation_impl as _core
 from sentinel.feed.sep_reconciliation_impl import *  # noqa: F403
 from sentinel.feed.source_authority import CanonicalSourceFetch, SepUpdateEnvelope
 
+# Explicit static compatibility/test seams. These are ordinary references and do
+# not mutate the implementation module or depend on import order.
+_Fingerprint = _core._Fingerprint
+_ValueFingerprint = _core._ValueFingerprint
+_PartitionProof = _core._PartitionProof
+_number = _core._number
+_local_fingerprint = _core._local_fingerprint
+_visible_bounds = _core._visible_bounds
+_load_state = _core._load_state
+_next_year = _core._next_year
+_save_result = _core._save_result
+_bounded_years = _core._bounded_years
+
 _OBSERVATION_CEILING = contextvars.ContextVar(
     "sentinel_sep_reconciliation_observation_ceiling", default=None)
 
@@ -62,7 +75,7 @@ def _reconcile_year(conn, *, fetch, year: int, start: str, end: str):
             and str(end).startswith(f"{int(year):04d}-")):
         raise ValueError("SEP reconciliation window must stay within one year")
     source = _source_fingerprint(conn, fetch=fetch, start=start, end=end)
-    local = _core._local_fingerprint(conn, start=start, end=end)
+    local = _local_fingerprint(conn, start=start, end=end)
     if source.rows != local.rows or source.key_digest != local.key_digest:
         raise _core.SepKeysetDrift(
             f"stable Sharadar SEP {year} normalized key set disagrees with "
@@ -91,13 +104,13 @@ def reconcile_all(conn, *, fetch=_core.sharadar.fetch_table,
     with _ceiling(through):
         _core.store._assert_corpus_locked(conn)
         checked_on = dt.date.fromisoformat(str(through))
-        lo, hi = _core._visible_bounds(conn)
+        lo, hi = _visible_bounds(conn)
         results = []
-        for year, start, end in _core._bounded_years(lo, hi, checked_on):
-            result = _reconcile_year(
+        for year, start, end in _bounded_years(lo, hi, checked_on):
+            result = reconcile_year(
                 conn, fetch=fetch, year=year,
                 start=start.isoformat(), end=end.isoformat())
-            _core._save_result(conn, result, checked_on=checked_on)
+            _save_result(conn, result, checked_on=checked_on)
             results.append(result)
         return results
 
@@ -107,19 +120,19 @@ def reconcile_next(conn, *, fetch=_core.sharadar.fetch_table,
     """Advance rotating complete SEP proof through one explicit source day."""
     with _ceiling(through):
         _core.store._assert_corpus_locked(conn)
-        if _core.YEARS_PER_RUN < 1:
+        if YEARS_PER_RUN < 1:
             raise ValueError("SHARADAR_SEP_RECONCILE_YEARS_PER_RUN must be >= 1")
         checked_on = dt.date.fromisoformat(str(through))
         results = []
-        for _ in range(_core.YEARS_PER_RUN):
-            year, start, end = _core._next_year(conn)
+        for _ in range(YEARS_PER_RUN):
+            year, start, end = _next_year(conn)
             if start > checked_on:
                 break
             end = min(end, checked_on)
-            result = _reconcile_year(
+            result = reconcile_year(
                 conn, fetch=fetch, year=year,
                 start=start.isoformat(), end=end.isoformat())
-            _core._save_result(conn, result, checked_on=checked_on)
+            _save_result(conn, result, checked_on=checked_on)
             results.append(result)
         return results
 
