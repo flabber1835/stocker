@@ -1,7 +1,7 @@
 """Regression checks for canonical ownership after the simplification merges."""
 from __future__ import annotations
 
-import pathlib
+import inspect
 
 from sentinel.execution import authority_gate
 from sentinel.execution.guarded import (
@@ -10,9 +10,6 @@ from sentinel.execution.guarded import (
     PaperPreparationGrant,
 )
 from sentinel.feed import publication
-
-
-REPO = pathlib.Path(__file__).parents[2]
 
 
 def test_every_non_mutating_broker_operation_has_authority_classification():
@@ -56,8 +53,7 @@ def test_ingest_support_module_contains_helpers_only():
 
     assert not hasattr(ingest_authority_impl, "seed")
     assert not hasattr(ingest_authority_impl, "daily")
-    text = (REPO / "sentinel" / "feed" / "ingest_authority_impl.py").read_text(
-        encoding="utf-8")
+    text = inspect.getsource(ingest_authority_impl)
     assert "def seed(" not in text
     assert "def daily(" not in text
 
