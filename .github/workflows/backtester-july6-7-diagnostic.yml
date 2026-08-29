@@ -1,0 +1,184 @@
+name: Backtester - July 6-7 Wealth Core diagnostic
+
+on:
+  push:
+    branches: [research/backtester]
+    paths: ['.github/workflows/backtester-july6-7-diagnostic.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-july6-7:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out diagnostic inputs
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/backtester
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /PIT input data/MANIFEST.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
+            /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
+            /sharadar/SHARADAR_ACTIONS.zip
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SHARADAR_SEP_1997.csv.gz
+            /sharadar/SHARADAR_SEP_1998.csv.gz
+            /sharadar/SFP/**
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/SHA256SUMS.txt
+            /research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
+
+      - name: Reconstruct research SFP archive
+        shell: bash
+        run: |
+          cat sharadar/SFP/SHARADAR_SFP.zip.001 sharadar/SFP/SHARADAR_SFP.zip.002 sharadar/SFP/SHARADAR_SFP.zip.003 sharadar/SFP/SHARADAR_SFP.zip.004 > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+
+      - name: Check out exact production source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: c502d077cae9c494f8b74a41ee8be7f40b25837d
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+            docs/sentinel-handoff
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+
+      - name: Build bounded research diagnostic
+        shell: bash
+        run: |
+          mkdir -p backtester-results/research-control
+          python - <<'PY'
+          from pathlib import Path
+          src=Path('research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py')
+          text=src.read_text()
+          reps=[
+            ("ROOT = Path('/mnt/data')\nOUT = ROOT / 'ldrc_ab_replay_20260825'", "ROOT = Path('sharadar')\nOUT = Path('backtester-results/research-control')"),
+            ("START = pd.Timestamp('2006-07-31')", "START = pd.Timestamp('1998-01-02')"),
+            ("END = pd.Timestamp('2026-07-31')", "END = pd.Timestamp('1998-07-07')"),
+            ("rows=[]; overlap_checks={}; buys=sells=split_events=div_events=0", "rows=[]; holdings_rows=[]; overlap_checks={}; buys=sells=split_events=div_events=0"),
+            ("                prev_perf_date=date; prev_close_eq=eq", "                for slot_id,s in enumerate(book.slots):\n                    holdings_rows.append({'date':date,'slot_id':slot_id,'held':s.held(),'ticker':tick[s.tid] if s.held() else '','qty':float(s.qty) if s.held() else 0.0,'entry_day':int(s.entry_day) if s.held() else -1,'entry_signal':float(s.entry_sig) if s.held() and finite(s.entry_sig) else np.nan,'peak':float(s.peak) if s.held() and finite(s.peak) else np.nan,'reviewed':bool(s.reviewed) if s.held() else False,'pending_sell':bool(s.pending_sell) if s.held() else False,'sell_reason':s.sell_reason if s.held() else ''})\n                prev_perf_date=date; prev_close_eq=eq"),
+            ("    out.to_csv(OUT/'daily.csv',index=False)", "    out.to_csv(OUT/'daily.csv',index=False)\n    pd.DataFrame(holdings_rows).to_csv(OUT/'holdings.csv',index=False)"),
+          ]
+          for a,b in reps:
+              assert text.count(a)==1, a
+              text=text.replace(a,b,1)
+          Path('/tmp/research_diag.py').write_text(text)
+          PY
+          python -m py_compile /tmp/research_diag.py
+
+      - name: Run research through July 7
+        env: {PYTHONUNBUFFERED: '1'}
+        run: python /tmp/research_diag.py 2>&1 | tee backtester-results/research-control/run.log
+
+      - name: Build bounded production diagnostic
+        shell: bash
+        run: |
+          mkdir -p backtester-results/production
+          python - <<'PY'
+          from pathlib import Path
+          text=Path('backtester/experiments/2026-08-27-sector-abc/run.py').read_text()
+          a="    daily_rows = []\n    normalization = NormalisationReport()"
+          b="    daily_rows = []\n    diagnostic_holdings_rows = []\n    normalization = NormalisationReport()"
+          assert text.count(a)==1; text=text.replace(a,b,1)
+          a="        daily_rows.append({\n"
+          b=("        wc = state_a.wealth_core\n"
+             "        def _gv(obj,key,default=None): return obj.get(key,default) if isinstance(obj,dict) else getattr(obj,key,default)\n"
+             "        slots = wc.get('slots',{}) if isinstance(wc,dict) else wc.slots\n"
+             "        episodes = wc.get('episodes',{}) if isinstance(wc,dict) else wc.episodes\n"
+             "        slot_items = slots.items() if isinstance(slots,dict) else enumerate(slots)\n"
+             "        for slot_id,slot in sorted(slot_items,key=lambda kv:str(kv[0])):\n"
+             "            ep=episodes.get(slot_id) if isinstance(episodes,dict) else None\n"
+             "            if ep is None and isinstance(episodes,dict): ep=episodes.get(str(slot_id))\n"
+             "            diagnostic_holdings_rows.append({'date':session,'slot_id':slot_id,'held':ep is not None,'security_id':_gv(ep,'security_id','') if ep is not None else '','ticker':_gv(ep,'ticker',_gv(slot,'reserved_ticker','')) if ep is not None else _gv(slot,'reserved_ticker',''),'shares':float(_gv(ep,'current_shares',0.0) or 0.0) if ep is not None else 0.0,'entry_date':_gv(ep,'entry_date','') if ep is not None else '','entry_raw_open':_gv(ep,'entry_raw_open',float('nan')) if ep is not None else float('nan'),'entry_signal':_gv(ep,'entry_split_adjusted_price',float('nan')) if ep is not None else float('nan'),'peak':_gv(ep,'episode_peak_split_adjusted_close',float('nan')) if ep is not None else float('nan'),'reviewed':bool(_gv(ep,'review_completed',False)) if ep is not None else False,'exit_pending':bool(_gv(ep,'exit_pending',False)) if ep is not None else False,'exit_reason':_gv(ep,'exit_reason','') if ep is not None else ''})\n"
+             "        daily_rows.append({\n")
+          assert text.count(a)==1; text=text.replace(a,b,1)
+          a="    pd.DataFrame(metrics_rows).to_csv(metrics_path, index=False)\n"
+          b="    pd.DataFrame(metrics_rows).to_csv(metrics_path, index=False)\n    pd.DataFrame(diagnostic_holdings_rows).to_csv(output / 'holdings.csv', index=False)\n"
+          assert text.count(a)==1; text=text.replace(a,b,1)
+          a="    if unresolved_splits:\n        raise RuntimeError(\n"
+          b="    if (unresolved_splits and os.environ.get('BACKTESTER_EQUIV_IGNORE_FINAL_SPLIT_AUDIT') != '1'):\n        raise RuntimeError(\n"
+          assert text.count(a)==1; text=text.replace(a,b,1)
+          Path('/tmp/production_diag.py').write_text(text)
+          PY
+          python -m py_compile /tmp/production_diag.py
+
+      - name: Run production through July 7
+        env:
+          PYTHONUNBUFFERED: '1'
+          BACKTESTER_MAIN_SHA: c502d077cae9c494f8b74a41ee8be7f40b25837d
+          BACKTESTER_EQUIV_IGNORE_FINAL_SPLIT_AUDIT: '1'
+          BACKTESTER_BRANCH_SHA: ${{ github.sha }}
+        run: |
+          python - <<'PY' 2>&1 | tee backtester-results/production/run.log
+          import importlib.util,sys
+          from pathlib import Path
+          root=Path('.').resolve(); sys.path[:0]=[str(root/'main-src'/'shared'),str(root/'main-src')]
+          path=Path('/tmp/production_diag.py')
+          spec=importlib.util.spec_from_file_location('production_diag',path)
+          runner=importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
+          runner.END_SESSION='1998-07-07'; runner.MEASUREMENT_WINDOWS={}
+          sys.argv=[str(path),'--lab-root','.', '--main-root','main-src','--output','backtester-results/production']
+          raise SystemExit(runner.main())
+          PY
+
+      - name: Compare July 6 and July 7
+        shell: bash
+        run: |
+          mkdir -p backtester-results/comparison
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          r=pd.read_csv('backtester-results/research-control/daily.csv',parse_dates=['date'])[['date','shadow_equity']]
+          p=pd.read_csv('backtester-results/production/daily.csv.gz',parse_dates=['date'])[['date','wealth_core_equity']]
+          x=r.merge(p,on='date').sort_values('date')
+          x['research_return']=x.shadow_equity.pct_change(); x['production_return']=x.wealth_core_equity.pct_change()
+          focus=x[x.date.isin(pd.to_datetime(['1998-07-06','1998-07-07']))].copy()
+          rh=pd.read_csv('backtester-results/research-control/holdings.csv',parse_dates=['date'])
+          ph=pd.read_csv('backtester-results/production/holdings.csv',parse_dates=['date'])
+          blocks=[]; summary={}
+          for ds in ['1998-07-06','1998-07-07']:
+              d=pd.Timestamp(ds)
+              a=rh[(rh.date==d)&rh.held][['ticker','slot_id','qty','entry_day','entry_signal','peak','reviewed','pending_sell','sell_reason']].rename(columns=lambda c:c if c=='ticker' else 'research_'+c)
+              b=ph[(ph.date==d)&ph.held][['ticker','security_id','slot_id','shares','entry_date','entry_signal','peak','reviewed','exit_pending','exit_reason']].rename(columns=lambda c:c if c=='ticker' else 'production_'+c)
+              c=a.merge(b,on='ticker',how='outer',indicator=True); c.insert(0,'date',ds); blocks.append(c)
+              summary[ds]={'research_held':len(a),'production_held':len(b),'research_only':sorted(c.loc[c._merge=='left_only','ticker'].dropna().astype(str)),'production_only':sorted(c.loc[c._merge=='right_only','ticker'].dropna().astype(str))}
+          pd.concat(blocks).to_csv('backtester-results/comparison/holdings_line_by_line.csv',index=False)
+          focus.to_csv('backtester-results/comparison/equity_returns.csv',index=False)
+          Path('backtester-results/comparison/result.json').write_text(json.dumps(summary,indent=2)+'\n')
+          print(json.dumps(summary,indent=2)); print(focus.to_string(index=False))
+          PY
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: july6-7-wealth-core-${{ github.run_id }}
+          path: backtester-results/
+          retention-days: 30
