@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   verify:
-    name: Verify twelve primary-source split adjudications
+    name: Verify frozen split adjudications
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -38,14 +38,7 @@ jobs:
             /PIT input data/ACTIONS_PIT_ONLY.csv.gz
             /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
             /sharadar/SHARADAR_TICKERS.zip
-            /sharadar/SHARADAR_SEP_1998.csv.gz
-            /sharadar/SHARADAR_SEP_2003.csv.gz
-            /sharadar/SHARADAR_SEP_2008.csv.gz
-            /sharadar/SHARADAR_SEP_2009.csv.gz
-            /sharadar/SHARADAR_SEP_2014.csv.gz
-            /sharadar/SHARADAR_SEP_2016.csv.gz
-            /sharadar/SHARADAR_SEP_2017.csv.gz
-            /sharadar/SHARADAR_SEP_2019.csv.gz
+            /sharadar/SHARADAR_SEP_*.csv.gz
 
       - name: Record research identity
         shell: bash
@@ -96,7 +89,6 @@ jobs:
           python -m py_compile backtester/causal_split_overrides.py
           python -m py_compile backtester/diagnostics/verify_causal_split_overrides.py
           python -m py_compile backtester/experiments/2026-08-27-sector-abc/run.py
-          sha256sum backtester/data/causal-split-overrides-v1.json
           (cd backtester/data && sha256sum -c causal-split-overrides-v1.SHA256)
 
       - name: Exercise exact frozen-main normalization
@@ -116,10 +108,12 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-          x=json.loads(Path('backtester-results/causal-split-overrides-verify.json').read_text())
-          if x.get('status')!='PASS' or x.get('override_count')!=12:
-              raise SystemExit(f"invalid split override verification: {x.get('status')} {x.get('override_count')}")
-          print(json.dumps({'status':'PASS','override_count':12,'sha256':x.get('split_override_sha256')},sort_keys=True))
+          evidence=json.loads(Path('backtester-results/causal-split-overrides-verify.json').read_text())
+          frozen=json.loads(Path('backtester/data/causal-split-overrides-v1.json').read_text())
+          expected_count=len(frozen['records'])
+          if evidence.get('status')!='PASS' or evidence.get('override_count')!=expected_count:
+              raise SystemExit(f"invalid split override verification: {evidence.get('status')} {evidence.get('override_count')} expected={expected_count}")
+          print(json.dumps({'status':'PASS','override_count':expected_count,'sha256':evidence.get('split_override_sha256')},sort_keys=True))
           PY
 
       - name: Upload verification evidence
