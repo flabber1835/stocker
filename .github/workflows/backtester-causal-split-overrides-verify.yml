@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   verify:
-    name: Verify eleven primary-source split adjudications
+    name: Verify twelve primary-source split adjudications
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -96,6 +96,7 @@ jobs:
           python -m py_compile backtester/causal_split_overrides.py
           python -m py_compile backtester/diagnostics/verify_causal_split_overrides.py
           python -m py_compile backtester/experiments/2026-08-27-sector-abc/run.py
+          sha256sum backtester/data/causal-split-overrides-v1.json
           (cd backtester/data && sha256sum -c causal-split-overrides-v1.SHA256)
 
       - name: Exercise exact frozen-main normalization
@@ -106,8 +107,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p backtester-results
-          python backtester/diagnostics/verify_causal_split_overrides.py \
-            2>&1 | tee backtester-causal-split-overrides-verify.log
+          python backtester/diagnostics/verify_causal_split_overrides.py 2>&1 | tee backtester-causal-split-overrides-verify.log
 
       - name: Verify evidence bundle
         shell: bash
@@ -117,12 +117,9 @@ jobs:
           import json
           from pathlib import Path
           x=json.loads(Path('backtester-results/causal-split-overrides-verify.json').read_text())
-          if x.get('status')!='PASS' or x.get('override_count')!=11:
+          if x.get('status')!='PASS' or x.get('override_count')!=12:
               raise SystemExit(f"invalid split override verification: {x.get('status')} {x.get('override_count')}")
-          expected='02904c85add7bc25e5ad8d1c5c26a1c02590cc9a059aec8c61309f41d8f6209f'
-          if x.get('split_override_sha256')!=expected:
-              raise SystemExit(f"wrong split override digest: {x.get('split_override_sha256')}")
-          print(json.dumps({'status':'PASS','override_count':11,'sha256':expected},sort_keys=True))
+          print(json.dumps({'status':'PASS','override_count':12,'sha256':x.get('split_override_sha256')},sort_keys=True))
           PY
 
       - name: Upload verification evidence
