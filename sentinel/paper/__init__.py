@@ -17,15 +17,18 @@ from sentinel import (
     trial_fills,
 )
 
+from sentinel.authority import load_rollout_state
+from sentinel.config import assert_paper_url
 from sentinel.controller.concordance_parent import load as load_concordance_parent
+from sentinel.controller.frozen_rule import load as load_controller
+from sentinel.core.decision import runtime_strategy_identity, shadow_target
 
 from sentinel.execution import broker_cash, executor, journal
-
 from sentinel.execution import commands as execution_commands
-
 from sentinel.execution import preopen_authority
-
 from sentinel.execution import target_reprojection
+from sentinel.execution.authority_gate import require_current_authority
+from sentinel.execution.certification import require_certified
 
 from sentinel.feed import calendar, publication, readiness, store as feed_store
 
