@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-
 from sentinel import _main_impl
 from sentinel.cli import feed as feed_cli
 from sentinel.cli import main as cli_main
@@ -28,8 +26,8 @@ def test_cli_run_routes_feed_daily_to_feed_owner(monkeypatch):
     def retained(argv):
         return 23
 
-    def routed(argv, *, retained_main, exit_ok, exit_config):
-        calls.append((argv, retained_main, exit_ok, exit_config))
+    def routed(argv, *, exit_ok, exit_config, exit_not_established):
+        calls.append((argv, exit_ok, exit_config, exit_not_established))
         return 29
 
     monkeypatch.setattr(_main_impl, "main", retained)
@@ -38,23 +36,19 @@ def test_cli_run_routes_feed_daily_to_feed_owner(monkeypatch):
     assert cli_main.run(["feed-daily", "--through", "2026-08-28"]) == 29
     assert calls == [(
         ["feed-daily", "--through", "2026-08-28"],
-        retained,
         _main_impl.EXIT_OK,
         _main_impl.EXIT_CONFIG,
+        _main_impl.EXIT_NOT_ESTABLISHED,
     )]
 
 
 def test_cli_run_routes_feed_daily_after_global_verbose(monkeypatch):
     calls = []
 
-    def retained(argv):
-        return 23
-
-    def routed(argv, *, retained_main, exit_ok, exit_config):
+    def routed(argv, **kwargs):
         calls.append(argv)
         return 29
 
-    monkeypatch.setattr(_main_impl, "main", retained)
     monkeypatch.setattr(cli_main, "run_feed_daily", routed)
 
     assert cli_main.run(["--verbose", "feed-daily"]) == 29
@@ -82,14 +76,17 @@ def test_cli_run_does_not_route_argument_value_named_feed_daily(monkeypatch):
     assert routed_calls == []
 
 
-def test_feed_daily_scopes_explicit_session_to_retained_dispatch(monkeypatch):
+def test_feed_daily_calls_ingest_with_validated_session(monkeypatch):
     calls = []
 
-    def original_daily(conn, *args, **kwargs):
-        calls.append((conn, args, kwargs))
-        return "progress"
+    class Connection:
+        closed = False
 
-    monkeypatch.setattr(feed_cli.ingest, "daily", original_daily)
+        def close(self):
+            self.closed = True
+
+    conn = Connection()
+
     monkeypatch.setattr(
         feed_cli.manual_daily,
         "extract_through",
@@ -104,27 +101,44 @@ def test_feed_daily_scopes_explicit_session_to_retained_dispatch(monkeypatch):
             latest_closed="2026-08-28",
         ),
     )
+    monkeypatch.setattr(
+        feed_cli.runtime_identity,
+        "require_feed_producer_identity",
+        lambda: {
+            "git_commit": "a" * 40,
+            "runtime_image_digest": "sha256:" + "b" * 64,
+        },
+    )
+    monkeypatch.setattr(
+        feed_cli.SentinelConfig,
+        "from_env",
+        classmethod(lambda cls: SimpleNamespace(database_url="postgres://test")),
+    )
+    monkeypatch.setattr(feed_cli.feed_store, "connect", lambda url: conn)
+    monkeypatch.setattr(feed_cli.feed_store, "ensure_schema", lambda c: None)
+    monkeypatch.setattr(feed_cli.feed_store, "reclaim_orphans", lambda c: 0)
 
-    def retained(argv):
-        assert argv == ["feed-daily"]
-        assert feed_cli.ingest.daily(None) == "progress"
-        return 31
+    def daily(c, *, today):
+        calls.append((c, today))
+        return SimpleNamespace(
+            kind="daily", chunks_done=2, rows_written=3, rows_dropped=0
+        )
+
+    monkeypatch.setattr(feed_cli.ingest, "daily", daily)
 
     assert feed_cli.run_feed_daily(
         ["feed-daily", "--through", "2026-08-28"],
-        retained_main=retained,
         exit_ok=0,
         exit_config=1,
-    ) == 31
-    assert calls == [(None, (), {"today": "2026-08-28"})]
-    assert feed_cli.ingest.daily is original_daily
+        exit_not_established=2,
+    ) == 0
+    assert calls == [(conn, "2026-08-28")]
+    assert conn.closed is True
 
 
-def test_feed_daily_restores_ingest_after_dispatch_failure(monkeypatch):
-    def original_daily(conn, *args, **kwargs):
-        return None
+def test_feed_daily_refuses_before_config_when_producer_is_unbound(monkeypatch):
+    config_calls = []
 
-    monkeypatch.setattr(feed_cli.ingest, "daily", original_daily)
     monkeypatch.setattr(
         feed_cli.manual_daily,
         "extract_through",
@@ -140,15 +154,28 @@ def test_feed_daily_restores_ingest_after_dispatch_failure(monkeypatch):
         ),
     )
 
-    def retained(argv):
-        raise RuntimeError("boom")
+    def missing_producer():
+        raise RuntimeError("producer identity missing")
 
-    with pytest.raises(RuntimeError, match="boom"):
-        feed_cli.run_feed_daily(
-            ["feed-daily", "--through", "2026-08-28"],
-            retained_main=retained,
-            exit_ok=0,
-            exit_config=1,
-        )
+    def config_from_env(cls):
+        config_calls.append(True)
+        return SimpleNamespace(database_url="postgres://test")
 
-    assert feed_cli.ingest.daily is original_daily
+    monkeypatch.setattr(
+        feed_cli.runtime_identity,
+        "require_feed_producer_identity",
+        missing_producer,
+    )
+    monkeypatch.setattr(
+        feed_cli.SentinelConfig,
+        "from_env",
+        classmethod(config_from_env),
+    )
+
+    assert feed_cli.run_feed_daily(
+        ["feed-daily", "--through", "2026-08-28"],
+        exit_ok=0,
+        exit_config=1,
+        exit_not_established=2,
+    ) == 2
+    assert config_calls == []
