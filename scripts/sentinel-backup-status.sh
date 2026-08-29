@@ -72,11 +72,22 @@ else
     refuse "BASE_BACKUP_ENUMERATION_FAILED" 4 \
       "base-backup directory could not be enumerated"
   fi
-  NAME="$(printf '%s\n' "$CANDIDATES" \
-    | grep -E "$COMPLETED_NAME_RE" | sort | tail -1 || true)"
+  NAME=""
+  while IFS= read -r CANDIDATE; do
+    [ -n "$CANDIDATE" ] || continue
+    if ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
+      name="$1"
+      test -f "/sentinel-backup/base/$name/backup_manifest"
+      test -f "/sentinel-backup/base/$name/sentinel-recovery-marker"
+    ' sh "$CANDIDATE" >/dev/null 2>&1; then
+      NAME="$CANDIDATE"
+      break
+    fi
+  done < <(printf '%s\n' "$CANDIDATES" \
+    | grep -E "$COMPLETED_NAME_RE" | sort -r || true)
 fi
 [ -n "$NAME" ] ||
-  refuse "BASE_BACKUP_MISSING" 4 "no base backup exists"
+  refuse "BASE_BACKUP_MISSING" 4 "no complete base backup exists"
 LATEST="$BACKUP_ROOT/base/$NAME"
 ${COMPOSE[@]} exec -T sentinel-postgres test -d "/sentinel-backup/base/$NAME" ||
   refuse "BASE_BACKUP_NOT_FOUND" 4 \
