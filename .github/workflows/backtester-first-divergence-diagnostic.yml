@@ -93,7 +93,7 @@ jobs:
             ("START = pd.Timestamp('2006-07-31')", "START = pd.Timestamp('1998-01-02')"),
             ("END = pd.Timestamp('2026-07-31')", "END = pd.Timestamp('1998-12-31')"),
             ("rows=[]; overlap_checks={}; buys=sells=split_events=div_events=0", "rows=[]; holdings_rows=[]; overlap_checks={}; buys=sells=split_events=div_events=0"),
-            ("                prev_perf_date=date; prev_close_eq=eq", "                for slot_id,s in enumerate(book.slots):\n                    holdings_rows.append({'date':date,'slot_id':slot_id,'held':s.held(),'ticker':tick[s.tid] if s.held() else '',\n                        'qty':float(s.qty) if s.held() else 0.0,'entry_day':int(s.entry_day) if s.held() else -1,\n                        'entry_signal':float(s.entry_sig) if s.held() and finite(s.entry_sig) else np.nan,\n                        'peak':float(s.peak) if s.held() and finite(s.peak) else np.nan,\n                        'reviewed':bool(s.reviewed) if s.held() else False,'pending_sell':bool(s.pending_sell) if s.held() else False,\n                        'sell_reason':s.sell_reason if s.held() else '','pending_ticker':tick[s.pending_tid] if s.reserved() else ''})\n                prev_perf_date=date; prev_close_eq=eq"),
+            ("                prev_perf_date=date; prev_close_eq=eq", "                for slot_id,s in enumerate(book.slots):\n                    holdings_rows.append({'date':date,'slot_id':slot_id,'held':s.held(),'ticker':tick[s.tid] if s.held() else '','qty':float(s.qty) if s.held() else 0.0,'entry_day':int(s.entry_day) if s.held() else -1,'entry_signal':float(s.entry_sig) if s.held() and finite(s.entry_sig) else np.nan,'peak':float(s.peak) if s.held() and finite(s.peak) else np.nan,'reviewed':bool(s.reviewed) if s.held() else False,'pending_sell':bool(s.pending_sell) if s.held() else False,'sell_reason':s.sell_reason if s.held() else '','pending_ticker':tick[s.pending_tid] if s.reserved() else ''})\n                prev_perf_date=date; prev_close_eq=eq"),
             ("    out.to_csv(OUT/'daily.csv',index=False)", "    out.to_csv(OUT/'daily.csv',index=False)\n    pd.DataFrame(holdings_rows).to_csv(OUT/'holdings.csv',index=False)"),
           ]
           for old,new in replacements:
@@ -126,26 +126,13 @@ jobs:
           if text.count(old)!=1: raise SystemExit('production holdings init seam mismatch')
           text=text.replace(old,new,1)
           old="        daily_rows.append({\n"
-          new="""        wc = state_a.wealth_core
-        for slot_id, slot in sorted(wc.slots.items()):
-            ep = wc.episodes.get(slot_id)
-            diagnostic_holdings_rows.append({
-                'date': session, 'slot_id': slot_id, 'held': ep is not None,
-                'security_id': ep.security_id if ep is not None else '',
-                'ticker': ep.ticker if ep is not None else (slot.reserved_ticker or ''),
-                'shares': float(ep.current_shares) if ep is not None else 0.0,
-                'entry_date': ep.entry_date if ep is not None else '',
-                'entry_raw_open': float(ep.entry_raw_open) if ep is not None else float('nan'),
-                'entry_signal': float(ep.entry_split_adjusted_price) if ep is not None else float('nan'),
-                'peak': float(ep.episode_peak_split_adjusted_close) if ep is not None and ep.episode_peak_split_adjusted_close is not None else float('nan'),
-                'age': int(ep.market_sessions_held) if ep is not None else -1,
-                'reviewed': bool(ep.review_completed) if ep is not None else False,
-                'exit_pending': bool(ep.exit_pending) if ep is not None else False,
-                'exit_reason': ep.exit_reason if ep is not None else '',
-                'reserved_for': slot.reserved_for or '',
-            })
-        daily_rows.append({
-"""
+          new=(
+              "        wc = state_a.wealth_core\n"
+              "        for slot_id, slot in sorted(wc.slots.items()):\n"
+              "            ep = wc.episodes.get(slot_id)\n"
+              "            diagnostic_holdings_rows.append({'date':session,'slot_id':slot_id,'held':ep is not None,'security_id':ep.security_id if ep is not None else '','ticker':ep.ticker if ep is not None else (slot.reserved_ticker or ''),'shares':float(ep.current_shares) if ep is not None else 0.0,'entry_date':ep.entry_date if ep is not None else '','entry_raw_open':float(ep.entry_raw_open) if ep is not None else float('nan'),'entry_signal':float(ep.entry_split_adjusted_price) if ep is not None else float('nan'),'peak':float(ep.episode_peak_split_adjusted_close) if ep is not None and ep.episode_peak_split_adjusted_close is not None else float('nan'),'age':int(ep.market_sessions_held) if ep is not None else -1,'reviewed':bool(ep.review_completed) if ep is not None else False,'exit_pending':bool(ep.exit_pending) if ep is not None else False,'exit_reason':ep.exit_reason if ep is not None else '','reserved_for':slot.reserved_for or ''})\n"
+              "        daily_rows.append({\n"
+          )
           if text.count(old)!=1: raise SystemExit('production holdings row seam mismatch')
           text=text.replace(old,new,1)
           old="    pd.DataFrame(metrics_rows).to_csv(metrics_path, index=False)\n"
@@ -193,7 +180,6 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-          import numpy as np
           import pandas as pd
           r=pd.read_csv('backtester-results/research-control/daily.csv',parse_dates=['date'])[['date','shadow_equity']]
           p=pd.read_csv('backtester-results/production/daily.csv.gz',parse_dates=['date'])[['date','wealth_core_equity']]
@@ -217,17 +203,7 @@ jobs:
           comp.to_csv('backtester-results/comparison/holdings_line_by_line.csv',index=False)
           x.to_csv('backtester-results/comparison/equity_returns.csv',index=False)
           only=comp[(comp.snapshot=='first_divergence') & (comp._merge!='both')]
-          result={
-            'first_divergence_session':first.strftime('%Y-%m-%d'),
-            'prior_session':prior.strftime('%Y-%m-%d'),
-            'research_return':float(x.loc[i,'research_return']),
-            'production_return':float(x.loc[i,'production_return']),
-            'return_difference':float(x.loc[i,'return_diff']),
-            'research_only_tickers':sorted(only.loc[only._merge=='left_only','ticker'].dropna().astype(str).tolist()),
-            'production_only_tickers':sorted(only.loc[only._merge=='right_only','ticker'].dropna().astype(str).tolist()),
-            'research_held':int(((comp.snapshot=='first_divergence') & comp.research_slot_id.notna()).sum()),
-            'production_held':int(((comp.snapshot=='first_divergence') & comp.production_slot_id.notna()).sum()),
-          }
+          result={'first_divergence_session':first.strftime('%Y-%m-%d'),'prior_session':prior.strftime('%Y-%m-%d'),'research_return':float(x.loc[i,'research_return']),'production_return':float(x.loc[i,'production_return']),'return_difference':float(x.loc[i,'return_diff']),'research_only_tickers':sorted(only.loc[only._merge=='left_only','ticker'].dropna().astype(str).tolist()),'production_only_tickers':sorted(only.loc[only._merge=='right_only','ticker'].dropna().astype(str).tolist()),'research_held':int(((comp.snapshot=='first_divergence') & comp.research_slot_id.notna()).sum()),'production_held':int(((comp.snapshot=='first_divergence') & comp.production_slot_id.notna()).sum())}
           Path('backtester-results/comparison/result.json').write_text(json.dumps(result,indent=2)+'\n')
           print(json.dumps(result,indent=2))
           print('\nFIRST-DIVERGENCE HOLDINGS DIFF')
