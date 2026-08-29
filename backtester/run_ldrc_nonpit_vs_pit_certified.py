@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Certified LD-RC comparison: current-metadata baseline vs retained full-PIT economic path.
+"""Certified LD-RC comparison with a full-stack causal PIT D track.
 
-This launcher layers reporting/certification requirements on the already-proven
-A/D chronological replay. It pins the exact requested current-main Wealth Core
-source, emits exact calendar-year cumulative CAGR checkpoints, and adds a
-maximum-common-history measurement window alongside 5/10/15/20-year windows.
+A keeps the existing current/non-PIT Sharadar metadata baseline. D sends the
+available causal PIT authorities through Wealth Core and Sentinel/LD-RC, allows
+the two books to diverge naturally, and measures each account from its own Wealth
+Core equity path. The exact requested current-main strategy implementation stays
+frozen for both tracks.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
 from datetime import date
 import importlib.util
 import json
 import math
 from pathlib import Path
-import sys
 
 import numpy as np
 import pandas as pd
@@ -28,13 +29,130 @@ if spec is None or spec.loader is None:
 base = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(base)
 
-# Bind the experiment to the exact current-main Wealth Core implementation.
+# Bind both tracks to the exact current-main strategy implementation.
 base.runner.EXPECTED_MAIN_SHA = EXPECTED_MAIN_SHA
-base.runner.EXPERIMENT_ID = "2026-08-29-ldrc-nonpit-vs-pit-certified"
+base.runner.EXPERIMENT_ID = "2026-08-29-ldrc-nonpit-vs-fullstack-pit-certified"
+
+# The old A/D harness was an isolation experiment and explicitly required Wealth
+# Core parity. This certified experiment permits causal divergence.
+base.runner.state_wc_parity = lambda *_args, **_kwargs: None
+
+from stock_strategy_shared.wealth_core.feed import SecurityMeta  # noqa: E402
+import sentinel.core.production as production  # noqa: E402
+
+
+@dataclass(frozen=True)
+class _PitSecurityMeta(SecurityMeta):
+    """SecurityMeta with strict-prior SEC issuer authority."""
+
+    pit_issuer_id: str = ""
+    pit_issuer_source: str = ""
+
+    def issuer_key(self) -> tuple[str | None, str | None]:
+        return self.pit_issuer_id, self.pit_issuer_source
+
+
+_pit_metadata_observations = 0
+_pit_sec_cik_observations = 0
+_latest_pit_state = None
+_pit_prior_core_close: float | None = None
+_pit_core_by_session: dict[str, tuple[float | None, float]] = {}
+_real_advance_state = production.advance_state
+_real_raw_overlay_step = base._real_overlay_step
+
+
+def _strict_prior_cik(sectors, sid: str, meta: SecurityMeta, session: str) -> tuple[str, str]:
+    ticker = str(sectors.sid_to_ticker.get(str(sid), meta.ticker) or meta.ticker)
+    model = sectors.model
+    cik = model._strict_prior(
+        model.cik_dates.get(ticker, ()), model.cik_values.get(ticker, ()), session)
+    if cik is None:
+        # A unique security-level key is causal and fail-safe: it does not infer a
+        # present-day related-ticker relationship before SEC evidence exists.
+        return f"SEC_UNKNOWN:{sid}", "SEC_STRICT_PRIOR_UNKNOWN_SINGLETON"
+    return f"SEC_CIK:{cik}", "SEC_CIK_STRICT_PRIOR"
+
+
+def _pit_meta_map(pub) -> dict[str, _PitSecurityMeta]:
+    global _pit_metadata_observations, _pit_sec_cik_observations
+    result: dict[str, _PitSecurityMeta] = {}
+    for sid, meta in pub.meta.items():
+        issuer_id, source = _strict_prior_cik(pub.sectors, str(sid), meta, str(pub.session))
+        _pit_metadata_observations += 1
+        if source == "SEC_CIK_STRICT_PRIOR":
+            _pit_sec_cik_observations += 1
+        result[str(sid)] = _PitSecurityMeta(
+            security_id=meta.security_id,
+            ticker=meta.ticker,
+            category=meta.category,
+            permaticker=meta.permaticker,
+            # Eliminate present-day relatedtickers from the historical issuer path.
+            related_tickers=(),
+            first_session=meta.first_session,
+            last_session=meta.last_session,
+            exchange=meta.exchange,
+            exchange_authoritative=meta.exchange_authoritative,
+            pit_issuer_id=issuer_id,
+            pit_issuer_source=source,
+        )
+    return result
+
+
+def _pit_pub(pub):
+    if not isinstance(pub.sectors, base.runner.FF12SectorMap):
+        return pub
+    pit_meta = _pit_meta_map(pub)
+    pit_anchors = {}
+    for sid, anchor in pub.feed_anchors.items():
+        meta = pit_meta.get(str(sid))
+        if meta is None:
+            raise RuntimeError(f"PIT feed anchor {sid} has no session metadata")
+        issuer_id, _source = meta.issuer_key()
+        pit_anchors[sid] = replace(anchor, issuer_id=issuer_id)
+    return replace(pub, meta=pit_meta, feed_anchors=pit_anchors)
+
+
+def _advance_state_fullstack(state, pub, *args, **kwargs):
+    global _latest_pit_state
+    is_pit = isinstance(pub.sectors, base.runner.FF12SectorMap)
+    effective_pub = _pit_pub(pub) if is_pit else pub
+    result = _real_advance_state(state, effective_pub, *args, **kwargs)
+    if is_pit:
+        _latest_pit_state = result
+    return result
+
+
+production.advance_state = _advance_state_fullstack
+
+
+def _raw_overlay_step_fullstack(self, *args, **kwargs):
+    global _pit_prior_core_close
+    if str(self.name) != "B":
+        return _real_raw_overlay_step(self, *args, **kwargs)
+    if _latest_pit_state is None:
+        raise RuntimeError("D PIT Wealth Core state missing before account step")
+    core_open, core_close = base.runner.wealth_equities(_latest_pit_state)
+    session = str(_latest_pit_state.last_processed_session)
+    _pit_core_by_session[session] = (core_open, core_close)
+    values = list(args)
+    if len(values) < 3:
+        raise RuntimeError("unexpected OverlayAccount.step call shape")
+    values[0] = core_open
+    values[1] = core_close
+    values[2] = _pit_prior_core_close
+    nav = _real_raw_overlay_step(self, *values, **kwargs)
+    _pit_prior_core_close = core_close
+    return nav
+
+
+# The base launcher's progress wrapper calls this module global. Rebinding it
+# gives D its own Wealth Core return stream while preserving the certified
+# OverlayAccount implementation and next-open timing.
+base._real_overlay_step = _raw_overlay_step_fullstack
 
 _year_end_sessions: set[str] = set()
 _real_build_sfp_levels = base.runner.build_sfp_levels
-_real_overlay_step = base.runner.OverlayAccount.step
+_real_progress_overlay_step = base.runner.OverlayAccount.step
 
 
 def _build_sfp_levels_with_year_ends(*args, **kwargs):
@@ -48,7 +166,7 @@ def _build_sfp_levels_with_year_ends(*args, **kwargs):
 
 
 def _overlay_step_with_calendar_year_cagr(self, *args, **kwargs):
-    nav = _real_overlay_step(self, *args, **kwargs)
+    nav = _real_progress_overlay_step(self, *args, **kwargs)
     if str(self.name) == "B":
         session = str(base._current_session or "")
         if session in _year_end_sessions:
@@ -59,8 +177,8 @@ def _overlay_step_with_calendar_year_cagr(self, *args, **kwargs):
                 f"[YEAR-END] year={session[:4]} session={session} "
                 f"A_nonpit_multiple={float(a.nav):.10f} "
                 f"A_nonpit_cagr={base._running_cagr(float(a.nav), session):.10%} "
-                f"D_pit_multiple={float(self.nav):.10f} "
-                f"D_pit_cagr={base._running_cagr(float(self.nav), session):.10%}",
+                f"D_fullpit_multiple={float(self.nav):.10f} "
+                f"D_fullpit_cagr={base._running_cagr(float(self.nav), session):.10%}",
                 flush=True,
             )
     return nav
@@ -110,10 +228,21 @@ def _write_final_comparison() -> None:
     sums_path = output / "SHA256SUMS.txt"
 
     daily = pd.read_csv(daily_path, compression="gzip")
-    required = {"date", "A_nav", "D_nav", "SPY_level"}
+    required = {"date", "A_nav", "D_nav", "SPY_level", "wealth_core_equity"}
     missing = required.difference(daily.columns)
     if missing:
         raise RuntimeError(f"daily output missing required comparison columns: {sorted(missing)}")
+    d_core = []
+    for session in daily["date"].astype(str):
+        pair = _pit_core_by_session.get(session)
+        if pair is None:
+            raise RuntimeError(f"missing D Wealth Core equity capture for {session}")
+        d_core.append(float(pair[1]))
+    daily["A_wealth_core_equity"] = daily["wealth_core_equity"].astype(float)
+    daily["D_wealth_core_equity"] = d_core
+    daily.to_csv(
+        daily_path, index=False,
+        compression={"method": "gzip", "compresslevel": 6, "mtime": 0})
 
     max_blocks = {
         "A": _max_metric_block(daily, "A_nav"),
@@ -140,23 +269,42 @@ def _write_final_comparison() -> None:
     metrics.to_csv(metrics_path, index=False)
 
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["wealth_core_parity"] = False
+    summary["full_stack_pit"] = True
+    summary["wealth_core_pit_enabled"] = True
     summary.setdefault("metrics", {})["max"] = max_blocks
+    coverage = (
+        float(_pit_sec_cik_observations) / float(_pit_metadata_observations)
+        if _pit_metadata_observations else 0.0
+    )
+    summary["pit_authority"] = {
+        "prices_and_corporate_actions": "frozen PIT reconstruction already used by the certified replay",
+        "wealth_core_issuer_family": "strict-prior SEC CIK; unknown-before-evidence becomes security singleton",
+        "sentinel_sector": "strict-prior SEC CIK -> SEC SIC -> frozen FF12",
+        "present_day_relatedtickers_in_D": False,
+        "sec_cik_metadata_observations": int(_pit_sec_cik_observations),
+        "total_metadata_observations": int(_pit_metadata_observations),
+        "sec_cik_observation_coverage": coverage,
+        "residual_non_pit_fields": ["Sharadar category", "Sharadar exchange"],
+        "residual_note": "No retained historical authority for these two fields is present in this frozen laboratory bundle; they remain explicit certification caveats.",
+    }
     summary["comparison_contract"] = {
         "A": "LD-RC with existing current/non-PIT Sharadar metadata baseline",
-        "D": "same LD-RC with retained full-PIT economic data path",
-        "wealth_core": f"exact current main {EXPECTED_MAIN_SHA}; A/D parity required every session",
+        "D": "full-stack causal PIT path using every retained PIT authority in the frozen laboratory bundle; Wealth Core and LD-RC may diverge",
+        "wealth_core": f"exact current main {EXPECTED_MAIN_SHA}; independent A/D states and independent account equity paths",
         "measurement_windows": ["5", "10", "15", "20", "max"],
         "spy": "same frozen PIT-reconstructed SPY total-return factor series used for both comparison columns",
     }
     summary["calendar_year_cagr_checkpoints"] = sorted(_year_end_sessions)
     summary["calendar_year_cagr_definition"] = (
-        "cumulative strategy NAV from replay inception annualized through each completed calendar-year final trading session"
+        "cumulative full LD-RC account NAV from replay inception annualized through each completed calendar-year final trading session"
     )
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["experiment"] = base.runner.EXPERIMENT_ID
     manifest["current_main_sha"] = EXPECTED_MAIN_SHA
+    manifest["full_stack_pit"] = True
     outputs = manifest.setdefault("outputs", {})
     for path in (daily_path, metrics_path, summary_path):
         outputs[path.name] = {"sha256": base._sha256(path), "bytes": path.stat().st_size}
@@ -173,12 +321,13 @@ def _write_final_comparison() -> None:
 
 
 def main() -> int:
-    print(f"[RUN] certified comparison current-main={EXPECTED_MAIN_SHA}", flush=True)
+    print(f"[RUN] certified full-stack PIT comparison current-main={EXPECTED_MAIN_SHA}", flush=True)
+    print("[RUN] D Wealth Core divergence enabled; D account uses independent Wealth Core equity", flush=True)
     rc = int(base.main())
     if rc != 0:
         return rc
     _write_final_comparison()
-    print("[PASS] certified non-PIT/PIT LD-RC comparison bundle complete", flush=True)
+    print("[PASS] certified non-PIT/full-stack-PIT LD-RC comparison bundle complete", flush=True)
     return 0
 
 
