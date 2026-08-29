@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import logging
 import sys
 from collections.abc import Sequence
@@ -18,6 +19,16 @@ def _setup_logging(verbose: bool) -> None:
         format="%(asctime)s %(levelname)-7s %(message)s",
         stream=sys.stdout,
     )
+
+
+def _parse_clean_argv(argv: Sequence[str]) -> bool:
+    """Preserve retained argparse validation after --through extraction."""
+    parser = argparse.ArgumentParser(prog="sentinel", add_help=False)
+    parser.add_argument("-v", "--verbose", action="store_true")
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("feed-daily", add_help=False)
+    parsed = parser.parse_args(list(argv))
+    return bool(parsed.verbose)
 
 
 def _require_feed_producer(exit_not_established: int) -> int | None:
@@ -48,17 +59,18 @@ def run_feed_daily(
         return exit_ok
 
     try:
-        _clean, raw_through = manual_daily.extract_through(args)
+        clean, raw_through = manual_daily.extract_through(args)
         boundary = manual_daily.validate_through(raw_through)
     except manual_daily.ManualDailyBoundaryInvalid as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return exit_config
 
-    _setup_logging(any(token in {"-v", "--verbose"} for token in args))
     print(
         f"sentinel: feed-daily through-session {boundary.through} "
         f"({boundary.calendar_version}; latest-closed={boundary.latest_closed})"
     )
+    verbose = _parse_clean_argv(clean)
+    _setup_logging(verbose)
 
     try:
         config = SentinelConfig.from_env()
