@@ -18,7 +18,7 @@ jobs:
       - name: Check out branch
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Repair and compile mapper
         run: |
@@ -38,7 +38,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add tools/step4_paper_lifecycle_inventory.py docs/paper-lifecycle-responsibility-map.md artifacts/paper-lifecycle-responsibility-map.json
+          git add tools/step4_paper_lifecycle_inventory.py docs/paper-lifecycle-responsibility-map.md
+          git add -f artifacts/paper-lifecycle-responsibility-map.json
           if git diff --cached --quiet; then
             exit 0
           fi
