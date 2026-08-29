@@ -13,7 +13,7 @@ The target ownership is:
 - `sentinel/execution/alpaca.py` owns the complete Alpaca transport and observation semantics as one module and one global namespace.
 - `sentinel/execution/guarded.py` owns the complete guarded broker membrane.
 - `sentinel/execution/journal.py` owns durable command, observation, fill, and terminal-recovery persistence semantics.
-- `sentinel/execution/reconcile.py` owns reconciliation comparisons and broker-evidence conflict detection.
+- `sentinel/execution/reconcile.py` owns reconciliation comparisons, broker-evidence conflict detection, and concrete-adapter recognition through guarded wrappers.
 - `sentinel/execution/authority_gate.py` owns the execution read/mutation operation policy.
 - `sentinel/execution/broker_cash.py` owns the accepted broker cash-activity taxonomy.
 - `sentinel/execution/executor.py` owns exposure-increase fences and their registry.
