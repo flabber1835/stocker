@@ -218,7 +218,7 @@ def test_semantic_cursor_upgrade_replays_old_blockers_with_unchanged_source(
     monkeypatch.setattr(
         maintenance._core, "_stable_rows", lambda fetch, table, params: [row])
     monkeypatch.setattr(
-        maintenance.action_source, "distinct_rows",
+        maintenance._core.action_source, "distinct_rows",
         lambda rows: [(identity, {}, row)])
     monkeypatch.setattr(
         maintenance._core, "_active_action_rows", lambda conn: {identity: {}})
