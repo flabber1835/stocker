@@ -35,6 +35,15 @@ Certification workflow:
 
 - `.github/workflows/backtester-checkpoint-resume-equivalence.yml`
 
+Operational full-replay workflows:
+
+- `.github/workflows/backtester-v3-segment-worker.yml`
+- `.github/workflows/backtester-v3-checkpointed-full-replay.yml`
+
+The full replay workflow is `workflow_dispatch` only. It does not auto-run on
+research commits. It is intended to be launched only after the remaining split
+and held-terminal data gates have been closed.
+
 ## Persisted economic state
 
 Each checkpoint contains:
@@ -112,7 +121,7 @@ A resume fails closed unless all of these match:
 17. Wealth Core parity at the restart boundary
 
 The v3 launcher additionally accepts `--resume-checkpoint-sha256` so a caller can
-bind a downloaded checkpoint to an independently transported expected digest.
+bind a transported checkpoint to an independently transported expected digest.
 
 ## Why `SessionState.to_dict()` is authoritative
 
@@ -155,12 +164,34 @@ simulated session economics and normalizer behavior inside the bounded window ar
 unchanged.
 
 Checkpoint/resume is not certified for promotion until this workflow is green.
+A second equivalence test after the strategy has active holdings/exposure history
+is also required before the checkpoint mechanism is used for authoritative final
+metrics.
 
-## Proposed full PIT segmentation
+## Operational segment transport
 
-After the remaining split and held-terminal gaps are closed, run checkpointable
-A/D v3 under one immutable research runner SHA with approximately four-year
-segments:
+The full replay orchestration runs every segment under one immutable
+`${{ github.sha }}` supplied to the reusable worker as `runner_sha`.
+
+Checkpoint transport between jobs uses `actions/cache` pinned to commit
+`caa296126883cff596d87d8935842f9db880ef25` (`actions/cache@v5`). Each segment
+uses a unique cache key derived from the workflow run ID. The next job receives
+the independently computed checkpoint SHA-256 through the reusable workflow job
+output and verifies it before the v3 launcher loads the checkpoint.
+
+The cache is only the transport. Every non-final segment also uploads the
+checkpoint JSON, SHA256 sidecar, and segment log as a GitHub Actions artifact for
+audit evidence. The final job uploads the complete v3 result bundle.
+
+This avoids dependence on cross-job artifact download for execution continuity;
+artifact storage is evidence only.
+
+Each reusable worker has a 330-minute timeout, leaving margin under the six-hour
+GitHub-hosted job ceiling.
+
+## Full PIT segmentation
+
+The manual full replay workflow uses these boundaries:
 
 1. 1998-01-02 -> 2001-12-31
 2. 2002-01-02 -> 2005-12-30
@@ -171,9 +202,9 @@ segments:
 7. 2022-01-03 -> 2025-12-31
 8. 2026-01-02 -> 2026-07-31 finalization
 
-Exact boundaries must be members of the frozen replay session axis. The final
-orchestration should choose the nearest valid session if a listed calendar date
-is not present.
+The checkpoint engine itself validates each stop session and exact next session
+against the frozen replay axis. If a configured boundary is not a valid replay
+session, the segment fails closed and the workflow definition must be corrected.
 
 Each segment must run comfortably below the six-hour GitHub job ceiling. The
 fast-forward normalization cost is acceptable because it is much smaller than
