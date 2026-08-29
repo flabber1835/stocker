@@ -43,10 +43,6 @@ def _proof(run_id="seed-1"):
         "key_sha256": "b" * 64,
         "value_sha256": "c" * 64,
     }
-    # These pairs represent independently serialized jsonb values. Do not alias
-    # the Python dictionaries: deepcopy preserves alias topology, which would
-    # make mutating one purported observation mutate its comparison witness too
-    # even though PostgreSQL jsonb cannot retain such object identity.
     return {
         "schema": seed_coherence.SCHEMA,
         "phase": "complete",
@@ -172,11 +168,11 @@ def test_publication_membrane_embeds_exact_durable_proof(monkeypatch):
     monkeypatch.setattr(
         seed_coherence, "require_for_publication", lambda *_args, **_kwargs: proof)
 
-    def legacy(_conn, **kwargs):
+    def core_publish(_conn, **kwargs):
         observed.update(kwargs)
         return "published"
 
-    monkeypatch.setattr(publication, "_legacy_publish", legacy)
+    monkeypatch.setattr(publication._core, "publish", core_publish)
     result = publication.publish(
         "conn", run_id="seed-1", window_start="2026-01-02",
         window_end="2026-08-24", evidence={"other": "evidence"})

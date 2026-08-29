@@ -1,6 +1,6 @@
 """Readiness authority facade with current-session and source-maintenance proof.
 
-The historical readiness implementation remains byte-for-byte in
+The historical readiness implementation remains in
 :mod:`sentinel.feed.readiness_impl`. This boundary keeps its rolling-window
 checks and adds facts a healthy historical window cannot prove:
 
@@ -21,10 +21,7 @@ from sentinel.feed import maintenance as _maintenance
 from sentinel.feed import publication as _publication
 from sentinel.feed import readiness_impl as _impl
 from sentinel.feed import recent_reconciliation as _recent
-
-for _name in dir(_impl):
-    if not _name.startswith("__"):
-        globals()[_name] = getattr(_impl, _name)
+from sentinel.feed.readiness_impl import *  # noqa: F403
 
 MIN_FRONTIER_DOMAIN_COVERAGE = _authority.MIN_FRONTIER_DOMAIN_COVERAGE
 RUNTIME_BLOCKING_SPLIT_KINDS = (
@@ -94,14 +91,7 @@ def _add_recent_check(conn, result, *, source_day, frontier_day) -> None:
 
 
 def _add_split_agreement_check(conn, result, *, frontier: str) -> None:
-    """Refuse a normally-ready corpus with unresolved split economics.
-
-    This is intentionally full-history.  A split changes the cumulative signal
-    basis on every later session, so limiting the query to the warm-up window
-    would let an older unresolved share-count event silently authorize a plan.
-    The anomaly read is publication-aware: a later published resolution clears
-    the event while an unpublished retry cannot.
-    """
+    """Refuse a normally-ready corpus with unresolved split economics."""
     name = "split source agreement"
     try:
         rows = _anomalies.active_rows(
@@ -118,8 +108,7 @@ def _add_split_agreement_check(conn, result, *, frontier: str) -> None:
         result.add(
             name, _impl.PASS,
             f"no active unsafe published split disposition exists through "
-            f"{frontier}",
-            0)
+            f"{frontier}", 0)
         return
 
     shown = "; ".join(

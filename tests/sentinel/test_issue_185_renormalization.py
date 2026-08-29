@@ -111,7 +111,8 @@ def test_action_change_dates_replay_only_bar_affecting_actions(monkeypatch):
             "contraname": None,
         },
     }
-    monkeypatch.setattr(maintenance, "_active_action_rows", lambda conn: prior)
+    monkeypatch.setattr(
+        maintenance._core, "_active_action_rows", lambda conn: prior)
 
     # Current source removes the old split (must replay its old effective date),
     # keeps the terminal row (no bar replay), and adds a dividend (must replay).

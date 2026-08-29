@@ -19,7 +19,7 @@ def test_load_actions_cursor_never_queries_legacy_v5_authority(monkeypatch):
         seen["kind"] = kind
         return None
 
-    monkeypatch.setattr(maintenance, "_read_cursor", read_cursor)
+    monkeypatch.setattr(maintenance._core, "_read_cursor", read_cursor)
     assert maintenance.load_actions_cursor(object()) is None
     assert seen == {
         "name": "sharadar-actions-export-reconcile:v6",

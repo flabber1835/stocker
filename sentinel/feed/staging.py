@@ -2,14 +2,9 @@
 from __future__ import annotations
 
 import json
-import sys
-import types
 
-from sentinel.feed import staging_impl as _impl
-
-for _export_name, _export_value in tuple(vars(_impl).items()):
-    if not _export_name.startswith("__") and _export_name != "_impl":
-        globals()[_export_name] = _export_value
+from sentinel.feed import staging_impl as _core
+from sentinel.feed.staging_impl import *  # noqa: F403
 
 
 class StagingCanonicalKeyConflict(RuntimeError):
@@ -39,22 +34,9 @@ def _assert_unique_scope(conn, *, run_id: str, chunk: str) -> None:
 
 
 def staged(conn, *, run_id: str, chunk: str,
-           batch: int = _impl.STAGE_BATCH):
+           batch: int = _core.STAGE_BATCH):
     _assert_unique_scope(conn, run_id=run_id, chunk=chunk)
-    return _impl.staged(conn, run_id=run_id, chunk=chunk, batch=batch)
+    return _core.staged(conn, run_id=run_id, chunk=chunk, batch=batch)
 
 
-_FACADE_OWNED = frozenset({
-    "StagingCanonicalKeyConflict", "_assert_unique_scope", "staged",
-})
-
-
-class _StagingFacade(types.ModuleType):
-    def __setattr__(self, name, value):
-        if name not in _FACADE_OWNED and hasattr(_impl, name):
-            setattr(_impl, name, value)
-        super().__setattr__(name, value)
-
-
-sys.modules[__name__].__class__ = _StagingFacade
-__all__ = list(getattr(_impl, "__all__", ())) + ["StagingCanonicalKeyConflict"]
+__all__ = list(getattr(_core, "__all__", ())) + ["StagingCanonicalKeyConflict"]

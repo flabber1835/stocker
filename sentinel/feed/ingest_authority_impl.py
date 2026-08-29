@@ -1,30 +1,8 @@
-"""Sharadar ingest authority facade.
+"""Legacy Sharadar ingest support retained as a static compatibility surface.
 
-The implementation stays in :mod:`sentinel.feed.ingest_impl`; this boundary
-adds the properties a transport client cannot provide by itself:
-
-* source snapshots must be stable before absence/new frontier is authority;
-* every pre-validation crash is reclaimed before a new candidate can open;
-* a validated-success candidate left by a crash must publish before another run;
-* ambiguous legacy multi-candidate state has a supported complete-reseed recovery;
-* a failed physical frontier may never shorten the next retry below the
-  published authority frontier;
-* failed daily vs historical-maintenance candidates are retried by the operation
-  that can safely supersede their live rows;
-* production seed/reseed validates structural TICKERS authority before identity
-  can become authoritative;
-* pending SEP mutations are identity-proven against the exact current TICKERS
-  candidate before daily publication, without moving the CDC cursor;
-* routine SEP maintenance follows the published daily identity refresh so a
-  stale listing interval cannot deadlock the refresh that would extend it;
-* historical TICKERS corrections can advance only through a complete,
-  identity-aware full-history replacement;
-* SEP's vendor-update clock is maintained independently from market-session
-  freshness;
-* recent decision history receives a complete export-backed negative-space proof;
-* a rotating complete SEP key-set proof still audits deep history; and
-* a caller never receives ``success`` for a generation whose rows are still
-  unpublished/invisible.
+Production seed/daily authority is owned by :mod:`sentinel.feed.ingest`. This
+module keeps the former injected-source/replay API available through ordinary
+imports while removing dynamic namespace copying.
 """
 from __future__ import annotations
 
@@ -35,10 +13,10 @@ from sentinel.feed import (
     coherence, identity_rebuild, identity_refresh, ingest_impl as _impl,
     maintenance, recent_reconciliation, recovery, reseed, sep_reconciliation,
     sharadar, snapshot_source, source_authority, universe)
+from sentinel.feed.ingest_impl import *  # noqa: F403
 
-for _name in dir(_impl):
-    if not _name.startswith("__"):
-        globals()[_name] = getattr(_impl, _name)
+# Private helpers used by this compatibility implementation are bound explicitly.
+_today = _impl._today
 
 
 def _authoritative_source(fetch):
@@ -122,11 +100,6 @@ def _require_failed_owner_cleared(conn, *, context: str) -> None:
 
 
 def _prove_recent_frontier(conn, *, fetch) -> None:
-    # Only the production source membrane has an independent whole-export
-    # negative-space witness. An injected test/replay fetch can be stable and
-    # deterministic, but repetition cannot prove that a missing SEP row was
-    # truly absent from Sharadar. Do not mint an export-backed readiness cursor
-    # from that weaker source contract.
     if fetch is not snapshot_source.fetch_table:
         return
     frontier = _impl.feed_store.latest_visible_session(conn)
@@ -140,12 +113,6 @@ def _prove_recent_frontier(conn, *, fetch) -> None:
 def _seed_source(fetch, *, final_hi: str):
     source = fetch
     if fetch is snapshot_source.fetch_table:
-        # Keep this hardening on the securities master only. Full-history SEP
-        # already has canonical duplicate defense in the PostgreSQL staging
-        # boundary; adding a second disk-spooled uniqueness pass here would make
-        # a 20+ year NAS seed materially more expensive without adding identity
-        # protection. TICKERS is small and is the authority that can splice or
-        # ambiguously drop history if structurally invalid.
         canonical_tickers = source_authority.CanonicalSourceFetch(
             fetch, validate_tickers=True)
 
@@ -180,9 +147,6 @@ def _run_seed_generation(
                 fetch=guarded, resolve_identity=resolve_identity)
         return progress, tracked
     except universe.HistoricalIdentityMutation:
-        # The ordinary guard is correct. Escalation is allowed only because the
-        # requested seed already covers the complete physical/published corpus;
-        # `prepare` proves that before a second candidate opens.
         plan = identity_rebuild.prepare(
             conn, date_from=seed_from, date_to=seed_to)
         tracked, guarded = _seed_source(fetch, final_hi=final_hi)
@@ -227,11 +191,6 @@ def seed(conn, *, date_from: str = _impl.DEFAULT_SEED_START,
 def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
           resolve_identity=None, overlap_days: int = _impl.DAILY_OVERLAP_DAYS,
           today: Optional[str] = None):
-    # Production callers must bind the entire daily authority chain to one
-    # explicit exchange session. Container timezone/wall-clock date is not a
-    # source boundary. Validation that the named session is actually closed is
-    # performed by the manual CLI or the automation scheduler before this layer;
-    # this layer enforces that no caller can silently fall back to ``date.today``.
     if today is None:
         raise ValueError(
             "daily ingest requires an explicit through-session; wall-clock date "
@@ -254,16 +213,8 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
         failed = _single_failed_live_candidate(conn)
         if failed is not None:
             if failed.kind == "daily":
-                # The new daily generation is the only operation whose complete
-                # overlap can safely supersede these live rows. Do not open a
-                # publication-capable maintenance generation first.
                 pass
             elif failed.kind == "sep_mutations":
-                # A failed mutation generation already owns historical live rows.
-                # Retrying its exact replay contract is the one deliberate
-                # pre-daily exception. Identity-interval refusal happens before
-                # a mutation run opens, so the YHNAU deadlock has no failed
-                # candidate here and cannot enter this branch.
                 maintenance.reconcile_sep_mutations(
                     conn, fetch=fetch, through=yesterday)
                 still_failed = _single_failed_live_candidate(conn)
@@ -296,21 +247,9 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
 
         published_frontier = _impl.feed_store.latest_visible_session(conn)
         daily_fetch = fetch
-
-        # Production gets one exact current TICKERS candidate before the daily
-        # run opens. It must be complete, structurally valid, stable, and a safe
-        # routine history projection. Known pending CDC rows through yesterday
-        # are then identity/economics-validated against that exact candidate.
-        # Nothing is written and no cursor moves here.
-        #
-        # The first TICKERS request inside _daily_locked is pinned to the proven
-        # candidate. StableSharadarFetch still re-observes the live source after
-        # the protected SEP traversal, so any drift between this proof and daily
-        # completion refuses before publication.
         if fetch is snapshot_source.fetch_table and resolve_identity is None:
             tickers_candidate = identity_refresh.stable_current_tickers(fetch)
-            identity_refresh.assert_candidate_history_safe(
-                conn, tickers_candidate)
+            identity_refresh.assert_candidate_history_safe(conn, tickers_candidate)
             candidate_resolver = identity_refresh.resolver_with_candidate(
                 conn, tickers_candidate)
             identity_refresh.prevalidate_pending_sep_mutations(
@@ -332,12 +271,6 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
         if failed is not None and failed.kind == "daily":
             _require_failed_owner_cleared(conn, context="daily retry")
 
-        # From here on, every historical maintenance operation sees the identity
-        # generation that just became published. If daily publication failed, we
-        # never reach this point and no maintenance cursor can advance under an
-        # unpublished candidate. Readiness also requires the SEP watermark and
-        # recent complete proof to cover the published decision frontier, so a
-        # crash here remains fenced until maintenance completes.
         published_frontier = _impl.feed_store.latest_visible_session(conn)
         sep_reconciliation.reconcile_next(
             conn, fetch=fetch, through=published_frontier)

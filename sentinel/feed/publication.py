@@ -1,44 +1,94 @@
-"""Corpus publication facade with mandatory post-seed coherence authority."""
+"""Canonical corpus publication membrane with mandatory seed coherence."""
 from __future__ import annotations
 
-from sentinel.feed import _publication_impl as _base
+import json
 
-_BASE_EXPORTS = {
-    name: getattr(_base, name)
-    for name in dir(_base)
-    if not name.startswith("__") and name != "publish"
-}
-for _name, _value in _BASE_EXPORTS.items():
-    globals()[_name] = _value
+from sentinel.feed import _publication_impl as _core
+from sentinel.feed._publication_impl import *  # noqa: F403
 
-_legacy_publish = _base.publish
-_BASELINE = dict(_BASE_EXPORTS)
+# Explicit static seams retained for provenance/certification tests.
+_run_producer_identity = _core._run_producer_identity
+_CORE_PUBLISH = _core.publish
 
 
-def _sync_public_overrides():
-    """Preserve the historical publication monkeypatch seam.
-
-    Retained publication code resolves helper globals in ``_publication_impl``.
-    Financial tests and incident tooling patch those helpers on the public
-    ``publication`` module, so copy only genuine overrides into the retained
-    module for the duration of the call.
-    """
-    changed = []
-    for name, baseline in _BASELINE.items():
-        current = globals().get(name)
-        if current is not baseline:
-            changed.append((name, getattr(_base, name)))
-            setattr(_base, name, current)
-    return changed
-
-
-def _restore_public_overrides(changed):
-    for name, value in reversed(changed):
-        setattr(_base, name, value)
+def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
+                    evidence=None):
+    """Commit one publication transaction through canonical public dependencies."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT pg_try_advisory_lock(%s)", (_core.CORPUS_LOCK_KEY,))
+        if not bool(cur.fetchone()[0]):
+            raise _core.CorpusBusy(
+                "a session currently has the corpus PINNED; refusing to "
+                "publish. Moving the corpus midway through a decision would "
+                "make that decision's recorded data_version a lie.")
+    try:
+        if run_id is not None:
+            producer = _run_producer_identity(conn, str(run_id))
+            retired_universe = _core.retire_failed_universe_candidates(
+                conn, run_id=str(run_id))
+            from sentinel.feed import recovery
+            action_reconcile_retirement = (
+                recovery.load_action_reconcile_retirement_plan(
+                    conn, run_id=str(run_id)))
+            if action_reconcile_retirement is not None:
+                retired_action_bars = (
+                    recovery.retire_failed_action_reconcile_bars_for_publication(
+                        conn, run_id=str(run_id),
+                        plan=action_reconcile_retirement))
+            else:
+                retired_action_bars = None
+            assert_retry_superseded_prior_candidates(conn, run_id=str(run_id))
+            from sentinel.feed import actions as action_store
+            action_store.publish_run(conn, run_id=str(run_id))
+            from sentinel.feed import anomalies as anomaly_store
+            anomaly_store.publish_run(conn, run_id=str(run_id))
+            from sentinel.feed.universe_projection import project_run
+            project_run(conn, run_id=str(run_id))
+        else:
+            retired_universe = {}
+            retired_action_bars = None
+        previous = current(conn)
+        publication_evidence = dict(evidence or {})
+        if run_id is not None:
+            supplied_producer = publication_evidence.get("producer")
+            if supplied_producer is not None and supplied_producer != producer:
+                raise _core.CorpusIncoherent(
+                    "caller-supplied publication producer conflicts with the "
+                    "durable ingest run")
+            publication_evidence["producer"] = producer
+        if retired_universe:
+            publication_evidence["retired_failed_universe_candidates"] = [
+                {"run_id": candidate, "rows": retired_universe[candidate]}
+                for candidate in sorted(retired_universe)]
+        if retired_action_bars is not None:
+            publication_evidence["retired_failed_bars_in_replay"] = (
+                retired_action_bars["inside_replay"])
+            publication_evidence["retired_failed_bars_outside_market"] = (
+                retired_action_bars["outside_market"])
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_corpus_publications (previous_version,"
+                " run_id, window_start, window_end, evidence)"
+                " VALUES (%s,%s,%s,%s,%s) RETURNING version",
+                (previous.version if previous else None, run_id,
+                 window_start, window_end,
+                 json.dumps(publication_evidence,
+                            sort_keys=True, default=str)))
+            cur.fetchone()
+        conn.commit()
+    except BaseException:  # noqa: BLE001
+        conn.rollback()
+        raise
+    finally:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_unlock(%s)", (_core.CORPUS_LOCK_KEY,))
+        conn.commit()
+    return require_current(conn)
 
 
 def publish(conn, *, run_id=None, window_start=None, window_end=None,
             evidence=None):
+    """Publish one coherent corpus generation with all durable seed evidence."""
     merged = dict(evidence or {})
     if run_id is not None:
         from sentinel.feed import seed_coherence
@@ -49,19 +99,16 @@ def publish(conn, *, run_id=None, window_start=None, window_end=None,
         if proof is not None:
             supplied = merged.get("seed_coherence")
             if supplied is not None and supplied != proof:
-                raise _base.CorpusIncoherent(
+                raise _core.CorpusIncoherent(
                     "caller-supplied seed coherence evidence conflicts with the "
                     "durable ingest run")
             merged["seed_coherence"] = proof
-    changed = _sync_public_overrides()
-    try:
-        return _legacy_publish(
-            conn, run_id=run_id, window_start=window_start,
-            window_end=window_end, evidence=merged)
-    finally:
-        _restore_public_overrides(changed)
+    publisher = _publish_atomic if _core.publish is _CORE_PUBLISH else _core.publish
+    return publisher(
+        conn, run_id=run_id, window_start=window_start,
+        window_end=window_end, evidence=merged)
 
 
-# Recovery helpers and retained implementation call sites must pass through the
-# same mandatory membrane. The facade still remains the monkeypatch authority.
-_base.publish = publish
+__all__ = list(getattr(_core, "__all__", ()))
+if "publish" not in __all__:
+    __all__.append("publish")

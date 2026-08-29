@@ -121,7 +121,7 @@ def test_seed_generation_escalates_only_the_named_identity_mutation(monkeypatch)
 
     monkeypatch.setattr(I, "_seed_source", source)
     monkeypatch.setattr(
-        I._impl, "_seed_locked",
+        I, "_ordinary_seed_generation",
         lambda *a, **k: (_ for _ in ()).throw(
             U.HistoricalIdentityMutation("historical correction")))
     monkeypatch.setattr(
