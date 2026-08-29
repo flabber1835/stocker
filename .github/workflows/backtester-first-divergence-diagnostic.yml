@@ -1,0 +1,254 @@
+name: Backtester - first Wealth Core divergence diagnostic
+
+on:
+  push:
+    branches:
+      - research/backtester
+    paths:
+      - '.github/workflows/backtester-first-divergence-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backtester-first-divergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    if: github.ref_name == 'research/backtester'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out diagnostic inputs
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/backtester
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-first-divergence-diagnostic.yml
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /PIT input data/MANIFEST.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
+            /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
+            /sharadar/SHARADAR_ACTIONS.zip
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SHARADAR_SFP.zip
+            /sharadar/SHARADAR_SEP_1997.csv.gz
+            /sharadar/SHARADAR_SEP_1998.csv.gz
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/SHA256SUMS.txt
+            /research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
+
+      - name: Record branch identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "BACKTESTER_BRANCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+
+      - name: Check out exact production source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: c502d077cae9c494f8b74a41ee8be7f40b25837d
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install exact production dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+
+      - name: Instrument retained research lineage
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p backtester-results/research-control
+          python - <<'PY'
+          from pathlib import Path
+          src=Path('research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py')
+          text=src.read_text(encoding='utf-8')
+          replacements=[
+            ("ROOT = Path('/mnt/data')\nOUT = ROOT / 'ldrc_ab_replay_20260825'", "ROOT = Path('sharadar')\nOUT = Path('backtester-results/research-control')"),
+            ("START = pd.Timestamp('2006-07-31')", "START = pd.Timestamp('1998-01-02')"),
+            ("END = pd.Timestamp('2026-07-31')", "END = pd.Timestamp('1998-12-31')"),
+            ("rows=[]; overlap_checks={}; buys=sells=split_events=div_events=0", "rows=[]; holdings_rows=[]; overlap_checks={}; buys=sells=split_events=div_events=0"),
+            ("                prev_perf_date=date; prev_close_eq=eq", "                for slot_id,s in enumerate(book.slots):\n                    holdings_rows.append({'date':date,'slot_id':slot_id,'held':s.held(),'ticker':tick[s.tid] if s.held() else '',\n                        'qty':float(s.qty) if s.held() else 0.0,'entry_day':int(s.entry_day) if s.held() else -1,\n                        'entry_signal':float(s.entry_sig) if s.held() and finite(s.entry_sig) else np.nan,\n                        'peak':float(s.peak) if s.held() and finite(s.peak) else np.nan,\n                        'reviewed':bool(s.reviewed) if s.held() else False,'pending_sell':bool(s.pending_sell) if s.held() else False,\n                        'sell_reason':s.sell_reason if s.held() else '','pending_ticker':tick[s.pending_tid] if s.reserved() else ''})\n                prev_perf_date=date; prev_close_eq=eq"),
+            ("    out.to_csv(OUT/'daily.csv',index=False)", "    out.to_csv(OUT/'daily.csv',index=False)\n    pd.DataFrame(holdings_rows).to_csv(OUT/'holdings.csv',index=False)"),
+          ]
+          for old,new in replacements:
+              if text.count(old)!=1:
+                  raise SystemExit(f'research instrumentation seam mismatch: {old[:60]!r} count={text.count(old)}')
+              text=text.replace(old,new,1)
+          Path('/tmp/research_diag.py').write_text(text,encoding='utf-8')
+          PY
+          python -m py_compile /tmp/research_diag.py
+
+      - name: Run retained research Wealth Core through 1998
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          python /tmp/research_diag.py 2>&1 | tee backtester-results/research-control/run.log
+
+      - name: Instrument current production Wealth Core
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p backtester-results/production
+          python - <<'PY'
+          from pathlib import Path
+          src=Path('backtester/experiments/2026-08-27-sector-abc/run.py')
+          text=src.read_text(encoding='utf-8')
+          old="    daily_rows = []\n    normalization = NormalisationReport()"
+          new="    daily_rows = []\n    diagnostic_holdings_rows = []\n    normalization = NormalisationReport()"
+          if text.count(old)!=1: raise SystemExit('production holdings init seam mismatch')
+          text=text.replace(old,new,1)
+          old="        daily_rows.append({\n"
+          new="""        wc = state_a.wealth_core
+        for slot_id, slot in sorted(wc.slots.items()):
+            ep = wc.episodes.get(slot_id)
+            diagnostic_holdings_rows.append({
+                'date': session, 'slot_id': slot_id, 'held': ep is not None,
+                'security_id': ep.security_id if ep is not None else '',
+                'ticker': ep.ticker if ep is not None else (slot.reserved_ticker or ''),
+                'shares': float(ep.current_shares) if ep is not None else 0.0,
+                'entry_date': ep.entry_date if ep is not None else '',
+                'entry_raw_open': float(ep.entry_raw_open) if ep is not None else float('nan'),
+                'entry_signal': float(ep.entry_split_adjusted_price) if ep is not None else float('nan'),
+                'peak': float(ep.episode_peak_split_adjusted_close) if ep is not None and ep.episode_peak_split_adjusted_close is not None else float('nan'),
+                'age': int(ep.market_sessions_held) if ep is not None else -1,
+                'reviewed': bool(ep.review_completed) if ep is not None else False,
+                'exit_pending': bool(ep.exit_pending) if ep is not None else False,
+                'exit_reason': ep.exit_reason if ep is not None else '',
+                'reserved_for': slot.reserved_for or '',
+            })
+        daily_rows.append({
+"""
+          if text.count(old)!=1: raise SystemExit('production holdings row seam mismatch')
+          text=text.replace(old,new,1)
+          old="    pd.DataFrame(metrics_rows).to_csv(metrics_path, index=False)\n"
+          new="    pd.DataFrame(metrics_rows).to_csv(metrics_path, index=False)\n    pd.DataFrame(diagnostic_holdings_rows).to_csv(output / 'holdings.csv', index=False)\n"
+          if text.count(old)!=1: raise SystemExit('production holdings output seam mismatch')
+          text=text.replace(old,new,1)
+          needle="    if unresolved_splits:\n        raise RuntimeError(\n"
+          repl="    if (unresolved_splits\n            and os.environ.get('BACKTESTER_EQUIV_IGNORE_FINAL_SPLIT_AUDIT') != '1'):\n        raise RuntimeError(\n"
+          if text.count(needle)!=1: raise SystemExit('split audit seam mismatch')
+          text=text.replace(needle,repl,1)
+          Path('/tmp/production_diag.py').write_text(text,encoding='utf-8')
+          PY
+          python -m py_compile /tmp/production_diag.py
+
+      - name: Run current production Wealth Core through 1998
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: '1'
+          BACKTESTER_MAIN_SHA: c502d077cae9c494f8b74a41ee8be7f40b25837d
+          BACKTESTER_MAIN_ROOT: ${{ github.workspace }}/main-src
+          BACKTESTER_LAB_ROOT: ${{ github.workspace }}
+          BACKTESTER_EQUIV_IGNORE_FINAL_SPLIT_AUDIT: '1'
+        run: |
+          set -euo pipefail
+          python - <<'PY' 2>&1 | tee backtester-results/production/run.log
+          import importlib.util,sys
+          from pathlib import Path
+          root=Path('.').resolve()
+          sys.path.insert(0,str(root/'main-src'/'shared'))
+          sys.path.insert(0,str(root/'main-src'))
+          path=Path('/tmp/production_diag.py')
+          spec=importlib.util.spec_from_file_location('production_diag',path)
+          runner=importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
+          runner.END_SESSION='1998-12-31'
+          runner.MEASUREMENT_WINDOWS={}
+          sys.argv=[str(path),'--lab-root','.', '--main-root','main-src','--output','backtester-results/production']
+          raise SystemExit(runner.main())
+          PY
+
+      - name: Locate first economic divergence and compare holdings
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p backtester-results/comparison
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import numpy as np
+          import pandas as pd
+          r=pd.read_csv('backtester-results/research-control/daily.csv',parse_dates=['date'])[['date','shadow_equity']]
+          p=pd.read_csv('backtester-results/production/daily.csv.gz',parse_dates=['date'])[['date','wealth_core_equity']]
+          x=r.merge(p,on='date',how='inner').sort_values('date').reset_index(drop=True)
+          x['research_return']=x.shadow_equity.pct_change()
+          x['production_return']=x.wealth_core_equity.pct_change()
+          x['return_diff']=x.production_return-x.research_return
+          q=x[x.return_diff.abs()>1e-10]
+          if q.empty: raise SystemExit('no economic divergence found through 1998')
+          i=int(q.index[0]); first=x.loc[i,'date']; prior=x.loc[i-1,'date'] if i>0 else first
+          rh=pd.read_csv('backtester-results/research-control/holdings.csv',parse_dates=['date'])
+          ph=pd.read_csv('backtester-results/production/holdings.csv',parse_dates=['date'])
+          blocks=[]
+          for d,label in ((prior,'prior'),(first,'first_divergence')):
+              a=rh[(rh.date==d)&rh.held].copy(); b=ph[(ph.date==d)&ph.held].copy()
+              a=a[['ticker','slot_id','qty','entry_day','entry_signal','peak','reviewed','pending_sell','sell_reason']].rename(columns={c:'research_'+c for c in a.columns if c!='ticker'})
+              b=b[['ticker','security_id','slot_id','shares','entry_date','entry_signal','peak','age','reviewed','exit_pending','exit_reason']].rename(columns={c:'production_'+c for c in b.columns if c!='ticker'})
+              c=a.merge(b,on='ticker',how='outer',indicator=True).sort_values(['_merge','ticker'])
+              c.insert(0,'snapshot',label); c.insert(1,'date',d.strftime('%Y-%m-%d')); blocks.append(c)
+          comp=pd.concat(blocks,ignore_index=True)
+          comp.to_csv('backtester-results/comparison/holdings_line_by_line.csv',index=False)
+          x.to_csv('backtester-results/comparison/equity_returns.csv',index=False)
+          only=comp[(comp.snapshot=='first_divergence') & (comp._merge!='both')]
+          result={
+            'first_divergence_session':first.strftime('%Y-%m-%d'),
+            'prior_session':prior.strftime('%Y-%m-%d'),
+            'research_return':float(x.loc[i,'research_return']),
+            'production_return':float(x.loc[i,'production_return']),
+            'return_difference':float(x.loc[i,'return_diff']),
+            'research_only_tickers':sorted(only.loc[only._merge=='left_only','ticker'].dropna().astype(str).tolist()),
+            'production_only_tickers':sorted(only.loc[only._merge=='right_only','ticker'].dropna().astype(str).tolist()),
+            'research_held':int(((comp.snapshot=='first_divergence') & comp.research_slot_id.notna()).sum()),
+            'production_held':int(((comp.snapshot=='first_divergence') & comp.production_slot_id.notna()).sum()),
+          }
+          Path('backtester-results/comparison/result.json').write_text(json.dumps(result,indent=2)+'\n')
+          print(json.dumps(result,indent=2))
+          print('\nFIRST-DIVERGENCE HOLDINGS DIFF')
+          print(comp[comp.snapshot=='first_divergence'].to_string(index=False))
+          PY
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: first-wealth-core-divergence-${{ github.run_id }}
+          path: |
+            backtester-results/research-control/daily.csv
+            backtester-results/research-control/holdings.csv
+            backtester-results/research-control/run.log
+            backtester-results/production/daily.csv.gz
+            backtester-results/production/holdings.csv
+            backtester-results/production/run.log
+            backtester-results/comparison/equity_returns.csv
+            backtester-results/comparison/holdings_line_by_line.csv
+            backtester-results/comparison/result.json
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
