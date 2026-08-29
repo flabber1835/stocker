@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import datetime as dt
+from contextlib import contextmanager
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -70,12 +72,43 @@ def test_ingest_daily_has_no_wall_clock_fallback():
 def test_ingest_daily_passes_explicit_session_verbatim(monkeypatch):
     observed = {}
 
-    def legacy(conn, **kwargs):
-        observed.update(kwargs)
-        return "ok"
+    @contextmanager
+    def lock(_conn):
+        yield
 
-    monkeypatch.setattr(ingest, "_legacy_daily", legacy)
-    assert ingest.daily("conn", today="2026-08-24") == "ok"
+    source = lambda *args, **kwargs: []
+    monkeypatch.setattr(ingest, "_authoritative_source", lambda fetch: fetch)
+    monkeypatch.setattr(ingest, "_validate_source_before_run", lambda fetch: None)
+    monkeypatch.setattr(ingest.feed_store, "corpus_write_lock", lock)
+    monkeypatch.setattr(ingest, "_recover_before_run", lambda conn: None)
+    monkeypatch.setattr(
+        ingest.maintenance, "load_sep_cursor", lambda conn: object())
+    monkeypatch.setattr(ingest, "_single_failed_live_candidate", lambda conn: None)
+    monkeypatch.setattr(
+        ingest.feed_store, "latest_visible_session", lambda conn: "2026-08-21")
+    monkeypatch.setattr(
+        ingest.recovery, "extended_overlap_days", lambda conn, requested: requested)
+    monkeypatch.setattr(
+        ingest.source_authority, "StableSharadarFetch",
+        lambda fetch, after_session=None: fetch)
+
+    def daily_locked(conn, **kwargs):
+        observed.update(kwargs)
+        return SimpleNamespace(run_id="daily-test")
+
+    monkeypatch.setattr(ingest._impl, "_daily_locked", daily_locked)
+    monkeypatch.setattr(
+        ingest, "_finish_publication_or_refuse", lambda conn, progress: object())
+    monkeypatch.setattr(
+        ingest.sep_reconciliation, "reconcile_next", lambda conn, **kwargs: None)
+    monkeypatch.setattr(
+        ingest.maintenance, "reconcile_sep_mutations", lambda conn, **kwargs: None)
+    monkeypatch.setattr(
+        ingest.maintenance, "reconcile_actions_if_due", lambda conn, **kwargs: None)
+    monkeypatch.setattr(ingest, "_prove_recent_frontier", lambda conn, **kwargs: None)
+
+    result = ingest.daily("conn", fetch=source, today="2026-08-24")
+    assert result.run_id == "daily-test"
     assert observed["today"] == "2026-08-24"
 
 
