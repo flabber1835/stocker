@@ -8,8 +8,10 @@ import re
 from pathlib import Path
 
 SCHEMA = "backtester.causal-split-overrides/1"
+SIDECAR_SCHEMA = "backtester.causal-split-override/1"
 ADJUDICATED_DISPOSITION = "research_primary_source_adjudicated"
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_SIDECAR_NAME = re.compile(r"^.+_([0-9a-f]{64})\.json$")
 
 
 class FrozenSplitOverrideError(ValueError):
@@ -38,6 +40,55 @@ def _expected_digest(checksum_path: Path, data_path: Path) -> str:
     return digest
 
 
+def _sidecar_dir(data_path: Path) -> Path:
+    return data_path.parent / f"{data_path.stem}.d"
+
+
+def _load_sidecar_records(data_path: Path) -> tuple[list[dict], list[tuple[str, str]]]:
+    """Load optional one-event immutable sidecars.
+
+    Each sidecar filename ends in the SHA-256 of its exact bytes. This makes an
+    adjudication append-only and independently content-addressed: changing a
+    record requires a new filename and duplicate event keys are rejected later.
+    """
+    directory = _sidecar_dir(data_path)
+    if not directory.exists():
+        return [], []
+    records: list[dict] = []
+    witnesses: list[tuple[str, str]] = []
+    for path in sorted(directory.glob("*.json"), key=lambda p: p.name):
+        match = _SIDECAR_NAME.fullmatch(path.name)
+        if match is None:
+            raise FrozenSplitOverrideError(f"malformed split override sidecar name: {path.name}")
+        expected = match.group(1)
+        observed = sha256_file(path)
+        if observed != expected:
+            raise FrozenSplitOverrideError(
+                f"split override sidecar checksum mismatch for {path.name}: {observed} != {expected}"
+            )
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or payload.get("schema") != SIDECAR_SCHEMA:
+            raise FrozenSplitOverrideError(f"unexpected split override sidecar schema: {path.name}")
+        record = payload.get("record")
+        if not isinstance(record, dict):
+            raise FrozenSplitOverrideError(f"split override sidecar lacks record: {path.name}")
+        records.append(record)
+        witnesses.append((path.name, observed))
+    return records, witnesses
+
+
+def frozen_override_record_count(data_path: Path) -> int:
+    """Count base plus immutable sidecar records without needing market data."""
+    payload = json.loads(data_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or payload.get("schema") != SCHEMA:
+        raise FrozenSplitOverrideError("unexpected split override schema")
+    records = payload.get("records")
+    if not isinstance(records, list):
+        raise FrozenSplitOverrideError("split override records must be a list")
+    sidecars, _ = _load_sidecar_records(data_path)
+    return len(records) + len(sidecars)
+
+
 def load_frozen_split_overrides(
     data_path: Path,
     checksum_path: Path,
@@ -48,10 +99,10 @@ def load_frozen_split_overrides(
 ) -> tuple[str, dict[tuple[str, str], dict]]:
     """Validate exact adjudications against the unchanged vendor authority.
 
-    The original ACTIONS value is deliberately retained in ``authority``.  The
+    The original ACTIONS value is deliberately retained in ``authority``. The
     adjudication wrapper records that vendor value and the independent SEP
     witness, then substitutes the legal multiplier only for the exact frozen
-    event.  This keeps the disagreement visible in evidence.
+    event. This keeps the disagreement visible in evidence.
     """
     expected = _expected_digest(checksum_path, data_path)
     observed = sha256_file(data_path)
@@ -64,10 +115,24 @@ def load_frozen_split_overrides(
     records = payload.get("records")
     if not isinstance(records, list) or not records:
         raise FrozenSplitOverrideError("split override dataset is empty")
+    sidecar_records, sidecar_witnesses = _load_sidecar_records(data_path)
+    all_records = list(records) + sidecar_records
+
+    aggregate_digest = observed
+    if sidecar_witnesses:
+        h = hashlib.sha256()
+        h.update(observed.encode("ascii"))
+        h.update(b"\n")
+        for name, digest in sidecar_witnesses:
+            h.update(name.encode("utf-8"))
+            h.update(b"\0")
+            h.update(digest.encode("ascii"))
+            h.update(b"\n")
+        aggregate_digest = h.hexdigest()
 
     session_set = set(map(str, sessions))
     out: dict[tuple[str, str], dict] = {}
-    for raw in records:
+    for raw in all_records:
         if not isinstance(raw, dict):
             raise FrozenSplitOverrideError("split override record must be an object")
         ticker = str(raw.get("ticker") or "").strip()
@@ -115,17 +180,11 @@ def load_frozen_split_overrides(
             "reference": reference,
             "sources": list(sources),
         }
-    return observed, out
+    return aggregate_digest, out
 
 
 def install_primary_split_adjudication(split_module, overrides: dict[tuple[str, str], dict]):
-    """Install a bounded wrapper around frozen-main SplitStreamReconciler.decide.
-
-    Every ordinary event still executes the exact production resolver.  For a
-    frozen override key, the production result must expose the exact expected
-    vendor value and SEP-derived witness.  Only then is the legal multiplier
-    returned with a distinct research disposition.  Any corpus drift fails.
-    """
+    """Install a bounded wrapper around frozen-main SplitStreamReconciler.decide."""
     real_decide = split_module.SplitStreamReconciler.decide
     SplitDecision = split_module.SplitDecision
 
