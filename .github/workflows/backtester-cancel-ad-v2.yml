@@ -1,0 +1,23 @@
+name: Backtester - cancel A/D v2 one-shot
+
+on:
+  push:
+    branches:
+      - research/backtester
+    paths:
+      - '.github/workflows/backtester-cancel-ad-v2.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backtester-sector-ad-v2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cancel-current-ad-v2:
+    name: Cancel current A/D v2 via concurrency
+    if: ${{ false }}
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "one-shot concurrency cancellation"
