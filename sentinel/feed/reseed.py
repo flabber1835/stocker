@@ -49,6 +49,8 @@ def full_reseed_locked(
         conn, *, date_from: str, date_to: str,
         fetch: Callable[..., Iterable[dict]], resolve_identity=None,
         identity_rebuild_plan: identity_rebuild.IdentityRebuildPlan | None = None,
+        on_run_started=None, before_success=None, record_identity_plan=None,
+        publish_identity=None,
         ) -> feed_store.IngestProgress:
     """Refetch and replace a legacy ambiguous unpublished candidate set.
 
@@ -64,6 +66,13 @@ def full_reseed_locked(
     kept in memory, SEP is resolved exclusively against it, and TICKERS rows,
     obsolete-key retirement, projection replacement and corpus publication land
     in one final transaction.
+
+    Lifecycle callbacks are explicit call-bound dependencies used by the
+    canonical ingest membrane. ``on_run_started`` executes immediately after the
+    durable RUNNING row exists. ``before_success`` executes after every source
+    chunk is complete and before SUCCESS/publication. Identity rebuild uses the
+    same callback before its atomic finalizer. No process-global method or module
+    replacement is required.
     """
     from sentinel.feed import ingest_impl
 
@@ -72,9 +81,11 @@ def full_reseed_locked(
     run = feed_store.IngestRun(
         conn, "seed", date_from=date_from, date_to=date_to,
         chunks_total=len(chunks) + 3)
+    if on_run_started is not None:
+        on_run_started(run)
     if identity_rebuild_plan is not None:
-        identity_rebuild.record_plan(
-            conn, run_id=run.progress.run_id, plan=identity_rebuild_plan)
+        recorder = record_identity_plan or identity_rebuild.record_plan
+        recorder(conn, run_id=run.progress.run_id, plan=identity_rebuild_plan)
 
     candidate_tickers = None
     claim_security_ids = None
@@ -125,9 +136,6 @@ def full_reseed_locked(
         if candidate_tickers is None or claim_security_ids is None:
             raise recovery.PublicationRecoveryRefused(
                 "identity rebuild lost its candidate TICKERS evidence")
-        # Never overlay the old published projection here. That is the exact
-        # circular defect #246 closes: an omitted/reassigned pairing must not
-        # remain available to resolve the replacement SEP replay.
         resolver = universe.IdentityResolver(
             universe.listings_from_rows(candidate_tickers)).resolve
 
@@ -144,10 +152,6 @@ def full_reseed_locked(
                 resolve_identity=resolver,
                 authoritative_splits=splits,
                 dividends=divs,
-                # prepare_full_reseed widened `date_from` to the earliest old
-                # MARKET candidate. After every preceding year we delete
-                # residual old-owner bars, so this physical predecessor lookup
-                # cannot cross into hidden legacy candidate evidence.
                 prior_observations=feed_store.previous_observations(conn, lo),
                 report=report)
             if identity_rebuild_plan is None:
@@ -164,19 +168,10 @@ def full_reseed_locked(
             run.progress.rows_dropped += (
                 report.dropped_no_raw_close + report.dropped_no_identity)
 
-            # A stable complete SEP window has now been replayed. Because the
-            # bar upsert takes ownership from any unpublished predecessor even
-            # when values are unchanged, a row still owned by an older FAILED
-            # run is an observed absence/non-normalizable row in current source.
             recovery.retire_failed_bars_in_stable_seed_window(
                 conn, run_id=run.progress.run_id, start=lo, end=hi)
 
             if final_chunk:
-                # StableSharadarFetch brackets TICKERS, complete ACTIONS and SFP
-                # through this final SEP traversal. Only now may recovery retire
-                # residual destructive rows from those other families. Each
-                # family is checked against the exact source range that replaced
-                # it: market history for SEP/SFP, 1900->through for ACTIONS.
                 recovery.assert_full_reseed_covered_live_rows(
                     conn, run_id=run.progress.run_id,
                     market_start=date_from, actions_start=action_start,
@@ -186,17 +181,20 @@ def full_reseed_locked(
                     market_start=date_from, actions_start=action_start,
                     end=date_to)
 
-    if identity_rebuild_plan is None:
-        run.finish("success")
-        ingest_impl._publish_version(conn, run, date_from, date_to)
-    else:
-        try:
-            identity_rebuild.publish_completed_run(
+    try:
+        if before_success is not None:
+            before_success(run, resolver)
+        if identity_rebuild_plan is None:
+            run.finish("success")
+            ingest_impl._publish_version(conn, run, date_from, date_to)
+        else:
+            publisher = publish_identity or identity_rebuild.publish_completed_run
+            publisher(
                 conn, run=run, rows=candidate_tickers,
                 plan=identity_rebuild_plan)
-        except BaseException as exc:                          # noqa: BLE001
-            _fail_finalization_if_running(conn, run, exc)
-            raise
+    except BaseException as exc:                              # noqa: BLE001
+        _fail_finalization_if_running(conn, run, exc)
+        raise
     return run.progress
 
 
