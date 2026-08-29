@@ -20,6 +20,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Repair and compile mapper
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tools/step4_paper_lifecycle_inventory.py')
+          text = path.read_text()
+          old = '''            )
+        records.append({'''
+          new = '''            )
+        )
+        records.append({'''
+          if old in text:
+              path.write_text(text.replace(old, new, 1))
+          PY
+          python -m py_compile tools/step4_paper_lifecycle_inventory.py
+
       - name: Generate responsibility map
         run: python tools/step4_paper_lifecycle_inventory.py
 
@@ -33,7 +49,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/paper-lifecycle-responsibility-map.md artifacts/paper-lifecycle-responsibility-map.json
+          git add tools/step4_paper_lifecycle_inventory.py docs/paper-lifecycle-responsibility-map.md artifacts/paper-lifecycle-responsibility-map.json
           if git diff --cached --quiet; then
             exit 0
           fi
