@@ -41,12 +41,12 @@ jobs:
           test "$(wc -c < /tmp/step4_decompose_paper.py.gz.b64)" = "9580"
           echo "6507b27416abd6e90e0dc1ae5635581a74275525b2452face41005e7c614dca4  /tmp/step4_decompose_paper.py.gz.b64" | sha256sum --check
           base64 --decode /tmp/step4_decompose_paper.py.gz.b64 \
-            | gzip --decompress > /tmp/step4_decompose_paper.py
-          echo "e763f6fb93ee1ec6afc72ce0ed67a022ea1a4153eee6f37d0d4e4debba346578  /tmp/step4_decompose_paper.py" | sha256sum --check
-          python -m py_compile /tmp/step4_decompose_paper.py
+            | gzip --decompress > tools/step4_decompose_paper.py
+          echo "e763f6fb93ee1ec6afc72ce0ed67a022ea1a4153eee6f37d0d4e4debba346578  tools/step4_decompose_paper.py" | sha256sum --check
+          python -m py_compile tools/step4_decompose_paper.py
 
       - name: Generate cohesive package and equivalence proof
-        run: python /tmp/step4_decompose_paper.py
+        run: python tools/step4_decompose_paper.py
 
       - name: Verify generated source
         shell: bash
@@ -63,6 +63,7 @@ jobs:
       - name: Remove one-time generation machinery
         run: |
           rm -rf tools/step4_payload
+          rm -f tools/step4_decompose_paper.py
           rm -f tools/step4_paper_lifecycle_inventory.py
           rm -f artifacts/paper-lifecycle-responsibility-map.json
           rm -f .github/workflows/step4-paper-lifecycle-inventory.yml
