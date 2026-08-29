@@ -74,6 +74,15 @@ def _created_backup_path(completed) -> Optional[str]:
     return value
 
 
+def _require_go_authority(env: Mapping[str, str]) -> None:
+    if not phase._PHASE.get("certified"):
+        raise BackupRefreshRefused("BACKUP_REFRESH_CERTIFICATION_NOT_PROVEN")
+    if not go_lock.lifecycle_lock_is_held(env):
+        raise BackupRefreshRefused("BACKUP_REFRESH_LIFECYCLE_LOCK_NOT_PROVEN")
+    if go_lock.current_run_token() is None:
+        raise BackupRefreshRefused("BACKUP_REFRESH_RUN_CAPABILITY_NOT_PROVEN")
+
+
 def _require_checkout_exact(runner, *, commit: str, env: Mapping[str, str]) -> None:
     head = runner.run(["git", "rev-parse", "HEAD"], env=env)
     dirty = runner.run(
@@ -88,6 +97,7 @@ def _require_checkout_exact(runner, *, commit: str, env: Mapping[str, str]) -> N
 def ensure_recent_verified_base_backup(
         runner, *, env: Mapping[str, str], commit: str) -> bool:
     """Return True only when this call created and re-verified a base backup."""
+    _require_go_authority(env)
     if go._HEX40.fullmatch(str(commit)) is None:
         raise BackupRefreshRefused("BACKUP_REFRESH_CERTIFIED_COMMIT_INVALID")
 
@@ -151,13 +161,12 @@ def _preparation_with_backup_refresh(*args, **kwargs):
     if _ORIGINAL_PREPARATION is None:
         raise RuntimeError("GO backup refresh overlay is not installed")
 
-    # The phase guard is the exact-artifact certification boundary. The kernel
-    # lifecycle lock and one-run capability prevent this host mutation from
-    # becoming a standalone backup command reachable by importing this module.
-    if not phase._PHASE.get("certified"):
-        return _ORIGINAL_PREPARATION(*args, **kwargs)
+    # The wrapped phase guard remains authoritative for non-production/test
+    # calls. Do not invoke any backup surface until all three production
+    # capabilities are present.
     env = dict(kwargs.get("env") or {})
-    if (not go_lock.lifecycle_lock_is_held(env)
+    if (not phase._PHASE.get("certified")
+            or not go_lock.lifecycle_lock_is_held(env)
             or go_lock.current_run_token() is None):
         return _ORIGINAL_PREPARATION(*args, **kwargs)
 
