@@ -1,0 +1,102 @@
+name: Backtester - checkpointed held terminal gap scan launch 2026-08-28
+
+on:
+  push:
+    branches: [research/backtester]
+    paths:
+      - '.github/workflows/backtester-held-terminal-gap-checkpointed-auto-2026-08-28.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  segment1:
+    uses: ./.github/workflows/backtester-held-terminal-gap-segment-worker.yml
+    with:
+      runner_sha: ${{ github.sha }}
+      segment_name: '01-1998-2001'
+      stop_after: '2001-12-31'
+      checkpoint_cache_key: terminal-gap-auto-${{ github.run_id }}-s1
+      final_segment: false
+
+  segment2:
+    needs: segment1
+    uses: ./.github/workflows/backtester-held-terminal-gap-segment-worker.yml
+    with:
+      runner_sha: ${{ github.sha }}
+      segment_name: '02-2002-2005'
+      stop_after: '2005-12-30'
+      resume_cache_key: terminal-gap-auto-${{ github.run_id }}-s1
+      resume_sha256: ${{ needs.segment1.outputs.checkpoint_sha256 }}
+      checkpoint_cache_key: terminal-gap-auto-${{ github.run_id }}-s2
+      final_segment: false
+
+  segment3:
+    needs: segment2
+    uses: ./.github/workflows/backtester-held-terminal-gap-segment-worker.yml
+    with:
+      runner_sha: ${{ github.sha }}
+      segment_name: '03-2006-2009'
+      stop_after: '2009-12-31'
+      resume_cache_key: terminal-gap-auto-${{ github.run_id }}-s2
+      resume_sha256: ${{ needs.segment2.outputs.checkpoint_sha256 }}
+      checkpoint_cache_key: terminal-gap-auto-${{ github.run_id }}-s3
+      final_segment: false
+
+  segment4:
+    needs: segment3
+    uses: ./.github/workflows/backtester-held-terminal-gap-segment-worker.yml
+    with:
+      runner_sha: ${{ github.sha }}
+      segment_name: '04-2010-2013'
+      stop_after: '2013-12-31'
+      resume_cache_key: terminal-gap-auto-${{ github.run_id }}-s3
+      resume_sha256: ${{ needs.segment3.outputs.checkpoint_sha256 }}
+      checkpoint_cache_key: terminal-gap-auto-${{ github.run_id }}-s4
+      final_segment: false
+
+  segment5:
+    needs: segment4
+    uses: ./.github/workflows/backtester-held-terminal-gap-segment-worker.yml
+    with:
+      runner_sha: ${{ github.sha }}
+      segment_name: '05-2014-2017'
+      stop_after: '2017-12-29'
+      resume_cache_key: terminal-gap-auto-${{ github.run_id }}-s4
+      resume_sha256: ${{ needs.segment4.outputs.checkpoint_sha256 }}
+      checkpoint_cache_key: terminal-gap-auto-${{ github.run_id }}-s5
+      final_segment: false
+
+  segment6:
+    needs: segment5
+    uses: ./.github/workflows/backtester-held-terminal-gap-segment-worker.yml
+    with:
+      runner_sha: ${{ github.sha }}
+      segment_name: '06-2018-2021'
+      stop_after: '2021-12-31'
+      resume_cache_key: terminal-gap-auto-${{ github.run_id }}-s5
+      resume_sha256: ${{ needs.segment5.outputs.checkpoint_sha256 }}
+      checkpoint_cache_key: terminal-gap-auto-${{ github.run_id }}-s6
+      final_segment: false
+
+  segment7:
+    needs: segment6
+    uses: ./.github/workflows/backtester-held-terminal-gap-segment-worker.yml
+    with:
+      runner_sha: ${{ github.sha }}
+      segment_name: '07-2022-2025'
+      stop_after: '2025-12-31'
+      resume_cache_key: terminal-gap-auto-${{ github.run_id }}-s6
+      resume_sha256: ${{ needs.segment6.outputs.checkpoint_sha256 }}
+      checkpoint_cache_key: terminal-gap-auto-${{ github.run_id }}-s7
+      final_segment: false
+
+  final:
+    needs: segment7
+    uses: ./.github/workflows/backtester-held-terminal-gap-segment-worker.yml
+    with:
+      runner_sha: ${{ github.sha }}
+      segment_name: '08-2026-final'
+      resume_cache_key: terminal-gap-auto-${{ github.run_id }}-s7
+      resume_sha256: ${{ needs.segment7.outputs.checkpoint_sha256 }}
+      final_segment: true
