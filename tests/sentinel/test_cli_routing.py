@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from sentinel import _main_impl
 from sentinel.cli import feed as feed_cli
 from sentinel.cli import main as cli_main
@@ -169,3 +171,29 @@ def test_feed_daily_checks_config_before_producer_identity(monkeypatch):
         exit_not_established=2,
     ) == 2
     assert order == ["config", "producer"]
+
+
+def test_feed_daily_rejects_leftover_unknown_arguments(monkeypatch):
+    monkeypatch.setattr(
+        feed_cli.manual_daily,
+        "extract_through",
+        lambda argv: (["feed-daily", "--bogus"], "2026-08-28"),
+    )
+    monkeypatch.setattr(
+        feed_cli.manual_daily,
+        "validate_through",
+        lambda raw: SimpleNamespace(
+            through=raw,
+            calendar_version="XNYS-test",
+            latest_closed="2026-08-28",
+        ),
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        feed_cli.run_feed_daily(
+            ["feed-daily", "--through", "2026-08-28", "--bogus"],
+            exit_ok=0,
+            exit_config=1,
+            exit_not_established=2,
+        )
+    assert exc.value.code == 2
