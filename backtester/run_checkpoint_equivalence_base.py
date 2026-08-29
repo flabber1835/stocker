@@ -5,11 +5,15 @@ from __future__ import annotations
 import importlib.util
 import os
 from pathlib import Path
-
-from backtester import checkpoint_runner
+import sys
 
 
 root = Path(os.environ.get("BACKTESTER_LAB_ROOT", ".")).resolve()
+sys.path.insert(0, str(root))
+
+from backtester import checkpoint_runner  # noqa: E402
+
+
 base = root / "backtester" / "experiments" / "2026-08-27-sector-abc" / "run.py"
 spec = importlib.util.spec_from_file_location("checkpoint_equivalence_base", base)
 if spec is None or spec.loader is None:
