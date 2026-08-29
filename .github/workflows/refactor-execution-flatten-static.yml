@@ -19,6 +19,22 @@ jobs:
       - name: Build canonical execution path
         shell: bash
         run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/sentinel/test_alpaca_postclose_candidates.py')
+          text = path.read_text()
+          old = '''from sentinel.execution.alpaca_remediation_final import (
+              ACTIVITY_FILL_INTERVAL_SEMANTICS,
+              ACTIVITY_FILL_INTERVAL_SOURCE,
+          )'''
+          new = '''from sentinel.execution.alpaca import (
+              ACTIVITY_FILL_INTERVAL_SEMANTICS,
+              ACTIVITY_FILL_INTERVAL_SOURCE,
+          )'''
+          if text.count(old) != 1:
+              raise RuntimeError('post-close candidate remediation import seam changed')
+          path.write_text(text.replace(old, new, 1))
+          PY
           python tools/refactor_execution_flatten.py
           python -m py_compile \
             sentinel/execution/__init__.py \
@@ -32,7 +48,8 @@ jobs:
             sentinel/execution/journal.py \
             sentinel/execution/reconcile.py \
             tests/sentinel/test_issue222_import_order.py \
-            tests/sentinel/test_alpaca_boundary_overlay.py
+            tests/sentinel/test_alpaca_boundary_overlay.py \
+            tests/sentinel/test_alpaca_postclose_candidates.py
           git diff --check
           git rm tools/refactor_execution_flatten.py
           git rm .github/workflows/refactor-execution-flatten-static.yml
