@@ -159,6 +159,18 @@
         "https://stockanalysis.com/quote/otc/CIBN/statistics/"
       ],
       "ticker": "CIBN"
+    },
+    {
+      "effective_session": "1999-12-02",
+      "expected_sep_derived": 1.0,
+      "expected_vendor_stated": 1.5,
+      "known_by": "1999-11-17",
+      "multiplier": 1.5,
+      "reference": "Wild Oats Markets declared a 3-for-2 stock split for holders of record 1999-11-17, effective 1999-12-01; the 1999-12-02 Sharadar action is the first following trading-session application",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/909990/000089973301500072/ka.htm"
+      ],
+      "ticker": "OATS"
     }
   ],
   "schema": "backtester.causal-split-overrides/1"
