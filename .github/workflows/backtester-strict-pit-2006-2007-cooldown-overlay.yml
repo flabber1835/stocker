@@ -1,0 +1,389 @@
+name: Backtester - patched production cooldown equivalence
+run-name: Patched production cooldown 2006-2007 — ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [research/backtester]
+    paths: [backtester/data/canonical-pit-2006-2007-cooldown-overlay-request.json]
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: backtester-patched-production-cooldown-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    name: Patched production versus research
+    if: github.ref_name == 'research/backtester'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Check out frozen backtester laboratory
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-strict-pit-2006-2007-cooldown-overlay.yml
+            /backtester/production_cooldown_age_zero.patch
+            /backtester/run_certification_parallel_20y.py
+            /backtester/run_production_strict_pit_20y.py
+            /backtester/run_research_strict_pit_20y.py
+            /backtester/run_certification_parallel.py
+            /backtester/run_production_strict_pit_certification.py
+            /backtester/run_research_strict_pit_certification.py
+            /backtester/strict_pit_metadata.py
+            /backtester/canonical_pit_dataset.py
+            /backtester/canonical_pit_package.py
+            /backtester/data/canonical-pit-2006-2007.json
+            /backtester/data/canonical-pit-2006-2007-cooldown-overlay-request.json
+            /backtester/CANONICAL_PIT_DATASET_DESIGN.md
+            /tests/backtester/test_canonical_pit_dataset.py
+            /tests/backtester/test_research_review_basis.py
+            /tests/backtester/test_production_cooldown_age_zero.py
+            /backtester/strict_pit_run15_diagnostics.py
+            /backtester/causal_split_overrides.py
+            /backtester/run_ldrc_corrected_warmup_cash.py
+            /backtester/run_ldrc_nonpit_vs_pit_certified.py
+            /backtester/run_sector_ad_causal_terminal_terms_v2.py
+            /backtester/run_research_ldrc_corrected_warmup_cash.py
+            /backtester/run_research_ldrc_nonpit_vs_fullpit.py
+            /backtester/historical_cash.py
+            /backtester/causal_terminal_terms.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/causal-split-overrides-v1.json
+            /backtester/data/causal-split-overrides-v1.SHA256
+            /backtester/data/causal-split-overrides-v1.d/**
+            /backtester/data/causal-terminal-terms-v1.json
+            /backtester/data/causal-terminal-terms-v1.SHA256
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/SHA256SUMS.txt
+            /research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
+            /PIT input data/MANIFEST.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
+            /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
+            /PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz
+            /PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv
+            /PIT input data/SEC_SECURITY_TYPE_COVERAGE.md
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SFP/**
+
+      - name: Enforce backtester branch identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "research/backtester"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test -z "$(git status --porcelain)"
+          echo "BACKTESTER_BRANCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+
+      - name: Reconstruct frozen SFP archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          parts=(sharadar/SFP/SHARADAR_SFP.zip.*)
+          test "${#parts[@]}" -ge 1
+          cat "${parts[@]}" > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+
+      - name: Check out exact production strategy source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+            docs/sentinel-handoff/00_README
+
+      - name: Verify production source and overlay preimage
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED=887f479b15ad861313da666ad698034d3847121c
+          ACTUAL="$(git -C main-src rev-parse HEAD)"
+          test "${ACTUAL}" = "${EXPECTED}"
+          test -z "$(git -C main-src status --porcelain)"
+          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)" = "94ba764c79cb7e40d4448195029ecc4c45b8d632"
+          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/adapter.py)" = "a59075507c8031dc0f30f1b989ad7253ad4c1715"
+          echo "BACKTESTER_MAIN_SHA=${ACTUAL}" >> "${GITHUB_ENV}"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+
+      - name: Apply audited backtester-only production overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          PATCH="${GITHUB_WORKSPACE}/backtester/production_cooldown_age_zero.patch"
+          PATCH_SHA256="$(sha256sum "${PATCH}" | awk '{print $1}')"
+          git -C main-src apply --check "${PATCH}"
+          git -C main-src apply "${PATCH}"
+          git -C main-src diff --check
+          ACTUAL_STATUS="$(git -C main-src status --short | LC_ALL=C sort)"
+          EXPECTED_STATUS="$(printf '%s\n' \
+            ' M shared/stock_strategy_shared/wealth_core/adapter.py' \
+            ' M shared/stock_strategy_shared/wealth_core/state.py' | LC_ALL=C sort)"
+          test "${ACTUAL_STATUS}" = "${EXPECTED_STATUS}"
+          STATE_POST_BLOB="$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)"
+          ADAPTER_POST_BLOB="$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/adapter.py)"
+          mkdir -p backtester-results/strict-pit-20y-diagnostic
+          cp "${PATCH}" backtester-results/strict-pit-20y-diagnostic/production-overlay.patch
+          git -C main-src diff -- \
+            shared/stock_strategy_shared/wealth_core/state.py \
+            shared/stock_strategy_shared/wealth_core/adapter.py \
+            > backtester-results/strict-pit-20y-diagnostic/production-overlay.diff
+          export PATCH_SHA256 STATE_POST_BLOB ADAPTER_POST_BLOB
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = {
+              "schema": "backtester.production-overlay/1",
+              "issue": 294,
+              "backtester_sha": os.environ["GITHUB_SHA"],
+              "production_source_sha": os.environ["BACKTESTER_MAIN_SHA"],
+              "patch_path": "backtester/production_cooldown_age_zero.patch",
+              "patch_sha256": os.environ["PATCH_SHA256"],
+              "preimage_blobs": {
+                  "shared/stock_strategy_shared/wealth_core/state.py":
+                      "94ba764c79cb7e40d4448195029ecc4c45b8d632",
+                  "shared/stock_strategy_shared/wealth_core/adapter.py":
+                      "a59075507c8031dc0f30f1b989ad7253ad4c1715",
+              },
+              "postimage_blobs": {
+                  "shared/stock_strategy_shared/wealth_core/state.py":
+                      os.environ["STATE_POST_BLOB"],
+                  "shared/stock_strategy_shared/wealth_core/adapter.py":
+                      os.environ["ADAPTER_POST_BLOB"],
+              },
+              "scope": "GitHub Actions workspace only; main and pinned source unchanged",
+              "economic_rule": (
+                  "cooldown age counts closes strictly after the exit session; "
+                  "the exit-session close is age 0"
+              ),
+          }
+          path = Path(
+              "backtester-results/strict-pit-20y-diagnostic/production-overlay.json"
+          )
+          path.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
+          print(json.dumps(evidence, sort_keys=True))
+          PY
+          echo "BACKTESTER_PRODUCTION_OVERLAY_SHA256=${PATCH_SHA256}" >> "${GITHUB_ENV}"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install exact production runtime closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+
+      - name: Compile and test the overlay boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            backtester/run_certification_parallel_20y.py \
+            backtester/run_production_strict_pit_20y.py \
+            backtester/run_research_strict_pit_20y.py \
+            backtester/run_certification_parallel.py \
+            backtester/run_production_strict_pit_certification.py \
+            backtester/run_research_strict_pit_certification.py \
+            backtester/strict_pit_metadata.py \
+            backtester/canonical_pit_dataset.py \
+            backtester/canonical_pit_package.py \
+            backtester/strict_pit_run15_diagnostics.py \
+            backtester/causal_split_overrides.py \
+            backtester/run_ldrc_corrected_warmup_cash.py \
+            backtester/run_ldrc_nonpit_vs_pit_certified.py \
+            backtester/run_research_ldrc_corrected_warmup_cash.py \
+            backtester/run_research_ldrc_nonpit_vs_fullpit.py \
+            backtester/run_sector_ad_causal_terminal_terms_v2.py \
+            backtester/experiments/2026-08-27-sector-abc/run.py \
+            tests/backtester/test_production_cooldown_age_zero.py
+          python -m compileall -q -f main-src/sentinel main-src/shared/stock_strategy_shared
+          python -m unittest tests.backtester.test_canonical_pit_dataset -v
+          python -m unittest tests.backtester.test_research_review_basis -v
+          python -m unittest tests.backtester.test_production_cooldown_age_zero -v
+
+      - name: Verify strict PIT authority inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f 'PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz'
+          test -f 'PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv'
+          test -f 'PIT input data/ACTIONS_PIT_ONLY.csv.gz'
+          test -f 'PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz'
+          test -f research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+          test -f research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+          test -f backtester/data/GS3M_1996-12_2007-05.csv
+          test "$(sha256sum backtester/data/GS3M_1996-12_2007-05.csv | awk '{print $1}')" = "1c1dbdcddd50c2445f8c65d1378d3d2bc87626fe2dc9b9956bc0cd97682a72d3"
+          (cd backtester/data && sha256sum -c causal-terminal-terms-v1.SHA256)
+          (cd backtester/data && sha256sum -c causal-split-overrides-v1.SHA256)
+
+      - name: Prove child entrypoints without PYTHONPATH
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          env -u PYTHONPATH python backtester/run_production_strict_pit_20y.py --self-test-imports
+          env -u PYTHONPATH python backtester/run_research_strict_pit_20y.py --self-test-imports
+
+      - name: Preflight strict pre-chain issuer boundary
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import backtester.run_production_strict_pit_20y as wrapper
+          evidence = wrapper.strict.preflight_strict_boundaries(wrapper.WARMUP_START)
+          if evidence['legacy_issuer_key_reached']:
+              raise SystemExit('strict preflight unexpectedly reached legacy issuer_key')
+          if evidence['unknown_fallback'] != 'SEC_UNKNOWN:STRICT-PREFLIGHT-SID':
+              raise SystemExit('strict preflight singleton fallback changed')
+          if not evidence['split_anchor_preserved']:
+              raise SystemExit('strict preflight changed split anchor semantics')
+          print('STRICT PREFLIGHT GO:', evidence)
+          PY
+
+      - name: Emit blocker raw evidence
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p backtester-results/strict-pit-20y-diagnostic
+          python backtester/strict_pit_run15_diagnostics.py \
+            --root . \
+            --output backtester-results/strict-pit-20y-diagnostic
+
+      - name: Pull and certify stored canonical 2006-2007 PIT dataset
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: '1'
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CANONICAL_PATH=backtester-results/canonical-pit-2006-2007
+          POINTER=backtester/data/canonical-pit-2006-2007.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          CONTAINER=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p "${CANONICAL_PATH}"
+          docker cp "${CONTAINER}:/canonical-pit/." "${CANONICAL_PATH}"
+          docker rm "${CONTAINER}"
+          trap - EXIT
+          python backtester/canonical_pit_package.py verify \
+            --pointer "${POINTER}" --dataset "${CANONICAL_PATH}"
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/${CANONICAL_PATH}" >> "${GITHUB_ENV}"
+
+      - name: Run patched production and research through 2007
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -uo pipefail
+          set +e
+          python backtester/run_certification_parallel_20y.py \
+            --end-session 2007-12-31 \
+            --canonical-dataset "${CANONICAL_PIT_DATASET}" \
+            --output-root backtester-results/strict-pit-20y-diagnostic \
+            --spy-factors 'PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz' \
+            --lab-root . \
+            --main-root main-src \
+            2>&1 | tee backtester-strict-pit-20y-diagnostic.log
+          STATUS=${PIPESTATUS[0]}
+          set -e
+          echo "${STATUS}" > backtester-results/strict-pit-20y-diagnostic/runner-exit-code.txt
+          echo "DIAGNOSTIC_RUNNER_EXIT_CODE=${STATUS}" >> "${GITHUB_ENV}"
+          exit 0
+
+      - name: Gate canonical inputs and report next divergence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path('backtester-results/strict-pit-20y-diagnostic')
+          coverage = json.loads(
+              (root / 'research' / 'candidate_session_coverage.json').read_text()
+          )
+          progress = json.loads(
+              (root / 'certification_progress_audit.json').read_text()
+          )
+          consumption = json.loads(
+              (root / 'canonical_input_consumption_audit.json').read_text()
+          )
+          manifest = json.loads(
+              (Path('backtester-results/canonical-pit-2006-2007') / 'manifest.json').read_text()
+          )
+          if manifest.get('status') != 'PASS':
+              raise SystemExit('NO_GO: canonical PIT dataset did not certify')
+          if int(manifest['counts']['unresolved_corporate_actions']) != 0:
+              raise SystemExit('NO_GO: canonical dataset has unresolved corporate actions')
+          if consumption.get('dataset_hash') != manifest.get('dataset_hash'):
+              raise SystemExit('NO_GO: consumed dataset hash differs from manifest')
+          if not consumption.get('per_session_hashes_identical'):
+              raise SystemExit('NO_GO: research and production inputs differ')
+          first = progress.get('first_divergence')
+          report = {
+              'dataset_hash': manifest.get('dataset_hash'),
+              'runner_exit_code': int(os.environ['DIAGNOSTIC_RUNNER_EXIT_CODE']),
+              'candidate_session_coverage': coverage,
+              'first_divergence': first,
+              'production_overlay_sha256':
+                  os.environ['BACKTESTER_PRODUCTION_OVERLAY_SHA256'],
+          }
+          (root / 'post_overlay_divergence_summary.json').write_text(
+              json.dumps(report, indent=2, sort_keys=True) + '\n'
+          )
+          print('CANONICAL INPUT PARITY PASS')
+          print('POST-OVERLAY FIRST DIVERGENCE:', json.dumps(first, sort_keys=True))
+          if first is not None:
+              raise SystemExit('DIVERGENCE REMAINS: evidence retained')
+          if int(os.environ['DIAGNOSTIC_RUNNER_EXIT_CODE']) != 0:
+              raise SystemExit('NO_GO: runner failed despite no recorded divergence')
+          print('FULL 2006-2007 RESEARCH/PRODUCTION EQUIVALENCE PASS')
+          PY
+
+      - name: Upload patched comparison evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: backtester-patched-production-cooldown-${{ github.run_id }}
+          path: |
+            backtester-results/strict-pit-20y-diagnostic/**
+            backtester-results/canonical-pit-2006-2007/**
+            backtester-strict-pit-20y-diagnostic.log
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
