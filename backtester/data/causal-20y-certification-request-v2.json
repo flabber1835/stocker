@@ -1,0 +1,18 @@
+{
+  "schema": "backtester.causal-20y-certification-request/1",
+  "requested_scope": "20-year retained research causal certification",
+  "dataset_hash": "f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b",
+  "dataset_id": "strict-pit-2006-01-03-2026-07-31-f9fb220871ad4152",
+  "package": "ghcr.io/flabber1835/stocker-canonical-pit@sha256:4f53e51d8171aab8a8ac9df90e116d27b0f9b54f95629154685ea8a2394c1265",
+  "manifest_sha256": "6ffffa117407b7e2b1eb023ff20b6f8885d93ef86187749bf0c76360acd22608",
+  "reconstruction_code_sha": "a0f1a5b2c666b51cfd2af508bf750dd364f80948",
+  "source_dataset_run": "33331951602",
+  "warmup_start": "2006-01-03",
+  "measurement_start": "2006-07-31",
+  "end": "2026-07-31",
+  "unresolved_corporate_actions_required": 0,
+  "production_pin": "887f479b15ad861313da666ad698034d3847121c",
+  "research_production_equivalence_state": "PENDING",
+  "equivalence_reference_run": "33337500324",
+  "request_generation": 1
+}
