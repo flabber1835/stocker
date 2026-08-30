@@ -15,7 +15,7 @@ import sentinel.paper as paper
 TEST_ROOT = Path(__file__).resolve().parents[2]
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT", TEST_ROOT)).resolve()
 PACKAGE = ROOT / "sentinel" / "paper"
-MODULES = ['model', 'inspection', 'validation', 'cash', 'targets', 'reconciliation', 'finalization', 'preparation', 'execution', 'recovery']
+MODULES = ['model', 'inspection', 'validation', 'cash', 'targets', 'reconciliation_evidence', 'finalization', 'preparation', 'execution', 'recovery']
 PUBLIC_OWNERS = {'DEFENSIVE_SYMBOL': 'inspection', 'ExecutionResult': 'model', 'PaperAccountInspection': 'model', 'PaperActivationRefused': 'model', 'PaperRetryableRefused': 'model', 'PreOpenShareUnitAuthorityUnavailable': 'model', 'PreparationResult': 'model', 'build_security_resolver': 'inspection', 'current_paper_plan': 'preparation', 'execute_automated_paper_plan': 'execution', 'execute_paper_plan': 'execution', 'inspect_paper_account': 'inspection', 'prepare_paper_plan': 'preparation', 'recover_automated_paper_cycle': 'recovery'}
 
 
@@ -41,6 +41,13 @@ def test_public_operations_have_one_canonical_owner():
         module = importlib.import_module(f"sentinel.paper.{owner}")
         assert getattr(paper, name) is getattr(module, name)
     assert tuple(paper.__all__) == ('DEFENSIVE_SYMBOL', 'ExecutionResult', 'PaperAccountInspection', 'PaperActivationRefused', 'PaperRetryableRefused', 'PreOpenShareUnitAuthorityUnavailable', 'PreparationResult', 'build_security_resolver', 'current_paper_plan', 'execute_automated_paper_plan', 'execute_paper_plan', 'inspect_paper_account', 'prepare_paper_plan', 'recover_automated_paper_cycle')
+
+
+def test_reconciliation_binding_remains_execution_reconciler():
+    importlib.import_module("sentinel.paper.reconciliation_evidence")
+    from sentinel.execution import reconcile as execution_reconciliation
+    assert paper.reconciliation is execution_reconciliation
+    assert not (PACKAGE / "reconciliation.py").exists()
 
 
 def _import_fingerprint(order):
