@@ -291,6 +291,7 @@ jobs:
           name: backtester-strict-pit-20y-${{ github.run_id }}
           path: |
             backtester-results/strict-pit-20y-diagnostic/**
+            backtester-results/canonical-pit-2006-2007/**
             backtester-strict-pit-20y-diagnostic.log
           if-no-files-found: warn
           retention-days: 30
