@@ -195,7 +195,7 @@ _TARGET_CATALOG_SHA256 = {
 # column/type/null/default, constraints, indexes and triggers while ignoring
 # deployment-local OIDs and column order.
 _STAGE4_CATALOG_SHA256 = (
-    "e93e68accdc7ebcc5b0f987e799623929e372df746bea669b9c532f3493d4d79")
+    "d876dd9583b517bb0a69b7a02d9d869fb32773eb0e44debbe0831c6dc6e73415")
 
 # Corpus tables may legitimately be installed before behavioral schema (the
 # prepare CLI does exactly that).  They do not disqualify a database from being
