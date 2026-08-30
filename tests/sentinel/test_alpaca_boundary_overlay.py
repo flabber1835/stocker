@@ -769,7 +769,7 @@ def test_historical_observation_missing_normalized_fields_is_uncertifiable(conn)
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE sentinel_observations"
-            " SET orders=jsonb_set(orders,'{0}',orders->0 - 'symbol')"
+            " SET orders=jsonb_set(orders,'{0}',(orders->0) - 'symbol')"
             " WHERE seq=%s", (seq,))
     conn.commit()
     reasons = journal.observation_integrity_issues(conn)[0].reasons
