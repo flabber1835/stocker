@@ -167,6 +167,15 @@ jobs:
           test "$(sha256sum backtester/data/GS3M_1996-12_2007-05.csv | awk '{print $1}')" = "1c1dbdcddd50c2445f8c65d1378d3d2bc87626fe2dc9b9956bc0cd97682a72d3"
           (cd backtester/data && sha256sum -c causal-terminal-terms-v1.SHA256)
 
+      - name: Prove child entrypoints without PYTHONPATH
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          env -u PYTHONPATH python backtester/run_production_strict_pit_20y.py --self-test-imports
+          env -u PYTHONPATH python backtester/run_research_strict_pit_20y.py --self-test-imports
+
       - name: Preflight strict pre-chain issuer boundary
         shell: bash
         env:
