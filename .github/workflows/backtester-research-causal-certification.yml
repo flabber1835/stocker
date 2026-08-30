@@ -37,6 +37,7 @@ jobs:
             /backtester/research_causal_instrumentation.py
             /backtester/run_research_causal_single.py
             /backtester/run_research_causal_certification.py
+            /backtester/run_production_strict_pit_20y.py
             /backtester/run_research_strict_pit_20y.py
             /backtester/run_research_strict_pit_certification.py
             /backtester/run_research_ldrc_corrected_warmup_cash.py
