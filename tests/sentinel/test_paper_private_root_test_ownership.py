@@ -40,6 +40,22 @@ SUPPORTED_PUBLIC_ROOT_BINDINGS = {
 }
 
 
+def _is_paper_root_expr(
+    node: ast.expr,
+    *,
+    paper_aliases: set[str],
+    sentinel_aliases: set[str],
+) -> bool:
+    if isinstance(node, ast.Name) and node.id in paper_aliases:
+        return True
+    return bool(
+        isinstance(node, ast.Attribute)
+        and node.attr == "paper"
+        and isinstance(node.value, ast.Name)
+        and node.value.id in sentinel_aliases
+    )
+
+
 def _paper_root_violations(path: Path) -> list[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     paper_aliases: set[str] = set()
@@ -70,22 +86,37 @@ def _paper_root_violations(path: Path) -> list[str]:
                     sentinel_aliases.add(alias.asname or "sentinel")
 
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Attribute):
-            continue
-        root_binding = None
-        if isinstance(node.value, ast.Name) and node.value.id in paper_aliases:
-            root_binding = node.attr
-        elif (
-            isinstance(node.value, ast.Attribute)
-            and node.value.attr == "paper"
-            and isinstance(node.value.value, ast.Name)
-            and node.value.value.id in sentinel_aliases
+        if isinstance(node, ast.Attribute) and _is_paper_root_expr(
+            node.value,
+            paper_aliases=paper_aliases,
+            sentinel_aliases=sentinel_aliases,
         ):
-            root_binding = node.attr
-        if root_binding is not None and root_binding not in SUPPORTED_PUBLIC_ROOT_BINDINGS:
+            if node.attr not in SUPPORTED_PUBLIC_ROOT_BINDINGS:
+                violations.append(
+                    f"{path.relative_to(ROOT)}:{node.lineno}: "
+                    f"sentinel.paper root access {node.attr}"
+                )
+
+        if not isinstance(node, ast.Call):
+            continue
+        if not (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "setattr"
+            and len(node.args) >= 2
+            and _is_paper_root_expr(
+                node.args[0],
+                paper_aliases=paper_aliases,
+                sentinel_aliases=sentinel_aliases,
+            )
+            and isinstance(node.args[1], ast.Constant)
+            and isinstance(node.args[1].value, str)
+        ):
+            continue
+        binding = node.args[1].value
+        if binding not in SUPPORTED_PUBLIC_ROOT_BINDINGS:
             violations.append(
                 f"{path.relative_to(ROOT)}:{node.lineno}: "
-                f"sentinel.paper root access {root_binding}"
+                f"monkeypatch private sentinel.paper binding {binding}"
             )
 
     return violations
