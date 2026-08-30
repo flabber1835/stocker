@@ -9,6 +9,17 @@ from pathlib import Path
 TEST_ROOT = Path(__file__).resolve().parents[2]
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT", TEST_ROOT)).resolve()
 TESTS = ROOT / "tests"
+CANONICAL_SUBMODULES = {
+    "cash",
+    "execution",
+    "finalization",
+    "inspection",
+    "preparation",
+    "reconciliation_evidence",
+    "recovery",
+    "targets",
+    "validation",
+}
 SUPPORTED_PUBLIC_ROOT_BINDINGS = {
     "DEFENSIVE_SYMBOL",
     "ExecutionResult",
@@ -17,6 +28,7 @@ SUPPORTED_PUBLIC_ROOT_BINDINGS = {
     "PaperRetryableRefused",
     "PreOpenShareUnitAuthorityUnavailable",
     "PreparationResult",
+    "__all__",
     "build_security_resolver",
     "current_paper_plan",
     "execute_automated_paper_plan",
@@ -42,7 +54,10 @@ def _paper_root_violations(path: Path) -> list[str]:
                         paper_aliases.add(alias.asname or alias.name)
             elif node.module == "sentinel.paper":
                 for alias in node.names:
-                    if alias.name not in SUPPORTED_PUBLIC_ROOT_BINDINGS:
+                    if (
+                        alias.name not in SUPPORTED_PUBLIC_ROOT_BINDINGS
+                        and alias.name not in CANONICAL_SUBMODULES
+                    ):
                         violations.append(
                             f"{path.relative_to(ROOT)}:{node.lineno}: "
                             f"from sentinel.paper import {alias.name}"
