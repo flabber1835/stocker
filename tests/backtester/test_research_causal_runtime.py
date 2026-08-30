@@ -23,6 +23,7 @@ from backtester.research_causal_runtime import (
     CausalTrace,
     GuardedSessionMap,
 )
+from backtester.run_research_causal_single import _inject_poison_dtype_compat
 
 
 class ResearchCausalRuntimeTests(unittest.TestCase):
@@ -186,6 +187,11 @@ c = x.bfill()
         compile(instrumented, "<causal-research>", "exec")
         audit = static_leakage_audit(instrumented)
         self.assertEqual(audit["status"], "PASS", audit)
+
+        poison_source = _inject_poison_dtype_compat(instrumented)
+        self.assertIn("_causal_dtype_safe_poison_observations", poison_source)
+        self.assertIn("frame[_causal_bool_column].astype(bool)", poison_source)
+        compile(poison_source, "<causal-research-poison>", "exec")
 
 
 if __name__ == "__main__":

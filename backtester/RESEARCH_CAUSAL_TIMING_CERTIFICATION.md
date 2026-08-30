@@ -3,21 +3,21 @@
 **Scope:** retained strict-PIT research replay on the immutable 2006-01-03 through 2007-12-31 canonical dataset  
 **Branch:** `research/strict-pit-causal-certification`  
 **Production source pin:** `887f479b15ad861313da666ad698034d3847121c`  
-**Status:** implementation contract
+**Status:** executable fail-closed certification contract
 
 ## Objective
 
 Prove that every economically active output of the retained research replay through session `T` is a function only of observations and state available no later than `T`.
 
-The proof is fail-closed. A future access, chronological violation, prefix mismatch, future-poisoning sensitivity, source-seam mismatch, or static leakage finding classified as economically active fails certification.
+The proof is fail-closed. A future access, chronological violation, prefix mismatch, future-poisoning sensitivity, source-seam mismatch, or economically active static leakage finding fails certification.
 
-This work does not tune parameters, optimize CAGR, alter canonical PIT reconstruction, admit current Sharadar metadata as historical authority, or change an economic strategy rule. The existing execution-open review-basis correction remains mandatory.
+This work does not tune parameters, optimize CAGR, alter canonical PIT reconstruction, admit current Sharadar metadata as historical authority, or change an economic strategy rule. The execution-open review-basis correction remains mandatory.
 
 ## Frozen authority
 
-The bounded proof consumes only the branch-owned immutable package pointer in `backtester/data/canonical-pit-2006-2007.json`.
+The bounded proof consumes only the immutable package pointer in `backtester/data/canonical-pit-2006-2007.json`.
 
-The expected identity is:
+Expected identity:
 
 - package: `ghcr.io/flabber1835/stocker-canonical-pit@sha256:37b41e3b91a8e26cfa3030039467ca94d71d0090839dae48e290453d7a17eadb`
 - dataset hash: `08db292b78f0968b149ec033671b5c5df62ad98a4b2692bcc5dfa575585fa4e6`
@@ -27,7 +27,7 @@ The expected identity is:
 - measurement start: `2006-07-31`
 - end: `2007-12-31`
 
-The workflow must pull the package by digest, copy the dataset from the image, and run `canonical_pit_package.py verify` before executing strategy code.
+The workflow pulls the package by digest, copies the dataset from the image, and runs `canonical_pit_package.py verify` before executing strategy code.
 
 ## Execution chronology under proof
 
@@ -48,7 +48,7 @@ For each chronological market session, the retained replay performs these phases
 13. Apply the prior close's allocation decision at the current open and mark NAV through the current close.
 14. Emit a canonical causal trace record for the session.
 
-Close-generated orders cannot execute in phase 9 or 11. Their first possible execution point is phase 7 of a later valid session.
+Close-generated orders cannot execute in the close phase. Their first possible execution point is the open phase of a later valid session.
 
 ## Runtime causal-access guard
 
@@ -62,9 +62,10 @@ The generated retained replay is wrapped by a session-scoped guard. The guard ow
 - a close-generated fill on its signal session;
 - an entry fill whose review basis differs from the adjusted execution-open value;
 - a position age that differs from chronological session distance;
-- split or terminal processing assigned to another session.
+- split, dividend, or terminal processing assigned to another session;
+- an allocation decision applied on its signal close.
 
-Dataset validation and immutable-file loading occur before a strategy session is active. Full-file loading is classified as input initialization. Economically active access during a session is permitted only through guarded session or as-of accessors.
+Dataset validation and immutable-file loading occur before a strategy session is active. Economically active access during a session is permitted only through guarded session or as-of accessors.
 
 ### Vectorized and cached calculations
 
@@ -79,22 +80,22 @@ Every session, including warmup, emits one canonical JSON record using sorted ke
 The record covers:
 
 - complete signal-vector digest;
-- eligible-universe count and digest;
-- ranking count and digest;
-- selected-position list and digest;
-- pending-order bytes and digest;
-- fill bytes and digest;
+- eligible-universe count, members, and digest;
+- ranking members and digest;
+- selected-position state and digest;
+- pending orders and digest;
+- fills and digest;
 - Wealth Core open and close equity;
-- position-age digest;
+- position ages and entry bases;
 - breadth values;
 - native target;
 - retained LD-RC state;
 - desired and effective allocation;
 - NAV state;
-- split, dividend, terminal, and age-review event bytes;
+- split, dividend, terminal, and age-review events;
 - runtime-guard assertion counters.
 
-Digest inputs are retained in canonical ordered byte form before hashing. Equality of trace lines therefore proves equality of every covered output, while keeping artifacts bounded.
+Digest inputs are retained in canonical ordered byte form before hashing. Equality of trace lines proves equality of every covered output while keeping artifacts bounded.
 
 ## Prefix-invariance proof
 
@@ -105,7 +106,7 @@ For each cutoff `T`:
 3. Run the retained strategy with end session `T`.
 4. Require the prefix trace to be byte-for-byte identical to the corresponding baseline trace prefix.
 
-The comparison includes warmup state. A mismatch reports the first unequal session and field and fails certification.
+The comparison includes all warmup state. A mismatch reports the first unequal session and field and fails certification.
 
 ## Future-poisoning proof
 
@@ -124,36 +125,50 @@ The poisoned replay runs through `2007-12-31`. Its causal trace prefix through `
 
 ## Timing assertions
 
-The baseline run must prove:
+The baseline run proves:
 
 - no close-session signal produces a same-close fill;
 - every close-generated order fills only on a later valid session's open;
 - all rolling windows end at the active session;
 - entry review basis equals the adjusted execution-open value and remains immutable;
 - position age equals chronological session distance;
-- the age-119 review occurs once per episode and cannot inspect a later session;
+- every age-review event occurs at age 119 and cannot inspect a later session;
 - split, dividend, and terminal processing is assigned only to the active session;
 - allocation decided at close becomes effective no earlier than a later session open.
 
-The MED regression must identify security `1035638340512403010`, preserve its execution-open review basis, and record its August 2006 age-119 path, including stop precedence when applicable.
+### MED factual correction and regression
+
+The canonical retained-research trace disproves the earlier label that MED underwent an age-119 review in August 2006.
+
+For security `1035638340512403010`, the regression requires this actual path:
+
+- close order generated on `2006-07-05`;
+- entry filled on the `2006-07-06` open;
+- review basis equals the adjusted execution-open value;
+- position age is 28 on `2006-08-15`;
+- trailing stop creates the exit order on the `2006-08-15` close;
+- exit fills on the `2006-08-16` open;
+- no MED age-119 review event is emitted.
+
+The first actual retained-research age-119 review cohort occurs on `2006-12-22`. That cohort is separately traced and asserted.
 
 ## Cutoff coverage
 
 The bounded proof includes cutoffs around:
 
-- first eligibility and initial orders;
-- initial fills;
-- warmup completion;
-- measurement start;
-- the MED August 2006 age-119 path;
+- the first valid session after measurement begins, carrying the complete warmup state;
+- first measured close orders;
+- first measured fills and exits;
+- the MED August 2006 stop decision and next-open fill;
 - a held-security split;
 - the first observed research/production divergence date as a high-sensitivity checkpoint;
 - quarter-end reporting;
+- the first actual age-119 review cohort;
 - a later held-security split;
 - the bounded window's maximum drawdown and defensive-controller evaluation;
 - final quarter-end and dataset end.
 
-The baseline determines and records the actual economic labels for each cutoff. The 2006-2007 window contains no defensive allocation transition; certification records the maximum-drawdown controller evaluation and separately asserts that the unchanged allocation state is causal.
+The 2006-2007 window contains no defensive allocation transition. Certification records the maximum-drawdown controller evaluation and separately asserts that the unchanged allocation state is causal.
 
 ## Static leakage audit
 
@@ -170,12 +185,13 @@ The generated strict-PIT research source is parsed and inspected for:
 - forward-populated metadata;
 - precomputed arrays whose prefix values can depend on suffix rows.
 
-Every finding is classified as `FORBIDDEN`, `GUARDED_CAUSAL`, or `REPORTING_ONLY`. Any `FORBIDDEN` finding fails certification. Safe constructs must state the causal reason and the runtime or invariance evidence that covers them.
+Every finding is classified as `FORBIDDEN`, `GUARDED_CAUSAL`, or `REPORTING_ONLY`. Any `FORBIDDEN` finding fails certification. Safe constructs state the causal reason and the runtime or invariance evidence that covers them.
 
 ## Deliverables and fail-closed outputs
 
 The workflow emits:
 
+- `dataset-identity.json`;
 - `execution-chronology.json`;
 - `runtime-guard-report.json`;
 - `prefix-invariance.json`;
@@ -188,4 +204,8 @@ The workflow emits:
 - per-run manifests and logs;
 - `SHA256SUMS.txt`.
 
-`certification-summary.json` has status `PASS` only when every runtime, prefix, poisoning, timing, MED, and static-audit gate passes. Unknown or missing evidence is a failure.
+`certification-summary.json` has status `PASS` only when every runtime, prefix, poisoning, timing, MED, actual age-119 cohort, and static-audit gate passes. Unknown or missing evidence is a failure.
+
+## Remaining full-window extension
+
+Run `33331951602` completed and published the immutable 20-year canonical dataset. A separate full-window certification must bind that published package digest and execute the same guard, prefix, poison, timing, and static-audit contract across later crises, terminal terms, and actual defensive-allocation transitions.
