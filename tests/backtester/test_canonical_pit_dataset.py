@@ -6,6 +6,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
+import pandas as pd
+
 from backtester.canonical_pit_dataset import (
     METADATA_COLUMNS,
     SCHEMA,
@@ -16,6 +18,7 @@ from backtester.canonical_pit_dataset import (
     _member,
 )
 from backtester.causal_split_overrides import _load_sidecar_records
+from backtester.strict_pit_metadata import SecurityTypeAuthority
 
 
 def _artifact(root: Path, *, status: str = "PASS") -> Path:
@@ -69,6 +72,33 @@ def _artifact(root: Path, *, status: str = "PASS") -> Path:
 
 
 class CanonicalPITDatasetTests(unittest.TestCase):
+    def test_security_type_provenance_distinguishes_cik_mismatch(self) -> None:
+        class Model:
+            cik_dates = {"ABC": ("2006-01-01",)}
+            cik_values = {"ABC": ("8",)}
+
+            @staticmethod
+            def _strict_prior(dates, values, session):
+                return values[0] if dates and dates[0] < session else None
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            positive = root / "positive.csv.gz"
+            pd.DataFrame([{
+                "ticker": "ABC", "filed": "2005-12-01", "cik": "7"
+            }]).to_csv(positive, index=False, compression="gzip")
+            authority = SecurityTypeAuthority(
+                positive, root / "missing-manual.csv", Model()
+            )
+            self.assertEqual(
+                authority.classify("ABC", "2006-02-01"),
+                ("unknown", "SEC_POSITIVE_STRICT_PRIOR_CIK_MISMATCH"),
+            )
+            self.assertEqual(
+                authority.classify("XYZ", "2006-02-01"),
+                ("unknown", "NO_STRICT_PRIOR_POSITIVE_EVIDENCE"),
+            )
+
     def test_loader_validates_hashes_and_asof_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             dataset = CanonicalPITDataset(

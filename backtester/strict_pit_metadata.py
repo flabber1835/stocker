@@ -283,6 +283,8 @@ class SecurityTypeAuthority:
             if first is not None and first < str(session):
                 self.auto_common += 1
                 return "common", "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH"
+            self.unknown += 1
+            return "unknown", "SEC_POSITIVE_STRICT_PRIOR_CIK_MISMATCH"
         self.unknown += 1
         return "unknown", "NO_STRICT_PRIOR_POSITIVE_EVIDENCE"
 
