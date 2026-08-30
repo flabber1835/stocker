@@ -47,6 +47,16 @@ def _set_or_remove(name: str, value: str | None) -> None:
         os.environ[name] = value
 
 
+def _expose_generated_child_runtime() -> None:
+    """Make the isolated branch guard importable by the generated /tmp child."""
+    ordered = [str(ROOT)]
+    if PINNED_MAIN_ROOT.is_dir():
+        ordered.append(str(PINNED_MAIN_ROOT))
+    existing = os.environ.get("PYTHONPATH", "")
+    ordered.extend(part for part in existing.split(os.pathsep) if part)
+    os.environ["PYTHONPATH"] = os.pathsep.join(dict.fromkeys(ordered))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--canonical-dataset", type=Path, required=True)
@@ -77,6 +87,7 @@ def main() -> int:
     os.environ["CAUSAL_GUARD_REPORT_PATH"] = str(guard_path)
     os.environ["CAUSAL_GENERATED_SOURCE_PATH"] = str(generated_path)
     os.environ["CERTIFICATION_STRICT_PIT"] = "1"
+    _expose_generated_child_runtime()
 
     # Import only after the per-run end-session contract is in the environment.
     import backtester.run_research_strict_pit_20y as replay
