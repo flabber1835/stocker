@@ -17,14 +17,18 @@ from datetime import date
 import importlib.util
 import json
 from pathlib import Path
+import sys
 import zipfile
 
 import numpy as np
 import pandas as pd
 
+LAB_ROOT = Path(__file__).resolve().parents[1]
+if str(LAB_ROOT) not in sys.path:
+    sys.path.insert(0, str(LAB_ROOT))
+
 from backtester.historical_cash import complete_cash_factors
 
-LAB_ROOT = Path(__file__).resolve().parents[1]
 SOURCE = LAB_ROOT / "backtester" / "run_ldrc_nonpit_vs_pit_certified.py"
 WARMUP_START = "1997-01-02"
 MEASUREMENT_START = "1998-01-02"
@@ -218,46 +222,37 @@ def _finalize_provenance() -> None:
     }
     summary["defensive_cash_authority"] = {
         **_cash_provenance,
-        "gs3m_sha256": base._sha256(CASH_AUTHORITY),
-        "rule": "actual BIL factors when available; otherwise previous completed calendar month's GS3M with calendar-day accrual",
+        "measurement_policy": "actual BIL when available; strict-prior completed-month GS3M before or when BIL unavailable",
     }
-    summary["calendar_year_cagr_checkpoints"] = [
-        x for x in sorted(prod._year_end_sessions) if x >= MEASUREMENT_START
-    ]
     summary["calendar_year_cagr_definition"] = (
-        "cumulative measured LD-RC NAV from 1998-01-02 after a full 1997 machine warm-up"
+        "cumulative measured LD-RC NAV from 1998-01-02 after full 1997 machine warm-up"
     )
-    summary["max_history_measurement_start"] = MEASUREMENT_START
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["warmup_start"] = WARMUP_START
     manifest["measurement_start"] = MEASUREMENT_START
-    manifest["gs3m_sha256"] = base._sha256(CASH_AUTHORITY)
-    outputs = manifest.setdefault("outputs", {})
-    for name in ("daily.csv.gz", "metrics.csv", "summary.json"):
-        path = output / name
-        outputs[name] = {"sha256": base._sha256(path), "bytes": path.stat().st_size}
+    manifest["cash_authority"] = _cash_provenance
+    for path in (output / "daily.csv.gz", output / "metrics.csv", summary_path):
+        manifest.setdefault("outputs", {})[path.name] = {
+            "sha256": base._sha256(path), "bytes": path.stat().st_size,
+        }
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    files = [output / n for n in ("daily.csv.gz", "metrics.csv", "summary.json", "manifest.json")]
+    files = (output / "daily.csv.gz", output / "metrics.csv", summary_path, manifest_path)
     sums_path.write_text(
-        "".join(f"{base._sha256(path)}  {path.name}\n" for path in files),
-        encoding="utf-8",
+        "".join(f"{base._sha256(path)}  {path.name}\n" for path in files), encoding="utf-8"
     )
 
 
 def main() -> int:
-    print(
-        f"[RUN] corrected production replay warmup={WARMUP_START} measurement={MEASUREMENT_START}",
-        flush=True,
-    )
-    rc = int(base.main())
+    print("[RUN] corrected production replay: 1997 full-machine warm-up + causal historical cash", flush=True)
+    rc = int(prod.main())
     if rc != 0:
         return rc
     _trim_measurement_output()
     prod._write_final_comparison()
     _finalize_provenance()
-    print("[PASS] corrected warm-up/cash production comparison complete", flush=True)
+    print("[PASS] corrected production replay bundle complete", flush=True)
     return 0
 
 
