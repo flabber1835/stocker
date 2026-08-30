@@ -17,6 +17,16 @@ ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT", TEST_ROOT)).resolve()
 PACKAGE = ROOT / "sentinel" / "paper"
 MODULES = ['model', 'inspection', 'validation', 'cash', 'targets', 'reconciliation_evidence', 'finalization', 'preparation', 'execution', 'recovery']
 PUBLIC_OWNERS = {'DEFENSIVE_SYMBOL': 'inspection', 'ExecutionResult': 'model', 'PaperAccountInspection': 'model', 'PaperActivationRefused': 'model', 'PaperRetryableRefused': 'model', 'PreOpenShareUnitAuthorityUnavailable': 'model', 'PreparationResult': 'model', 'build_security_resolver': 'inspection', 'current_paper_plan': 'preparation', 'execute_automated_paper_plan': 'execution', 'execute_paper_plan': 'execution', 'inspect_paper_account': 'inspection', 'prepare_paper_plan': 'preparation', 'recover_automated_paper_cycle': 'recovery'}
+SUPPORTED_PUBLIC_ROOT_BINDINGS = {
+    'DEFENSIVE_SYMBOL', 'ExecutionResult', 'PaperAccountInspection',
+    'PaperActivationRefused', 'PaperPreflightRefused', 'PaperRetryableRefused',
+    'PaperTerminalRefused', 'PaperUncertainExecution',
+    'PreOpenShareUnitAuthorityUnavailable', 'PreparationResult',
+    'build_security_resolver', 'current_paper_plan',
+    'execute_automated_paper_plan', 'execute_paper_plan',
+    'inspect_paper_account', 'prepare_paper_plan',
+    'recover_automated_paper_cycle',
+}
 
 
 def test_monolithic_paper_module_was_removed():
@@ -48,6 +58,59 @@ def test_reconciliation_binding_remains_execution_reconciler():
     from sentinel.execution import reconcile as execution_reconciliation
     assert paper.reconciliation is execution_reconciliation
     assert not (PACKAGE / "reconciliation.py").exists()
+
+
+def _paper_root_violations(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    paper_aliases: set[str] = set()
+    violations: list[str] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.module == "sentinel":
+                for alias in node.names:
+                    if alias.name == "paper":
+                        paper_aliases.add(alias.asname or alias.name)
+            elif node.module == "sentinel.paper":
+                for alias in node.names:
+                    if alias.name not in SUPPORTED_PUBLIC_ROOT_BINDINGS:
+                        violations.append(
+                            f"{path.relative_to(ROOT)}:{node.lineno}: "
+                            f"from sentinel.paper import {alias.name}")
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "sentinel.paper" and alias.asname:
+                    paper_aliases.add(alias.asname)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        root_binding = None
+        if isinstance(node.value, ast.Name) and node.value.id in paper_aliases:
+            root_binding = node.attr
+        elif (
+            isinstance(node.value, ast.Attribute)
+            and node.value.attr == "paper"
+            and isinstance(node.value.value, ast.Name)
+            and node.value.value.id == "sentinel"
+        ):
+            root_binding = node.attr
+        if (root_binding is not None
+                and root_binding not in SUPPORTED_PUBLIC_ROOT_BINDINGS):
+            violations.append(
+                f"{path.relative_to(ROOT)}:{node.lineno}: "
+                f"sentinel.paper root access {root_binding}")
+
+    return violations
+
+
+def test_production_paper_root_access_is_public_api_only():
+    violations = []
+    for path in sorted((ROOT / "sentinel").rglob("*.py")):
+        if PACKAGE in path.parents:
+            continue
+        violations.extend(_paper_root_violations(path))
+    assert violations == [], "\n".join(violations)
 
 
 def _import_fingerprint(order):
