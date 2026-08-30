@@ -41,6 +41,13 @@ def _measurement_anchored_factor_builder(path):
 
 strict.corrected._original_sfp_builder = _measurement_anchored_factor_builder
 
+# The base terminal provenance layer carries a dedicated 2001 regression witness.
+# It remains valuable for replays that include that boundary, but it is outside
+# this 2006+ contract.  Move only that assertion outside the active horizon; the
+# terminal-event loader still validates every in-window frozen event strictly.
+if strict.base.BOUNDARY_SESSION < WARMUP_START:
+    strict.base.BOUNDARY_SESSION = "9999-12-31"
+
 # The base replay always writes a metrics table before the strict wrapper adds
 # its maximum-history row. A bounded diagnostic therefore needs one harmless
 # metric window so the table retains its schema. The diagnostic never treats
