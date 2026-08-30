@@ -10,6 +10,8 @@ import sys
 import os
 from pathlib import Path
 
+import pytest
+
 _SERVICE_MAP = {
     "alpaca_sync":        "alpaca-sync",
     "api":                "api",
@@ -92,3 +94,107 @@ def launch_chromium(playwright, **kwargs):
         if not path:
             raise
         return playwright.chromium.launch(executable_path=path, **kwargs)
+
+
+_PAPER_DECOMPOSITION_LEGACY_MODULES = {
+    "test_issue223_bil_evidence",
+    "test_paper_activation",
+    "test_paper_close_nav_gate",
+    "test_preopen_paper_gate",
+    "test_runtime_regressions_137_148_149_150",
+}
+
+
+@pytest.fixture(autouse=True)
+def _paper_decomposition_legacy_test_seams(request, monkeypatch):
+    """Route pre-Step-4 paper test doubles to their canonical module owners.
+
+    The production package remains a declarative export surface. These older
+    characterization tests still patch names that lived in the former monolith,
+    so keep their doubles attached to the exact moved dependency during Step 4.
+    """
+    module_name = request.module.__name__.rsplit(".", 1)[-1]
+    if module_name not in _PAPER_DECOMPOSITION_LEGACY_MODULES:
+        return
+
+    from sentinel import paper
+    from sentinel.paper import (
+        execution as paper_execution,
+        finalization as paper_finalization,
+        inspection as paper_inspection,
+        preparation as paper_preparation,
+        reconciliation as paper_reconciliation,
+        recovery as paper_recovery,
+        targets as paper_targets,
+        validation as paper_validation,
+    )
+
+    # Names used directly by legacy tests but intentionally absent from the
+    # public Step-4 compatibility surface.
+    for name, owner in (
+        ("SessionState", paper_preparation),
+        ("advance_and_persist", paper_preparation),
+        ("catchup", paper_preparation),
+        ("load_rollout_state", paper_validation),
+        ("load_window", paper_preparation),
+    ):
+        monkeypatch.setattr(paper, name, getattr(owner, name), raising=False)
+
+    def forward(owner, name):
+        """Make an old package-level patch drive the moved canonical seam."""
+        if not hasattr(paper, name):
+            monkeypatch.setattr(paper, name, getattr(owner, name), raising=False)
+
+        def call(*args, **kwargs):
+            return getattr(paper, name)(*args, **kwargs)
+
+        monkeypatch.setattr(owner, name, call)
+
+    # Direct imports retained by AST-equivalent moved functions need their test
+    # doubles routed from the old monolithic patch location.
+    for owner, names in (
+        (paper_inspection, ("require_certified",)),
+        (paper_preparation, (
+            "advance_and_persist", "load_controller", "load_window",
+            "require_current_authority", "runtime_strategy_identity",
+            "shadow_target",
+        )),
+        (paper_validation, (
+            "load_rollout_state", "require_current_authority",
+            "runtime_strategy_identity", "shadow_target",
+        )),
+        (paper_execution, (
+            "load_rollout_state", "require_current_authority",
+        )),
+        (paper_recovery, (
+            "load_rollout_state", "require_current_authority",
+        )),
+        (paper_targets, ("shadow_target",)),
+    ):
+        for name in names:
+            if hasattr(owner, name):
+                forward(owner, name)
+
+    # The old monolith exposed these private helpers at the same object patched
+    # by the tests. Route the moved owner calls through that explicit seam.
+    original_close_nav = paper_finalization._record_due_close_nav_or_refuse
+    monkeypatch.setattr(
+        paper, "_record_due_close_nav_or_refuse", original_close_nav,
+        raising=False)
+
+    def close_nav(*args, **kwargs):
+        return paper._record_due_close_nav_or_refuse(*args, **kwargs)
+
+    monkeypatch.setattr(
+        paper_finalization, "_record_due_close_nav_or_refuse", close_nav)
+
+    # Reconciliation deliberately exposes `reconcile` as its canonical test
+    # dependency. Ensure the internal module reference observes that alias.
+    class _ReconcileProxy:
+        def __getattr__(self, name):
+            if name == "reconcile":
+                return paper_reconciliation.reconcile
+            return getattr(paper_reconciliation.reconciliation, name)
+
+    monkeypatch.setattr(
+        paper_reconciliation, "reconciliation", _ReconcileProxy())
