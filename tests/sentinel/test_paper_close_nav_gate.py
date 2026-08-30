@@ -10,6 +10,11 @@ from types import SimpleNamespace
 import pytest
 
 from sentinel import paper, trial, trial_close, trial_fills
+from sentinel.paper import (
+    cash as paper_cash,
+    finalization as paper_finalization,
+    preparation as paper_preparation,
+)
 from sentinel.execution import broker_cash, journal
 from sentinel.execution.contract import MalformedBrokerEvidence
 from sentinel.execution.contract import (
@@ -94,7 +99,7 @@ def test_uncertified_source_refuses_before_transport(monkeypatch):
         lambda *_args, **_kwargs: pytest.fail("uncertified point was recorded"))
 
     with pytest.raises(paper.PaperRetryableRefused, match="not a certified"):
-        run(paper._record_due_close_nav_or_refuse(  # noqa: SLF001
+        run(paper_finalization._record_due_close_nav_or_refuse(  # noqa: SLF001
             object(), broker=broker, deployment=DEPLOYMENT, session=SESSION))
 
     assert broker.calls == []
@@ -111,7 +116,7 @@ def test_accepted_point_is_recorded_before_the_due_cycle_can_advance(
             (conn, deployment, valuation)) or {"evidence_sha256": "a" * 64})
     conn = object()
 
-    result = run(paper._record_due_close_nav_or_refuse(  # noqa: SLF001
+    result = run(paper_finalization._record_due_close_nav_or_refuse(  # noqa: SLF001
         conn, broker=broker, deployment=DEPLOYMENT, session=SESSION))
 
     assert result == {"evidence_sha256": "a" * 64}
@@ -127,7 +132,7 @@ def test_transport_unavailability_is_retryable_and_records_nothing(monkeypatch):
 
     with pytest.raises(
             paper.PaperRetryableRefused, match="temporarily unavailable"):
-        run(paper._record_due_close_nav_or_refuse(  # noqa: SLF001
+        run(paper_finalization._record_due_close_nav_or_refuse(  # noqa: SLF001
             object(), broker=broker, deployment=DEPLOYMENT, session=SESSION))
 
 
@@ -139,7 +144,7 @@ def test_malformed_transport_evidence_is_not_retried_as_an_outage(monkeypatch):
 
     with pytest.raises(
             paper.PaperActivationRefused, match="malformed or contradictory"):
-        run(paper._record_due_close_nav_or_refuse(  # noqa: SLF001
+        run(paper_finalization._record_due_close_nav_or_refuse(  # noqa: SLF001
             object(), broker=broker, deployment=DEPLOYMENT, session=SESSION))
 
 
@@ -153,7 +158,7 @@ def test_malformed_or_revised_history_is_a_hard_refusal(monkeypatch):
 
     with pytest.raises(
             paper.PaperActivationRefused, match="acceptance contract"):
-        run(paper._record_due_close_nav_or_refuse(  # noqa: SLF001
+        run(paper_finalization._record_due_close_nav_or_refuse(  # noqa: SLF001
             object(), broker=broker, deployment=DEPLOYMENT, session=SESSION))
 
 
@@ -170,7 +175,7 @@ def test_fill_interval_requires_certified_capability_before_baseline_or_transpor
             "uncertified fill interval was recorded"))
 
     with pytest.raises(paper.PaperRetryableRefused, match="not a certified"):
-        run(paper._record_due_fill_interval_or_refuse(  # noqa: SLF001
+        run(paper_finalization._record_due_fill_interval_or_refuse(  # noqa: SLF001
             object(), broker=broker, deployment=DEPLOYMENT, plan=PLAN,
             session=SESSION, required_through=REQUIRED_THROUGH))
 
@@ -192,7 +197,7 @@ def test_fill_interval_uses_exact_authoritative_plan_cash_boundary_and_records(
             (conn, deployment, plan_id, interval))
         or {"evidence_sha256": "f" * 64})
 
-    result = run(paper._record_due_fill_interval_or_refuse(  # noqa: SLF001
+    result = run(paper_finalization._record_due_fill_interval_or_refuse(  # noqa: SLF001
         conn, broker=broker, deployment=DEPLOYMENT, plan=PLAN,
         session=SESSION, required_through=REQUIRED_THROUGH))
 
@@ -218,7 +223,7 @@ def test_fill_interval_refuses_missing_or_non_authoritative_cash_baseline(
     with pytest.raises(
             paper.PaperActivationRefused,
             match="authoritative plan cash baseline|not authoritative"):
-        run(paper._record_due_fill_interval_or_refuse(  # noqa: SLF001
+        run(paper_finalization._record_due_fill_interval_or_refuse(  # noqa: SLF001
             object(), broker=broker, deployment=DEPLOYMENT, plan=PLAN,
             session=SESSION, required_through=REQUIRED_THROUGH))
 
@@ -246,7 +251,7 @@ def test_fill_interval_transport_vs_malformed_classification(
             "failed fill interval was recorded"))
 
     with pytest.raises(refusal, match=message):
-        run(paper._record_due_fill_interval_or_refuse(  # noqa: SLF001
+        run(paper_finalization._record_due_fill_interval_or_refuse(  # noqa: SLF001
             object(), broker=broker, deployment=DEPLOYMENT, plan=PLAN,
             session=SESSION, required_through=REQUIRED_THROUGH))
 
@@ -273,7 +278,7 @@ def test_fill_interval_rejects_shifted_or_short_accepted_payload_before_write(
             "invalid accepted fill interval poisoned durable history"))
 
     with pytest.raises(paper.PaperActivationRefused, match=message):
-        run(paper._record_due_fill_interval_or_refuse(  # noqa: SLF001
+        run(paper_finalization._record_due_fill_interval_or_refuse(  # noqa: SLF001
             object(), broker=broker, deployment=DEPLOYMENT, plan=PLAN,
             session=SESSION, required_through=REQUIRED_THROUGH))
 
@@ -293,7 +298,7 @@ def test_fill_interval_historical_revision_is_a_hard_refusal(monkeypatch):
 
     with pytest.raises(
             paper.PaperActivationRefused, match="immutable acceptance contract"):
-        run(paper._record_due_fill_interval_or_refuse(  # noqa: SLF001
+        run(paper_finalization._record_due_fill_interval_or_refuse(  # noqa: SLF001
             object(), broker=broker, deployment=DEPLOYMENT, plan=PLAN,
             session=SESSION, required_through=REQUIRED_THROUGH))
 
@@ -322,13 +327,13 @@ def test_offsetting_cash_activity_identity_blocks_immutable_plan(monkeypatch):
         broker_cash, "load_plan_baseline", lambda *_args, **_kwargs: baseline)
 
     with pytest.raises(paper.PaperActivationRefused, match="net=0"):
-        paper._cash_authority_or_refuse(  # noqa: SLF001
+        paper_cash._cash_authority_or_refuse(  # noqa: SLF001
             object(), plan=plan, deployment=DEPLOYMENT, account=account,
             observation=observation, activity_state=activity)
 
     # Preparation may observe the changed set only to build a successor plan;
     # it never rewrites the current plan's immutable cash economics.
-    paper._cash_authority_or_refuse(  # noqa: SLF001
+    paper_cash._cash_authority_or_refuse(  # noqa: SLF001
         object(), plan=plan, deployment=DEPLOYMENT, account=account,
         observation=observation, activity_state=activity,
         permit_new_activity=True)
@@ -360,7 +365,7 @@ def test_authoritative_cash_baseline_refuses_downgraded_current_provenance(
 
     with pytest.raises(
             paper.PaperActivationRefused, match="activity identity scheme"):
-        paper._cash_authority_or_refuse(  # noqa: SLF001
+        paper_cash._cash_authority_or_refuse(  # noqa: SLF001
             object(), plan=plan, deployment=DEPLOYMENT, account=account,
             observation=observation, activity_state=downgraded,
             permit_new_activity=True)
@@ -416,26 +421,21 @@ def test_due_cycle_finalization_uses_old_plan_effective_session_everywhere(
     monkeypatch.setattr(
         broker_cash.PlanCashBaseline,
         "close_cash_finality_authoritative", property(lambda _self: True))
-    monkeypatch.setattr(paper, "_record_due_close_nav_or_refuse", close)
-    monkeypatch.setattr(paper, "_record_due_fill_interval_or_refuse", fills)
+    monkeypatch.setattr(paper_finalization, "_record_due_close_nav_or_refuse", close)
+    monkeypatch.setattr(paper_finalization, "_record_due_fill_interval_or_refuse", fills)
     monkeypatch.setattr(
-        paper.target_reprojection, "load_projection",
+        paper_finalization.target_reprojection, "load_projection",
         lambda *_args, **_kwargs: target_projection)
     monkeypatch.setattr(
-        paper.target_reprojection, "assert_projection",
+        paper_finalization.target_reprojection, "assert_projection",
         lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        paper, "_target_action_lookup",
-        lambda *_: pytest.fail(
-            "finalizer recomputed corpus target actions instead of using its "
-            "validated pre-open view"))
     monkeypatch.setattr(trial, "record_account_evidence", account_evidence)
     monkeypatch.setattr(trial, "record_cycle_verification", verification)
     broker = object()
     account = object()
     activity = object()
 
-    result = run(paper._finalize_due_succeeded_cycle_or_refuse(  # noqa: SLF001
+    result = run(paper_finalization._finalize_due_succeeded_cycle_or_refuse(  # noqa: SLF001
         conn, broker=broker, deployment=DEPLOYMENT, plan=PLAN,
         reconciliation=reconciliation, account=account,
         activity_state=activity, observation_started_at=started_at,
@@ -470,11 +470,11 @@ def test_due_cycle_without_close_cash_finality_stays_pending_before_writes(
     monkeypatch.setattr(
         broker_cash, "load_plan_baseline", lambda *_args, **_kwargs: BASELINE)
     monkeypatch.setattr(
-        paper, "_record_due_close_nav_or_refuse",
+        paper_finalization, "_record_due_close_nav_or_refuse",
         lambda *_args, **_kwargs: pytest.fail(
             "close source was written before cash finality existed"))
     monkeypatch.setattr(
-        paper, "_record_due_fill_interval_or_refuse",
+        paper_finalization, "_record_due_fill_interval_or_refuse",
         lambda *_args, **_kwargs: pytest.fail(
             "fill source was written before cash finality existed"))
     monkeypatch.setattr(
@@ -489,7 +489,7 @@ def test_due_cycle_without_close_cash_finality_stays_pending_before_writes(
     with pytest.raises(
             paper.PaperRetryableRefused,
             match="cash source has no accepted close-interval finality"):
-        run(paper._finalize_due_succeeded_cycle_or_refuse(  # noqa: SLF001
+        run(paper_finalization._finalize_due_succeeded_cycle_or_refuse(  # noqa: SLF001
             object(), broker=object(), deployment=DEPLOYMENT, plan=PLAN,
             reconciliation=reconciliation, account=object(),
             activity_state=object(), observation_started_at=BASELINE_AT,
@@ -528,76 +528,76 @@ def test_manual_delayed_preparation_cannot_bypass_due_cycle_gate(monkeypatch):
         raise paper.PaperActivationRefused("due-cycle gate reached")
 
     broker.account_snapshot = account_snapshot
-    monkeypatch.setattr(paper, "assert_paper_url", lambda _url: None)
+    monkeypatch.setattr(paper_preparation, "assert_paper_url", lambda _url: None)
     monkeypatch.setattr(
-        paper, "_require_certified_paper_broker", lambda _broker: None)
+        paper_preparation, "_require_certified_paper_broker", lambda _broker: None)
     monkeypatch.setattr(
-        paper.schema, "require_runtime_schema", lambda _conn: None)
+        paper_preparation.schema, "require_runtime_schema", lambda _conn: None)
     monkeypatch.setattr(
-        paper.journal, "writer_lock", lambda _conn: nullcontext())
+        paper_preparation.journal, "writer_lock", lambda _conn: nullcontext())
     monkeypatch.setattr(
         handover, "assert_no_legacy_path", lambda _conn: binding)
     monkeypatch.setattr(
-        paper, "load_rollout_state",
+        paper_preparation, "load_rollout_state",
         lambda _conn: SimpleNamespace(
-            mode=paper.RolloutMode.PINNED_1_00, version=1,
+            mode=paper_preparation.RolloutMode.PINNED_1_00, version=1,
             certificate_sha256=None))
     monkeypatch.setattr(
-        paper.publication, "pinned",
+        paper_preparation.publication, "pinned",
         lambda _conn, commit=False: nullcontext(SimpleNamespace(version=7)))
     monkeypatch.setattr(
-        paper, "_readiness_or_refuse", lambda *_args, **_kwargs: None)
+        paper_preparation, "_readiness_or_refuse", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
-        paper.calendar, "latest_closed_session",
+        paper_preparation.calendar, "latest_closed_session",
         lambda _now: through.isoformat())
     monkeypatch.setattr(
-        paper.feed_store, "latest_visible_session",
+        paper_preparation.feed_store, "latest_visible_session",
         lambda _conn: through.isoformat())
     monkeypatch.setattr(
-        paper, "require_current_authority",
+        paper_preparation, "require_current_authority",
         lambda *_args, **_kwargs: SimpleNamespace(
             certificate_sha256=None,
             authorization_mode="PAPER_OBSERVATION_ONLY"))
     monkeypatch.setattr(
-        paper, "_guard_broker", lambda **_kwargs: broker)
-    monkeypatch.setattr(paper.catchup, "resume_state", lambda _conn: None)
+        paper_preparation, "_guard_broker", lambda **_kwargs: broker)
+    monkeypatch.setattr(paper_preparation.catchup, "resume_state", lambda _conn: None)
     monkeypatch.setattr(
-        paper.catchup, "last_processed_session", lambda _conn: None)
+        paper_preparation.catchup, "last_processed_session", lambda _conn: None)
     monkeypatch.setattr(
-        paper.journal, "latest_plan", lambda _conn: PLAN)
+        paper_preparation.journal, "latest_plan", lambda _conn: PLAN)
     monkeypatch.setattr(
-        paper.trial, "due_succeeded_cycle_id", lambda *_args, **_kwargs: "old")
+        paper_preparation.trial, "due_succeeded_cycle_id", lambda *_args, **_kwargs: "old")
     monkeypatch.setattr(
-        paper, "_assert_deterministic_plan_id", lambda _plan: None)
+        paper_preparation, "_assert_deterministic_plan_id", lambda _plan: None)
     monkeypatch.setattr(
-        paper, "_target_action_lookup",
+        paper_preparation, "_target_action_lookup",
         lambda *_args, **_kwargs: target_actions)
     monkeypatch.setattr(
-        paper.journal, "load_commands", lambda *_args, **_kwargs: ())
+        paper_preparation.journal, "load_commands", lambda *_args, **_kwargs: ())
     monkeypatch.setattr(
-        paper, "_preopen_views_or_none",
+        paper_preparation, "_preopen_views_or_none",
         lambda _conn, **kwargs: (
             object(), aged_actions, kwargs["target_actions"]))
     monkeypatch.setattr(
-        paper.preopen_authority, "overlay_actions",
+        paper_preparation.preopen_authority, "overlay_actions",
         lambda actions, _authority: actions)
     monkeypatch.setattr(
-        paper, "_revalidate_preopen_authority_or_refuse",
+        paper_preparation, "_revalidate_preopen_authority_or_refuse",
         lambda **_kwargs: None)
     monkeypatch.setattr(paper.reconciliation, "reconcile", reconcile)
     monkeypatch.setattr(
-        paper, "_clean_or_refuse", lambda _result, **_kwargs: observation)
+        paper_preparation, "_clean_or_refuse", lambda _result, **_kwargs: observation)
     monkeypatch.setattr(
-        paper, "_account_or_refuse", lambda *_args, **_kwargs: None)
+        paper_preparation, "_account_or_refuse", lambda *_args, **_kwargs: None)
 
     async def cash_state(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(paper, "_broker_cash_state_or_refuse", cash_state)
+    monkeypatch.setattr(paper_preparation, "_broker_cash_state_or_refuse", cash_state)
     monkeypatch.setattr(
-        paper, "_cash_authority_or_refuse", lambda *_args, **_kwargs: None)
+        paper_preparation, "_cash_authority_or_refuse", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
-        paper, "_finalize_due_succeeded_cycle_or_refuse", finalize)
+        paper_preparation, "_finalize_due_succeeded_cycle_or_refuse", finalize)
 
     with pytest.raises(
             paper.PaperActivationRefused, match="due-cycle gate reached"):
@@ -645,7 +645,7 @@ def test_missing_plan_cash_baseline_is_never_backfilled_from_current_state(
 
     with pytest.raises(
             paper.PaperActivationRefused, match="cannot be backfilled"):
-        paper._cash_authority_or_refuse(  # noqa: SLF001
+        paper_cash._cash_authority_or_refuse(  # noqa: SLF001
             object(), plan=plan, deployment=DEPLOYMENT, account=account,
             observation=observation, activity_state=current,
             permit_new_activity=True)

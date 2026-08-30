@@ -11,7 +11,7 @@ from sentinel.controller.ldrc import LDRCConfig
 
 
 def test_default_paper_runtime_is_simplified_three_signal_ldrc_v3():
-    config, identity = paper._default_paper_strategy()  # noqa: SLF001
+    config, identity = paper_preparation._default_paper_strategy()  # noqa: SLF001
     assert config.strategy_id == PARENT_STRATEGY_ID
     assert config.fast_entry["min_damaged_breadth_delta5"] == FAST_DAMAGED_BREADTH_DELTA5 == 0.30
     assert identity["strategy"] == PARENT_STRATEGY_ID

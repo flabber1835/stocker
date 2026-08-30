@@ -91,18 +91,18 @@ def test_148_preparation_guard_rechecks_boundary_without_full_readiness(monkeypa
         identity=SimpleNamespace(matches_account=lambda _value: True))
     monkeypatch.setattr("sentinel.handover.assert_no_legacy_path",
                         lambda _conn: fake_binding)
-    monkeypatch.setattr(paper, "load_rollout_state", lambda _conn: object())
+    monkeypatch.setattr(paper_validation, "load_rollout_state", lambda _conn: object())
     monkeypatch.setattr(paper_validation.publication, "require_current",
                         lambda _conn: object())
     monkeypatch.setattr(paper_validation.feed_store, "latest_visible_session",
                         lambda _conn: "2026-08-14")
-    monkeypatch.setattr(paper, "load_controller", lambda: object())
-    monkeypatch.setattr(paper, "runtime_strategy_identity",
+    monkeypatch.setattr(paper_validation, "load_controller", lambda: object())
+    monkeypatch.setattr(paper_validation, "runtime_strategy_identity",
                         lambda _controller: {})
     monkeypatch.setattr(paper_validation.calendar, "latest_closed_session",
                         lambda _now: "2026-08-14")
     monkeypatch.setattr(
-        paper, "_readiness_or_refuse",
+        paper_validation, "_readiness_or_refuse",
         lambda *_a, **_k: (_ for _ in ()).throw(
             AssertionError("preparation guard rescanned readiness")))
     paper_validation._validate_broker_grant(
