@@ -68,15 +68,29 @@ def _twenty_year_transform(mode: str, output: Path) -> str:
     )
 
     counts_needle = "_SEC_COUNTS={'auto_common':0,'manual_common':0,'manual_non_common':0,'unknown_ineligible':0}"
-    counts_replacement = counts_needle + "\n    _CANDIDATE_COVERAGE={'base_candidates':0,'known_classifications':0,'unknown_classifications':0,'sessions':0,'sessions_with_unknown':0,'worst_known_fraction':1.0,'worst_session':None,'first_unknown_session':None,'by_year':{}}"
+    counts_replacement = counts_needle + "\n    _CANDIDATE_COVERAGE={'base_candidates':0,'known_classifications':0,'unknown_classifications':0,'sessions':0,'sessions_with_unknown':0,'worst_known_fraction':1.0,'worst_session':None,'first_unknown_session':None,'by_year':{}}\n    _UNKNOWN_DETAIL={'by_ticker':{},'by_month':{},'by_cik_availability':{},'by_sec_evidence_availability':{},'by_security_type':{'unknown_ineligible':0}}"
     text = _replace_once(text, counts_needle, counts_replacement, "candidate coverage counters")
 
     old_elig = "elig=np.asarray([common_key(int(t),ds) for t in tids],dtype=bool)&listed&continuous&np.isfinite(mm)&np.isfinite(rr)&np.isfinite(cu)&(cu>=MIN_PRICE)&np.isfinite(av)&(av>=MIN_ADV20)&np.isfinite(dv)&(dv>=MIN_DAY_DV)&np.isfinite(sc)&(fvol>0)"
     new_elig = """_base_elig=listed&continuous&np.isfinite(mm)&np.isfinite(rr)&np.isfinite(cu)&(cu>=MIN_PRICE)&np.isfinite(av)&(av>=MIN_ADV20)&np.isfinite(dv)&(dv>=MIN_DAY_DV)&np.isfinite(sc)&(fvol>0)
             _sec_ok=np.zeros(len(tids),dtype=bool); _known=0; _unknown=0
             for _j in np.flatnonzero(_base_elig):
-                _u0=_SEC_COUNTS['unknown_ineligible']; _sec_ok[int(_j)]=common_key(int(tids[int(_j)]),ds)
-                if _SEC_COUNTS['unknown_ineligible']>_u0: _unknown+=1
+                _tid=int(tids[int(_j)]); _tk=str(tick[_tid]).upper(); _u0=_SEC_COUNTS['unknown_ineligible']; _sec_ok[int(_j)]=common_key(_tid,ds)
+                if _SEC_COUNTS['unknown_ineligible']>_u0:
+                    _unknown+=1; _UNKNOWN_DETAIL['by_security_type']['unknown_ineligible']+=1
+                    _cik=pit_model._strict_prior(pit_model.cik_dates.get(_tk,()),pit_model.cik_values.get(_tk,()),ds)
+                    _cik_key='available' if _cik is not None else 'missing'
+                    _UNKNOWN_DETAIL['by_cik_availability'][_cik_key]=_UNKNOWN_DETAIL['by_cik_availability'].get(_cik_key,0)+1
+                    _q=_sec_by.get(_tk)
+                    if _q is None or not len(_q[_q.filed<ds]): _ev='no_strict_prior_positive_evidence'
+                    elif _cik is None: _ev='strict_prior_positive_evidence_cik_missing'
+                    else:
+                        _qp=_q[_q.filed<ds]; _qm=_qp[_qp.cik.map(lambda x: str(int(float(x))) if pd.notna(x) else '')==str(_cik)]
+                        _ev='strict_prior_positive_evidence_cik_mismatch' if not len(_qm) else 'unexpected_matching_positive_evidence'
+                    _UNKNOWN_DETAIL['by_sec_evidence_availability'][_ev]=_UNKNOWN_DETAIL['by_sec_evidence_availability'].get(_ev,0)+1
+                    _mon=ds[:7]; _UNKNOWN_DETAIL['by_month'][_mon]=_UNKNOWN_DETAIL['by_month'].get(_mon,0)+1
+                    _td=_UNKNOWN_DETAIL['by_ticker'].setdefault(_tk,{'observations':0,'first_session':ds,'last_session':ds,'cik_available':0,'cik_missing':0,'evidence':{}})
+                    _td['observations']+=1; _td['last_session']=ds; _td['cik_available' if _cik is not None else 'cik_missing']+=1; _td['evidence'][_ev]=_td['evidence'].get(_ev,0)+1
                 else: _known+=1
             _nbase=_known+_unknown
             if _nbase:
@@ -96,7 +110,7 @@ def _twenty_year_transform(mode: str, output: Path) -> str:
     text = _replace_once(
         text,
         summary_needle,
-        summary_needle + "\n        'strict_candidate_security_type_coverage':_CANDIDATE_COVERAGE,",
+        summary_needle + "\n        'strict_candidate_security_type_coverage':_CANDIDATE_COVERAGE,\n        'strict_candidate_security_type_unknown_breakdown':_UNKNOWN_DETAIL,",
         "candidate coverage evidence",
     )
     return text
@@ -109,10 +123,14 @@ def _finalize_coverage(output: Path) -> None:
     summary_path = output / "summary.json"
     audit_path = output / "metadata_authority_audit.json"
     coverage_path = output / "candidate_session_coverage.json"
+    unknown_path = output / "candidate_session_unknown_breakdown.json"
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     coverage = summary.get("strict_candidate_security_type_coverage") or {}
+    unknown_detail = summary.get("strict_candidate_security_type_unknown_breakdown") or {}
     if not coverage:
         raise RuntimeError("candidate/session coverage evidence was not emitted")
+    if not unknown_detail:
+        raise RuntimeError("candidate/session unknown breakdown was not emitted")
     total = int(coverage.get("base_candidates", 0))
     known = int(coverage.get("known_classifications", 0))
     unknown = int(coverage.get("unknown_classifications", 0))
@@ -122,8 +140,10 @@ def _finalize_coverage(output: Path) -> None:
     coverage["measurement_start"] = MEASUREMENT_START
     coverage["end_session"] = END_SESSION
     coverage_path.write_text(json.dumps(coverage, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    unknown_path.write_text(json.dumps(unknown_detail, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     summary["candidate_session_security_type_coverage"] = coverage
+    summary["candidate_session_security_type_unknown_breakdown"] = unknown_detail
     summary["warmup"] = {
         "start": WARMUP_START,
         "measurement_start": MEASUREMENT_START,
@@ -135,15 +155,27 @@ def _finalize_coverage(output: Path) -> None:
 
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
     audit["candidate_session_security_type_coverage"] = coverage
+    audit["candidate_session_security_type_unknown_breakdown"] = unknown_detail
     audit_path.write_text(json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    files = [output / "daily.csv.gz", output / "metrics.csv", summary_path, audit_path, coverage_path]
+    files = [output / "daily.csv.gz", output / "metrics.csv", summary_path, audit_path, coverage_path, unknown_path]
     (output / "SHA256SUMS.txt").write_text(
         "".join(f"{old.sha256(path)}  {path.name}\n" for path in files), encoding="utf-8"
     )
     print(
         f"[CANDIDATE COVERAGE] known={known}/{total} "
         f"unknown={unknown} complete={unknown == 0}",
+        flush=True,
+    )
+    print(
+        "[CANDIDATE UNKNOWN] " + json.dumps({
+            "by_cik_availability": unknown_detail.get("by_cik_availability"),
+            "by_sec_evidence_availability": unknown_detail.get("by_sec_evidence_availability"),
+            "top_tickers": sorted(
+                ((k, int(v.get("observations", 0))) for k, v in (unknown_detail.get("by_ticker") or {}).items()),
+                key=lambda x: (-x[1], x[0]),
+            )[:20],
+        }, sort_keys=True),
         flush=True,
     )
 
