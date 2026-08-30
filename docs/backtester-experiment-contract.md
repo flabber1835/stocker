@@ -33,7 +33,9 @@ This includes, as applicable:
 
 A backtest run may validate, load, filter, join, or transform its declared inputs in memory for the mechanics of the replay. It may not reconstruct missing PIT history, scrape replacement history, infer missing historical metadata, or repair the dataset during the experiment.
 
-PIT construction is a separate dataset-maintenance operation. Once a PIT reconstruction is accepted, its finished output must be stored and hash-pinned on `research/backtester` so future experiments consume the same frozen input directly.
+PIT construction is a separate dataset-maintenance operation. Once a PIT reconstruction is accepted, its finished output must be stored as a content-addressed GitHub Container Registry package. A small pointer committed to `research/backtester` must pin the package digest, canonical dataset hash, reconstruction SHA, source run, date window, and manifest hash. Future experiments resolve that branch-owned pointer and consume the frozen package directly.
+
+The package digest is immutable. A mutable package tag, an Actions cache, an expiring Actions artifact, or an unpinned workflow run is not a valid experiment input. Actions artifacts may be retained as redundant build evidence.
 
 If a required dataset is missing, incomplete, or hash-mismatched, the experiment must fail before economic replay starts.
 
@@ -122,6 +124,12 @@ Any workflow that requires `contents: write` for dataset maintenance must:
 3. push only to `research/backtester`;
 4. contain no push/merge path to `main`;
 5. never use a successful experiment as automatic production promotion.
+
+A dataset-maintenance workflow may also request `packages: write` solely to
+publish a content-addressed canonical input package. It must commit the
+resulting immutable package digest only to `research/backtester`. Economic
+replay workflows receive `contents: read` and `packages: read`; they have no
+dataset-construction or publication authority.
 
 Experiment workflows should prefer immutable downloadable Actions artifacts for results.
 

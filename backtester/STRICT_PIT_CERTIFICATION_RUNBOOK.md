@@ -13,8 +13,9 @@ This is the entry point for continuing strict-PIT certification on branch
 - Dataset status: `PASS`
 - Full 20-year job: deliberately disabled pending the completed diagnostic
   strategy-boundary audit
-- Research-only 20-year replay: available as a separate, non-equivalence job;
-  it may run while the bounded production comparison is completing
+- Full-window PIT construction and the research-only 20-year replay are
+  separate workflows. The replay starts only from a branch-pinned certified
+  package.
 
 The canonical dataset contains 3,151,110 observations, 7,301 securities, 502
 sessions, 10,835 metadata-timeline rows, 22,674 action rows, and 952 terminal
@@ -38,7 +39,7 @@ hash-pinned raw historical authorities
 one canonical PIT reconstruction builder
                  |
                  v
-immutable content-addressed PIT dataset
+immutable GHCR package + branch pointer
                  |
        +---------+---------+
        |                   |
@@ -65,10 +66,12 @@ The branch contains everything required to reproduce the diagnostic:
 - frozen split and terminal evidence: `backtester/data/`
 - hash-pinned historical SEP/SFP sources: `sharadar/`
 
-The 139 MB canonical diagnostic artifact is generated deterministically. It is
-not committed as a second copy of its hash-pinned sources. The GitHub workflow
-builds it, validates every member, uses the same artifact path for both engines,
-and uploads the complete artifact with the result bundle.
+The 139 MB canonical diagnostic artifact is generated deterministically. The
+full-window dataset is published once as a content-addressed GitHub Container
+Registry package. A branch-owned pointer pins its package digest and canonical
+dataset hash. Replay workflows pull by digest and validate every member before
+strategy execution. An Actions artifact is retained as redundant build
+evidence, not as the durable input authority.
 
 No required certification input may exist only in `/tmp`, a local workspace,
 or an uncommitted file.
@@ -131,25 +134,44 @@ the canonical artifact and verifies:
    positions, Wealth Core equity, breadth, target, LD-RC state, allocation, and
    NAV.
 
+### Build and store the 20-year canonical dataset
+
+Open **Backtester - build and store canonical PIT 20-year dataset**, select
+**Run workflow**, and choose `research/backtester`.
+
+This dataset-maintenance workflow performs no economic replay. It has a
+six-hour attempt limit and automatically retries on a fresh GitHub runner after
+an interrupted attempt. A successful attempt:
+
+1. validates the canonical manifest and every member hash;
+2. uploads redundant Actions evidence;
+3. publishes the finished dataset to GHCR;
+4. resolves the immutable GHCR digest;
+5. commits `backtester/data/canonical-pit-20y.json` to
+   `research/backtester` with the dataset hash, package digest, source run,
+   reconstruction SHA, date window, and manifest hash.
+
+The pointer commit is the admission event. A replay cannot consume an
+unpublished run directory, a package tag, or a partially built dataset.
+
 ### Research-only 20-year replay
 
 Open [Backtester - research-only canonical PIT 20-year replay](https://github.com/flabber1835/stocker/actions/workflows/backtester-research-only-20y.yml),
 select **Run workflow**, and choose `research/backtester`.
 
 This separate workflow covers warmup `2006-01-03` through `2006-07-28` and the
-20-year measurement window `2006-07-31` through `2026-07-31`. It reconstructs
-and certifies the full-window canonical dataset before starting retained
-research. The corporate-action gate is unchanged: any unresolved full-window
-event leaves the manifest at `FAIL`, blocks strategy execution, and is retained
-in the uploaded evidence rather than bypassed.
+20-year measurement window `2006-07-31` through `2026-07-31`. It reads
+`backtester/data/canonical-pit-20y.json`, pulls that exact GHCR digest, validates
+the canonical dataset and declared hash, and then starts retained research. It
+contains no PIT reconstruction step and does not check out the raw historical
+authorities.
 
-During reconstruction the log reports each completed source year. During
-warmup it reports `CAGR=N/A`; after measurement begins it prints paired
+During warmup it reports `CAGR=N/A`; after measurement begins it prints paired
 research and SPY cumulative CAGR records at each calendar-quarter boundary.
-The completed artifact contains the full canonical dataset, its manifest and
-session hashes, the research bundle, and both logs. This research-only job does
-not certify production/research equivalence and does not enable the disabled
-20-year dual-engine certification job.
+The completed replay artifact contains the pointer, canonical manifest,
+research bundle, and replay log. This research-only job does not certify
+production/research equivalence and does not enable the disabled 20-year
+dual-engine certification job.
 
 SPY path equivalence is checked after both outputs are rebased to the first
 measurement session. Production retains the canonical warmup-based level while
