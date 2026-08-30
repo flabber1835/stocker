@@ -1,4 +1,4 @@
-name: Backtester - research LD-RC non-PIT vs full-stack PIT
+name: Backtester - corrected research LD-RC non-PIT vs full-stack PIT
 
 on:
   push:
@@ -6,7 +6,9 @@ on:
       - research/backtester
     paths:
       - '.github/workflows/backtester-research-ldrc-nonpit-vs-fullpit.yml'
+      - 'backtester/run_research_ldrc_corrected_warmup_cash.py'
       - 'backtester/run_research_ldrc_nonpit_vs_fullpit.py'
+      - 'backtester/data/GS3M_1996-12_2007-05.csv'
   workflow_dispatch:
 
 permissions:
@@ -18,7 +20,7 @@ concurrency:
 
 jobs:
   replay:
-    name: Research LD-RC ${{ matrix.mode }} replay
+    name: Corrected research LD-RC ${{ matrix.mode }} replay
     if: github.ref_name == 'research/backtester'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
@@ -39,6 +41,8 @@ jobs:
           sparse-checkout: |
             /.github/workflows/backtester-research-ldrc-nonpit-vs-fullpit.yml
             /backtester/run_research_ldrc_nonpit_vs_fullpit.py
+            /backtester/run_research_ldrc_corrected_warmup_cash.py
+            /backtester/data/GS3M_1996-12_2007-05.csv
             /backtester/experiments/2026-08-27-sector-abc/run.py
             /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
             /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
@@ -82,12 +86,13 @@ jobs:
           set -euo pipefail
           python -m pip install pandas==3.0.5 numpy==2.4.6
 
-      - name: Compile research replay wrapper
+      - name: Compile corrected research replay wrapper
         shell: bash
         run: |
           set -euo pipefail
           python -m py_compile \
             backtester/run_research_ldrc_nonpit_vs_fullpit.py \
+            backtester/run_research_ldrc_corrected_warmup_cash.py \
             research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py \
             backtester/experiments/2026-08-27-sector-abc/run.py
 
@@ -97,30 +102,33 @@ jobs:
           set -euo pipefail
           test -f sharadar/SHARADAR_TICKERS.zip
           test -f sharadar/SHARADAR_ACTIONS.zip
+          test -f sharadar/SHARADAR_SEP_1997.csv.gz
           test -f 'PIT input data/ACTIONS_PIT_ONLY.csv.gz'
+          test -f backtester/data/GS3M_1996-12_2007-05.csv
+          test "$(sha256sum backtester/data/GS3M_1996-12_2007-05.csv | awk '{print $1}')" = "1c1dbdcddd50c2445f8c65d1378d3d2bc87626fe2dc9b9956bc0cd97682a72d3"
           test -f research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
           test -f research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
           count="$(find sharadar -maxdepth 1 -type f -name 'SHARADAR_SEP_*.csv.gz' | wc -l)"
-          test "${count}" -ge 29
+          test "${count}" -ge 30
 
-      - name: Run retained research chronological replay
+      - name: Run corrected retained research chronological replay
         shell: bash
         env:
           PYTHONUNBUFFERED: '1'
         run: |
           set -euo pipefail
-          out="backtester-results/research-ldrc-${{ matrix.mode }}"
+          out="backtester-results/research-ldrc-corrected-${{ matrix.mode }}"
           rm -rf "${out}"
-          python backtester/run_research_ldrc_nonpit_vs_fullpit.py \
+          python backtester/run_research_ldrc_corrected_warmup_cash.py \
             --mode '${{ matrix.mode }}' \
             --output "${out}" \
-            2>&1 | tee "backtester-research-ldrc-${{ matrix.mode }}.log"
+            2>&1 | tee "backtester-research-ldrc-corrected-${{ matrix.mode }}.log"
 
-      - name: Verify research result bundle
+      - name: Verify corrected research result bundle
         shell: bash
         run: |
           set -euo pipefail
-          cd "backtester-results/research-ldrc-${{ matrix.mode }}"
+          cd "backtester-results/research-ldrc-corrected-${{ matrix.mode }}"
           sha256sum -c SHA256SUMS.txt
           python - <<'PY'
           import json
@@ -130,28 +138,33 @@ jobs:
           if summary.get('status') != 'PASS': raise SystemExit('summary status is not PASS')
           expected='${{ matrix.mode }}'
           if summary.get('mode') != expected: raise SystemExit(f'wrong mode: {summary.get("mode")}')
-          if bool(summary.get('full_stack_pit')) != (expected == 'fullpit'):
-              raise SystemExit('full_stack_pit flag mismatch')
+          if bool(summary.get('full_stack_pit')) != (expected == 'fullpit'): raise SystemExit('full_stack_pit flag mismatch')
+          warm=summary.get('warmup') or {}
+          if warm.get('start') != '1997-01-02' or warm.get('measurement_start') != '1998-01-02' or warm.get('full_machine_state_carried') is not True:
+              raise SystemExit(f'wrong warm-up contract: {warm}')
+          cash=summary.get('defensive_cash_authority') or {}
+          if cash.get('gs3m_sha256') != '1c1dbdcddd50c2445f8c65d1378d3d2bc87626fe2dc9b9956bc0cd97682a72d3':
+              raise SystemExit(f'wrong cash authority: {cash}')
           metrics=pd.read_csv('metrics.csv',dtype={'window_years':str})
-          if set(metrics.window_years.astype(str)) != {'5','10','15','20','max'}:
-              raise SystemExit('measurement windows incomplete')
-          if set(metrics.variant.astype(str)) != {'RESEARCH','SPY'}:
-              raise SystemExit('metric variants incomplete')
+          if set(metrics.window_years.astype(str)) != {'5','10','15','20','max'}: raise SystemExit('measurement windows incomplete')
+          if set(metrics.variant.astype(str)) != {'RESEARCH','SPY'}: raise SystemExit('metric variants incomplete')
+          max_rows=metrics[metrics.window_years.astype(str).eq('max')]
+          if set(max_rows.start.astype(str)) != {'1998-01-02'}: raise SystemExit(f'max start wrong: {max_rows.start.tolist()}')
           daily=pd.read_csv('daily.csv.gz',compression='gzip')
           required={'date','research_wealth_core_equity','research_nav','research_allocation','spy_nav'}
-          if not required.issubset(daily.columns):
-              raise SystemExit(f'daily evidence incomplete: {sorted(required-set(daily.columns))}')
+          if not required.issubset(daily.columns): raise SystemExit(f'daily evidence incomplete: {sorted(required-set(daily.columns))}')
+          if str(daily.iloc[0]['date']) != '1998-01-02': raise SystemExit('daily measurement begins at wrong date')
           print(metrics.to_string(index=False))
           PY
 
-      - name: Upload immutable research replay bundle
+      - name: Upload immutable corrected research replay bundle
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: backtester-research-ldrc-${{ matrix.mode }}-${{ github.run_id }}
+          name: backtester-research-ldrc-corrected-${{ matrix.mode }}-${{ github.run_id }}
           path: |
-            backtester-results/research-ldrc-${{ matrix.mode }}/**
-            backtester-research-ldrc-${{ matrix.mode }}.log
+            backtester-results/research-ldrc-corrected-${{ matrix.mode }}/**
+            backtester-research-ldrc-corrected-${{ matrix.mode }}.log
           if-no-files-found: warn
           retention-days: 30
           compression-level: 6
