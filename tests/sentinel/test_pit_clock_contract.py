@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ast
 import inspect
-from pathlib import Path
 
 import pytest
 
@@ -20,11 +19,11 @@ def test_public_year_reconciliation_requires_observation_ceiling():
 
 
 def test_pit_reconciliation_modules_have_no_wall_clock_access():
-    root = Path(__file__).parents[2]
-    for relative in (
-            "sentinel/feed/sep_reconciliation.py",
-            "sentinel/feed/recent_reconciliation.py"):
-        tree = ast.parse((root / relative).read_text(), filename=relative)
+    from sentinel.feed import recent_reconciliation
+
+    for module in (sep_reconciliation, recent_reconciliation):
+        relative = inspect.getsourcefile(module) or module.__name__
+        tree = ast.parse(inspect.getsource(module), filename=relative)
         forbidden = []
         for node in ast.walk(tree):
             if (isinstance(node, ast.Call)

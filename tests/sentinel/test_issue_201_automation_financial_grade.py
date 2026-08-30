@@ -16,6 +16,7 @@ from sentinel.automation.model import (
     CycleState,
     DataIntegrityFailure,
     HumanInterventionRequired,
+    NonRetryableCallbackRefused,
     SoftwareDefect,
     StaleLeaderRefused,
     CancellationAuthority,
@@ -366,6 +367,43 @@ async def test_callback_result_is_refused_after_bounded_runtime() -> None:
             phase="PREPARE",
             heartbeat_conn_factory=None,
         )
+
+
+@pytest.mark.asyncio
+async def test_crash_signal_is_delivered_on_the_service_caller_task() -> None:
+    service = service_for(config())
+
+    class Context:
+        def __init__(self):
+            self.cancellation = CancellationAuthority()
+
+        def require_active(self):
+            self.cancellation.require_active()
+
+    def crash(_context):
+        raise SystemExit("injected process death")
+
+    with pytest.raises(SystemExit, match="injected process death"):
+        await service._invoke(  # noqa: SLF001 - crash-boundary contract test
+            crash, Context(), permit=object(), phase="PREPARE",
+            heartbeat_conn_factory=None)
+
+
+@pytest.mark.asyncio
+async def test_production_boundary_rejects_in_process_sync_callback() -> None:
+    service = service_for(config())
+
+    class Context:
+        def __init__(self):
+            self.cancellation = CancellationAuthority()
+
+        def require_active(self):
+            self.cancellation.require_active()
+
+    with pytest.raises(NonRetryableCallbackRefused, match="killable process"):
+        await service._invoke(  # noqa: SLF001 - process-isolation contract test
+            lambda _context: {}, Context(), permit=object(), phase="PREPARE",
+            heartbeat_conn_factory=lambda: pytest.fail("must not heartbeat"))
 
 
 @pytest.mark.asyncio

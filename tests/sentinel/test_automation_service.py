@@ -716,14 +716,20 @@ async def test_persistent_run_recomputes_boundaries_across_connections(
     async def no_wait(seconds):
         assert seconds >= 0
 
+    async def recover(context):
+        calls.append("recover")
+        return recovery_success(context)
+
+    async def refresh(context):
+        calls.append("refresh")
+        return refresh_result(context)
+
+    async def prepare(context):
+        calls.append("prepare")
+        return prepare_result(context)
+
     service = service_for(
-        cfg,
-        recover=lambda context: (
-            calls.append("recover") or recovery_success(context)),
-        refresh=lambda context: (
-            calls.append("refresh") or refresh_result(context)),
-        prepare=lambda context: (
-            calls.append("prepare") or prepare_result(context)))
+        cfg, recover=recover, refresh=refresh, prepare=prepare)
     ticks = await service.run(
         lambda: feed_store.connect(pg.sync_dsn), stop=NeverStop(),
         clock=lambda: AFTER_WEDNESDAY_CLOSE, sleep=no_wait, max_ticks=3)

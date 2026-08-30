@@ -173,6 +173,8 @@ def facade(monkeypatch, broker: SimulatedBroker):
     monkeypatch.setattr(
         "sentinel.execution.alpaca.AlpacaExecutionBroker", SimulatedBroker)
     monkeypatch.setattr(
+        SimulatedBroker, "certification_name", "alpaca", raising=False)
+    monkeypatch.setattr(
         "sentinel.execution.certification.require_certified",
         lambda name: None if name == "alpaca" else pytest.fail(name))
     return empty_account.GuardedEmptyAccountBroker(

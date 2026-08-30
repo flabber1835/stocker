@@ -75,6 +75,20 @@ class PhasePolicy:
     terminal_state: CycleState = CycleState.BLOCKED
 
 
+@dataclass(frozen=True)
+class _CallbackOutcome:
+    """Keep BaseException delivery on the service caller task.
+
+    asyncio treats SystemExit and KeyboardInterrupt raised by a child task as
+    loop-level termination signals.  Crash-injection callbacks deliberately
+    use those exceptions, so capture them in the child and re-raise them from
+    the service task after the deadline race has selected the callback.
+    """
+
+    value: Any = None
+    error: BaseException | None = None
+
+
 PHASE_POLICIES = {
     "REFRESH": PhasePolicy(
         "refresh", CycleState.PREPARING, "refresh_max_attempts"),
@@ -451,11 +465,16 @@ class AutomationService:
             worker.start()
 
         async def invoke_callback():
-            context.require_active()
-            if inspect.iscoroutinefunction(callback):
-                return await callback(context)
-            value = await loop.run_in_executor(None, callback, context)
-            return await _resolve(value)
+            try:
+                context.require_active()
+                if inspect.iscoroutinefunction(callback):
+                    value = await callback(context)
+                else:
+                    value = await loop.run_in_executor(None, callback, context)
+                    value = await _resolve(value)
+                return _CallbackOutcome(value=value)
+            except BaseException as exc:                      # noqa: BLE001
+                return _CallbackOutcome(error=exc)
 
         callback_task = asyncio.create_task(invoke_callback())
         deadline_task = asyncio.create_task(asyncio.sleep(deadline_seconds))
@@ -466,9 +485,11 @@ class AutomationService:
                 return_when=asyncio.FIRST_COMPLETED)
             if (callback_task in done and deadline_task not in done
                     and heartbeat_task not in done):
-                result = callback_task.result()
+                outcome = callback_task.result()
+                if outcome.error is not None:
+                    raise outcome.error
                 context.require_active()
-                return result
+                return outcome.value
             heartbeat_lost = heartbeat_task in done and heartbeat_errors
             reason = (
                 f"{phase} callback heartbeat failed: {heartbeat_errors[0]}"

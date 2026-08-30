@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from types import SimpleNamespace
 
 import pytest
@@ -10,9 +11,9 @@ from sentinel.cli import main as cli_main
 
 
 def test_executable_boundary_never_mutates_implementation_globals():
-    from pathlib import Path
+    import sentinel.__main__ as executable
 
-    source = (Path(__file__).parents[2] / "sentinel" / "__main__.py").read_text()
+    source = inspect.getsource(executable)
     assert "setattr(_main_impl" not in source
     assert "_legacy_overrides" not in source
 

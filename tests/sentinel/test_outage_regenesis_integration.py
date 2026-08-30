@@ -13,7 +13,6 @@ import pytest
 from sentinel import (
     automation_recovery,
     dual_plan_authority,
-    paper,
     shadow_recovery,
     shadow_segments,
     shadow_supervisor,
@@ -181,7 +180,7 @@ def test_real_segment_rollover_cannot_adopt_nonflat_predecessor_book(
     )
 
     with pytest.raises(
-            paper.PaperRetryableRefused,
+            automation_recovery.TransientInfrastructureFailure,
             match="flat, settled predecessor account"):
         asyncio.run(runtime.prepare(object()))
 
