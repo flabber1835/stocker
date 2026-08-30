@@ -153,6 +153,11 @@ def main() -> int:
     env["CERTIFICATION_WARMUP_START"] = WARMUP_START.date().isoformat()
     env["CERTIFICATION_MEASUREMENT_START"] = MEASUREMENT_START.date().isoformat()
     env["PYTHONUNBUFFERED"] = "1"
+    lab_root = str(args.lab_root.resolve())
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = os.pathsep.join(
+        part for part in (lab_root, existing_pythonpath) if part
+    )
 
     print(
         f"[CERTIFICATION] strict PIT warmup={WARMUP_START.date()} measurement={MEASUREMENT_START.date()}",
@@ -217,7 +222,6 @@ def main() -> int:
     pa = _verify_authority(prod_out / "metadata_authority_audit.json", "production")
     ra = _verify_authority(research_out / "metadata_authority_audit.json", "research")
 
-    # SPY must be the identical benchmark path in both implementations.
     benchmark = prod_df[["date", "spy"]].merge(
         research_df[["date", "spy"]], on="date", suffixes=("_production", "_research"), how="inner"
     )
