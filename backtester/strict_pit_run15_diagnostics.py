@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import argparse
-from collections import Counter, defaultdict
-import gzip
 import json
 import math
 from pathlib import Path
@@ -43,9 +41,18 @@ def split_evidence(root: Path) -> dict:
     actions["ticker"] = actions.ticker.astype(str).str.upper()
     date_col = "date" if "date" in actions.columns else "eventdate"
     actions[date_col] = actions[date_col].astype(str).str[:10]
+    action_dates = pd.to_datetime(actions[date_col], errors="coerce")
     out: dict[str, dict] = {}
     for ticker, session in sorted(TARGETS):
-        action_rows = actions[(actions.ticker == ticker) & (actions[date_col] == session)]
+        target = pd.Timestamp(session)
+        ticker_mask = actions.ticker == ticker
+        exact_mask = ticker_mask & (actions[date_col] == session)
+        nearby_mask = ticker_mask & action_dates.between(
+            target - pd.Timedelta(days=21), target + pd.Timedelta(days=21)
+        )
+        ticker_rows = actions[ticker_mask]
+        exact_rows = actions[exact_mask]
+        nearby_rows = actions[nearby_mask].sort_values(date_col)
         year = session[:4]
         candidates = sorted((root / "sharadar").glob(f"SHARADAR_SEP_{year}.csv*.gz"))
         if not candidates:
@@ -55,10 +62,16 @@ def split_evidence(root: Path) -> dict:
         sep["date"] = sep.date.astype(str).str[:10]
         q = sep[sep.ticker == ticker].sort_values("date").reset_index(drop=True)
         idxs = q.index[q.date == session].tolist()
+        common = {
+            "action_columns": list(map(str, actions.columns)),
+            "actions_exact": _records(exact_rows),
+            "actions_nearby_21d": _records(nearby_rows),
+            "actions_ticker_total": int(len(ticker_rows)),
+        }
         if not idxs:
             window = q[(q.date >= session[:7] + "-01") & (q.date <= session[:7] + "-31")]
             out[f"{ticker}:{session}"] = {
-                "actions": _records(action_rows),
+                **common,
                 "sep_event_missing": True,
                 "sep_month": _records(window),
             }
@@ -69,7 +82,7 @@ def split_evidence(root: Path) -> dict:
         prev = q.iloc[idx - 1].to_dict() if idx > 0 else {}
         cur = q.iloc[idx].to_dict()
         out[f"{ticker}:{session}"] = {
-            "actions": _records(action_rows),
+            **common,
             "sep_window": _records(window),
             "derived_from_immediately_prior_sep_row": _split_ratio(prev, cur),
         }
@@ -114,7 +127,8 @@ def main() -> int:
     for key, row in payload["splits"].items():
         print(
             f"[SPLIT RAW] {key} derived={row.get('derived_from_immediately_prior_sep_row')} "
-            f"actions={len(row.get('actions') or [])}",
+            f"actions_exact={len(row.get('actions_exact') or [])} "
+            f"actions_nearby={len(row.get('actions_nearby_21d') or [])}",
             flush=True,
         )
     return 0
