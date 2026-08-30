@@ -4,7 +4,7 @@
   "issue": 294,
   "overlay": "backtester/production_cooldown_age_zero.patch",
   "production_sha": "887f479b15ad861313da666ad698034d3847121c",
-  "reason": "rerun research/production divergence comparison with exit-session cooldown age-zero correction applied only in the backtester workspace",
-  "requested_at": "2026-08-30T21:34:00Z",
+  "reason": "retry research/production divergence comparison after repairing the backtester-only cooldown overlay package",
+  "requested_at": "2026-08-30T21:36:00Z",
   "schema": "backtester.canonical-pit-cooldown-overlay-request/1"
 }
