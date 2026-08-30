@@ -1,6 +1,6 @@
 # Sentinel
 
-> **`research/backtester` branch:** this is the persistent historical experiment laboratory. Before creating or running any backtest on this branch, read `docs/backtester-experiment-contract.md`. The contract is mandatory: `main` is read-only; experiment inputs must already exist and be hash-pinned on this branch; PIT data may not be synthesized during a backtest; prerecorded tapes/oracles/decision paths may not drive a replay; and every economic result must come from a fresh causal chronological replay.
+> **`research/backtester` branch:** this is the persistent historical experiment laboratory. Before creating or running any backtest on this branch, read `docs/backtester-experiment-contract.md`. For strict-PIT certification, begin with `backtester/STRICT_PIT_CERTIFICATION_RUNBOOK.md` and `backtester/CANONICAL_PIT_DATASET_DESIGN.md`. The contract is mandatory: `main` is read-only; experiment inputs must already exist and be hash-pinned on this branch; PIT data may not be synthesized during a backtest; prerecorded tapes/oracles/decision paths may not drive a replay; and every economic result must come from a fresh causal chronological replay.
 
 This repository contains one production architecture. Stocker is retired.
 

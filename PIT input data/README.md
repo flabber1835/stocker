@@ -2,6 +2,24 @@
 
 Purpose: become the complete historical point-in-time input set for day-by-day Orion CAGR replay.
 
+## Current strict-PIT certification use
+
+Phase 1 is now an upstream source layer for the canonical certification dataset.
+Research and production do not consume these files independently during strict
+certification. `backtester/canonical_pit_dataset.py` verifies them, combines them
+with strict-prior SEC evidence and frozen adjudications, and emits one immutable
+artifact used by both engines.
+
+Start with
+[`backtester/STRICT_PIT_CERTIFICATION_RUNBOOK.md`](../backtester/STRICT_PIT_CERTIFICATION_RUNBOOK.md)
+and
+[`backtester/CANONICAL_PIT_DATASET_DESIGN.md`](../backtester/CANONICAL_PIT_DATASET_DESIGN.md).
+
+The current 2006-2007 diagnostic artifact is reproducible from committed,
+hash-pinned sources and has dataset hash
+`08db292b78f0968b149ec033671b5c5df62ad98a4b2692bcc5dfa575585fa4e6`.
+The artifact itself is generated and uploaded by the strict-PIT workflow.
+
 ## Phase 1: already-PIT source fields
 
 Validated dataset generated from the supplied Sharadar files:

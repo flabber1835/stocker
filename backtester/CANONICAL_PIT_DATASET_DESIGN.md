@@ -1,5 +1,8 @@
 # Canonical PIT dataset design
 
+Operational status and launch instructions:
+[`STRICT_PIT_CERTIFICATION_RUNBOOK.md`](STRICT_PIT_CERTIFICATION_RUNBOOK.md).
+
 **Branch:** `research/backtester`  
 **Scope:** certification input construction and consumption  
 **Initial window:** 2006-01-03 through 2007-12-31  
