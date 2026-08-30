@@ -80,8 +80,11 @@ def _paper_root_violations(path: Path) -> list[str]:
                         )
         elif isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name == "sentinel.paper" and alias.asname:
-                    paper_aliases.add(alias.asname)
+                if alias.name == "sentinel.paper":
+                    if alias.asname:
+                        paper_aliases.add(alias.asname)
+                    else:
+                        sentinel_aliases.add("sentinel")
                 elif alias.name == "sentinel":
                     sentinel_aliases.add(alias.asname or "sentinel")
 
