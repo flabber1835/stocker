@@ -5,6 +5,7 @@ from decimal import Decimal
 import pytest
 
 from sentinel import paper
+from sentinel.paper import targets as paper_targets
 from sentinel.execution.reconcile import CorporateActionEvent, CorpusActionLookup
 from sentinel.execution.plan import ExecutionPlan
 from sentinel.execution.target_reprojection import (
@@ -177,7 +178,7 @@ def test_evidenced_net_one_sequence_remains_bound_during_finalization():
                 canonical_multiplier=Decimal("2")),
         ))
 
-    assert paper._target_action_multipliers(  # noqa: SLF001
+    assert paper_targets._target_action_multipliers(  # noqa: SLF001
         plan(basket={"SEC-A": Decimal("3")}), lookup) == {
             "SEC-A": Decimal("1.0")}
 

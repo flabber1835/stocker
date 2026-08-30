@@ -5,6 +5,7 @@ import psycopg
 import pytest
 
 from sentinel import paper
+import sentinel.paper.validation as paper_validation
 
 
 def _conn(dsn, password=None):
@@ -27,7 +28,8 @@ def test_paper_fresh_connection_preserves_password_and_active_target(monkeypatch
         psycopg, "connect",
         lambda dsn, **kwargs: calls.append((dsn, kwargs)) or connected)
 
-    factory = paper._fresh_connection_factory(_conn(redacted_dsn, "secret"))
+    factory = paper_validation._fresh_connection_factory(  # noqa: SLF001
+        _conn(redacted_dsn, "secret"))
     assert factory() is connected
     assert len(calls) == 1
     params = psycopg.conninfo.conninfo_to_dict(calls[0][0])
@@ -41,4 +43,5 @@ def test_paper_fresh_connection_preserves_password_and_active_target(monkeypatch
 
 def test_paper_fresh_connection_refuses_without_active_target():
     with pytest.raises(paper.PaperActivationRefused, match="fresh PostgreSQL"):
-        paper._fresh_connection_factory(_conn("", "secret"))
+        paper_validation._fresh_connection_factory(  # noqa: SLF001
+            _conn("", "secret"))

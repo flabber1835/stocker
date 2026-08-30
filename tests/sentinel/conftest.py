@@ -11,7 +11,6 @@ validation. Older tests that pre-date that split still use ``ensure_schema`` as
 fixture bootstrap, so this file preserves the historical installer only inside
 the test process; production never imports this module.
 """
-import importlib
 import sys
 from pathlib import Path
 
@@ -38,59 +37,6 @@ _CANONICAL_REPLAY_SOURCE_TEST_MODULES = {
     "test_feed_domains",
     "test_terminal",
 }
-_PAPER_DECOMPOSITION_COMPAT_MODULES = {
-    "test_issue209_simplified_ldrc_runtime",
-    "test_issue223_bil_evidence",
-    "test_paper_activation",
-    "test_paper_close_nav_gate",
-    "test_preopen_paper_gate",
-    "test_runtime_regressions_137_148_149_150",
-}
-
-
-class _PaperTestCompatProxy:
-    """Forward legacy paper-module monkeypatches to canonical Step-4 owners.
-
-    The production package remains a static declarative export surface. Older
-    orchestration tests historically monkeypatched names on ``sentinel.paper``
-    because paper.py was monolithic. After decomposition those names are local
-    globals in cohesive lifecycle modules. This proxy exists only in pytest and
-    mirrors a test monkeypatch into each module that already owns that symbol.
-    """
-
-    def __init__(self, package):
-        object.__setattr__(self, "_package", package)
-        object.__setattr__(self, "_owners", tuple(
-            importlib.import_module(f"sentinel.paper.{name}")
-            for name in (
-                "inspection", "validation", "cash", "targets",
-                "reconciliation", "finalization", "preparation",
-                "execution", "recovery",
-            )))
-        object.__setattr__(
-            self, "_execution_reconciliation",
-            importlib.import_module("sentinel.execution.reconcile"))
-
-    def __getattr__(self, name):
-        if name == "reconciliation":
-            return object.__getattribute__(self, "_execution_reconciliation")
-        package = object.__getattribute__(self, "_package")
-        if hasattr(package, name):
-            return getattr(package, name)
-        for owner in object.__getattribute__(self, "_owners"):
-            if hasattr(owner, name):
-                return getattr(owner, name)
-        raise AttributeError(name)
-
-    def __setattr__(self, name, value):
-        if name in {"_package", "_owners", "_execution_reconciliation"}:
-            object.__setattr__(self, name, value)
-            return
-        package = object.__getattribute__(self, "_package")
-        setattr(package, name, value)
-        for owner in object.__getattribute__(self, "_owners"):
-            if hasattr(owner, name):
-                setattr(owner, name, value)
 
 
 def _legacy_feed_fixture_install(conn) -> None:
@@ -120,12 +66,6 @@ def _runtime_schema_test_double_compat(request, monkeypatch):
     from sentinel.feed import store as feed_store
 
     module_name = request.module.__name__.rsplit(".", 1)[-1]
-
-    if module_name in _PAPER_DECOMPOSITION_COMPAT_MODULES and \
-            hasattr(request.module, "paper"):
-        monkeypatch.setattr(
-            request.module, "paper",
-            _PaperTestCompatProxy(request.module.paper))
 
     # This module deliberately drives a fixed August 2026 scheduling tape. Its
     # run-loop tests also open fresh PostgreSQL connections, so bind the database

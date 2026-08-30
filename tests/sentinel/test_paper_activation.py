@@ -27,6 +27,16 @@ from tests.support.postgres import (  # noqa: E402
 )
 
 from sentinel import authority, binding, handover, paper, schema  # noqa: E402
+from sentinel.paper import (  # noqa: E402
+    cash as paper_cash,
+    execution as paper_execution,
+    inspection as paper_inspection,
+    preparation as paper_preparation,
+    reconciliation_evidence as paper_reconciliation_evidence,
+    recovery as paper_recovery,
+    targets as paper_targets,
+    validation as paper_validation,
+)
 from sentinel.broker import CloseResult  # noqa: E402
 from sentinel.config import DEFAULT_BASE_URL, LiveEndpointRefused  # noqa: E402
 from sentinel.controller.frozen_rule import (  # noqa: E402
@@ -170,18 +180,20 @@ def conn(pg):
 @pytest.fixture(autouse=True)
 def simulator_is_certified(monkeypatch):
     """Certification is covered elsewhere; these tests exercise orchestration."""
-    monkeypatch.setattr(paper, "require_certified", lambda _adapter: None)
-    monkeypatch.setattr(paper, "load_controller", lambda: CONFIG)
     monkeypatch.setattr(
-        paper, "runtime_strategy_identity",
+        paper_inspection, "require_certified", lambda _adapter: None)
+    monkeypatch.setattr(paper_preparation, "load_controller", lambda: CONFIG)
+    monkeypatch.setattr(
+        paper_preparation, "runtime_strategy_identity",
         lambda _config, **_kwargs: dict(IDENTITY))
+    authority_result = lambda *_args, **_kwargs: SimpleNamespace(
+        certificate_sha256=ROLLOUT_CERTIFICATE,
+        authorization_mode="PAPER_OBSERVATION_ONLY")
+    for owner in (
+            paper_preparation, paper_validation, paper_execution, paper_recovery):
+        monkeypatch.setattr(owner, "require_current_authority", authority_result)
     monkeypatch.setattr(
-        paper, "require_current_authority",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            certificate_sha256=ROLLOUT_CERTIFICATE,
-            authorization_mode="PAPER_OBSERVATION_ONLY"))
-    monkeypatch.setattr(
-        paper.system_identity, "rehearsal_identity",
+        paper_preparation.system_identity, "rehearsal_identity",
         lambda: {"identity_hash": "test-runtime"})
 
 
@@ -205,20 +217,20 @@ def _publish(conn):
 
 def _ready(monkeypatch, *, frontier=DECISION.isoformat()):
     monkeypatch.setattr(
-        paper.readiness, "check_readiness",
+        paper_preparation.readiness, "check_readiness",
         lambda _conn, **_kwargs: SimpleNamespace(ready=True, failures=[]))
     monkeypatch.setattr(
-        paper.feed_store, "latest_visible_session", lambda _conn: frontier)
+        paper_preparation.feed_store, "latest_visible_session", lambda _conn: frontier)
     monkeypatch.setattr(
-        paper.calendar, "latest_closed_session",
+        paper_preparation.calendar, "latest_closed_session",
         lambda _now_et=None: DECISION.isoformat())
     monkeypatch.setattr(
-        paper.calendar, "sessions_in_range",
+        paper_preparation.calendar, "sessions_in_range",
         lambda start, end: ["2026-08-10", "2026-08-11"]
         if (dt.date.fromisoformat(str(start)), dt.date.fromisoformat(str(end)))
         == (dt.date(2026, 8, 8), DECISION) else [])
     monkeypatch.setattr(
-        paper.calendar, "next_session",
+        paper_preparation.calendar, "next_session",
         lambda session: EFFECTIVE.isoformat()
         if str(session) == DECISION.isoformat()
         else (dt.date.fromisoformat(str(session))
@@ -286,8 +298,8 @@ def _plan(state: SessionState, pinned, bound, *, plan_id=None,
         target_basket=dict(basket or {DEFENSIVE_SECURITY_ID: D(0)}),
         data_version=pinned.version,
         shadow_snapshot_hash=state.state_hash,
-        sentinel_transition_hash=paper._hash(state.last_decision),  # noqa: SLF001
-        strategy_fingerprint=paper._hash(state.strategy_identity),  # noqa: SLF001
+        sentinel_transition_hash=paper_validation._hash(state.last_decision),  # noqa: SLF001
+        strategy_fingerprint=paper_validation._hash(state.strategy_identity),  # noqa: SLF001
         deployment_id=bound.deployment_id, broker=bound.broker,
         broker_account_id=bound.broker_account_id,
         takeover_epoch=bound.takeover_epoch,
@@ -355,13 +367,13 @@ def _execute(conn, broker, **overrides):
     install_preopen_authority = overrides.pop(
         "install_preopen_authority", True)
     if plan is not None and install_preopen_authority:
-        state, current, _cursor = paper._state_and_plan_or_refuse(  # noqa: SLF001
+        state, current, _cursor = paper_validation._state_and_plan_or_refuse(  # noqa: SLF001
             conn)
         bound = binding.require(conn)
-        actions = paper._action_lookup(  # noqa: SLF001
+        actions = paper_targets._action_lookup(  # noqa: SLF001
             conn, state, current.effective_session)
         commands = journal.load_commands(conn, bound.identity)
-        active = paper._preopen_active_security_ids(  # noqa: SLF001
+        active = paper_targets._preopen_active_security_ids(  # noqa: SLF001
             plan=current, commands=commands, actions=actions)
         coverage = []
         for security_id in active:
@@ -391,7 +403,7 @@ def _execute(conn, broker, **overrides):
                     multiplier=multiplier,
                     canonical_numerator=numerator,
                     canonical_denominator=denominator),)))
-        cutoff = paper._official_preopen_cutoff(current)  # noqa: SLF001
+        cutoff = paper_targets._official_preopen_cutoff(current)  # noqa: SLF001
         preopen_authority.record_authority(
             conn, preopen_authority.PreOpenShareUnitAuthority(
                 plan_id=current.plan_id,
@@ -740,21 +752,21 @@ def test_fresh_boot_warms_exactly_252_feature_sessions_without_path_history(
                 for security_id, ticker in securities]
             for session in warm})
     monkeypatch.setattr(
-        paper.calendar, "previous_sessions",
+        paper_preparation.calendar, "previous_sessions",
         lambda through, count: sessions if (through, count) == (sessions[-1], 253)
         else [])
     monkeypatch.setattr(
-        paper, "load_window",
+        paper_preparation, "load_window",
         lambda _conn, *, start, end: window
         if (start, end) == (warm[0], warm[-1]) else None)
     monkeypatch.setattr(
-        paper, "load_causal_meta_history",
+        paper_preparation, "load_causal_meta_history",
         lambda _conn, *, sessions: _metadata_timeline(sessions, meta))
     account = BrokerAccountSnapshot(
         identity=BrokerAccountIdentity("sim", ACCOUNT),
         equity=D("1000"), cash=D("1000"))
 
-    state = paper._fresh_warmed_state(                    # noqa: SLF001
+    state = paper_preparation._fresh_warmed_state(                    # noqa: SLF001
         object(), through=sessions[-1], count=252, account=account,
         controller_config=CONFIG, strategy_identity=IDENTITY,
         publication_version=7)
@@ -795,11 +807,11 @@ def test_current_only_paper_observation_starts_witness_prospectively(
                 for security_id, ticker in securities]
             for session in warm})
     monkeypatch.setattr(
-        paper.calendar, "previous_sessions",
+        paper_preparation.calendar, "previous_sessions",
         lambda through, count: sessions
         if (through, count) == (sessions[-1], 253) else [])
     monkeypatch.setattr(
-        paper, "load_window",
+        paper_preparation, "load_window",
         lambda _conn, *, start, end: window
         if (start, end) == (warm[0], warm[-1]) else None)
 
@@ -807,12 +819,12 @@ def test_current_only_paper_observation_starts_witness_prospectively(
         raise CausalMetadataUnavailable(
             f"no causally available metadata before {sessions[0]}")
 
-    monkeypatch.setattr(paper, "load_causal_meta_history", no_history)
+    monkeypatch.setattr(paper_preparation, "load_causal_meta_history", no_history)
     account = BrokerAccountSnapshot(
         identity=BrokerAccountIdentity("sim", ACCOUNT),
         equity=D("1000"), cash=D("1000"))
 
-    state = paper._fresh_warmed_state(                    # noqa: SLF001
+    state = paper_preparation._fresh_warmed_state(                    # noqa: SLF001
         object(), through=sessions[-1], count=252, account=account,
         controller_config=CONFIG, strategy_identity=IDENTITY,
         publication_version=7,
@@ -836,12 +848,12 @@ def test_prospective_witness_provenance_survives_restart_and_blocks_mode_rotatio
     state.concordance_witness_origin = "PROSPECTIVE_PAPER_OBSERVATION"
     restarted = SessionState.from_dict(state.to_dict())
 
-    paper._assert_concordance_witness_authority(  # noqa: SLF001
+    paper_validation._assert_concordance_witness_authority(  # noqa: SLF001
         restarted, "PAPER_OBSERVATION_ONLY")
     with pytest.raises(
             paper.PaperActivationRefused,
             match="rebuild from a complete causal metadata timeline"):
-        paper._assert_concordance_witness_authority(  # noqa: SLF001
+        paper_validation._assert_concordance_witness_authority(  # noqa: SLF001
             restarted, "HISTORICALLY_CERTIFIED")
 
 
@@ -884,10 +896,10 @@ def test_current_only_metadata_never_weakens_historical_authority(monkeypatch):
             raw_close=100.0, raw_open=100.0, volume=1_000_000.0)]
             for session in warm})
     monkeypatch.setattr(
-        paper.calendar, "previous_sessions", lambda *_: sessions)
-    monkeypatch.setattr(paper, "load_window", lambda *_args, **_kwargs: window)
+        paper_preparation.calendar, "previous_sessions", lambda *_: sessions)
+    monkeypatch.setattr(paper_preparation, "load_window", lambda *_args, **_kwargs: window)
     monkeypatch.setattr(
-        paper, "load_causal_meta_history",
+        paper_preparation, "load_causal_meta_history",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             CausalMetadataUnavailable("current-only TICKERS")))
     account = BrokerAccountSnapshot(
@@ -897,7 +909,7 @@ def test_current_only_metadata_never_weakens_historical_authority(monkeypatch):
     with pytest.raises(
             paper.PaperActivationRefused,
             match="requires session-effective TICKERS metadata"):
-        paper._fresh_warmed_state(                         # noqa: SLF001
+        paper_preparation._fresh_warmed_state(                         # noqa: SLF001
             object(), through=sessions[-1], count=252, account=account,
             controller_config=CONFIG, strategy_identity=IDENTITY,
             publication_version=7,
@@ -914,11 +926,11 @@ def test_supported_current_only_seed_produces_the_first_plan_without_backdating(
     snapshot.  It also fails if anyone "fixes" activation by inserting or
     projecting a historical metadata observation that the source never made.
     """
-    config = paper.load_concordance_parent()
+    config = paper_preparation.load_concordance_parent()
     strategy_identity = production_runtime_strategy_identity(
         config, concordance=True)
-    real_previous_sessions = paper.calendar.previous_sessions
-    real_sessions_in_range = paper.calendar.sessions_in_range
+    real_previous_sessions = paper_preparation.calendar.previous_sessions
+    real_sessions_in_range = paper_preparation.calendar.sessions_in_range
     sessions = real_previous_sessions(DECISION.isoformat(), 253)
     assert len(sessions) == 253 and sessions[-1] == DECISION.isoformat()
     securities = [
@@ -984,9 +996,9 @@ def test_supported_current_only_seed_produces_the_first_plan_without_backdating(
         return real_previous_sessions(through, count)
 
     monkeypatch.setattr(
-        paper.calendar, "previous_sessions", exact_previous_sessions)
+        paper_preparation.calendar, "previous_sessions", exact_previous_sessions)
     monkeypatch.setattr(
-        paper.calendar, "sessions_in_range",
+        paper_preparation.calendar, "sessions_in_range",
         lambda start, end: [DECISION.isoformat()]
         if (dt.date.fromisoformat(str(start)), dt.date.fromisoformat(str(end)))
         == (DECISION, DECISION)
@@ -1020,7 +1032,7 @@ def test_supported_current_only_seed_produces_the_first_plan_without_backdating(
 def test_real_fresh_boot_pipeline_is_restart_equivalent_and_adopts_one_plan(
         conn, pg, monkeypatch):
     """Fresh preparation crosses every durable production seam exactly once."""
-    config = paper.load_concordance_parent()
+    config = paper_preparation.load_concordance_parent()
     strategy_identity = production_runtime_strategy_identity(
         config, concordance=True)
     sessions = [
@@ -1082,19 +1094,19 @@ def test_real_fresh_boot_pipeline_is_restart_equivalent_and_adopts_one_plan(
         return current
 
     monkeypatch.setattr(
-        paper.calendar, "previous_sessions",
+        paper_preparation.calendar, "previous_sessions",
         lambda through, count: sessions
         if (str(through), count) == (DECISION.isoformat(), 253) else [])
     monkeypatch.setattr(
-        paper.calendar, "sessions_in_range",
+        paper_preparation.calendar, "sessions_in_range",
         lambda start, end: [DECISION.isoformat()]
         if (dt.date.fromisoformat(str(start)), dt.date.fromisoformat(str(end)))
         == (DECISION, DECISION) else [])
-    monkeypatch.setattr(paper, "load_window", load_window)
+    monkeypatch.setattr(paper_preparation, "load_window", load_window)
     monkeypatch.setattr(
-        paper, "load_causal_meta_history",
+        paper_preparation, "load_causal_meta_history",
         lambda _conn, *, sessions: _metadata_timeline(sessions, meta))
-    monkeypatch.setattr(paper, "load_published_session", load_published)
+    monkeypatch.setattr(paper_preparation, "load_published_session", load_published)
     broker = _broker(equity="100000", cash="100000")
 
     first = _prepare(
@@ -1161,7 +1173,7 @@ def test_prepare_resumes_v3_across_missed_sessions_and_restart_is_equivalent(
         "effective_session": dt.date(2026, 8, 10)})
     journal.adopt_current_plan(conn, old)
     _ready(monkeypatch)
-    monkeypatch.setattr(paper, "advance_and_persist", _advance_stub)
+    monkeypatch.setattr(paper_preparation, "advance_and_persist", _advance_stub)
     broker = _broker()
 
     first = _prepare(conn, broker)
@@ -1223,7 +1235,7 @@ def test_preparation_is_read_only_at_the_broker(conn, monkeypatch):
     pinned = _publish(conn)
     _persist_state(conn, _state(session=PRIOR, data_version=pinned.version))
     _ready(monkeypatch)
-    monkeypatch.setattr(paper, "advance_and_persist", _advance_stub)
+    monkeypatch.setattr(paper_preparation, "advance_and_persist", _advance_stub)
     broker = _broker()
 
     result = _prepare(conn, broker)
@@ -1240,7 +1252,7 @@ def test_preparation_snapshots_cash_after_reconciling_a_boundary_fill(
     pinned = _publish(conn)
     _persist_state(conn, _state(session=PRIOR, data_version=pinned.version))
     _ready(monkeypatch)
-    monkeypatch.setattr(paper, "advance_and_persist", _advance_stub)
+    monkeypatch.setattr(paper_preparation, "advance_and_persist", _advance_stub)
     broker = _broker()
     identity = CommandIdentity(
         deployment=bound.identity, plan_id="prior-plan",
@@ -1269,20 +1281,20 @@ def test_preparation_refuses_an_early_current_session_frontier_with_real_calenda
     Readiness intentionally accepts today's real session before its close as
     early rather than stale.  Preparation needs the stronger proposition that
     the close which defines the immutable decision has actually happened.  Do
-    not monkeypatch ``paper.calendar`` in this falsifier.
+    not monkeypatch ``paper_preparation.calendar`` in this falsifier.
     """
     _bind(conn)
     _publish(conn)
     monkeypatch.setattr(
-        paper.readiness, "check_readiness",
+        paper_preparation.readiness, "check_readiness",
         lambda _conn, **_kwargs: SimpleNamespace(ready=True, failures=[]))
     monkeypatch.setattr(
-        paper.feed_store, "latest_visible_session",
+        paper_preparation.feed_store, "latest_visible_session",
         lambda _conn: EFFECTIVE.isoformat())
     broker = _broker()
     before_close = dt.datetime(
         EFFECTIVE.year, EFFECTIVE.month, EFFECTIVE.day, 15, 59,
-        tzinfo=ZoneInfo(paper.calendar.EXCHANGE_TZ))
+        tzinfo=ZoneInfo(paper_preparation.calendar.EXCHANGE_TZ))
 
     with pytest.raises(
             paper.PaperActivationRefused,
@@ -1290,7 +1302,7 @@ def test_preparation_refuses_an_early_current_session_frontier_with_real_calenda
         _prepare(
             conn, broker, through=EFFECTIVE, now_et=before_close)
 
-    assert paper.calendar.latest_closed_session(before_close) \
+    assert paper_preparation.calendar.latest_closed_session(before_close) \
         == DECISION.isoformat()
     assert broker.calls == []
     assert _mutations(broker) == []
@@ -1303,20 +1315,20 @@ def test_preparation_recognizes_the_real_half_day_close_at_1300(
     Stop deliberately at the typed account-snapshot boundary: reaching it after
     reconciliation proves the stronger preparation close gate accepted 13:01
     ET without needing a corpus fixture for this historical session. Do not
-    monkeypatch ``paper.calendar``.
+    monkeypatch ``paper_preparation.calendar``.
     """
     _bind(conn)
     _publish(conn)
     monkeypatch.setattr(
-        paper.readiness, "check_readiness",
+        paper_preparation.readiness, "check_readiness",
         lambda _conn, **_kwargs: SimpleNamespace(ready=True, failures=[]))
     monkeypatch.setattr(
-        paper.feed_store, "latest_visible_session",
+        paper_preparation.feed_store, "latest_visible_session",
         lambda _conn: HALF_DAY_EFFECTIVE.isoformat())
     broker = _broker()
     after_half_day_close = dt.datetime(
         2024, 11, 29, 13, 1,
-        tzinfo=ZoneInfo(paper.calendar.EXCHANGE_TZ))
+        tzinfo=ZoneInfo(paper_preparation.calendar.EXCHANGE_TZ))
 
     class ReachedBrokerRead(RuntimeError):
         pass
@@ -1327,7 +1339,7 @@ def test_preparation_recognizes_the_real_half_day_close_at_1300(
 
     monkeypatch.setattr(broker, "account_snapshot", stop_at_first_read)
 
-    assert paper.calendar.latest_closed_session(after_half_day_close) \
+    assert paper_preparation.calendar.latest_closed_session(after_half_day_close) \
         == HALF_DAY_EFFECTIVE.isoformat()
     with pytest.raises(ReachedBrokerRead):
         _prepare(
@@ -1401,7 +1413,7 @@ def test_restart_cash_authority_uses_durable_average_fill_price(conn, pg):
         observation = BrokerObservation(
             observed_at=dt.datetime.now(dt.timezone.utc), orders=(), positions=())
 
-        paper._cash_authority_or_refuse(                 # noqa: SLF001
+        paper_cash._cash_authority_or_refuse(                 # noqa: SLF001
             restarted, plan=plan_after_restart,
             deployment=bound.identity, account=account,
             observation=observation)
@@ -1431,7 +1443,7 @@ def test_stable_account_endpoint_lag_is_bounded_then_permanent(conn):
         with pytest.raises(
                 paper.PaperRetryableRefused,
                 match="bounded 120s re-observation"):
-            paper._cash_authority_or_refuse(  # noqa: SLF001
+            paper_cash._cash_authority_or_refuse(  # noqa: SLF001
                 conn, plan=durable_plan, deployment=bound.identity,
                 account=stale(cash), observation=observation,
                 endpoint_lag_observed_at=(
@@ -1442,7 +1454,7 @@ def test_stable_account_endpoint_lag_is_bounded_then_permanent(conn):
 
     with pytest.raises(
             paper.PaperActivationRefused, match="fresh account cash") as error:
-        paper._cash_authority_or_refuse(  # noqa: SLF001
+        paper_cash._cash_authority_or_refuse(  # noqa: SLF001
             conn, plan=durable_plan, deployment=bound.identity,
             account=stale("996"), observation=observation,
             endpoint_lag_observed_at=(
@@ -1489,7 +1501,7 @@ def test_account_change_inside_settled_book_bracket_is_retryable(
     with pytest.raises(
             paper.PaperRetryableRefused,
             match="account endpoint changed inside"):
-        asyncio.run(paper._settled_account_evidence_bracket(  # noqa: SLF001
+        asyncio.run(paper_reconciliation_evidence._settled_account_evidence_bracket(  # noqa: SLF001
             conn=conn, broker=Broker(), binding=bound,
             expected_account=ACCOUNT, deployment=bound.identity,
             initial_result=result, actions=None, dual_mode=False,
@@ -1535,10 +1547,11 @@ def test_mark_to_market_ticks_do_not_destabilize_cash_bracket(
 
     monkeypatch.setattr(paper.reconciliation, "reconcile", confirmation)
     monkeypatch.setattr(journal, "in_flight_commands", lambda *_a, **_k: [])
-    monkeypatch.setattr(paper, "_broker_cash_state_or_refuse", cash_state)
+    monkeypatch.setattr(
+        paper_reconciliation_evidence, "_broker_cash_state_or_refuse", cash_state)
 
     confirmed, account, returned_activity, *_times = asyncio.run(
-        paper._settled_account_evidence_bracket(  # noqa: SLF001
+        paper_reconciliation_evidence._settled_account_evidence_bracket(  # noqa: SLF001
             conn=conn, broker=Broker(), binding=bound,
             expected_account=ACCOUNT, deployment=bound.identity,
             initial_result=result, actions=None, dual_mode=False,
@@ -1651,7 +1664,8 @@ class TestStrictExecutionGate:
             raise authority.AuthorityRefused(
                 "no active system certificate is installed")
 
-        monkeypatch.setattr(paper, "require_current_authority", refuse)
+        monkeypatch.setattr(
+            paper_execution, "require_current_authority", refuse)
         broker = _broker()
 
         with pytest.raises(authority.AuthorityRefused, match="no active"):
@@ -1703,9 +1717,9 @@ class TestStrictExecutionGate:
             target_basket={DEFENSIVE_SECURITY_ID: D(0)},
             data_version=pinned.version,
             shadow_snapshot_hash=state.state_hash,
-            sentinel_transition_hash=paper._hash(               # noqa: SLF001
+            sentinel_transition_hash=paper_validation._hash(               # noqa: SLF001
                 state.last_decision),
-            strategy_fingerprint=paper._hash(                   # noqa: SLF001
+            strategy_fingerprint=paper_validation._hash(                   # noqa: SLF001
                 state.strategy_identity),
             deployment_id=bound.deployment_id, broker=bound.broker,
             broker_account_id=bound.broker_account_id,
@@ -1720,17 +1734,17 @@ class TestStrictExecutionGate:
         })
         journal.adopt_current_plan(conn, plan)
         monkeypatch.setattr(
-            paper.readiness, "check_readiness",
+            paper_preparation.readiness, "check_readiness",
             lambda _conn, **_kwargs: SimpleNamespace(ready=True, failures=[]))
         monkeypatch.setattr(
-            paper.feed_store, "latest_visible_session",
+            paper_preparation.feed_store, "latest_visible_session",
             lambda _conn: HALF_DAY_DECISION.isoformat())
         broker = _broker()
         after_close = dt.datetime(
             2024, 11, 29, 13, 1,
-            tzinfo=ZoneInfo(paper.calendar.EXCHANGE_TZ))
+            tzinfo=ZoneInfo(paper_preparation.calendar.EXCHANGE_TZ))
 
-        assert paper.calendar.session_window(HALF_DAY_EFFECTIVE)[1].hour == 13
+        assert paper_preparation.calendar.session_window(HALF_DAY_EFFECTIVE)[1].hour == 13
         with pytest.raises(
                 paper.PaperActivationRefused,
                 match="outside the certified XNYS execution window"):
@@ -2004,9 +2018,9 @@ class TestStrictExecutionGate:
         broker = _broker()
         broker.seed_position(AAA, "20")
 
-        full_history = paper._action_lookup(               # noqa: SLF001
+        full_history = paper_targets._action_lookup(               # noqa: SLF001
             conn, _state_value, EFFECTIVE)
-        target_history = paper._target_action_lookup(      # noqa: SLF001
+        target_history = paper_targets._target_action_lookup(      # noqa: SLF001
             conn, durable_plan, EFFECTIVE)
         assert full_history(AAA.security_id) == D("2")
         assert target_history(AAA.security_id) == D("1")
@@ -2133,7 +2147,7 @@ class TestStrictExecutionGate:
         _install_current_authorities(conn)
         failure = SimpleNamespace(name="continuity", detail="missing session")
         monkeypatch.setattr(
-            paper.readiness, "check_readiness",
+            paper_preparation.readiness, "check_readiness",
             lambda _conn, **_kwargs: SimpleNamespace(
                 ready=False, failures=[failure]))
         broker = _broker()
@@ -2221,9 +2235,9 @@ def test_explicit_simulated_migration_then_prepare_and_restart_to_target(
     _persist_state(conn, _state(
         session=PRIOR, data_version=pinned.version, with_target=True))
     _ready(monkeypatch)
-    monkeypatch.setattr(paper, "advance_and_persist", _advance_stub)
+    monkeypatch.setattr(paper_preparation, "advance_and_persist", _advance_stub)
     monkeypatch.setattr(
-        paper, "_load_marks_and_tickers",
+        paper_preparation, "_load_marks_and_tickers",
         lambda _conn, _state_value, _session: (
             {AAA.security_id: D("100"), DEFENSIVE_SECURITY_ID: D("90")},
             {AAA.security_id: AAA.symbol, DEFENSIVE_SECURITY_ID: "BIL"}))

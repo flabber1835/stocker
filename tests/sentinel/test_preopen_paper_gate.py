@@ -21,6 +21,10 @@ from sentinel import (
     trial,
 )
 from sentinel.core import catchup
+from sentinel.paper import (
+    recovery as paper_recovery,
+    targets as paper_targets,
+)
 from sentinel.execution import journal, preopen_authority
 from sentinel.execution import reconcile as reconciliation
 from sentinel.execution.commands import Command
@@ -102,43 +106,43 @@ def _install_recovery_harness(
     broker = _RecoveryBroker()
     recorded = []
 
-    monkeypatch.setattr(paper, "assert_paper_url", lambda *_: None)
+    monkeypatch.setattr(paper_recovery, "assert_paper_url", lambda *_: None)
     monkeypatch.setattr(
-        paper, "_require_certified_paper_broker", lambda *_: None)
+        paper_recovery, "_require_certified_paper_broker", lambda *_: None)
     monkeypatch.setattr(schema, "require_runtime_schema", lambda *_: None)
     monkeypatch.setattr(journal, "writer_lock", lambda *_: nullcontext())
     monkeypatch.setattr(
         handover, "assert_no_legacy_path", lambda *_: binding)
     monkeypatch.setattr(
-        paper, "load_rollout_state", lambda *_: SimpleNamespace(mode="PINNED"))
-    monkeypatch.setattr(paper, "_default_paper_strategy", lambda: (object(), {}))
+        paper_recovery, "load_rollout_state", lambda *_: SimpleNamespace(mode="PINNED"))
+    monkeypatch.setattr(paper_recovery, "_default_paper_strategy", lambda: (object(), {}))
     monkeypatch.setattr(
         publication, "require_current", lambda *_: SimpleNamespace(version=1))
     monkeypatch.setattr(
-        paper, "require_current_authority",
+        paper_recovery, "require_current_authority",
         lambda *_args, **_kwargs: SimpleNamespace(
             certificate_sha256=grant.certificate_sha256))
     monkeypatch.setattr(
-        paper, "_validate_automation_grant", lambda *_: (object(), cycle))
-    monkeypatch.setattr(paper, "_guard_broker", lambda **_kwargs: broker)
+        paper_recovery, "_validate_automation_grant", lambda *_: (object(), cycle))
+    monkeypatch.setattr(paper_recovery, "_guard_broker", lambda **_kwargs: broker)
     monkeypatch.setattr(
-        paper, "_recovery_account_identity_or_refuse", lambda *_: None)
+        paper_recovery, "_recovery_account_identity_or_refuse", lambda *_: None)
 
     async def activity_state(*_args, **_kwargs):
         return object()
 
-    monkeypatch.setattr(paper, "_broker_cash_state_or_refuse", activity_state)
+    monkeypatch.setattr(paper_recovery, "_broker_cash_state_or_refuse", activity_state)
     monkeypatch.setattr(catchup, "resume_state", lambda *_: {})
     monkeypatch.setattr(
-        paper, "SessionState",
+        paper_recovery, "SessionState",
         SimpleNamespace(from_dict=lambda _raw: object()))
     action_base = CorpusActionLookup(
         start=plan.decision_session, events={})
     target_base = CorpusActionLookup(
         start=plan.decision_session, events={})
-    monkeypatch.setattr(paper, "_action_lookup", lambda *_: action_base)
+    monkeypatch.setattr(paper_recovery, "_action_lookup", lambda *_: action_base)
     monkeypatch.setattr(
-        paper, "_target_action_lookup", lambda *_: target_base)
+        paper_recovery, "_target_action_lookup", lambda *_: target_base)
     monkeypatch.setattr(
         journal, "load_plan", load_plan or (lambda *_: plan))
     def load_commands(*_args, states=None, **_kwargs):
@@ -152,14 +156,13 @@ def _install_recovery_harness(
     monkeypatch.setattr(
         preopen_authority, "load_authority", lambda *_args, **_kwargs: authority)
     monkeypatch.setattr(reconciliation, "reconcile", reconcile)
-    monkeypatch.setattr(paper, "_account_or_refuse", lambda *_: None)
-    monkeypatch.setattr(paper, "_cash_authority_or_refuse", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(paper_recovery, "_cash_authority_or_refuse", lambda *_args, **_kwargs: None)
 
     async def evidence_bracket(**kwargs):
         return kwargs["initial_result"], object(), object(), NOW, NOW
 
     monkeypatch.setattr(
-        paper, "_settled_account_evidence_bracket", evidence_bracket)
+        paper_recovery, "_settled_account_evidence_bracket", evidence_bracket)
     monkeypatch.setattr(
         trial, "record_account_evidence",
         lambda *_args, **kwargs: recorded.append(kwargs))
@@ -185,7 +188,7 @@ def test_active_units_include_working_and_recovered_command_identities():
     actions = CorpusActionLookup(
         start=date(2026, 8, 19), events={})
 
-    active = paper._preopen_active_security_ids(  # noqa: SLF001
+    active = paper_targets._preopen_active_security_ids(  # noqa: SLF001
         plan=_plan(), commands=commands, actions=actions)
 
     assert active == ("SEC-A", "SEC-B", "SEC-C", "SEC-RECOVERED")
@@ -193,7 +196,7 @@ def test_active_units_include_working_and_recovered_command_identities():
 
 def test_post_reconciliation_terminal_recovered_identity_requires_coverage():
     plan = _plan()
-    cutoff = paper._official_preopen_cutoff(plan)  # noqa: SLF001
+    cutoff = paper_targets._official_preopen_cutoff(plan)  # noqa: SLF001
     authority = preopen_authority.PreOpenShareUnitAuthority(
         plan_id=plan.plan_id, plan_fingerprint=plan.fingerprint(),
         effective_session=plan.effective_session,
@@ -209,7 +212,7 @@ def test_post_reconciliation_terminal_recovered_identity_requires_coverage():
     with pytest.raises(
             paper.PreOpenShareUnitAuthorityUnavailable,
             match=r"missing=\['SEC-RECOVERED'\]"):
-        paper._revalidate_preopen_authority_or_refuse(  # noqa: SLF001
+        paper_targets._revalidate_preopen_authority_or_refuse(  # noqa: SLF001
             authority=authority, plan=plan, commands=(recovered,),
             actions=CorpusActionLookup(
                 start=date(2026, 8, 19), events={}),
@@ -220,23 +223,23 @@ def test_only_empty_share_unit_domain_can_bypass_preopen_authority():
     instrument = BrokerInstrument("SEC-A", "AAA")
     flat = _observation(positions=(
         BrokerPosition(instrument, Decimal(10)),))
-    flat_deltas = paper._plan_deltas(  # noqa: SLF001
+    flat_deltas = paper_targets._plan_deltas(  # noqa: SLF001
         target_basket=_plan().target_basket, observation=flat,
         minimum_quantity_increment=Decimal(1))
-    assert not paper._provably_clean_empty_noop(  # noqa: SLF001
+    assert not paper_targets._provably_clean_empty_noop(  # noqa: SLF001
         deltas=flat_deltas, commands=(), observation=flat)
 
     empty = _observation()
-    empty_deltas = paper._plan_deltas(  # noqa: SLF001
+    empty_deltas = paper_targets._plan_deltas(  # noqa: SLF001
         target_basket={"SEC-A": Decimal(0)}, observation=empty,
         minimum_quantity_increment=Decimal(1))
-    assert paper._provably_clean_empty_noop(  # noqa: SLF001
+    assert paper_targets._provably_clean_empty_noop(  # noqa: SLF001
         deltas=empty_deltas, commands=(), observation=empty)
 
-    dust_deltas = paper._plan_deltas(  # noqa: SLF001
+    dust_deltas = paper_targets._plan_deltas(  # noqa: SLF001
         target_basket={"SEC-A": Decimal("10.5")}, observation=flat,
         minimum_quantity_increment=Decimal(1))
-    assert not paper._provably_clean_empty_noop(  # noqa: SLF001
+    assert not paper_targets._provably_clean_empty_noop(  # noqa: SLF001
         deltas=dust_deltas, commands=(), observation=flat)
 
     working_command = _command(
@@ -250,10 +253,10 @@ def test_only_empty_share_unit_domain_can_bypass_preopen_authority():
     committed = _observation(
         positions=(BrokerPosition(instrument, Decimal(10)),),
         orders=(working_order,))
-    committed_deltas = paper._plan_deltas(  # noqa: SLF001
+    committed_deltas = paper_targets._plan_deltas(  # noqa: SLF001
         target_basket={"SEC-A": Decimal(11)}, observation=committed,
         minimum_quantity_increment=Decimal(1))
-    assert not paper._provably_clean_empty_noop(  # noqa: SLF001
+    assert not paper_targets._provably_clean_empty_noop(  # noqa: SLF001
         deltas=committed_deltas, commands=(working_command,),
         observation=committed)
 
@@ -262,7 +265,7 @@ def test_cutoff_is_exact_official_xnys_open_even_on_a_half_day():
     half_day = date(2024, 11, 29)
     opened, closed = calendar.session_window(half_day)
 
-    cutoff = paper._official_preopen_cutoff(  # noqa: SLF001
+    cutoff = paper_targets._official_preopen_cutoff(  # noqa: SLF001
         _plan(effective_session=half_day))
 
     assert cutoff == opened
@@ -284,7 +287,7 @@ def test_recovery_overlays_open_split_before_book_classification_and_evidence(
     instrument = BrokerInstrument("SEC-A", "AAA")
     observation = _observation(positions=(
         BrokerPosition(instrument, Decimal(20)),))
-    cutoff = paper._official_preopen_cutoff(plan)  # noqa: SLF001
+    cutoff = paper_targets._official_preopen_cutoff(plan)  # noqa: SLF001
     authority = preopen_authority.PreOpenShareUnitAuthority(
         plan_id=plan.plan_id, plan_fingerprint=plan.fingerprint(),
         effective_session=effective,
@@ -322,7 +325,7 @@ def test_recovery_overlays_open_split_before_book_classification_and_evidence(
             through_session=effective)
 
     monkeypatch.setattr(
-        paper, "_target_projection_or_refuse", require_authority_projection)
+        paper_recovery, "_target_projection_or_refuse", require_authority_projection)
 
     result = asyncio.run(paper.recover_automated_paper_cycle(
         conn=object(), broker=broker, base_url="https://paper.example",
@@ -350,7 +353,7 @@ def test_recovery_refuses_stale_projection_from_before_current_authority(
     asserted = []
 
     monkeypatch.setattr(
-        paper, "shadow_target",
+        paper_targets, "shadow_target",
         lambda _state: SimpleNamespace(
             shares={}, tickers={}, pending_open_shares={}, held_shares={},
             pending_close_shares={}))
@@ -358,11 +361,11 @@ def test_recovery_refuses_stale_projection_from_before_current_authority(
     monkeypatch.setattr(
         reconciliation, "expected_book_from_commands", lambda *_args, **_kw: {})
     monkeypatch.setattr(
-        paper.target_reprojection, "project_target", lambda *_args, **_kw: fresh)
+        paper_targets.target_reprojection, "project_target", lambda *_args, **_kw: fresh)
     monkeypatch.setattr(
-        paper.target_reprojection, "load_projection", lambda *_args, **_kw: stale)
+        paper_targets.target_reprojection, "load_projection", lambda *_args, **_kw: stale)
     monkeypatch.setattr(
-        paper.target_reprojection, "assert_projection",
+        paper_targets.target_reprojection, "assert_projection",
         lambda *_args, **_kw: asserted.append(True))
     broker = SimpleNamespace(capabilities=SimpleNamespace(
         minimum_quantity_increment=Decimal(1)))
@@ -371,7 +374,7 @@ def test_recovery_refuses_stale_projection_from_before_current_authority(
     with pytest.raises(
             paper.PaperActivationRefused,
             match="authority-derived target projection.*differs"):
-        paper._target_projection_or_refuse(  # noqa: SLF001
+        paper_targets._target_projection_or_refuse(  # noqa: SLF001
             object(), state=SimpleNamespace(state_hash=plan.shadow_snapshot_hash),
             plan=plan, binding=binding,
             broker=broker, through=plan.effective_session,
@@ -387,7 +390,7 @@ def test_target_projection_preview_does_not_persist(monkeypatch):
     recorded = []
 
     monkeypatch.setattr(
-        paper, "shadow_target",
+        paper_targets, "shadow_target",
         lambda _state: SimpleNamespace(
             shares={}, tickers={}, pending_open_shares={}, held_shares={},
             pending_close_shares={}))
@@ -395,15 +398,15 @@ def test_target_projection_preview_does_not_persist(monkeypatch):
     monkeypatch.setattr(
         reconciliation, "expected_book_from_commands", lambda *_args, **_kw: {})
     monkeypatch.setattr(
-        paper.target_reprojection, "project_target",
+        paper_targets.target_reprojection, "project_target",
         lambda *_args, **_kw: projected)
     monkeypatch.setattr(
-        paper.target_reprojection, "record_projection",
+        paper_targets.target_reprojection, "record_projection",
         lambda *_args, **_kw: recorded.append(True))
     broker = SimpleNamespace(capabilities=SimpleNamespace(
         minimum_quantity_increment=Decimal(1)))
 
-    result = paper._target_projection_or_refuse(  # noqa: SLF001
+    result = paper_targets._target_projection_or_refuse(  # noqa: SLF001
         object(), state=SimpleNamespace(state_hash=plan.shadow_snapshot_hash),
         plan=plan,
         binding=SimpleNamespace(identity=DEPLOYMENT), broker=broker,
@@ -420,7 +423,7 @@ def test_target_projection_preview_mismatch_refuses_before_persist(monkeypatch):
     recorded = []
 
     monkeypatch.setattr(
-        paper, "shadow_target",
+        paper_targets, "shadow_target",
         lambda _state: SimpleNamespace(
             shares={}, tickers={}, pending_open_shares={}, held_shares={},
             pending_close_shares={}))
@@ -428,10 +431,10 @@ def test_target_projection_preview_mismatch_refuses_before_persist(monkeypatch):
     monkeypatch.setattr(
         reconciliation, "expected_book_from_commands", lambda *_args, **_kw: {})
     monkeypatch.setattr(
-        paper.target_reprojection, "project_target",
+        paper_targets.target_reprojection, "project_target",
         lambda *_args, **_kw: object())
     monkeypatch.setattr(
-        paper.target_reprojection, "record_projection",
+        paper_targets.target_reprojection, "record_projection",
         lambda *_args, **_kw: recorded.append(True))
     broker = SimpleNamespace(capabilities=SimpleNamespace(
         minimum_quantity_increment=Decimal(1)))
@@ -439,7 +442,7 @@ def test_target_projection_preview_mismatch_refuses_before_persist(monkeypatch):
     with pytest.raises(
             paper.PaperActivationRefused,
             match="post-reconciliation.*differs"):
-        paper._target_projection_or_refuse(  # noqa: SLF001
+        paper_targets._target_projection_or_refuse(  # noqa: SLF001
             object(), state=SimpleNamespace(state_hash=plan.shadow_snapshot_hash),
             plan=plan,
             binding=SimpleNamespace(identity=DEPLOYMENT), broker=broker,
@@ -454,7 +457,7 @@ def test_recovery_revalidates_coverage_after_adopting_command(monkeypatch):
     plan = _plan(
         basket={"SEC-A": Decimal(10)}, effective_session=effective,
         decision_session=date(2026, 8, 19))
-    cutoff = paper._official_preopen_cutoff(plan)  # noqa: SLF001
+    cutoff = paper_targets._official_preopen_cutoff(plan)  # noqa: SLF001
     authority = preopen_authority.PreOpenShareUnitAuthority(
         plan_id=plan.plan_id, plan_fingerprint=plan.fingerprint(),
         effective_session=effective,
@@ -554,7 +557,7 @@ def test_dual_recovery_earns_due_mirror_check_before_transport_gate(
         publication, "pinned",
         lambda *_args, **_kwargs: nullcontext(SimpleNamespace(version=1)))
     monkeypatch.setattr(
-        paper.feed_store, "latest_visible_session",
+        paper_recovery.feed_store, "latest_visible_session",
         lambda *_args, **_kwargs: plan.effective_session)
     monkeypatch.setattr(
         shadow_runtime, "publication_not_before",
