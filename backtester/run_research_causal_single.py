@@ -58,7 +58,7 @@ def _expose_generated_child_runtime() -> None:
 
 
 def _inject_poison_dtype_compat(source: str) -> str:
-    """Preserve Boolean semantics under pandas 3 strict setitem rules."""
+    """Preserve metadata semantics under pandas 3 strict setitem rules."""
     seam = "    _CANONICAL=CausalPITDataset("
     if source.count(seam) != 1:
         raise RuntimeError(
@@ -71,6 +71,9 @@ def _inject_poison_dtype_compat(source: str) -> str:
         for _causal_bool_column in ('security_type_eligible','listing_active','tradeable','metadata_admitted'):
             if _causal_bool_column in frame.columns:
                 frame[_causal_bool_column]=frame[_causal_bool_column].astype(bool)
+        for _causal_text_column in ('issuer_id','issuer_source','security_type','security_type_source','sic','ff12','sector_source','identity_source'):
+            if _causal_text_column in frame.columns:
+                frame[_causal_text_column]=frame[_causal_text_column].astype(object)
         return _CAUSAL_ORIGINAL_POISON_OBSERVATIONS(self,frame)
     CausalPITDataset._poison_observations=_causal_dtype_safe_poison_observations
 """.strip("\n")
