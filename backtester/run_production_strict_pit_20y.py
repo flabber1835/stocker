@@ -10,7 +10,8 @@ import backtester.run_production_strict_pit_certification as strict
 
 WARMUP_START = "2006-01-03"
 MEASUREMENT_START = "2006-07-31"
-END_SESSION = os.environ.get("CERTIFICATION_END_SESSION", "2026-07-31")
+FULL_END_SESSION = "2026-07-31"
+END_SESSION = os.environ.get("CERTIFICATION_END_SESSION", FULL_END_SESSION)
 
 # The corrected production wrapper resolves these names dynamically, so the
 # certified mechanics remain unchanged while the historical contract moves to
@@ -24,6 +25,13 @@ strict.corrected.runner.EXPERIMENT_ID = "2026-08-30-strict-pit-20y-production"
 strict.runner.CHAIN_START = WARMUP_START
 strict.runner.END_SESSION = END_SESSION
 strict.MEASUREMENT_START = MEASUREMENT_START
+
+# The base replay always writes a metrics table before the strict wrapper adds
+# its maximum-history row.  A bounded diagnostic therefore needs one harmless
+# metric window so the table retains its schema.  The diagnostic never treats
+# this row as certification performance evidence.
+if END_SESSION != FULL_END_SESSION:
+    strict.runner.MEASUREMENT_WINDOWS = {1: MEASUREMENT_START}
 
 
 def main() -> int:
