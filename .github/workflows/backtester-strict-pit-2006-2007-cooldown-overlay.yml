@@ -33,6 +33,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /.github/workflows/backtester-strict-pit-2006-2007-cooldown-overlay.yml
+            /backtester/apply_production_cooldown_age_zero.py
             /backtester/production_cooldown_age_zero.patch
             /backtester/run_certification_parallel_20y.py
             /backtester/run_production_strict_pit_20y.py
@@ -130,62 +131,49 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          PATCH="${GITHUB_WORKSPACE}/backtester/production_cooldown_age_zero.patch"
-          PATCH_SHA256="$(sha256sum "${PATCH}" | awk '{print $1}')"
-          git -C main-src apply --check "${PATCH}"
-          git -C main-src apply "${PATCH}"
+          OUT=backtester-results/strict-pit-20y-diagnostic
+          APPLIER=backtester/apply_production_cooldown_age_zero.py
+          mkdir -p "${OUT}"
+          python "${APPLIER}" \
+            --root main-src \
+            --evidence "${OUT}/production-overlay.json"
           git -C main-src diff --check
           ACTUAL_STATUS="$(git -C main-src status --short | LC_ALL=C sort)"
           EXPECTED_STATUS="$(printf '%s\n' \
             ' M shared/stock_strategy_shared/wealth_core/adapter.py' \
             ' M shared/stock_strategy_shared/wealth_core/state.py' | LC_ALL=C sort)"
           test "${ACTUAL_STATUS}" = "${EXPECTED_STATUS}"
-          STATE_POST_BLOB="$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)"
-          ADAPTER_POST_BLOB="$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/adapter.py)"
-          mkdir -p backtester-results/strict-pit-20y-diagnostic
-          cp "${PATCH}" backtester-results/strict-pit-20y-diagnostic/production-overlay.patch
           git -C main-src diff -- \
             shared/stock_strategy_shared/wealth_core/state.py \
             shared/stock_strategy_shared/wealth_core/adapter.py \
-            > backtester-results/strict-pit-20y-diagnostic/production-overlay.diff
-          export PATCH_SHA256 STATE_POST_BLOB ADAPTER_POST_BLOB
+            > "${OUT}/production-overlay.diff"
+          cp "${APPLIER}" "${OUT}/apply_production_cooldown_age_zero.py"
+          OVERLAY_SHA256="$(sha256sum "${OUT}/production-overlay.diff" | awk '{print $1}')"
+          APPLIER_SHA256="$(sha256sum "${APPLIER}" | awk '{print $1}')"
+          export OVERLAY_SHA256 APPLIER_SHA256
           python - <<'PY'
           import json
           import os
           from pathlib import Path
 
-          evidence = {
-              "schema": "backtester.production-overlay/1",
-              "issue": 294,
-              "backtester_sha": os.environ["GITHUB_SHA"],
-              "production_source_sha": os.environ["BACKTESTER_MAIN_SHA"],
-              "patch_path": "backtester/production_cooldown_age_zero.patch",
-              "patch_sha256": os.environ["PATCH_SHA256"],
-              "preimage_blobs": {
-                  "shared/stock_strategy_shared/wealth_core/state.py":
-                      "94ba764c79cb7e40d4448195029ecc4c45b8d632",
-                  "shared/stock_strategy_shared/wealth_core/adapter.py":
-                      "a59075507c8031dc0f30f1b989ad7253ad4c1715",
-              },
-              "postimage_blobs": {
-                  "shared/stock_strategy_shared/wealth_core/state.py":
-                      os.environ["STATE_POST_BLOB"],
-                  "shared/stock_strategy_shared/wealth_core/adapter.py":
-                      os.environ["ADAPTER_POST_BLOB"],
-              },
-              "scope": "GitHub Actions workspace only; main and pinned source unchanged",
-              "economic_rule": (
-                  "cooldown age counts closes strictly after the exit session; "
-                  "the exit-session close is age 0"
-              ),
-          }
           path = Path(
               "backtester-results/strict-pit-20y-diagnostic/production-overlay.json"
           )
+          evidence = json.loads(path.read_text())
+          evidence.update({
+              "backtester_sha": os.environ["GITHUB_SHA"],
+              "production_source_sha": os.environ["BACKTESTER_MAIN_SHA"],
+              "overlay_diff_sha256": os.environ["OVERLAY_SHA256"],
+              "applier_sha256": os.environ["APPLIER_SHA256"],
+              "scope": (
+                  "GitHub Actions production checkout only; main and pinned "
+                  "production commit remain unchanged"
+              ),
+          })
           path.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
           print(json.dumps(evidence, sort_keys=True))
           PY
-          echo "BACKTESTER_PRODUCTION_OVERLAY_SHA256=${PATCH_SHA256}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_PRODUCTION_OVERLAY_SHA256=${OVERLAY_SHA256}" >> "${GITHUB_ENV}"
 
       - name: Set up Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -205,6 +193,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m py_compile \
+            backtester/apply_production_cooldown_age_zero.py \
             backtester/run_certification_parallel_20y.py \
             backtester/run_production_strict_pit_20y.py \
             backtester/run_research_strict_pit_20y.py \
