@@ -3,13 +3,16 @@ run-name: Canonical PIT 2006-2007 diagnostic — ${{ github.sha }}
 
 on:
   workflow_dispatch:
+  push:
+    branches: [research/backtester]
+    paths: [backtester/data/canonical-pit-2006-2007-equivalence-request.json]
 
 permissions:
   contents: read
   packages: read
 
 concurrency:
-  group: backtester-strict-pit-20y-${{ github.ref }}
+  group: backtester-canonical-pit-2006-2007-equivalence-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

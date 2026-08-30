@@ -285,6 +285,8 @@ class CanonicalPITDatasetTests(unittest.TestCase):
         self.assertNotIn("canonical_pit_dataset.py build", diagnostic_replay)
         self.assertIn("canonical-pit-2006-2007.json", diagnostic_replay)
         self.assertIn("docker pull", diagnostic_replay)
+        self.assertIn("canonical-pit-2006-2007-equivalence-request.json", diagnostic_replay)
+        self.assertIn("backtester-canonical-pit-2006-2007-equivalence", diagnostic_replay)
         self.assertEqual(orchestrator.count("uses: ./.github/workflows/backtester-build-canonical-pit-attempt.yml"), 3)
         for fixture in (
             "/.github/workflows/backtester-build-canonical-pit-attempt.yml",
