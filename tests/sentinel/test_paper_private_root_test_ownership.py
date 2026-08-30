@@ -83,3 +83,5 @@ def test_tests_use_canonical_owners_for_private_paper_bindings():
             continue
         violations.extend(_paper_root_violations(path))
     assert violations == [], "\n".join(violations)
+
+# CI inventory trigger.
