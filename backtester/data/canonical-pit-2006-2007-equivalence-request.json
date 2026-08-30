@@ -3,6 +3,6 @@
   "end_session": "2007-12-31",
   "production_sha": "887f479b15ad861313da666ad698034d3847121c",
   "reason": "complete production-plus-research equivalence after research review-basis correction",
-  "requested_at": "2026-08-30T19:08:00Z",
+  "requested_at": "2026-08-30T19:35:28Z",
   "schema": "backtester.canonical-pit-equivalence-request/1"
 }
