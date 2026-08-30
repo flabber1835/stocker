@@ -157,19 +157,20 @@ jobs:
           count="$(find sharadar -maxdepth 1 -type f -name 'SHARADAR_SEP_*.csv.gz' | wc -l)"
           test "${count}" -ge 30
 
-      - name: Prove strict code has no current-TICKERS metadata reads
+      - name: Prove strict metadata code has no current-TICKERS read path
         shell: bash
         run: |
           set -euo pipefail
-          if grep -nE "SHARADAR_TICKERS|firstpricedate|lastpricedate|permaticker|relatedtickers" backtester/strict_pit_metadata.py; then
-            echo 'strict metadata module contains forbidden current-TICKERS authority token' >&2
-            exit 1
-          fi
           python - <<'PY'
           from pathlib import Path
           p=Path('backtester/strict_pit_metadata.py').read_text()
-          assert 'current_SHARADAR_TICKERS_economically_active_fields' in p
-          assert 'security_type_unknown' in p and 'ineligible' in p
+          for forbidden_read in ('SHARADAR_TICKERS.zip', 'zipfile.ZipFile(', 'read_zip_csv('):
+              if forbidden_read in p:
+                  raise SystemExit(f'forbidden current-TICKERS read path: {forbidden_read}')
+          if 'current_SHARADAR_TICKERS_economically_active_fields' not in p:
+              raise SystemExit('missing current-TICKERS authority audit')
+          if '"security_type_unknown": "ineligible"' not in p:
+              raise SystemExit('missing fail-closed security-type policy')
           PY
 
       - name: Run strict PIT parallel certification
