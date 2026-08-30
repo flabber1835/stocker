@@ -107,6 +107,10 @@ content-addressed evidence sidecars:
 | AAWW 2006-04-03 | 1.0 | same-session tape is a no-split witness |
 | MBCRQ 2006-06-20 | 3.0 | announced 3-for-1; derived witness used a stale zero-volume price |
 | ETELY 2007-09-04 | 1.0 | underlying reverse split offset by the depositary-ratio change |
+| STB 2013-05-20 | 1.0 | live U.S. tape and SEC share history show no 10% distribution |
+| MHGVY 2014-05-01 | 1.0 | local reverse split preceded the 1:1 U.S. ADS launch; later action is duplicate treatment |
+| PRPO 2017-06-06 | 1/30 | announced legal split; isolated SEP witness is a stale zero-volume domain transition |
+| GHI 2022-12-29 | 1.0105 | documented distribution of 0.0105 additional BUC per BUC |
 
 SIM and SCEIQ retain their previously frozen adjudications. A missing,
 conflicting, or hash-invalid adjudication makes the canonical build fail.
