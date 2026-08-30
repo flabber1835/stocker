@@ -1,7 +1,7 @@
 # Paper lifecycle decomposition
 
-**Decision status:** accepted for Step 4 implementation  
-**Verified base:** `887f479b15ad861313da666ad698034d3847121c`  
+**Decision status:** accepted for Step 4 implementation
+**Verified base:** `887f479b15ad861313da666ad698034d3847121c`
 **Behavioral source:** `sentinel/paper.py` at SHA-256
 `c14cc619ca19e91b53e3f618543ea782e97f5a87bdde65af6370bd313bd63ffe`
 
