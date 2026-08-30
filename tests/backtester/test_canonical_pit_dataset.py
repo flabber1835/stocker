@@ -195,7 +195,7 @@ class CanonicalPITDatasetTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "member changed"):
                 CanonicalPITDataset(changed)
 
-    def test_diagnostic_split_adjudications_are_content_addressed(self) -> None:
+    def test_certified_split_adjudications_are_content_addressed(self) -> None:
         data = Path("backtester/data/causal-split-overrides-v1.json")
         records, witnesses = _load_sidecar_records(data)
         by_key = {
@@ -205,10 +205,20 @@ class CanonicalPITDatasetTests(unittest.TestCase):
         self.assertEqual(by_key[("AAWW", "2006-04-03")]["multiplier"], 1.0)
         self.assertEqual(by_key[("MBCRQ", "2006-06-20")]["multiplier"], 3.0)
         self.assertEqual(by_key[("ETELY", "2007-09-04")]["multiplier"], 1.0)
+        self.assertEqual(by_key[("STB", "2013-05-20")]["multiplier"], 1.0)
+        self.assertEqual(by_key[("MHGVY", "2014-05-01")]["multiplier"], 1.0)
+        self.assertEqual(
+            by_key[("PRPO", "2017-06-06")]["multiplier"], 1.0 / 30.0
+        )
+        self.assertEqual(by_key[("GHI", "2022-12-29")]["multiplier"], 1.0105)
         witness_names = {name for name, _digest in witnesses}
         self.assertTrue(any(name.startswith("AAWW_2006-04-03_") for name in witness_names))
         self.assertTrue(any(name.startswith("MBCRQ_2006-06-20_") for name in witness_names))
         self.assertTrue(any(name.startswith("ETELY_2007-09-04_") for name in witness_names))
+        self.assertTrue(any(name.startswith("STB_2013-05-20_") for name in witness_names))
+        self.assertTrue(any(name.startswith("MHGVY_2014-05-01_") for name in witness_names))
+        self.assertTrue(any(name.startswith("PRPO_2017-06-06_") for name in witness_names))
+        self.assertTrue(any(name.startswith("GHI_2022-12-29_") for name in witness_names))
 
     def test_strategy_entrypoints_have_no_builder_authority(self) -> None:
         for path in (
