@@ -31,8 +31,13 @@ jobs:
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: |
+            /.github/workflows/backtester-build-canonical-pit-attempt.yml
+            /.github/workflows/backtester-build-canonical-pit-20y.yml
+            /.github/workflows/backtester-research-only-20y.yml
             /backtester/canonical_pit_dataset.py
             /backtester/canonical_pit_package.py
+            /backtester/run_research_strict_pit_certification.py
+            /backtester/run_production_strict_pit_certification.py
             /backtester/strict_pit_metadata.py
             /backtester/causal_split_overrides.py
             /backtester/causal_terminal_terms.py

@@ -211,6 +211,14 @@ class CanonicalPITDatasetTests(unittest.TestCase):
         self.assertIn("canonical-pit-20y.json", replay)
         self.assertIn("docker pull", replay)
         self.assertEqual(orchestrator.count("uses: ./.github/workflows/backtester-build-canonical-pit-attempt.yml"), 3)
+        for fixture in (
+            "/.github/workflows/backtester-build-canonical-pit-attempt.yml",
+            "/.github/workflows/backtester-build-canonical-pit-20y.yml",
+            "/.github/workflows/backtester-research-only-20y.yml",
+            "/backtester/run_research_strict_pit_certification.py",
+            "/backtester/run_production_strict_pit_certification.py",
+        ):
+            self.assertIn(fixture, build)
 
 
 if __name__ == "__main__":
