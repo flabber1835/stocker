@@ -63,10 +63,7 @@ jobs:
             /tests/backtester/test_canonical_pit_dataset.py
             /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
             /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
-            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
-            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
-            /research/sentinel-fastgate/pit-evidence/generated/SHA256SUMS.txt
-            /research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
+            /research/sentinel-fastgate/pit-evidence/generated/**
             /PIT input data/MANIFEST.csv
             /PIT input data/ACTIONS_PIT_ONLY.csv.gz
             /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
