@@ -1,4 +1,5 @@
-name: Backtester - strict PIT 20-year certification
+name: Backtester - canonical PIT certification
+run-name: Canonical PIT 2006-2007 diagnostic — ${{ github.sha }}
 
 on:
   workflow_dispatch:

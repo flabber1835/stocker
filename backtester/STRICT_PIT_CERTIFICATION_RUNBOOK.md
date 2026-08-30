@@ -115,7 +115,7 @@ at calendar-quarter boundaries.
 
 ## Run in GitHub Actions
 
-Open [Backtester - strict PIT 20-year certification](https://github.com/flabber1835/stocker/actions/workflows/backtester-strict-pit-20y.yml),
+Open [Backtester - canonical PIT certification](https://github.com/flabber1835/stocker/actions/workflows/backtester-strict-pit-20y.yml),
 select **Run workflow**, and choose `research/backtester`.
 
 The workflow currently runs only the bounded diagnostic. It builds and uploads
