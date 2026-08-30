@@ -1,171 +1,242 @@
 #!/usr/bin/env python3
-"""Strict-PIT certification orchestrator for production/research/SPY.
+"""Strict-PIT parallel certification orchestrator.
 
-Warm-up runs from 1997-01-02 through 1997-12-31 and is never measured.
-Measurement starts 1998-01-02. Progress is emitted every calendar quarter
-using cumulative CAGR from the measurement start through the reported date.
+The full machine warms through 1997 with no measured CAGR. Measurement begins
+1998-01-02. Production and retained research run concurrently. Each child emits
+quarter-end cumulative CAGR checkpoints; this process joins them and prints the
+requested production/research/SPY block immediately when both reach a quarter.
 """
 from __future__ import annotations
 
 import argparse
-import csv
-import gzip
+from datetime import date
 import json
 import math
 import os
 from pathlib import Path
+import queue
+import re
 import subprocess
 import sys
-from typing import Iterable
+import threading
 
 import pandas as pd
 
 WARMUP_START = pd.Timestamp("1997-01-02")
 MEASUREMENT_START = pd.Timestamp("1998-01-02")
-PRODUCTION_WRAPPER = Path("backtester/run_production_ldrc_corrected_warmup_cash.py")
-RESEARCH_WRAPPER = Path("backtester/run_research_ldrc_corrected_warmup_cash.py")
+PRODUCTION_WRAPPER = Path("backtester/run_production_strict_pit_certification.py")
+RESEARCH_WRAPPER = Path("backtester/run_research_strict_pit_certification.py")
+CHECKPOINT = re.compile(r"^\[CERT_CAGR\] role=(production|research) date=(\d{4}-\d{2}-\d{2}) cagr=([-+0-9.eE]+)$")
 
 
-def quarter_end_dates(start: pd.Timestamp, end: pd.Timestamp) -> set[pd.Timestamp]:
-    return set(pd.date_range(start=start, end=end, freq="QE").normalize())
+def _read_production(path: Path) -> pd.DataFrame:
+    df = pd.read_csv(path, compression="gzip", parse_dates=["date"])
+    required = {"date", "D_nav", "SPY_level"}
+    if not required.issubset(df.columns):
+        raise RuntimeError(f"production daily evidence missing {sorted(required-set(df.columns))}")
+    return df[["date", "D_nav", "SPY_level"]].rename(columns={"D_nav": "nav", "SPY_level": "spy"}).sort_values("date")
 
 
-def cagr(start_value: float, end_value: float, start_date: pd.Timestamp, end_date: pd.Timestamp) -> float:
-    if not all(math.isfinite(v) and v > 0 for v in (start_value, end_value)):
-        return float("nan")
-    days = (end_date - start_date).days
-    if days <= 0:
-        return float("nan")
-    return (end_value / start_value) ** (365.2425 / days) - 1.0
+def _read_research(path: Path) -> pd.DataFrame:
+    df = pd.read_csv(path, compression="gzip", parse_dates=["date"])
+    required = {"date", "research_nav", "spy_nav"}
+    if not required.issubset(df.columns):
+        raise RuntimeError(f"research daily evidence missing {sorted(required-set(df.columns))}")
+    return df[["date", "research_nav", "spy_nav"]].rename(columns={"research_nav": "nav", "spy_nav": "spy"}).sort_values("date")
 
 
-def read_daily(path: Path) -> pd.DataFrame:
-    df = pd.read_csv(path, parse_dates=["date"])
-    if "nav" not in df.columns:
-        raise RuntimeError(f"{path} missing nav column")
-    return df.sort_values("date").reset_index(drop=True)
+def _spy_levels(path: Path) -> pd.DataFrame:
+    df = pd.read_csv(path, compression="gzip", low_memory=False)
+    required = {"ticker", "date", "close_to_close_factor"}
+    if not required.issubset(df.columns):
+        raise RuntimeError(f"SPY factor evidence missing {sorted(required-set(df.columns))}")
+    df = df[df.ticker.astype(str).eq("SPY")].copy()
+    df["date"] = pd.to_datetime(df.date.astype(str).str[:10])
+    df = df.sort_values("date").drop_duplicates("date", keep="last")
+    level = 1.0
+    levels = []
+    prior = False
+    for row in df.itertuples(index=False):
+        factor = float(row.close_to_close_factor) if pd.notna(row.close_to_close_factor) else float("nan")
+        if prior:
+            if not math.isfinite(factor) or factor <= 0:
+                raise RuntimeError(f"invalid SPY close factor on {row.date}")
+            level *= factor
+        levels.append((pd.Timestamp(row.date), level))
+        prior = True
+    out = pd.DataFrame(levels, columns=["date", "nav"])
+    return out[out.date >= MEASUREMENT_START].reset_index(drop=True)
 
 
-def read_spy(path: Path) -> pd.DataFrame:
-    df = pd.read_csv(path, parse_dates=["date"])
-    value_col = "closeadj" if "closeadj" in df.columns else "close"
-    if value_col not in df.columns:
-        raise RuntimeError(f"{path} missing closeadj/close")
-    return df[["date", value_col]].rename(columns={value_col: "nav"}).sort_values("date")
+def _value_on_or_before(df: pd.DataFrame, when: str, column: str = "nav") -> tuple[pd.Timestamp, float]:
+    q = df[df.date <= pd.Timestamp(when)]
+    if q.empty:
+        raise RuntimeError(f"no evidence on/before {when}")
+    row = q.iloc[-1]
+    return pd.Timestamp(row.date), float(row[column])
 
 
-def value_on_or_before(df: pd.DataFrame, date: pd.Timestamp) -> tuple[pd.Timestamp, float]:
-    part = df[df.date <= date]
-    if part.empty:
-        raise RuntimeError(f"no data on/before {date.date()}")
-    row = part.iloc[-1]
-    return pd.Timestamp(row.date), float(row.nav)
+def _cagr(start_value: float, end_value: float, end_date: str) -> float:
+    elapsed = (date.fromisoformat(end_date) - MEASUREMENT_START.date()).days / 365.2425
+    if elapsed <= 0:
+        return 0.0
+    if start_value <= 0 or end_value <= 0:
+        raise RuntimeError("non-positive value in cumulative CAGR")
+    return (end_value / start_value) ** (1.0 / elapsed) - 1.0
 
 
-def emit_warmup_progress(dates: Iterable[pd.Timestamp]) -> None:
-    for d in dates:
-        print(f"[WARMUP] {d.date()} full machine state accumulating; CAGR=N/A", flush=True)
+def _reader(role: str, pipe, events: queue.Queue) -> None:
+    try:
+        for raw in iter(pipe.readline, ""):
+            line = raw.rstrip("\n")
+            print(f"[{role}] {line}", flush=True)
+            match = CHECKPOINT.match(line)
+            if match:
+                events.put(("checkpoint", role, match.group(2), float(match.group(3))))
+    finally:
+        pipe.close()
+        events.put(("eof", role, None, None))
 
 
-def emit_progress(prod: pd.DataFrame, research: pd.DataFrame, spy: pd.DataFrame) -> None:
-    common_end = min(prod.date.max(), research.date.max(), spy.date.max())
-    qends = quarter_end_dates(MEASUREMENT_START, common_end)
-    start_prod_date, start_prod = value_on_or_before(prod, MEASUREMENT_START)
-    start_research_date, start_research = value_on_or_before(research, MEASUREMENT_START)
-    start_spy_date, start_spy = value_on_or_before(spy, MEASUREMENT_START)
-    start_date = max(start_prod_date, start_research_date, start_spy_date)
-
-    for q in sorted(qends):
-        p_date, p = value_on_or_before(prod, q)
-        r_date, r = value_on_or_before(research, q)
-        s_date, s = value_on_or_before(spy, q)
-        report_date = min(p_date, r_date, s_date)
-        if report_date < start_date:
-            continue
-        pc = cagr(start_prod, p, start_date, report_date)
-        rc = cagr(start_research, r, start_date, report_date)
-        sc = cagr(start_spy, s, start_date, report_date)
-        print(f"[CERTIFICATION PROGRESS] {report_date.date()}", flush=True)
-        print(f"Research cumulative CAGR:      {rc*100:10.4f}%", flush=True)
-        print(f"Production cumulative CAGR:    {pc*100:10.4f}%", flush=True)
-        print(f"SPY cumulative CAGR:           {sc*100:10.4f}%", flush=True)
-        print("", flush=True)
-
-
-def first_divergence(prod: pd.DataFrame, research: pd.DataFrame, tolerance: float) -> dict | None:
+def _first_divergence(prod: pd.DataFrame, research: pd.DataFrame, tolerance: float) -> dict | None:
     merged = prod[["date", "nav"]].merge(
         research[["date", "nav"]], on="date", suffixes=("_production", "_research"), how="inner"
     )
     merged = merged[merged.date >= MEASUREMENT_START]
     for row in merged.itertuples(index=False):
-        delta = abs(float(row.nav_production) - float(row.nav_research))
-        scale = max(abs(float(row.nav_production)), abs(float(row.nav_research)), 1.0)
+        p, r = float(row.nav_production), float(row.nav_research)
+        delta = abs(p - r)
+        scale = max(abs(p), abs(r), 1.0)
         if delta > tolerance * scale:
             return {
                 "date": pd.Timestamp(row.date).date().isoformat(),
-                "production_nav": float(row.nav_production),
-                "research_nav": float(row.nav_research),
+                "production_nav": p,
+                "research_nav": r,
                 "absolute_delta": delta,
                 "relative_delta": delta / scale,
             }
     return None
 
 
-def run_wrapper(wrapper: Path, output: Path, env: dict[str, str]) -> None:
-    output.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        [sys.executable, str(wrapper), "--mode", "fullpit", "--output", str(output)],
-        check=True,
-        env=env,
-    )
+def _verify_authority(path: Path, role: str) -> dict:
+    audit = json.loads(path.read_text(encoding="utf-8"))
+    if audit.get("role") != role:
+        raise RuntimeError(f"{role} metadata audit has wrong role")
+    if audit.get("current_SHARADAR_TICKERS_economically_active_fields") != []:
+        raise RuntimeError(f"{role} retained current SHARADAR_TICKERS economic authority")
+    if audit.get("fallbacks", {}).get("security_type_unknown") != "ineligible":
+        raise RuntimeError(f"{role} security-type fallback is not fail-closed")
+    return audit
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--output-root", type=Path, required=True)
-    ap.add_argument("--spy-csv", type=Path, required=True)
+    ap.add_argument("--spy-factors", type=Path, required=True)
+    ap.add_argument("--lab-root", type=Path, default=Path("."))
+    ap.add_argument("--main-root", type=Path, default=Path("main-src"))
     ap.add_argument("--divergence-tolerance", type=float, default=1e-10)
     args = ap.parse_args()
+    args.output_root.mkdir(parents=True, exist_ok=True)
+    prod_out = args.output_root / "production"
+    research_out = args.output_root / "research"
+    prod_out.mkdir(parents=True, exist_ok=True)
+    research_out.mkdir(parents=True, exist_ok=True)
+
+    spy = _spy_levels(args.spy_factors)
+    spy_start_date, spy_start = _value_on_or_before(spy, MEASUREMENT_START.date().isoformat())
+    if spy_start_date.date() != MEASUREMENT_START.date():
+        raise RuntimeError(f"SPY measurement anchor is {spy_start_date.date()}, expected {MEASUREMENT_START.date()}")
 
     env = dict(os.environ)
     env["CERTIFICATION_STRICT_PIT"] = "1"
     env["CERTIFICATION_WARMUP_START"] = WARMUP_START.date().isoformat()
     env["CERTIFICATION_MEASUREMENT_START"] = MEASUREMENT_START.date().isoformat()
+    env["PYTHONUNBUFFERED"] = "1"
 
-    prod_out = args.output_root / "production"
-    research_out = args.output_root / "research"
-
-    print(f"[CERTIFICATION] strict PIT warmup={WARMUP_START.date()} measurement={MEASUREMENT_START.date()}", flush=True)
-    emit_warmup_progress(pd.date_range("1997-03-31", "1997-12-31", freq="QE"))
-
-    prod = subprocess.Popen(
-        [sys.executable, str(PRODUCTION_WRAPPER), "--mode", "fullpit", "--output", str(prod_out)],
-        env=env,
+    print(
+        f"[CERTIFICATION] strict PIT warmup={WARMUP_START.date()} measurement={MEASUREMENT_START.date()}",
+        flush=True,
     )
-    research = subprocess.Popen(
-        [sys.executable, str(RESEARCH_WRAPPER), "--mode", "fullpit", "--output", str(research_out)],
-        env=env,
-    )
+    for d in ("1997-03-31", "1997-06-30", "1997-09-30", "1997-12-31"):
+        print(f"[WARMUP] {d} full machine state accumulating; CAGR=N/A", flush=True)
+
+    prod_cmd = [
+        sys.executable, str(PRODUCTION_WRAPPER),
+        "--lab-root", str(args.lab_root),
+        "--main-root", str(args.main_root),
+        "--output", str(prod_out),
+    ]
+    research_cmd = [
+        sys.executable, str(RESEARCH_WRAPPER),
+        "--mode", "fullpit",
+        "--output", str(research_out),
+    ]
+    prod = subprocess.Popen(prod_cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    research = subprocess.Popen(research_cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    assert prod.stdout is not None and research.stdout is not None
+    events: queue.Queue = queue.Queue()
+    threads = [
+        threading.Thread(target=_reader, args=("production", prod.stdout, events), daemon=True),
+        threading.Thread(target=_reader, args=("research", research.stdout, events), daemon=True),
+    ]
+    for thread in threads:
+        thread.start()
+
+    checkpoints: dict[str, dict[str, float]] = {}
+    emitted: set[str] = set()
+    eof = set()
+    while len(eof) < 2:
+        kind, role, session, value = events.get()
+        if kind == "eof":
+            eof.add(role)
+            continue
+        bucket = checkpoints.setdefault(session, {})
+        bucket[role] = value
+        if session not in emitted and {"production", "research"}.issubset(bucket):
+            spy_date, spy_value = _value_on_or_before(spy, session)
+            if spy_date.date().isoformat() != session:
+                raise RuntimeError(f"SPY checkpoint misalignment: requested {session}, got {spy_date.date()}")
+            spy_cagr = _cagr(spy_start, spy_value, session)
+            print(f"[CERTIFICATION PROGRESS] {session}", flush=True)
+            print(f"Research cumulative CAGR:      {bucket['research']*100:10.4f}%", flush=True)
+            print(f"Production cumulative CAGR:    {bucket['production']*100:10.4f}%", flush=True)
+            print(f"SPY cumulative CAGR:           {spy_cagr*100:10.4f}%", flush=True)
+            print("", flush=True)
+            emitted.add(session)
+
     p_rc = prod.wait()
     r_rc = research.wait()
+    for thread in threads:
+        thread.join()
     if p_rc != 0 or r_rc != 0:
-        raise RuntimeError(f"parallel replay failed production={p_rc} research={r_rc}")
+        raise RuntimeError(f"parallel strict-PIT replay failed production={p_rc} research={r_rc}")
 
-    prod_df = read_daily(prod_out / "daily.csv.gz")
-    research_df = read_daily(research_out / "daily.csv.gz")
-    spy_df = read_spy(args.spy_csv)
-    emit_progress(prod_df, research_df, spy_df)
+    prod_df = _read_production(prod_out / "daily.csv.gz")
+    research_df = _read_research(research_out / "daily.csv.gz")
+    pa = _verify_authority(prod_out / "metadata_authority_audit.json", "production")
+    ra = _verify_authority(research_out / "metadata_authority_audit.json", "research")
 
-    divergence = first_divergence(prod_df, research_df, args.divergence_tolerance)
+    # SPY must be the identical benchmark path in both implementations.
+    benchmark = prod_df[["date", "spy"]].merge(
+        research_df[["date", "spy"]], on="date", suffixes=("_production", "_research"), how="inner"
+    )
+    if benchmark.empty or (benchmark.spy_production - benchmark.spy_research).abs().max() > 1e-10:
+        raise RuntimeError("production/research SPY benchmark paths diverged")
+
+    divergence = _first_divergence(prod_df, research_df, args.divergence_tolerance)
     audit = {
+        "schema": "backtester.strict-pit-parallel-certification/1",
         "warmup_start": WARMUP_START.date().isoformat(),
         "measurement_start": MEASUREMENT_START.date().isoformat(),
-        "progress_cadence": "calendar-quarter",
-        "cagr_basis": "cumulative from measurement start",
+        "progress_cadence": "calendar-quarter, live joined production/research checkpoints",
+        "cagr_basis": "cumulative from 1998-01-02",
         "research_production_divergence_tolerance": args.divergence_tolerance,
         "first_divergence": divergence,
+        "production_metadata_authority": pa,
+        "research_metadata_authority": ra,
+        "quarterly_blocks_emitted": sorted(emitted),
     }
-    args.output_root.mkdir(parents=True, exist_ok=True)
     (args.output_root / "certification_progress_audit.json").write_text(
         json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -173,8 +244,7 @@ def main() -> int:
         print("[CERTIFICATION FAIL] research/production divergence detected", flush=True)
         print(json.dumps(divergence, sort_keys=True), flush=True)
         return 2
-
-    print("[CERTIFICATION PASS] production and research replay equivalent within tolerance", flush=True)
+    print("[CERTIFICATION PASS] production and retained research are equivalent within tolerance", flush=True)
     return 0
 
 
