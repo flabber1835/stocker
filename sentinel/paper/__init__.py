@@ -100,6 +100,9 @@ from .reconciliation import (
     _settled_account_evidence_bracket,
 )
 
+# Preserve the monolith's public reconciliation dependency surface.
+from sentinel.execution import reconcile as reconciliation
+
 from .finalization import (
     _record_due_close_nav_or_refuse,
     _record_due_fill_interval_or_refuse,
