@@ -137,7 +137,7 @@ from .targets import (
     _official_preopen_cutoff,
 )
 
-from .reconciliation import _clean_or_refuse
+from .reconciliation_evidence import _clean_or_refuse
 
 from .finalization import _finalize_due_succeeded_cycle_or_refuse
 
@@ -233,10 +233,6 @@ def _fresh_warmed_state(conn, *, through: str, count: int,
                 raise PaperActivationRefused(
                     "fresh Concordance activation requires session-effective "
                     "TICKERS metadata for every historical witness close") from exc
-            # The signed observation mode makes no historical causality claim.
-            # Prime price features only and begin the zero-capital witness on
-            # the first current decision close; never backdate today's TICKERS
-            # snapshot to manufacture r20/r40 readiness.
             prospective_witness = True
     starting_cash = float(account.equity)
     if not math.isfinite(starting_cash):
@@ -282,22 +278,13 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             "dual PAPER preparation requires both reviewed shadow identity "
             "and starting-capital configuration")
     dual_mode = all(value is not None for value in dual_values)
-    # A reviewed deploy may perform this preparation through the read-only
-    # PaperPreparationGrant while automation remains killed. That grant cannot
-    # cross any broker mutation method. Actual informational transport remains
-    # automation-only in `_execute_current_paper_plan`.
     if controller_config is None and strategy_identity is None:
         config, identity = _default_paper_strategy()
     else:
-        # Preserve the explicit injection seam used by deterministic tests and
-        # administrative tooling. Production supplies neither override.
         config = controller_config or load_controller()
         identity = dict(strategy_identity or runtime_strategy_identity(config))
 
     with journal.writer_lock(conn):
-        # Ownership is checked under the same lock as plan adoption and before
-        # the first broker read. An unbound inherited book is migration input,
-        # never something daily preparation may adopt.
         from sentinel.handover import assert_no_legacy_path
         binding = assert_no_legacy_path(conn)
         rollout = load_rollout_state(conn)
@@ -367,10 +354,6 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             dual_result = None
             dual_state = None
             if dual_mode:
-                # Dual mode has one strategy lineage: the independently
-                # attested shadow ledger.  Never even read the legacy PAPER
-                # catch-up cursor, because a second path-dependent state could
-                # drift while still producing plausible exposure numbers.
                 from sentinel import dual_reconciliation
                 try:
                     dual_result = dual_reconciliation.verified_shadow_intent(
@@ -420,8 +403,6 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 existing_cursor = catchup.last_processed_session(conn)
             if (existing_plan is not None
                     and existing_plan.decision_session == through_date):
-                # Restart validation may return this plan unchanged. Prove its
-                # economics still derive its id before contacting the broker.
                 _assert_deterministic_plan_id(existing_plan)
 
             if (dual_mode and existing_plan is not None
@@ -466,10 +447,6 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     publication_version=pinned.version, frontier=through_text,
                     reconciliation=rec, superseded_plans=0)
 
-            # Same-session preparation is restart validation, not a second
-            # sizing decision. Re-reading a later NAV and replacing the plan
-            # under the same market close would make an immutable daily intent
-            # depend on how many times the operator retried it.
             if (existing_raw is not None and existing_cursor == through_date):
                 state = SessionState.from_dict(existing_raw)
                 _assert_concordance_witness_authority(
@@ -506,8 +483,6 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     conn, plan=existing_plan, deployment=binding.identity,
                     account=account, observation=observation,
                     activity_state=activity_state)
-                # Repairs any legacy save/supersede crash shape without
-                # changing plan economics; identical adoption is idempotent.
                 journal.adopt_current_plan(conn, existing_plan)
                 return PreparationResult(
                     plan=existing_plan, sessions_replayed=0,
@@ -606,12 +581,6 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                         observation_target_actions=(
                             due_observation_target_actions),
                         clock=clock)
-                # Informational dual PAPER deliberately has no PAPER trial-P/L
-                # authority.  Its prior succeeded cycle therefore creates no
-                # official-close/fill-finality debt before the next account-
-                # sized plan.  The complete live account/reconciliation and
-                # cash explanation above still gate sizing; certified return
-                # remains solely in the independently verified shadow chain.
             if any(order.is_working for order in observation.orders):
                 raise PaperActivationRefused(
                     "initial plan adoption requires no working broker order; "
@@ -619,9 +588,6 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     "before establishing the account-cash baseline")
 
             if dual_mode:
-                # The shadow record has already advanced the only strategy
-                # state.  This branch performs account sizing and plan adoption
-                # only; it never reads or writes the PAPER catch-up cursor.
                 state = dual_state
                 _assert_concordance_witness_authority(
                     state, certificate.authorization_mode)
@@ -866,8 +832,6 @@ def current_paper_plan(
     return {
         "broker_contacted": False,
         "broker_mutations_permitted": False,
-        # Broker account, current NAV, readiness, reconciliation, actual date,
-        # and asset tradability are intentionally rechecked only by execution.
         "execution_authorized": False,
         "database_authorities_match": all(checks.values()),
         "mode": "INFORMATIONAL_PAPER_MIRROR" if dual_mode else "PAPER",
