@@ -14,15 +14,18 @@ An automation callback is an asynchronous application boundary. Every production
 callback runs in a separately supervised child process. Its async declaration is
 an interface contract; synchronous PostgreSQL, vendor, filesystem, or CPU work
 inside that coroutine cannot stall the parent deadline, heartbeat-failure, or
-operator-cancellation loop. The parent terminates and, if required, kills the
-child before returning from a failed callback boundary.
+operator-cancellation loop. Deadline, heartbeat loss, lease loss, and caller
+cancellation set a process-shared revocation event and immediately send
+`SIGKILL`; there is no cooperative or `SIGTERM` grace interval.
 
 Each child receives one immutable `CycleContext` containing its cycle and leader
 permit. It returns only a canonical JSON callback result over a one-way IPC
 channel. The parent races child completion against the fingerprinted deadline
 and the independently threaded database heartbeat. Deadline, lease loss,
-heartbeat failure, or operator cancellation terminates the process. Parent-owned
-durable phase transitions revalidate the current database fence.
+heartbeat failure, or operator cancellation kills the process. The child checks
+the process-shared revocation event at every explicit side-effect fence while
+the kernel kill is being delivered. Parent-owned durable phase transitions
+revalidate the current database fence.
 
 Broker mutations keep their database-backed generation fence. Heartbeat
 connection creation, use, and close are one guarded iteration with connection
@@ -62,9 +65,14 @@ are written by repositories that do not commit. An execution-journal
 `UnitOfWork` owns the connection commit or rollback.
 
 No observation row is externally valid without its serialized evidence row.
-The integrity query reports historical rows missing either provenance or
-serialized evidence as `UNCERTIFIABLE`. It may reconstruct only when all source
-fields needed to produce byte-identical canonical evidence remain available.
+New normalized order rows retain every economic field required to reconstruct
+the canonical payload, including symbol and average fill price. Provenance
+retains a SHA-256 digest of that reconstructed payload in the same transaction.
+The integrity query reconstructs canonical evidence from normalized observation
+and provenance rows, compares every retained identity and economic field,
+checks the processed-session date, and verifies both the expected and stored
+payload against the independent digest. Historical rows missing any source
+field, provenance, serialized evidence, or digest are `UNCERTIFIABLE`.
 
 ## 4. Fail-closed calendar recovery
 

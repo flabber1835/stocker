@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import errno
+import signal
 import time
 
 import pytest
@@ -11,6 +13,7 @@ from sentinel.automation.model import (
     CallbackDeadlineExceeded,
     CancellationAuthority,
     DataIntegrityFailure,
+    HumanInterventionRequired,
     PermanentOperationalRefusal,
     SoftwareDefect,
     StaleLeaderRefused,
@@ -105,6 +108,39 @@ async def test_cancelled_child_cannot_attempt_late_durable_write(
             heartbeat_conn_factory=Connection)
     await asyncio.sleep(1.2)
     assert not marker.exists()
+
+
+@pytest.mark.asyncio
+async def test_sigterm_ignoring_child_has_no_post_deadline_grace(
+        harmless_heartbeat, tmp_path) -> None:
+    marker = tmp_path / "sigterm-grace-write"
+
+    async def sigterm_ignoring_writer(_context):
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        time.sleep(1.15)
+        marker.write_text("unsafe", encoding="utf-8")
+
+    with pytest.raises(CallbackDeadlineExceeded):
+        await service()._invoke(  # noqa: SLF001
+            sigterm_ignoring_writer, Context(), permit=object(),
+            phase="PREPARE", heartbeat_conn_factory=Connection)
+    await asyncio.sleep(0.4)
+    assert not marker.exists()
+
+
+@pytest.mark.asyncio
+async def test_child_exception_short_name_cannot_spoof_reviewed_type(
+        harmless_heartbeat) -> None:
+    class TransientInfrastructureFailure(Exception):
+        pass
+
+    async def spoofed(_context):
+        raise TransientInfrastructureFailure("not Sentinel's exception")
+
+    with pytest.raises(SoftwareDefect, match="unreviewed callback exception"):
+        await service()._invoke(  # noqa: SLF001
+            spoofed, Context(), permit=object(), phase="REFRESH",
+            heartbeat_conn_factory=Connection)
 
 
 @pytest.mark.asyncio
@@ -207,6 +243,16 @@ def test_capability_graph_separates_certified_and_inherited_methods() -> None:
      DataIntegrityFailure),
     (ConnectionError("database unavailable"),
      TransientInfrastructureFailure),
+    (OSError(errno.ECONNRESET, "connection reset"),
+     TransientInfrastructureFailure),
+    (FileNotFoundError(errno.ENOENT, "required artifact missing"),
+     PermanentOperationalRefusal),
+    (PermissionError(errno.EACCES, "permission denied"),
+     PermanentOperationalRefusal),
+    (IsADirectoryError(errno.EISDIR, "invalid artifact path"),
+     PermanentOperationalRefusal),
+    (OSError(errno.ENOSPC, "disk full"),
+     HumanInterventionRequired),
 ])
 def test_dependency_failures_receive_reviewed_taxonomy(exc, expected) -> None:
     assert isinstance(

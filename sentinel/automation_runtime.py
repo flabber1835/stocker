@@ -8,8 +8,10 @@ handover or migration.
 from __future__ import annotations
 
 import asyncio
+import errno
 import hashlib
 import os
+import socket
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -27,6 +29,7 @@ from sentinel.automation.model import (
     DataIntegrityFailure,
     ExecuteDisposition,
     ExecuteResult,
+    HumanInterventionRequired,
     PrepareResult,
     RefreshResult,
     TickResult,
@@ -130,9 +133,47 @@ def classify_dependency_failure(
     if sqlstate.startswith("28") or sqlstate == "42501":
         return PermanentOperationalRefusal(
             f"PostgreSQL authority/configuration refusal {sqlstate}: {exc}")
-    if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
+    if isinstance(exc, (TimeoutError, ConnectionError)):
         return TransientInfrastructureFailure(
             f"dependency transport failure {name}: {exc}")
+    if isinstance(
+            exc, (FileNotFoundError, FileExistsError, PermissionError,
+                  IsADirectoryError, NotADirectoryError)):
+        return PermanentOperationalRefusal(
+            f"dependency filesystem refusal {name}: {exc}")
+    if isinstance(exc, OSError):
+        transient_socket_errnos = {
+            errno.ECONNABORTED, errno.ECONNREFUSED, errno.ECONNRESET,
+            errno.EHOSTUNREACH, errno.ENETDOWN, errno.ENETRESET,
+            errno.ENETUNREACH, errno.EPIPE, errno.ETIMEDOUT,
+            *{
+                value for value in (
+                    getattr(socket, "EAI_AGAIN", None),
+                    getattr(socket, "EAI_FAIL", None),
+                    getattr(socket, "EAI_NONAME", None),
+                )
+                if value is not None
+            },
+        }
+        resource_errnos = {
+            errno.EDQUOT, errno.EMFILE, errno.ENFILE, errno.ENOSPC,
+            errno.EROFS,
+        }
+        permanent_path_errnos = {
+            errno.EACCES, errno.EEXIST, errno.EINVAL, errno.EISDIR,
+            errno.ELOOP, errno.ENAMETOOLONG, errno.ENOENT, errno.ENOTDIR,
+            errno.EPERM,
+        }
+        if exc.errno in transient_socket_errnos:
+            return TransientInfrastructureFailure(
+                f"dependency socket failure {name}/{exc.errno}: {exc}")
+        if exc.errno in resource_errnos:
+            return HumanInterventionRequired(
+                f"dependency resource exhaustion {name}/{exc.errno}: {exc}")
+        if exc.errno in permanent_path_errnos:
+            return PermanentOperationalRefusal(
+                f"dependency filesystem refusal {name}/{exc.errno}: {exc}")
+        return None
     if module.startswith(("httpx", "httpcore")) and name in {
             "TimeoutException", "ConnectError", "ReadError", "WriteError",
             "PoolTimeout", "NetworkError", "RemoteProtocolError"}:

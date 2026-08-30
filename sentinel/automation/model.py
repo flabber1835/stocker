@@ -334,15 +334,20 @@ class CycleRecord(_FrozenModel):
 
 
 class CancellationAuthority:
-    """Process-local revocable authority carried through callback boundaries."""
+    """Revocable authority carried through thread and process boundaries."""
 
     def __init__(self) -> None:
         self._cancelled = threading.Event()
+        self._process_cancelled: Any | None = None
         self._reason = ""
 
     @property
     def cancelled(self) -> bool:
-        return self._cancelled.is_set()
+        return (
+            self._cancelled.is_set()
+            or self._process_cancelled is not None
+            and self._process_cancelled.is_set()
+        )
 
     @property
     def reason(self) -> str:
@@ -351,6 +356,16 @@ class CancellationAuthority:
     def cancel(self, reason: str) -> None:
         self._reason = str(reason)
         self._cancelled.set()
+        if self._process_cancelled is not None:
+            self._process_cancelled.set()
+
+    def bind_process_event(self, event: Any) -> None:
+        """Attach the supervisor-owned process-shared revocation primitive."""
+        if self._process_cancelled is not None:
+            raise RuntimeError("callback cancellation already has a process event")
+        self._process_cancelled = event
+        if self._cancelled.is_set():
+            event.set()
 
     def require_active(self) -> None:
         if self.cancelled:

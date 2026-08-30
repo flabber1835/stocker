@@ -27,7 +27,8 @@ from sentinel.execution.alpaca import (
 )
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
-    BrokerAccountIdentity, BrokerInstrument, BrokerOrder, Completeness, Side)
+    BrokerAccountIdentity, BrokerInstrument, BrokerOrder, BrokerPosition,
+    Completeness, Side)
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
 from sentinel.execution.states import CommandState as S
 from sentinel.feed import store as feed_store
@@ -602,6 +603,7 @@ def _account_bound_observation(when):
         account_identity=BrokerAccountIdentity(
             broker="alpaca", account_id=ACCOUNT_NUMBER,
             raw=account_payload()),
+        positions=(BrokerPosition(INSTRUMENT, Decimal(3)),),
         orders=(BrokerOrder(
             broker_order_id="atomic-order", client_key=None,
             instrument=INSTRUMENT, side=Side.BUY,
@@ -658,9 +660,10 @@ def test_historical_observation_missing_provenance_is_uncertifiable(conn):
             "WHERE observation_seq=%s", (seq,))
     conn.commit()
     issues = journal.observation_integrity_issues(conn)
-    assert issues == (journal.ObservationIntegrityIssue(
-        observation_seq=seq,
-        reasons=("MISSING_PROVENANCE",)),)
+    assert issues[0].observation_seq == seq
+    assert "MISSING_PROVENANCE" in issues[0].reasons
+    assert "NORMALIZED_EVIDENCE_INSUFFICIENT" in issues[0].reasons
+    assert "MISSING_CANONICAL_PAYLOAD_DIGEST" in issues[0].reasons
 
 
 def test_historical_observation_identity_disagreement_is_uncertifiable(conn):
@@ -673,13 +676,104 @@ def test_historical_observation_identity_disagreement_is_uncertifiable(conn):
             " WHERE cursor_name=%s", (f"broker-observation:v2:{seq}",))
     conn.commit()
     issues = journal.observation_integrity_issues(conn)
-    assert issues == (journal.ObservationIntegrityIssue(
-        observation_seq=seq,
-        reasons=("CANONICAL_IDENTITY_DISAGREEMENT",)),)
+    assert issues[0].observation_seq == seq
+    assert "CANONICAL_IDENTITY_DISAGREEMENT" in issues[0].reasons
+    assert "CANONICAL_ECONOMICS_DISAGREEMENT" in issues[0].reasons
+    assert "CANONICAL_PAYLOAD_DIGEST_DISAGREEMENT" in issues[0].reasons
     with pytest.raises(
             journal.ObservationEvidenceUncertifiable,
-            match=f"{seq}:CANONICAL_IDENTITY_DISAGREEMENT"):
+            match=f"{seq}:.*CANONICAL_IDENTITY_DISAGREEMENT"):
         journal.require_observation_integrity(conn)
+
+
+@pytest.mark.parametrize(("path", "replacement"), [
+    (("orders",), []),
+    (("orders", 0, "state"), "cancelled"),
+    (("orders", 0, "quantity"), "99"),
+    (("orders", 0, "filled_quantity"), "1"),
+    (("orders", 0, "filled_average_price"), "12.5"),
+    (("positions", 0, "quantity"), "99"),
+    (("completeness",), "inconsistent"),
+    (("terminal_recovery_through",), "2026-08-30T00:00:00+00:00"),
+    (("observed_at",), "2026-08-30T00:00:00+00:00"),
+])
+def test_historical_observation_economics_tamper_is_uncertifiable(
+        conn, path, replacement):
+    seq = journal.record_observation(
+        conn, _account_bound_observation(datetime.now(UTC)), "RECONCILING")
+    cursor_name = f"broker-observation:v2:{seq}"
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s",
+            (cursor_name,))
+        payload = cur.fetchone()[0]
+        target = payload
+        for part in path[:-1]:
+            target = target[part]
+        target[path[-1]] = replacement
+        cur.execute(
+            "UPDATE sentinel_processed_sessions SET state=%s::jsonb"
+            " WHERE cursor_name=%s",
+            (json.dumps(payload, sort_keys=True), cursor_name))
+    conn.commit()
+    reasons = journal.observation_integrity_issues(conn)[0].reasons
+    assert "CANONICAL_ECONOMICS_DISAGREEMENT" in reasons
+    assert "CANONICAL_PAYLOAD_DIGEST_DISAGREEMENT" in reasons
+
+
+def test_historical_observation_processed_session_tamper_is_uncertifiable(conn):
+    seq = journal.record_observation(
+        conn, _account_bound_observation(datetime.now(UTC)), "RECONCILING")
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE sentinel_processed_sessions SET session=session - 1"
+            " WHERE cursor_name=%s", (f"broker-observation:v2:{seq}",))
+    conn.commit()
+    reasons = journal.observation_integrity_issues(conn)[0].reasons
+    assert "PROCESSED_SESSION_DISAGREEMENT" in reasons
+
+
+def test_historical_observation_malformed_canonical_evidence_is_distinct(conn):
+    seq = journal.record_observation(
+        conn, _account_bound_observation(datetime.now(UTC)), "RECONCILING")
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE sentinel_processed_sessions SET state='[]'::jsonb"
+            " WHERE cursor_name=%s", (f"broker-observation:v2:{seq}",))
+    conn.commit()
+    reasons = journal.observation_integrity_issues(conn)[0].reasons
+    assert "MALFORMED_CANONICAL_EVIDENCE" in reasons
+    assert "MISSING_CANONICAL_EVIDENCE" not in reasons
+
+
+@pytest.mark.parametrize("digest", [None, "0" * 64])
+def test_historical_observation_digest_gap_is_uncertifiable(conn, digest):
+    seq = journal.record_observation(
+        conn, _account_bound_observation(datetime.now(UTC)), "RECONCILING")
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE sentinel_observation_provenance"
+            " SET canonical_payload_sha256=%s WHERE observation_seq=%s",
+            (digest, seq))
+    conn.commit()
+    reasons = journal.observation_integrity_issues(conn)[0].reasons
+    expected = (
+        "MISSING_CANONICAL_PAYLOAD_DIGEST" if digest is None
+        else "CANONICAL_PAYLOAD_DIGEST_DISAGREEMENT")
+    assert expected in reasons
+
+
+def test_historical_observation_missing_normalized_fields_is_uncertifiable(conn):
+    seq = journal.record_observation(
+        conn, _account_bound_observation(datetime.now(UTC)), "RECONCILING")
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE sentinel_observations"
+            " SET orders=jsonb_set(orders,'{0}',orders->0 - 'symbol')"
+            " WHERE seq=%s", (seq,))
+    conn.commit()
+    reasons = journal.observation_integrity_issues(conn)[0].reasons
+    assert "NORMALIZED_EVIDENCE_INSUFFICIENT" in reasons
 
 
 

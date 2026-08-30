@@ -93,7 +93,7 @@ class _CallbackOutcome:
 
 
 _CHILD_EXCEPTION_TYPES = {
-    cls.__name__: cls for cls in (
+    (cls.__module__, cls.__qualname__): cls for cls in (
         CallbackDeadlineExceeded,
         DataIntegrityFailure,
         HumanInterventionRequired,
@@ -131,13 +131,20 @@ def _callback_child(  # pragma: no cover - measured by process fault tests
             "value": value,
         }
     except BaseException as exc:                              # noqa: BLE001
-        name = type(exc).__name__
+        reviewed_class = next(
+            (candidate for candidate in _CHILD_EXCEPTION_TYPES.values()
+             if isinstance(exc, candidate)),
+            None)
+        serialized_class = reviewed_class or type(exc)
         payload = {
             "kind": "error",
-            "name": name,
-            "module": type(exc).__module__,
+            "name": serialized_class.__name__,
+            "module": serialized_class.__module__,
+            "qualname": serialized_class.__qualname__,
+            "actual_module": type(exc).__module__,
+            "actual_qualname": type(exc).__qualname__,
             "detail": str(exc),
-            "reviewed": name in _CHILD_EXCEPTION_TYPES,
+            "reviewed": reviewed_class is not None,
         }
     try:
         channel.send_bytes(json.dumps(
@@ -147,7 +154,10 @@ def _callback_child(  # pragma: no cover - measured by process fault tests
         fallback = {
             "kind": "error",
             "name": "SoftwareDefect",
-            "module": __name__,
+            "module": SoftwareDefect.__module__,
+            "qualname": SoftwareDefect.__qualname__,
+            "actual_module": type(exc).__module__,
+            "actual_qualname": type(exc).__qualname__,
             "detail": (
                 "callback IPC serialization failed: "
                 f"{type(exc).__name__}: {exc}"),
@@ -170,29 +180,33 @@ def _decode_child_callback(payload: bytes):
     if envelope.get("kind") == "result":
         return envelope.get("value")
     name = str(envelope.get("name", "SoftwareDefect"))
-    detail = str(envelope.get("detail", "callback child failed"))
-    if name == "SystemExit":
-        raise SystemExit(detail)
-    if name == "KeyboardInterrupt":
-        raise KeyboardInterrupt(detail)
-    if bool(envelope.get("reviewed")) and name in _CHILD_EXCEPTION_TYPES:
-        raise _CHILD_EXCEPTION_TYPES[name](detail)
     module = str(envelope.get("module", "unknown"))
-    raise SoftwareDefect(f"unreviewed callback exception {module}.{name}: {detail}")
+    qualname = str(envelope.get("qualname", name))
+    detail = str(envelope.get("detail", "callback child failed"))
+    if (module, qualname) == ("builtins", "SystemExit"):
+        raise SystemExit(detail)
+    if (module, qualname) == ("builtins", "KeyboardInterrupt"):
+        raise KeyboardInterrupt(detail)
+    trusted = _CHILD_EXCEPTION_TYPES.get((module, qualname))
+    if bool(envelope.get("reviewed")) and trusted is not None:
+        raise trusted(detail)
+    actual_module = str(envelope.get("actual_module", module))
+    actual_qualname = str(envelope.get("actual_qualname", qualname))
+    raise SoftwareDefect(
+        f"unreviewed callback exception "
+        f"{actual_module}.{actual_qualname}: {detail}")
 
 
-def _terminate_callback_process(process, *, grace_seconds: float = 1.0) -> None:
+def _kill_callback_process(process, *, join_seconds: float = 1.0) -> None:
+    """Immediately revoke kernel execution; SIGTERM has no safety grace."""
     if process is None or not process.is_alive():
         if process is not None:
             process.join(timeout=0)
         return
-    process.terminate()
-    process.join(timeout=grace_seconds)
+    process.kill()
+    process.join(timeout=join_seconds)
     if process.is_alive():
-        process.kill()
-        process.join(timeout=grace_seconds)
-    if process.is_alive():
-        raise SoftwareDefect("callback child could not be terminated")
+        raise SoftwareDefect("callback child could not be killed")
 
 
 PHASE_POLICIES = {
@@ -591,6 +605,7 @@ class AutomationService:
                 raise SoftwareDefect(
                     "production callback supervision requires fork process "
                     "support") from exc
+            context.cancellation.bind_process_event(process_context.Event())
             parent_channel, child_channel = process_context.Pipe(duplex=False)
             callback_process = process_context.Process(
                 target=_callback_child,
@@ -610,11 +625,9 @@ class AutomationService:
                     while True:
                         if parent_channel.poll():
                             payload = parent_channel.recv_bytes()
-                            callback_process.join(timeout=1)
+                            callback_process.join(timeout=0)
                             if callback_process.is_alive():
-                                raise SoftwareDefect(
-                                    "callback child retained execution after "
-                                    "returning its canonical result")
+                                _kill_callback_process(callback_process)
                             return _CallbackOutcome(
                                 value=_decode_child_callback(payload))
                         if not callback_process.is_alive():
@@ -662,7 +675,7 @@ class AutomationService:
             context.cancellation.cancel(reason)
             callback_task.cancel()
             callback_task.add_done_callback(_consume_background_result)
-            _terminate_callback_process(callback_process)
+            _kill_callback_process(callback_process)
             if heartbeat_lost:
                 raise StaleLeaderRefused(reason)
             raise CallbackDeadlineExceeded(reason)
@@ -674,7 +687,7 @@ class AutomationService:
                 callback_task.cancel()
                 callback_task.add_done_callback(
                     _consume_background_result)
-            _terminate_callback_process(callback_process)
+            _kill_callback_process(callback_process)
             raise
         finally:
             stopped.set()
@@ -685,11 +698,11 @@ class AutomationService:
                 if worker.is_alive():
                     context.cancellation.cancel(
                         f"{phase} heartbeat supervisor failed to stop")
-                    _terminate_callback_process(callback_process)
+                    _kill_callback_process(callback_process)
                     raise SoftwareDefect(
                         f"{phase} heartbeat supervisor did not stop within "
                         "the certified boundary")
-            _terminate_callback_process(callback_process)
+            _kill_callback_process(callback_process)
             if parent_channel is not None:
                 parent_channel.close()
 
