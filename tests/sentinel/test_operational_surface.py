@@ -117,6 +117,28 @@ def test_pull_requests_run_the_complete_sentinel_safety_suite():
     assert "git diff --check HEAD^1 HEAD" in workflow
 
 
+def test_pull_request_safety_is_read_only_and_publication_is_main_only():
+    safety = _read(".github/workflows/sentinel-safety.yml")
+    publication = _read(".github/workflows/sentinel-publish.yml")
+    codeowners = _read(".github/CODEOWNERS")
+
+    permissions = safety.split("permissions:", 1)[1].split("concurrency:", 1)[0]
+    assert "contents: read" in permissions
+    assert "packages: write" not in permissions
+    assert "id-token: write" not in permissions
+    assert "docker push" not in safety
+    assert "ACTIONS_ID_TOKEN_REQUEST" not in safety
+
+    assert "workflow_run:" in publication
+    assert "branches: [main]" in publication
+    assert "workflow_run.event == 'push'" in publication
+    assert "workflow_run.head_branch == 'main'" in publication
+    assert "packages: write" in publication
+    assert "id-token: write" in publication
+    assert "run-id: ${{ github.event.workflow_run.id }}" in publication
+    assert "/.github/workflows/ @flabber1835" in codeowners
+
+
 def test_pull_request_ci_proves_it_is_testing_the_synthetic_merge():
     workflow = _read(".github/workflows/sentinel-safety.yml")
     assert "pull_request:\n    branches: [main]" in workflow

@@ -989,7 +989,13 @@ class AlpacaExecutionBroker(ExecutionBroker):
             raise MalformedBrokerPayload("order payload must be an object")
         symbol = str(payload.get("symbol") or "")
         raw_status = str(payload.get("status") or "")
-        if is_anomalous_status(raw_status):
+        replaced_by = (str(payload["replaced_by"]).strip()
+                       if payload.get("replaced_by") else None)
+        replaces = (str(payload["replaces"]).strip()
+                    if payload.get("replaces") else None)
+        externally_replaced = bool(
+            is_anomalous_status(raw_status) or replaced_by or replaces)
+        if externally_replaced:
             log.warning(
                 "sentinel: order %s reports %r; Sentinel never replaces "
                 "orders, so external replacement remains blocking",
@@ -1014,11 +1020,9 @@ class AlpacaExecutionBroker(ExecutionBroker):
                     where=f"order {payload.get('id')} filled_avg_price")
                 if payload.get("filled_avg_price") not in (None, "") else None),
             submitted_at=_parse_ts(payload.get("submitted_at")),
-            external_replacement=is_anomalous_status(raw_status),
-            replaced_by=(str(payload["replaced_by"]).strip()
-                         if payload.get("replaced_by") else None),
-            replaces=(str(payload["replaces"]).strip()
-                      if payload.get("replaces") else None),
+            external_replacement=externally_replaced,
+            replaced_by=replaced_by,
+            replaces=replaces,
             raw=payload)
 
     async def find_by_client_key(self, client_key: str) -> Optional[BrokerOrder]:
@@ -1247,7 +1251,7 @@ ACTIVITY_FILL_INTERVAL_SOURCE = "alpaca_trading_activity_sse_candidate"
 ACTIVITY_FILL_INTERVAL_SEMANTICS = (
     "ALPACA_ACCOUNT_ACTIVITY_FIXED_EVENT_FRONTIER_UNACCEPTED_V1"
 )
-_OBSERVATION_PREFIX = "broker-observation:v3:"
+_OBSERVATION_PREFIX = "broker-observation:v4:"
 _WITNESS_PREFIX = "terminal-recovery-witness:v3:"
 _PROVENANCE_PREFIX = _OBSERVATION_PREFIX
 _DB_INCARCERATION_CURSOR = "broker-recovery-db-incarnation:v1"
@@ -2360,7 +2364,7 @@ def load_provenance(conn, seq: int) -> dict:
         raise RuntimeError(
             f"broker observation {seq} has no account/asset provenance")
     state = _json(row[0], where=f"broker observation {seq} provenance")
-    if (state.get("kind") != "broker-observation/v3"
+    if (state.get("kind") != "broker-observation/v4"
             or state.get("observation_seq") != int(seq)):
         raise RuntimeError(
             f"broker observation {seq} provenance shape is invalid")

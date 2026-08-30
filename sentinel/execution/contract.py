@@ -560,6 +560,30 @@ class BrokerOrder:
 
 
 @dataclass(frozen=True)
+class BrokerExactOrderEvidence:
+    """One exact-client-key read included in a finalized observation."""
+
+    client_key: str
+    request_started_at: datetime
+    request_completed_at: datetime
+    initial_order_id: Optional[str]
+    order: Optional[BrokerOrder]
+
+    def __post_init__(self) -> None:
+        if not self.client_key:
+            raise ValueError("exact-order evidence requires a client key")
+        if (self.request_started_at.tzinfo is None
+                or self.request_completed_at.tzinfo is None):
+            raise ValueError("exact-order request timestamps must be aware")
+        if self.request_started_at > self.request_completed_at:
+            raise ValueError("exact-order request completes before it starts")
+        if self.order is not None and self.order.client_key != self.client_key:
+            raise ValueError("exact-order result changed the requested key")
+        if self.initial_order_id is not None and not self.initial_order_id:
+            raise ValueError("initial exact-order relationship is malformed")
+
+
+@dataclass(frozen=True)
 class BrokerObservation:
     """Orders AND positions, read as one act, with its completeness declared.
 
@@ -597,6 +621,9 @@ class BrokerObservation:
     #: Certified adapters declaring ``account_bound_observation`` must populate
     #: it and prove that identity stayed stable throughout the snapshot.
     account_identity: Optional[BrokerAccountIdentity] = None
+    #: Exact-key reads required to finalize recovery authority. These are
+    #: collected before the observation is journaled or commands are mutated.
+    exact_order_evidence: tuple = ()
 
     def __post_init__(self) -> None:
         if self.observed_at.tzinfo is None:
@@ -642,6 +669,15 @@ class BrokerObservation:
                     f"BrokerObservation repeats permanent position identity "
                     f"{security_id}")
             position_ids.add(security_id)
+        exact_keys: set[str] = set()
+        for evidence in self.exact_order_evidence:
+            if not isinstance(evidence, BrokerExactOrderEvidence):
+                raise TypeError("exact-order evidence must be typed")
+            if evidence.client_key in exact_keys:
+                raise ValueError(
+                    f"BrokerObservation repeats exact key "
+                    f"{evidence.client_key}")
+            exact_keys.add(evidence.client_key)
 
     @property
     def is_complete(self) -> bool:
@@ -659,6 +695,13 @@ class BrokerObservation:
         for o in self.orders:
             if o.client_key == client_key:
                 return o
+        return None
+
+    def exact_by_client_key(
+            self, client_key: str) -> Optional[BrokerExactOrderEvidence]:
+        for evidence in self.exact_order_evidence:
+            if evidence.client_key == client_key:
+                return evidence
         return None
 
     def require_complete(self, purpose: str) -> None:

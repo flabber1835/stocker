@@ -120,6 +120,13 @@ def full_order(*, status="new", quantity="2", filled="0", **changes):
     return payload
 
 
+def test_successor_new_with_replaces_is_external_replacement():
+    broker, _ = adapter()
+    order = broker._to_order(full_order(status="new", replaces="order-0"))
+    assert order.external_replacement is True
+    assert order.replaces == "order-0"
+
+
 def submit(response: Response):
     broker, http = adapter(post=response)
     outcome = run(broker.submit(

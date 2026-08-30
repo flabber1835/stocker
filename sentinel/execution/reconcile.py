@@ -46,7 +46,7 @@ from fractions import Fraction
 from typing import Callable, Mapping, Optional
 
 from sentinel.execution.contract import (
-    BrokerObservation, Completeness, ExecutionBroker)
+    BrokerExactOrderEvidence, BrokerObservation, Completeness, ExecutionBroker)
 from sentinel.execution.identity import DeploymentIdentity, is_sentinel_key
 from sentinel.execution.guarded import BrokerAuthorityRefused
 from sentinel.execution.states import (
@@ -258,6 +258,10 @@ def _validate_recovery_observation(
 def _order_command_conflict(order, command) -> Optional[str]:
     """Return why positive broker evidence cannot describe this command."""
     prefix = f"broker order {order.broker_order_id}/{order.client_key}"
+    if _has_external_replacement(order):
+        return f"{prefix} carries unauthorized broker replacement lineage"
+    if order.submitted_at is None or order.submitted_at.tzinfo is None:
+        return f"{prefix} has no aware broker submission timestamp"
     if order.client_key != command.client_key:
         return f"{prefix} does not carry durable key {command.client_key}"
     if (command.broker_order_id is not None
@@ -309,7 +313,30 @@ def _order_observation_fingerprint(order) -> tuple:
         order.broker_order_id, order.client_key,
         order.instrument.security_id, order.instrument.broker_id,
         order.side, order.quantity,
-        order.state, order.filled_quantity, order.filled_average_price)
+        order.state, order.filled_quantity, order.filled_average_price,
+        order.submitted_at, bool(order.external_replacement),
+        order.replaced_by, order.replaces)
+
+
+def _has_external_replacement(order) -> bool:
+    return bool(
+        order.external_replacement or order.replaced_by or order.replaces)
+
+
+def _keys_requiring_exact_evidence(observation, stored) -> tuple[str, ...]:
+    keys: set[str] = set()
+    for command in stored:
+        initial = observation.by_client_key(command.client_key)
+        if (command.state in (
+                CommandState.ACKNOWLEDGED,
+                CommandState.PARTIALLY_FILLED,
+                CommandState.CANCEL_PENDING)
+                and initial is None):
+            keys.add(command.client_key)
+        if (command.state in (CommandState.SEND_PENDING, CommandState.UNKNOWN)
+                and (initial is None or initial.is_working)):
+            keys.add(command.client_key)
+    return tuple(sorted(keys))
 
 
 def _position_identity_conflicts(
@@ -477,13 +504,45 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
                 detail="broker identity changed between reconciliation and "
                        "the account-bound observation")
 
+    # Finalize every exact-key read that may authorize recovery before any
+    # journal or command mutation. The resulting single observation is the
+    # complete durable authority for this reconciliation cycle.
+    stored = journal.load_commands(conn, deployment)
+    exact_evidence: list[BrokerExactOrderEvidence] = []
+    for client_key in _keys_requiring_exact_evidence(observation, stored):
+        initial = observation.by_client_key(client_key)
+        request_started_at = datetime.now(timezone.utc)
+        try:
+            exact = await broker.find_by_client_key(client_key)
+        except BrokerAuthorityRefused:
+            raise
+        except Exception as exc:                              # noqa: BLE001
+            return ReconciliationResult(
+                runtime_state=RuntimeState.BROKER_DEGRADED,
+                observation=observation,
+                detail=f"exact lookup failed for durable command "
+                       f"{client_key}: {exc}")
+        request_completed_at = datetime.now(timezone.utc)
+        exact_evidence.append(BrokerExactOrderEvidence(
+            client_key=client_key,
+            request_started_at=request_started_at,
+            request_completed_at=request_completed_at,
+            initial_order_id=(
+                initial.broker_order_id if initial is not None else None),
+            order=exact))
+    observation = replace(
+        observation, exact_order_evidence=tuple(exact_evidence))
+
     observation_seq = journal.record_observation(
         conn, observation, RuntimeState.RECONCILING.value)
 
     externally_replaced = tuple(
-        order for order in observation.orders
+        order for order in (
+            observation.orders
+            + tuple(e.order for e in observation.exact_order_evidence
+                    if e.order is not None))
         if (is_sentinel_key(order.client_key)
-            and order.external_replacement))
+            and _has_external_replacement(order)))
     if externally_replaced:
         detail = (
             "Sentinel order(s) carry unauthorized broker replacement "
@@ -527,7 +586,6 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     # 4. RECOVER by key namespace. An order carrying one of our keys but missing
     #    from the journal is HISTORY — typically a restored backup that predates
     #    it — and must be adopted, never duplicated and never called foreign.
-    stored = journal.load_commands(conn, deployment)
     known_keys = {c.client_key for c in stored}
     overlap_conflicts = _validate_recovery_observation(
         observation, stored=stored)
@@ -613,16 +671,11 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
                 CommandState.PARTIALLY_FILLED,
                 CommandState.CANCEL_PENDING)
                 and observation.by_client_key(command.client_key) is None):
-            try:
-                exact = await broker.find_by_client_key(command.client_key)
-            except BrokerAuthorityRefused:
-                raise
-            except Exception as exc:                          # noqa: BLE001
-                return ReconciliationResult(
-                    runtime_state=RuntimeState.BROKER_DEGRADED,
-                    observation=observation,
-                    detail=(f"exact lookup failed for durable command "
-                            f"{command.client_key}: {exc}"))
+            exact_record = observation.exact_by_client_key(command.client_key)
+            if exact_record is None:
+                raise RuntimeError(
+                    "finalized observation omitted required exact-key evidence")
+            exact = exact_record.order
             if exact is None:
                 command = command.transition(
                     CommandState.UNKNOWN,
@@ -663,17 +716,13 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
             # evidence and must beat an exact 404. A working open row still
             # gets the exact-key receipt check that resolves UNKNOWN submits.
             if positive is None or positive.is_working:
-                try:
-                    exact = await broker.find_by_client_key(
-                        command.client_key)
-                except BrokerAuthorityRefused:
-                    raise
-                except Exception as exc:                      # noqa: BLE001
-                    return ReconciliationResult(
-                        runtime_state=RuntimeState.BROKER_DEGRADED,
-                        observation=observation,
-                        detail=(f"exact lookup failed for indeterminate "
-                                f"command {command.client_key}: {exc}"))
+                exact_record = observation.exact_by_client_key(
+                    command.client_key)
+                if exact_record is None:
+                    raise RuntimeError(
+                        "finalized observation omitted required exact-key "
+                        "evidence")
+                exact = exact_record.order
                 if exact is None and observed_positive is not None:
                     inconsistent = replace(
                         observation,

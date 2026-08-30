@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -36,7 +37,8 @@ def _order(asset_id: str) -> BrokerOrder:
         instrument=BrokerInstrument(
             security_id="SEC-AAA", symbol="AAA", broker_id=asset_id),
         side=Side.BUY, state=CommandState.ACKNOWLEDGED,
-        quantity=Decimal("2"), filled_quantity=Decimal("0"))
+        quantity=Decimal("2"), filled_quantity=Decimal("0"),
+        submitted_at=datetime(2026, 8, 29, tzinfo=timezone.utc))
 
 
 def test_order_reconciliation_refuses_asset_id_change():
@@ -47,6 +49,19 @@ def test_order_reconciliation_refuses_asset_id_change():
 def test_asset_id_participates_in_order_observation_fingerprint():
     assert _order_observation_fingerprint(_order("asset-a")) != \
         _order_observation_fingerprint(_order("asset-b"))
+
+
+@pytest.mark.parametrize("field,value", [
+    ("external_replacement", True),
+    ("replaced_by", "successor"),
+    ("replaces", "predecessor"),
+    ("submitted_at", datetime(2026, 8, 30, tzinfo=timezone.utc)),
+])
+def test_replacement_authority_fields_participate_in_order_fingerprint(
+        field, value):
+    baseline = _order("asset-a")
+    assert _order_observation_fingerprint(baseline) != \
+        _order_observation_fingerprint(replace(baseline, **{field: value}))
 
 
 def test_position_reconciliation_refuses_asset_id_change():

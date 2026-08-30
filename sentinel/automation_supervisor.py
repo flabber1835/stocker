@@ -128,12 +128,15 @@ def _holder_id() -> str:
     return f"sentinel-{host}-{uuid.uuid4()}"
 
 
-def _spawn(holder_id: str) -> subprocess.Popen:
+def _spawn(
+        holder_id: str, *, command: tuple[str, ...] | None = None
+        ) -> subprocess.Popen:
     env = os.environ.copy()
     env["SENTINEL_AUTOMATION_HOLDER_ID"] = holder_id
     HOLDER_FILE.write_text(holder_id, encoding="utf-8")
     return subprocess.Popen(
-        [sys.executable, "-m", "sentinel.automation_worker"],
+        list(command or (
+            sys.executable, "-m", "sentinel.automation_worker")),
         stdin=subprocess.DEVNULL, env=env, start_new_session=True)
 
 
@@ -172,6 +175,9 @@ def main() -> int:
         while not stopping:
             code = child.poll()
             if code is not None:
+                # The worker's exit never proves its callback-owned descendants
+                # are gone. Reap the complete old group before replacement.
+                _terminate(child)
                 break
             now_mono = time.monotonic()
             try:

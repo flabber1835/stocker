@@ -319,6 +319,12 @@ request. Once transport is attempted, an uncertain exception remains `UNKNOWN`.
 Guard callback failures on reads are typed authority refusals and latch; an
 inner broker read failure remains retryable transport uncertainty.
 
+The automation supervisor owns the entire dedicated worker process group. Every
+observed worker exit, including an unexpected clean exit or crash, runs the same
+unconditional process-group termination and reap before a replacement worker is
+spawned. The direct Linux parent-death signal is defense in depth for the
+callback child; it does not replace group cleanup for callback-owned descendants.
+
 The control poll verifies the current signed automation certificate under its
 live permit even when there is no cycle or the latest cycle is terminal. It
 records a generation-bound `FAIL` attempt and enqueues an authority alert on

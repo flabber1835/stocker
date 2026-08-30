@@ -941,6 +941,76 @@ class TestReconciliation:
         assert retained["replaced_by"] == "broker-successor"
         assert retained["replaces"] == "broker-predecessor"
 
+    @pytest.mark.parametrize(("raw_status", "external", "replaced_by", "replaces"), [
+        ("pending_replace", True, "broker-successor", None),
+        ("replaced", True, "broker-successor", None),
+        ("new", False, None, "broker-predecessor"),
+    ])
+    def test_exact_key_replacement_race_is_durably_blocked_before_mutation(
+            self, conn, raw_status, external, replaced_by, replaces):
+        checkpoint = journal.terminal_recovery_checkpoint(conn)
+        observed_at = checkpoint + timedelta(hours=1)
+        durable = replace(
+            cmd(state=S.UNKNOWN), broker_order_id="broker-original")
+        journal.save_command(conn, durable)
+        broker = self._broker()
+        broker.now = observed_at
+        initial = BrokerOrder(
+            broker_order_id="broker-original", client_key=durable.client_key,
+            instrument=AAA, side=Side.BUY, state=S.ACKNOWLEDGED,
+            quantity=Decimal(10), submitted_at=observed_at - timedelta(minutes=2))
+        exact = replace(
+            initial, external_replacement=external,
+            replaced_by=replaced_by, replaces=replaces,
+            raw={"status": raw_status})
+        submissions = []
+
+        async def snapshot(**_kwargs):
+            return BrokerObservation(
+                started_at=observed_at - timedelta(seconds=1),
+                observed_at=observed_at, orders=(initial,),
+                terminal_recovery_through=observed_at,
+                completeness=Completeness.COMPLETE,
+                account_identity=broker.account)
+
+        async def exact_lookup(client_key):
+            assert client_key == durable.client_key
+            return exact
+
+        async def forbidden_submit(*args, **kwargs):
+            submissions.append((args, kwargs))
+            raise AssertionError("blocked reconciliation reached submission")
+
+        broker.observe_with_terminal_recovery = snapshot
+        broker.find_by_client_key = exact_lookup
+        broker.submit = forbidden_submit
+        result = run(R.reconcile(
+            broker=broker, conn=conn, binding=None, deployment=DEPLOY))
+
+        assert result.runtime_state is RuntimeState.FOREIGN_ACTIVITY
+        assert journal.load_commands(conn, DEPLOY)[0].state is S.UNKNOWN
+        assert journal.terminal_recovery_checkpoint(conn) == checkpoint
+        assert submissions == []
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT o.runtime_state,p.canonical_payload_sha256,s.state "
+                "FROM sentinel_observations o "
+                "JOIN sentinel_observation_provenance p "
+                "ON p.observation_seq=o.seq "
+                "JOIN sentinel_processed_sessions s "
+                "ON s.cursor_name=('broker-observation:v4:' || o.seq) "
+                "ORDER BY o.seq DESC LIMIT 1")
+            runtime_state, digest, evidence = cur.fetchone()
+        assert runtime_state == RuntimeState.FOREIGN_ACTIVITY.value
+        assert len(digest) == 64
+        retained_exact = evidence["exact_evidence"][0]
+        assert retained_exact["client_key"] == durable.client_key
+        assert retained_exact["initial_order_id"] == "broker-original"
+        assert retained_exact["request_started_at"]
+        assert retained_exact["request_completed_at"]
+        assert retained_exact["order"]["replaces"] == replaces
+        journal.require_observation_integrity(conn)
+
 
 class TestTerminalRecoveryCrashBoundaries:
     @staticmethod

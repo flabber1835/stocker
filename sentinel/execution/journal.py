@@ -831,9 +831,10 @@ def _canonical_observation_payload(
         *, seq: int, broker: str, account_id: str,
         started_at: datetime | None, observed_at: datetime,
         terminal_recovery_through: datetime | None, completeness: str,
-        positions: list[dict], orders: list[dict]) -> dict:
+        positions: list[dict], orders: list[dict],
+        exact_evidence: list[dict]) -> dict:
     return {
-        "kind": "broker-observation/v3",
+        "kind": "broker-observation/v4",
         "observation_seq": int(seq),
         "broker": str(broker),
         "account_id": str(account_id),
@@ -850,6 +851,7 @@ def _canonical_observation_payload(
         "completeness": str(completeness),
         "positions": positions,
         "orders": orders,
+        "exact_evidence": exact_evidence,
     }
 
 
@@ -898,6 +900,39 @@ def record_observation(conn, observation: BrokerObservation,
         "replaced_by": order.replaced_by,
         "replaces": order.replaces,
     } for order in observation.orders]
+    exact_evidence = []
+    for exact in observation.exact_order_evidence:
+        order = exact.order
+        exact_evidence.append({
+            "client_key": exact.client_key,
+            "request_started_at": _aware_utc(
+                exact.request_started_at,
+                "exact-order request start").isoformat(),
+            "request_completed_at": _aware_utc(
+                exact.request_completed_at,
+                "exact-order request completion").isoformat(),
+            "initial_order_id": exact.initial_order_id,
+            "order": None if order is None else {
+                "broker_order_id": order.broker_order_id,
+                "client_key": order.client_key,
+                "security_id": order.instrument.security_id,
+                "symbol": order.instrument.symbol,
+                "broker_id": order.instrument.broker_id,
+                "side": order.side.value,
+                "state": order.state.value,
+                "quantity": str(order.quantity),
+                "filled_quantity": str(order.filled_quantity),
+                "filled_average_price": (
+                    str(order.filled_average_price)
+                    if order.filled_average_price is not None else None),
+                "submitted_at": (
+                    order.submitted_at.isoformat()
+                    if order.submitted_at is not None else None),
+                "external_replacement": bool(order.external_replacement),
+                "replaced_by": order.replaced_by,
+                "replaces": order.replaces,
+            },
+        })
 
     with JournalUnitOfWork(conn), conn.cursor() as cur:
         cur.execute(
@@ -941,7 +976,8 @@ def record_observation(conn, observation: BrokerObservation,
                 terminal_recovery_through=(
                     observation.terminal_recovery_through),
                 completeness=observation.completeness.value,
-                positions=canonical_positions, orders=canonical_orders)
+                positions=canonical_positions, orders=canonical_orders,
+                exact_evidence=exact_evidence)
             payload_digest = _canonical_observation_digest(payload)
             cur.execute(
                 "INSERT INTO sentinel_observation_provenance"
@@ -953,9 +989,10 @@ def record_observation(conn, observation: BrokerObservation,
                  json.dumps({
                      "started_at": observation.started_at.isoformat(),
                      "positions": position_provenance,
+                     "exact_evidence": exact_evidence,
                  }, sort_keys=True),
                  payload_digest))
-            cursor_name = f"broker-observation:v3:{seq}"
+            cursor_name = f"broker-observation:v4:{seq}"
             cur.execute(
                 "INSERT INTO sentinel_processed_sessions"
                 " (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)"
@@ -1005,7 +1042,7 @@ def observation_integrity_issues(conn) -> tuple[ObservationIntegrityIssue, ...]:
             " LEFT JOIN sentinel_observation_provenance p"
             "   ON p.observation_seq=o.seq"
             " LEFT JOIN sentinel_processed_sessions s"
-            "   ON s.cursor_name=('broker-observation:v3:' || o.seq::text)"
+            "   ON s.cursor_name=('broker-observation:v4:' || o.seq::text)"
             " ORDER BY o.seq")
         rows = cur.fetchall()
     issues = []
@@ -1044,7 +1081,7 @@ def observation_integrity_issues(conn) -> tuple[ObservationIntegrityIssue, ...]:
             required = {
                 "kind", "observation_seq", "broker", "account_id",
                 "started_at", "observed_at", "terminal_recovery_through",
-                "completeness", "positions", "orders",
+                "completeness", "positions", "orders", "exact_evidence",
             }
             if not required.issubset(evidence):
                 reasons.append("MALFORMED_CANONICAL_EVIDENCE")
@@ -1053,7 +1090,7 @@ def observation_integrity_issues(conn) -> tuple[ObservationIntegrityIssue, ...]:
                     evidence_seq = int(evidence.get("observation_seq", -1))
                 except (TypeError, ValueError):
                     evidence_seq = -1
-                if (evidence.get("kind") != "broker-observation/v3"
+                if (evidence.get("kind") != "broker-observation/v4"
                         or evidence_seq != int(seq)
                         or evidence.get("broker") != bound_broker
                         or evidence.get("account_id") != bound_account):
@@ -1064,6 +1101,9 @@ def observation_integrity_issues(conn) -> tuple[ObservationIntegrityIssue, ...]:
         provenance_record = _decoded_json(provenance_positions, dict)
         provenance_positions = (
             provenance_record.get("positions")
+            if provenance_record is not None else None)
+        provenance_exact_evidence = (
+            provenance_record.get("exact_evidence")
             if provenance_record is not None else None)
         started_at = None
         if provenance_record is not None:
@@ -1091,6 +1131,7 @@ def observation_integrity_issues(conn) -> tuple[ObservationIntegrityIssue, ...]:
             and normalized_orders is not None
             and provenance_positions is not None
             and isinstance(provenance_positions, list)
+            and isinstance(provenance_exact_evidence, list)
             and all(isinstance(item, dict)
                     and position_fields.issubset(item)
                     for item in provenance_positions)
@@ -1141,7 +1182,8 @@ def observation_integrity_issues(conn) -> tuple[ObservationIntegrityIssue, ...]:
                 observed_at=observed_at,
                 terminal_recovery_through=terminal_recovery_through,
                 completeness=str(completeness),
-                positions=canonical_positions, orders=canonical_orders)
+                positions=canonical_positions, orders=canonical_orders,
+                exact_evidence=provenance_exact_evidence)
             if evidence is not None and evidence != expected_payload:
                 reasons.append("CANONICAL_ECONOMICS_DISAGREEMENT")
         else:

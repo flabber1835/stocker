@@ -1,0 +1,104 @@
+name: Sentinel protected publication
+
+on:
+  workflow_run:
+    workflows: [Sentinel safety]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  publish-tested-main-image:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the exact tested main commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Download the exact tested image artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: sentinel-tested-image-${{ github.event.workflow_run.head_sha }}
+          path: /tmp/sentinel-tested-image
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify, publish, and retain signed provenance
+        shell: bash
+        env:
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          TEST_RUN_ID: ${{ github.event.workflow_run.id }}
+          REGISTRY: ghcr.io
+          IMAGE_NAME: ${{ github.repository }}/sentinel-authorized
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd /tmp/sentinel-tested-image
+          sha256sum --check SHA256SUMS
+          test "$(cat COMMIT)" = "$TESTED_SHA"
+          docker load --input sentinel-authorized.tar
+          test "$(docker image inspect sentinel-authorized:ci \
+            --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" \
+            = "$TESTED_SHA"
+          image_ref="${REGISTRY}/${IMAGE_NAME}:${TESTED_SHA}"
+          echo "$GITHUB_TOKEN" | docker login "$REGISTRY" \
+            --username "$GITHUB_ACTOR" --password-stdin
+          docker tag sentinel-authorized:ci "$image_ref"
+          docker push "$image_ref"
+          digest="$(docker image inspect "$image_ref" \
+            --format '{{index .RepoDigests 0}}' | sed 's/^.*@//')"
+          case "$digest" in
+            sha256:????????????????????????????????????????????????????????????????) ;;
+            *) exit 1 ;;
+          esac
+          mkdir -p /tmp/sentinel-provenance
+          export image_ref digest
+          python - <<'PY'
+          import json, os
+          evidence = {
+              "schema": "sentinel.exact-sha-provenance/2",
+              "commit": os.environ["TESTED_SHA"],
+              "test_workflow_run": os.environ["TEST_RUN_ID"],
+              "publication_workflow_run": os.environ["GITHUB_RUN_ID"],
+              "tested_image": os.environ["image_ref"],
+              "tested_image_digest": os.environ["digest"],
+          }
+          with open("/tmp/sentinel-provenance/provenance.json", "w") as out:
+              json.dump(evidence, out, sort_keys=True, separators=(",", ":"))
+              out.write("\n")
+          PY
+          provenance_sha="$(sha256sum \
+            /tmp/sentinel-provenance/provenance.json | awk '{print $1}')"
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sha256:${provenance_sha}" \
+            > /tmp/sentinel-provenance/oidc-response.json
+          python - <<'PY'
+          import json
+          with open("/tmp/sentinel-provenance/oidc-response.json") as source:
+              token = json.load(source)["value"]
+          with open("/tmp/sentinel-provenance/provenance.oidc.jwt", "w") as out:
+              out.write(token + "\n")
+          PY
+          rm /tmp/sentinel-provenance/oidc-response.json
+          sha256sum /tmp/sentinel-provenance/* \
+            > /tmp/sentinel-provenance/SHA256SUMS
+
+      - name: Retain signed promotion evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sentinel-provenance-${{ github.event.workflow_run.head_sha }}
+          path: /tmp/sentinel-provenance
+          if-no-files-found: error
+          retention-days: 90

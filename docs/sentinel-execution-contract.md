@@ -686,10 +686,15 @@ skew and boundary replay.
 
 Each account-bound broker observation is one journal unit of work. The
 normalized observation, account/asset provenance, raw fields, and canonical
-`broker-observation/v3` evidence are written before one final commit. Version 3
+`broker-observation/v4` evidence are written before one final commit. Version 4
 retains the multi-request `started_at` lower bound and each order's
 `submitted_at`, external-replacement flag, and broker-native `replaced_by` /
-`replaces` identifiers. Repository
+`replaces` identifiers. It also retains every exact-client-key request used by
+reconciliation, its request start/completion timestamps, its relationship to
+the initial snapshot, and its complete positive or absent result. Reconciliation
+collects and commits this finalized evidence set before adopting or mutating any
+command and before advancing the terminal-recovery watermark. An exact result
+is never appended only to an in-memory observation. Repository
 writes do not commit independently. A failure at any write boundary rolls the
 entire observation back. `observation_integrity_gaps` reports historical rows
 from the former two-commit path that have account provenance but no canonical
@@ -718,7 +723,12 @@ watermark commit causes safe replay rather than a gap.
 Overlap is validation, not merely duplicate suppression. A previously adopted
 client key must still name the same broker order, security, side and quantity;
 its fill quantity may not regress, and unchanged fill quantity may not acquire
-a different average price or terminal state. Every recovered row has a positive
+a different average price or terminal state. Cross-read identity also includes
+submission time and all replacement fields. Sentinel never requests broker
+replacement, so `external_replacement`, `replaced_by`, or `replaces` on either
+the initial row or an exact-key result is unauthorized external economics and
+blocks the cycle before command mutation. A successor whose status remains
+`new` is still externally replaced when it carries `replaces`. Every recovered row has a positive
 quantity, `0 <= filled <= quantity`, an aware submission timestamp, and an
 average fill price whenever anything filled. One client key attached to two
 broker ids is ambiguous ownership. Any violation leaves the old watermark in

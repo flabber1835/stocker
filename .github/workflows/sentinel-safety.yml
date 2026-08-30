@@ -17,8 +17,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
-  id-token: write
 
 concurrency:
   group: sentinel-safety-${{ github.event.pull_request.number || github.ref }}
@@ -277,101 +275,24 @@ jobs:
             git diff --check HEAD^ HEAD
           fi
 
-      - name: Publish the exact tested OCI image
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+      - name: Export the exact tested OCI image for protected publication
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash
-        env:
-          REGISTRY: ghcr.io
-          IMAGE_NAME: ${{ github.repository }}/sentinel-authorized
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          image_ref="${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}"
-          echo "$GITHUB_TOKEN" | docker login "$REGISTRY" \
-            --username "$GITHUB_ACTOR" --password-stdin
-          docker tag sentinel-authorized:ci "$image_ref"
-          push_output="$(docker push "$image_ref")"
-          printf '%s\n' "$push_output"
-          digest="$(printf '%s\n' "$push_output" \
-            | awk '/digest: sha256:/ {
-                for (field = 1; field <= NF; field++) {
-                  if ($field ~ /^sha256:/) {
-                    digest = $field
-                  }
-                }
-              }
-              END { print digest }')"
-          case "$digest" in
-            sha256:????????????????????????????????????????????????????????????????) ;;
-            *)
-              echo "REFUSED: registry did not return an immutable digest" >&2
-              exit 1
-              ;;
-          esac
-          echo "SENTINEL_TESTED_IMAGE=$image_ref" >> "$GITHUB_ENV"
-          echo "SENTINEL_TESTED_IMAGE_DIGEST=$digest" >> "$GITHUB_ENV"
+          mkdir -p /tmp/sentinel-tested-image
+          docker save sentinel-authorized:ci \
+            > /tmp/sentinel-tested-image/sentinel-authorized.tar
+          sha256sum /tmp/sentinel-tested-image/sentinel-authorized.tar \
+            > /tmp/sentinel-tested-image/SHA256SUMS
+          printf '%s\n' "$GITHUB_SHA" \
+            > /tmp/sentinel-tested-image/COMMIT
 
-      - name: Create signed exact-SHA provenance
-        shell: bash
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/sentinel-provenance
-          tree_hash="$(git rev-parse 'HEAD^{tree}')"
-          dependency_lock_hash="$(sha256sum \
-            sentinel/requirements.lock tests/requirements.lock \
-            | sha256sum | awk '{print $1}')"
-          test_manifest_hash="$(git ls-files -z tests \
-            | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
-          image_digest="${SENTINEL_TESTED_IMAGE_DIGEST:-$(docker image inspect \
-            sentinel-authorized:ci --format '{{.Id}}')}"
-          export tree_hash dependency_lock_hash test_manifest_hash image_digest
-          python - <<'PY'
-          import json, os
-          evidence = {
-              "schema": "sentinel.exact-sha-provenance/1",
-              "event": os.environ["GITHUB_EVENT_NAME"],
-              "commit": os.environ["GITHUB_SHA"],
-              "declared_base": os.environ.get("BASE_SHA") or None,
-              "declared_head": os.environ["HEAD_SHA"],
-              "source_tree": os.environ["tree_hash"],
-              "workflow_run": os.environ["GITHUB_RUN_ID"],
-              "workflow_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
-              "dependency_locks": os.environ["dependency_lock_hash"],
-              "test_manifest": os.environ["test_manifest_hash"],
-              "tested_image": os.environ.get("SENTINEL_TESTED_IMAGE"),
-              "tested_image_digest": os.environ["image_digest"],
-              "schema_epoch": "sentinel.behavioral_schema/current",
-              "semantic_epoch": "sentinel.automation_cycle/1",
-          }
-          with open("/tmp/sentinel-provenance/provenance.json", "w") as out:
-              json.dump(evidence, out, sort_keys=True, separators=(",", ":"))
-              out.write("\n")
-          PY
-          provenance_sha="$(sha256sum \
-            /tmp/sentinel-provenance/provenance.json | awk '{print $1}')"
-          oidc_url="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sha256:${provenance_sha}"
-          curl --fail --silent --show-error \
-            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "$oidc_url" > /tmp/sentinel-provenance/oidc-response.json
-          python - <<'PY'
-          import json
-          path = "/tmp/sentinel-provenance/oidc-response.json"
-          with open(path) as source:
-              token = json.load(source)["value"]
-          with open("/tmp/sentinel-provenance/provenance.oidc.jwt", "w") as out:
-              out.write(token + "\n")
-          PY
-          rm /tmp/sentinel-provenance/oidc-response.json
-          sha256sum /tmp/sentinel-provenance/* \
-            > /tmp/sentinel-provenance/SHA256SUMS
-
-      - name: Retain signed promotion evidence
+      - name: Retain the exact tested image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: sentinel-provenance-${{ github.sha }}-${{ github.event_name }}
-          path: /tmp/sentinel-provenance
+          name: sentinel-tested-image-${{ github.sha }}
+          path: /tmp/sentinel-tested-image
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 7

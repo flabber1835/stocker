@@ -6,6 +6,7 @@ import multiprocessing
 import os
 import signal
 import socket
+import sys
 import time
 
 import pytest
@@ -25,6 +26,7 @@ from sentinel.automation.model import (
 )
 from sentinel.automation.service import AutomationService
 from sentinel import automation_runtime
+from sentinel import automation_supervisor
 from sentinel.execution.certification import (
     AdapterNotCertified,
     require_certified_adapter,
@@ -187,6 +189,73 @@ def test_callback_dies_when_automation_worker_is_sigkilled(tmp_path) -> None:
     assert not _pid_is_executing(callback_pid)
     time.sleep(1.3)
     assert not marker.exists()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux process-group test")
+def test_actual_supervisor_spawn_reaps_complete_group_before_replacement(
+        tmp_path) -> None:
+    ready = tmp_path / "group-ready"
+    pids = tmp_path / "group-pids"
+    marker = tmp_path / "delayed-write"
+    program = r'''
+import os, signal, sys, time
+ready, pids, marker = sys.argv[1:]
+callback = os.fork()
+if callback == 0:
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    extra = os.fork()
+    if extra == 0:
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        time.sleep(10)
+        os._exit(0)
+    with open(pids, "w", encoding="utf-8") as handle:
+        handle.write(f"{os.getpid()} {extra}")
+    with open(ready, "w", encoding="utf-8") as handle:
+        handle.write("ready")
+    time.sleep(1.2)
+    with open(marker, "w", encoding="utf-8") as handle:
+        handle.write("unsafe")
+    os._exit(0)
+time.sleep(10)
+'''
+    first = automation_supervisor._spawn(  # noqa: SLF001
+        "group-integration-1",
+        command=(sys.executable, "-c", program, str(ready), str(pids),
+                 str(marker)))
+    second = None
+    try:
+        deadline = time.monotonic() + 3
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert ready.exists()
+        callback_pid, extra_pid = (
+            int(value) for value in pids.read_text(encoding="utf-8").split())
+        old_group = os.getpgid(first.pid)
+        assert old_group == first.pid
+
+        os.kill(first.pid, signal.SIGKILL)
+        first.wait(timeout=2)
+        automation_supervisor._terminate(first, grace_seconds=0)  # noqa: SLF001
+        deadline = time.monotonic() + 2
+        while (any(_pid_is_executing(pid)
+                   for pid in (callback_pid, extra_pid))
+               and time.monotonic() < deadline):
+            time.sleep(0.02)
+        assert not _pid_is_executing(callback_pid)
+        assert not _pid_is_executing(extra_pid)
+        time.sleep(1.3)
+        assert not marker.exists()
+
+        second = automation_supervisor._spawn(  # noqa: SLF001
+            "group-integration-2",
+            command=(sys.executable, "-c", "import time; time.sleep(10)"))
+        assert os.getpgid(second.pid) == second.pid
+        assert os.getpgid(second.pid) != old_group
+    finally:
+        if first.poll() is None:
+            automation_supervisor._terminate(first, grace_seconds=0)  # noqa: SLF001
+        if second is not None:
+            automation_supervisor._terminate(second, grace_seconds=0)  # noqa: SLF001
 
 
 @pytest.mark.asyncio
