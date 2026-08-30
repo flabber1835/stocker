@@ -1,0 +1,88 @@
+diff --git a/shared/stock_strategy_shared/wealth_core/state.py b/shared/stock_strategy_shared/wealth_core/state.py
+--- a/shared/stock_strategy_shared/wealth_core/state.py
++++ b/shared/stock_strategy_shared/wealth_core/state.py
+@@ -25,7 +25,7 @@ import hashlib
+ import json
+ import math
+ from dataclasses import asdict, dataclass, field
+-from typing import TYPE_CHECKING, Any, Mapping
++from typing import TYPE_CHECKING, AbstractSet, Any, Mapping
+ 
+ if TYPE_CHECKING:  # pragma: no cover
+     from stock_strategy_shared.wealth_core.marks import EquityView, Mark
+@@ -442,18 +442,35 @@ class PortfolioState:
+ 
+     # ── session advance ──────────────────────────────────────────────────────
+ 
+-    def age_one_session(self, split_adjusted_closes: dict[str, float]) -> None:
++    def age_one_session(
++            self,
++            split_adjusted_closes: dict[str, float],
++            *,
++            skip_slot_cooldowns: AbstractSet[int] = frozenset(),
++            skip_security_cooldowns: AbstractSet[str] = frozenset(),
++            ) -> None:
+         """Advance every clock by one completed session.
+ 
+         Order matters and is fixed: holdings age and ratchet first, then
+         cooldowns. Both use the same "strictly after the event" convention
+         documented in the module docstring.
++
++        Cooldowns created during this same session are named by the caller and
++        remain at age 0. Their first completed session strictly after the exit
++        is the next market close. The default ages every cooldown, preserving
++        the direct state-machine API for callers that are already operating at
++        a strictly-after-event close.
+         """
+         for e in self.episodes.values():
+             e.observe_close(split_adjusted_closes.get(e.security_id))
+-        for s in self.slots.values():
+-            s.age_cooldown()
++        for slot_id, s in self.slots.items():
++            if slot_id not in skip_slot_cooldowns:
++                s.age_cooldown()
+         for sid in list(self.security_cooldowns):
++            if sid in skip_security_cooldowns:
++                continue
+             self.security_cooldowns[sid] += 1
+             if self.security_cooldowns[sid] >= COOLDOWN_SESSIONS:
+                 del self.security_cooldowns[sid]
+diff --git a/shared/stock_strategy_shared/wealth_core/adapter.py b/shared/stock_strategy_shared/wealth_core/adapter.py
+--- a/shared/stock_strategy_shared/wealth_core/adapter.py
++++ b/shared/stock_strategy_shared/wealth_core/adapter.py
+@@ -823,6 +823,14 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
+     """
+     by_sec = {b.security_id: b for b in bars}
+     res_cancelled: list[dict] = []
++    # Snapshot cooldowns that already existed before this session's events.
++    # A terminal action or pending exit below can create a new cooldown. Under
++    # the locked convention, the event session's own close is age 0, so those
++    # new clocks must not advance in step 5.
++    slot_cooldowns_at_session_start = {
++        slot_id for slot_id, slot in state.slots.items()
++        if slot.cooldown_sessions_elapsed is not None}
++    security_cooldowns_at_session_start = set(state.security_cooldowns)
+ 
+     # ── 0. re-label ──────────────────────────────────────────────────────────
+     # Before anything reads a ticker. Changes no number and no economic state.
+@@ -1004,9 +1012,19 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
+     signal_closes = {b.security_id: b.signal_close_split_adj_div_unadj for b in bars}
+     aged = {sid: ep for sid, ep in state.episodes.items()
+             if sid not in entered_this_session}
++    new_slot_cooldowns = {
++        slot_id for slot_id, slot in state.slots.items()
++        if slot.cooldown_sessions_elapsed is not None
++    } - slot_cooldowns_at_session_start
++    new_security_cooldowns = (
++        set(state.security_cooldowns) - security_cooldowns_at_session_start
++    )
+     saved, state.episodes = state.episodes, aged
+-    state.age_one_session(signal_closes)
++    state.age_one_session(
++        signal_closes,
++        skip_slot_cooldowns=new_slot_cooldowns,
++        skip_security_cooldowns=new_security_cooldowns,
++    )
+     state.episodes = saved
+     for slot_id in entered_this_session:
+         # Age 0 at the entry close (locked convention), but this IS the first
