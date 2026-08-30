@@ -167,6 +167,24 @@ jobs:
           test "$(sha256sum backtester/data/GS3M_1996-12_2007-05.csv | awk '{print $1}')" = "1c1dbdcddd50c2445f8c65d1378d3d2bc87626fe2dc9b9956bc0cd97682a72d3"
           (cd backtester/data && sha256sum -c causal-terminal-terms-v1.SHA256)
 
+      - name: Preflight strict pre-chain issuer boundary
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import backtester.run_production_strict_pit_20y as wrapper
+          evidence = wrapper.strict.preflight_strict_boundaries(wrapper.WARMUP_START)
+          if evidence['legacy_issuer_key_reached']:
+              raise SystemExit('strict preflight unexpectedly reached legacy issuer_key')
+          if evidence['unknown_fallback'] != 'SEC_UNKNOWN:STRICT-PREFLIGHT-SID':
+              raise SystemExit('strict preflight singleton fallback changed')
+          if not evidence['split_anchor_preserved']:
+              raise SystemExit('strict preflight changed split anchor semantics')
+          print('STRICT PREFLIGHT GO:', evidence)
+          PY
+
       - name: Run 2006-2007 diagnostic
         shell: bash
         env:
@@ -199,7 +217,7 @@ jobs:
               )
           if p.get('first_divergence') is not None:
               raise SystemExit('DIAGNOSTIC NO_GO: production/research divergence: '+json.dumps(p['first_divergence'],sort_keys=True))
-          print('DIAGNOSTIC GO: candidate/session security type complete and production/research NAV equivalent')
+          print('DIAGNOSTIC GO: candidate/session security type complete and production/research equivalence passed')
           PY
 
       - name: Run full 20-year certification
@@ -233,7 +251,7 @@ jobs:
               raise SystemExit('FULL NO_GO: production/research divergence: '+json.dumps(p['first_divergence'],sort_keys=True))
           if not p.get('quarterly_blocks_emitted'):
               raise SystemExit('FULL NO_GO: no joined quarterly CAGR checkpoints')
-          print('FULL GO: strict PIT 20-year authority and NAV equivalence evidence passed')
+          print('FULL GO: strict PIT 20-year authority and equivalence evidence passed')
           PY
 
       - name: Upload diagnostic and certification evidence
