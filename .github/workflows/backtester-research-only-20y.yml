@@ -42,6 +42,7 @@ jobs:
             /.github/workflows/backtester-research-only-20y.yml
             /backtester/run_research_strict_pit_20y.py
             /backtester/run_research_strict_pit_certification.py
+            /backtester/run_production_strict_pit_certification.py
             /backtester/strict_pit_metadata.py
             /backtester/canonical_pit_dataset.py
             /backtester/causal_split_overrides.py
