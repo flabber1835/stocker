@@ -26,23 +26,16 @@ MEASUREMENT_START = "2006-07-31"
 FULL_END_SESSION = "2026-07-31"
 END_SESSION = os.environ.get("CERTIFICATION_END_SESSION", FULL_END_SESSION)
 
-# The machine's causal state begins at WARMUP_START.  The corrected SFP builder,
-# however, expects its wrapped factor series to begin at the measurement anchor
-# and prepends raw SPY warm-up observations itself. Keep those two boundaries
-# distinct while preserving warm-up ACTIONS/SEP processing.
 strict.corrected.WARMUP_START = WARMUP_START
 strict.corrected.MEASUREMENT_START = MEASUREMENT_START
 strict.corrected.runner.CHAIN_START = WARMUP_START
 strict.corrected.runner.END_SESSION = END_SESSION
 strict.corrected.runner.EXPERIMENT_ID = "2026-08-30-strict-pit-20y-production"
-
 strict.runner.CHAIN_START = WARMUP_START
 strict.runner.END_SESSION = END_SESSION
 strict.MEASUREMENT_START = MEASUREMENT_START
 
-# The reused corrected wrapper has a historical 1997 label in its generic log
-# message.  Keep its mechanics unchanged but render the dates from this active
-# certification contract so the Actions output cannot imply a 1997 replay.
+
 def _corrected_contract_print(*args, **kwargs):
     if args and args[0] == (
         "[RUN] corrected production replay: 1997 full-machine warm-up + causal historical cash"
@@ -56,7 +49,6 @@ def _corrected_contract_print(*args, **kwargs):
 
 
 strict.corrected.print = _corrected_contract_print
-
 _original_measurement_factor_builder = strict.corrected._original_sfp_builder
 
 
@@ -70,12 +62,6 @@ def _measurement_anchored_factor_builder(path):
 
 
 strict.corrected._original_sfp_builder = _measurement_anchored_factor_builder
-
-# Frozen terminal evidence stores legacy Sharadar permanent IDs as provenance.
-# Strict PIT deliberately replaces those IDs with causal price-tape/SEC episode
-# IDs. Join the frozen economics by historical ticker/session and instantiate
-# TerminalTerms with the resolver's causal ID so the event reaches the same
-# security identity used by Wealth Core on that session.
 _original_terminal_loader = strict.base.load_frozen_terminal_terms
 
 
@@ -85,24 +71,13 @@ def _causal_identity_terminal_loader(*args, **kwargs):
 
 
 strict.base.load_frozen_terminal_terms = _causal_identity_terminal_loader
-
-# The base terminal provenance layer carries a dedicated 2001 regression witness.
-# It remains valuable for replays that include that boundary, but it is outside
-# this 2006+ contract. Move only that assertion outside the active horizon; the
-# terminal-event loader still validates every in-window frozen event strictly.
 if strict.base.BOUNDARY_SESSION < WARMUP_START:
     strict.base.BOUNDARY_SESSION = "9999-12-31"
-
-# The base replay always writes a metrics table before the strict wrapper adds
-# its maximum-history row. A bounded diagnostic therefore needs one harmless
-# metric window so the table retains its schema. The diagnostic never treats
-# this row as certification performance evidence.
 if END_SESSION != FULL_END_SESSION:
     strict.runner.MEASUREMENT_WINDOWS = {1: MEASUREMENT_START}
 
 
 def _active_split_adjudications() -> dict[tuple[str, str], dict]:
-    """Load only frozen adjudications inside the active bounded replay horizon."""
     data_path = ROOT / "backtester" / "data" / "causal-split-overrides-v1.json"
     checksum_path = ROOT / "backtester" / "data" / "causal-split-overrides-v1.SHA256"
     expected = split_overrides._expected_digest(checksum_path, data_path)
@@ -117,7 +92,6 @@ def _active_split_adjudications() -> dict[tuple[str, str], dict]:
     records = list(payload.get("records") or [])
     sidecars, _witnesses = split_overrides._load_sidecar_records(data_path)
     records.extend(sidecars)
-
     active: dict[tuple[str, str], dict] = {}
     for raw in records:
         ticker = str(raw.get("ticker") or "").strip()
@@ -161,10 +135,6 @@ def _install_split_adjudications() -> None:
     if not active:
         print("[SPLIT ADJUDICATION] active=0", flush=True)
         return
-    split_module = strict.runner.normalise_sep_rows.__globals__.get("SplitStreamReconciler")
-    # normalise_sep_rows is imported from sentinel.feed.domains and resolves the
-    # reconciler from the frozen main split_reconciliation module. Install on
-    # that canonical module so the same runtime witness checks remain active.
     import stock_strategy_shared.split_reconciliation as canonical_split
     split_overrides.install_primary_split_adjudication(canonical_split, active)
     print(
