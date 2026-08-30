@@ -1,0 +1,186 @@
+name: Backtester retained-research causal certification v4
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - research/strict-pit-causal-certification
+    paths:
+      - .github/workflows/backtester-research-causal-certification-v4.yml
+      - backtester/research_causal_*.py
+      - backtester/run_research_causal_*.py
+      - tests/backtester/test_research_causal_certification.py
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: retained-research-causal-certification-v4-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  certify:
+    name: Certify schema-aware causal timing on immutable 2006-2007 PIT package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Check out isolated certification branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-research-causal-certification-v4.yml
+            /AGENTS.md
+            /docs/backtester-experiment-contract.md
+            /backtester/**
+            /tests/backtester/**
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+
+      - name: Enforce isolated branch identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "research/strict-pit-causal-certification"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test -z "$(git status --porcelain)"
+          echo "BACKTESTER_BRANCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+
+      - name: Check out pinned production source read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+            docs/sentinel-handoff/00_README
+
+      - name: Verify pinned production identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED=887f479b15ad861313da666ad698034d3847121c
+          ACTUAL="$(git -C main-src rev-parse HEAD)"
+          test "${ACTUAL}" = "${EXPECTED}"
+          test -z "$(git -C main-src status --porcelain)"
+          echo "BACKTESTER_MAIN_SHA=${ACTUAL}" >> "${GITHUB_ENV}"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+          check-latest: false
+
+      - name: Install frozen production runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+
+      - name: Compile causal harness and retained strategy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            backtester/research_causal_runtime.py \
+            backtester/research_causal_runtime_v2.py \
+            backtester/research_causal_runtime_v4.py \
+            backtester/research_causal_instrumentation.py \
+            backtester/research_causal_instrumentation_v2.py \
+            backtester/research_causal_instrumentation_v3.py \
+            backtester/research_causal_instrumentation_v4.py \
+            backtester/run_research_causal_single.py \
+            backtester/run_research_causal_single_v4.py \
+            backtester/run_research_causal_certification.py \
+            backtester/run_research_causal_certification_v4.py
+          python -m py_compile \
+            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+          python -m compileall -q -f main-src/sentinel main-src/shared/stock_strategy_shared
+
+      - name: Run causal, review-basis, and canonical-loader tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest tests.backtester.test_research_causal_certification -v
+          python -m unittest tests.backtester.test_research_review_basis -v
+          python -m unittest tests.backtester.test_canonical_pit_dataset -v
+
+      - name: Pull and verify immutable 2006-2007 canonical PIT package
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          POINTER=backtester/data/canonical-pit-2006-2007.json
+          CANONICAL_PATH=backtester-results/canonical-pit-2006-2007
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          test "${PACKAGE}" = "ghcr.io/flabber1835/stocker-canonical-pit@sha256:37b41e3b91a8e26cfa3030039467ca94d71d0090839dae48e290453d7a17eadb"
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          CONTAINER=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p "${CANONICAL_PATH}"
+          docker cp "${CONTAINER}:/canonical-pit/." "${CANONICAL_PATH}"
+          docker rm "${CONTAINER}"
+          trap - EXIT
+          python backtester/canonical_pit_package.py verify \
+            --pointer "${POINTER}" --dataset "${CANONICAL_PATH}"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path('backtester/data/canonical-pit-2006-2007.json').read_text())
+          assert p['dataset_hash']=='08db292b78f0968b149ec033671b5c5df62ad98a4b2692bcc5dfa575585fa4e6'
+          assert p['manifest_sha256']=='008f768539c8e6d0e5f2f01a05dab1baf93560c2ffeb7ca7b1521b1a236263e1'
+          assert p['package']=='ghcr.io/flabber1835/stocker-canonical-pit@sha256:37b41e3b91a8e26cfa3030039467ca94d71d0090839dae48e290453d7a17eadb'
+          assert p['window']=={'warmup_start':'2006-01-03','measurement_start':'2006-07-31','end':'2007-12-31'}
+          print('[CANONICAL POINTER PASS]', p['dataset_id'])
+          PY
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/${CANONICAL_PATH}" >> "${GITHUB_ENV}"
+
+      - name: Run schema-aware fail-closed causal certification
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set -euo pipefail
+          mkdir -p backtester-results/research-causal-certification
+          python backtester/run_research_causal_certification_v4.py \
+            --canonical-dataset "${CANONICAL_PIT_DATASET}" \
+            --output backtester-results/research-causal-certification \
+            2>&1 | tee backtester-research-causal-certification.log
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('backtester-results/research-causal-certification/causal-certification-report.json').read_text())
+          assert report['status']=='PASS'
+          assert report['certified'] is True
+          assert report['dataset']['dataset_hash']=='08db292b78f0968b149ec033671b5c5df62ad98a4b2692bcc5dfa575585fa4e6'
+          assert len(report['cutoffs'])==12
+          assert all(x['prefix_invariance']['status']=='PASS' for x in report['cutoffs'])
+          assert all(x['future_poisoning'] is None or x['future_poisoning']['status']=='PASS' for x in report['cutoffs'])
+          assert report['execution_timing']['status']=='PASS'
+          assert report['static_leakage_audit']['status']=='PASS'
+          assert report['execution_timing']['med_age119']['age']==119
+          print('[V4 CERTIFICATION GATE PASS]')
+          PY
+
+      - name: Upload causal certification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: retained-research-causal-certification-v4-${{ github.run_id }}
+          path: |
+            backtester-results/research-causal-certification/**
+            backtester-research-causal-certification.log
+          if-no-files-found: warn
+          retention-days: 30
