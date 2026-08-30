@@ -1,0 +1,38 @@
+name: PR3 target root inventory
+
+on:
+  push:
+    branches:
+      - 'fix/pr3-paper-test-canonical-owners-ci'
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: codex/pr3-paper-test-canonical-owners
+          fetch-depth: 1
+      - name: Inventory current PR3 root coupling
+        run: |
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+
+          path = Path('tests/sentinel/test_paper_private_root_test_ownership.py')
+          spec = importlib.util.spec_from_file_location('paper_guard', path)
+          guard = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(guard)
+          violations = []
+          for candidate in sorted(guard.TESTS.rglob('*.py')):
+              if candidate.resolve() == path.resolve():
+                  continue
+              violations.extend(guard._paper_root_violations(candidate))
+          for violation in violations:
+              print(violation)
+          print(f'PR3_PRIVATE_ROOT_VIOLATIONS={len(violations)}')
+          raise SystemExit(1 if violations else 0)
+          PY
