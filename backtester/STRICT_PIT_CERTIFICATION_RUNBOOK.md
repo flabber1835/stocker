@@ -13,6 +13,8 @@ This is the entry point for continuing strict-PIT certification on branch
 - Dataset status: `PASS`
 - Full 20-year job: deliberately disabled pending the completed diagnostic
   strategy-boundary audit
+- Research-only 20-year replay: available as a separate, non-equivalence job;
+  it may run while the bounded production comparison is completing
 
 The canonical dataset contains 3,151,110 observations, 7,301 securities, 502
 sessions, 10,835 metadata-timeline rows, 22,674 action rows, and 952 terminal
@@ -128,6 +130,26 @@ the canonical artifact and verifies:
 5. the first exact strategy divergence is recorded across universe, ranking,
    positions, Wealth Core equity, breadth, target, LD-RC state, allocation, and
    NAV.
+
+### Research-only 20-year replay
+
+Open [Backtester - research-only canonical PIT 20-year replay](https://github.com/flabber1835/stocker/actions/workflows/backtester-research-only-20y.yml),
+select **Run workflow**, and choose `research/backtester`.
+
+This separate workflow covers warmup `2006-01-03` through `2006-07-28` and the
+20-year measurement window `2006-07-31` through `2026-07-31`. It reconstructs
+and certifies the full-window canonical dataset before starting retained
+research. The corporate-action gate is unchanged: any unresolved full-window
+event leaves the manifest at `FAIL`, blocks strategy execution, and is retained
+in the uploaded evidence rather than bypassed.
+
+During reconstruction the log reports each completed source year. During
+warmup it reports `CAGR=N/A`; after measurement begins it prints paired
+research and SPY cumulative CAGR records at each calendar-quarter boundary.
+The completed artifact contains the full canonical dataset, its manifest and
+session hashes, the research bundle, and both logs. This research-only job does
+not certify production/research equivalence and does not enable the disabled
+20-year dual-engine certification job.
 
 ## Promotion gate for the 20-year run
 
