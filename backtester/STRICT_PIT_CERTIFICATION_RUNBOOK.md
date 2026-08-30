@@ -139,6 +139,10 @@ the canonical artifact and verifies:
 Open **Backtester - build and store canonical PIT 20-year dataset**, select
 **Run workflow**, and choose `research/backtester`.
 
+An audited automation may also update
+`backtester/data/canonical-pit-20y-build-request.json`; that path is the only
+push trigger for this expensive maintenance workflow.
+
 This dataset-maintenance workflow performs no economic replay. It has a
 six-hour attempt limit and automatically retries on a fresh GitHub runner after
 an interrupted attempt. A successful attempt:

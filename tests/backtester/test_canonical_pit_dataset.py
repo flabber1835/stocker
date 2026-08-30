@@ -206,6 +206,7 @@ class CanonicalPITDatasetTests(unittest.TestCase):
         self.assertNotIn("canonical_pit_dataset.py build", replay)
         self.assertNotIn("SHARADAR_SEP_", replay)
         self.assertIn("packages: write", orchestrator)
+        self.assertIn("canonical-pit-20y-build-request.json", orchestrator)
         self.assertIn("packages: read", replay)
         self.assertIn("canonical-pit-20y.json", replay)
         self.assertIn("docker pull", replay)

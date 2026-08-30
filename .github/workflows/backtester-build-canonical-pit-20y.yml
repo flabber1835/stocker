@@ -3,6 +3,11 @@ run-name: Build and store canonical PIT 20-year dataset — ${{ github.sha }}
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - research/backtester
+    paths:
+      - 'backtester/data/canonical-pit-20y-build-request.json'
 
 permissions:
   actions: read
