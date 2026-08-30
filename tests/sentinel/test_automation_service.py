@@ -274,6 +274,7 @@ async def test_crash_after_preparing_commit_replays_canonical_prepare(conn) -> N
 async def test_refresh_crash_restart_recognizes_existing_publication(conn) -> None:
     cfg = config()
     enable(conn, cfg)
+    calls = []
 
     def die_after_publication(context):
         calls.append("published")
