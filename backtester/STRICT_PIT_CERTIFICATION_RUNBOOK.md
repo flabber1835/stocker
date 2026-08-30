@@ -30,6 +30,20 @@ Research security-type coverage remains fail-closed and explicit:
 - 114,374 without strict-prior positive security-type evidence
 - 1,334 with strict-prior positive evidence and a CIK mismatch
 
+## Retained-research review-basis correction
+
+The frozen production implementation records a position's age-119 review
+basis from the split-adjusted execution-session open.  The retained research
+source instead initialized that basis from the execution session's close and
+then overwrote it again while initializing the episode peak.  That was an
+implementation defect, not a strategy rule difference.
+
+The backtester research wrapper now corrects this retained-source seam before
+execution: the fill records the split-adjusted execution open as the immutable
+review basis, while the entry-session close initializes only the episode peak.
+The raw execution open remains the accounting fill price.  Regression guards
+fail if either source seam moves or if an entry-close overwrite reappears.
+
 ## Architecture
 
 ```text

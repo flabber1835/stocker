@@ -46,6 +46,54 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+def install_execution_open_review_basis(text: str) -> str:
+    """Align the retained replay's age-119 basis with frozen production.
+
+    Accounting fills remain on the raw/as-traded open.  ``opsig`` preserves the
+    same execution observation in the split-adjusted price domain used by the
+    age-119 close comparison.  The entry-session close initializes the episode
+    peak only; it must never overwrite this immutable review basis.
+    """
+    text = replace_once(
+        text,
+        "opraw=np.full(n,np.nan); clsig=np.full(n,np.nan); clraw=np.full(n,np.nan); volume=np.full(n,np.nan)",
+        "opraw=np.full(n,np.nan); opsig=np.full(n,np.nan); clsig=np.full(n,np.nan); clraw=np.full(n,np.nan); volume=np.full(n,np.nan)",
+        "review-basis adjusted-open state",
+    )
+    text = replace_once(
+        text,
+        "for a in (opraw,clsig,clraw,volume,mom,recent,score,adv): a[touched]=np.nan",
+        "for a in (opraw,opsig,clsig,clraw,volume,mom,recent,score,adv): a[touched]=np.nan",
+        "review-basis adjusted-open reset",
+    )
+    text = replace_once(
+        text,
+        "opraw[tids]=rawop; clsig[tids]=c; clraw[tids]=cu; volume[tids]=vol; mom[tids]=mm; recent[tids]=rr; score[tids]=sc; adv[tids]=av",
+        "opraw[tids]=rawop; opsig[tids]=oo; clsig[tids]=c; clraw[tids]=cu; volume[tids]=vol; mom[tids]=mm; recent[tids]=rr; score[tids]=sc; adv[tids]=av",
+        "review-basis adjusted-open observation",
+    )
+    text = replace_once(
+        text,
+        "s.entry_sig=float(clsig[tid]) if finite(clsig[tid]) else np.nan; s.peak=np.nan; book.initialized=True; buys+=1",
+        "s.entry_sig=float(opsig[tid]) if finite(opsig[tid]) and opsig[tid]>0 else np.nan; s.peak=np.nan; book.initialized=True; buys+=1",
+        "review-basis execution fill",
+    )
+    text = replace_once(
+        text,
+        "if finite(px) and px>0: s.peak=float(px); s.entry_sig=float(px)",
+        "if finite(px) and px>0: s.peak=float(px)",
+        "entry-close peak without review-basis overwrite",
+    )
+    forbidden = (
+        "s.entry_sig=float(clsig[tid])",
+        "s.peak=float(px); s.entry_sig=float(px)",
+    )
+    for needle in forbidden:
+        if needle in text:
+            raise RuntimeError(f"retained research review-basis defect survived transform: {needle}")
+    return text
+
+
 def transformed_source(mode: str, output: Path) -> str:
     text = SOURCE.read_text(encoding="utf-8")
     if f"COMMIT = '{EXPECTED_RESEARCH_COMMIT}'" not in text:
@@ -76,6 +124,7 @@ def transformed_source(mode: str, output: Path) -> str:
         "END = pd.Timestamp('2026-07-31')\nMODE = os.environ.get('RESEARCH_REPLAY_MODE', 'nonpit')\nPIT_MODE = MODE == 'fullpit'",
         "mode",
     )
+    text = install_execution_open_review_basis(text)
 
     old_action = "    d=zcsv(ROOT/'SHARADAR_ACTIONS.zip',['date','action','ticker','value','contraticker'])"
     new_action = """    if PIT_MODE:\n        d=pd.read_csv(Path('PIT input data')/'ACTIONS_PIT_ONLY.csv.gz',compression='gzip',usecols=['date','action','ticker','value'],low_memory=False)\n        d['contraticker']=None\n    else:\n        d=zcsv(ROOT/'SHARADAR_ACTIONS.zip',['date','action','ticker','value','contraticker'])"""

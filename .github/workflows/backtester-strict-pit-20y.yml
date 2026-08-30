@@ -39,6 +39,7 @@ jobs:
             /backtester/canonical_pit_dataset.py
             /backtester/CANONICAL_PIT_DATASET_DESIGN.md
             /tests/backtester/test_canonical_pit_dataset.py
+            /tests/backtester/test_research_review_basis.py
             /backtester/strict_pit_run15_diagnostics.py
             /backtester/causal_split_overrides.py
             /backtester/run_ldrc_corrected_warmup_cash.py
@@ -149,6 +150,7 @@ jobs:
             backtester/experiments/2026-08-27-sector-abc/run.py
           python -m compileall -q -f main-src/sentinel main-src/shared/stock_strategy_shared
           python -m unittest tests.backtester.test_canonical_pit_dataset -v
+          python -m unittest tests.backtester.test_research_review_basis -v
 
       - name: Verify strict PIT authority inputs
         shell: bash

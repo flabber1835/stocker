@@ -112,18 +112,18 @@ def _canonical_transform(text: str) -> str:
         1,
     )
     text = text.replace(
-        "opraw=np.full(n,np.nan); clsig=np.full(n,np.nan); clraw=np.full(n,np.nan); volume=np.full(n,np.nan)",
-        "opraw=np.full(n,np.nan); clsig=np.full(n,np.nan); clraw=np.full(n,np.nan); volume=np.full(n,np.nan); rawdividend=np.zeros(n); canonicalsplit=np.ones(n)",
+        "opraw=np.full(n,np.nan); opsig=np.full(n,np.nan); clsig=np.full(n,np.nan); clraw=np.full(n,np.nan); volume=np.full(n,np.nan)",
+        "opraw=np.full(n,np.nan); opsig=np.full(n,np.nan); clsig=np.full(n,np.nan); clraw=np.full(n,np.nan); volume=np.full(n,np.nan); rawdividend=np.zeros(n); canonicalsplit=np.ones(n)",
         1,
     )
     text = text.replace(
-        "for a in (opraw,clsig,clraw,volume,mom,recent,score,adv): a[touched]=np.nan",
-        "for a in (opraw,clsig,clraw,volume,mom,recent,score,adv): a[touched]=np.nan\n                rawdividend[touched]=0.; canonicalsplit[touched]=1.",
+        "for a in (opraw,opsig,clsig,clraw,volume,mom,recent,score,adv): a[touched]=np.nan",
+        "for a in (opraw,opsig,clsig,clraw,volume,mom,recent,score,adv): a[touched]=np.nan\n                rawdividend[touched]=0.; canonicalsplit[touched]=1.",
         1,
     )
     text = text.replace(
-        "opraw[tids]=rawop; clsig[tids]=c; clraw[tids]=cu; volume[tids]=vol; mom[tids]=mm; recent[tids]=rr; score[tids]=sc; adv[tids]=av",
-        "opraw[tids]=rawop; clsig[tids]=c; clraw[tids]=cu; volume[tids]=vol; rawdividend[tids]=g.dividend_per_share.to_numpy(float,copy=False); canonicalsplit[tids]=g.split_ratio.to_numpy(float,copy=False); mom[tids]=mm; recent[tids]=rr; score[tids]=sc; adv[tids]=av",
+        "opraw[tids]=rawop; opsig[tids]=oo; clsig[tids]=c; clraw[tids]=cu; volume[tids]=vol; mom[tids]=mm; recent[tids]=rr; score[tids]=sc; adv[tids]=av",
+        "opraw[tids]=rawop; opsig[tids]=oo; clsig[tids]=c; clraw[tids]=cu; volume[tids]=vol; rawdividend[tids]=g.dividend_per_share.to_numpy(float,copy=False); canonicalsplit[tids]=g.split_ratio.to_numpy(float,copy=False); mom[tids]=mm; recent[tids]=rr; score[tids]=sc; adv[tids]=av",
         1,
     )
     split_start = text.index("            for tid0,cs,cr in zip(tids,c,cu):")
