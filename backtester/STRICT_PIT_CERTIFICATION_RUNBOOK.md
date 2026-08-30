@@ -90,6 +90,13 @@ evidence, not as the durable input authority.
 No required certification input may exist only in `/tmp`, a local workspace,
 or an uncommitted file.
 
+The reconstruction builder computes per-session hashes in a bounded-memory
+second pass over the finished canonical observation partitions.  It retains
+only one session of canonical rows at a time.  Dataset validation fully
+decompresses every gzip member in addition to checking byte hashes, sizes, and
+the aggregate dataset hash.  This prevents both all-history memory growth and
+admission of a content-addressed but truncated compressed member.
+
 ## Diagnostic split dispositions
 
 The reconciliation gate remains active. The three Run #18 blockers now have

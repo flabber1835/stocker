@@ -10,12 +10,15 @@ import pandas as pd
 
 from backtester.canonical_pit_dataset import (
     METADATA_COLUMNS,
+    OBSERVATION_COLUMNS,
     SCHEMA,
     SESSION_HASH_COLUMNS,
     CanonicalPITDataset,
     _DeterministicGzipCsv,
+    _canonical_csv_line,
     _dataset_hash,
     _member,
+    _write_session_hashes,
 )
 from backtester.canonical_pit_package import (
     POINTER_SCHEMA,
@@ -80,6 +83,65 @@ def _artifact(root: Path, *, status: str = "PASS") -> Path:
 
 
 class CanonicalPITDatasetTests(unittest.TestCase):
+    def test_streaming_session_hashes_match_v1_sorted_parts_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            observations = root / "observations-2006.csv.gz"
+            rows = [
+                {"session": "2006-01-03", "security_id": "2", "ticker": "XYZ"},
+                {"session": "2006-01-03", "security_id": "1", "ticker": "ABC"},
+                {"session": "2006-01-04", "security_id": "1", "ticker": "ABC"},
+            ]
+            with _DeterministicGzipCsv(observations, OBSERVATION_COLUMNS) as writer:
+                for row in rows:
+                    writer.write(row)
+
+            non_observation = {
+                "2006-01-03": ["C\0cash-1", "A\0action-1"],
+                "2006-01-04": ["B\0benchmark-2"],
+            }
+            output = root / "session-hashes.csv"
+            _write_session_hashes(
+                path=output,
+                sessions=("2006-01-03", "2006-01-04"),
+                observation_paths=(observations,),
+                non_observation_parts=non_observation,
+                observation_rows={"2006-01-03": 2, "2006-01-04": 1},
+                action_rows={"2006-01-03": 1},
+                terminal_rows={},
+            )
+
+            expected = {}
+            for session in ("2006-01-03", "2006-01-04"):
+                parts = list(non_observation.get(session, ()))
+                parts.extend(
+                    "O\0" + _canonical_csv_line(row, OBSERVATION_COLUMNS)
+                    for row in rows if row["session"] == session
+                )
+                import hashlib
+                digest = hashlib.sha256()
+                for part in sorted(parts):
+                    digest.update(part.encode("utf-8"))
+                    digest.update(b"\n")
+                expected[session] = digest.hexdigest()
+            actual = pd.read_csv(output, dtype=str)
+            self.assertEqual(
+                dict(zip(actual.session, actual.input_sha256)), expected
+            )
+
+    def test_loader_rejects_hash_valid_but_truncated_gzip(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            dataset = _artifact(Path(raw) / "pit")
+            timeline = dataset / "metadata-timeline.csv.gz"
+            timeline.write_bytes(timeline.read_bytes()[:-8])
+            manifest_path = dataset / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["members"][timeline.name] = _member(timeline, dataset, 1)
+            manifest["dataset_hash"] = _dataset_hash(manifest["members"])
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "compressed member invalid"):
+                CanonicalPITDataset(dataset)
+
     def test_security_type_provenance_distinguishes_cik_mismatch(self) -> None:
         class Model:
             cik_dates = {"ABC": ("2006-01-01",)}
@@ -202,6 +264,12 @@ class CanonicalPITDatasetTests(unittest.TestCase):
         replay = Path(
             ".github/workflows/backtester-research-only-20y.yml"
         ).read_text(encoding="utf-8")
+        diagnostic_publish = Path(
+            ".github/workflows/backtester-publish-canonical-pit-diagnostic.yml"
+        ).read_text(encoding="utf-8")
+        diagnostic_replay = Path(
+            ".github/workflows/backtester-strict-pit-20y.yml"
+        ).read_text(encoding="utf-8")
         self.assertIn("canonical_pit_dataset.py build", build)
         self.assertNotIn("canonical_pit_dataset.py build", replay)
         self.assertNotIn("SHARADAR_SEP_", replay)
@@ -210,6 +278,12 @@ class CanonicalPITDatasetTests(unittest.TestCase):
         self.assertIn("packages: read", replay)
         self.assertIn("canonical-pit-20y.json", replay)
         self.assertIn("docker pull", replay)
+        self.assertIn("canonical_pit_dataset.py build", diagnostic_publish)
+        self.assertIn("canonical-pit-2006-2007.json", diagnostic_publish)
+        self.assertIn("docker push", diagnostic_publish)
+        self.assertNotIn("canonical_pit_dataset.py build", diagnostic_replay)
+        self.assertIn("canonical-pit-2006-2007.json", diagnostic_replay)
+        self.assertIn("docker pull", diagnostic_replay)
         self.assertEqual(orchestrator.count("uses: ./.github/workflows/backtester-build-canonical-pit-attempt.yml"), 3)
         for fixture in (
             "/.github/workflows/backtester-build-canonical-pit-attempt.yml",
@@ -219,6 +293,10 @@ class CanonicalPITDatasetTests(unittest.TestCase):
             "/backtester/run_production_strict_pit_certification.py",
         ):
             self.assertIn(fixture, build)
+
+        builder = Path("backtester/canonical_pit_dataset.py").read_text(encoding="utf-8")
+        self.assertNotIn('session_parts[session].append("O\\0"', builder)
+        self.assertIn("_write_session_hashes(", builder)
 
 
 if __name__ == "__main__":

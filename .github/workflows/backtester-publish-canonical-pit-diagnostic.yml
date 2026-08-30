@@ -1,0 +1,128 @@
+name: Backtester - publish canonical PIT 2006-2007 dataset
+run-name: Publish canonical PIT 2006-2007 dataset — ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [research/backtester]
+    paths: [backtester/data/canonical-pit-2006-2007-build-request.json]
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: backtester-publish-canonical-pit-2006-2007
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref_name == 'research/backtester'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/**
+            /tests/backtester/test_canonical_pit_dataset.py
+            /research/sentinel-fastgate/pit-evidence/**
+            /PIT input data/**
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SFP/**
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen reconstruction runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_BRANCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+
+      - name: Reconstruct frozen SFP archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat sharadar/SFP/SHARADAR_SFP.zip.* > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+
+      - name: Build and certify bounded canonical dataset
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATASET=backtester-results/canonical-pit-2006-2007
+          python -m unittest tests.backtester.test_canonical_pit_dataset -v
+          python backtester/canonical_pit_dataset.py build \
+            --output "${DATASET}" \
+            --warmup-start 2006-01-03 \
+            --measurement-start 2006-07-31 \
+            --end 2007-12-31
+          python backtester/canonical_pit_dataset.py validate --dataset "${DATASET}"
+
+      - name: Publish immutable GHCR package
+        id: package
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          DATASET=backtester-results/canonical-pit-2006-2007
+          HASH=$(python -c "import json; print(json.load(open('${DATASET}/manifest.json'))['dataset_hash'])")
+          IMAGE="ghcr.io/flabber1835/stocker-canonical-pit:strict-pit-${HASH}"
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker build --file backtester/canonical-pit.Dockerfile \
+            --build-arg SOURCE_REPOSITORY="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --build-arg DATASET_HASH="${HASH}" --tag "${IMAGE}" "${DATASET}"
+          docker push "${IMAGE}"
+          docker pull "${IMAGE}"
+          PACKAGE=$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE}")
+          echo "package=${PACKAGE}" >> "${GITHUB_OUTPUT}"
+          echo "dataset_hash=${HASH}" >> "${GITHUB_OUTPUT}"
+
+      - name: Commit admitted bounded-dataset pointer
+        shell: bash
+        env:
+          PACKAGE: ${{ steps.package.outputs.package }}
+        run: |
+          set -euo pipefail
+          POINTER=backtester/data/canonical-pit-2006-2007.json
+          python backtester/canonical_pit_package.py write \
+            --dataset backtester-results/canonical-pit-2006-2007 \
+            --output "${POINTER}" --package "${PACKAGE}" \
+            --source-run-id "${GITHUB_RUN_ID}" \
+            --source-run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          git add "${POINTER}"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "data(backtester): pin canonical PIT 2006-2007 ${{ steps.package.outputs.dataset_hash }}"
+          git push origin HEAD:research/backtester
+
+      - name: Upload redundant certification evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-pit-2006-2007-${{ github.run_id }}
+          path: backtester-results/canonical-pit-2006-2007
+          retention-days: 90
+          compression-level: 0

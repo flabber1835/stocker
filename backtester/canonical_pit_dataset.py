@@ -158,6 +158,13 @@ def _text(value) -> str:
     return "" if value is None or pd.isna(value) else str(value)
 
 
+def _canonical_csv_line(
+    row: Mapping[str, object], columns: Sequence[str]
+) -> str:
+    normalized = {key: _text(row.get(key)) for key in columns}
+    return json.dumps(normalized, sort_keys=True, separators=(",", ":"))
+
+
 class _DeterministicGzipCsv:
     def __init__(self, path: Path, columns: Sequence[str]):
         self.path = path
@@ -178,7 +185,7 @@ class _DeterministicGzipCsv:
         normalized = {key: _text(row.get(key)) for key in self.columns}
         self.writer.writerow(normalized)
         self.rows += 1
-        return json.dumps(normalized, sort_keys=True, separators=(",", ":"))
+        return _canonical_csv_line(normalized, self.columns)
 
     def close(self) -> None:
         self._text.flush()
@@ -191,6 +198,110 @@ class _DeterministicGzipCsv:
 
     def __exit__(self, exc_type, exc, tb):
         self.close()
+
+
+def _observation_session_parts(
+    paths: Iterable[Path],
+) -> Iterator[tuple[str, list[str]]]:
+    """Re-read canonical partitions with memory bounded to one session."""
+    prior_session: str | None = None
+    current_session: str | None = None
+    parts: list[str] = []
+    for path in paths:
+        with gzip.open(path, "rt", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            if tuple(reader.fieldnames or ()) != OBSERVATION_COLUMNS:
+                raise RuntimeError(
+                    f"canonical observation columns changed in {path.name}"
+                )
+            for row in reader:
+                session = str(row["session"])
+                if current_session is None:
+                    current_session = session
+                elif session != current_session:
+                    if session < current_session:
+                        raise RuntimeError(
+                            "canonical observations are not session ordered: "
+                            f"{current_session} -> {session}"
+                        )
+                    yield current_session, parts
+                    prior_session = current_session
+                    current_session = session
+                    parts = []
+                if prior_session is not None and session <= prior_session:
+                    raise RuntimeError(
+                        f"canonical observation session repeated: {session}"
+                    )
+                parts.append(
+                    "O\0" + _canonical_csv_line(row, OBSERVATION_COLUMNS)
+                )
+    if current_session is not None:
+        yield current_session, parts
+
+
+def _write_session_hashes(
+    *,
+    path: Path,
+    sessions: Sequence[str],
+    observation_paths: Sequence[Path],
+    non_observation_parts: Mapping[str, Sequence[str]],
+    observation_rows: Mapping[str, int],
+    action_rows: Mapping[str, int],
+    terminal_rows: Mapping[str, int],
+) -> None:
+    """Compute the v1 session hash contract in a bounded-memory second pass."""
+    observed = iter(_observation_session_parts(observation_paths))
+    current = next(observed, None)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=SESSION_HASH_COLUMNS, lineterminator="\n"
+        )
+        writer.writeheader()
+        for session in sessions:
+            if current is not None and current[0] < session:
+                raise RuntimeError(
+                    f"canonical observation session outside axis: {current[0]}"
+                )
+            observation_parts: Sequence[str] = ()
+            if current is not None and current[0] == session:
+                observation_parts = current[1]
+                current = next(observed, None)
+            expected_rows = int(observation_rows.get(session, 0))
+            if len(observation_parts) != expected_rows:
+                raise RuntimeError(
+                    f"canonical observation row count changed for {session}: "
+                    f"{len(observation_parts)} != {expected_rows}"
+                )
+            digest = hashlib.sha256()
+            parts = [
+                *non_observation_parts.get(session, ()),
+                *observation_parts,
+            ]
+            for part in sorted(parts):
+                digest.update(part.encode("utf-8"))
+                digest.update(b"\n")
+            writer.writerow({
+                "session": session,
+                "observation_rows": expected_rows,
+                "action_rows": action_rows.get(session, 0),
+                "terminal_rows": terminal_rows.get(session, 0),
+                "input_sha256": digest.hexdigest(),
+            })
+    if current is not None:
+        raise RuntimeError(
+            f"canonical observation session outside axis: {current[0]}"
+        )
+
+
+def _verify_gzip_member(path: Path) -> None:
+    try:
+        with gzip.open(path, "rb") as handle:
+            for _chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                pass
+    except (EOFError, OSError) as exc:
+        raise RuntimeError(
+            f"canonical PIT compressed member invalid: {path.name}: {exc}"
+        ) from exc
 
 
 def _load_pit_model(cik_path: Path, sic_path: Path, sid_to_ticker: Mapping[str, str]):
@@ -633,7 +744,9 @@ def build_dataset(
     last_metadata: dict[str, tuple] = {}
     observation_rows_by_session: dict[str, int] = defaultdict(int)
     priced_tickers_by_session: dict[str, set[str]] = defaultdict(set)
-    session_parts: dict[str, list[str]] = defaultdict(list)
+    # Only non-observation rows are retained. Observation hashes are computed
+    # from the finished partitions one session at a time after reconstruction.
+    non_observation_parts: dict[str, list[str]] = defaultdict(list)
     dividend_by_event: dict[tuple[str, str], float] = {}
     raw_stream = _raw_sep_rows(root / "sharadar", start, end, source_inputs)
     progress_year: int | None = None
@@ -689,9 +802,8 @@ def build_dataset(
                     )
                 progress_year = year
                 progress_rows = 0
-            canonical_line = observation_writers[year].write(row)
+            observation_writers[year].write(row)
             progress_rows += 1
-            session_parts[session].append("O\0" + canonical_line)
             observation_rows_by_session[session] += 1
             observed_security_ids.add(sid)
             priced_tickers_by_session[session].add(ticker.upper())
@@ -782,7 +894,7 @@ def build_dataset(
         for row in canonical_actions:
             effective = str(row["effective_session"])
             canonical_line = action_writer.write(row)
-            session_parts[effective].append("A\0" + canonical_line)
+            non_observation_parts[effective].append("A\0" + canonical_line)
             action_rows_by_session[effective] += 1
             action_count += 1
 
@@ -799,7 +911,7 @@ def build_dataset(
         for row in terminal_rows:
             effective = str(row["effective_session"])
             canonical_line = terminal_writer.write(row)
-            session_parts[effective].append("T\0" + canonical_line)
+            non_observation_parts[effective].append("T\0" + canonical_line)
             terminal_rows_by_session[effective] += 1
     terminal_count = len(terminal_rows)
 
@@ -818,7 +930,7 @@ def build_dataset(
                 "source": source,
             }
             line = writer.write(row)
-            session_parts[session].append("C\0" + line)
+            non_observation_parts[session].append("C\0" + line)
 
     spy_level = 1.0
     with _DeterministicGzipCsv(benchmark_path, BENCHMARK_COLUMNS) as writer:
@@ -834,24 +946,18 @@ def build_dataset(
                 "level": _float_text(spy_level),
             }
             line = writer.write(item)
-            session_parts[str(row.date)].append("B\0" + line)
+            non_observation_parts[str(row.date)].append("B\0" + line)
 
     session_hash_path = output / "session-hashes.csv"
-    with session_hash_path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=SESSION_HASH_COLUMNS, lineterminator="\n")
-        writer.writeheader()
-        for session in sessions:
-            digest = hashlib.sha256()
-            for part in sorted(session_parts[session]):
-                digest.update(part.encode("utf-8"))
-                digest.update(b"\n")
-            writer.writerow({
-                "session": session,
-                "observation_rows": observation_rows_by_session[session],
-                "action_rows": action_rows_by_session[session],
-                "terminal_rows": terminal_rows_by_session[session],
-                "input_sha256": digest.hexdigest(),
-            })
+    _write_session_hashes(
+        path=session_hash_path,
+        sessions=sessions,
+        observation_paths=[observation_paths[year] for year in sorted(observation_paths)],
+        non_observation_parts=non_observation_parts,
+        observation_rows=observation_rows_by_session,
+        action_rows=action_rows_by_session,
+        terminal_rows=terminal_rows_by_session,
+    )
 
     members = {}
     for year, path in observation_paths.items():
@@ -959,6 +1065,8 @@ class CanonicalPITDataset:
             if (observed["sha256"] != expected.get("sha256")
                     or observed["bytes"] != int(expected.get("bytes"))):
                 raise RuntimeError(f"canonical PIT member changed: {name}")
+            if path.suffix == ".gz":
+                _verify_gzip_member(path)
             observed_members[name] = expected
         observed_hash = _dataset_hash(observed_members)
         if observed_hash != self.manifest.get("dataset_hash"):

@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: backtester-strict-pit-20y-${{ github.ref }}
@@ -37,6 +38,8 @@ jobs:
             /backtester/run_research_strict_pit_certification.py
             /backtester/strict_pit_metadata.py
             /backtester/canonical_pit_dataset.py
+            /backtester/canonical_pit_package.py
+            /backtester/data/canonical-pit-2006-2007.json
             /backtester/CANONICAL_PIT_DATASET_DESIGN.md
             /tests/backtester/test_canonical_pit_dataset.py
             /tests/backtester/test_research_review_basis.py
@@ -140,6 +143,7 @@ jobs:
             backtester/run_research_strict_pit_certification.py \
             backtester/strict_pit_metadata.py \
             backtester/canonical_pit_dataset.py \
+            backtester/canonical_pit_package.py \
             backtester/strict_pit_run15_diagnostics.py \
             backtester/causal_split_overrides.py \
             backtester/run_ldrc_corrected_warmup_cash.py \
@@ -205,20 +209,24 @@ jobs:
             --root . \
             --output backtester-results/strict-pit-20y-diagnostic
 
-      - name: Build and certify canonical 2006-2007 PIT dataset
+      - name: Pull and certify stored canonical 2006-2007 PIT dataset
         shell: bash
         env:
           PYTHONUNBUFFERED: '1'
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           CANONICAL_PATH=backtester-results/canonical-pit-2006-2007
-          python backtester/canonical_pit_dataset.py build \
-            --output "${CANONICAL_PATH}" \
-            --warmup-start 2006-01-03 \
-            --measurement-start 2006-07-31 \
-            --end 2007-12-31
-          python backtester/canonical_pit_dataset.py validate \
-            --dataset "${CANONICAL_PATH}"
+          POINTER=backtester/data/canonical-pit-2006-2007.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          CONTAINER=$(docker create "${PACKAGE}")
+          mkdir -p "${CANONICAL_PATH}"
+          docker cp "${CONTAINER}:/canonical-pit/." "${CANONICAL_PATH}"
+          docker rm "${CONTAINER}"
+          python backtester/canonical_pit_package.py verify \
+            --pointer "${POINTER}" --dataset "${CANONICAL_PATH}"
           echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/${CANONICAL_PATH}" >> "${GITHUB_ENV}"
 
       - name: Run 2006-2007 diagnostic
