@@ -102,7 +102,7 @@ jobs:
           persist-credentials: false
           filter: blob:none
           sparse-checkout: |
-            sentinel/requirements.lock
+            sentinel
             shared
 
       - name: Verify pinned runtime identity
