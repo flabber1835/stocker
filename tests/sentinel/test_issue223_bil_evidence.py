@@ -8,6 +8,10 @@ from types import SimpleNamespace
 import pytest
 
 from sentinel import identity, paper, trial
+from sentinel.paper import (
+    preparation as paper_preparation,
+    targets as paper_targets,
+)
 from sentinel.execution.projection import project
 from sentinel.execution import reconcile
 from sentinel.feed import coherence, ingest_impl
@@ -208,12 +212,12 @@ def test_paper_planning_resolves_fixed_bil_mark_and_sizes_the_sleeve(
         [("SEC-A", "AAA", Decimal("100"))],
         [("SENTINEL:BIL", Decimal("90"))])
     monkeypatch.setattr(
-        paper, "shadow_target",
+        paper_preparation, "shadow_target",
         lambda _state: SimpleNamespace(
             shares={"SEC-A": Decimal("100")},
             tickers={"SEC-A": "AAA"}))
 
-    marks, tickers = paper._load_marks_and_tickers(  # noqa: SLF001
+    marks, tickers = paper_preparation._load_marks_and_tickers(  # noqa: SLF001
         conn, object(), "2026-08-20")
     sized = project(
         shadow_weights={"SEC-A": Decimal("1")},
@@ -437,13 +441,13 @@ def test_fresh_bil_target_is_fenced_by_ticker_only_unresolved_action(
             return (event,) if "BIL" in symbols else ()
 
     monkeypatch.setattr(
-        paper, "shadow_target",
+        paper_targets, "shadow_target",
         lambda _state: SimpleNamespace(
             shares={}, tickers={}, pending_open_shares={}, held_shares={},
             pending_close_shares={}))
-    monkeypatch.setattr(paper.journal, "load_commands", lambda *_: [])
+    monkeypatch.setattr(paper_targets.journal, "load_commands", lambda *_: [])
     monkeypatch.setattr(
-        paper.reconciliation, "expected_book_from_commands", lambda *_args, **_kw: {})
+        paper_targets.reconciliation, "expected_book_from_commands", lambda *_args, **_kw: {})
     plan = ExecutionPlan(
         plan_id="bil-action-fence", decision_session=date(2026, 8, 19),
         effective_session=date(2026, 8, 20), target_exposure=Decimal(0),
@@ -453,7 +457,7 @@ def test_fresh_bil_target_is_fenced_by_ticker_only_unresolved_action(
         minimum_quantity_increment=Decimal(1)))
 
     with pytest.raises(paper.PaperActivationRefused, match="corporate action"):
-        paper._target_projection_or_refuse(  # noqa: SLF001
+        paper_targets._target_projection_or_refuse(  # noqa: SLF001
             object(), state=SimpleNamespace(state_hash=plan.shadow_snapshot_hash),
             plan=plan, binding=binding,
             broker=broker, through=date(2026, 8, 20),

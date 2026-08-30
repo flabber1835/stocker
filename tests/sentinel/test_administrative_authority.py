@@ -433,7 +433,7 @@ def test_inspection_grant_and_broker_native_close_are_structurally_read_only():
 
 
 def test_known_admin_wrapper_preserves_concrete_adapter_certification():
-    from sentinel import paper
+    from sentinel.paper import inspection as paper_inspection
     from sentinel.execution.simulator import SimulatedBroker
 
     wrapped = GuardedAdministrativeExecutionBroker(
@@ -441,7 +441,7 @@ def test_known_admin_wrapper_preserves_concrete_adapter_certification():
         grant=grant(administrative.ADMIN_INSPECT),
         guard=AdministrativeBrokerGuard(
             check=lambda _grant, _operation, _result: None))
-    paper._require_certified_paper_broker(wrapped)  # noqa: SLF001
+    paper_inspection._require_certified_paper_broker(wrapped)  # noqa: SLF001
     assert not hasattr(wrapped, "certified_inner")
 
     with pytest.raises(TypeError, match="certified concrete"):

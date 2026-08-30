@@ -19,6 +19,10 @@ import pytest
 
 from sentinel import (
     authority, automation_runtime, informational_paper_mirror, paper)
+from sentinel.paper import (
+    inspection as paper_inspection,
+    validation as paper_validation,
+)
 from sentinel.automation import store
 from sentinel.automation.model import (
     AutomationConfig,
@@ -1072,14 +1076,14 @@ def test_old_generation_grant_is_read_only_recovery_only(
 
     accepted = AutomationExecutionGrant(
         operation_scope="RECOVER", **grant_values)
-    _control, validated = paper._validate_automation_grant(  # noqa: SLF001
+    _control, validated = paper_validation._validate_automation_grant(  # noqa: SLF001
         conn, accepted)
     assert validated is old_cycle
 
     executable = AutomationExecutionGrant(
         operation_scope="EXECUTE", **grant_values)
     with pytest.raises(paper.PaperActivationRefused, match="read-only recovery"):
-        paper._validate_automation_grant(conn, executable)  # noqa: SLF001
+        paper_validation._validate_automation_grant(conn, executable)  # noqa: SLF001
 
 
 def test_composition_requires_exact_signed_automation_authority(
@@ -1462,7 +1466,7 @@ def test_blocked_unsettled_account_remains_readable_for_recovery() -> None:
                 value.broker == "sim" and value.account_id == "SIM-ACCOUNT")))
     snapshot = asyncio.run(broker.account_snapshot())
 
-    paper._recovery_account_identity_or_refuse(  # noqa: SLF001
+    paper_inspection._recovery_account_identity_or_refuse(  # noqa: SLF001
         snapshot, bound, "SIM-ACCOUNT")
     observation = asyncio.run(broker.observe())
 
@@ -1470,7 +1474,7 @@ def test_blocked_unsettled_account_remains_readable_for_recovery() -> None:
     assert not any(call.startswith(("submit:", "cancel:"))
                    for call in broker.calls)
     with pytest.raises(paper.PaperRetryableRefused, match="not ACTIVE"):
-        paper._account_or_refuse(  # noqa: SLF001
+        paper_inspection._account_or_refuse(  # noqa: SLF001
             snapshot, bound, "SIM-ACCOUNT")
 
 
