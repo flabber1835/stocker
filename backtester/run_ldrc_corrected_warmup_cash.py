@@ -39,6 +39,7 @@ spec = importlib.util.spec_from_file_location("corrected_production_base", SOURC
 if spec is None or spec.loader is None:
     raise RuntimeError(f"cannot load production replay from {SOURCE}")
 prod = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = prod
 spec.loader.exec_module(prod)
 base = prod.base
 runner = base.runner
