@@ -59,21 +59,21 @@ def _expose_generated_child_runtime() -> None:
 
 def _inject_poison_dtype_compat(source: str) -> str:
     """Preserve Boolean semantics under pandas 3 strict setitem rules."""
-    seam = "_CANONICAL=CausalPITDataset("
+    seam = "    _CANONICAL=CausalPITDataset("
     if source.count(seam) != 1:
         raise RuntimeError(
             "poison dtype compatibility expected one canonical dataset seam"
         )
     patch = """
-_CAUSAL_ORIGINAL_POISON_OBSERVATIONS=CausalPITDataset._poison_observations
-def _causal_dtype_safe_poison_observations(self, frame):
-    frame=frame.copy()
-    for _causal_bool_column in ('security_type_eligible','listing_active','tradeable','metadata_admitted'):
-        if _causal_bool_column in frame.columns:
-            frame[_causal_bool_column]=frame[_causal_bool_column].astype(bool)
-    return _CAUSAL_ORIGINAL_POISON_OBSERVATIONS(self,frame)
-CausalPITDataset._poison_observations=_causal_dtype_safe_poison_observations
-""".strip()
+    _CAUSAL_ORIGINAL_POISON_OBSERVATIONS=CausalPITDataset._poison_observations
+    def _causal_dtype_safe_poison_observations(self, frame):
+        frame=frame.copy()
+        for _causal_bool_column in ('security_type_eligible','listing_active','tradeable','metadata_admitted'):
+            if _causal_bool_column in frame.columns:
+                frame[_causal_bool_column]=frame[_causal_bool_column].astype(bool)
+        return _CAUSAL_ORIGINAL_POISON_OBSERVATIONS(self,frame)
+    CausalPITDataset._poison_observations=_causal_dtype_safe_poison_observations
+""".strip("\n")
     result = source.replace(seam, patch + "\n" + seam, 1)
     compile(result, "<generated-causal-research-replay>", "exec")
     return result
