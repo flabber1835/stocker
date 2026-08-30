@@ -1,11 +1,6 @@
 name: Backtester - sector A/D fresh replay
 
 on:
-  push:
-    branches:
-      - research/backtester
-    paths:
-      - '.github/workflows/backtester-sector-abc.yml'
   workflow_dispatch:
 
 # HARD BACKTESTER BOUNDARY: this workflow cannot write repository contents.
@@ -21,7 +16,7 @@ concurrency:
 jobs:
   fresh-sector-ad:
     name: Fresh chronological A/D replay
-    if: github.event_name == 'workflow_dispatch' && github.ref_name == 'research/backtester'
+    if: github.ref_name == 'research/backtester'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
 

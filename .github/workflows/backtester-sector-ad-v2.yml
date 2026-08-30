@@ -1,11 +1,6 @@
 name: Backtester - sector A/D fresh replay v2
 
 on:
-  push:
-    branches:
-      - research/backtester
-    paths:
-      - '.github/workflows/backtester-sector-ad-v2.yml'
   workflow_dispatch:
 
 permissions:
@@ -18,7 +13,7 @@ concurrency:
 jobs:
   fresh-sector-ad-v2:
     name: Fresh chronological A/D replay v2
-    if: github.event_name == 'workflow_dispatch' && github.ref_name == 'research/backtester'
+    if: github.ref_name == 'research/backtester'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
 
