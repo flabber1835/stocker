@@ -1,0 +1,951 @@
+{
+  "compatibility_references": {
+    "ExecutionResult": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_automation_runtime.py",
+      "tests/sentinel/test_paper_cli.py"
+    ],
+    "PaperAccountInspection": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "sentinel/empty_account.py",
+      "tests/sentinel/test_paper_cli.py"
+    ],
+    "PaperActivationRefused": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "sentinel/_main_impl.py",
+      "sentinel/automation_runtime.py",
+      "tests/sentinel/test_automation_runtime.py",
+      "tests/sentinel/test_informational_paper_mirror.py",
+      "tests/sentinel/test_issue223_bil_evidence.py",
+      "tests/sentinel/test_paper_activation.py",
+      "tests/sentinel/test_paper_cli.py",
+      "tests/sentinel/test_paper_close_nav_gate.py",
+      "tests/sentinel/test_paper_fresh_connection.py",
+      "tests/sentinel/test_preopen_paper_gate.py"
+    ],
+    "PaperRetryableRefused": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "sentinel/automation_recovery.py",
+      "sentinel/automation_runtime.py",
+      "tests/sentinel/test_automation_runtime.py",
+      "tests/sentinel/test_dual_regenesis_automation_scope.py",
+      "tests/sentinel/test_informational_paper_mirror.py",
+      "tests/sentinel/test_outage_regenesis_integration.py",
+      "tests/sentinel/test_paper_activation.py",
+      "tests/sentinel/test_paper_close_nav_gate.py"
+    ],
+    "PreOpenShareUnitAuthorityUnavailable": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "sentinel/automation_runtime.py",
+      "tests/sentinel/test_automation_runtime.py",
+      "tests/sentinel/test_paper_activation.py",
+      "tests/sentinel/test_preopen_paper_gate.py"
+    ],
+    "PreparationResult": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_automation_runtime.py"
+    ],
+    "RolloutMode": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_close_nav_gate.py"
+    ],
+    "__all__": [
+      "tools/step4_decompose_paper.py"
+    ],
+    "__file__": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_issue209_simplified_ldrc_runtime.py"
+    ],
+    "_account_or_refuse": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_automation_runtime.py"
+    ],
+    "_action_lookup": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_activation.py"
+    ],
+    "_assert_concordance_witness_authority": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_activation.py"
+    ],
+    "_cash_authority_or_refuse": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_activation.py",
+      "tests/sentinel/test_paper_close_nav_gate.py"
+    ],
+    "_default_paper_strategy": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_issue209_simplified_ldrc_runtime.py"
+    ],
+    "_dual_mutation_observation_or_refuse": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_informational_paper_mirror.py"
+    ],
+    "_finalize_due_succeeded_cycle_or_refuse": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_close_nav_gate.py"
+    ],
+    "_fresh_connection_factory": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_fresh_connection.py"
+    ],
+    "_fresh_warmed_state": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_activation.py"
+    ],
+    "_hash": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_activation.py"
+    ],
+    "_inspection_account_or_refuse": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "sentinel/empty_account.py"
+    ],
+    "_load_marks_and_tickers": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_issue223_bil_evidence.py"
+    ],
+    "_official_preopen_cutoff": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_activation.py",
+      "tests/sentinel/test_preopen_paper_gate.py"
+    ],
+    "_plan_deltas": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_preopen_paper_gate.py"
+    ],
+    "_preopen_active_security_ids": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_activation.py",
+      "tests/sentinel/test_preopen_paper_gate.py"
+    ],
+    "_provably_clean_empty_noop": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_preopen_paper_gate.py"
+    ],
+    "_record_due_close_nav_or_refuse": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_close_nav_gate.py"
+    ],
+    "_record_due_fill_interval_or_refuse": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_close_nav_gate.py"
+    ],
+    "_recovery_account_identity_or_refuse": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_automation_runtime.py"
+    ],
+    "_require_certified_paper_broker": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_administrative_authority.py"
+    ],
+    "_revalidate_preopen_authority_or_refuse": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_preopen_paper_gate.py"
+    ],
+    "_settled_account_evidence_bracket": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_activation.py"
+    ],
+    "_state_and_plan_or_refuse": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_activation.py"
+    ],
+    "_target_action_lookup": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_activation.py"
+    ],
+    "_target_action_multipliers": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_issue209_target_reprojection.py"
+    ],
+    "_target_projection_or_refuse": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_issue223_bil_evidence.py",
+      "tests/sentinel/test_preopen_paper_gate.py"
+    ],
+    "_validate_automation_grant": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_automation_runtime.py"
+    ],
+    "_validate_broker_grant": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_runtime_regressions_137_148_149_150.py"
+    ],
+    "build_security_resolver": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "sentinel/_main_impl.py",
+      "sentinel/automation_runtime.py"
+    ],
+    "calendar": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_activation.py",
+      "tests/sentinel/test_paper_close_nav_gate.py",
+      "tests/sentinel/test_runtime_regressions_137_148_149_150.py"
+    ],
+    "catchup": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_close_nav_gate.py"
+    ],
+    "current_paper_plan": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "sentinel/_main_impl.py",
+      "tests/sentinel/test_paper_activation.py"
+    ],
+    "example": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_preopen_paper_gate.py"
+    ],
+    "execute_automated_paper_plan": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "sentinel/automation_runtime.py"
+    ],
+    "execute_paper_plan": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "sentinel/_main_impl.py",
+      "tests/sentinel/test_paper_activation.py"
+    ],
+    "feed_store": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_activation.py",
+      "tests/sentinel/test_paper_close_nav_gate.py",
+      "tests/sentinel/test_preopen_paper_gate.py",
+      "tests/sentinel/test_runtime_regressions_137_148_149_150.py"
+    ],
+    "inspect_paper_account": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "sentinel/_main_impl.py",
+      "tests/sentinel/test_paper_activation.py"
+    ],
+    "journal": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_issue223_bil_evidence.py",
+      "tests/sentinel/test_paper_close_nav_gate.py"
+    ],
+    "load_concordance_parent": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_activation.py"
+    ],
+    "preopen_authority": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_close_nav_gate.py"
+    ],
+    "prepare_paper_plan": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "sentinel/_main_impl.py",
+      "sentinel/automation_runtime.py",
+      "tests/sentinel/test_paper_activation.py",
+      "tests/sentinel/test_paper_close_nav_gate.py"
+    ],
+    "publication": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_close_nav_gate.py",
+      "tests/sentinel/test_runtime_regressions_137_148_149_150.py"
+    ],
+    "py": [
+      ".github/workflows/step4-decompose-repair.yml",
+      ".github/workflows/step4-paper-lifecycle-inventory.yml",
+      "docs/decisions/paper-lifecycle-decomposition.md",
+      "docs/paper-lifecycle-responsibility-map.md",
+      "docs/sentinel-execution-contract.md",
+      "docs/sentinel-stage-1-production-state.md",
+      "tools/step4_decompose_paper.py",
+      "tools/step4_paper_lifecycle_inventory.py"
+    ],
+    "readiness": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_activation.py"
+    ],
+    "reconciliation": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_issue223_bil_evidence.py",
+      "tests/sentinel/test_paper_activation.py",
+      "tests/sentinel/test_paper_close_nav_gate.py"
+    ],
+    "recover_automated_paper_cycle": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "sentinel/automation_runtime.py",
+      "tests/sentinel/test_preopen_paper_gate.py"
+    ],
+    "schema": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_close_nav_gate.py"
+    ],
+    "system_identity": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_activation.py"
+    ],
+    "target_reprojection": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_close_nav_gate.py",
+      "tests/sentinel/test_preopen_paper_gate.py"
+    ],
+    "trial": [
+      "docs/paper-lifecycle-responsibility-map.md",
+      "tests/sentinel/test_paper_close_nav_gate.py"
+    ]
+  },
+  "constants": {
+    "ACCOUNT_ENDPOINT_LAG_GRACE": {
+      "generated_ast_sha256": "ad26bb94160a5d8832b522d2f497212715c74928de7f844e99a419dc2fa3581f",
+      "original_ast_sha256": "ad26bb94160a5d8832b522d2f497212715c74928de7f844e99a419dc2fa3581f",
+      "owner": "cash"
+    },
+    "DEFENSIVE_SYMBOL": {
+      "generated_ast_sha256": "c6b177f43d46f72c3b65ae0ef98d4f583243765058efa171949c6c0cf7958d88",
+      "original_ast_sha256": "c6b177f43d46f72c3b65ae0ef98d4f583243765058efa171949c6c0cf7958d88",
+      "owner": "inspection"
+    },
+    "SIMPLIFIED_LDRC_STRATEGY_ID": {
+      "generated_ast_sha256": "41501c501a139f9e63506f0a7509141494705d68f667c1ec6ca793a5c8083873",
+      "original_ast_sha256": "41501c501a139f9e63506f0a7509141494705d68f667c1ec6ca793a5c8083873",
+      "owner": "preparation"
+    },
+    "SIMPLIFIED_LDRC_STRATEGY_VERSION": {
+      "generated_ast_sha256": "6e148f8fcd272560617e5fc223e76315d27bf1e8f8366e48bf800ab4e42efd33",
+      "original_ast_sha256": "6e148f8fcd272560617e5fc223e76315d27bf1e8f8366e48bf800ab4e42efd33",
+      "owner": "preparation"
+    },
+    "_ACCOUNT_ENDPOINT_LAG_PREFIX": {
+      "generated_ast_sha256": "f878bbd02ac1ef4c022f8dd71a0af59f6544e27d1d16c4f18ddf11e8e4c217ff",
+      "original_ast_sha256": "f878bbd02ac1ef4c022f8dd71a0af59f6544e27d1d16c4f18ddf11e8e4c217ff",
+      "owner": "cash"
+    },
+    "_ACCOUNT_ENDPOINT_LAG_SCHEMA": {
+      "generated_ast_sha256": "52838d19aefc6dc84faf87f7b3e664d8cd593f60646b7a6467563fefd070ac07",
+      "original_ast_sha256": "52838d19aefc6dc84faf87f7b3e664d8cd593f60646b7a6467563fefd070ac07",
+      "owner": "cash"
+    }
+  },
+  "definitions": {
+    "ExecutionResult": {
+      "generated_ast_sha256": "9db80c56276d282f7a1439c47260d980488cc625b354a5d19a9774733697694b",
+      "original_ast_sha256": "9db80c56276d282f7a1439c47260d980488cc625b354a5d19a9774733697694b",
+      "original_lines": [
+        301,
+        320
+      ],
+      "owner": "model"
+    },
+    "PaperAccountInspection": {
+      "generated_ast_sha256": "1b83a84829890979be12678a4f116d81ebb827d9c1f3b1e8f50e16c3db8ec145",
+      "original_ast_sha256": "1b83a84829890979be12678a4f116d81ebb827d9c1f3b1e8f50e16c3db8ec145",
+      "original_lines": [
+        160,
+        271
+      ],
+      "owner": "model"
+    },
+    "PaperActivationRefused": {
+      "generated_ast_sha256": "ccf9cbc9305648057339f8dc2f8e85d171ccdcbcd0220600da7326a3cbb5f522",
+      "original_ast_sha256": "ccf9cbc9305648057339f8dc2f8e85d171ccdcbcd0220600da7326a3cbb5f522",
+      "original_lines": [
+        147,
+        148
+      ],
+      "owner": "model"
+    },
+    "PaperRetryableRefused": {
+      "generated_ast_sha256": "f89e5262b92f359d3308fd572605a78d3461b0a5e3c8a82b529bae834e238fa8",
+      "original_ast_sha256": "f89e5262b92f359d3308fd572605a78d3461b0a5e3c8a82b529bae834e238fa8",
+      "original_lines": [
+        151,
+        152
+      ],
+      "owner": "model"
+    },
+    "PreOpenShareUnitAuthorityUnavailable": {
+      "generated_ast_sha256": "8fa0e2714994b2f56f0700264cca7bd2aad7acccb78910f417c04605a06e7dad",
+      "original_ast_sha256": "8fa0e2714994b2f56f0700264cca7bd2aad7acccb78910f417c04605a06e7dad",
+      "original_lines": [
+        155,
+        156
+      ],
+      "owner": "model"
+    },
+    "PreparationResult": {
+      "generated_ast_sha256": "19c7943419123352312873b5851e6f1db4a5e9d3a389f69fbcc8565af492a2ce",
+      "original_ast_sha256": "19c7943419123352312873b5851e6f1db4a5e9d3a389f69fbcc8565af492a2ce",
+      "original_lines": [
+        275,
+        297
+      ],
+      "owner": "model"
+    },
+    "_account_economics": {
+      "generated_ast_sha256": "0004c6e1b91da0713753c4a12037fb5bebcf6e57dc66f7da5efea10db884db22",
+      "original_ast_sha256": "0004c6e1b91da0713753c4a12037fb5bebcf6e57dc66f7da5efea10db884db22",
+      "original_lines": [
+        574,
+        593
+      ],
+      "owner": "cash"
+    },
+    "_account_endpoint_lag_is_live": {
+      "generated_ast_sha256": "034396dee2a94ac4181707002ffbe40595ef949f12bccc10f7cbc9f75b857e4f",
+      "original_ast_sha256": "034396dee2a94ac4181707002ffbe40595ef949f12bccc10f7cbc9f75b857e4f",
+      "original_lines": [
+        596,
+        676
+      ],
+      "owner": "cash"
+    },
+    "_account_evidence_is_quiescent": {
+      "generated_ast_sha256": "59f873aaee66a9b9c36142b8adfb638bcd730aaa5b4f1eebe3d961f568742e4b",
+      "original_ast_sha256": "59f873aaee66a9b9c36142b8adfb638bcd730aaa5b4f1eebe3d961f568742e4b",
+      "original_lines": [
+        527,
+        534
+      ],
+      "owner": "inspection"
+    },
+    "_account_or_refuse": {
+      "generated_ast_sha256": "3ea6073470de144a3a7e82e35c5e33bc3ae431cf4e0460fe0dc57f07a582298a",
+      "original_ast_sha256": "3ea6073470de144a3a7e82e35c5e33bc3ae431cf4e0460fe0dc57f07a582298a",
+      "original_lines": [
+        721,
+        768
+      ],
+      "owner": "inspection"
+    },
+    "_action_lookup": {
+      "generated_ast_sha256": "f86c38ca7ff85cd507f0614652192bbe8324f011392c43568367951627c677ce",
+      "original_ast_sha256": "f86c38ca7ff85cd507f0614652192bbe8324f011392c43568367951627c677ce",
+      "original_lines": [
+        2009,
+        2026
+      ],
+      "owner": "targets"
+    },
+    "_assert_concordance_witness_authority": {
+      "generated_ast_sha256": "a28e490e18eda175562816e5047a9cefad6996a968758d0c97b85eefba71d8ab",
+      "original_ast_sha256": "a28e490e18eda175562816e5047a9cefad6996a968758d0c97b85eefba71d8ab",
+      "original_lines": [
+        103,
+        113
+      ],
+      "owner": "validation"
+    },
+    "_assert_deterministic_plan_id": {
+      "generated_ast_sha256": "743baff6d1d3b8dad92fa19cc2f23e2eb2c97a5215829bd81581e2f6801e949f",
+      "original_ast_sha256": "743baff6d1d3b8dad92fa19cc2f23e2eb2c97a5215829bd81581e2f6801e949f",
+      "original_lines": [
+        1207,
+        1213
+      ],
+      "owner": "validation"
+    },
+    "_assert_plan_authorities": {
+      "generated_ast_sha256": "f4eb9043249fe20b6c5292439a6b1a07935d41807e5e7c05e679d0a39d85112b",
+      "original_ast_sha256": "f4eb9043249fe20b6c5292439a6b1a07935d41807e5e7c05e679d0a39d85112b",
+      "original_lines": [
+        1960,
+        2006
+      ],
+      "owner": "validation"
+    },
+    "_broker_cash_state_or_refuse": {
+      "generated_ast_sha256": "c2b5e1f2561d1f1c9ccd1348481fdcc3c1a2f6976b036b73ed9320f2ae15a8c4",
+      "original_ast_sha256": "c2b5e1f2561d1f1c9ccd1348481fdcc3c1a2f6976b036b73ed9320f2ae15a8c4",
+      "original_lines": [
+        786,
+        804
+      ],
+      "owner": "cash"
+    },
+    "_cash_authority_or_refuse": {
+      "generated_ast_sha256": "c6ba9a412b1eef9da63b19cea444dbd28794ea378c28fa926f6352059f8fe980",
+      "original_ast_sha256": "c6ba9a412b1eef9da63b19cea444dbd28794ea378c28fa926f6352059f8fe980",
+      "original_lines": [
+        1029,
+        1119
+      ],
+      "owner": "cash"
+    },
+    "_clean_or_refuse": {
+      "generated_ast_sha256": "0c39d96425fb40e5372304886bade806af7f547e89d2e991c2957b1fff89a3c5",
+      "original_ast_sha256": "0c39d96425fb40e5372304886bade806af7f547e89d2e991c2957b1fff89a3c5",
+      "original_lines": [
+        492,
+        505
+      ],
+      "owner": "reconciliation"
+    },
+    "_default_paper_strategy": {
+      "generated_ast_sha256": "c9f5987d080d755d3f89cf829e6de00a3c6137ba31fb58bfc99d92bc9c81aebc",
+      "original_ast_sha256": "c9f5987d080d755d3f89cf829e6de00a3c6137ba31fb58bfc99d92bc9c81aebc",
+      "original_lines": [
+        116,
+        144
+      ],
+      "owner": "preparation"
+    },
+    "_dual_mutation_observation_or_refuse": {
+      "generated_ast_sha256": "4c6ed0104f5979855b9a50605a9af5938c3b3ec74da00deddb43f98c07e78cc2",
+      "original_ast_sha256": "4c6ed0104f5979855b9a50605a9af5938c3b3ec74da00deddb43f98c07e78cc2",
+      "original_lines": [
+        508,
+        524
+      ],
+      "owner": "reconciliation"
+    },
+    "_execute_current_paper_plan": {
+      "generated_ast_sha256": "da90067f05ae3fb6514e1dedc241b6b5c77f40113ce8055830628bd8cccc39aa",
+      "original_ast_sha256": "da90067f05ae3fb6514e1dedc241b6b5c77f40113ce8055830628bd8cccc39aa",
+      "original_lines": [
+        2397,
+        2759
+      ],
+      "owner": "execution"
+    },
+    "_execution_observation_time": {
+      "generated_ast_sha256": "133e43dd466e3981231988361c40c009b55ac5cab8eb09ebd6788a7a503b427c",
+      "original_ast_sha256": "133e43dd466e3981231988361c40c009b55ac5cab8eb09ebd6788a7a503b427c",
+      "original_lines": [
+        463,
+        478
+      ],
+      "owner": "execution"
+    },
+    "_execution_window_or_refuse": {
+      "generated_ast_sha256": "4ae358c0fc0bf89dfc081d2a1ea912dac74787c733579c5049c225aca9a2ec20",
+      "original_ast_sha256": "4ae358c0fc0bf89dfc081d2a1ea912dac74787c733579c5049c225aca9a2ec20",
+      "original_lines": [
+        481,
+        489
+      ],
+      "owner": "validation"
+    },
+    "_finalize_due_succeeded_cycle_or_refuse": {
+      "generated_ast_sha256": "c2f45178fdb8152d8ff101c3fa25e87ee4b69338ab36f29d43cc0bceb3294c36",
+      "original_ast_sha256": "c2f45178fdb8152d8ff101c3fa25e87ee4b69338ab36f29d43cc0bceb3294c36",
+      "original_lines": [
+        923,
+        1026
+      ],
+      "owner": "finalization"
+    },
+    "_fresh_connection_factory": {
+      "generated_ast_sha256": "79e7d560b1d73e7924905aa7f7cdeafcd5376de69a48e406cac31f8809669b45",
+      "original_ast_sha256": "79e7d560b1d73e7924905aa7f7cdeafcd5376de69a48e406cac31f8809669b45",
+      "original_lines": [
+        1216,
+        1225
+      ],
+      "owner": "validation"
+    },
+    "_fresh_warmed_state": {
+      "generated_ast_sha256": "ed5c9e76c44538c7a46dbc1738001c632996e960a8e5b2dd889a7d80cf0ce023",
+      "original_ast_sha256": "ed5c9e76c44538c7a46dbc1738001c632996e960a8e5b2dd889a7d80cf0ce023",
+      "original_lines": [
+        1163,
+        1204
+      ],
+      "owner": "preparation"
+    },
+    "_guard_broker": {
+      "generated_ast_sha256": "8ef3dd466901a7b35f5f0c6cf3fe3de9a803d83e295b9459ff46986504357ff6",
+      "original_ast_sha256": "8ef3dd466901a7b35f5f0c6cf3fe3de9a803d83e295b9459ff46986504357ff6",
+      "original_lines": [
+        1418,
+        1438
+      ],
+      "owner": "validation"
+    },
+    "_hash": {
+      "generated_ast_sha256": "982b9586060f5d36a6fd8c95b113f2acae69027aab1b38177959ec0dca246d5a",
+      "original_ast_sha256": "982b9586060f5d36a6fd8c95b113f2acae69027aab1b38177959ec0dca246d5a",
+      "original_lines": [
+        442,
+        444
+      ],
+      "owner": "validation"
+    },
+    "_informational_active_symbols": {
+      "generated_ast_sha256": "8e574deffd56baf5872d6b0956d328c6ac07f5136009df4c067c1fb3e099345d",
+      "original_ast_sha256": "8e574deffd56baf5872d6b0956d328c6ac07f5136009df4c067c1fb3e099345d",
+      "original_lines": [
+        2110,
+        2144
+      ],
+      "owner": "targets"
+    },
+    "_inspection_account_or_refuse": {
+      "generated_ast_sha256": "2615f9eccebf8f782be548ce0aae8167ee23ac5faeaa6790f3bcdf4fd4621dbd",
+      "original_ast_sha256": "2615f9eccebf8f782be548ce0aae8167ee23ac5faeaa6790f3bcdf4fd4621dbd",
+      "original_lines": [
+        355,
+        397
+      ],
+      "owner": "inspection"
+    },
+    "_instrument_map": {
+      "generated_ast_sha256": "901822d197c2e7745701f79b95096887b3dd3e3e02dead3160013fe356bbdc30",
+      "original_ast_sha256": "901822d197c2e7745701f79b95096887b3dd3e3e02dead3160013fe356bbdc30",
+      "original_lines": [
+        2324,
+        2394
+      ],
+      "owner": "targets"
+    },
+    "_load_marks_and_tickers": {
+      "generated_ast_sha256": "d59cd9546a2bda5952b33ad5f04d6e963c7683c70b5f6b888a16e679e52d1213",
+      "original_ast_sha256": "d59cd9546a2bda5952b33ad5f04d6e963c7683c70b5f6b888a16e679e52d1213",
+      "original_lines": [
+        1122,
+        1150
+      ],
+      "owner": "preparation"
+    },
+    "_missed_sessions": {
+      "generated_ast_sha256": "5d19b9e6f29b7f6cbce5e9eaacb3a241f5badf7886aa6d2b1d75beeb247c1bca",
+      "original_ast_sha256": "5d19b9e6f29b7f6cbce5e9eaacb3a241f5badf7886aa6d2b1d75beeb247c1bca",
+      "original_lines": [
+        1153,
+        1160
+      ],
+      "owner": "validation"
+    },
+    "_observation_economics": {
+      "generated_ast_sha256": "89ba97c041bdbc87f66dc3e63f5dcd2e02cd2c42b0858b565cd68969b60d96be",
+      "original_ast_sha256": "89ba97c041bdbc87f66dc3e63f5dcd2e02cd2c42b0858b565cd68969b60d96be",
+      "original_lines": [
+        537,
+        571
+      ],
+      "owner": "cash"
+    },
+    "_official_preopen_cutoff": {
+      "generated_ast_sha256": "cb5ba7200d97f14f0c8a255d5e806621257cb61612017c692709f9583e881122",
+      "original_ast_sha256": "cb5ba7200d97f14f0c8a255d5e806621257cb61612017c692709f9583e881122",
+      "original_lines": [
+        2223,
+        2226
+      ],
+      "owner": "targets"
+    },
+    "_plan_deltas": {
+      "generated_ast_sha256": "f3c52804c70ea4fbb52fbdb8a8892a98e1a2412ffe5a241a10ae219a160eb6ff",
+      "original_ast_sha256": "f3c52804c70ea4fbb52fbdb8a8892a98e1a2412ffe5a241a10ae219a160eb6ff",
+      "original_lines": [
+        2147,
+        2161
+      ],
+      "owner": "targets"
+    },
+    "_post_projection_action_multipliers": {
+      "generated_ast_sha256": "49a0e1375499341f2f697bf649add054516b14b96259994bb4d0cfaf99ea1080",
+      "original_ast_sha256": "49a0e1375499341f2f697bf649add054516b14b96259994bb4d0cfaf99ea1080",
+      "original_lines": [
+        2069,
+        2081
+      ],
+      "owner": "targets"
+    },
+    "_preopen_active_security_ids": {
+      "generated_ast_sha256": "6729525b285bc3f9b067b713a9262232f7f66af8f33fb821b309983fe7cf5764",
+      "original_ast_sha256": "6729525b285bc3f9b067b713a9262232f7f66af8f33fb821b309983fe7cf5764",
+      "original_lines": [
+        2084,
+        2107
+      ],
+      "owner": "targets"
+    },
+    "_preopen_views_or_none": {
+      "generated_ast_sha256": "f97fa7dfeddc54895ce35c65e20f1b015d405940d5049edff79aa534b9c0beb8",
+      "original_ast_sha256": "f97fa7dfeddc54895ce35c65e20f1b015d405940d5049edff79aa534b9c0beb8",
+      "original_lines": [
+        2182,
+        2202
+      ],
+      "owner": "targets"
+    },
+    "_provably_clean_empty_noop": {
+      "generated_ast_sha256": "0bc1f8e2ea012168b43d5173091377cf8ad3df902b3c3bb73cc452c73ebfbeac",
+      "original_ast_sha256": "0bc1f8e2ea012168b43d5173091377cf8ad3df902b3c3bb73cc452c73ebfbeac",
+      "original_lines": [
+        2164,
+        2179
+      ],
+      "owner": "targets"
+    },
+    "_readiness_or_refuse": {
+      "generated_ast_sha256": "7ab01a9041855530fb50f2986f6691aa73324f84c2895084f66bdec0f0595e79",
+      "original_ast_sha256": "7ab01a9041855530fb50f2986f6691aa73324f84c2895084f66bdec0f0595e79",
+      "original_lines": [
+        447,
+        460
+      ],
+      "owner": "validation"
+    },
+    "_record_due_close_nav_or_refuse": {
+      "generated_ast_sha256": "c5f0a0d887a69cbc006d2dc16b5d3ea321d0827d6bfc93aeeda13e33529ef0d1",
+      "original_ast_sha256": "c5f0a0d887a69cbc006d2dc16b5d3ea321d0827d6bfc93aeeda13e33529ef0d1",
+      "original_lines": [
+        807,
+        834
+      ],
+      "owner": "finalization"
+    },
+    "_record_due_fill_interval_or_refuse": {
+      "generated_ast_sha256": "8e714b0ab1a7ff5e4f816fb20cf6a7c31d44fdca0bc682c4448c7fe6fa84ee0a",
+      "original_ast_sha256": "8e714b0ab1a7ff5e4f816fb20cf6a7c31d44fdca0bc682c4448c7fe6fa84ee0a",
+      "original_lines": [
+        837,
+        920
+      ],
+      "owner": "finalization"
+    },
+    "_recovery_account_identity_or_refuse": {
+      "generated_ast_sha256": "4de949fe50429669dccad2ed3b7525b20b685b490338ab834812a7537ad8e00b",
+      "original_ast_sha256": "4de949fe50429669dccad2ed3b7525b20b685b490338ab834812a7537ad8e00b",
+      "original_lines": [
+        771,
+        783
+      ],
+      "owner": "inspection"
+    },
+    "_require_certified_paper_broker": {
+      "generated_ast_sha256": "7ea512f407921883f5f83d4a436f69070b713fe89ddceed46cefa5ee55b023f3",
+      "original_ast_sha256": "7ea512f407921883f5f83d4a436f69070b713fe89ddceed46cefa5ee55b023f3",
+      "original_lines": [
+        323,
+        352
+      ],
+      "owner": "inspection"
+    },
+    "_revalidate_preopen_authority_or_refuse": {
+      "generated_ast_sha256": "05cc3804767a72cf0ad48d175d790fe91c7945789c276e8f52019fc23f957d25",
+      "original_ast_sha256": "05cc3804767a72cf0ad48d175d790fe91c7945789c276e8f52019fc23f957d25",
+      "original_lines": [
+        2205,
+        2220
+      ],
+      "owner": "targets"
+    },
+    "_settled_account_evidence_bracket": {
+      "generated_ast_sha256": "9b4fb19f26df6935be4158365011408607aa90d8b94ced772fdf277b7407a2c0",
+      "original_ast_sha256": "9b4fb19f26df6935be4158365011408607aa90d8b94ced772fdf277b7407a2c0",
+      "original_lines": [
+        679,
+        718
+      ],
+      "owner": "reconciliation"
+    },
+    "_state_and_plan_or_refuse": {
+      "generated_ast_sha256": "b3131f775f556c43b2b3b64107fc6c7d1c9a3911a533887ba9cf2673ed363e9b",
+      "original_ast_sha256": "b3131f775f556c43b2b3b64107fc6c7d1c9a3911a533887ba9cf2673ed363e9b",
+      "original_lines": [
+        1945,
+        1957
+      ],
+      "owner": "validation"
+    },
+    "_target_action_lookup": {
+      "generated_ast_sha256": "44a7037e763ec5c83bfb9e2cd9baeb1cb3c8663e4e54cac9bc4ae1ee698218b1",
+      "original_ast_sha256": "44a7037e763ec5c83bfb9e2cd9baeb1cb3c8663e4e54cac9bc4ae1ee698218b1",
+      "original_lines": [
+        2029,
+        2041
+      ],
+      "owner": "targets"
+    },
+    "_target_action_multipliers": {
+      "generated_ast_sha256": "1499e0aaa48b3977bb8f951c451ca00eb3da9a27f1802efb135fd9d1f9c30d0e",
+      "original_ast_sha256": "1499e0aaa48b3977bb8f951c451ca00eb3da9a27f1802efb135fd9d1f9c30d0e",
+      "original_lines": [
+        2044,
+        2066
+      ],
+      "owner": "targets"
+    },
+    "_target_projection_or_refuse": {
+      "generated_ast_sha256": "23dfec886b25ef9cb2ad3cb210347e115dd5a2eb4ecc60a7f9febe0bd4935a46",
+      "original_ast_sha256": "23dfec886b25ef9cb2ad3cb210347e115dd5a2eb4ecc60a7f9febe0bd4935a46",
+      "original_lines": [
+        2229,
+        2321
+      ],
+      "owner": "targets"
+    },
+    "_validate_automation_grant": {
+      "generated_ast_sha256": "7bf2e6f3a4cf1152c026c783133ea8e9bd76a1c0131c321d8cb7dea223c929f2",
+      "original_ast_sha256": "7bf2e6f3a4cf1152c026c783133ea8e9bd76a1c0131c321d8cb7dea223c929f2",
+      "original_lines": [
+        1228,
+        1306
+      ],
+      "owner": "validation"
+    },
+    "_validate_broker_grant": {
+      "generated_ast_sha256": "9d5abe4792e561d5cc315d791929a186a6aedc00bc8ecdaef3a19aff6253b88e",
+      "original_ast_sha256": "9d5abe4792e561d5cc315d791929a186a6aedc00bc8ecdaef3a19aff6253b88e",
+      "original_lines": [
+        1309,
+        1415
+      ],
+      "owner": "validation"
+    },
+    "build_security_resolver": {
+      "generated_ast_sha256": "2081ff39ad7127034e11ad3b2afc731a971ea926d9eb664546d3c0a4d6ed3a68",
+      "original_ast_sha256": "2081ff39ad7127034e11ad3b2afc731a971ea926d9eb664546d3c0a4d6ed3a68",
+      "original_lines": [
+        3181,
+        3191
+      ],
+      "owner": "inspection"
+    },
+    "current_paper_plan": {
+      "generated_ast_sha256": "28a81ab27dc25f2b8c0734cde7e33bde9985bbb2b19bff7b0790a9a100d50a27",
+      "original_ast_sha256": "28a81ab27dc25f2b8c0734cde7e33bde9985bbb2b19bff7b0790a9a100d50a27",
+      "original_lines": [
+        3047,
+        3178
+      ],
+      "owner": "preparation"
+    },
+    "execute_automated_paper_plan": {
+      "generated_ast_sha256": "09a9f8a9096eca410fc7a60d9089c10cd04a67603e3cfa13914e8fda53a33f39",
+      "original_ast_sha256": "09a9f8a9096eca410fc7a60d9089c10cd04a67603e3cfa13914e8fda53a33f39",
+      "original_lines": [
+        2784,
+        2797
+      ],
+      "owner": "execution"
+    },
+    "execute_paper_plan": {
+      "generated_ast_sha256": "33e4fc582bc570e6b88b91c1f2956026cacd74036b110b1222eced710b3af600",
+      "original_ast_sha256": "33e4fc582bc570e6b88b91c1f2956026cacd74036b110b1222eced710b3af600",
+      "original_lines": [
+        2762,
+        2781
+      ],
+      "owner": "execution"
+    },
+    "inspect_paper_account": {
+      "generated_ast_sha256": "bc010ce3f867773a21cde304aa1fa3b5186957f4251aabfb6d7ec7200e7257b0",
+      "original_ast_sha256": "bc010ce3f867773a21cde304aa1fa3b5186957f4251aabfb6d7ec7200e7257b0",
+      "original_lines": [
+        400,
+        439
+      ],
+      "owner": "inspection"
+    },
+    "prepare_paper_plan": {
+      "generated_ast_sha256": "057586d4af753ad31ccaaa7d6194b65aae6b9d1664dee0ece0149675fa11d03d",
+      "original_ast_sha256": "057586d4af753ad31ccaaa7d6194b65aae6b9d1664dee0ece0149675fa11d03d",
+      "original_lines": [
+        1441,
+        1942
+      ],
+      "owner": "preparation"
+    },
+    "recover_automated_paper_cycle": {
+      "generated_ast_sha256": "1adc6243e01fd836443dc238a8b0dce24b4f0f28de198160c7f063bd550a9059",
+      "original_ast_sha256": "1adc6243e01fd836443dc238a8b0dce24b4f0f28de198160c7f063bd550a9059",
+      "original_lines": [
+        2800,
+        3044
+      ],
+      "owner": "recovery"
+    }
+  },
+  "dependency_edges": {
+    "cash": [
+      "model",
+      "validation"
+    ],
+    "execution": [
+      "cash",
+      "inspection",
+      "model",
+      "preparation",
+      "reconciliation",
+      "targets",
+      "validation"
+    ],
+    "finalization": [
+      "model",
+      "targets"
+    ],
+    "inspection": [
+      "model"
+    ],
+    "model": [],
+    "preparation": [
+      "cash",
+      "finalization",
+      "inspection",
+      "model",
+      "reconciliation",
+      "targets",
+      "validation"
+    ],
+    "reconciliation": [
+      "cash",
+      "inspection",
+      "model"
+    ],
+    "recovery": [
+      "cash",
+      "inspection",
+      "model",
+      "preparation",
+      "reconciliation",
+      "targets",
+      "validation"
+    ],
+    "targets": [
+      "inspection",
+      "model"
+    ],
+    "validation": [
+      "model"
+    ]
+  },
+  "economic_fixture_changes": [],
+  "package_modules": [
+    "model",
+    "inspection",
+    "validation",
+    "cash",
+    "targets",
+    "reconciliation",
+    "finalization",
+    "preparation",
+    "execution",
+    "recovery"
+  ],
+  "public_exports": [
+    "DEFENSIVE_SYMBOL",
+    "ExecutionResult",
+    "PaperAccountInspection",
+    "PaperActivationRefused",
+    "PaperRetryableRefused",
+    "PreOpenShareUnitAuthorityUnavailable",
+    "PreparationResult",
+    "build_security_resolver",
+    "current_paper_plan",
+    "execute_automated_paper_plan",
+    "execute_paper_plan",
+    "inspect_paper_account",
+    "prepare_paper_plan",
+    "recover_automated_paper_cycle"
+  ],
+  "schema": "sentinel.paper-lifecycle-equivalence/1",
+  "source_lines": 3202,
+  "source_path": "sentinel/paper.py",
+  "source_sha256": "c14cc619ca19e91b53e3f618543ea782e97f5a87bdde65af6370bd313bd63ffe",
+  "topological_order": [
+    "model",
+    "inspection",
+    "validation",
+    "cash",
+    "targets",
+    "reconciliation",
+    "finalization",
+    "preparation",
+    "execution",
+    "recovery"
+  ]
+}

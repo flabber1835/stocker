@@ -1,4 +1,9 @@
+from pathlib import Path
+
 from sentinel import paper
+from sentinel.paper import execution as paper_execution
+from sentinel.paper import preparation as paper_preparation
+from sentinel.paper import recovery as paper_recovery
 from sentinel.controller.concordance_parent import (
     FAST_DAMAGED_BREADTH_DELTA5, STRATEGY_ID as PARENT_STRATEGY_ID,
 )
@@ -6,7 +11,7 @@ from sentinel.controller.ldrc import LDRCConfig
 
 
 def test_default_paper_runtime_is_simplified_three_signal_ldrc_v3():
-    config, identity = paper._default_paper_strategy()  # noqa: SLF001
+    config, identity = paper_preparation._default_paper_strategy()  # noqa: SLF001
     assert config.strategy_id == PARENT_STRATEGY_ID
     assert config.fast_entry["min_damaged_breadth_delta5"] == FAST_DAMAGED_BREADTH_DELTA5 == 0.30
     assert identity["strategy"] == PARENT_STRATEGY_ID
@@ -29,7 +34,11 @@ def test_simplified_v3_entry_and_recovery_constants_are_frozen():
 
 
 def test_paper_gateway_has_no_legacy_runtime_identity_default():
-    source = open(paper.__file__, encoding="utf-8").read()
-    assert "runtime_strategy_identity(load_controller())" not in source
-    assert source.count("load_controller()") == 1
-    assert source.count("_default_paper_strategy()") >= 7
+    sources = {
+        module.__name__: Path(module.__file__).read_text(encoding="utf-8")
+        for module in (paper_preparation, paper_execution, paper_recovery)
+    }
+    combined = "\n".join(sources.values())
+    assert "runtime_strategy_identity(load_controller())" not in combined
+    assert sources[paper_preparation.__name__].count("load_controller()") == 1
+    assert combined.count("_default_paper_strategy()") >= 7

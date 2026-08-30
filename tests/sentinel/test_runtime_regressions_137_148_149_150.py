@@ -11,6 +11,7 @@ import subprocess
 import pytest
 
 from sentinel import authority, binding, paper, schema
+from sentinel.paper import validation as paper_validation
 import sentinel.__main__ as sentinel_cli
 from sentinel.automation import store as automation_store
 import sentinel.automation_runtime as automation_runtime
@@ -90,21 +91,18 @@ def test_148_preparation_guard_rechecks_boundary_without_full_readiness(monkeypa
         identity=SimpleNamespace(matches_account=lambda _value: True))
     monkeypatch.setattr("sentinel.handover.assert_no_legacy_path",
                         lambda _conn: fake_binding)
-    monkeypatch.setattr(paper, "load_rollout_state", lambda _conn: object())
-    monkeypatch.setattr(paper.publication, "require_current",
+    monkeypatch.setattr(paper_validation, "load_rollout_state", lambda _conn: object())
+    monkeypatch.setattr(paper_validation.publication, "require_current",
                         lambda _conn: object())
-    monkeypatch.setattr(paper.feed_store, "latest_visible_session",
+    monkeypatch.setattr(paper_validation.feed_store, "latest_visible_session",
                         lambda _conn: "2026-08-14")
-    monkeypatch.setattr(paper, "load_controller", lambda: object())
-    monkeypatch.setattr(paper, "runtime_strategy_identity",
-                        lambda _controller: {})
-    monkeypatch.setattr(paper.calendar, "latest_closed_session",
+    monkeypatch.setattr(paper_validation.calendar, "latest_closed_session",
                         lambda _now: "2026-08-14")
     monkeypatch.setattr(
-        paper, "_readiness_or_refuse",
+        paper_validation, "_readiness_or_refuse",
         lambda *_a, **_k: (_ for _ in ()).throw(
             AssertionError("preparation guard rescanned readiness")))
-    paper._validate_broker_grant(
+    paper_validation._validate_broker_grant(
         object(), grant, BrokerOperation.ACCOUNT_SNAPSHOT, None,
         now_provider=lambda: datetime(
             2026, 8, 14, 17, tzinfo=timezone.utc),

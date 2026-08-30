@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from sentinel import informational_paper_mirror as mirror, paper
+import sentinel.paper.reconciliation_evidence as paper_reconciliation_evidence
 from sentinel.execution.contract import (
     BrokerInstrument, BrokerObservation, BrokerOrder, Side)
 from sentinel.execution.reconcile import CorporateActionEvent, CorpusActionLookup
@@ -241,9 +242,9 @@ def test_external_replacement_is_permanent_before_generic_amber_retry():
     with pytest.raises(
             paper.PaperActivationRefused,
             match="all broker mutations are blocked"):
-        paper._dual_mutation_observation_or_refuse(  # noqa: SLF001
+        paper_reconciliation_evidence._dual_mutation_observation_or_refuse(  # noqa: SLF001
             _reconciling_order(replaced=True))
 
     with pytest.raises(paper.PaperRetryableRefused):
-        paper._dual_mutation_observation_or_refuse(  # noqa: SLF001
+        paper_reconciliation_evidence._dual_mutation_observation_or_refuse(  # noqa: SLF001
             _reconciling_order(replaced=False))

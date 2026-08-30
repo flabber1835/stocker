@@ -10,6 +10,8 @@ import sys
 import os
 from pathlib import Path
 
+import pytest
+
 _SERVICE_MAP = {
     "alpaca_sync":        "alpaca-sync",
     "api":                "api",
