@@ -153,6 +153,31 @@ def _first_exact_divergence(
     return None
 
 
+def _first_strategy_divergence(
+    merged: pd.DataFrame,
+    numeric_pairs: dict[str, tuple[str, str]],
+    exact_pairs: dict[str, tuple[str, str]],
+    ordered_fields: tuple[str, ...],
+    tolerance: float,
+) -> dict | None:
+    for index in range(len(merged)):
+        session = merged.iloc[[index]]
+        for field in ordered_fields:
+            if field in exact_pairs:
+                production_column, research_column = exact_pairs[field]
+                found = _first_exact_divergence(
+                    session, production_column, research_column
+                )
+            else:
+                production_column, research_column = numeric_pairs[field]
+                found = _first_field_divergence(
+                    session, production_column, research_column, tolerance
+                )
+            if found is not None:
+                return {"field": field, **found}
+    return None
+
+
 def _strong_equivalence(
     output_root: Path, tolerance: float = 1e-10, *, require_match: bool = True
 ) -> int:
@@ -206,18 +231,10 @@ def _strong_equivalence(
             "side": str(bad["_merge"]),
         }
     else:
-        divergence = None
         merged = merged.drop(columns=["_merge"])
-        for field in ordered_fields:
-            if field in exact_pairs:
-                p_col, r_col = exact_pairs[field]
-                found = _first_exact_divergence(merged, p_col, r_col)
-            else:
-                p_col, r_col = numeric_pairs[field]
-                found = _first_field_divergence(merged, p_col, r_col, tolerance)
-            if found is not None:
-                divergence = {"field": field, **found}
-                break
+        divergence = _first_strategy_divergence(
+            merged, numeric_pairs, exact_pairs, ordered_fields, tolerance
+        )
 
     audit = {
         "schema": "backtester.strict-pit-20y-strong-equivalence/1",

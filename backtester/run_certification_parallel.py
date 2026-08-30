@@ -44,6 +44,45 @@ def _read_research(path: Path) -> pd.DataFrame:
     return df[["date", "research_nav", "spy_nav"]].rename(columns={"research_nav": "nav", "spy_nav": "spy"}).sort_values("date")
 
 
+def _verify_spy_path_equivalence(
+    production: pd.DataFrame,
+    research: pd.DataFrame,
+    tolerance: float = 1e-10,
+) -> dict:
+    benchmark = production[["date", "spy"]].merge(
+        research[["date", "spy"]],
+        on="date",
+        suffixes=("_production", "_research"),
+        how="outer",
+        indicator=True,
+    ).sort_values("date")
+    if benchmark.empty or not benchmark["_merge"].eq("both").all():
+        raise RuntimeError("production/research SPY benchmark session axes diverged")
+    benchmark = benchmark.drop(columns=["_merge"])
+    p = pd.to_numeric(benchmark.spy_production, errors="coerce")
+    r = pd.to_numeric(benchmark.spy_research, errors="coerce")
+    if not (p.map(math.isfinite).all() and r.map(math.isfinite).all()):
+        raise RuntimeError("production/research SPY benchmark contains non-finite levels")
+    if not ((p > 0).all() and (r > 0).all()):
+        raise RuntimeError("production/research SPY benchmark contains non-positive levels")
+    p_anchor = float(p.iloc[0])
+    r_anchor = float(r.iloc[0])
+    p_normalized = p / p_anchor
+    r_normalized = r / r_anchor
+    max_delta = float((p_normalized - r_normalized).abs().max())
+    if max_delta > tolerance:
+        raise RuntimeError(
+            "production/research SPY benchmark paths diverged after measurement normalization"
+        )
+    return {
+        "normalization_session": pd.Timestamp(benchmark.date.iloc[0]).date().isoformat(),
+        "production_anchor": p_anchor,
+        "research_anchor": r_anchor,
+        "max_normalized_absolute_delta": max_delta,
+        "sessions_compared": int(len(benchmark)),
+    }
+
+
 def _spy_levels(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path, compression="gzip", low_memory=False)
     required = {"ticker", "date", "close_to_close_factor"}
@@ -271,11 +310,7 @@ def main() -> int:
     pa = _verify_authority(prod_out / "metadata_authority_audit.json", "production")
     ra = _verify_authority(research_out / "metadata_authority_audit.json", "research")
 
-    benchmark = prod_df[["date", "spy"]].merge(
-        research_df[["date", "spy"]], on="date", suffixes=("_production", "_research"), how="inner"
-    )
-    if benchmark.empty or (benchmark.spy_production - benchmark.spy_research).abs().max() > 1e-10:
-        raise RuntimeError("production/research SPY benchmark paths diverged")
+    benchmark_equivalence = _verify_spy_path_equivalence(prod_df, research_df)
 
     divergence = _first_divergence(prod_df, research_df, args.divergence_tolerance)
     audit = {
@@ -285,6 +320,7 @@ def main() -> int:
         "progress_cadence": "calendar-quarter, live joined production/research checkpoints",
         "cagr_basis": f"cumulative from {MEASUREMENT_START.date().isoformat()}",
         "research_production_divergence_tolerance": args.divergence_tolerance,
+        "spy_benchmark_equivalence": benchmark_equivalence,
         "first_divergence": divergence,
         "production_metadata_authority": pa,
         "research_metadata_authority": ra,

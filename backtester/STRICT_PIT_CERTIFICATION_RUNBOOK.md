@@ -151,6 +151,12 @@ session hashes, the research bundle, and both logs. This research-only job does
 not certify production/research equivalence and does not enable the disabled
 20-year dual-engine certification job.
 
+SPY path equivalence is checked after both outputs are rebased to the first
+measurement session. Production retains the canonical warmup-based level while
+research stores the same path rebased to `1.0`; different anchors are not an
+economic divergence. Session axes must match exactly, every level must be
+finite and positive, and the normalized paths must agree within `1e-10`.
+
 ## Promotion gate for the 20-year run
 
 Do not enable the full job until the bounded diagnostic has completed and its

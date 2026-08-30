@@ -978,7 +978,18 @@ def main() -> int:
                 sort_keys=True, separators=(",", ":"),
             ),
             "D_ldrc_state": json.dumps(
-                state_b.ldrc or {}, sort_keys=True, separators=(",", ":")
+                {
+                    "episode": bool((state_b.ldrc or {}).get("recovery_episode", False)),
+                    "latched": bool((state_b.ldrc or {}).get("divergence_latched", False)),
+                    "prev_desired": float((state_b.ldrc or {}).get(
+                        "previous_desired_allocation", 1.0
+                    )),
+                    "prev_native": float((state_b.ldrc or {}).get(
+                        "previous_native_allocation", 1.0
+                    )),
+                    "streak": int((state_b.ldrc or {}).get("recovery_streak", 0)),
+                },
+                sort_keys=True, separators=(",", ":")
             ),
         })
 

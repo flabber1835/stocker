@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 import json
 import hashlib
+import math
 import os
 from pathlib import Path
 import sys
@@ -398,22 +399,30 @@ strategy_production._certification_strategy_boundary = {}
 
 def _plan_session_with_boundary_evidence(*args, **kwargs):
     plan = _real_plan_session(*args, **kwargs)
-    candidates = [
-        [str(row.security_id), str(row.ticker), row.momentum, row.recent,
-         row.volatility, row.score, bool(row.in_top_decile)]
-        for row in plan.leadership_candidates
-    ]
+    def ranking_key(row):
+        score = float(row.score) if row.score is not None else float("nan")
+        return (
+            0 if math.isfinite(score) else 1,
+            -score if math.isfinite(score) else 0.0,
+            str(row.security_id),
+            str(row.ticker),
+        )
+    ranked = sorted(
+        (row for row in plan.leadership_candidates if row.in_top_decile),
+        key=ranking_key,
+    )
+    rank_ids = [str(row.security_id) for row in ranked]
     state_after = plan.state_after or {}
     positions = sorted(
         str(row.get("security_id"))
         for row in (state_after.get("episodes") or {}).values()
         if row.get("security_id")
     )
-    blob = json.dumps(candidates, separators=(",", ":"), allow_nan=True)
+    blob = json.dumps(rank_ids, separators=(",", ":"))
     strategy_production._certification_strategy_boundary[str(plan.session)] = {
         "eligible_universe": int(plan.eligible_universe_count),
         "ranking_sha256": hashlib.sha256(blob.encode()).hexdigest(),
-        "ranking_count": len(candidates),
+        "ranking_count": len(rank_ids),
         "selected_positions": positions,
         "selected_positions_sha256": hashlib.sha256(
             json.dumps(positions, separators=(",", ":")).encode()
