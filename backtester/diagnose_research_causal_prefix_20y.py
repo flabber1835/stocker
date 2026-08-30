@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Diagnose the first 20-year prefix-invariance divergence without changing certification semantics."""
+"""Diagnose the first 20-year prefix-invariance divergence without weakening certification."""
 from __future__ import annotations
 
 import argparse
@@ -19,6 +19,29 @@ def _run(command: list[str]) -> None:
     subprocess.run(command, cwd=ROOT, check=True)
 
 
+def _control(dataset: Path, output: Path, cutoff: str, patch: str, label: str) -> None:
+    code = r'''
+import sys
+import backtester.run_research_causal_single_20y as single
+original = single.instrument_research_source
+PATCH = sys.argv[4]
+LABEL = sys.argv[5]
+
+def diagnostic_instrument(text):
+    source = original(text)
+    seam = "    _CANONICAL=CausalPITDataset("
+    if source.count(seam) != 1:
+        raise RuntimeError("diagnostic expected exactly one canonical dataset seam")
+    result = source.replace(seam, PATCH + "\n" + seam, 1)
+    compile(result, f"<diagnostic-{LABEL}>", "exec")
+    return result
+single.instrument_research_source = diagnostic_instrument
+sys.argv = [sys.argv[0], "--canonical-dataset", sys.argv[1], "--output", sys.argv[2], "--view", "prefix", "--cutoff", sys.argv[3]]
+raise SystemExit(single.main())
+'''
+    _run([sys.executable, "-c", code, str(dataset.resolve()), str(output), cutoff, patch, label])
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--canonical-dataset", type=Path, required=True)
@@ -27,67 +50,42 @@ def main() -> int:
     ap.add_argument("--cutoff", default="2006-08-07")
     args = ap.parse_args()
     out = args.output.resolve()
-    normal = out / "normal-prefix"
-    control = out / "full-timeline-control"
     out.mkdir(parents=True, exist_ok=True)
-
-    base_cmd = [
-        sys.executable,
-        "backtester/run_research_causal_single_20y.py",
-        "--canonical-dataset", str(args.canonical_dataset.resolve()),
-        "--view", "prefix",
-        "--cutoff", args.cutoff,
-    ]
+    normal = out / "normal-prefix"
+    base_cmd = [sys.executable, "backtester/run_research_causal_single_20y.py", "--canonical-dataset", str(args.canonical_dataset.resolve()), "--view", "prefix", "--cutoff", args.cutoff]
     _run([*base_cmd, "--output", str(normal)])
 
-    code = r'''
-import sys
-from pathlib import Path
-import backtester.run_research_causal_single_20y as single
-original = single.instrument_research_source
-
-def diagnostic_instrument(text):
-    source = original(text)
-    seam = "    _CANONICAL=CausalPITDataset("
-    if source.count(seam) != 1:
-        raise RuntimeError("diagnostic expected exactly one canonical dataset seam")
-    patch = "    CausalPITDataset._restrict_timeline=lambda self, cutoff: None\n"
-    result = source.replace(seam, patch + seam, 1)
-    compile(result, "<diagnostic-full-timeline-control>", "exec")
-    return result
-
-single.instrument_research_source = diagnostic_instrument
-sys.argv = [
-    sys.argv[0], "--canonical-dataset", sys.argv[1], "--output", sys.argv[2],
-    "--view", "prefix", "--cutoff", sys.argv[3],
-]
-raise SystemExit(single.main())
-'''
-    _run([sys.executable, "-c", code, str(args.canonical_dataset.resolve()), str(control), args.cutoff])
-
+    controls = {
+        "full-timeline": "    CausalPITDataset._restrict_timeline=lambda self, cutoff: None",
+        "full-observations": "    CausalPITDataset.observations=lambda self, year: CausalPITDataset.__mro__[1].observations(self, year)",
+        "full-sessions-for-funds": """    _DIAG_INIT=CausalPITDataset.__init__
+    def _diag_init(self,*a,**kw):
+        _DIAG_INIT(self,*a,**kw)
+        self.sessions=self._immutable_sessions
+    CausalPITDataset.__init__=_diag_init""",
+        "full-timeline-and-observations": """    CausalPITDataset._restrict_timeline=lambda self, cutoff: None
+    CausalPITDataset.observations=lambda self, year: CausalPITDataset.__mro__[1].observations(self, year)""",
+    }
     baseline = read_trace(args.baseline_trace.resolve())
-    normal_trace = read_trace(normal / "causal-trace.jsonl.gz")
-    control_trace = read_trace(control / "causal-trace.jsonl.gz")
-    normal_cmp = compare_prefix(baseline, normal_trace, args.cutoff)
-    control_cmp = compare_prefix(baseline, control_trace, args.cutoff)
-    between_cmp = compare_prefix(control_trace, normal_trace, args.cutoff)
+    comparisons = {"normal-prefix": compare_prefix(baseline, read_trace(normal / "causal-trace.jsonl.gz"), args.cutoff)}
+    for label, patch in controls.items():
+        target = out / label
+        _control(args.canonical_dataset, target, args.cutoff, patch, label)
+        comparisons[label] = compare_prefix(baseline, read_trace(target / "causal-trace.jsonl.gz"), args.cutoff)
+
+    passing_controls = sorted(k for k,v in comparisons.items() if k != "normal-prefix" and v.get("status") == "PASS")
     payload = {
-        "schema": "backtester.research-causal-prefix-universe-diagnostic/1",
+        "schema": "backtester.research-causal-prefix-surface-diagnostic/2",
         "cutoff": args.cutoff,
-        "normal_prefix_vs_baseline": normal_cmp,
-        "full_timeline_control_vs_baseline": control_cmp,
-        "normal_prefix_vs_full_timeline_control": between_cmp,
-        "root_cause_confirmed": normal_cmp.get("status") == "FAIL" and control_cmp.get("status") == "PASS",
-        "classification": "causal instrumentation/harness defect" if normal_cmp.get("status") == "FAIL" and control_cmp.get("status") == "PASS" else "unresolved",
-        "interpretation": (
-            "If the strict prefix diverges but the full-timeline control is byte-identical to baseline, "
-            "the mismatch is caused by prefix-dependent metadata-universe/index layout rather than future observations or strategy decisions."
-        ),
+        "comparisons": comparisons,
+        "passing_controls": passing_controls,
+        "root_cause_surface_isolated": bool(passing_controls),
+        "classification": "causal instrumentation/harness defect" if passing_controls else "unresolved",
+        "interpretation": "A passing control identifies a prefix read-surface transformation that changes historical numerical trace bytes; no certification gate is waived by this diagnostic.",
     }
     (out / "diagnosis.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(payload, indent=2, sort_keys=True), flush=True)
-    return 0 if payload["root_cause_confirmed"] else 2
-
+    return 0 if passing_controls else 2
 
 if __name__ == "__main__":
     raise SystemExit(main())
