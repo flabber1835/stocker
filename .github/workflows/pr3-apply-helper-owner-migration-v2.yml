@@ -121,3 +121,5 @@ jobs:
             tests/sentinel/test_runtime_regressions_137_148_149_150.py
           git commit -m "test: migrate paper helper owners"
           git push origin HEAD:codex/pr3-paper-test-canonical-owners
+
+# trigger corrected workflow
