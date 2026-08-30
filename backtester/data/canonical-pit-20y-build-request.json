@@ -1,5 +1,5 @@
 {
   "reason": "rerun with bounded-memory per-session hash reconstruction",
-  "requested_at": "2026-08-30T18:08:00Z",
+  "requested_at": "2026-08-30T18:22:00Z",
   "schema": "backtester.canonical-pit-build-request/1"
 }

@@ -33,7 +33,9 @@ jobs:
           sparse-checkout: |
             /.github/workflows/backtester-build-canonical-pit-attempt.yml
             /.github/workflows/backtester-build-canonical-pit-20y.yml
+            /.github/workflows/backtester-publish-canonical-pit-diagnostic.yml
             /.github/workflows/backtester-research-only-20y.yml
+            /.github/workflows/backtester-strict-pit-20y.yml
             /backtester/canonical_pit_dataset.py
             /backtester/canonical_pit_package.py
             /backtester/run_research_strict_pit_certification.py
