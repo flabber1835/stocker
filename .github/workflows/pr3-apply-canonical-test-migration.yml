@@ -1,0 +1,263 @@
+name: PR3 apply canonical test migration
+
+on:
+  push:
+    branches:
+      - 'fix/pr3-paper-test-canonical-owners-ci'
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: codex/pr3-paper-test-canonical-owners
+          fetch-depth: 1
+      - name: Migrate private paper test dependencies
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def load(path):
+              p = Path(path)
+              return p, p.read_text(encoding='utf-8')
+
+          def save(p, text):
+              p.write_text(text, encoding='utf-8')
+
+          def add_after(text, marker, addition):
+              assert marker in text, marker
+              if addition in text:
+                  return text
+              return text.replace(marker, marker + addition, 1)
+
+          def replace(text, old, new, count=None):
+              found = text.count(old)
+              assert found, f'missing: {old}'
+              if count is not None:
+                  assert found == count, f'{old}: expected {count}, got {found}'
+              return text.replace(old, new)
+
+          # Remove the temporary Step-4 test forwarding fixture. Every seam it
+          # supported is migrated below to the actual defining/consuming module.
+          p, t = load('tests/conftest.py')
+          marker = '\n_PAPER_DECOMPOSITION_LEGACY_MODULES = {'
+          assert marker in t
+          t = t[:t.index(marker)] + '\n'
+          save(p, t)
+
+          # Inspection owner.
+          p, t = load('tests/sentinel/test_administrative_authority.py')
+          t = replace(
+              t,
+              '    from sentinel import paper\n    from sentinel.execution.simulator import SimulatedBroker\n',
+              '    from sentinel.paper import inspection as paper_inspection\n'
+              '    from sentinel.execution.simulator import SimulatedBroker\n',
+              1)
+          t = replace(t, 'paper._require_certified_paper_broker(wrapped)',
+                      'paper_inspection._require_certified_paper_broker(wrapped)', 1)
+          save(p, t)
+
+          # Validation and inspection helpers used directly by automation tests.
+          p, t = load('tests/sentinel/test_automation_runtime.py')
+          t = add_after(
+              t,
+              'from sentinel import (\n    authority, automation_runtime, informational_paper_mirror, paper)\n',
+              'from sentinel.paper import (\n'
+              '    inspection as paper_inspection,\n'
+              '    validation as paper_validation,\n'
+              ')\n')
+          t = replace(t, 'paper._validate_automation_grant',
+                      'paper_validation._validate_automation_grant', 2)
+          t = replace(t, 'paper._recovery_account_identity_or_refuse',
+                      'paper_inspection._recovery_account_identity_or_refuse', 1)
+          t = replace(t, 'paper._account_or_refuse',
+                      'paper_inspection._account_or_refuse', 1)
+          save(p, t)
+
+          # Target multiplier helper.
+          p, t = load('tests/sentinel/test_issue209_target_reprojection.py')
+          t = add_after(t, 'from sentinel import paper\n',
+                        'from sentinel.paper import targets as paper_targets\n')
+          t = replace(t, 'paper._target_action_multipliers',
+                      'paper_targets._target_action_multipliers', 1)
+          save(p, t)
+
+          # BIL tests span preparation mark loading and target projection.
+          p, t = load('tests/sentinel/test_issue223_bil_evidence.py')
+          t = add_after(
+              t, 'from sentinel import identity, paper, trial\n',
+              'from sentinel.paper import (\n'
+              '    preparation as paper_preparation,\n'
+              '    targets as paper_targets,\n'
+              ')\n')
+          assert t.count('paper.shadow_target') == 2
+          t = t.replace('paper.shadow_target', 'paper_preparation.shadow_target', 1)
+          t = t.replace('paper.shadow_target', 'paper_targets.shadow_target', 1)
+          t = replace(t, 'paper._load_marks_and_tickers',
+                      'paper_preparation._load_marks_and_tickers', 1)
+          t = replace(t, 'paper.journal', 'paper_targets.journal', 1)
+          t = replace(t, 'paper._target_projection_or_refuse',
+                      'paper_targets._target_projection_or_refuse', 1)
+          save(p, t)
+
+          # Readiness regression directly exercises validation._validate_broker_grant.
+          p, t = load('tests/sentinel/test_runtime_regressions_137_148_149_150.py')
+          t = add_after(t, 'from sentinel import paper\n',
+                        'from sentinel.paper import validation as paper_validation\n')
+          for name in (
+              'load_rollout_state', 'publication', 'feed_store', 'load_controller',
+              'runtime_strategy_identity', 'calendar', '_readiness_or_refuse',
+          ):
+              t = t.replace(f'paper.{name}', f'paper_validation.{name}')
+          t = replace(t, 'paper._validate_broker_grant',
+                      'paper_validation._validate_broker_grant', 1)
+          save(p, t)
+
+          # Main paper activation tests: direct private helpers use defining
+          # modules; the shared orchestration fixtures patch exact consumer globals.
+          p, t = load('tests/sentinel/test_paper_activation.py')
+          t = add_after(
+              t,
+              'from sentinel import authority, binding, handover, paper, schema  # noqa: E402\n',
+              'from sentinel.paper import (  # noqa: E402\n'
+              '    cash as paper_cash,\n'
+              '    execution as paper_execution,\n'
+              '    inspection as paper_inspection,\n'
+              '    preparation as paper_preparation,\n'
+              '    reconciliation_evidence as paper_reconciliation_evidence,\n'
+              '    recovery as paper_recovery,\n'
+              '    targets as paper_targets,\n'
+              '    validation as paper_validation,\n'
+              ')\n')
+          old_fixture = '''    monkeypatch.setattr(paper, "require_certified", lambda _adapter: None)\n    monkeypatch.setattr(paper, "load_controller", lambda: CONFIG)\n    monkeypatch.setattr(\n        paper, "runtime_strategy_identity",\n        lambda _config, **_kwargs: dict(IDENTITY))\n    monkeypatch.setattr(\n        paper, "require_current_authority",\n        lambda *_args, **_kwargs: SimpleNamespace(\n            certificate_sha256=ROLLOUT_CERTIFICATE,\n            authorization_mode="PAPER_OBSERVATION_ONLY"))\n    monkeypatch.setattr(\n        paper.system_identity, "rehearsal_identity",\n        lambda: {"identity_hash": "test-runtime"})\n'''
+          new_fixture = '''    monkeypatch.setattr(\n        paper_inspection, "require_certified", lambda _adapter: None)\n    monkeypatch.setattr(paper_preparation, "load_controller", lambda: CONFIG)\n    monkeypatch.setattr(\n        paper_preparation, "runtime_strategy_identity",\n        lambda _config, **_kwargs: dict(IDENTITY))\n    authority_result = lambda *_args, **_kwargs: SimpleNamespace(\n        certificate_sha256=ROLLOUT_CERTIFICATE,\n        authorization_mode="PAPER_OBSERVATION_ONLY")\n    for owner in (\n            paper_preparation, paper_validation, paper_execution, paper_recovery):\n        if hasattr(owner, "require_current_authority"):\n            monkeypatch.setattr(owner, "require_current_authority", authority_result)\n    monkeypatch.setattr(\n        paper_preparation.system_identity, "rehearsal_identity",\n        lambda: {"identity_hash": "test-runtime"})\n'''
+          t = replace(t, old_fixture, new_fixture, 1)
+          t = t.replace('paper.readiness', 'paper_preparation.readiness')
+          t = t.replace('paper.feed_store', 'paper_preparation.feed_store')
+          t = t.replace('paper.calendar', 'paper_preparation.calendar')
+          t = t.replace('paper.load_concordance_parent',
+                        'paper_preparation.load_concordance_parent')
+          direct = {
+              '_hash': 'paper_validation',
+              '_state_and_plan_or_refuse': 'paper_validation',
+              '_assert_concordance_witness_authority': 'paper_validation',
+              '_action_lookup': 'paper_targets',
+              '_target_action_lookup': 'paper_targets',
+              '_preopen_active_security_ids': 'paper_targets',
+              '_official_preopen_cutoff': 'paper_targets',
+              '_fresh_warmed_state': 'paper_preparation',
+              '_cash_authority_or_refuse': 'paper_cash',
+              '_settled_account_evidence_bracket': 'paper_reconciliation_evidence',
+          }
+          for name, owner in direct.items():
+              t = t.replace(f'paper.{name}', f'{owner}.{name}')
+          # Any test that explicitly patches metadata loading for preparation
+          # patches the name prepare_paper_plan resolves from its globals.
+          t = t.replace('monkeypatch.setattr(\n        paper, "load_causal_meta_history",',
+                        'monkeypatch.setattr(\n        paper_preparation, "load_causal_meta_history",')
+          save(p, t)
+
+          # Close-NAV tests: direct finalization/cash helpers use their defining
+          # owners. The large preparation harness patches preparation globals.
+          p, t = load('tests/sentinel/test_paper_close_nav_gate.py')
+          t = add_after(
+              t, 'from sentinel import paper, trial, trial_close, trial_fills\n',
+              'from sentinel.paper import (\n'
+              '    cash as paper_cash,\n'
+              '    finalization as paper_finalization,\n'
+              '    preparation as paper_preparation,\n'
+              ')\n')
+          prep_patch_names = (
+              'assert_paper_url', '_require_certified_paper_broker',
+              'load_rollout_state', '_readiness_or_refuse',
+              'require_current_authority', '_guard_broker',
+              '_assert_deterministic_plan_id', '_target_action_lookup',
+              '_preopen_views_or_none', '_revalidate_preopen_authority_or_refuse',
+              '_clean_or_refuse', '_account_or_refuse',
+              '_broker_cash_state_or_refuse', '_cash_authority_or_refuse',
+              '_finalize_due_succeeded_cycle_or_refuse',
+          )
+          for name in prep_patch_names:
+              t = t.replace(f'monkeypatch.setattr(paper, "{name}"',
+                            f'monkeypatch.setattr(paper_preparation, "{name}"')
+              t = t.replace(f'monkeypatch.setattr(\n        paper, "{name}"',
+                            f'monkeypatch.setattr(\n        paper_preparation, "{name}"')
+          for name in ('schema', 'journal', 'publication', 'calendar', 'feed_store',
+                       'catchup', 'trial', 'preopen_authority'):
+              t = t.replace(f'paper.{name}', f'paper_preparation.{name}')
+          t = t.replace('paper.RolloutMode', 'paper_preparation.RolloutMode')
+          # Calls to the execution reconciler inside prepare are resolved from
+          # preparation.reconciliation; patch that exact module binding.
+          t = t.replace('paper.reconciliation, "reconcile"',
+                        'paper_preparation.reconciliation, "reconcile"')
+          t = t.replace('paper.target_reprojection',
+                        'paper_finalization.target_reprojection')
+          t = t.replace('paper._record_due_close_nav_or_refuse',
+                        'paper_finalization._record_due_close_nav_or_refuse')
+          t = t.replace('paper._record_due_fill_interval_or_refuse',
+                        'paper_finalization._record_due_fill_interval_or_refuse')
+          t = t.replace('paper._finalize_due_succeeded_cycle_or_refuse',
+                        'paper_finalization._finalize_due_succeeded_cycle_or_refuse')
+          t = t.replace('paper._cash_authority_or_refuse',
+                        'paper_cash._cash_authority_or_refuse')
+          save(p, t)
+
+          # Pre-open tests directly exercise targets, while the recovery harness
+          # patches the globals of recover_automated_paper_cycle itself.
+          p, t = load('tests/sentinel/test_preopen_paper_gate.py')
+          marker = 'from sentinel.core import catchup\n'
+          t = add_after(
+              t, marker,
+              'from sentinel.paper import (\n'
+              '    recovery as paper_recovery,\n'
+              '    targets as paper_targets,\n'
+              ')\n')
+          recovery_patch_names = (
+              'assert_paper_url', '_require_certified_paper_broker',
+              'load_rollout_state', '_default_paper_strategy',
+              'require_current_authority', '_validate_automation_grant',
+              '_guard_broker', '_recovery_account_identity_or_refuse',
+              '_broker_cash_state_or_refuse', '_action_lookup',
+              '_target_action_lookup', '_account_or_refuse',
+              '_cash_authority_or_refuse', '_settled_account_evidence_bracket',
+              '_target_projection_or_refuse',
+          )
+          for name in recovery_patch_names:
+              t = t.replace(f'monkeypatch.setattr(paper, "{name}"',
+                            f'monkeypatch.setattr(paper_recovery, "{name}"')
+              t = t.replace(f'monkeypatch.setattr(\n        paper, "{name}"',
+                            f'monkeypatch.setattr(\n        paper_recovery, "{name}"')
+          t = t.replace('paper.feed_store', 'paper_recovery.feed_store')
+          direct_targets = (
+              '_preopen_active_security_ids', '_official_preopen_cutoff',
+              '_plan_deltas', '_provably_clean_empty_noop',
+              '_revalidate_preopen_authority_or_refuse',
+              '_target_projection_or_refuse',
+          )
+          for name in direct_targets:
+              t = t.replace(f'paper.{name}', f'paper_targets.{name}')
+          t = t.replace('paper.target_reprojection',
+                        'paper_targets.target_reprojection')
+          save(p, t)
+          PY
+
+          git diff --check
+          git status --short
+          git config user.name "OpenAI"
+          git config user.email "noreply@openai.com"
+          git add tests/conftest.py \
+            tests/sentinel/test_administrative_authority.py \
+            tests/sentinel/test_automation_runtime.py \
+            tests/sentinel/test_issue209_target_reprojection.py \
+            tests/sentinel/test_issue223_bil_evidence.py \
+            tests/sentinel/test_runtime_regressions_137_148_149_150.py
+          git commit -m "test: migrate paper helper owners"
+          git add tests/sentinel/test_paper_activation.py \
+            tests/sentinel/test_paper_close_nav_gate.py \
+            tests/sentinel/test_preopen_paper_gate.py
+          git commit -m "test: migrate paper lifecycle monkeypatch owners"
+          git push origin HEAD:codex/pr3-paper-test-canonical-owners
