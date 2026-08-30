@@ -20,6 +20,29 @@ def _replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+def _replace_bounded_once(
+    text: str, start_anchor: str, end_anchor: str, replacement: str, label: str
+) -> str:
+    """Replace one generated-source region without depending on its interior.
+
+    The strict-PIT transform legitimately rewrites code inside the retained
+    replay.  Matching the entire pre-transform block therefore makes the overlay
+    depend on irrelevant formatting.  The economic seam is instead bounded by
+    two stable statements.  Both anchors must be unique and correctly ordered.
+    """
+    starts = text.count(start_anchor)
+    ends = text.count(end_anchor)
+    if starts != 1 or ends != 1:
+        raise RuntimeError(
+            f"{label}: expected unique anchors, found start={starts} end={ends}"
+        )
+    start = text.index(start_anchor)
+    end = text.index(end_anchor, start)
+    if end <= start:
+        raise RuntimeError(f"{label}: malformed source seam")
+    return text[:start] + replacement + text[end:]
+
+
 def install(text: str) -> str:
     text = _replace_once(
         text,
@@ -28,13 +51,8 @@ def install(text: str) -> str:
         "terminal pending state",
     )
 
-    old_event = """            dayact=actions.get(date,{})
-            term_tids={tmap[tk] for tk,rs in dayact.items() if tk in tmap and any(a in TERMINAL for a,_,_ in rs)}
-            for s in book.slots:
-                if s.reserved() and s.pending_tid in term_tids: s.pending_tid=-1; s.pending_shares=0.; s.pending_signal_day=-1
-                if s.held() and s.tid in term_tids and not s.pending_sell: s.pending_sell=True; s.sell_reason='terminal'
-            open_eq,_=book.equity(opraw)
-"""
+    start_anchor = "            dayact=actions.get(date,{})\n"
+    end_anchor = "            open_eq,_=book.equity(opraw)\n"
     new_event = """            dayact=actions.get(date,{})
             term_tids={tmap[tk] for tk,rs in dayact.items() if tk in tmap and any(a in TERMINAL for a,_,_ in rs)}
             for s in book.slots:
@@ -53,9 +71,10 @@ def install(text: str) -> str:
                     s.tid=-1; s.qty=0.; s.entry_sig=np.nan; s.peak=np.nan; s.entry_day=-1; s.reviewed=False; s.pending_sell=False; s.sell_reason=''; s.ready_day=gday+COOLDOWN
                 else:
                     raise RuntimeError(f'known terminal event cannot be valued causally: {ds} {tick[s.tid]}')
-            open_eq,_=book.equity(opraw)
 """
-    text = _replace_once(text, old_event, new_event, "terminal event carry")
+    text = _replace_bounded_once(
+        text, start_anchor, end_anchor, new_event, "terminal event carry"
+    )
 
     old_fallback = """                elif s.sell_reason=='terminal':
                     px2=book.last_raw.get(s.tid,np.nan)
