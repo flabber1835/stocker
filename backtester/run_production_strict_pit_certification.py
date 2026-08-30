@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Strict-PIT production LD-RC certification wrapper.
 
-Runs the exact pinned production strategy through the corrected 1997 warm-up and
-historical cash model while replacing D's current-TICKERS metadata authority with
-causal price-tape/SEC authorities.  The legacy A side is mechanically retained by
-the underlying harness but is not certification evidence here.
+Runs the exact pinned production strategy through the corrected historical warm-up
+and cash model while replacing D's current-TICKERS metadata authority with causal
+price-tape/SEC authorities. The legacy A side is mechanically retained by the
+underlying harness but is not certification evidence here.
 """
 from __future__ import annotations
 
+from bisect import bisect_left
+from dataclasses import dataclass
 from datetime import date
 import json
 import os
@@ -38,6 +40,82 @@ MANUAL_AUDIT = LAB_ROOT / "PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUD
 _identity_audit: dict = {}
 _security_authority: SecurityTypeAuthority | None = None
 _quarter_ends: set[str] = set()
+_anchor_issuer_stats = {
+    "anchors": 0,
+    "sec_cik": 0,
+    "unknown_singleton": 0,
+}
+
+
+def _norm_int(value) -> str | None:
+    if value is None or pd.isna(value):
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return str(int(float(text)))
+    except (TypeError, ValueError, OverflowError):
+        return text
+
+
+class _StrictIssuerAuthority:
+    """One causal issuer authority shared by anchors and D session metadata.
+
+    The A/D harness constructs feed anchors before the D publication is rewritten.
+    Strict PIT therefore cannot rely on ``SecurityMeta.issuer_key()`` at that
+    boundary: those metadata objects intentionally contain neither present-day
+    relatedtickers nor permaticker.  The historical rule is the same at every
+    seam: latest SEC CIK filed strictly before the simulated session, with a
+    security-singleton fallback while CIK is unknown.
+    """
+
+    def __init__(self, path: Path):
+        frame = pd.read_csv(path, compression="gzip", low_memory=False)
+        required = {"filing_date", "ticker", "issuer_cik"}
+        missing = required - set(frame.columns)
+        if missing:
+            raise RuntimeError(f"SEC CIK evidence missing columns: {sorted(missing)}")
+        self.dates: dict[str, list[str]] = {}
+        self.values: dict[str, list[str]] = {}
+        frame = frame.sort_values(["ticker", "filing_date"], kind="mergesort")
+        for ticker, group in frame.groupby("ticker", sort=False):
+            ds: list[str] = []
+            vs: list[str] = []
+            for row in group.itertuples(index=False):
+                filed = str(row.filing_date)[:10]
+                cik = _norm_int(row.issuer_cik)
+                if filed and cik is not None:
+                    ds.append(filed)
+                    vs.append(cik)
+            if ds:
+                self.dates[str(ticker)] = ds
+                self.values[str(ticker)] = vs
+
+    def strict_prior_cik(self, ticker: str, session: str) -> str | None:
+        ticker = str(ticker)
+        dates = self.dates.get(ticker, ())
+        i = bisect_left(dates, str(session)) - 1
+        return self.values[ticker][i] if i >= 0 else None
+
+    def issuer(self, security_id: str, ticker: str, session: str) -> tuple[str, str]:
+        cik = self.strict_prior_cik(str(ticker), str(session))
+        if cik is None:
+            return (
+                f"SEC_UNKNOWN:{security_id}",
+                "SEC_STRICT_PRIOR_UNKNOWN_SINGLETON",
+            )
+        return f"SEC_CIK:{cik}", "SEC_CIK_STRICT_PRIOR"
+
+    def known_example_before(self, session: str) -> tuple[str, str] | None:
+        for ticker in sorted(self.dates):
+            cik = self.strict_prior_cik(ticker, session)
+            if cik is not None:
+                return ticker, cik
+        return None
+
+
+_issuer_authority = _StrictIssuerAuthority(CIK_PATH)
 
 
 def _strict_load_metadata(_tickers_path, main):
@@ -50,6 +128,8 @@ def _strict_load_metadata(_tickers_path, main):
         end_year=int(str(runner.END_SESSION)[:4]),
     )
     meta, sectors, resolver, canonical, _identity_audit = result
+    if len(meta) < int(_identity_audit.get("tickers", 0)):
+        raise RuntimeError("strict PIT identity map has fewer security IDs than observed tickers")
     print(
         f"[STRICT PIT] causal identities={len(meta):,} tickers={_identity_audit['tickers']:,} "
         f"cik_episode_boundaries={_identity_audit['cik_change_episode_boundaries']:,}",
@@ -59,6 +139,128 @@ def _strict_load_metadata(_tickers_path, main):
 
 
 runner.load_current_metadata = _strict_load_metadata
+
+
+def _strict_build_anchor_map(
+    state,
+    bars,
+    meta,
+    prior_split_factor,
+    seen_count,
+    main,
+):
+    """Build restart/pre-chain anchors from the strict causal issuer authority.
+
+    This mirrors the frozen harness's split-anchor logic exactly.  The only
+    semantic substitution is issuer authority: current Sharadar relatedtickers /
+    permaticker are unavailable by design, so the issuer is strict-prior SEC CIK
+    or the contractually approved security singleton.
+    """
+    existing = set((state.feed.get("series") or {}).keys())
+    anchors = {}
+    FeedAnchor = main["FeedAnchor"]
+    for bar in bars:
+        sid = str(bar.security_id)
+        if sid in existing:
+            continue
+        m = meta.get(sid)
+        if m is None:
+            raise RuntimeError(f"bar {sid} has no causal SecurityMeta")
+        seen = int(seen_count.get(sid, 0))
+        if seen > 0 or m.first_session != bar.session:
+            issuer_id, source = _issuer_authority.issuer(
+                sid, str(bar.ticker), str(bar.session)
+            )
+            if not issuer_id:
+                raise RuntimeError(f"strict PIT issuer authority returned no issuer for {sid}")
+            _anchor_issuer_stats["anchors"] += 1
+            if source == "SEC_CIK_STRICT_PRIOR":
+                _anchor_issuer_stats["sec_cik"] += 1
+            else:
+                _anchor_issuer_stats["unknown_singleton"] += 1
+            anchors[sid] = FeedAnchor(
+                security_id=sid,
+                ticker=bar.ticker,
+                issuer_id=issuer_id,
+                prior_split_factor=float(prior_split_factor.get(sid, 1.0)),
+            )
+    return anchors
+
+
+# Important: the harness resolves this global before ``production.advance_state``.
+# Patching only ``prod._pit_meta_map`` is too late for returning/pre-chain series.
+runner.build_anchor_map = _strict_build_anchor_map
+
+
+def preflight_strict_boundaries(session: str) -> dict:
+    """Exercise the exact pre-chain issuer failure shape without a long replay."""
+
+    @dataclass(frozen=True)
+    class _Anchor:
+        security_id: str
+        ticker: str
+        issuer_id: str
+        prior_split_factor: float
+
+    @dataclass(frozen=True)
+    class _Bar:
+        security_id: str
+        ticker: str
+        session: str
+
+    class _Meta:
+        first_session = "1900-01-01"
+
+        def issuer_key(self):
+            raise AssertionError("legacy SecurityMeta.issuer_key() reached strict anchor preflight")
+
+    class _State:
+        feed = {"series": {}}
+
+    synthetic_sid = "STRICT-PREFLIGHT-SID"
+    synthetic_ticker = "STRICT-PREFLIGHT-UNKNOWN"
+    anchors = _strict_build_anchor_map(
+        _State(),
+        [_Bar(synthetic_sid, synthetic_ticker, str(session))],
+        {synthetic_sid: _Meta()},
+        {synthetic_sid: 1.25},
+        {synthetic_sid: 1},
+        {"FeedAnchor": _Anchor},
+    )
+    anchor = anchors.get(synthetic_sid)
+    if anchor is None:
+        raise RuntimeError("strict anchor preflight did not create the pre-chain anchor")
+    if anchor.issuer_id != f"SEC_UNKNOWN:{synthetic_sid}":
+        raise RuntimeError(
+            f"strict unknown-issuer anchor mismatch: {anchor.issuer_id!r}"
+        )
+    if abs(float(anchor.prior_split_factor) - 1.25) > 1e-15:
+        raise RuntimeError("strict anchor preflight changed the split-factor basis")
+
+    known = _issuer_authority.known_example_before(str(session))
+    if known is None:
+        raise RuntimeError(f"SEC issuer authority has no strict-prior evidence before {session}")
+    known_ticker, known_cik = known
+    known_issuer, known_source = _issuer_authority.issuer(
+        "STRICT-PREFLIGHT-KNOWN", known_ticker, str(session)
+    )
+    if known_issuer != f"SEC_CIK:{known_cik}" or known_source != "SEC_CIK_STRICT_PRIOR":
+        raise RuntimeError("strict known-issuer preflight disagrees with SEC CIK authority")
+
+    # Keep runtime evidence counters free of synthetic preflight observations.
+    for key in _anchor_issuer_stats:
+        _anchor_issuer_stats[key] = 0
+    result = {
+        "session": str(session),
+        "unknown_fallback": anchor.issuer_id,
+        "known_example_ticker": known_ticker,
+        "known_example_issuer": known_issuer,
+        "legacy_issuer_key_reached": False,
+        "split_anchor_preserved": True,
+    }
+    print("[PREFLIGHT PASS] strict pre-chain issuer/anchor boundary " + json.dumps(result, sort_keys=True), flush=True)
+    return result
+
 
 _real_pit_meta_map = prod._pit_meta_map
 
@@ -71,8 +273,8 @@ def _strict_pit_meta_map(pub):
         )
     result = {}
     for sid, meta in pub.meta.items():
-        issuer_id, source = prod._strict_prior_cik(
-            pub.sectors, str(sid), meta, str(pub.session)
+        issuer_id, source = _issuer_authority.issuer(
+            str(sid), str(meta.ticker), str(pub.session)
         )
         prod._pit_metadata_observations += 1
         if source == "SEC_CIK_STRICT_PRIOR":
@@ -146,6 +348,10 @@ def _rewrite_bundle_with_audit() -> None:
         security_type=_security_authority.audit(),
     )
     audit["role"] = "production"
+    audit["feed_anchor_issuer_authority"] = {
+        "authority": "strict-prior SEC CIK; unknown issuer is causal security singleton",
+        **{key: int(value) for key, value in _anchor_issuer_stats.items()},
+    }
     audit_path = output / "metadata_authority_audit.json"
     audit_path.write_text(json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -178,8 +384,6 @@ def _rewrite_bundle_with_audit() -> None:
         encoding="utf-8",
     )
 
-    # Mechanical hard fail: the strict audit must prove no current-TICKERS field
-    # is economically active on D.
     if audit["current_SHARADAR_TICKERS_economically_active_fields"]:
         raise RuntimeError("strict D retained current SHARADAR_TICKERS authority")
 
