@@ -1,0 +1,132 @@
+name: Backtester - 20-year causal prefix diagnostic
+run-name: 20-year causal prefix diagnostic — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/strict-pit-causal-certification-20y]
+    paths:
+      - backtester/data/causal-20y-prefix-diagnostic-request.json
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+
+env:
+  CANONICAL_PATH: backtester-results/canonical-pit-20y
+  BASELINE_PATH: backtester-results/baseline
+  OUTPUT_PATH: backtester-results/prefix-diagnostic
+  POINTER: backtester/data/canonical-pit-20y.json
+  PACKAGE: ghcr.io/flabber1835/stocker-canonical-pit@sha256:4f53e51d8171aab8a8ac9df90e116d27b0f9b54f95629154685ea8a2394c1265
+  PRODUCTION_SHA: 887f479b15ad861313da666ad698034d3847121c
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out exact diagnostic source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/diagnose_research_causal_prefix_20y.py
+            /backtester/research_causal_runtime.py
+            /backtester/research_causal_instrumentation.py
+            /backtester/run_research_causal_single_20y.py
+            /backtester/run_research_causal_certification.py
+            /backtester/run_research_strict_pit_20y.py
+            /backtester/run_research_strict_pit_certification.py
+            /backtester/run_research_ldrc_corrected_warmup_cash.py
+            /backtester/run_research_ldrc_nonpit_vs_fullpit.py
+            /backtester/canonical_pit_dataset.py
+            /backtester/canonical_pit_package.py
+            /backtester/strict_pit_metadata.py
+            /backtester/historical_cash.py
+            /backtester/causal_split_overrides.py
+            /backtester/causal_terminal_terms.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/canonical-pit-20y.json
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /backtester/data/causal-split-overrides-v1.json
+            /backtester/data/causal-split-overrides-v1.SHA256
+            /backtester/data/causal-split-overrides-v1.d/**
+            /backtester/data/causal-terminal-terms-v1.json
+            /backtester/data/causal-terminal-terms-v1.SHA256
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/SHA256SUMS.txt
+            /research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
+            /PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz
+            /PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv
+      - name: Check out pinned production runtime read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+      - name: Install pinned runtime closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+      - name: Download successful full baseline evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: retained-research-causal-20y-baseline-33339888886
+          path: ${{ env.BASELINE_PATH }}
+          repository: flabber1835/stocker
+          run-id: 33339888886
+          github-token: ${{ github.token }}
+      - name: Pull immutable canonical 20-year package
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          C=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${C}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p "${CANONICAL_PATH}"
+          docker cp "${C}:/canonical-pit/." "${CANONICAL_PATH}"
+          docker rm "${C}"
+          trap - EXIT
+          python backtester/canonical_pit_package.py verify --pointer "${POINTER}" --dataset "${CANONICAL_PATH}"
+      - name: Run targeted prefix-universe diagnosis
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          python backtester/diagnose_research_causal_prefix_20y.py \
+            --canonical-dataset "${CANONICAL_PATH}" \
+            --baseline-trace "${BASELINE_PATH}/baseline-causal-trace.jsonl.gz" \
+            --output "${OUTPUT_PATH}" \
+            --cutoff 2006-08-07
+      - name: Upload diagnosis
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: retained-research-causal-prefix-diagnostic-${{ github.run_id }}
+          path: backtester-results/prefix-diagnostic
+          if-no-files-found: error
+          retention-days: 30
