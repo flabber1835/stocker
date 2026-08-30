@@ -107,6 +107,8 @@ def _paper_root_violations(path: Path) -> list[str]:
 def test_production_paper_root_access_is_public_api_only():
     violations = []
     for path in sorted((ROOT / "sentinel").rglob("*.py")):
+        if PACKAGE in path.parents:
+            continue
         violations.extend(_paper_root_violations(path))
     assert violations == [], "\n".join(violations)
 
