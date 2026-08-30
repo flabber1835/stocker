@@ -69,6 +69,42 @@ class CausalIdentityResolver:
         return row.sid if str(session) >= row.first_session else rows[max(0, idx - 1)].sid
 
 
+class CausalIssuerAuthority:
+    """Latest SEC issuer CIK filed strictly before a decision session."""
+
+    def __init__(self, cik_path: Path):
+        frame = pd.read_csv(cik_path, compression="gzip", low_memory=False)
+        required = {"filing_date", "ticker", "issuer_cik"}
+        missing = required - set(frame.columns)
+        if missing:
+            raise RuntimeError(f"SEC CIK evidence missing columns: {sorted(missing)}")
+        self.dates: dict[str, list[str]] = defaultdict(list)
+        self.values: dict[str, list[str]] = defaultdict(list)
+        frame = frame.sort_values(["ticker", "filing_date"], kind="mergesort")
+        for row in frame.itertuples(index=False):
+            ticker = str(row.ticker).strip()
+            filed = str(row.filing_date)[:10]
+            cik = _norm_int(row.issuer_cik)
+            if ticker and filed and cik is not None:
+                self.dates[ticker].append(filed)
+                self.values[ticker].append(cik)
+
+    def strict_prior_cik(self, ticker: str, session: str) -> str | None:
+        ticker = str(ticker)
+        dates = self.dates.get(ticker, ())
+        index = bisect.bisect_left(dates, str(session)) - 1
+        return self.values[ticker][index] if index >= 0 else None
+
+    def issuer(self, security_id: str, ticker: str, session: str) -> tuple[str, str]:
+        cik = self.strict_prior_cik(ticker, session)
+        if cik is None:
+            return (
+                f"SEC_UNKNOWN:{security_id}",
+                "SEC_STRICT_PRIOR_UNKNOWN_SINGLETON",
+            )
+        return f"SEC_CIK:{cik}", "SEC_CIK_STRICT_PRIOR"
+
+
 def _price_dates(sharadar_root: Path, start_year: int, end_year: int) -> dict[str, list[str]]:
     dates: dict[str, list[str]] = defaultdict(list)
     for year in range(start_year, end_year + 1):
@@ -194,6 +230,14 @@ class SecurityTypeAuthority:
             cik = _norm_int(row.cik)
             if ticker and filed:
                 self.by_ticker[ticker].append((filed, cik))
+        self.dates_by_ticker = {
+            ticker: tuple(filed for filed, _cik in rows)
+            for ticker, rows in self.by_ticker.items()
+        }
+        self.first_positive_by_ticker_cik: dict[tuple[str, str | None], str] = {}
+        for ticker, rows in self.by_ticker.items():
+            for filed, cik in rows:
+                self.first_positive_by_ticker_cik.setdefault((ticker, cik), filed)
         self.manual: dict[tuple[str, str], str] = {}
         if manual_audit_path.exists():
             manual = pd.read_csv(manual_audit_path, low_memory=False)
@@ -220,27 +264,34 @@ class SecurityTypeAuthority:
             model.cik_dates.get(ticker, ()), model.cik_values.get(ticker, ()), session
         )
 
-    def category(self, ticker: str, session: str) -> str | None:
+    def classify(self, ticker: str, session: str) -> tuple[str, str]:
         ticker = str(ticker).upper()
         manual = self.manual.get((ticker, str(session)))
         if manual == "common":
             self.manual_common += 1
-            return "SEC Common Stock"
+            return "common", "MANUAL_EXACT_SESSION_COMMON"
         if manual == "non_common":
             self.manual_non_common += 1
-            return "SEC Non-Common"
+            return "non_common", "MANUAL_EXACT_SESSION_NON_COMMON"
 
-        rows = self.by_ticker.get(ticker, ())
-        cutoff = bisect.bisect_left([r[0] for r in rows], str(session))
-        prior = rows[:cutoff]
-        if prior:
+        dates = self.dates_by_ticker.get(ticker, ())
+        if bisect.bisect_left(dates, str(session)):
             cik = self._strict_prior_cik(ticker, str(session))
-            if cik is not None:
-                prior = [row for row in prior if row[1] == cik]
-            if prior:
+            first = self.first_positive_by_ticker_cik.get((ticker, cik))
+            if cik is None:
+                first = dates[0]
+            if first is not None and first < str(session):
                 self.auto_common += 1
-                return "SEC Common Stock"
+                return "common", "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH"
         self.unknown += 1
+        return "unknown", "NO_STRICT_PRIOR_POSITIVE_EVIDENCE"
+
+    def category(self, ticker: str, session: str) -> str | None:
+        classification, _source = self.classify(ticker, session)
+        if classification == "common":
+            return "SEC Common Stock"
+        if classification == "non_common":
+            return "SEC Non-Common"
         return None
 
     def audit(self) -> dict:

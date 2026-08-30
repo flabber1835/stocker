@@ -48,6 +48,17 @@ def _replace_once(text: str, old_text: str, new_text: str, label: str) -> str:
 
 def _twenty_year_transform(mode: str, output: Path) -> str:
     text = _base_transform(mode, output)
+    if os.environ.get("CANONICAL_PIT_DATASET"):
+        cash_start = text.index("def bil_factors(bil,date,prevdate):")
+        cash_end = text.index("\ndef nearest_split_authority", cash_start)
+        canonical_cash = """def bil_factors(bil,date,prevdate):
+    if prevdate is None: return 0.,0.,1.
+    if date not in bil.index: raise RuntimeError(f'canonical cash factor missing for {date}')
+    gap=float(bil.loc[date,'gap_factor']); intra=float(bil.loc[date,'intraday_factor'])
+    if min(gap,intra)<=0: raise RuntimeError(f'invalid canonical cash factor for {date}')
+    return gap-1.0,intra-1.0,gap*intra
+"""
+        text = text[:cash_start] + canonical_cash + text[cash_end + 1:]
     text = _replace_once(
         text,
         "START = pd.Timestamp('1998-01-02')",
@@ -113,6 +124,8 @@ def _twenty_year_transform(mode: str, output: Path) -> str:
         summary_needle + "\n        'strict_candidate_security_type_coverage':_CANDIDATE_COVERAGE,\n        'strict_candidate_security_type_unknown_breakdown':_UNKNOWN_DETAIL,",
         "candidate coverage evidence",
     )
+    if os.environ.get("CANONICAL_PIT_DATASET"):
+        text = strict._canonical_unknown_diagnostics(text)
     return text
 
 
@@ -159,6 +172,9 @@ def _finalize_coverage(output: Path) -> None:
     audit_path.write_text(json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     files = [output / "daily.csv.gz", output / "metrics.csv", summary_path, audit_path, coverage_path, unknown_path]
+    session_hash_path = output / "canonical_input_session_hashes.csv"
+    if session_hash_path.exists():
+        files.append(session_hash_path)
     (output / "SHA256SUMS.txt").write_text(
         "".join(f"{old.sha256(path)}  {path.name}\n" for path in files), encoding="utf-8"
     )

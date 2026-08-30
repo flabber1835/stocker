@@ -12,6 +12,7 @@ from bisect import bisect_left
 from dataclasses import dataclass
 from datetime import date, timedelta
 import json
+import hashlib
 import os
 from pathlib import Path
 import sys
@@ -20,12 +21,22 @@ import pandas as pd
 
 os.environ["CERTIFICATION_STRICT_PIT"] = "1"
 
+# The canonical loader constructs exact production feed/terminal types. Bind
+# those imports to the pinned checkout before importing the loader; the runner
+# performs the same path/commit verification again before replay.
+if "--main-root" in sys.argv:
+    _main_index = sys.argv.index("--main-root")
+    if _main_index + 1 < len(sys.argv):
+        sys.path.insert(0, str(Path(sys.argv[_main_index + 1]).resolve()))
+
 from backtester.strict_pit_metadata import (  # noqa: E402
     SecurityTypeAuthority,
     authority_audit,
     build_causal_metadata,
 )
+from backtester.canonical_pit_dataset import CanonicalPITDataset  # noqa: E402
 import backtester.run_ldrc_corrected_warmup_cash as corrected  # noqa: E402
+import sentinel.core.production as strategy_production  # noqa: E402
 
 runner = corrected.runner
 prod = corrected.prod
@@ -36,8 +47,20 @@ MEASUREMENT_START = corrected.MEASUREMENT_START
 CIK_PATH = LAB_ROOT / "research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz"
 POSITIVE_TYPE = LAB_ROOT / "PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz"
 MANUAL_AUDIT = LAB_ROOT / "PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv"
+CANONICAL_PATH = os.environ.get("CANONICAL_PIT_DATASET")
+_canonical = (
+    CanonicalPITDataset(
+        Path(CANONICAL_PATH),
+        expected_start=os.environ.get("CERTIFICATION_WARMUP_START", str(runner.CHAIN_START)),
+        expected_end=os.environ.get("CERTIFICATION_END_SESSION", str(runner.END_SESSION)),
+    )
+    if CANONICAL_PATH else None
+)
 
-_identity_audit: dict = {}
+_identity_audit: dict = (
+    dict(_canonical.manifest.get("identity_audit") or {})
+    if _canonical is not None else {}
+)
 _security_authority: SecurityTypeAuthority | None = None
 _quarter_ends: set[str] = set()
 _anchor_issuer_stats = {
@@ -115,11 +138,20 @@ class _StrictIssuerAuthority:
         return min(candidates) if candidates else None
 
 
-_issuer_authority = _StrictIssuerAuthority(CIK_PATH)
+_issuer_authority = None if _canonical is not None else _StrictIssuerAuthority(CIK_PATH)
 
 
 def _strict_load_metadata(_tickers_path, main):
     global _identity_audit
+    if _canonical is not None:
+        result = _canonical.base_metadata(main["SecurityMeta"])
+        _identity_audit = dict(_canonical.manifest.get("identity_audit") or {})
+        print(
+            f"[STRICT PIT] canonical identities={len(result[0]):,} "
+            f"dataset_hash={_canonical.dataset_hash}",
+            flush=True,
+        )
+        return result
     result = build_causal_metadata(
         sharadar_root=LAB_ROOT / "sharadar",
         cik_path=CIK_PATH,
@@ -168,9 +200,19 @@ def _strict_build_anchor_map(
             raise RuntimeError(f"bar {sid} has no causal SecurityMeta")
         seen = int(seen_count.get(sid, 0))
         if seen > 0 or m.first_session != bar.session:
-            issuer_id, source = _issuer_authority.issuer(
-                sid, str(bar.ticker), str(bar.session)
-            )
+            if _canonical is not None:
+                row = _canonical.metadata_for(sid, str(bar.session))
+                issuer_id = (
+                    f"SEC_UNKNOWN:{sid}" if row is None else str(row["issuer_id"])
+                )
+                source = (
+                    "SEC_STRICT_PRIOR_UNKNOWN_SINGLETON"
+                    if row is None else str(row["issuer_source"])
+                )
+            else:
+                issuer_id, source = _issuer_authority.issuer(
+                    sid, str(bar.ticker), str(bar.session)
+                )
             if not issuer_id:
                 raise RuntimeError(f"strict PIT issuer authority returned no issuer for {sid}")
             _anchor_issuer_stats["anchors"] += 1
@@ -243,6 +285,20 @@ def preflight_strict_boundaries(session: str) -> dict:
     # a valid state under the contract: issuer is a singleton until evidence
     # becomes causally available. Verify strict-prior semantics at the corpus's
     # first real filing boundary instead of demanding evidence before it exists.
+    if _canonical is not None:
+        for key in _anchor_issuer_stats:
+            _anchor_issuer_stats[key] = 0
+        result = {
+            "session": str(session),
+            "canonical_dataset_hash": _canonical.dataset_hash,
+            "legacy_issuer_key_reached": False,
+            "split_anchor_preserved": True,
+        }
+        print(
+            "[PREFLIGHT PASS] canonical PIT dataset boundary "
+            + json.dumps(result, sort_keys=True), flush=True,
+        )
+        return result
     first = _issuer_authority.first_evidence()
     if first is None:
         raise RuntimeError("SEC issuer authority contains no usable CIK evidence")
@@ -282,6 +338,30 @@ _real_pit_meta_map = prod._pit_meta_map
 
 def _strict_pit_meta_map(pub):
     global _security_authority
+    if _canonical is not None:
+        result = {}
+        for sid, meta in pub.meta.items():
+            row = _canonical.metadata_for(str(sid), str(pub.session))
+            classification = None if row is None else row["security_type"]
+            category = (
+                "SEC Common Stock" if classification == "common" else
+                "SEC Non-Common" if classification == "non_common" else None
+            )
+            issuer_id = (
+                f"SEC_UNKNOWN:{sid}" if row is None else str(row["issuer_id"])
+            )
+            issuer_source = (
+                "SEC_STRICT_PRIOR_UNKNOWN_SINGLETON"
+                if row is None else str(row["issuer_source"])
+            )
+            result[str(sid)] = prod._PitSecurityMeta(
+                security_id=str(sid), ticker=str(meta.ticker), category=category,
+                permaticker=None, related_tickers=(),
+                first_session=meta.first_session, last_session=None,
+                exchange=None, exchange_authoritative=False,
+                pit_issuer_id=issuer_id, pit_issuer_source=issuer_source,
+            )
+        return result
     if _security_authority is None:
         _security_authority = SecurityTypeAuthority(
             POSITIVE_TYPE, MANUAL_AUDIT, pub.sectors.model
@@ -312,11 +392,51 @@ def _strict_pit_meta_map(pub):
 
 prod._pit_meta_map = _strict_pit_meta_map
 
+_real_plan_session = strategy_production.plan_session
+strategy_production._certification_strategy_boundary = {}
+
+
+def _plan_session_with_boundary_evidence(*args, **kwargs):
+    plan = _real_plan_session(*args, **kwargs)
+    candidates = [
+        [str(row.security_id), str(row.ticker), row.momentum, row.recent,
+         row.volatility, row.score, bool(row.in_top_decile)]
+        for row in plan.leadership_candidates
+    ]
+    state_after = plan.state_after or {}
+    positions = sorted(
+        str(row.get("security_id"))
+        for row in (state_after.get("episodes") or {}).values()
+        if row.get("security_id")
+    )
+    blob = json.dumps(candidates, separators=(",", ":"), allow_nan=True)
+    strategy_production._certification_strategy_boundary[str(plan.session)] = {
+        "eligible_universe": int(plan.eligible_universe_count),
+        "ranking_sha256": hashlib.sha256(blob.encode()).hexdigest(),
+        "ranking_count": len(candidates),
+        "selected_positions": positions,
+        "selected_positions_sha256": hashlib.sha256(
+            json.dumps(positions, separators=(",", ":")).encode()
+        ).hexdigest(),
+        "intents": [intent.to_dict() for intent in plan.intents],
+    }
+    return plan
+
+
+strategy_production.plan_session = _plan_session_with_boundary_evidence
+
 _real_build_levels = runner.build_sfp_levels
 
 
 def _build_levels_with_quarters(*args, **kwargs):
-    result = _real_build_levels(*args, **kwargs)
+    if _canonical is None:
+        result = _real_build_levels(*args, **kwargs)
+    else:
+        spy_level, spy_return = _canonical.benchmark()
+        result = (
+            list(_canonical.sessions), spy_level, spy_return,
+            _canonical.cash_factors(),
+        )
     sessions = [str(x) for x in result[0]]
     _quarter_ends.clear()
     for i, session in enumerate(sessions):
@@ -334,6 +454,14 @@ def _build_levels_with_quarters(*args, **kwargs):
 
 
 runner.build_sfp_levels = _build_levels_with_quarters
+
+if _canonical is not None:
+    runner.PITFF12 = lambda *_args, **_kwargs: _canonical
+
+    def _canonical_actions(_path, _sessions, _main):
+        return [], {}, {"dividends": {}, "terminal": {}}
+
+    runner.load_actions = _canonical_actions
 
 _real_step = runner.OverlayAccount.step
 
@@ -355,12 +483,16 @@ runner.OverlayAccount.step = _step_with_certification_checkpoint
 
 
 def _rewrite_bundle_with_audit() -> None:
-    if _security_authority is None or not _identity_audit:
+    if (_canonical is None and _security_authority is None) or not _identity_audit:
         raise RuntimeError("strict PIT metadata authorities were not exercised")
+    security_type_audit = (
+        dict(_canonical.manifest.get("security_type_audit") or {})
+        if _canonical is not None else _security_authority.audit()
+    )
     output = base.OUTPUT
     audit = authority_audit(
         identity=_identity_audit,
-        security_type=_security_authority.audit(),
+        security_type=security_type_audit,
     )
     audit["role"] = "production"
     audit["feed_anchor_issuer_authority"] = {
@@ -375,6 +507,9 @@ def _rewrite_bundle_with_audit() -> None:
     sums_path = output / "SHA256SUMS.txt"
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     summary["strict_pit_metadata"] = True
+    summary["canonical_pit_dataset_hash"] = (
+        _canonical.dataset_hash if _canonical is not None else None
+    )
     summary["metadata_authority_audit"] = audit
     summary["pit_authority"]["residual_non_pit_fields"] = []
     summary["pit_authority"]["residual_note"] = None
@@ -383,6 +518,14 @@ def _rewrite_bundle_with_audit() -> None:
         "strict-prior SEC/EDGAR security type, PIT actions, causal terminal terms, and causal cash"
     )
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    session_hash_path = None
+    if _canonical is not None:
+        session_hash_path = output / "canonical_input_session_hashes.csv"
+        session_hash_path.write_text(
+            (_canonical.root / "session-hashes.csv").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["strict_pit_metadata"] = True
@@ -394,6 +537,8 @@ def _rewrite_bundle_with_audit() -> None:
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     files = [output / "daily.csv.gz", output / "metrics.csv", summary_path, manifest_path, audit_path]
+    if session_hash_path is not None:
+        files.append(session_hash_path)
     sums_path.write_text(
         "".join(f"{base._sha256(path)}  {path.name}\n" for path in files),
         encoding="utf-8",

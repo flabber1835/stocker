@@ -771,61 +771,96 @@ def main() -> int:
     print("[RUN] fresh chronological A/B/C replay; no prerecorded decisions", flush=True)
 
     observed_inputs: dict[str, dict] = {}
-    phase1_manifest_path = lab / "PIT input data" / "MANIFEST.csv"
-    phase1_manifest = load_phase1_manifest(phase1_manifest_path)
-    observed_inputs["PIT input data/MANIFEST.csv"] = {
-        "sha256": sha256_file(phase1_manifest_path),
-        "bytes": phase1_manifest_path.stat().st_size,
-    }
+    normalization = NormalisationReport()
+    canonical_path = os.environ.get("CANONICAL_PIT_DATASET")
+    canonical_dataset = None
+    canonical_terminals = {}
+    if canonical_path:
+        from backtester.canonical_pit_dataset import CanonicalPITDataset
+        canonical_dataset = CanonicalPITDataset(
+            Path(canonical_path), expected_start=CHAIN_START, expected_end=END_SESSION
+        )
+        observed_inputs["canonical/manifest.json"] = {
+            "sha256": sha256_file(canonical_dataset.root / "manifest.json"),
+            "bytes": (canonical_dataset.root / "manifest.json").stat().st_size,
+            "dataset_hash": canonical_dataset.dataset_hash,
+        }
+        sessions = list(canonical_dataset.sessions)
+        spy_level, spy_return = canonical_dataset.benchmark()
+        bil_factors = canonical_dataset.cash_factors()
+        action_rows, authoritative_splits = [], {}
+        dividends, terminal_by_session = {}, {}
+        meta, a_sectors, resolver, sid_to_ticker = canonical_dataset.base_metadata(
+            SecurityMeta
+        )
+        ff12 = canonical_dataset
+        normalized = canonical_dataset.normalised_rows()
+        canonical_terminals = canonical_dataset.terminal_terms()
+        print(
+            f"[CANONICAL PIT] dataset_hash={canonical_dataset.dataset_hash}",
+            flush=True,
+        )
+    else:
+        phase1_manifest_path = lab / "PIT input data" / "MANIFEST.csv"
+        phase1_manifest = load_phase1_manifest(phase1_manifest_path)
+        observed_inputs["PIT input data/MANIFEST.csv"] = {
+            "sha256": sha256_file(phase1_manifest_path),
+            "bytes": phase1_manifest_path.stat().st_size,
+        }
 
-    actions_path = lab / "PIT input data" / "ACTIONS_PIT_ONLY.csv.gz"
-    action_manifest = phase1_manifest.get(actions_path.name)
-    if action_manifest is None or sha256_file(actions_path) != action_manifest["sha256"]:
-        raise RuntimeError("PIT ACTIONS hash does not match Phase-1 manifest")
-    observed_inputs["PIT input data/ACTIONS_PIT_ONLY.csv.gz"] = {
-        "sha256": action_manifest["sha256"], "bytes": actions_path.stat().st_size}
+        actions_path = lab / "PIT input data" / "ACTIONS_PIT_ONLY.csv.gz"
+        action_manifest = phase1_manifest.get(actions_path.name)
+        if action_manifest is None or sha256_file(actions_path) != action_manifest["sha256"]:
+            raise RuntimeError("PIT ACTIONS hash does not match Phase-1 manifest")
+        observed_inputs["PIT input data/ACTIONS_PIT_ONLY.csv.gz"] = {
+            "sha256": action_manifest["sha256"], "bytes": actions_path.stat().st_size}
 
-    sfp_path = lab / "PIT input data" / "SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz"
-    price_manifest_path = lab / "PIT input data" / "PRICE_RECONSTRUCTION_MANIFEST.csv"
-    with price_manifest_path.open("r", encoding="utf-8", newline="") as f:
-        price_manifest = {row["file"]: row for row in csv.DictReader(f)}
-    sfp_manifest = price_manifest.get(sfp_path.name)
-    if sfp_manifest is None or sha256_file(sfp_path) != sfp_manifest["sha256"]:
-        raise RuntimeError("SFP factor hash does not match price manifest")
-    observed_inputs["PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv"] = {
-        "sha256": sha256_file(price_manifest_path), "bytes": price_manifest_path.stat().st_size}
-    observed_inputs["PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz"] = {
-        "sha256": sfp_manifest["sha256"], "bytes": sfp_path.stat().st_size}
+        sfp_path = lab / "PIT input data" / "SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz"
+        price_manifest_path = lab / "PIT input data" / "PRICE_RECONSTRUCTION_MANIFEST.csv"
+        with price_manifest_path.open("r", encoding="utf-8", newline="") as f:
+            price_manifest = {row["file"]: row for row in csv.DictReader(f)}
+        sfp_manifest = price_manifest.get(sfp_path.name)
+        if sfp_manifest is None or sha256_file(sfp_path) != sfp_manifest["sha256"]:
+            raise RuntimeError("SFP factor hash does not match price manifest")
+        observed_inputs["PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv"] = {
+            "sha256": sha256_file(price_manifest_path), "bytes": price_manifest_path.stat().st_size}
+        observed_inputs["PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz"] = {
+            "sha256": sfp_manifest["sha256"], "bytes": sfp_path.stat().st_size}
 
-    tickers_path = lab / "sharadar" / "SHARADAR_TICKERS.zip"
-    observed_inputs["sharadar/SHARADAR_TICKERS.zip"] = {
-        "sha256": sha256_file(tickers_path), "bytes": tickers_path.stat().st_size}
+        tickers_path = lab / "sharadar" / "SHARADAR_TICKERS.zip"
+        observed_inputs["sharadar/SHARADAR_TICKERS.zip"] = {
+            "sha256": sha256_file(tickers_path), "bytes": tickers_path.stat().st_size}
 
-    evidence_root = lab / "research" / "sentinel-fastgate" / "pit-evidence"
-    generated = evidence_root / "generated"
-    issuer_sums = parse_checksum_file(generated / "SHA256SUMS.txt")
-    sic_sums = parse_checksum_file(generated / "SEC_SIC_SHA256SUMS.txt")
-    cik_path = generated / "sec_cik_change_events.csv.gz"
-    sic_path = generated / "sec_sic_submissions.csv.gz"
-    for path, expected in (
-        (cik_path, issuer_sums.get(cik_path.name)),
-        (sic_path, sic_sums.get(sic_path.name)),
-    ):
-        if expected is None or sha256_file(path) != expected:
-            raise RuntimeError(f"PIT evidence hash mismatch: {path.name}")
-        observed_inputs[str(path.relative_to(lab))] = {
-            "sha256": expected, "bytes": path.stat().st_size}
-    ff12_path = evidence_root / "ff12_sic_definition.txt"
-    observed_inputs[str(ff12_path.relative_to(lab))] = {
-        "sha256": sha256_file(ff12_path), "bytes": ff12_path.stat().st_size}
+        evidence_root = lab / "research" / "sentinel-fastgate" / "pit-evidence"
+        generated = evidence_root / "generated"
+        issuer_sums = parse_checksum_file(generated / "SHA256SUMS.txt")
+        sic_sums = parse_checksum_file(generated / "SEC_SIC_SHA256SUMS.txt")
+        cik_path = generated / "sec_cik_change_events.csv.gz"
+        sic_path = generated / "sec_sic_submissions.csv.gz"
+        for path, expected in (
+            (cik_path, issuer_sums.get(cik_path.name)),
+            (sic_path, sic_sums.get(sic_path.name)),
+        ):
+            if expected is None or sha256_file(path) != expected:
+                raise RuntimeError(f"PIT evidence hash mismatch: {path.name}")
+            observed_inputs[str(path.relative_to(lab))] = {
+                "sha256": expected, "bytes": path.stat().st_size}
+        ff12_path = evidence_root / "ff12_sic_definition.txt"
+        observed_inputs[str(ff12_path.relative_to(lab))] = {
+            "sha256": sha256_file(ff12_path), "bytes": ff12_path.stat().st_size}
 
-    sessions, spy_level, spy_return, bil_factors = build_sfp_levels(sfp_path)
-    action_rows, authoritative_splits, action_maps = load_actions(actions_path, sessions, main_api)
-    dividends = action_maps["dividends"]
-    terminal_by_session = action_maps["terminal"]
+        sessions, spy_level, spy_return, bil_factors = build_sfp_levels(sfp_path)
+        action_rows, authoritative_splits, action_maps = load_actions(actions_path, sessions, main_api)
+        dividends = action_maps["dividends"]
+        terminal_by_session = action_maps["terminal"]
 
-    meta, a_sectors, resolver, sid_to_ticker = load_current_metadata(tickers_path, main_api)
-    ff12 = PITFF12(cik_path, sic_path, sid_to_ticker)
+        meta, a_sectors, resolver, sid_to_ticker = load_current_metadata(tickers_path, main_api)
+        ff12 = PITFF12(cik_path, sic_path, sid_to_ticker)
+        normalized = normalise_sep_rows(
+            raw_sep_rows(lab / "sharadar", phase1_manifest, END_SESSION, observed_inputs),
+            resolve_identity=lambda ticker, session: resolver.resolve(str(ticker), str(session)),
+            dividends=dividends, authoritative_splits=authoritative_splits,
+            report=normalization)
     controller_config = load_concordance_parent()
     strategy_identity = runtime_strategy_identity(controller_config, concordance=True)
     state_a = SessionState.fresh(
@@ -841,17 +876,6 @@ def main() -> int:
     latest_ticker_by_sid: dict[str, str] = {}
     prior_core_close: Optional[float] = None
     daily_rows = []
-    normalization = NormalisationReport()
-
-    def resolve_identity(ticker, session):
-        return resolver.resolve(str(ticker), str(session))
-
-    raw_stream = raw_sep_rows(lab / "sharadar", phase1_manifest, END_SESSION, observed_inputs)
-    normalized = normalise_sep_rows(
-        raw_stream, resolve_identity=resolve_identity,
-        dividends=dividends, authoritative_splits=authoritative_splits,
-        report=normalization)
-
     expected_pointer = 0
     original_session_breadth = production.session_breadth
     for session, group_iter in itertools.groupby(normalized, key=lambda row: row.vendor.session):
@@ -870,9 +894,14 @@ def main() -> int:
         if not bars:
             raise RuntimeError(f"no normalized bars for {session}")
         priced_tickers = {bar.ticker.upper() for bar in bars}
-        terminals = build_terminal_events(
-            session, terminal_by_session.get(session, ()), priced_tickers,
-            resolver, main_api)
+        terminals = (
+            canonical_terminals.get(session, ())
+            if canonical_dataset is not None
+            else build_terminal_events(
+                session, terminal_by_session.get(session, ()), priced_tickers,
+                resolver, main_api
+            )
+        )
 
         anchors_a = build_anchor_map(
             state_a, bars, meta, prior_split_factor, seen_count, main_api)
@@ -918,6 +947,9 @@ def main() -> int:
 
         ev_a = state_a.last_evidence or {}
         ev_b = state_b.last_evidence or {}
+        strategy_boundary = getattr(
+            production, "_certification_strategy_boundary", {}
+        ).get(session, {})
         ob_a = ev_a.get("observation") or {}
         ob_b = ev_b.get("observation") or {}
         daily_rows.append({
@@ -931,6 +963,23 @@ def main() -> int:
             "A_damaged": ob_a.get("damaged_breadth"),
             "B_damaged": ob_b.get("damaged_breadth"),
             "green": ob_a.get("green_breadth"),
+            "D_eligible_universe": strategy_boundary.get("eligible_universe"),
+            "D_ranking_count": strategy_boundary.get("ranking_count"),
+            "D_ranking_sha256": strategy_boundary.get("ranking_sha256"),
+            "D_selected_positions_sha256": strategy_boundary.get(
+                "selected_positions_sha256"
+            ),
+            "D_selected_positions": json.dumps(
+                strategy_boundary.get("selected_positions") or [],
+                separators=(",", ":"),
+            ),
+            "D_intents": json.dumps(
+                strategy_boundary.get("intents") or [],
+                sort_keys=True, separators=(",", ":"),
+            ),
+            "D_ldrc_state": json.dumps(
+                state_b.ldrc or {}, sort_keys=True, separators=(",", ":")
+            ),
         })
 
         current_asset_returns: dict[str, float] = {}
@@ -958,12 +1007,14 @@ def main() -> int:
         raise RuntimeError(
             f"replay ended before SPY session axis: processed={expected_pointer} expected={len(sessions)}")
 
-    assert_raw_price_domain(normalization)
+    if canonical_dataset is None:
+        assert_raw_price_domain(normalization)
     bad_identity = []
-    for session in sessions:
-        coverage = assert_identity_domain(normalization, session)
-        if coverage is not None and coverage < 1.0:
-            bad_identity.append((session, coverage))
+    if canonical_dataset is None:
+        for session in sessions:
+            coverage = assert_identity_domain(normalization, session)
+            if coverage is not None and coverage < 1.0:
+                bad_identity.append((session, coverage))
     unresolved_splits = [
         {"ticker": key[0], "session": key[1], **value}
         for key, value in normalization.split_dispositions.items()
@@ -1013,6 +1064,9 @@ def main() -> int:
         "chain_start": CHAIN_START,
         "end_session": END_SESSION,
         "fresh_chronological_replay": True,
+        "canonical_pit_dataset_hash": (
+            canonical_dataset.dataset_hash if canonical_dataset is not None else None
+        ),
         "prerecorded_decision_inputs": False,
         "wealth_core_parity": True,
         "variant_definition": {

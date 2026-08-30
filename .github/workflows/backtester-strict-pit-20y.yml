@@ -14,6 +14,9 @@ on:
       - 'backtester/run_production_strict_pit_certification.py'
       - 'backtester/run_research_strict_pit_certification.py'
       - 'backtester/strict_pit_metadata.py'
+      - 'backtester/canonical_pit_dataset.py'
+      - 'backtester/CANONICAL_PIT_DATASET_DESIGN.md'
+      - 'tests/backtester/test_canonical_pit_dataset.py'
       - 'backtester/strict_pit_run15_diagnostics.py'
       - 'backtester/causal_split_overrides.py'
       - 'backtester/data/causal-split-overrides-v1.json'
@@ -56,6 +59,9 @@ jobs:
             /backtester/run_production_strict_pit_certification.py
             /backtester/run_research_strict_pit_certification.py
             /backtester/strict_pit_metadata.py
+            /backtester/canonical_pit_dataset.py
+            /backtester/CANONICAL_PIT_DATASET_DESIGN.md
+            /tests/backtester/test_canonical_pit_dataset.py
             /backtester/strict_pit_run15_diagnostics.py
             /backtester/causal_split_overrides.py
             /backtester/run_ldrc_corrected_warmup_cash.py
@@ -155,6 +161,7 @@ jobs:
             backtester/run_production_strict_pit_certification.py \
             backtester/run_research_strict_pit_certification.py \
             backtester/strict_pit_metadata.py \
+            backtester/canonical_pit_dataset.py \
             backtester/strict_pit_run15_diagnostics.py \
             backtester/causal_split_overrides.py \
             backtester/run_ldrc_corrected_warmup_cash.py \
@@ -164,6 +171,7 @@ jobs:
             backtester/run_sector_ad_causal_terminal_terms_v2.py \
             backtester/experiments/2026-08-27-sector-abc/run.py
           python -m compileall -q -f main-src/sentinel main-src/shared/stock_strategy_shared
+          python tests/backtester/test_canonical_pit_dataset.py -v
 
       - name: Verify strict PIT authority inputs
         shell: bash
@@ -218,6 +226,22 @@ jobs:
             --root . \
             --output backtester-results/strict-pit-20y-diagnostic
 
+      - name: Build and certify canonical 2006-2007 PIT dataset
+        shell: bash
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          CANONICAL_PATH=backtester-results/canonical-pit-2006-2007
+          python backtester/canonical_pit_dataset.py build \
+            --output "${CANONICAL_PATH}" \
+            --warmup-start 2006-01-03 \
+            --measurement-start 2006-07-31 \
+            --end 2007-12-31
+          python backtester/canonical_pit_dataset.py validate \
+            --dataset "${CANONICAL_PATH}"
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/${CANONICAL_PATH}" >> "${GITHUB_ENV}"
+
       - name: Run 2006-2007 diagnostic
         shell: bash
         env:
@@ -226,6 +250,7 @@ jobs:
           set -euo pipefail
           python backtester/run_certification_parallel_20y.py \
             --end-session 2007-12-31 \
+            --canonical-dataset "${CANONICAL_PIT_DATASET}" \
             --output-root backtester-results/strict-pit-20y-diagnostic \
             --spy-factors 'PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz' \
             --lab-root . \
@@ -242,14 +267,14 @@ jobs:
           root=Path('backtester-results/strict-pit-20y-diagnostic')
           c=json.loads((root/'research'/'candidate_session_coverage.json').read_text())
           p=json.loads((root/'certification_progress_audit.json').read_text())
-          if int(c.get('unknown_classifications',-1)) != 0:
-              raise SystemExit(
-                  'DIAGNOSTIC NO_GO: incomplete candidate/session security-type coverage: '
-                  + json.dumps(c, sort_keys=True)
-              )
-          if p.get('first_divergence') is not None:
-              raise SystemExit('DIAGNOSTIC NO_GO: production/research divergence: '+json.dumps(p['first_divergence'],sort_keys=True))
-          print('DIAGNOSTIC GO: candidate/session security type complete and production/research equivalence passed')
+          consumption=json.loads((root/'canonical_input_consumption_audit.json').read_text())
+          manifest=json.loads((Path('backtester-results/canonical-pit-2006-2007')/'manifest.json').read_text())
+          if manifest.get('status') != 'PASS' or int(manifest['counts']['unresolved_corporate_actions']) != 0:
+              raise SystemExit('DIAGNOSTIC NO_GO: canonical PIT dataset did not certify')
+          if consumption.get('dataset_hash') != manifest.get('dataset_hash') or not consumption.get('per_session_hashes_identical'):
+              raise SystemExit('DIAGNOSTIC NO_GO: engines did not consume identical canonical input')
+          print('DIAGNOSTIC GO: canonical dataset certified and both engines consumed identical input')
+          print('FIRST STRATEGY DIVERGENCE:', json.dumps(p.get('first_divergence'), sort_keys=True))
           PY
 
       - name: Run full 20-year certification
