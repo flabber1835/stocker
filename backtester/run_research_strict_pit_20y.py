@@ -9,6 +9,13 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import sys
+
+# This file is executed directly by the parallel orchestrator.  Bootstrap the
+# repository root locally so package imports do not depend on PYTHONPATH.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 os.environ["CERTIFICATION_STRICT_PIT"] = "1"
 
@@ -142,6 +149,13 @@ def _finalize_coverage(output: Path) -> None:
 
 
 def main() -> int:
+    if "--self-test-imports" in sys.argv[1:]:
+        print(
+            f"[SELFTEST PASS] research 20y entrypoint root={ROOT} "
+            f"backtester_import={Path(strict.__file__).resolve()}",
+            flush=True,
+        )
+        return 0
     print(
         f"[CONTRACT] role=research warmup={WARMUP_START} "
         f"measurement={MEASUREMENT_START} end={END_SESSION}",
