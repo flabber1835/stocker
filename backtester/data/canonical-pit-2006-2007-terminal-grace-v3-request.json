@@ -3,6 +3,8 @@
   "canonical_dataset_hash": "08db292b78f0968b149ec033671b5c5df62ad98a4b2692bcc5dfa575585fa4e6",
   "production_source_sha": "887f479b15ad861313da666ad698034d3847121c",
   "production_cooldown_issue": 294,
+  "retry": 2,
+  "overlay_fix": "bounded semantic anchors around strict-PIT generated terminal-event seam",
   "research_terminal_divergence": {
     "first_session": "2006-10-26",
     "security_id": "659080056497857391",
