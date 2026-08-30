@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -97,8 +97,10 @@ def test_observation_provenance_retains_position_asset_id():
         binding.bind(
             conn, deployment_id="asset-identity-test", broker="alpaca",
             broker_account_id="paper-1")
+        observed_at = datetime.now(timezone.utc)
         observation = BrokerObservation(
-            observed_at=datetime.now(timezone.utc),
+            started_at=observed_at - timedelta(seconds=1),
+            observed_at=observed_at,
             account_identity=BrokerAccountIdentity("alpaca", "paper-1"),
             positions=(BrokerPosition(
                 instrument=BrokerInstrument(
@@ -110,8 +112,10 @@ def test_observation_provenance_retains_position_asset_id():
             cur.execute(
                 "SELECT positions FROM sentinel_observation_provenance "
                 "WHERE observation_seq=%s", (seq,))
-            positions = cur.fetchone()[0]
-        assert positions == [{
+            provenance = cur.fetchone()[0]
+        assert datetime.fromisoformat(provenance["started_at"]) == (
+            observed_at - timedelta(seconds=1))
+        assert provenance["positions"] == [{
             "security_id": "SEC-AAA", "symbol": "AAA",
             "broker_instrument_id": "asset-a", "quantity": "2"}]
     finally:

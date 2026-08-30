@@ -443,14 +443,17 @@ async def test_supervisor_integrity_failure_exits_run_and_records_failed(
     enable(conn, cfg)
     runtime = service_for(cfg)
     monkeypatch.setattr(runtime, "_assert_clock_skew", lambda **_kwargs: None)
-    original_is_alive = __import__("threading").Thread.is_alive
+    assert (await runtime.tick(
+        conn, now=AFTER_WEDNESDAY_CLOSE)).action is TickAction.RECOVERED
+    assert (await runtime.tick(
+        conn, now=AFTER_WEDNESDAY_CLOSE)).action is TickAction.REFRESHED
 
-    def report_unjoined(thread):
-        if thread.name.startswith("sentinel-heartbeat-"):
-            return True
-        return original_is_alive(thread)
+    async def fail_supervisor_integrity(*_args, **_kwargs):
+        raise SupervisorIntegrityFailure(
+            "PREPARE heartbeat supervisor did not stop within the certified "
+            "boundary")
 
-    monkeypatch.setattr(__import__("threading").Thread, "is_alive", report_unjoined)
+    monkeypatch.setattr(runtime, "_invoke", fail_supervisor_integrity)
     with pytest.raises(
             SupervisorIntegrityFailure, match="did not stop"):
         await runtime.run(

@@ -402,6 +402,7 @@ class TestReconciliation:
 
         async def snapshot(**_kwargs):
             return BrokerObservation(
+                started_at=b.now - timedelta(seconds=1),
                 observed_at=b.now, orders=(current_order["value"],),
                 positions=current_positions["value"],
                 terminal_recovery_through=b.now,
@@ -476,6 +477,7 @@ class TestReconciliation:
 
         async def snapshot(**_kwargs):
             return BrokerObservation(
+                started_at=b.now - timedelta(seconds=1),
                 observed_at=b.now, orders=(order["value"],),
                 positions=(position,), terminal_recovery_through=b.now,
                 account_identity=b.account)
@@ -510,6 +512,7 @@ class TestReconciliation:
 
         async def snapshot(**_kwargs):
             return BrokerObservation(
+                started_at=b.now - timedelta(seconds=1),
                 observed_at=b.now, orders=(observed_order,), positions=(),
                 terminal_recovery_through=b.now,
                 account_identity=b.account)
@@ -539,6 +542,7 @@ class TestReconciliation:
 
         async def snapshot(**_kwargs):
             return BrokerObservation(
+                started_at=b.now - timedelta(seconds=1),
                 observed_at=b.now, orders=(observed_order,),
                 positions=(post_split_position,),
                 terminal_recovery_through=b.now,
