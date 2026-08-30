@@ -33,7 +33,7 @@ jobs:
           def conftest(t):
               marker = '\n_PAPER_DECOMPOSITION_LEGACY_MODULES = {'
               assert marker in t
-              return t[:t.index(marker)] + '\n'
+              return t[:t.index(marker)].rstrip() + '\n'
           rw('tests/conftest.py', conftest)
 
           def admin(t):
@@ -121,5 +121,3 @@ jobs:
             tests/sentinel/test_runtime_regressions_137_148_149_150.py
           git commit -m "test: migrate paper helper owners"
           git push origin HEAD:codex/pr3-paper-test-canonical-owners
-
-# trigger corrected workflow
