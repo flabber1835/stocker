@@ -12,6 +12,7 @@ from sentinel.execution.contract import (
     BrokerAccountSnapshot,
     BrokerObservation,
 )
+from sentinel.paper.inspection import _inspection_account_or_refuse
 
 
 class EmptyAccountRefused(RuntimeError):
@@ -102,7 +103,7 @@ def _account_facts(snapshot: BrokerAccountSnapshot) -> tuple:
 
 def _strict_account(snapshot: BrokerAccountSnapshot, *, expected_account: str,
                     observation: BrokerObservation) -> None:
-    paper._inspection_account_or_refuse(snapshot, expected_account)
+    _inspection_account_or_refuse(snapshot, expected_account)
     inspection = paper.PaperAccountInspection(
         endpoint=authority.PAPER_BASE_URL,
         expected_account=expected_account, account=snapshot,
@@ -137,7 +138,7 @@ async def inspect(*, conn, broker: GuardedEmptyAccountBroker,
     account = await broker.account_snapshot()
     observation = await broker.observe()
     observation.require_complete("empty-account inspection")
-    paper._inspection_account_or_refuse(account, expected_account)
+    _inspection_account_or_refuse(account, expected_account)
     return paper.PaperAccountInspection(
         endpoint=authority.PAPER_BASE_URL,
         expected_account=expected_account, account=account,
