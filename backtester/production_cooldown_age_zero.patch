@@ -1,11 +1,10 @@
 diff --git a/shared/stock_strategy_shared/wealth_core/state.py b/shared/stock_strategy_shared/wealth_core/state.py
 --- a/shared/stock_strategy_shared/wealth_core/state.py
 +++ b/shared/stock_strategy_shared/wealth_core/state.py
-@@ -28,2 +28,2 @@
- from dataclasses import asdict, dataclass, field
+@@ -34 +34 @@
 -from typing import TYPE_CHECKING, Any, Mapping
 +from typing import TYPE_CHECKING, AbstractSet, Any, Mapping
-@@ -445,2 +445,8 @@
+@@ -430,16 +430,30 @@
 -    def age_one_session(self, split_adjusted_closes: dict[str, float]) -> None:
 +    def age_one_session(
 +            self,
@@ -15,7 +14,7 @@ diff --git a/shared/stock_strategy_shared/wealth_core/state.py b/shared/stock_st
 +            skip_security_cooldowns: AbstractSet[str] = frozenset(),
 +            ) -> None:
          """Advance every clock by one completed session.
-@@ -448,4 +454,10 @@
+ 
          Order matters and is fixed: holdings age and ratchet first, then
          cooldowns. Both use the same "strictly after the event" convention
          documented in the module docstring.
@@ -26,22 +25,28 @@ diff --git a/shared/stock_strategy_shared/wealth_core/state.py b/shared/stock_st
 +        the direct state-machine API for callers that are already operating at
 +        a strictly-after-event close.
          """
-@@ -453,6 +465,9 @@
          for e in self.episodes.values():
              e.observe_close(split_adjusted_closes.get(e.security_id))
 -        for s in self.slots.values():
 -            s.age_cooldown()
-+        for slot_id, s in self.slots.items():
+-        for sid in list(self.security_cooldowns):
+-            self.security_cooldowns[sid] += 1
+-            if self.security_cooldowns[sid] >= COOLDOWN_SESSIONS:
+-                del self.security_cooldowns[sid]
++        for slot_id, slot in self.slots.items():
 +            if slot_id not in skip_slot_cooldowns:
-+                s.age_cooldown()
-         for sid in list(self.security_cooldowns):
-+            if sid in skip_security_cooldowns:
++                slot.age_cooldown()
++        for security_id in list(self.security_cooldowns):
++            if security_id in skip_security_cooldowns:
 +                continue
-             self.security_cooldowns[sid] += 1
++            self.security_cooldowns[security_id] += 1
++            if self.security_cooldowns[security_id] >= COOLDOWN_SESSIONS:
++                del self.security_cooldowns[security_id]
+         self.session_index += 1
 diff --git a/shared/stock_strategy_shared/wealth_core/adapter.py b/shared/stock_strategy_shared/wealth_core/adapter.py
 --- a/shared/stock_strategy_shared/wealth_core/adapter.py
 +++ b/shared/stock_strategy_shared/wealth_core/adapter.py
-@@ -825,2 +825,10 @@
+@@ -802,4 +802,12 @@
      by_sec = {b.security_id: b for b in bars}
      res_cancelled: list[dict] = []
 +    # Snapshot cooldowns that already existed before this session's events.
@@ -52,7 +57,9 @@ diff --git a/shared/stock_strategy_shared/wealth_core/adapter.py b/shared/stock_
 +        slot_id for slot_id, slot in state.slots.items()
 +        if slot.cooldown_sessions_elapsed is not None}
 +    security_cooldowns_at_session_start = set(state.security_cooldowns)
-@@ -1004,6 +1012,17 @@
+ 
+     # ── 0. re-label ──────────────────────────────────────────────────────────
+@@ -1002,6 +1010,17 @@
      signal_closes = {b.security_id: b.signal_close_split_adj_div_unadj for b in bars}
      aged = {sid: ep for sid, ep in state.episodes.items()
              if sid not in entered_this_session}
