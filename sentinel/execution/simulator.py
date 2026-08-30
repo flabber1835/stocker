@@ -158,6 +158,12 @@ class SimulatedBroker(ExecutionBroker):
     _fills: list = field(default_factory=list)
     _seq: int = 0
 
+    def __post_init__(self) -> None:
+        from sentinel.execution.certification import certify_adapter
+
+        if type(self) is SimulatedBroker:
+            certify_adapter(self, name="simulator", mode="SIMULATION")
+
     #: Every call, in order. Conformance asserts on the ORDER of reads, not only
     #: on their content.
     calls: list = field(default_factory=list)

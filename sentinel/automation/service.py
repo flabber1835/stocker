@@ -8,9 +8,12 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import inspect
+import json
+import multiprocessing
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from typing import Any, Awaitable, Callable, Mapping, TypeAlias
 
 from pydantic import ValidationError
@@ -87,6 +90,109 @@ class _CallbackOutcome:
 
     value: Any = None
     error: BaseException | None = None
+
+
+_CHILD_EXCEPTION_TYPES = {
+    cls.__name__: cls for cls in (
+        CallbackDeadlineExceeded,
+        DataIntegrityFailure,
+        HumanInterventionRequired,
+        NonRetryableCallbackRefused,
+        PermanentOperationalRefusal,
+        SoftwareDefect,
+        StaleLeaderRefused,
+        TransientInfrastructureFailure,
+    )
+}
+
+
+def _json_default(value):  # pragma: no cover - runs in supervised child
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, Enum):
+        return value.value
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    raise TypeError(f"callback result contains {type(value).__name__}")
+
+
+def _callback_child(  # pragma: no cover - measured by process fault tests
+        callback, context, channel) -> None:
+    """Execute one production callback in a disposable OS process."""
+    try:
+        # ``fork`` inherits the parent's running-loop marker. The child owns no
+        # parent tasks or descriptors and starts one fresh loop for its callback.
+        asyncio.events._set_running_loop(None)                # noqa: SLF001
+        value = asyncio.run(callback(context))
+        if hasattr(value, "model_dump"):
+            value = value.model_dump(mode="json")
+        payload = {
+            "kind": "result",
+            "value": value,
+        }
+    except BaseException as exc:                              # noqa: BLE001
+        name = type(exc).__name__
+        payload = {
+            "kind": "error",
+            "name": name,
+            "module": type(exc).__module__,
+            "detail": str(exc),
+            "reviewed": name in _CHILD_EXCEPTION_TYPES,
+        }
+    try:
+        channel.send_bytes(json.dumps(
+            payload, sort_keys=True, separators=(",", ":"),
+            default=_json_default).encode("utf-8"))
+    except BaseException as exc:                              # noqa: BLE001
+        fallback = {
+            "kind": "error",
+            "name": "SoftwareDefect",
+            "module": __name__,
+            "detail": (
+                "callback IPC serialization failed: "
+                f"{type(exc).__name__}: {exc}"),
+            "reviewed": True,
+        }
+        try:
+            channel.send_bytes(json.dumps(fallback).encode("utf-8"))
+        except BaseException:                                 # noqa: BLE001
+            pass
+    finally:
+        channel.close()
+
+
+def _decode_child_callback(payload: bytes):
+    try:
+        envelope = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SoftwareDefect(
+            f"callback child returned malformed IPC evidence: {exc}") from exc
+    if envelope.get("kind") == "result":
+        return envelope.get("value")
+    name = str(envelope.get("name", "SoftwareDefect"))
+    detail = str(envelope.get("detail", "callback child failed"))
+    if name == "SystemExit":
+        raise SystemExit(detail)
+    if name == "KeyboardInterrupt":
+        raise KeyboardInterrupt(detail)
+    if bool(envelope.get("reviewed")) and name in _CHILD_EXCEPTION_TYPES:
+        raise _CHILD_EXCEPTION_TYPES[name](detail)
+    module = str(envelope.get("module", "unknown"))
+    raise SoftwareDefect(f"unreviewed callback exception {module}.{name}: {detail}")
+
+
+def _terminate_callback_process(process, *, grace_seconds: float = 1.0) -> None:
+    if process is None or not process.is_alive():
+        if process is not None:
+            process.join(timeout=0)
+        return
+    process.terminate()
+    process.join(timeout=grace_seconds)
+    if process.is_alive():
+        process.kill()
+        process.join(timeout=grace_seconds)
+    if process.is_alive():
+        raise SoftwareDefect("callback child could not be terminated")
 
 
 PHASE_POLICIES = {
@@ -436,35 +542,93 @@ class AutomationService:
         loop = asyncio.get_running_loop()
         heartbeat_failed = asyncio.Event()
 
+        def signal_heartbeat_failure(exc: BaseException) -> None:
+            heartbeat_errors.append(exc)
+            loop.call_soon_threadsafe(heartbeat_failed.set)
+
         def heartbeat() -> None:
             while not stopped.wait(self.config.heartbeat_seconds):
-                if context.cancellation.cancelled:
-                    return
-                heartbeat_conn = heartbeat_conn_factory()
+                heartbeat_conn = None
                 try:
+                    if stopped.is_set() or context.cancellation.cancelled:
+                        return
+                    heartbeat_conn = heartbeat_conn_factory()
+                    if stopped.is_set() or context.cancellation.cancelled:
+                        return
+                    # The factory applies connection and statement bounds below
+                    # the lease. Recheck immediately before the renewal itself:
+                    # a factory that returned after cancellation owns no lease.
+                    if stopped.is_set() or context.cancellation.cancelled:
+                        return
                     store.heartbeat_lease(
                         heartbeat_conn, permit=permit,
                         lease_seconds=self.config.lease_seconds)
+                    if stopped.is_set() or context.cancellation.cancelled:
+                        return
                     store.register_instance(
                         heartbeat_conn,
                         instance_id=self.holder_id,
                         state=f"{phase}_CALLBACK",
                         next_wake_at=None)
                 except BaseException as exc:                    # noqa: BLE001
-                    heartbeat_errors.append(exc)
-                    loop.call_soon_threadsafe(heartbeat_failed.set)
+                    signal_heartbeat_failure(exc)
                     return
                 finally:
-                    heartbeat_conn.close()
+                    if heartbeat_conn is not None:
+                        try:
+                            heartbeat_conn.close()
+                        except BaseException as exc:              # noqa: BLE001
+                            signal_heartbeat_failure(exc)
+                            return
 
         worker = None
+        callback_process = None
+        parent_channel = None
         if heartbeat_conn_factory is not None:
+            try:
+                process_context = multiprocessing.get_context("fork")
+            except ValueError as exc:
+                raise SoftwareDefect(
+                    "production callback supervision requires fork process "
+                    "support") from exc
+            parent_channel, child_channel = process_context.Pipe(duplex=False)
+            callback_process = process_context.Process(
+                target=_callback_child,
+                args=(callback, context, child_channel),
+                name=f"sentinel-callback-{phase.lower()}")
+            callback_process.start()
+            child_channel.close()
             worker = threading.Thread(
                 target=heartbeat,
                 name=f"sentinel-heartbeat-{self.holder_id}", daemon=True)
             worker.start()
 
         async def invoke_callback():
+            if callback_process is not None:
+                try:
+                    assert parent_channel is not None
+                    while True:
+                        if parent_channel.poll():
+                            payload = parent_channel.recv_bytes()
+                            callback_process.join(timeout=1)
+                            if callback_process.is_alive():
+                                raise SoftwareDefect(
+                                    "callback child retained execution after "
+                                    "returning its canonical result")
+                            return _CallbackOutcome(
+                                value=_decode_child_callback(payload))
+                        if not callback_process.is_alive():
+                            callback_process.join(timeout=0)
+                            if parent_channel.poll():
+                                return _CallbackOutcome(
+                                    value=_decode_child_callback(
+                                        parent_channel.recv_bytes()))
+                            return _CallbackOutcome(error=SoftwareDefect(
+                                "callback child exited without canonical "
+                                f"result; exitcode={callback_process.exitcode}"))
+                        await asyncio.sleep(0.02)
+                except BaseException as exc:                  # noqa: BLE001
+                    return _CallbackOutcome(error=exc)
             try:
                 context.require_active()
                 if inspect.iscoroutinefunction(callback):
@@ -498,6 +662,7 @@ class AutomationService:
             context.cancellation.cancel(reason)
             callback_task.cancel()
             callback_task.add_done_callback(_consume_background_result)
+            _terminate_callback_process(callback_process)
             if heartbeat_lost:
                 raise StaleLeaderRefused(reason)
             raise CallbackDeadlineExceeded(reason)
@@ -509,6 +674,7 @@ class AutomationService:
                 callback_task.cancel()
                 callback_task.add_done_callback(
                     _consume_background_result)
+            _terminate_callback_process(callback_process)
             raise
         finally:
             stopped.set()
@@ -516,6 +682,16 @@ class AutomationService:
             heartbeat_task.cancel()
             if worker is not None:
                 worker.join(timeout=1)
+                if worker.is_alive():
+                    context.cancellation.cancel(
+                        f"{phase} heartbeat supervisor failed to stop")
+                    _terminate_callback_process(callback_process)
+                    raise SoftwareDefect(
+                        f"{phase} heartbeat supervisor did not stop within "
+                        "the certified boundary")
+            _terminate_callback_process(callback_process)
+            if parent_channel is not None:
+                parent_channel.close()
 
     async def _invoke_phase(
             self, phase: str, context: CycleContext, *, permit,

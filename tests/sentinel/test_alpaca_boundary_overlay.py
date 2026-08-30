@@ -649,6 +649,39 @@ def test_historical_partial_observation_is_uncertifiable(conn):
     assert journal.observation_integrity_gaps(conn) == (seq,)
 
 
+def test_historical_observation_missing_provenance_is_uncertifiable(conn):
+    seq = journal.record_observation(
+        conn, _account_bound_observation(datetime.now(UTC)), "RECONCILING")
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM sentinel_observation_provenance "
+            "WHERE observation_seq=%s", (seq,))
+    conn.commit()
+    issues = journal.observation_integrity_issues(conn)
+    assert issues == (journal.ObservationIntegrityIssue(
+        observation_seq=seq,
+        reasons=("MISSING_PROVENANCE",)),)
+
+
+def test_historical_observation_identity_disagreement_is_uncertifiable(conn):
+    seq = journal.record_observation(
+        conn, _account_bound_observation(datetime.now(UTC)), "RECONCILING")
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE sentinel_processed_sessions"
+            " SET state=jsonb_set(state,'{account_id}','\"wrong\"'::jsonb)"
+            " WHERE cursor_name=%s", (f"broker-observation:v2:{seq}",))
+    conn.commit()
+    issues = journal.observation_integrity_issues(conn)
+    assert issues == (journal.ObservationIntegrityIssue(
+        observation_seq=seq,
+        reasons=("CANONICAL_IDENTITY_DISAGREEMENT",)),)
+    with pytest.raises(
+            journal.ObservationEvidenceUncertifiable,
+            match=f"{seq}:CANONICAL_IDENTITY_DISAGREEMENT"):
+        journal.require_observation_integrity(conn)
+
+
 
 def test_naked_complete_observation_cannot_authenticate_corrupt_watermark(conn):
     with conn.cursor() as cur:

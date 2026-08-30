@@ -80,12 +80,19 @@ def fill_interval(*, interval_start=BASELINE_AT,
         processed_through=processed_through, fills=(),
         completeness=Completeness.COMPLETE,
         source="accepted_account_fill_ledger",
-        semantics=trial_fills.FILL_INTERVAL_SEMANTICS,
-        request_started_at=processed_through + timedelta(seconds=1),
+    semantics=trial_fills.FILL_INTERVAL_SEMANTICS,
+    request_started_at=processed_through + timedelta(seconds=1),
         request_completed_at=processed_through + timedelta(seconds=2),
         query=(("after", interval_start.isoformat()),
                ("through", processed_through.isoformat())),
-        raw={"complete": True, "fills": []})
+    raw={"complete": True, "fills": []})
+
+
+@pytest.fixture(autouse=True)
+def certified_observation_history(monkeypatch):
+    """These unit tests isolate close evidence from the history gate."""
+    monkeypatch.setattr(
+        journal, "require_observation_integrity", lambda _conn: None)
 
 
 def run(coro):

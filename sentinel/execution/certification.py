@@ -34,6 +34,10 @@ absent entry reads as "nobody has looked", and this has been looked at.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import inspect
+import threading
+import weakref
 from typing import Mapping
 
 
@@ -55,6 +59,29 @@ class AdapterCertification:
     def to_dict(self) -> dict:
         return {"name": self.name, "certified": self.certified,
                 "reasons": list(self.reasons), "notes": self.notes}
+
+
+@dataclass(frozen=True)
+class CertifiedAdapterIdentity:
+    """Composition-issued identity bound to one exact adapter instance."""
+
+    name: str
+    implementation: str
+    source_sha256: str
+    mode: str
+    capabilities: tuple[str, ...]
+    conformance_suite: str
+    _seal: object
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "implementation": self.implementation,
+            "source_sha256": self.source_sha256,
+            "mode": self.mode,
+            "capabilities": list(self.capabilities),
+            "conformance_suite": self.conformance_suite,
+        }
 
 
 REGISTRY: Mapping[str, AdapterCertification] = {
@@ -110,6 +137,132 @@ REGISTRY: Mapping[str, AdapterCertification] = {
               "Reviving the prototype would import the defects with it. The "
               "contract state machine is not re-litigated per adapter."),
 }
+
+
+_SEAL = object()
+_ISSUED_LOCK = threading.Lock()
+_ISSUED: dict[int, tuple[weakref.ReferenceType, CertifiedAdapterIdentity]] = {}
+
+_IMPLEMENTATIONS = {
+    "alpaca": frozenset({
+        "sentinel.execution.alpaca.AlpacaExecutionBroker",
+        "sentinel.execution.alpaca.HardenedAlpacaExecutionBroker",
+        "sentinel.execution.alpaca.FinancialGradeAlpacaExecutionBroker",
+        "sentinel.execution.alpaca_asset_id.AssetIdAlpacaExecutionBroker",
+    }),
+    "simulator": frozenset({
+        "sentinel.execution.simulator.SimulatedBroker",
+    }),
+}
+
+_CERTIFIED_CAPABILITIES = {
+    "alpaca": frozenset({
+        "order_submitter", "order_status_resolver", "open_order_observer",
+        "broker_clock_provider", "recovery_aware", "evidence_producing",
+        "instrument_identity", "pre_submit_instrument_revalidation",
+        "account_bound_observation",
+    }),
+    "simulator": frozenset({
+        "order_submitter", "order_status_resolver", "open_order_observer",
+        "recovery_aware", "evidence_producing", "instrument_identity",
+        "account_bound_observation",
+    }),
+}
+
+_CONFORMANCE_SUITES = {
+    "alpaca": "sentinel.alpaca-paper-conformance/1",
+    "simulator": "sentinel.execution-contract-oracle/1",
+}
+
+
+def _implementation(value) -> str:
+    cls = type(value)
+    return f"{cls.__module__}.{cls.__qualname__}"
+
+
+def _source_sha256(value) -> str:
+    try:
+        source = inspect.getsource(type(value)).encode("utf-8")
+    except (OSError, TypeError) as exc:
+        raise AdapterNotCertified(
+            f"adapter implementation source is unavailable: {exc}") from exc
+    return hashlib.sha256(source).hexdigest()
+
+
+def _store_identity(value, identity: CertifiedAdapterIdentity) -> None:
+    key = id(value)
+
+    def discard(reference) -> None:
+        with _ISSUED_LOCK:
+            current = _ISSUED.get(key)
+            if current is not None and current[0] is reference:
+                _ISSUED.pop(key, None)
+
+    reference = weakref.ref(value, discard)
+    with _ISSUED_LOCK:
+        _ISSUED[key] = (reference, identity)
+
+
+def certify_adapter(value, *, name: str,
+                    mode: str) -> CertifiedAdapterIdentity:
+    """Issue identity only for an exact implementation in the registry."""
+    require_certified(name)
+    implementation = _implementation(value)
+    if implementation not in _IMPLEMENTATIONS.get(name, ()):
+        raise AdapterNotCertified(
+            f"implementation {implementation!r} cannot claim the {name!r} "
+            "adapter certification")
+    if name == "alpaca" and mode != "ALPACA_PAPER":
+        raise AdapterNotCertified(
+            "Alpaca certification is scoped to ALPACA_PAPER")
+    identity = CertifiedAdapterIdentity(
+        name=name,
+        implementation=implementation,
+        source_sha256=_source_sha256(value),
+        mode=mode,
+        capabilities=tuple(sorted(_CERTIFIED_CAPABILITIES[name])),
+        conformance_suite=_CONFORMANCE_SUITES[name],
+        _seal=_SEAL)
+    _store_identity(value, identity)
+    return identity
+
+
+def certify_wrapper(wrapper, inner, *, wrapper_kind: str
+                    ) -> CertifiedAdapterIdentity:
+    """Bind a canonical wrapper to the already certified inner instance."""
+    inner_identity = require_certified_adapter(inner)
+    implementation = _implementation(wrapper)
+    capabilities = set(inner_identity.capabilities)
+    if wrapper_kind == "generation-fenced-execution":
+        capabilities.add("generation_fenced")
+    identity = CertifiedAdapterIdentity(
+        name=inner_identity.name,
+        implementation=implementation,
+        source_sha256=_source_sha256(wrapper),
+        mode=inner_identity.mode,
+        capabilities=tuple(sorted(capabilities)),
+        conformance_suite=(
+            f"{inner_identity.conformance_suite}+wrapper:{wrapper_kind}"),
+        _seal=_SEAL)
+    _store_identity(wrapper, identity)
+    return identity
+
+
+def require_certified_adapter(value, *, expected: str | None = None
+                              ) -> CertifiedAdapterIdentity:
+    with _ISSUED_LOCK:
+        retained = _ISSUED.get(id(value))
+    if retained is None or retained[0]() is not value:
+        raise AdapterNotCertified(
+            f"adapter instance {_implementation(value)!r} has no composition-"
+            "issued certification identity")
+    identity = retained[1]
+    if identity._seal is not _SEAL:
+        raise AdapterNotCertified("adapter certification seal is invalid")
+    if expected is not None and identity.name != expected:
+        raise AdapterNotCertified(
+            f"adapter is certified as {identity.name!r}, expected {expected!r}")
+    return identity
 
 
 def require_certified(name: str) -> AdapterCertification:

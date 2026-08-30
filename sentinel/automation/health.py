@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 
 from sentinel.automation import store
 from sentinel.automation.model import MissingAutomationState
+from sentinel.execution import journal
 
 
 class AutomationHealth(BaseModel):
@@ -92,6 +93,31 @@ def read_health(conn) -> AutomationHealth:
         return AutomationHealth(
             healthy=False, installed=True, operational_ready=False,
             policy_state="CORRUPT", reason=str(exc))
+
+    try:
+        observation_issues = journal.observation_integrity_issues(conn)
+    except Exception as exc:                                  # noqa: BLE001
+        conn.rollback()
+        return AutomationHealth(
+            healthy=False, installed=True, operational_ready=False,
+            policy_state="UNCERTIFIABLE_OBSERVATIONS",
+            enabled=control.enabled,
+            kill_switch_engaged=control.kill_switch_engaged,
+            control_generation=control.generation,
+            reason=("broker observation integrity gate failed: "
+                    f"{type(exc).__name__}: {exc}"))
+    if observation_issues:
+        conn.rollback()
+        detail = "; ".join(
+            f"{issue.observation_seq}:{','.join(issue.reasons)}"
+            for issue in observation_issues)
+        return AutomationHealth(
+            healthy=False, installed=True, operational_ready=False,
+            policy_state="UNCERTIFIABLE_OBSERVATIONS",
+            enabled=control.enabled,
+            kill_switch_engaged=control.kill_switch_engaged,
+            control_generation=control.generation,
+            reason=f"UNCERTIFIABLE broker observation evidence: {detail}")
 
     with conn.cursor() as cur:
         cur.execute(

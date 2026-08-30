@@ -147,6 +147,12 @@ class BrokerCapabilities:
                 f"something the adapter CAN do would change the execution model "
                 f"without anyone deciding to.")
 
+    def to_dict(self) -> dict[str, object]:
+        return {
+            name: (str(value) if isinstance(value, Decimal) else value)
+            for name, value in self.__dict__.items()
+        }
+
 
 @runtime_checkable
 class OrderSubmitter(Protocol):
@@ -845,6 +851,9 @@ class ExecutionBroker(abc.ABC):
 
 def resolved_capability_graph(broker: ExecutionBroker) -> dict[str, object]:
     """One serializable composition-time view of certified broker behavior."""
+    from sentinel.execution.certification import require_certified_adapter
+
+    identity = require_certified_adapter(broker)
     capabilities = broker.capabilities
 
     def overrides(name: str) -> bool:
@@ -852,20 +861,52 @@ def resolved_capability_graph(broker: ExecutionBroker) -> dict[str, object]:
         base = getattr(ExecutionBroker, name, None)
         return callable(implementation) and implementation is not base
 
-    return {
-        "adapter_certification": broker.certification_name,
-        "cash_observable": (
-            capabilities.account_cash_activity_evidence
-            and overrides("account_cash_activities")),
-        "order_submitter": isinstance(broker, OrderSubmitter),
-        "order_status_resolver": isinstance(broker, OrderStatusResolver),
-        "open_order_observer": isinstance(broker, OpenOrderObserver),
+    method_availability = {
+        "cash_observable": overrides("account_cash_activities"),
+        "order_submitter": overrides("submit"),
+        "order_status_resolver": overrides("find_by_client_key"),
+        "open_order_observer": overrides("observe"),
         "broker_clock_provider": overrides("market_clock"),
         "generation_fenced": isinstance(broker, GenerationFencedBroker),
-        "recovery_aware": isinstance(broker, RecoveryAwareBroker),
-        "evidence_producing": isinstance(broker, EvidenceProducingBroker),
+        "recovery_aware": overrides("observe_with_terminal_recovery"),
+        "evidence_producing": (
+            overrides("identify_account") and overrides("observe")),
+    }
+    certified = set(identity.capabilities)
+
+    def certified_capability(name: str) -> bool:
+        return name in certified and method_availability[name]
+
+    graph = {
+        "adapter_certification": identity.to_dict(),
+        "cash_observable": (
+            capabilities.account_cash_activity_evidence
+            and certified_capability("cash_observable")),
+        "order_submitter": certified_capability("order_submitter"),
+        "order_status_resolver": certified_capability(
+            "order_status_resolver"),
+        "open_order_observer": certified_capability("open_order_observer"),
+        "broker_clock_provider": certified_capability(
+            "broker_clock_provider"),
+        "generation_fenced": certified_capability("generation_fenced"),
+        "recovery_aware": certified_capability("recovery_aware"),
+        "evidence_producing": certified_capability("evidence_producing"),
         "instrument_identity": capabilities.instrument_identity,
         "pre_submit_instrument_revalidation":
             capabilities.pre_submit_instrument_revalidation,
         "account_bound_observation": capabilities.account_bound_observation,
+        "method_availability": method_availability,
+        "declared_capabilities": capabilities.to_dict(),
+        "certified_capabilities": sorted(certified),
     }
+    required = {
+        "order_submitter", "order_status_resolver", "open_order_observer",
+        "evidence_producing", "instrument_identity",
+        "account_bound_observation",
+    }
+    missing = sorted(name for name in required if not graph.get(name))
+    if missing:
+        raise TypeError(
+            "certified broker capability graph is incomplete: "
+            + ",".join(missing))
+    return graph

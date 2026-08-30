@@ -49,6 +49,13 @@ DEPLOYMENT = DeploymentIdentity(
     broker_account_id="paper", takeover_epoch=1)
 
 
+@pytest.fixture(autouse=True)
+def certified_observation_history(monkeypatch):
+    """These unit tests isolate pre-open arithmetic from the history gate."""
+    monkeypatch.setattr(
+        journal, "require_observation_integrity", lambda _conn: None)
+
+
 def _plan(*, basket=None, effective_session=SESSION,
           decision_session=date(2026, 8, 20)):
     candidate = ExecutionPlan(

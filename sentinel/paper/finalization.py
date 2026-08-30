@@ -261,6 +261,10 @@ async def _finalize_due_succeeded_cycle_or_refuse(
         target_projection=target_projection,
         observation_post_projection_actions=post_projection_actions,
     )
+    try:
+        journal.require_observation_integrity(conn)
+    except journal.ObservationEvidenceUncertifiable as exc:
+        raise PaperActivationRefused(str(exc)) from exc
     return trial.record_cycle_verification(
         conn,
         cycle_id=cycle_id,

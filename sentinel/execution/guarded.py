@@ -207,6 +207,14 @@ class GuardedExecutionBroker(ExecutionBroker):
         self._guard = guard
         self.capabilities = inner.capabilities
         self.certification_name = getattr(inner, "certification_name", None)
+        from sentinel.execution.certification import (
+            AdapterNotCertified, certify_wrapper)
+
+        try:
+            self.certified_adapter_identity = certify_wrapper(
+                self, inner, wrapper_kind="generation-fenced-execution")
+        except AdapterNotCertified:
+            self.certified_adapter_identity = None
 
     @property
     def grant(self) -> ExecutionGrant:

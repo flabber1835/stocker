@@ -122,6 +122,9 @@ class FakeCursor:
     def fetchone(self):
         return self.conn.lease_row
 
+    def fetchall(self):
+        return []
+
 
 class DictEvidence:
     def to_dict(self) -> dict:

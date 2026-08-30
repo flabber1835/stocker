@@ -168,6 +168,10 @@ async def _execute_current_paper_plan(
     now_et = _execution_observation_time(today)
     today = now_et.date()
     schema.require_runtime_schema(conn)
+    try:
+        journal.require_observation_integrity(conn)
+    except journal.ObservationEvidenceUncertifiable as exc:
+        raise PaperActivationRefused(str(exc)) from exc
 
     with journal.writer_lock(conn):
         from sentinel.handover import assert_no_legacy_path

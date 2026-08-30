@@ -21,14 +21,17 @@ from sentinel.authority import AuthorityRefused, load_rollout_state
 from sentinel.automation import outbox, schedule, store
 from sentinel.automation.model import (
     AutomationConfig,
+    AutomationRefused,
     CycleContext,
     CycleSpec,
+    DataIntegrityFailure,
     ExecuteDisposition,
     ExecuteResult,
     PrepareResult,
     RefreshResult,
     TickResult,
     NonRetryableCallbackRefused,
+    PermanentOperationalRefusal,
     StaleLeaderRefused,
     TransientInfrastructureFailure,
 )
@@ -52,7 +55,8 @@ from sentinel.execution import journal
 from sentinel.execution import target_reprojection
 from sentinel.execution.states import CommandState, RuntimeState
 from sentinel.feed import authority as feed_authority
-from sentinel.feed import calendar, coherence, ingest, publication, readiness
+from sentinel.feed import (
+    calendar, coherence, ingest, publication, readiness, sharadar)
 from sentinel.feed import store as feed_store
 
 
@@ -75,6 +79,66 @@ def transient_refresh_failure(exc: BaseException
             "unreviewed refresh exceptions cannot be classified transient")
     return TransientInfrastructureFailure(
         f"{type(exc).__name__}: {exc}")
+
+
+def require_observation_integrity(conn) -> None:
+    try:
+        journal.require_observation_integrity(conn)
+    except journal.ObservationEvidenceUncertifiable as exc:
+        raise DataIntegrityFailure(str(exc)) from exc
+
+
+def classify_dependency_failure(
+        exc: BaseException) -> AutomationRefused | None:
+    """Map reviewed dependency failures; leave programming defects unknown."""
+    if isinstance(exc, AutomationRefused):
+        return exc
+    if isinstance(exc, REFRESH_TRANSIENT_FAILURES):
+        return transient_refresh_failure(exc)
+    if isinstance(exc, sharadar.MissingApiKey):
+        return PermanentOperationalRefusal(
+            f"Sharadar configuration refused: {exc}")
+    if isinstance(exc, (sharadar.SharadarProtocolError,
+                        sharadar.PaginationError)):
+        return DataIntegrityFailure(
+            f"Sharadar data integrity failure: {type(exc).__name__}: {exc}")
+    if isinstance(exc, sharadar.SharadarRetryDeferred):
+        return TransientInfrastructureFailure(str(exc))
+    if isinstance(exc, sharadar.SharadarRequestError):
+        detail = str(exc)
+        lowered = detail.lower()
+        if "http 401" in lowered or "http 403" in lowered:
+            return PermanentOperationalRefusal(detail)
+        if ("http 429" in lowered
+                or any(f"http {status}" in lowered
+                       for status in range(500, 600))
+                or "after" in lowered and "attempt" in lowered
+                or "timeout" in lowered
+                or "connection" in lowered):
+            return TransientInfrastructureFailure(detail)
+        return PermanentOperationalRefusal(detail)
+
+    sqlstate = str(getattr(exc, "sqlstate", "") or "")
+    module = type(exc).__module__.lower()
+    name = type(exc).__name__
+    if (sqlstate.startswith(("08", "40", "53"))
+            or sqlstate in {"55P03", "57P01", "57P02", "57P03"}
+            or module.startswith(("psycopg", "psycopg2"))
+            and name in {"OperationalError", "InterfaceError"}):
+        return TransientInfrastructureFailure(
+            f"PostgreSQL transient failure {sqlstate or name}: {exc}")
+    if sqlstate.startswith("28") or sqlstate == "42501":
+        return PermanentOperationalRefusal(
+            f"PostgreSQL authority/configuration refusal {sqlstate}: {exc}")
+    if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
+        return TransientInfrastructureFailure(
+            f"dependency transport failure {name}: {exc}")
+    if module.startswith(("httpx", "httpcore")) and name in {
+            "TimeoutException", "ConnectError", "ReadError", "WriteError",
+            "PoolTimeout", "NetworkError", "RemoteProtocolError"}:
+        return TransientInfrastructureFailure(
+            f"HTTP transport failure {name}: {exc}")
+    return None
 
 
 def shadow_config_from_env(
@@ -291,7 +355,14 @@ class ProductionAutomation:
             notify=self.notify, terminal=self.certify_terminal_cycle)
 
     def connect(self):
-        return feed_store.connect(self.sentinel_config.database_url)
+        connect_timeout = max(
+            1, min(5, self.automation_config.lease_seconds - 1))
+        statement_timeout_ms = max(
+            1000, (self.automation_config.lease_seconds - 1) * 1000)
+        return feed_store.connect(
+            self.sentinel_config.database_url,
+            connect_timeout=connect_timeout,
+            statement_timeout_ms=statement_timeout_ms)
 
     def _record_authority_verdict(self, conn, permit, *, verdict, detail):
         try:
@@ -473,10 +544,12 @@ class ProductionAutomation:
             if delta.classification is not execution_commands.DeltaClass.NONE)
 
     async def refresh(self, context: CycleContext) -> RefreshResult:
-        conn = self.connect()
+        conn = None
         try:
+            conn = self.connect()
             feed_store.require_feed_schema(conn)
             schema.require_runtime_schema(conn)
+            require_observation_integrity(conn)
             cycle, _control = self._assert_cycle_authority(
                 conn, context, operation_scope="REFRESH")
             visible = feed_store.latest_visible_session(conn)
@@ -530,14 +603,22 @@ class ProductionAutomation:
                     "ingest": progress.to_dict()
                     if hasattr(progress, "to_dict") else str(progress),
                 })
+        except BaseException as exc:                          # noqa: BLE001
+            mapped = classify_dependency_failure(exc)
+            if mapped is None or mapped is exc:
+                raise
+            raise mapped from exc
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
     async def prepare(self, context: CycleContext) -> PrepareResult:
-        conn = self.connect()
+        conn = None
         try:
+            conn = self.connect()
             feed_store.require_feed_schema(conn)
             schema.require_runtime_schema(conn)
+            require_observation_integrity(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="PREPARE")
             missed = ()
@@ -627,14 +708,22 @@ class ProductionAutomation:
                     "broker_capability_graph":
                         resolved_capability_graph(broker),
                 })
+        except BaseException as exc:                          # noqa: BLE001
+            mapped = classify_dependency_failure(exc)
+            if mapped is None or mapped is exc:
+                raise
+            raise mapped from exc
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
     async def recover(self, context: CycleContext) -> ExecuteResult:
-        conn = self.connect()
+        conn = None
         try:
+            conn = self.connect()
             feed_store.require_feed_schema(conn)
             schema.require_runtime_schema(conn)
+            require_observation_integrity(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="RECOVER")
             broker = self._broker(conn, cycle.effective_session.isoformat())
@@ -814,14 +903,22 @@ class ProductionAutomation:
                 disposition=ExecuteDisposition.SUCCEEDED,
                 last_clean_reconciliation_id=str(result.observation_id),
                 diagnostic=result.to_dict())
+        except BaseException as exc:                          # noqa: BLE001
+            mapped = classify_dependency_failure(exc)
+            if mapped is None or mapped is exc:
+                raise
+            raise mapped from exc
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
     async def execute(self, context: CycleContext) -> ExecuteResult:
-        conn = self.connect()
+        conn = None
         try:
+            conn = self.connect()
             feed_store.require_feed_schema(conn)
             schema.require_runtime_schema(conn)
+            require_observation_integrity(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="EXECUTE")
             if self._dual_run_enabled:
@@ -949,8 +1046,14 @@ class ProductionAutomation:
                                 else result.session.detail
                                 or "paper execution requires re-observation"),
                 diagnostic=result.to_dict())
+        except BaseException as exc:                          # noqa: BLE001
+            mapped = classify_dependency_failure(exc)
+            if mapped is None or mapped is exc:
+                raise
+            raise mapped from exc
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
     async def notify(self, conn, result: TickResult | BaseException):
         if isinstance(result, BaseException):
@@ -1198,6 +1301,21 @@ class ProductionAutomation:
     async def run(self, *, stop, clock=None, sleep=asyncio.sleep,
                   max_ticks: int | None = None) -> int:
         clock = clock or (lambda: datetime.now(ZoneInfo("UTC")))
+        startup_conn = self.connect()
+        try:
+            feed_store.require_feed_schema(startup_conn)
+            schema.require_runtime_schema(startup_conn)
+            try:
+                require_observation_integrity(startup_conn)
+            except DataIntegrityFailure as exc:
+                control = store.load_control(startup_conn)
+                if not control.kill_switch_engaged:
+                    store.engage_kill(
+                        startup_conn, actor="observation-integrity-supervisor",
+                        reason=str(exc))
+                raise
+        finally:
+            startup_conn.close()
         return await self.service.run(
             self.connect, stop=stop, clock=clock, sleep=sleep,
             alert_wake=self.alert_wake, control_wake=self.control_wake,

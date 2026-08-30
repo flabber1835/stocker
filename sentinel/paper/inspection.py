@@ -29,7 +29,7 @@ from sentinel.core.decision import (
 
 from sentinel.execution import broker_cash, executor, journal
 
-from sentinel.execution.certification import require_certified
+from sentinel.execution.certification import require_certified_adapter
 
 from sentinel.execution.contract import (
     BrokerAccountIdentity,
@@ -48,6 +48,11 @@ from .model import (
 
 DEFENSIVE_SYMBOL = "BIL"
 
+# Compatibility seam for older orchestration tests.  This remains an alias to
+# the sealed-token verifier, never to the legacy string registry.
+require_certified = require_certified_adapter
+
+
 def _require_certified_paper_broker(broker: ExecutionBroker) -> None:
     """Accept only adapter identities whose behavior is certified.
 
@@ -56,24 +61,13 @@ def _require_certified_paper_broker(broker: ExecutionBroker) -> None:
     simulator would let an unlisted transport borrow a certification it never
     earned merely by choosing a different class name.
     """
-    from sentinel.guarded_administration import (
-        GuardedAdministrativeExecutionBroker)
-
-    if isinstance(broker, GuardedAdministrativeExecutionBroker):
-        # This one explicit read-only wrapper validated its concrete adapter at
-        # construction and exposes only a certification recheck, never its
-        # transport object. Arbitrary duck-typed wrappers remain refused.
-        broker.require_certified_adapter()
-        return
-
-    certification_name = broker.certification_name
-    if certification_name in {"alpaca", "simulator"}:
-        require_certified(certification_name)
-        return
-    raise PaperActivationRefused(
-        f"unsupported execution broker {type(broker).__name__}; the paper "
-        "activation path accepts only the certified Alpaca adapter (or the "
-        "deterministic simulator in tests)")
+    try:
+        require_certified(broker)
+    except Exception as exc:
+        raise PaperActivationRefused(
+            f"unsupported execution broker {type(broker).__name__}; the paper "
+            "activation path requires a composition-issued adapter identity") \
+            from exc
 
 def _inspection_account_or_refuse(
         snapshot: BrokerAccountSnapshot, expected_account: str) -> None:

@@ -117,7 +117,8 @@ _ACTION_UPSERT = """
 """
 
 
-def connect(dsn: str):
+def connect(dsn: str, *, connect_timeout: int | None = None,
+            statement_timeout_ms: int | None = None):
     """One place that imports the driver, so the rest of the package is testable
     without it installed.
 
@@ -128,10 +129,22 @@ def connect(dsn: str):
     """
     try:
         import psycopg                   # noqa: PLC0415 — driver choice is local
-        return psycopg.connect(dsn, autocommit=False)
+        kwargs = {"autocommit": False}
+        if connect_timeout is not None:
+            kwargs["connect_timeout"] = int(connect_timeout)
+        if statement_timeout_ms is not None:
+            kwargs["options"] = (
+                f"-c statement_timeout={int(statement_timeout_ms)}")
+        return psycopg.connect(dsn, **kwargs)
     except ModuleNotFoundError:
         import psycopg2                  # noqa: PLC0415
-        return psycopg2.connect(dsn)
+        kwargs = {}
+        if connect_timeout is not None:
+            kwargs["connect_timeout"] = int(connect_timeout)
+        if statement_timeout_ms is not None:
+            kwargs["options"] = (
+                f"-c statement_timeout={int(statement_timeout_ms)}")
+        return psycopg2.connect(dsn, **kwargs)
 
 
 @contextmanager

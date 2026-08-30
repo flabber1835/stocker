@@ -10,25 +10,25 @@ complete.
 
 ## 1. Callback authority and deadlines
 
-An automation callback is an asynchronous application boundary. Production
-automation accepts asynchronous callbacks only; a synchronous callback cannot
-promise a hard deadline because Python cannot safely terminate an arbitrary
-in-process thread. Test and administrative code that needs synchronous work must
-wrap it in a separately supervised, killable process before exposing an async
-callback.
+An automation callback is an asynchronous application boundary. Every production
+callback runs in a separately supervised child process. Its async declaration is
+an interface contract; synchronous PostgreSQL, vendor, filesystem, or CPU work
+inside that coroutine cannot stall the parent deadline, heartbeat-failure, or
+operator-cancellation loop. The parent terminates and, if required, kills the
+child before returning from a failed callback boundary.
 
-Each callback receives one immutable `CycleContext` containing its cycle,
-leader permit, and a cancellation authority. The service races the callback
-against the fingerprinted callback deadline. On deadline, lease loss, heartbeat
-failure, or operator cancellation it invalidates that authority before
-cancelling the task. The service does not wait indefinitely for a callback that
-suppresses cancellation.
+Each child receives one immutable `CycleContext` containing its cycle and leader
+permit. It returns only a canonical JSON callback result over a one-way IPC
+channel. The parent races child completion against the fingerprinted deadline
+and the independently threaded database heartbeat. Deadline, lease loss,
+heartbeat failure, or operator cancellation terminates the process. Parent-owned
+durable phase transitions revalidate the current database fence.
 
-Every durable callback side effect must call the context authority immediately
-before the effect. Broker mutations keep their existing database-backed
-generation fence. Database and evidence writes use the same authority check.
-A late callback may finish local computation, but cannot obtain authority for a
-broker request or durable write after cancellation or leadership transfer.
+Broker mutations keep their database-backed generation fence. Heartbeat
+connection creation, use, and close are one guarded iteration with connection
+and statement timeouts below the lease duration. Cancellation is rechecked after
+connection creation and immediately before renewal. A heartbeat worker that
+cannot join is a terminal supervisor failure that exits the automation worker.
 
 ## 2. Table-owned automation policy
 
@@ -93,9 +93,11 @@ clock.
 Composition validates runtime-checkable capabilities rather than concrete
 broker classes. The capability graph covers cash observation, submission,
 status resolution, open-order observation, broker clock, generation fencing,
-recovery, and evidence production. Adapter certification remains explicit and
-is recorded in runtime identity evidence; structural capability does not by
-itself grant production certification.
+recovery, and evidence production. Trusted composition issues a sealed identity
+bound to the exact adapter implementation and source hash, broker mode,
+certified capability set, and conformance suite. Broker-owned diagnostic labels
+grant no authority. Runtime evidence separately records available methods,
+declared capability bits, and independently certified capabilities.
 
 CLI and paper compatibility behavior lives in explicit legacy adapters. Normal
 entry points call canonical owners through immutable dependency objects. No

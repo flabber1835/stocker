@@ -35,7 +35,7 @@ from __future__ import annotations
 import hashlib
 import json
 from contextlib import contextmanager
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Iterable, Optional, Sequence
@@ -915,23 +915,87 @@ def record_observation(conn, observation: BrokerObservation,
     return seq
 
 
-def observation_integrity_gaps(conn) -> tuple[int, ...]:
-    """Return account-bound observations with incomplete audit evidence.
+@dataclass(frozen=True)
+class ObservationIntegrityIssue:
+    observation_seq: int
+    reasons: tuple[str, ...]
 
-    Historical two-commit failures contain the normalized row and account
-    provenance but no canonical serialized evidence.  Those rows cannot be
-    reconstructed byte-for-byte from the reduced normalized columns and are
-    therefore reported as uncertifiable rather than guessed into validity.
-    """
+
+class ObservationEvidenceUncertifiable(RuntimeError):
+    """Historical account-era broker evidence is incomplete or contradictory."""
+
+
+def observation_integrity_issues(conn) -> tuple[ObservationIntegrityIssue, ...]:
+    """Inspect every account-era observation from the normalized-row side."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT o.seq FROM sentinel_observations o"
-            " JOIN sentinel_observation_provenance p"
+            "SELECT o.seq,p.broker,p.broker_account_id,p.observed_at,"
+            " s.state,b.broker,b.broker_account_id,o.observed_at"
+            " FROM sentinel_observations o"
+            " JOIN sentinel_account_binding b ON b.id=1"
+            "   AND o.observed_at >= b.established_at"
+            " LEFT JOIN sentinel_observation_provenance p"
             "   ON p.observation_seq=o.seq"
             " LEFT JOIN sentinel_processed_sessions s"
             "   ON s.cursor_name=('broker-observation:v2:' || o.seq::text)"
-            " WHERE s.cursor_name IS NULL ORDER BY o.seq")
-        return tuple(int(row[0]) for row in cur.fetchall())
+            " ORDER BY o.seq")
+        rows = cur.fetchall()
+    issues = []
+    for (seq, provenance_broker, provenance_account, provenance_observed_at,
+         evidence, bound_broker, bound_account, observed_at) in rows:
+        reasons = []
+        if provenance_broker is None:
+            reasons.append("MISSING_PROVENANCE")
+        else:
+            if (provenance_broker != bound_broker
+                    or provenance_account != bound_account):
+                reasons.append("PROVENANCE_IDENTITY_DISAGREEMENT")
+            if provenance_observed_at != observed_at:
+                reasons.append("PROVENANCE_TIME_DISAGREEMENT")
+        if evidence is None:
+            reasons.append("MISSING_CANONICAL_EVIDENCE")
+        else:
+            if not isinstance(evidence, dict):
+                try:
+                    evidence = json.loads(evidence)
+                except (TypeError, json.JSONDecodeError):
+                    evidence = None
+            required = {
+                "kind", "observation_seq", "broker", "account_id",
+                "observed_at", "completeness", "positions", "orders",
+            }
+            if not isinstance(evidence, dict) or not required.issubset(evidence):
+                reasons.append("MALFORMED_CANONICAL_EVIDENCE")
+            else:
+                try:
+                    evidence_seq = int(evidence.get("observation_seq", -1))
+                except (TypeError, ValueError):
+                    evidence_seq = -1
+                if (evidence.get("kind") != "broker-observation/v2"
+                        or evidence_seq != int(seq)
+                        or evidence.get("broker") != bound_broker
+                        or evidence.get("account_id") != bound_account):
+                    reasons.append("CANONICAL_IDENTITY_DISAGREEMENT")
+        if reasons:
+            issues.append(ObservationIntegrityIssue(
+                observation_seq=int(seq), reasons=tuple(reasons)))
+    return tuple(issues)
+
+
+def observation_integrity_gaps(conn) -> tuple[int, ...]:
+    return tuple(
+        issue.observation_seq for issue in observation_integrity_issues(conn))
+
+
+def require_observation_integrity(conn) -> None:
+    issues = observation_integrity_issues(conn)
+    if not issues:
+        return
+    detail = "; ".join(
+        f"{issue.observation_seq}:{','.join(issue.reasons)}"
+        for issue in issues)
+    raise ObservationEvidenceUncertifiable(
+        f"UNCERTIFIABLE broker observation evidence: {detail}")
 
 def finalize_observation_runtime(conn, seq: int, runtime_state: str) -> None:
     """Attach the completed reconciliation verdict to its exact observation.

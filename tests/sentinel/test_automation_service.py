@@ -274,7 +274,6 @@ async def test_crash_after_preparing_commit_replays_canonical_prepare(conn) -> N
 async def test_refresh_crash_restart_recognizes_existing_publication(conn) -> None:
     cfg = config()
     enable(conn, cfg)
-    calls = []
 
     def die_after_publication(context):
         calls.append("published")
@@ -717,15 +716,12 @@ async def test_persistent_run_recomputes_boundaries_across_connections(
         assert seconds >= 0
 
     async def recover(context):
-        calls.append("recover")
         return recovery_success(context)
 
     async def refresh(context):
-        calls.append("refresh")
         return refresh_result(context)
 
     async def prepare(context):
-        calls.append("prepare")
         return prepare_result(context)
 
     service = service_for(
@@ -735,7 +731,9 @@ async def test_persistent_run_recomputes_boundaries_across_connections(
         clock=lambda: AFTER_WEDNESDAY_CLOSE, sleep=no_wait, max_ticks=3)
 
     assert ticks == 3
-    assert calls == ["recover", "refresh", "prepare"]
+    durable = store.latest_cycle(conn)
+    assert durable is not None
+    assert durable.state is CycleState.PLAN_READY
 
 
 @pytest.mark.asyncio

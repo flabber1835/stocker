@@ -282,26 +282,30 @@ class GuardedAdministrativeExecutionBroker(ExecutionBroker):
         if grant.operation != admin_authority.ADMIN_INSPECT:
             raise TypeError(
                 "administrative execution broker requires ADMIN_INSPECT")
-        self._certified_adapter = getattr(inner, "certification_name", None)
-        if self._certified_adapter not in {"alpaca", "simulator"}:
+        from sentinel.execution.certification import (
+            certify_wrapper, require_certified_adapter)
+
+        try:
+            inner_identity = require_certified_adapter(inner)
+        except Exception as exc:
             raise TypeError(
                 "administrative inspection requires a certified concrete "
-                "execution-adapter capability")
-        from sentinel.execution.certification import require_certified
-
-        require_certified(self._certified_adapter)
+                "execution-adapter capability") from exc
+        self._certified_adapter = inner_identity.name
         self._inner = inner
         self._grant = grant
         self._guard = guard
         self._account_verified = False
         self.capabilities = inner.capabilities
         self.certification_name = inner.certification_name
+        self.certified_adapter_identity = certify_wrapper(
+            self, inner, wrapper_kind="administrative-read")
 
     def require_certified_adapter(self) -> None:
         """Recheck certification without exposing the guarded inner broker."""
-        from sentinel.execution.certification import require_certified
+        from sentinel.execution.certification import require_certified_adapter
 
-        require_certified(self._certified_adapter)
+        require_certified_adapter(self, expected=self._certified_adapter)
 
     def _before(self, operation: AdministrativeBrokerOperation) -> None:
         self._guard.check(self._grant, operation, None)
