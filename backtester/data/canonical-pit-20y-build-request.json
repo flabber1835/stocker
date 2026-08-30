@@ -1,5 +1,5 @@
 {
-  "reason": "rerun with bounded-memory per-session hash reconstruction",
-  "requested_at": "2026-08-30T18:22:00Z",
+  "reason": "rebuild after primary-source adjudication of four remaining split blockers",
+  "requested_at": "2026-08-30T19:47:45Z",
   "schema": "backtester.canonical-pit-build-request/1"
 }
