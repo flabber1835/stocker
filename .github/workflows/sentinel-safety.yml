@@ -293,7 +293,14 @@ jobs:
           push_output="$(docker push "$image_ref")"
           printf '%s\n' "$push_output"
           digest="$(printf '%s\n' "$push_output" \
-            | awk '/digest: sha256:/{print $2}' | tail -n 1)"
+            | awk '/digest: sha256:/ {
+                for (field = 1; field <= NF; field++) {
+                  if ($field ~ /^sha256:/) {
+                    digest = $field
+                  }
+                }
+              }
+              END { print digest }')"
           case "$digest" in
             sha256:????????????????????????????????????????????????????????????????) ;;
             *)
