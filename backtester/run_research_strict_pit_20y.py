@@ -18,11 +18,16 @@ corrected = strict.corrected
 old = strict.old
 WARMUP_START = "2006-01-03"
 MEASUREMENT_START = "2006-07-31"
-END_SESSION = os.environ.get("CERTIFICATION_END_SESSION", "2026-07-31")
+FULL_END_SESSION = "2026-07-31"
+END_SESSION = os.environ.get("CERTIFICATION_END_SESSION", FULL_END_SESSION)
 
 corrected.WARMUP_START = WARMUP_START
 corrected.MEASUREMENT_START = MEASUREMENT_START
 old.END = END_SESSION
+if END_SESSION != FULL_END_SESSION:
+    old.WINDOWS = {
+        key: (MEASUREMENT_START, None) for key in ("5", "10", "15", "20")
+    }
 
 _base_transform = corrected.transformed_source
 
