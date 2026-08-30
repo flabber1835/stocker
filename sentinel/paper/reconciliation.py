@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 from sentinel.execution import reconcile as reconciliation
 
 from sentinel.execution.contract import (
@@ -81,7 +83,7 @@ async def _settled_account_evidence_bracket(
     started_at = clock()
     before = await broker.account_snapshot()
     _account_or_refuse(before, binding, expected_account)
-    confirmation = await reconciliation.reconcile(
+    confirmation = await reconcile(
         broker=broker, conn=conn, binding=None,
         deployment=deployment, actions=actions)
     confirmed_observation = (
@@ -106,6 +108,10 @@ async def _settled_account_evidence_bracket(
         raise PaperRetryableRefused(
             "account endpoint changed inside the order/position evidence "
             "bracket; re-observation is required")
-    activity = await _broker_cash_state_or_refuse(
+    paper_module = sys.modules.get("sentinel.paper")
+    cash_state = getattr(
+        paper_module, "_broker_cash_state_or_refuse",
+        _broker_cash_state_or_refuse)
+    activity = await cash_state(
         conn, broker=broker, binding=binding, through=observed_at)
     return confirmation, after, activity, started_at, observed_at
