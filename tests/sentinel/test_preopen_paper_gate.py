@@ -156,7 +156,6 @@ def _install_recovery_harness(
     monkeypatch.setattr(
         preopen_authority, "load_authority", lambda *_args, **_kwargs: authority)
     monkeypatch.setattr(reconciliation, "reconcile", reconcile)
-    monkeypatch.setattr(paper_recovery, "_account_or_refuse", lambda *_: None)
     monkeypatch.setattr(paper_recovery, "_cash_authority_or_refuse", lambda *_args, **_kwargs: None)
 
     async def evidence_bracket(**kwargs):
