@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Strict-PIT parallel certification orchestrator.
 
-The full machine warms through 1997 with no measured CAGR. Measurement begins
-1998-01-02. Production and retained research run concurrently. Each child emits
-quarter-end cumulative CAGR checkpoints; this process joins them and prints the
-requested production/research/SPY block immediately when both reach a quarter.
+The full machine warms before measurement. Production and retained research run
+concurrently. Each child emits quarter-end cumulative CAGR checkpoints; this
+process joins them and prints production/research/SPY blocks when both arrive.
 """
 from __future__ import annotations
 
@@ -98,6 +97,24 @@ def _reader(role: str, pipe, events: queue.Queue) -> None:
         events.put(("eof", role, None, None))
 
 
+def _stop_parallel(processes: dict[str, subprocess.Popen], failed_role: str, failed_rc: int) -> dict[str, int | None]:
+    for role, process in processes.items():
+        if role != failed_role and process.poll() is None:
+            print(
+                f"[CERTIFICATION ABORT] {failed_role} exited {failed_rc}; terminating {role}",
+                flush=True,
+            )
+            process.terminate()
+    for process in processes.values():
+        if process.poll() is None:
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+    return {role: process.poll() for role, process in processes.items()}
+
+
 def _first_divergence(prod: pd.DataFrame, research: pd.DataFrame, tolerance: float) -> dict | None:
     merged = prod[["date", "nav"]].merge(
         research[["date", "nav"]], on="date", suffixes=("_production", "_research"), how="inner"
@@ -126,6 +143,14 @@ def _verify_authority(path: Path, role: str) -> dict:
         raise RuntimeError(f"{role} retained current SHARADAR_TICKERS economic authority")
     if audit.get("fallbacks", {}).get("security_type_unknown") != "ineligible":
         raise RuntimeError(f"{role} security-type fallback is not fail-closed")
+    if role == "production":
+        anchor = audit.get("feed_anchor_issuer_authority") or {}
+        if anchor.get("authority") != "strict-prior SEC CIK; unknown issuer is causal security singleton":
+            raise RuntimeError("production audit lacks strict feed-anchor issuer authority")
+        if int(anchor.get("anchors", 0)) <= 0:
+            raise RuntimeError("production replay never exercised a strict feed anchor")
+        if int(anchor.get("anchors", 0)) != int(anchor.get("sec_cik", 0)) + int(anchor.get("unknown_singleton", 0)):
+            raise RuntimeError("production strict feed-anchor issuer counts do not conserve")
     return audit
 
 
@@ -179,6 +204,7 @@ def main() -> int:
     ]
     prod = subprocess.Popen(prod_cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
     research = subprocess.Popen(research_cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    processes = {"production": prod, "research": research}
     assert prod.stdout is not None and research.stdout is not None
     events: queue.Queue = queue.Queue()
     threads = [
@@ -192,7 +218,30 @@ def main() -> int:
     emitted: set[str] = set()
     eof = set()
     while len(eof) < 2:
-        kind, role, session, value = events.get()
+        event = None
+        try:
+            event = events.get(timeout=0.5)
+        except queue.Empty:
+            pass
+
+        failed = [
+            (role, int(rc))
+            for role, process in processes.items()
+            if (rc := process.poll()) is not None and int(rc) != 0
+        ]
+        if failed:
+            failed_role, failed_rc = failed[0]
+            rc_map = _stop_parallel(processes, failed_role, failed_rc)
+            for thread in threads:
+                thread.join(timeout=5)
+            raise RuntimeError(
+                "parallel strict-PIT replay failed fast "
+                f"failed_role={failed_role} failed_rc={failed_rc} exit_codes={rc_map}"
+            )
+
+        if event is None:
+            continue
+        kind, role, session, value = event
         if kind == "eof":
             eof.add(role)
             continue
@@ -234,7 +283,7 @@ def main() -> int:
         "warmup_start": WARMUP_START.date().isoformat(),
         "measurement_start": MEASUREMENT_START.date().isoformat(),
         "progress_cadence": "calendar-quarter, live joined production/research checkpoints",
-        "cagr_basis": "cumulative from 1998-01-02",
+        "cagr_basis": f"cumulative from {MEASUREMENT_START.date().isoformat()}",
         "research_production_divergence_tolerance": args.divergence_tolerance,
         "first_divergence": divergence,
         "production_metadata_authority": pa,
