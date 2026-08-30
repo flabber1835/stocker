@@ -1,0 +1,10 @@
+{
+  "canonical_dataset_hash": "08db292b78f0968b149ec033671b5c5df62ad98a4b2692bcc5dfa575585fa4e6",
+  "end_session": "2007-12-31",
+  "issue": 294,
+  "overlay": "backtester/apply_production_cooldown_age_zero.py",
+  "production_sha": "887f479b15ad861313da666ad698034d3847121c",
+  "reason": "run corrected production against research using the canonical 2006-2007 dataset and retain the next exact divergence",
+  "requested_at": "2026-08-30T21:55:00Z",
+  "schema": "backtester.canonical-pit-cooldown-overlay-request/2"
+}
