@@ -2,6 +2,7 @@
 """Strict-PIT production certification on the agreed 20-year window."""
 from __future__ import annotations
 
+import builtins
 import os
 from pathlib import Path
 import sys
@@ -35,6 +36,23 @@ strict.corrected.runner.EXPERIMENT_ID = "2026-08-30-strict-pit-20y-production"
 strict.runner.CHAIN_START = WARMUP_START
 strict.runner.END_SESSION = END_SESSION
 strict.MEASUREMENT_START = MEASUREMENT_START
+
+# The reused corrected wrapper has a historical 1997 label in its generic log
+# message.  Keep its mechanics unchanged but render the dates from this active
+# certification contract so the Actions output cannot imply a 1997 replay.
+def _corrected_contract_print(*args, **kwargs):
+    if args and args[0] == (
+        "[RUN] corrected production replay: 1997 full-machine warm-up + causal historical cash"
+    ):
+        args = (
+            f"[RUN] corrected production replay: warmup={WARMUP_START} "
+            f"measurement={MEASUREMENT_START} + causal historical cash",
+            *args[1:],
+        )
+    return builtins.print(*args, **kwargs)
+
+
+strict.corrected.print = _corrected_contract_print
 
 _original_measurement_factor_builder = strict.corrected._original_sfp_builder
 
