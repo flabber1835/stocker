@@ -190,11 +190,13 @@ def _paper_decomposition_legacy_test_seams(request, monkeypatch):
 
     # Reconciliation deliberately exposes `reconcile` as its canonical test
     # dependency. Ensure the internal module reference observes that alias.
+    canonical_reconciliation = paper_reconciliation.reconciliation
+
     class _ReconcileProxy:
         def __getattr__(self, name):
             if name == "reconcile":
                 return paper_reconciliation.reconcile
-            return getattr(paper_reconciliation.reconciliation, name)
+            return getattr(canonical_reconciliation, name)
 
     monkeypatch.setattr(
         paper_reconciliation, "reconciliation", _ReconcileProxy())
