@@ -281,6 +281,7 @@ class CanonicalPITDatasetTests(unittest.TestCase):
         self.assertIn("canonical_pit_dataset.py build", diagnostic_publish)
         self.assertIn("canonical-pit-2006-2007.json", diagnostic_publish)
         self.assertIn("docker push", diagnostic_publish)
+        self.assertIn("git rebase origin/research/backtester", diagnostic_publish)
         self.assertNotIn("canonical_pit_dataset.py build", diagnostic_replay)
         self.assertIn("canonical-pit-2006-2007.json", diagnostic_replay)
         self.assertIn("docker pull", diagnostic_replay)

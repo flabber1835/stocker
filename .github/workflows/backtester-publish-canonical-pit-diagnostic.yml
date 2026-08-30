@@ -122,6 +122,8 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m "data(backtester): pin canonical PIT 2006-2007 ${{ steps.package.outputs.dataset_hash }}"
+          git fetch origin research/backtester
+          git rebase origin/research/backtester
           git push origin HEAD:research/backtester
 
       - name: Upload redundant certification evidence
