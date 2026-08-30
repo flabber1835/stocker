@@ -288,6 +288,15 @@ class CanonicalPITDatasetTests(unittest.TestCase):
         self.assertIn("canonical-pit-2006-2007-equivalence-request.json", diagnostic_replay)
         self.assertIn("backtester-canonical-pit-2006-2007-equivalence", diagnostic_replay)
         self.assertIn("PYTHONPATH=${GITHUB_WORKSPACE}/main-src", diagnostic_replay)
+        self.assertIn("ref: ${{ github.sha }}", diagnostic_replay)
+        for workflow_fixture in (
+            "/.github/workflows/backtester-build-canonical-pit-attempt.yml",
+            "/.github/workflows/backtester-build-canonical-pit-20y.yml",
+            "/.github/workflows/backtester-publish-canonical-pit-diagnostic.yml",
+            "/.github/workflows/backtester-research-only-20y.yml",
+            "/.github/workflows/backtester-strict-pit-20y.yml",
+        ):
+            self.assertIn(workflow_fixture, diagnostic_replay)
         self.assertEqual(orchestrator.count("uses: ./.github/workflows/backtester-build-canonical-pit-attempt.yml"), 3)
         for fixture in (
             "/.github/workflows/backtester-build-canonical-pit-attempt.yml",

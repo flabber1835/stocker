@@ -9,6 +9,14 @@ from backtester import run_research_ldrc_nonpit_vs_fullpit as research
 
 
 class ResearchReviewBasisTest(unittest.TestCase):
+    def test_strict_entrypoints_bootstrap_pinned_main_checkout(self) -> None:
+        for path in (
+            Path("backtester/run_production_strict_pit_20y.py"),
+            Path("backtester/run_research_strict_pit_20y.py"),
+        ):
+            text = path.read_text(encoding="utf-8")
+            self.assertIn('PINNED_MAIN_ROOT = ROOT / "main-src"', text)
+
     def test_transform_records_adjusted_execution_open_and_never_entry_close(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             text = research.transformed_source("fullpit", Path(td) / "out")

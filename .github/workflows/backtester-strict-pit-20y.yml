@@ -26,12 +26,16 @@ jobs:
       - name: Check out frozen certification laboratory
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: research/backtester
+          ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: |
+            /.github/workflows/backtester-build-canonical-pit-attempt.yml
+            /.github/workflows/backtester-build-canonical-pit-20y.yml
+            /.github/workflows/backtester-publish-canonical-pit-diagnostic.yml
+            /.github/workflows/backtester-research-only-20y.yml
             /.github/workflows/backtester-strict-pit-20y.yml
             /backtester/run_certification_parallel_20y.py
             /backtester/run_production_strict_pit_20y.py
