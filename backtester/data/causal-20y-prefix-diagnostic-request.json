@@ -1,0 +1,8 @@
+{
+  "schema": "backtester.causal-20y-prefix-diagnostic-request/1",
+  "generation": 1,
+  "cutoff": "2006-08-07",
+  "baseline_run_id": "33339888886",
+  "dataset_hash": "f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b",
+  "purpose": "Isolate whether the first prefix-invariance mismatch is caused by prefix-dependent metadata universe/index layout. Diagnostic only; not certification evidence."
+}
