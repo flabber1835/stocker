@@ -18,6 +18,7 @@ from sentinel.automation.model import (
     HumanInterventionRequired,
     NonRetryableCallbackRefused,
     SoftwareDefect,
+    SupervisorIntegrityFailure,
     StaleLeaderRefused,
     CancellationAuthority,
     TickAction,
@@ -433,6 +434,42 @@ async def test_never_returning_callback_durably_blocks_cycle(conn) -> None:
     assert blocked.cycle.failure_code == "CallbackDeadlineExceeded"
     assert blocked.cycle.diagnostic["callback_failure"] == "SOFTWARE_DEFECT"
     assert blocked.cycle.diagnostic["terminal_reason"] == "SOFTWARE_DEFECT"
+
+
+@pytest.mark.asyncio
+async def test_supervisor_integrity_failure_exits_run_and_records_failed(
+        conn, pg, monkeypatch) -> None:
+    cfg = config(heartbeat_seconds=1, callback_deadline_seconds=5)
+    enable(conn, cfg)
+    runtime = service_for(cfg)
+    monkeypatch.setattr(runtime, "_assert_clock_skew", lambda **_kwargs: None)
+    original_is_alive = __import__("threading").Thread.is_alive
+
+    def report_unjoined(thread):
+        if thread.name.startswith("sentinel-heartbeat-"):
+            return True
+        return original_is_alive(thread)
+
+    monkeypatch.setattr(__import__("threading").Thread, "is_alive", report_unjoined)
+    with pytest.raises(
+            SupervisorIntegrityFailure, match="did not stop"):
+        await runtime.run(
+            lambda: feed_store.connect(pg.sync_dsn),
+            stop=asyncio.Event(), clock=lambda: AFTER_WEDNESDAY_CLOSE,
+            max_ticks=1)
+
+    verify = feed_store.connect(pg.sync_dsn)
+    try:
+        with verify.cursor() as cur:
+            cur.execute(
+                "SELECT state,last_error FROM "
+                "sentinel_automation_service_instances WHERE instance_id=%s",
+                (runtime.holder_id,))
+            state, last_error = cur.fetchone()
+        assert state == "FAILED"
+        assert "SupervisorIntegrityFailure" in last_error
+    finally:
+        verify.close()
 
 
 @pytest.mark.asyncio

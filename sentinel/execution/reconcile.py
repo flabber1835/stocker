@@ -480,6 +480,23 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     observation_seq = journal.record_observation(
         conn, observation, RuntimeState.RECONCILING.value)
 
+    externally_replaced = tuple(
+        order for order in observation.orders
+        if (is_sentinel_key(order.client_key)
+            and order.external_replacement))
+    if externally_replaced:
+        detail = (
+            "Sentinel order(s) carry unauthorized broker replacement "
+            "economics: "
+            + ", ".join(sorted(
+                order.broker_order_id for order in externally_replaced)))
+        journal.finalize_observation_runtime(
+            conn, observation_seq, RuntimeState.FOREIGN_ACTIVITY.value)
+        return ReconciliationResult(
+            runtime_state=RuntimeState.FOREIGN_ACTIVITY,
+            observation=observation, foreign_orders=externally_replaced,
+            detail=detail, observation_id=observation_seq)
+
     if not observation.is_complete:
         # A short or self-inconsistent read cannot support the conclusions
         # below, all of which are about ABSENCE.

@@ -120,8 +120,11 @@ def _authority(now, *, observed_at=None):
 def _durable_order(state=CommandState.ACKNOWLEDGED.value):
     return {
         "id": "order-1", "key": "sntl-key", "security_id": "perm-1",
-        "broker_instrument_id": "asset-1", "side": "BUY", "state": state,
-        "qty": "10", "filled": "0",
+        "symbol": "ABC", "broker_instrument_id": "asset-1", "side": "BUY",
+        "state": state, "qty": "10", "filled": "0",
+        "filled_average_price": None,
+        "submitted_at": "2026-08-26T23:49:00+00:00",
+        "external_replacement": False, "replaced_by": None, "replaces": None,
     }
 
 
@@ -138,7 +141,10 @@ def _observation_row(
     }] if position else [])
     return (
         seq, observed, terminal, completeness, positions, list(orders or []),
-        runtime_state, "alpaca", account, observed, provenance_positions,
+        runtime_state, "alpaca", account, observed, {
+            "started_at": (observed - timedelta(seconds=1)).isoformat(),
+            "positions": provenance_positions,
+        },
     )
 
 

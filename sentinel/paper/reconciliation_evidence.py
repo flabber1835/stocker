@@ -12,6 +12,7 @@ from sentinel.execution.contract import (
     ExecutionBroker,
     MalformedBrokerEvidence,
 )
+from sentinel.execution.identity import is_sentinel_key
 
 from sentinel.execution.states import RuntimeState
 
@@ -38,6 +39,16 @@ reconcile = reconciliation.reconcile
 
 def _clean_or_refuse(result, *, purpose: str) -> BrokerObservation:
     observation = result.observation
+    replaced = sorted(
+        order.broker_order_id
+        for order in (() if observation is None else observation.orders)
+        if (is_sentinel_key(order.client_key)
+            and getattr(order, "external_replacement", False)))
+    if replaced:
+        raise PaperActivationRefused(
+            f"{purpose} observed Sentinel order(s) with unauthorized broker "
+            "replacement economics; all broker mutations are blocked: "
+            + ", ".join(replaced[:8]))
     if (result.runtime_state is not RuntimeState.RUNNING or not result.clean
             or observation is None or not observation.is_complete):
         error = (PaperRetryableRefused
@@ -53,19 +64,6 @@ def _clean_or_refuse(result, *, purpose: str) -> BrokerObservation:
 
 def _dual_mutation_observation_or_refuse(result) -> BrokerObservation:
     """Dual PAPER never mutates an unexplained or externally replaced book."""
-    observation = result.observation
-    # Replacement is a permanent authority divergence even when generic
-    # reconciliation quite reasonably labels changed quantity/id as an amber
-    # in-flight book.  Classify it before the clean/retry branch so the durable
-    # automation cycle becomes BLOCKED instead of retrying forever.
-    replaced = sorted(
-        order.broker_order_id
-        for order in (() if observation is None else observation.orders)
-        if getattr(order, "external_replacement", False))
-    if replaced:
-        raise PaperActivationRefused(
-            "informational dual PAPER observed an externally replaced or "
-            "pending-replace order; all broker mutations are blocked")
     return _clean_or_refuse(
         result, purpose="informational dual PAPER mutation")
 

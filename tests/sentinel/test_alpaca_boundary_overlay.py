@@ -527,6 +527,7 @@ def test_broker_asset_id_is_immutable_under_one_client_key(conn):
 def test_account_and_asset_provenance_is_retained_with_observation(conn):
     when = datetime.now(UTC)
     observation = AccountBoundObservation(
+        started_at=when - timedelta(seconds=1),
         observed_at=when,
         terminal_recovery_through=when,
         completeness=Completeness.COMPLETE,
@@ -543,7 +544,7 @@ def test_account_and_asset_provenance_is_retained_with_observation(conn):
         cur.execute(
             "SELECT state FROM sentinel_processed_sessions"
             " WHERE cursor_name=%s",
-            (f"broker-observation:v2:{seq}",),
+            (f"broker-observation:v3:{seq}",),
         )
         state = cur.fetchone()[0]
     if not isinstance(state, dict):
@@ -597,6 +598,7 @@ class _FailingEvidenceCursor:
 
 def _account_bound_observation(when):
     return AccountBoundObservation(
+        started_at=when - timedelta(seconds=1),
         observed_at=when,
         terminal_recovery_through=when,
         completeness=Completeness.COMPLETE,
@@ -646,7 +648,7 @@ def test_historical_partial_observation_is_uncertifiable(conn):
     with conn.cursor() as cur:
         cur.execute(
             "DELETE FROM sentinel_processed_sessions WHERE cursor_name=%s",
-            (f"broker-observation:v2:{seq}",))
+            (f"broker-observation:v3:{seq}",))
     conn.commit()
     assert journal.observation_integrity_gaps(conn) == (seq,)
 
@@ -673,7 +675,7 @@ def test_historical_observation_identity_disagreement_is_uncertifiable(conn):
         cur.execute(
             "UPDATE sentinel_processed_sessions"
             " SET state=jsonb_set(state,'{account_id}','\"wrong\"'::jsonb)"
-            " WHERE cursor_name=%s", (f"broker-observation:v2:{seq}",))
+            " WHERE cursor_name=%s", (f"broker-observation:v3:{seq}",))
     conn.commit()
     issues = journal.observation_integrity_issues(conn)
     assert issues[0].observation_seq == seq
@@ -701,7 +703,7 @@ def test_historical_observation_economics_tamper_is_uncertifiable(
         conn, path, replacement):
     seq = journal.record_observation(
         conn, _account_bound_observation(datetime.now(UTC)), "RECONCILING")
-    cursor_name = f"broker-observation:v2:{seq}"
+    cursor_name = f"broker-observation:v3:{seq}"
     with conn.cursor() as cur:
         cur.execute(
             "SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s",
@@ -727,7 +729,7 @@ def test_historical_observation_processed_session_tamper_is_uncertifiable(conn):
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE sentinel_processed_sessions SET session=session - 1"
-            " WHERE cursor_name=%s", (f"broker-observation:v2:{seq}",))
+            " WHERE cursor_name=%s", (f"broker-observation:v3:{seq}",))
     conn.commit()
     reasons = journal.observation_integrity_issues(conn)[0].reasons
     assert "PROCESSED_SESSION_DISAGREEMENT" in reasons
@@ -739,7 +741,7 @@ def test_historical_observation_malformed_canonical_evidence_is_distinct(conn):
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE sentinel_processed_sessions SET state='[]'::jsonb"
-            " WHERE cursor_name=%s", (f"broker-observation:v2:{seq}",))
+            " WHERE cursor_name=%s", (f"broker-observation:v3:{seq}",))
     conn.commit()
     reasons = journal.observation_integrity_issues(conn)[0].reasons
     assert "MALFORMED_CANONICAL_EVIDENCE" in reasons
@@ -810,6 +812,7 @@ def test_watermark_cannot_advance_before_recovered_order_is_durable(conn):
     through = established + timedelta(hours=1)
     unknown_key = "sntl-0123456789abcdef0123"
     observation = AccountBoundObservation(
+        started_at=through - timedelta(seconds=1),
         observed_at=through,
         terminal_recovery_through=through,
         completeness=Completeness.COMPLETE,

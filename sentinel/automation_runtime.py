@@ -32,6 +32,7 @@ from sentinel.automation.model import (
     HumanInterventionRequired,
     PrepareResult,
     RefreshResult,
+    SoftwareDefect,
     TickResult,
     NonRetryableCallbackRefused,
     PermanentOperationalRefusal,
@@ -142,18 +143,51 @@ def classify_dependency_failure(
         return PermanentOperationalRefusal(
             f"dependency filesystem refusal {name}: {exc}")
     if isinstance(exc, OSError):
+        if isinstance(exc, socket.gaierror):
+            transient_dns = getattr(socket, "EAI_AGAIN", object())
+            permanent_dns = {
+                value for value in (
+                    getattr(socket, "EAI_FAIL", None),
+                    getattr(socket, "EAI_NONAME", None),
+                ) if value is not None
+            }
+            resource_dns = getattr(socket, "EAI_MEMORY", object())
+            defect_dns = {
+                value for value in (
+                    getattr(socket, "EAI_BADFLAGS", None),
+                    getattr(socket, "EAI_FAMILY", None),
+                    getattr(socket, "EAI_SERVICE", None),
+                    getattr(socket, "EAI_SOCKTYPE", None),
+                ) if value is not None
+            }
+            if exc.errno == transient_dns:
+                return TransientInfrastructureFailure(
+                    f"temporary DNS resolution failure {name}/{exc.errno}: {exc}")
+            if exc.errno in permanent_dns:
+                return PermanentOperationalRefusal(
+                    f"permanent DNS resolution refusal {name}/{exc.errno}: {exc}")
+            if exc.errno == resource_dns:
+                return HumanInterventionRequired(
+                    f"DNS resolver memory exhaustion {name}/{exc.errno}: {exc}")
+            if exc.errno in defect_dns:
+                return SoftwareDefect(
+                    f"DNS resolver configuration defect {name}/{exc.errno}: {exc}")
+            if exc.errno == getattr(socket, "EAI_SYSTEM", object()):
+                underlying = (
+                    getattr(exc, "os_error", None)
+                    or getattr(exc, "__cause__", None)
+                    or getattr(exc, "__context__", None))
+                if isinstance(underlying, OSError) and underlying is not exc:
+                    classified = classify_dependency_failure(underlying)
+                    if classified is not None:
+                        return classified
+                return SoftwareDefect(
+                    "DNS resolver reported EAI_SYSTEM without a classified "
+                    f"underlying errno: {exc}")
         transient_socket_errnos = {
             errno.ECONNABORTED, errno.ECONNREFUSED, errno.ECONNRESET,
             errno.EHOSTUNREACH, errno.ENETDOWN, errno.ENETRESET,
             errno.ENETUNREACH, errno.EPIPE, errno.ETIMEDOUT,
-            *{
-                value for value in (
-                    getattr(socket, "EAI_AGAIN", None),
-                    getattr(socket, "EAI_FAIL", None),
-                    getattr(socket, "EAI_NONAME", None),
-                )
-                if value is not None
-            },
         }
         resource_errnos = {
             errno.EDQUOT, errno.EMFILE, errno.ENFILE, errno.ENOSPC,

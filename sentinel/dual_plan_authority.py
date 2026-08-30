@@ -187,6 +187,8 @@ def _observation_payload(observation: BrokerObservation) -> dict:
                     None if order.submitted_at is None
                     else order.submitted_at.isoformat()),
                 "external_replacement": bool(order.external_replacement),
+                "replaced_by": order.replaced_by,
+                "replaces": order.replaces,
             }
             for order in sorted(
                 observation.orders,
@@ -307,6 +309,7 @@ def _decode_observation(value: Any) -> BrokerObservation:
             "broker_order_id", "client_key", "instrument", "side", "state",
             "quantity", "filled_quantity", "filled_average_price",
             "submitted_at", "external_replacement",
+            "replaced_by", "replaces",
         }
         if set(item) != fields:
             raise DualPlanAuthorityRefused(
@@ -344,7 +347,15 @@ def _decode_observation(value: Any) -> BrokerObservation:
             submitted_at=_timestamp(
                 item["submitted_at"],
                 where=f"retained order {index} submitted_at"),
-            external_replacement=item["external_replacement"]))
+            external_replacement=item["external_replacement"],
+            replaced_by=(
+                None if item["replaced_by"] is None
+                else _text(item["replaced_by"],
+                           where=f"retained order {index} replaced_by")),
+            replaces=(
+                None if item["replaces"] is None
+                else _text(item["replaces"],
+                           where=f"retained order {index} replaces"))))
     account_identity = raw["account_identity"]
     return BrokerObservation(
         observed_at=_timestamp(

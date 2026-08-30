@@ -49,7 +49,7 @@ from sentinel.feed import calendar
 REGENESIS_APPROVAL_ENV = "SENTINEL_SHADOW_REGENESIS_APPROVAL_SHA256"
 REGENESIS_HANDOVER_SCHEMA = "sentinel.dual-regenesis-broker-handover/2"
 REGENESIS_HANDOVER_PREFIX = "dual-regenesis-broker-handover:v2:"
-REGENESIS_OBSERVATION_SCHEMA = "sentinel.dual-regenesis-broker-observation/1"
+REGENESIS_OBSERVATION_SCHEMA = "sentinel.dual-regenesis-broker-observation/2"
 REGENESIS_HANDOVER_MAX_AGE_SECONDS = 300
 _HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 _REGENESIS_PREPARATION_SCOPE = ContextVar(
@@ -211,23 +211,37 @@ def _observation_evidence(conn, *, seq: int | None = None):
         raw_positions, label="durable broker positions", expected_type=dict)
     orders = _json_value(
         raw_orders, label="durable broker orders", expected_type=list)
-    provenance_positions = _json_value(
-        raw_provenance_positions, label="broker position provenance",
-        expected_type=list)
+    provenance_record = _json_value(
+        raw_provenance_positions, label="broker observation provenance",
+        expected_type=dict)
+    if set(provenance_record) != {"started_at", "positions"}:
+        raise DualReconciliationRefused(
+            "broker observation provenance has an unknown shape")
+    started_at = _aware(
+        datetime.fromisoformat(str(provenance_record["started_at"])),
+        label="durable broker observation start")
+    provenance_positions = provenance_record["positions"]
+    if not isinstance(provenance_positions, list):
+        raise DualReconciliationRefused(
+            "broker position provenance is not a list")
     valid_states = {state.value for state in CommandState}
     for index, order in enumerate(orders):
         if not isinstance(order, Mapping):
             raise DualReconciliationRefused(
                 f"durable broker order {index} is malformed")
         expected = {
-            "id", "key", "security_id", "broker_instrument_id", "side",
-            "state", "qty", "filled",
+            "id", "key", "security_id", "symbol", "broker_instrument_id",
+            "side", "state", "qty", "filled", "filled_average_price",
+            "submitted_at", "external_replacement", "replaced_by", "replaces",
         }
         if set(order) != expected or str(order.get("state") or "") not in valid_states:
             raise DualReconciliationRefused(
                 f"durable broker order {index} has an unknown shape/state")
         _decimal(order.get("qty"), label=f"durable broker order {index} quantity")
         _decimal(order.get("filled"), label=f"durable broker order {index} fill")
+        if type(order.get("external_replacement")) is not bool:
+            raise DualReconciliationRefused(
+                f"durable broker order {index} replacement flag is malformed")
     for security_id, quantity in positions.items():
         if not str(security_id):
             raise DualReconciliationRefused(
@@ -247,6 +261,7 @@ def _observation_evidence(conn, *, seq: int | None = None):
     body = {
         "schema": REGENESIS_OBSERVATION_SCHEMA,
         "observation_seq": observation_seq,
+        "started_at": started_at.isoformat(),
         "observed_at": observed.isoformat(),
         "terminal_recovery_through": (
             None if terminal is None else terminal.isoformat()),

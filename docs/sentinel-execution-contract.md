@@ -686,7 +686,10 @@ skew and boundary replay.
 
 Each account-bound broker observation is one journal unit of work. The
 normalized observation, account/asset provenance, raw fields, and canonical
-`broker-observation/v2` evidence are written before one final commit; repository
+`broker-observation/v3` evidence are written before one final commit. Version 3
+retains the multi-request `started_at` lower bound and each order's
+`submitted_at`, external-replacement flag, and broker-native `replaced_by` /
+`replaces` identifiers. Repository
 writes do not commit independently. A failure at any write boundary rolls the
 entire observation back. `observation_integrity_gaps` reports historical rows
 from the former two-commit path that have account provenance but no canonical

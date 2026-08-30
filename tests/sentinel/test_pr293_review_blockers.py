@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import errno
+import multiprocessing
+import os
 import signal
+import socket
 import time
 
 import pytest
@@ -16,6 +19,7 @@ from sentinel.automation.model import (
     HumanInterventionRequired,
     PermanentOperationalRefusal,
     SoftwareDefect,
+    SupervisorIntegrityFailure,
     StaleLeaderRefused,
     TransientInfrastructureFailure,
 )
@@ -66,6 +70,37 @@ class Connection:
     def close(self) -> None:
         if self.close_error is not None:
             raise self.close_error
+
+
+def _pid_is_executing(pid: int) -> bool:
+    try:
+        with open(f"/proc/{pid}/stat", encoding="utf-8") as handle:
+            state = handle.read().split()[2]
+    except (FileNotFoundError, IndexError, ProcessLookupError):
+        return False
+    return state != "Z"
+
+
+def _worker_with_delayed_callback(marker: str, ready: str, pid_file: str) -> None:
+    service_module.store.heartbeat_lease = lambda *_args, **_kwargs: None
+    service_module.store.register_instance = lambda *_args, **_kwargs: None
+
+    async def delayed_writer(_context):
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        with open(pid_file, "w", encoding="utf-8") as handle:
+            handle.write(str(os.getpid()))
+        with open(ready, "w", encoding="utf-8") as handle:
+            handle.write("ready")
+        time.sleep(1.2)
+        with open(marker, "w", encoding="utf-8") as handle:
+            handle.write("unsafe")
+
+    async def invoke():
+        await service(deadline=5)._invoke(  # noqa: SLF001
+            delayed_writer, Context(), permit=object(), phase="PREPARE",
+            heartbeat_conn_factory=Connection)
+
+    asyncio.run(invoke())
 
 
 @pytest.fixture
@@ -125,6 +160,99 @@ async def test_sigterm_ignoring_child_has_no_post_deadline_grace(
             sigterm_ignoring_writer, Context(), permit=object(),
             phase="PREPARE", heartbeat_conn_factory=Connection)
     await asyncio.sleep(0.4)
+    assert not marker.exists()
+
+
+def test_callback_dies_when_automation_worker_is_sigkilled(tmp_path) -> None:
+    marker = tmp_path / "orphan-write"
+    ready = tmp_path / "callback-ready"
+    pid_file = tmp_path / "callback-pid"
+    process_context = multiprocessing.get_context("fork")
+    worker = process_context.Process(
+        target=_worker_with_delayed_callback,
+        args=(str(marker), str(ready), str(pid_file)))
+    worker.start()
+    deadline = time.monotonic() + 3
+    while not ready.exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert ready.exists()
+    callback_pid = int(pid_file.read_text(encoding="utf-8"))
+
+    os.kill(worker.pid, signal.SIGKILL)
+    worker.join(timeout=2)
+    assert not worker.is_alive()
+    deadline = time.monotonic() + 2
+    while _pid_is_executing(callback_pid) and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert not _pid_is_executing(callback_pid)
+    time.sleep(1.3)
+    assert not marker.exists()
+
+
+@pytest.mark.asyncio
+async def test_failure_after_callback_start_cleans_process(
+        harmless_heartbeat, monkeypatch, tmp_path) -> None:
+    marker = tmp_path / "thread-start-leak"
+    killed_pids = []
+    original_kill = service_module._kill_callback_process
+    original_thread_start = service_module.threading.Thread.start
+
+    def capture_kill(process, **kwargs):
+        if process is not None and process.pid is not None:
+            killed_pids.append(process.pid)
+        return original_kill(process, **kwargs)
+
+    def fail_heartbeat_start(thread):
+        if thread.name.startswith("sentinel-heartbeat-"):
+            raise RuntimeError("injected heartbeat start failure")
+        return original_thread_start(thread)
+
+    async def late_writer(_context):
+        time.sleep(0.4)
+        marker.write_text("unsafe", encoding="utf-8")
+
+    monkeypatch.setattr(service_module, "_kill_callback_process", capture_kill)
+    monkeypatch.setattr(
+        service_module.threading.Thread, "start", fail_heartbeat_start)
+    with pytest.raises(RuntimeError, match="heartbeat start failure"):
+        await service(deadline=4)._invoke(  # noqa: SLF001
+            late_writer, Context(), permit=object(), phase="PREPARE",
+            heartbeat_conn_factory=Connection)
+    assert killed_pids
+    assert all(not _pid_is_executing(pid) for pid in killed_pids)
+    await asyncio.sleep(0.5)
+    assert not marker.exists()
+
+
+@pytest.mark.asyncio
+async def test_failure_during_task_creation_cleans_process(
+        harmless_heartbeat, monkeypatch, tmp_path) -> None:
+    marker = tmp_path / "task-start-leak"
+    killed_pids = []
+    original_kill = service_module._kill_callback_process
+
+    def capture_kill(process, **kwargs):
+        if process is not None and process.pid is not None:
+            killed_pids.append(process.pid)
+        return original_kill(process, **kwargs)
+
+    def fail_create_task(coro):
+        coro.close()
+        raise RuntimeError("injected task creation failure")
+
+    async def late_writer(_context):
+        time.sleep(0.4)
+        marker.write_text("unsafe", encoding="utf-8")
+
+    monkeypatch.setattr(service_module, "_kill_callback_process", capture_kill)
+    monkeypatch.setattr(service_module.asyncio, "create_task", fail_create_task)
+    with pytest.raises(RuntimeError, match="task creation failure"):
+        await service(deadline=4)._invoke(  # noqa: SLF001
+            late_writer, Context(), permit=object(), phase="PREPARE",
+            heartbeat_conn_factory=Connection)
+    assert killed_pids
+    assert all(not _pid_is_executing(pid) for pid in killed_pids)
+    await asyncio.sleep(0.5)
     assert not marker.exists()
 
 
@@ -262,6 +390,29 @@ def test_dependency_failures_receive_reviewed_taxonomy(exc, expected) -> None:
 def test_unknown_dependency_exception_remains_software_defect_candidate() -> None:
     assert automation_runtime.classify_dependency_failure(
         AttributeError("bad internal shape")) is None
+
+
+@pytest.mark.parametrize(("code", "expected"), [
+    (socket.EAI_AGAIN, TransientInfrastructureFailure),
+    (socket.EAI_FAIL, PermanentOperationalRefusal),
+    (socket.EAI_NONAME, PermanentOperationalRefusal),
+    (socket.EAI_MEMORY, HumanInterventionRequired),
+    (socket.EAI_BADFLAGS, SoftwareDefect),
+    (socket.EAI_FAMILY, SoftwareDefect),
+    (socket.EAI_SERVICE, SoftwareDefect),
+    (socket.EAI_SOCKTYPE, SoftwareDefect),
+])
+def test_dns_failures_receive_resolver_specific_taxonomy(code, expected) -> None:
+    classified = automation_runtime.classify_dependency_failure(
+        socket.gaierror(code, "resolver failure"))
+    assert isinstance(classified, expected)
+
+
+def test_eai_system_uses_underlying_system_errno() -> None:
+    resolver = socket.gaierror(socket.EAI_SYSTEM, "system resolver failure")
+    resolver.__cause__ = OSError(errno.ECONNRESET, "connection reset")
+    classified = automation_runtime.classify_dependency_failure(resolver)
+    assert isinstance(classified, TransientInfrastructureFailure)
 
 
 @pytest.mark.asyncio

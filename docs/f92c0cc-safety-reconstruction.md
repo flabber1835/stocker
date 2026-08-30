@@ -66,8 +66,12 @@ are written by repositories that do not commit. An execution-journal
 
 No observation row is externally valid without its serialized evidence row.
 New normalized order rows retain every economic field required to reconstruct
-the canonical payload, including symbol and average fill price. Provenance
-retains a SHA-256 digest of that reconstructed payload in the same transaction.
+the canonical payload, including symbol, average fill price, submission time,
+external-replacement state, and native replacement identifiers. The observation
+provenance record retains the multi-request start boundary and a SHA-256 digest
+of that reconstructed payload in the same transaction.
+Re-genesis observation evidence uses schema version 2 so the same start and
+replacement facts remain load-bearing during handover.
 The integrity query reconstructs canonical evidence from normalized observation
 and provenance rows, compares every retained identity and economic field,
 checks the processed-session date, and verifies both the expected and stored

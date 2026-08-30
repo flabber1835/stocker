@@ -6,10 +6,14 @@ administration.  Its callbacks are supplied by the separately guarded runtime.
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import hashlib
 import inspect
 import json
 import multiprocessing
+import os
+import signal
+import sys
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -36,6 +40,7 @@ from sentinel.automation.model import (
     PrepareResult,
     RefreshResult,
     SoftwareDefect,
+    SupervisorIntegrityFailure,
     TickAction,
     TickResult,
     StaleLeaderRefused,
@@ -116,10 +121,23 @@ def _json_default(value):  # pragma: no cover - runs in supervised child
     raise TypeError(f"callback result contains {type(value).__name__}")
 
 
+def _arm_parent_death_sigkill(expected_parent_pid: int) -> None:
+    """Bind a Linux callback to the exact worker that constructed it."""
+    if sys.platform != "linux":  # process groups remain the portable boundary
+        return
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(1, signal.SIGKILL, 0, 0, 0) != 0:  # PR_SET_PDEATHSIG
+        error = ctypes.get_errno()
+        raise OSError(error, "PR_SET_PDEATHSIG failed")
+    if os.getppid() != expected_parent_pid:
+        os.kill(os.getpid(), signal.SIGKILL)
+
+
 def _callback_child(  # pragma: no cover - measured by process fault tests
-        callback, context, channel) -> None:
+        callback, context, channel, expected_parent_pid: int) -> None:
     """Execute one production callback in a disposable OS process."""
     try:
+        _arm_parent_death_sigkill(expected_parent_pid)
         # ``fork`` inherits the parent's running-loop marker. The child owns no
         # parent tasks or descriptors and starts one fresh loop for its callback.
         asyncio.events._set_running_loop(None)                # noqa: SLF001
@@ -199,7 +217,13 @@ def _decode_child_callback(payload: bytes):
 
 def _kill_callback_process(process, *, join_seconds: float = 1.0) -> None:
     """Immediately revoke kernel execution; SIGTERM has no safety grace."""
-    if process is None or not process.is_alive():
+    if process is None:
+        return
+    try:
+        alive = process.is_alive()
+    except AssertionError:  # constructed but never successfully started
+        return
+    if not alive:
         if process is not None:
             process.join(timeout=0)
         return
@@ -596,27 +620,13 @@ class AutomationService:
                             return
 
         worker = None
+        worker_started = False
         callback_process = None
         parent_channel = None
-        if heartbeat_conn_factory is not None:
-            try:
-                process_context = multiprocessing.get_context("fork")
-            except ValueError as exc:
-                raise SoftwareDefect(
-                    "production callback supervision requires fork process "
-                    "support") from exc
-            context.cancellation.bind_process_event(process_context.Event())
-            parent_channel, child_channel = process_context.Pipe(duplex=False)
-            callback_process = process_context.Process(
-                target=_callback_child,
-                args=(callback, context, child_channel),
-                name=f"sentinel-callback-{phase.lower()}")
-            callback_process.start()
-            child_channel.close()
-            worker = threading.Thread(
-                target=heartbeat,
-                name=f"sentinel-heartbeat-{self.holder_id}", daemon=True)
-            worker.start()
+        child_channel = None
+        callback_task = None
+        deadline_task = None
+        heartbeat_task = None
 
         async def invoke_callback():
             if callback_process is not None:
@@ -653,10 +663,32 @@ class AutomationService:
             except BaseException as exc:                      # noqa: BLE001
                 return _CallbackOutcome(error=exc)
 
-        callback_task = asyncio.create_task(invoke_callback())
-        deadline_task = asyncio.create_task(asyncio.sleep(deadline_seconds))
-        heartbeat_task = asyncio.create_task(heartbeat_failed.wait())
         try:
+            if heartbeat_conn_factory is not None:
+                try:
+                    process_context = multiprocessing.get_context("fork")
+                except ValueError as exc:
+                    raise SoftwareDefect(
+                        "production callback supervision requires fork process "
+                        "support") from exc
+                context.cancellation.bind_process_event(process_context.Event())
+                parent_channel, child_channel = process_context.Pipe(duplex=False)
+                callback_process = process_context.Process(
+                    target=_callback_child,
+                    args=(callback, context, child_channel, os.getpid()),
+                    name=f"sentinel-callback-{phase.lower()}")
+                callback_process.start()
+                child_channel.close()
+                child_channel = None
+                worker = threading.Thread(
+                    target=heartbeat,
+                    name=f"sentinel-heartbeat-{self.holder_id}", daemon=True)
+                worker.start()
+                worker_started = True
+
+            callback_task = asyncio.create_task(invoke_callback())
+            deadline_task = asyncio.create_task(asyncio.sleep(deadline_seconds))
+            heartbeat_task = asyncio.create_task(heartbeat_failed.wait())
             done, _pending = await asyncio.wait(
                 {callback_task, deadline_task, heartbeat_task},
                 return_when=asyncio.FIRST_COMPLETED)
@@ -680,7 +712,7 @@ class AutomationService:
                 raise StaleLeaderRefused(reason)
             raise CallbackDeadlineExceeded(reason)
         except BaseException as exc:                            # noqa: BLE001
-            if not callback_task.done():
+            if callback_task is not None and not callback_task.done():
                 context.cancellation.cancel(
                     f"{phase} callback invocation stopped: "
                     f"{type(exc).__name__}")
@@ -691,18 +723,21 @@ class AutomationService:
             raise
         finally:
             stopped.set()
-            deadline_task.cancel()
-            heartbeat_task.cancel()
-            if worker is not None:
+            for task in (deadline_task, heartbeat_task):
+                if task is not None:
+                    task.cancel()
+            if worker is not None and worker_started:
                 worker.join(timeout=1)
                 if worker.is_alive():
                     context.cancellation.cancel(
                         f"{phase} heartbeat supervisor failed to stop")
                     _kill_callback_process(callback_process)
-                    raise SoftwareDefect(
+                    raise SupervisorIntegrityFailure(
                         f"{phase} heartbeat supervisor did not stop within "
                         "the certified boundary")
             _kill_callback_process(callback_process)
+            if child_channel is not None:
+                child_channel.close()
             if parent_channel is not None:
                 parent_channel.close()
 
@@ -1038,6 +1073,8 @@ class AutomationService:
                 action=TickAction.REFRESHED, cycle=cycle, permit=permit)
         except StaleLeaderRefused:
             raise
+        except SupervisorIntegrityFailure:
+            raise
         except Exception as exc:                                  # noqa: BLE001
             store.require_leader(conn, permit)
             return self._handle_callback_failure(
@@ -1071,6 +1108,8 @@ class AutomationService:
                       else ExecuteResult.model_validate(raw))
             permit = store.require_leader(conn, permit)
         except StaleLeaderRefused:
+            raise
+        except SupervisorIntegrityFailure:
             raise
         except Exception as exc:                                  # noqa: BLE001
             store.require_leader(conn, permit)
@@ -1161,6 +1200,8 @@ class AutomationService:
                       else ExecuteResult.model_validate(raw))
             permit = store.require_leader(conn, permit)
         except StaleLeaderRefused:
+            raise
+        except SupervisorIntegrityFailure:
             raise
         except Exception as exc:                                  # noqa: BLE001
             store.require_leader(conn, permit)
@@ -1325,6 +1366,8 @@ class AutomationService:
                     if historical_missed else None))
         except StaleLeaderRefused:
             raise
+        except SupervisorIntegrityFailure:
+            raise
         except Exception as exc:                                  # noqa: BLE001
             store.require_leader(conn, permit)
             return self._handle_callback_failure(
@@ -1352,6 +1395,8 @@ class AutomationService:
                       else ExecuteResult.model_validate(raw))
             permit = store.require_leader(conn, permit)
         except StaleLeaderRefused:
+            raise
+        except SupervisorIntegrityFailure:
             raise
         except Exception as exc:                                  # noqa: BLE001
             store.require_leader(conn, permit)

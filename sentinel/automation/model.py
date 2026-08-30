@@ -47,6 +47,10 @@ class SoftwareDefect(PermanentOperationalRefusal):
     """An unexpected programming or invariant failure."""
 
 
+class SupervisorIntegrityFailure(SoftwareDefect):
+    """The worker supervisor can no longer prove its process boundaries."""
+
+
 class CallbackDeadlineExceeded(SoftwareDefect):
     """A callback exceeded its certified liveness boundary."""
 
@@ -508,6 +512,7 @@ __all__ = [
     "CallbackDeadlineExceeded", "CancellationAuthority", "DataIntegrityFailure",
     "HumanInterventionRequired", "NonRetryableCallbackRefused",
     "PermanentOperationalRefusal", "PrepareResult", "RefreshResult",
-    "SessionSchedule", "SoftwareDefect", "TransientInfrastructureFailure",
+    "SessionSchedule", "SoftwareDefect", "SupervisorIntegrityFailure",
+    "TransientInfrastructureFailure",
     "StaleLeaderRefused", "TickAction", "TickResult",
 ]

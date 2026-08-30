@@ -32,6 +32,7 @@ from sentinel.automation.model import (
     RefreshResult,
     SessionSchedule,
     SoftwareDefect,
+    SupervisorIntegrityFailure,
     StaleLeaderRefused,
     TickAction,
     TickResult,
@@ -51,6 +52,7 @@ __all__ = [
     "HumanInterventionRequired", "InvalidCycleTransition", "LeaderPermit",
     "MissingAutomationState", "NonRetryableCallbackRefused",
     "PermanentOperationalRefusal", "PrepareResult", "RefreshResult",
-    "SessionSchedule", "SoftwareDefect", "StaleLeaderRefused", "TickAction",
+    "SessionSchedule", "SoftwareDefect", "SupervisorIntegrityFailure",
+    "StaleLeaderRefused", "TickAction",
     "TickResult", "TransientInfrastructureFailure",
 ]

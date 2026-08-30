@@ -32,14 +32,33 @@ class CallbackWatch:
 
 
 def _terminate(child: subprocess.Popen, *, grace_seconds: float = 5.0) -> None:
-    if child.poll() is not None:
-        return
-    child.terminate()
+    process_group = child.pid
+    if child.poll() is None:
+        try:
+            observed_group = os.getpgid(child.pid)
+        except ProcessLookupError:
+            observed_group = process_group
+        if observed_group != process_group:
+            raise RuntimeError(
+                "automation worker is not the leader of its dedicated "
+                "process group")
+        try:
+            os.killpg(process_group, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            child.wait(timeout=grace_seconds)
+        except subprocess.TimeoutExpired:
+            pass
+
+    # A worker may exit while a SIGTERM-ignoring callback remains. The process
+    # group is still the callback's kernel-owned lifetime boundary, including
+    # when the worker died just before this function observed it.
     try:
-        child.wait(timeout=grace_seconds)
-        return
-    except subprocess.TimeoutExpired:
-        child.kill()
+        os.killpg(process_group, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    if child.poll() is None:
         child.wait(timeout=max(1.0, grace_seconds))
 
 
@@ -115,7 +134,7 @@ def _spawn(holder_id: str) -> subprocess.Popen:
     HOLDER_FILE.write_text(holder_id, encoding="utf-8")
     return subprocess.Popen(
         [sys.executable, "-m", "sentinel.automation_worker"],
-        stdin=subprocess.DEVNULL, env=env)
+        stdin=subprocess.DEVNULL, env=env, start_new_session=True)
 
 
 def main() -> int:

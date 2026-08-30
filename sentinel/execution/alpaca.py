@@ -1015,6 +1015,10 @@ class AlpacaExecutionBroker(ExecutionBroker):
                 if payload.get("filled_avg_price") not in (None, "") else None),
             submitted_at=_parse_ts(payload.get("submitted_at")),
             external_replacement=is_anomalous_status(raw_status),
+            replaced_by=(str(payload["replaced_by"]).strip()
+                         if payload.get("replaced_by") else None),
+            replaces=(str(payload["replaces"]).strip()
+                      if payload.get("replaces") else None),
             raw=payload)
 
     async def find_by_client_key(self, client_key: str) -> Optional[BrokerOrder]:
@@ -1193,6 +1197,8 @@ def _fingerprint(orders) -> tuple:
          if order.filled_average_price is not None else ""),
         (order.submitted_at.isoformat()
          if order.submitted_at is not None else ""),
+        order.external_replacement,
+        order.replaced_by or "", order.replaces or "",
     ) for order in orders))
 
 
@@ -1241,7 +1247,7 @@ ACTIVITY_FILL_INTERVAL_SOURCE = "alpaca_trading_activity_sse_candidate"
 ACTIVITY_FILL_INTERVAL_SEMANTICS = (
     "ALPACA_ACCOUNT_ACTIVITY_FIXED_EVENT_FRONTIER_UNACCEPTED_V1"
 )
-_OBSERVATION_PREFIX = "broker-observation:v2:"
+_OBSERVATION_PREFIX = "broker-observation:v3:"
 _WITNESS_PREFIX = "terminal-recovery-witness:v3:"
 _PROVENANCE_PREFIX = _OBSERVATION_PREFIX
 _DB_INCARCERATION_CURSOR = "broker-recovery-db-incarnation:v1"
@@ -1596,6 +1602,7 @@ class HardenedAlpacaExecutionBroker(OriginalAlpaca):
 
         return AccountBoundObservation(
             observed_at=observed.observed_at,
+            started_at=observed.started_at,
             orders=tuple(orders),
             positions=tuple(observed.positions),
             completeness=completeness,
@@ -2353,7 +2360,7 @@ def load_provenance(conn, seq: int) -> dict:
         raise RuntimeError(
             f"broker observation {seq} has no account/asset provenance")
     state = _json(row[0], where=f"broker observation {seq} provenance")
-    if (state.get("kind") != "broker-observation/v2"
+    if (state.get("kind") != "broker-observation/v3"
             or state.get("observation_seq") != int(seq)):
         raise RuntimeError(
             f"broker observation {seq} provenance shape is invalid")

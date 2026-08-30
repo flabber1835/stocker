@@ -226,7 +226,7 @@ def test_integrity_refusal_is_not_typed_as_ordinary_pending():
 
 def _reconciling_order(*, replaced: bool):
     order = BrokerOrder(
-        broker_order_id="order-1", client_key="sentinel-key",
+        broker_order_id="order-1", client_key="sntl-0123456789abcdef0123",
         instrument=BrokerInstrument("SEC-A", "AAA", "asset-a"),
         side=Side.BUY, state=CommandState.ACKNOWLEDGED,
         quantity=Decimal(1), external_replacement=replaced)

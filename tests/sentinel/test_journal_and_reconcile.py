@@ -887,6 +887,56 @@ class TestReconciliation:
         assert "changed durable side" in second.detail
         assert journal.terminal_recovery_checkpoint(conn) == checkpoint
 
+    @pytest.mark.parametrize("replacement_state", ["pending_replace", "replaced"])
+    def test_external_replacement_blocks_and_leaves_watermark(
+            self, conn, replacement_state):
+        checkpoint = journal.terminal_recovery_checkpoint(conn)
+        observed_at = checkpoint + timedelta(hours=1)
+        durable = replace(
+            cmd(state=S.ACKNOWLEDGED), broker_order_id="broker-replaced")
+        journal.save_command(conn, durable)
+        broker = self._broker()
+        broker.now = observed_at
+        replacement = BrokerOrder(
+            broker_order_id="broker-replaced", client_key=durable.client_key,
+            instrument=AAA, side=Side.BUY, state=S.ACKNOWLEDGED,
+            quantity=Decimal(10), submitted_at=observed_at - timedelta(minutes=1),
+            external_replacement=True, replaced_by="broker-successor",
+            replaces="broker-predecessor",
+            raw={"status": replacement_state})
+
+        async def snapshot(**_kwargs):
+            return BrokerObservation(
+                started_at=observed_at - timedelta(seconds=1),
+                observed_at=observed_at, orders=(replacement,),
+                terminal_recovery_through=observed_at,
+                completeness=Completeness.COMPLETE,
+                account_identity=broker.account)
+
+        broker.observe_with_terminal_recovery = snapshot
+        result = run(R.reconcile(
+            broker=broker, conn=conn, binding=None, deployment=DEPLOY))
+
+        assert result.runtime_state is RuntimeState.FOREIGN_ACTIVITY
+        assert result.foreign_orders == (replacement,)
+        assert "unauthorized broker replacement" in result.detail
+        assert journal.terminal_recovery_checkpoint(conn) == checkpoint
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT p.positions->>'started_at',o.orders "
+                "FROM sentinel_observations o "
+                "JOIN sentinel_observation_provenance p "
+                "ON p.observation_seq=o.seq "
+                "ORDER BY seq DESC LIMIT 1")
+            started_at, orders = cur.fetchone()
+        assert datetime.fromisoformat(started_at) == (
+            observed_at - timedelta(seconds=1))
+        retained = orders[0]
+        assert retained["submitted_at"] == replacement.submitted_at.isoformat()
+        assert retained["external_replacement"] is True
+        assert retained["replaced_by"] == "broker-successor"
+        assert retained["replaces"] == "broker-predecessor"
+
 
 class TestTerminalRecoveryCrashBoundaries:
     @staticmethod
