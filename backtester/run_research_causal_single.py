@@ -58,7 +58,7 @@ def _expose_generated_child_runtime() -> None:
 
 
 def _inject_poison_dtype_compat(source: str) -> str:
-    """Preserve metadata semantics under pandas 3 strict setitem rules."""
+    """Preserve pandas dtypes and normalize terminal-domain poison evidence."""
     seam = "    _CANONICAL=CausalPITDataset("
     if source.count(seam) != 1:
         raise RuntimeError(
@@ -76,6 +76,20 @@ def _inject_poison_dtype_compat(source: str) -> str:
                 frame[_causal_text_column]=frame[_causal_text_column].astype(object)
         return _CAUSAL_ORIGINAL_POISON_OBSERVATIONS(self,frame)
     CausalPITDataset._poison_observations=_causal_dtype_safe_poison_observations
+    _CAUSAL_ORIGINAL_POISON_MANIFEST=CausalPITDataset.poison_manifest
+    def _causal_semantic_poison_manifest(self):
+        payload=_CAUSAL_ORIGINAL_POISON_MANIFEST(self)
+        changed=dict(payload.get('changed_rows') or {})
+        terminal_actions=int(changed.get('terminal_action_rows',0))
+        if int(changed.get('terminal_rows',0)) <= 0 and terminal_actions > 0:
+            changed['terminal_rows']=terminal_actions
+            payload=dict(payload)
+            payload['changed_rows']=changed
+            payload['terminal_rows_source']='terminal_action_rows'
+            payload.pop('manifest_sha256',None)
+            payload['manifest_sha256']=sha256_json(payload)
+        return payload
+    CausalPITDataset.poison_manifest=_causal_semantic_poison_manifest
 """.strip("\n")
     result = source.replace(seam, patch + "\n" + seam, 1)
     compile(result, "<generated-causal-research-replay>", "exec")
