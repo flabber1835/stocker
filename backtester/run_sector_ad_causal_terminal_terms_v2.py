@@ -283,11 +283,29 @@ def _postprocess_ad_bundle() -> None:
 
 
 def _postprocess_provenance() -> None:
-    if _terms_digest is None or _exact_by_session is None:
-        raise RuntimeError("causal terminal terms were never loaded by the replay")
-    if str(runner.END_SESSION) >= BOUNDARY_SESSION and _boundary_witness is None:
-        raise RuntimeError(
-            f"replay reached {runner.END_SESSION} but never proved the {BOUNDARY_SESSION} open boundary")
+    canonical_path = os.environ.get("CANONICAL_PIT_DATASET")
+    canonical = None
+    if canonical_path:
+        from backtester.canonical_pit_dataset import CanonicalPITDataset
+        canonical = CanonicalPITDataset(Path(canonical_path))
+        terms_digest = str(canonical.manifest["terminal_terms_hash"])
+        exact_by_session = canonical.terminal_terms()
+        boundary_witness = {
+            "session": BOUNDARY_SESSION,
+            "status": "outside_canonical_window",
+            "canonical_window": canonical.window,
+        }
+        terms_schema = "backtester.canonical-pit-terminal-events/1"
+    else:
+        if _terms_digest is None or _exact_by_session is None:
+            raise RuntimeError("causal terminal terms were never loaded by the replay")
+        if str(runner.END_SESSION) >= BOUNDARY_SESSION and _boundary_witness is None:
+            raise RuntimeError(
+                f"replay reached {runner.END_SESSION} but never proved the {BOUNDARY_SESSION} open boundary")
+        terms_digest = _terms_digest
+        exact_by_session = _exact_by_session
+        boundary_witness = _boundary_witness
+        terms_schema = TERMINAL_TERMS_SCHEMA
 
     summary_path = OUTPUT / "summary.json"
     manifest_path = OUTPUT / "manifest.json"
@@ -297,17 +315,20 @@ def _postprocess_provenance() -> None:
 
     events = [
         {"session": str(terms.session), "security_id": str(terms.security_id), "kind": terms.kind.value}
-        for session in sorted(_exact_by_session)
-        for terms in _exact_by_session[session]
+        for session in sorted(exact_by_session)
+        for terms in exact_by_session[session]
     ]
 
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     summary["causal_terminal_terms"] = {
-        "schema": TERMINAL_TERMS_SCHEMA,
-        "sha256": _terms_digest,
+        "schema": terms_schema,
+        "sha256": terms_digest,
         "events": events,
         "production_type": "stock_strategy_shared.wealth_core.terminal.TerminalTerms",
-        "original_failure_boundary": _boundary_witness,
+        "original_failure_boundary": boundary_witness,
+        "canonical_dataset_hash": (
+            canonical.dataset_hash if canonical is not None else None
+        ),
     }
     summary_path.write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -315,9 +336,17 @@ def _postprocess_provenance() -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["experiment"] = runner.EXPERIMENT_ID
     inputs = manifest.setdefault("input_files", {})
-    for path in (TERMS_PATH, TERMS_CHECKSUM_PATH):
-        inputs[str(path.relative_to(LAB_ROOT))] = {
-            "sha256": _sha256(path), "bytes": path.stat().st_size}
+    if canonical is not None:
+        terminal_member = canonical.manifest["members"]["terminal-events.csv.gz"]
+        inputs["canonical/terminal-events.csv.gz"] = {
+            "sha256": terminal_member["sha256"],
+            "bytes": terminal_member["bytes"],
+            "dataset_hash": canonical.dataset_hash,
+        }
+    else:
+        for path in (TERMS_PATH, TERMS_CHECKSUM_PATH):
+            inputs[str(path.relative_to(LAB_ROOT))] = {
+                "sha256": _sha256(path), "bytes": path.stat().st_size}
     manifest["input_files"] = dict(sorted(inputs.items()))
     for path in (daily_path, metrics_path, summary_path):
         manifest.setdefault("outputs", {})[path.name] = {
