@@ -2,9 +2,9 @@
   "canonical_dataset_hash": "08db292b78f0968b149ec033671b5c5df62ad98a4b2692bcc5dfa575585fa4e6",
   "end_session": "2007-12-31",
   "issue": 294,
-  "overlay": "backtester/production_cooldown_age_zero.patch",
+  "overlay": "backtester/apply_production_cooldown_age_zero.py",
   "production_sha": "887f479b15ad861313da666ad698034d3847121c",
-  "reason": "retry research/production divergence comparison with valid context-free unified diff",
-  "requested_at": "2026-08-30T21:44:00Z",
+  "reason": "run research/production divergence comparison with deterministic exact-source cooldown correction applied only to the Actions production checkout",
+  "requested_at": "2026-08-30T21:48:00Z",
   "schema": "backtester.canonical-pit-cooldown-overlay-request/1"
 }
