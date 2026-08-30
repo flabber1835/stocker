@@ -100,6 +100,10 @@ def load_frozen_terminal_terms(
         raise FrozenTerminalTermsError("causal terminal terms contain no records")
 
     session_set = set(map(str, sessions))
+    if not session_set:
+        raise FrozenTerminalTermsError("replay session axis is empty")
+    first_session = min(session_set)
+    last_session = max(session_set)
     seen: set[tuple[str, str]] = set()
     by_session: dict[str, list[object]] = {}
 
@@ -112,12 +116,19 @@ def load_frozen_terminal_terms(
         known_by = _require_text(raw, "known_by")
         reference = _require_text(raw, "reference")
         kind_text = _require_text(raw, "kind")
-        if session not in session_set:
-            raise FrozenTerminalTermsError(
-                f"terminal event {sid} is dated off the replay session axis: {session}")
         if known_by > session:
             raise FrozenTerminalTermsError(
                 f"terminal event {sid} uses future-known evidence: {known_by} > {session}")
+        # The frozen bundle spans a longer historical horizon than every replay.
+        # Events wholly before/after the active replay are valid provenance but
+        # cannot affect this run and therefore do not need an identity on its axis.
+        if session < first_session or session > last_session:
+            continue
+        # A dated event inside the active calendar window must land on an actual
+        # replay session; silently shifting an in-window event would alter economics.
+        if session not in session_set:
+            raise FrozenTerminalTermsError(
+                f"terminal event {sid} is dated off the replay session axis: {session}")
         key = (session, sid)
         if key in seen:
             raise FrozenTerminalTermsError(
