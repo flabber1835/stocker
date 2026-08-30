@@ -41,6 +41,21 @@ def _measurement_anchored_factor_builder(path):
 
 strict.corrected._original_sfp_builder = _measurement_anchored_factor_builder
 
+# Frozen terminal evidence stores legacy Sharadar permanent IDs as provenance.
+# Strict PIT deliberately replaces those IDs with causal price-tape/SEC episode
+# IDs.  Join the frozen economics by historical ticker/session and instantiate
+# TerminalTerms with the resolver's causal ID so the event reaches the same
+# security identity used by Wealth Core on that session.
+_original_terminal_loader = strict.base.load_frozen_terminal_terms
+
+
+def _causal_identity_terminal_loader(*args, **kwargs):
+    kwargs["identity_binding"] = "resolved"
+    return _original_terminal_loader(*args, **kwargs)
+
+
+strict.base.load_frozen_terminal_terms = _causal_identity_terminal_loader
+
 # The base terminal provenance layer carries a dedicated 2001 regression witness.
 # It remains valuable for replays that include that boundary, but it is outside
 # this 2006+ contract.  Move only that assertion outside the active horizon; the
