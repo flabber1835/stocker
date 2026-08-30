@@ -3,6 +3,15 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+import sys
+
+# This file is executed as a script by the parallel orchestrator.  Python then
+# puts ``.../backtester`` on sys.path, not the repository root, so importing the
+# ``backtester`` package must not depend on an inherited PYTHONPATH.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 os.environ["CERTIFICATION_STRICT_PIT"] = "1"
 
@@ -15,7 +24,7 @@ END_SESSION = os.environ.get("CERTIFICATION_END_SESSION", FULL_END_SESSION)
 
 # The machine's causal state begins at WARMUP_START.  The corrected SFP builder,
 # however, expects its wrapped factor series to begin at the measurement anchor
-# and prepends raw SPY warm-up observations itself.  Keep those two boundaries
+# and prepends raw SPY warm-up observations itself. Keep those two boundaries
 # distinct while preserving warm-up ACTIONS/SEP processing.
 strict.corrected.WARMUP_START = WARMUP_START
 strict.corrected.MEASUREMENT_START = MEASUREMENT_START
@@ -43,7 +52,7 @@ strict.corrected._original_sfp_builder = _measurement_anchored_factor_builder
 
 # Frozen terminal evidence stores legacy Sharadar permanent IDs as provenance.
 # Strict PIT deliberately replaces those IDs with causal price-tape/SEC episode
-# IDs.  Join the frozen economics by historical ticker/session and instantiate
+# IDs. Join the frozen economics by historical ticker/session and instantiate
 # TerminalTerms with the resolver's causal ID so the event reaches the same
 # security identity used by Wealth Core on that session.
 _original_terminal_loader = strict.base.load_frozen_terminal_terms
@@ -58,7 +67,7 @@ strict.base.load_frozen_terminal_terms = _causal_identity_terminal_loader
 
 # The base terminal provenance layer carries a dedicated 2001 regression witness.
 # It remains valuable for replays that include that boundary, but it is outside
-# this 2006+ contract.  Move only that assertion outside the active horizon; the
+# this 2006+ contract. Move only that assertion outside the active horizon; the
 # terminal-event loader still validates every in-window frozen event strictly.
 if strict.base.BOUNDARY_SESSION < WARMUP_START:
     strict.base.BOUNDARY_SESSION = "9999-12-31"
@@ -72,6 +81,13 @@ if END_SESSION != FULL_END_SESSION:
 
 
 def main() -> int:
+    if "--self-test-imports" in sys.argv[1:]:
+        print(
+            f"[SELFTEST PASS] production 20y entrypoint root={ROOT} "
+            f"backtester_import={Path(strict.__file__).resolve()}",
+            flush=True,
+        )
+        return 0
     print(
         f"[CONTRACT] role=production warmup={WARMUP_START} "
         f"measurement={MEASUREMENT_START} end={END_SESSION}",
