@@ -1,0 +1,28 @@
+{
+  "counts": {
+    "action_rows": 253076,
+    "incomplete_terminal_terms": 10651,
+    "metadata_timeline_rows": 32167,
+    "observation_rows": 31820893,
+    "security_count": 18948,
+    "session_count": 5176,
+    "terminal_rows": 10652,
+    "unknown_issuer_securities_at_end": 6812,
+    "unknown_security_type_observations": 9302460,
+    "unresolved_corporate_actions": 0
+  },
+  "dataset_hash": "f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b",
+  "dataset_id": "strict-pit-2006-01-03-2026-07-31-f9fb220871ad4152",
+  "manifest_sha256": "6ffffa117407b7e2b1eb023ff20b6f8885d93ef86187749bf0c76360acd22608",
+  "package": "ghcr.io/flabber1835/stocker-canonical-pit@sha256:4f53e51d8171aab8a8ac9df90e116d27b0f9b54f95629154685ea8a2394c1265",
+  "reconstruction_code_sha": "a0f1a5b2c666b51cfd2af508bf750dd364f80948",
+  "schema": "backtester.canonical-pit-package-pointer/1",
+  "source_run_id": "33331951602",
+  "source_run_url": "https://github.com/flabber1835/stocker/actions/runs/33331951602",
+  "status": "PASS",
+  "window": {
+    "end": "2026-07-31",
+    "measurement_start": "2006-07-31",
+    "warmup_start": "2006-01-03"
+  }
+}
