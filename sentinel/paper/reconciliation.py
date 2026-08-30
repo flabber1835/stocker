@@ -28,8 +28,9 @@ from .inspection import (
 from .cash import (
     _observation_economics,
     _account_economics,
-    _broker_cash_state_or_refuse,
 )
+
+from .compat import broker_cash_state as _broker_cash_state_or_refuse
 
 # Explicit compatibility aliases for the canonical execution reconciler.
 ReconciliationResult = reconciliation.ReconciliationResult
