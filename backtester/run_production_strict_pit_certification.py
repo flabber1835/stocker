@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from bisect import bisect_left
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 import json
 import os
 from pathlib import Path
@@ -65,7 +65,7 @@ class _StrictIssuerAuthority:
     The A/D harness constructs feed anchors before the D publication is rewritten.
     Strict PIT therefore cannot rely on ``SecurityMeta.issuer_key()`` at that
     boundary: those metadata objects intentionally contain neither present-day
-    relatedtickers nor permaticker.  The historical rule is the same at every
+    relatedtickers nor permaticker. The historical rule is the same at every
     seam: latest SEC CIK filed strictly before the simulated session, with a
     security-singleton fallback while CIK is unknown.
     """
@@ -107,12 +107,12 @@ class _StrictIssuerAuthority:
             )
         return f"SEC_CIK:{cik}", "SEC_CIK_STRICT_PRIOR"
 
-    def known_example_before(self, session: str) -> tuple[str, str] | None:
-        for ticker in sorted(self.dates):
-            cik = self.strict_prior_cik(ticker, session)
-            if cik is not None:
-                return ticker, cik
-        return None
+    def first_evidence(self) -> tuple[str, str, str] | None:
+        candidates = []
+        for ticker, dates in self.dates.items():
+            if dates:
+                candidates.append((dates[0], ticker, self.values[ticker][0]))
+        return min(candidates) if candidates else None
 
 
 _issuer_authority = _StrictIssuerAuthority(CIK_PATH)
@@ -151,7 +151,7 @@ def _strict_build_anchor_map(
 ):
     """Build restart/pre-chain anchors from the strict causal issuer authority.
 
-    This mirrors the frozen harness's split-anchor logic exactly.  The only
+    This mirrors the frozen harness's split-anchor logic exactly. The only
     semantic substitution is issuer authority: current Sharadar relatedtickers /
     permaticker are unavailable by design, so the issuer is strict-prior SEC CIK
     or the contractually approved security singleton.
@@ -187,8 +187,8 @@ def _strict_build_anchor_map(
     return anchors
 
 
-# Important: the harness resolves this global before ``production.advance_state``.
-# Patching only ``prod._pit_meta_map`` is too late for returning/pre-chain series.
+# The harness resolves this global before ``production.advance_state``. Patching
+# only ``prod._pit_meta_map`` is too late for returning/pre-chain series.
 runner.build_anchor_map = _strict_build_anchor_map
 
 
@@ -217,6 +217,8 @@ def preflight_strict_boundaries(session: str) -> dict:
     class _State:
         feed = {"series": {}}
 
+    # Reproduce the real failure shape at warm-up start: a pre-chain security
+    # whose static current-TICKERS issuer fields have intentionally been removed.
     synthetic_sid = "STRICT-PREFLIGHT-SID"
     synthetic_ticker = "STRICT-PREFLIGHT-UNKNOWN"
     anchors = _strict_build_anchor_map(
@@ -237,12 +239,22 @@ def preflight_strict_boundaries(session: str) -> dict:
     if abs(float(anchor.prior_split_factor) - 1.25) > 1e-15:
         raise RuntimeError("strict anchor preflight changed the split-factor basis")
 
-    known = _issuer_authority.known_example_before(str(session))
-    if known is None:
-        raise RuntimeError(f"SEC issuer authority has no strict-prior evidence before {session}")
-    known_ticker, known_cik = known
+    # The CIK corpus itself begins after the 2006-01-03 warm-up boundary. That is
+    # a valid state under the contract: issuer is a singleton until evidence
+    # becomes causally available. Verify strict-prior semantics at the corpus's
+    # first real filing boundary instead of demanding evidence before it exists.
+    first = _issuer_authority.first_evidence()
+    if first is None:
+        raise RuntimeError("SEC issuer authority contains no usable CIK evidence")
+    filed, known_ticker, known_cik = first
+    same_day = _issuer_authority.strict_prior_cik(known_ticker, filed)
+    if same_day is not None:
+        raise RuntimeError(
+            f"strict-prior CIK leaked same-day evidence for {known_ticker} on {filed}"
+        )
+    probe_session = (date.fromisoformat(filed) + timedelta(days=1)).isoformat()
     known_issuer, known_source = _issuer_authority.issuer(
-        "STRICT-PREFLIGHT-KNOWN", known_ticker, str(session)
+        "STRICT-PREFLIGHT-KNOWN", known_ticker, probe_session
     )
     if known_issuer != f"SEC_CIK:{known_cik}" or known_source != "SEC_CIK_STRICT_PRIOR":
         raise RuntimeError("strict known-issuer preflight disagrees with SEC CIK authority")
@@ -253,6 +265,9 @@ def preflight_strict_boundaries(session: str) -> dict:
     result = {
         "session": str(session),
         "unknown_fallback": anchor.issuer_id,
+        "first_cik_filing": filed,
+        "same_day_cik": same_day,
+        "known_probe_session": probe_session,
         "known_example_ticker": known_ticker,
         "known_example_issuer": known_issuer,
         "legacy_issuer_key_reached": False,
