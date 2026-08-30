@@ -62,6 +62,32 @@ class WriterLockUnavailable(RuntimeError):
     """Another process holds the writer lock. Do not proceed."""
 
 
+class JournalUnitOfWork:
+    """Own one multi-record journal invariant and its final commit.
+
+    Repository helpers called inside this boundary write only.  A failure at
+    any point rolls the whole invariant back, including failures raised while
+    committing a connection whose server outcome is not known locally.
+    """
+
+    def __init__(self, conn) -> None:
+        self.conn = conn
+
+    def __enter__(self) -> "JournalUnitOfWork":
+        return self
+
+    def __exit__(self, exc_type, _exc, _traceback) -> bool:
+        if exc_type is not None:
+            self.conn.rollback()
+            return False
+        try:
+            self.conn.commit()
+        except BaseException:                                # noqa: BLE001
+            self.conn.rollback()
+            raise
+        return False
+
+
 @contextmanager
 def writer_lock(conn):
     """Exclusive write access, or refuse.
@@ -797,7 +823,7 @@ def _terminal_recovery_binding(conn) -> tuple[str, str, datetime]:
 
 def record_observation(conn, observation: BrokerObservation,
                        runtime_state: str = "") -> int:
-    """Persist broker evidence plus its account/asset provenance."""
+    """Atomically persist normalized, raw, and serialized broker evidence."""
     account_identity = observation.account_identity
     if account_identity is not None:
         broker_name, account_id, _ = _terminal_recovery_binding(conn)
@@ -807,7 +833,7 @@ def record_observation(conn, observation: BrokerObservation,
                 "broker observation account identity does not match the durable "
                 "account binding; refusing journal mutation")
 
-    with conn.cursor() as cur:
+    with JournalUnitOfWork(conn), conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_observations (observed_at,"
             " terminal_recovery_through, completeness, positions, orders,"
@@ -836,51 +862,46 @@ def record_observation(conn, observation: BrokerObservation,
                 "INSERT INTO sentinel_observation_provenance"
                 " (observation_seq,broker,broker_account_id,observed_at,positions)"
                 " VALUES (%s,%s,%s,%s,%s)",
-                (seq, account_identity.broker,
-                 account_identity.account_id,
+                (seq, account_identity.broker, account_identity.account_id,
                  observation.observed_at,
                  json.dumps(position_identity, sort_keys=True)))
-    conn.commit()
-
-    if account_identity is not None:
-        payload = {
-            "kind": "broker-observation/v2",
-            "observation_seq": seq,
-            "broker": str(account_identity.broker),
-            "account_id": str(account_identity.account_id),
-            "observed_at": observation.observed_at.astimezone(
-                timezone.utc).isoformat(),
-            "terminal_recovery_through": (
-                observation.terminal_recovery_through.astimezone(
-                    timezone.utc).isoformat()
-                if observation.terminal_recovery_through is not None
-                else None),
-            "completeness": observation.completeness.value,
-            "positions": [
-                {"security_id": p.instrument.security_id,
-                 "symbol": p.instrument.symbol,
-                 "broker_id": p.instrument.broker_id,
-                 "quantity": str(p.quantity)}
-                for p in observation.positions
-            ],
-            "orders": [
-                {"broker_order_id": o.broker_order_id,
-                 "client_key": o.client_key,
-                 "security_id": o.instrument.security_id,
-                 "symbol": o.instrument.symbol,
-                 "broker_id": o.instrument.broker_id,
-                 "side": o.side.value,
-                 "state": o.state.value,
-                 "quantity": str(o.quantity),
-                 "filled_quantity": str(o.filled_quantity),
-                 "filled_average_price": (
-                     str(o.filled_average_price)
-                     if o.filled_average_price is not None else None)}
-                for o in observation.orders
-            ],
-        }
-        cursor_name = f"broker-observation:v2:{seq}"
-        with conn.cursor() as cur:
+            payload = {
+                "kind": "broker-observation/v2",
+                "observation_seq": seq,
+                "broker": str(account_identity.broker),
+                "account_id": str(account_identity.account_id),
+                "observed_at": observation.observed_at.astimezone(
+                    timezone.utc).isoformat(),
+                "terminal_recovery_through": (
+                    observation.terminal_recovery_through.astimezone(
+                        timezone.utc).isoformat()
+                    if observation.terminal_recovery_through is not None
+                    else None),
+                "completeness": observation.completeness.value,
+                "positions": [
+                    {"security_id": p.instrument.security_id,
+                     "symbol": p.instrument.symbol,
+                     "broker_id": p.instrument.broker_id,
+                     "quantity": str(p.quantity)}
+                    for p in observation.positions
+                ],
+                "orders": [
+                    {"broker_order_id": o.broker_order_id,
+                     "client_key": o.client_key,
+                     "security_id": o.instrument.security_id,
+                     "symbol": o.instrument.symbol,
+                     "broker_id": o.instrument.broker_id,
+                     "side": o.side.value,
+                     "state": o.state.value,
+                     "quantity": str(o.quantity),
+                     "filled_quantity": str(o.filled_quantity),
+                     "filled_average_price": (
+                         str(o.filled_average_price)
+                         if o.filled_average_price is not None else None)}
+                    for o in observation.orders
+                ],
+            }
+            cursor_name = f"broker-observation:v2:{seq}"
             cur.execute(
                 "INSERT INTO sentinel_processed_sessions"
                 " (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)"
@@ -891,8 +912,26 @@ def record_observation(conn, observation: BrokerObservation,
                 raise RuntimeError(
                     f"broker observation provenance {seq} already exists; "
                     "observation identities must be append-only")
-        conn.commit()
     return seq
+
+
+def observation_integrity_gaps(conn) -> tuple[int, ...]:
+    """Return account-bound observations with incomplete audit evidence.
+
+    Historical two-commit failures contain the normalized row and account
+    provenance but no canonical serialized evidence.  Those rows cannot be
+    reconstructed byte-for-byte from the reduced normalized columns and are
+    therefore reported as uncertifiable rather than guessed into validity.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT o.seq FROM sentinel_observations o"
+            " JOIN sentinel_observation_provenance p"
+            "   ON p.observation_seq=o.seq"
+            " LEFT JOIN sentinel_processed_sessions s"
+            "   ON s.cursor_name=('broker-observation:v2:' || o.seq::text)"
+            " WHERE s.cursor_name IS NULL ORDER BY o.seq")
+        return tuple(int(row[0]) for row in cur.fetchall())
 
 def finalize_observation_runtime(conn, seq: int, runtime_state: str) -> None:
     """Attach the completed reconciliation verdict to its exact observation.

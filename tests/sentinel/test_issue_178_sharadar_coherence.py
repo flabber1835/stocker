@@ -13,8 +13,10 @@ from types import SimpleNamespace
 import pytest
 
 from sentinel import automation_runtime
-from sentinel.automation.model import AutomationConfig
-from sentinel.automation.service import AutomationService
+from sentinel.automation.model import (
+    AutomationConfig,
+    TransientInfrastructureFailure,
+)
 from sentinel.feed import authority, coherence, publication, sharadar, store, universe
 from tests.support.postgres import _EphemeralPostgres
 
@@ -204,7 +206,9 @@ class TestRetrySemantics:
         authority.FrontierDomainIncomplete("partial frontier"),
     ])
     def test_source_stabilization_refusals_retry_instead_of_latching(self, exc):
-        assert not AutomationService._nonretryable(exc)
+        mapped = automation_runtime.transient_refresh_failure(exc)
+        assert isinstance(mapped, TransientInfrastructureFailure)
+        assert type(exc).__name__ in str(mapped)
 
     def test_fenced_data_path_keeps_source_refusal_deployed_and_retryable(
             self, monkeypatch):

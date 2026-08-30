@@ -24,13 +24,12 @@ class GuardedEmptyAccountBroker:
 
     def __init__(self, *, inner, grant, guard) -> None:
         from sentinel import administrative_authority
-        from sentinel.execution.alpaca import AlpacaExecutionBroker
         from sentinel.execution.certification import require_certified
 
         if grant.operation != administrative_authority.ADMIN_BIND_EMPTY:
             raise TypeError(
                 "empty-account broker requires ADMIN_BIND_EMPTY")
-        if isinstance(inner, AlpacaExecutionBroker):
+        if getattr(inner, "certification_name", None) == "alpaca":
             require_certified("alpaca")
         else:
             raise TypeError(

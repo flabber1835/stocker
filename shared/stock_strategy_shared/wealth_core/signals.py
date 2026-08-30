@@ -41,7 +41,8 @@ def _finite(x) -> bool:
     return math.isfinite(f)
 
 
-def medium_term_momentum(closes: Sequence[float]) -> float | None:
+def medium_term_momentum(
+        closes: Sequence[float | None]) -> float | None:
     """Spec §3:  close[t-21] / close[t-126] - 1
 
     `closes` is the trailing window ending at t, oldest first, so index -1 is
@@ -60,7 +61,7 @@ def medium_term_momentum(closes: Sequence[float]) -> float | None:
     return near / far - 1.0
 
 
-def recent_return(closes: Sequence[float]) -> float | None:
+def recent_return(closes: Sequence[float | None]) -> float | None:
     """Spec §4:  close[t] / close[t-21] - 1
 
     The freshness gate is `>= 0` and ZERO QUALIFIES (spec §4, explicit). That
@@ -117,7 +118,7 @@ source rather than a superseded one."""
 
 
 def annualized_formation_volatility(
-        closes: Sequence[float],
+        closes: Sequence[float | None],
         profile: str = DEFAULT_VOLATILITY_PROFILE) -> float | None:
     """Annualised sample stdev of one-session returns over the formation
     segment (t-126 … t-21), x sqrt(252).

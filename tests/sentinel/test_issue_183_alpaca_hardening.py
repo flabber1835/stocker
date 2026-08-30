@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -566,7 +567,9 @@ def test_replayed_native_activity_id_cannot_change_economics():
 
 
 class ClockBroker:
-    capabilities = AlpacaExecutionBroker.capabilities
+    capabilities = replace(
+        AlpacaExecutionBroker.capabilities,
+        pre_submit_instrument_revalidation=False)
 
     def __init__(self, *, is_open=True, clock_error=None):
         self.is_open = is_open

@@ -49,15 +49,13 @@ from .model import (
 DEFENSIVE_SYMBOL = "BIL"
 
 def _require_certified_paper_broker(broker: ExecutionBroker) -> None:
-    """Accept only the two concrete adapters whose behavior is certified.
+    """Accept only adapter identities whose behavior is certified.
 
     Production receives :class:`AlpacaExecutionBroker`; tests receive the
     deterministic simulator. Treating every unknown implementation as the
     simulator would let an unlisted transport borrow a certification it never
     earned merely by choosing a different class name.
     """
-    from sentinel.execution.alpaca import AlpacaExecutionBroker
-    from sentinel.execution.simulator import SimulatedBroker
     from sentinel.guarded_administration import (
         GuardedAdministrativeExecutionBroker)
 
@@ -68,11 +66,9 @@ def _require_certified_paper_broker(broker: ExecutionBroker) -> None:
         broker.require_certified_adapter()
         return
 
-    if isinstance(broker, AlpacaExecutionBroker):
-        require_certified("alpaca")
-        return
-    if isinstance(broker, SimulatedBroker):
-        require_certified("simulator")
+    certification_name = broker.certification_name
+    if certification_name in {"alpaca", "simulator"}:
+        require_certified(certification_name)
         return
     raise PaperActivationRefused(
         f"unsupported execution broker {type(broker).__name__}; the paper "

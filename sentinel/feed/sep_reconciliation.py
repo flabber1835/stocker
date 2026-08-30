@@ -1,8 +1,6 @@
 """Canonical complete SEP reconciliation with causal source-update authority."""
 from __future__ import annotations
 
-import contextlib
-import contextvars
 import datetime as dt
 
 from sentinel.feed import sep_reconciliation_impl as _core
@@ -34,10 +32,6 @@ def _next_year(conn) -> tuple[int, dt.date, dt.date]:
     return year, start, end
 
 
-_OBSERVATION_CEILING = contextvars.ContextVar(
-    "sentinel_sep_reconciliation_observation_ceiling", default=None)
-
-
 def _strict_ceiling(value) -> dt.date:
     if isinstance(value, dt.datetime):
         raise ValueError("SEP reconciliation observation ceiling must be a date")
@@ -50,18 +44,10 @@ def _strict_ceiling(value) -> dt.date:
     return parsed
 
 
-@contextlib.contextmanager
-def _ceiling(value):
-    token = _OBSERVATION_CEILING.set(_strict_ceiling(value))
-    try:
-        yield
-    finally:
-        _OBSERVATION_CEILING.reset(token)
-
-
-def _source_fingerprint(conn, *, fetch, start: str, end: str):
+def _source_fingerprint(
+        conn, *, fetch, start: str, end: str, observation_ceiling):
     """Fingerprint one source partition behind the explicit observation ceiling."""
-    ceiling = _OBSERVATION_CEILING.get() or dt.date.today()
+    ceiling = _strict_ceiling(observation_ceiling)
     guarded = CanonicalSourceFetch(
         fetch, sep_update_envelope=SepUpdateEnvelope.through(
             ceiling, context="complete SEP value/key reconciliation"))
@@ -71,22 +57,23 @@ def _source_fingerprint(conn, *, fetch, start: str, end: str):
 
 def reconcile_year(conn, *, fetch=_core.sharadar.fetch_table,
                    year: int, start: str, end: str,
-                   observation_ceiling=None):
+                   observation_ceiling):
     """Prove one stable source year equals published keys and strategy values."""
-    active_ceiling = _OBSERVATION_CEILING.get()
-    if observation_ceiling is None and active_ceiling is not None:
-        return _reconcile_year(conn, fetch=fetch, year=year, start=start, end=end)
-    ceiling = dt.date.today() if observation_ceiling is None else observation_ceiling
-    with _ceiling(ceiling):
-        return _reconcile_year(conn, fetch=fetch, year=year, start=start, end=end)
+    return _reconcile_year(
+        conn, fetch=fetch, year=year, start=start, end=end,
+        observation_ceiling=observation_ceiling)
 
 
-def _reconcile_year(conn, *, fetch, year: int, start: str, end: str):
+def _reconcile_year(
+        conn, *, fetch, year: int, start: str, end: str,
+        observation_ceiling):
     _core.store._assert_corpus_locked(conn)
     if not (str(start).startswith(f"{int(year):04d}-")
             and str(end).startswith(f"{int(year):04d}-")):
         raise ValueError("SEP reconciliation window must stay within one year")
-    source = _source_fingerprint(conn, fetch=fetch, start=start, end=end)
+    source = _source_fingerprint(
+        conn, fetch=fetch, start=start, end=end,
+        observation_ceiling=observation_ceiling)
     local = _local_fingerprint(conn, start=start, end=end)
     if source.rows != local.rows or source.key_digest != local.key_digest:
         raise _core.SepKeysetDrift(
@@ -113,40 +100,40 @@ def _reconcile_year(conn, *, fetch, year: int, start: str, end: str):
 def reconcile_all(conn, *, fetch=_core.sharadar.fetch_table,
                   through: str):
     """Prove every published SEP partition through one explicit source day."""
-    with _ceiling(through):
-        _core.store._assert_corpus_locked(conn)
-        checked_on = dt.date.fromisoformat(str(through))
-        lo, hi = _visible_bounds(conn)
-        results = []
-        for year, start, end in _bounded_years(lo, hi, checked_on):
-            result = reconcile_year(
-                conn, fetch=fetch, year=year,
-                start=start.isoformat(), end=end.isoformat())
-            _save_result(conn, result, checked_on=checked_on)
-            results.append(result)
-        return results
+    _core.store._assert_corpus_locked(conn)
+    checked_on = _strict_ceiling(through)
+    lo, hi = _visible_bounds(conn)
+    results = []
+    for year, start, end in _bounded_years(lo, hi, checked_on):
+        result = reconcile_year(
+            conn, fetch=fetch, year=year,
+            start=start.isoformat(), end=end.isoformat(),
+            observation_ceiling=checked_on)
+        _save_result(conn, result, checked_on=checked_on)
+        results.append(result)
+    return results
 
 
 def reconcile_next(conn, *, fetch=_core.sharadar.fetch_table,
                    through: str):
     """Advance rotating complete SEP proof through one explicit source day."""
-    with _ceiling(through):
-        _core.store._assert_corpus_locked(conn)
-        if YEARS_PER_RUN < 1:
-            raise ValueError("SHARADAR_SEP_RECONCILE_YEARS_PER_RUN must be >= 1")
-        checked_on = dt.date.fromisoformat(str(through))
-        results = []
-        for _ in range(YEARS_PER_RUN):
-            year, start, end = _next_year(conn)
-            if start > checked_on:
-                break
-            end = min(end, checked_on)
-            result = reconcile_year(
-                conn, fetch=fetch, year=year,
-                start=start.isoformat(), end=end.isoformat())
-            _save_result(conn, result, checked_on=checked_on)
-            results.append(result)
-        return results
+    _core.store._assert_corpus_locked(conn)
+    if YEARS_PER_RUN < 1:
+        raise ValueError("SHARADAR_SEP_RECONCILE_YEARS_PER_RUN must be >= 1")
+    checked_on = _strict_ceiling(through)
+    results = []
+    for _ in range(YEARS_PER_RUN):
+        year, start, end = _next_year(conn)
+        if start > checked_on:
+            break
+        end = min(end, checked_on)
+        result = reconcile_year(
+            conn, fetch=fetch, year=year,
+            start=start.isoformat(), end=end.isoformat(),
+            observation_ceiling=checked_on)
+        _save_result(conn, result, checked_on=checked_on)
+        results.append(result)
+    return results
 
 
 __all__ = list(getattr(_core, "__all__", ()))

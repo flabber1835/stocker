@@ -552,6 +552,103 @@ def test_account_and_asset_provenance_is_retained_with_observation(conn):
     assert state["orders"][0]["broker_id"] == "asset-aapl"
 
 
+class _CountingConnection:
+    def __init__(self, inner, *, fail_serialized_evidence=False):
+        self.inner = inner
+        self.commits = 0
+        self.rollbacks = 0
+        self.fail_serialized_evidence = fail_serialized_evidence
+
+    def cursor(self):
+        cursor = self.inner.cursor()
+        if not self.fail_serialized_evidence:
+            return cursor
+        return _FailingEvidenceCursor(cursor)
+
+    def commit(self):
+        self.commits += 1
+        return self.inner.commit()
+
+    def rollback(self):
+        self.rollbacks += 1
+        return self.inner.rollback()
+
+
+class _FailingEvidenceCursor:
+    def __init__(self, inner):
+        self.inner = inner
+
+    def __enter__(self):
+        self.inner.__enter__()
+        return self
+
+    def __exit__(self, *args):
+        return self.inner.__exit__(*args)
+
+    def execute(self, sql, params=None):
+        if "INSERT INTO sentinel_processed_sessions" in sql:
+            raise ConnectionError("injected serialized-evidence failure")
+        return self.inner.execute(sql, params)
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+
+def _account_bound_observation(when):
+    return AccountBoundObservation(
+        observed_at=when,
+        terminal_recovery_through=when,
+        completeness=Completeness.COMPLETE,
+        account_identity=BrokerAccountIdentity(
+            broker="alpaca", account_id=ACCOUNT_NUMBER,
+            raw=account_payload()),
+        orders=(BrokerOrder(
+            broker_order_id="atomic-order", client_key=None,
+            instrument=INSTRUMENT, side=Side.BUY,
+            state=S.ACKNOWLEDGED, quantity=Decimal(2)),),
+    )
+
+
+def test_observation_evidence_commits_once(conn):
+    counted = _CountingConnection(conn)
+    seq = journal.record_observation(
+        counted, _account_bound_observation(datetime.now(UTC)), "RECONCILING")
+    assert seq > 0
+    assert counted.commits == 1
+    assert counted.rollbacks == 0
+    assert journal.observation_integrity_gaps(conn) == ()
+
+
+def test_observation_evidence_failure_rolls_back_every_record(conn):
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM sentinel_observations")
+        before = int(cur.fetchone()[0])
+    conn.rollback()
+
+    failing = _CountingConnection(conn, fail_serialized_evidence=True)
+    with pytest.raises(ConnectionError, match="injected serialized-evidence"):
+        journal.record_observation(
+            failing, _account_bound_observation(datetime.now(UTC)),
+            "RECONCILING")
+
+    assert failing.commits == 0
+    assert failing.rollbacks == 1
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM sentinel_observations")
+        assert int(cur.fetchone()[0]) == before
+
+
+def test_historical_partial_observation_is_uncertifiable(conn):
+    seq = journal.record_observation(
+        conn, _account_bound_observation(datetime.now(UTC)), "RECONCILING")
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM sentinel_processed_sessions WHERE cursor_name=%s",
+            (f"broker-observation:v2:{seq}",))
+    conn.commit()
+    assert journal.observation_integrity_gaps(conn) == (seq,)
+
+
 
 def test_naked_complete_observation_cannot_authenticate_corrupt_watermark(conn):
     with conn.cursor() as cur:

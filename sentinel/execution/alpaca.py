@@ -374,11 +374,13 @@ class AlpacaExecutionBroker(ExecutionBroker):
         complete_order_pagination=True,
         recent_fill_history=True,
         instrument_identity=True,
+        pre_submit_instrument_revalidation=True,
         account_bound_observation=True,
         fractional_quantities=True,
         minimum_quantity_increment=Decimal("0.000000001"),
         market_on_open=False,
     )
+    certification_name = "alpaca"
     # Method presence is deliberately not production authority.  These flags
     # let the NAS acceptance harness distinguish an implemented read-only
     # candidate from a capability that has actually passed the bound paper
@@ -2296,13 +2298,22 @@ def upgrade_restore_reason(conn) -> str:
             "an already-restored database from silently self-certifying")
     return ""
 
-def postmaster_day_order_fence_reason(conn, today) -> str:
+def postmaster_day_order_fence_reason(
+        conn, today, *, recovery_generation=None) -> str:
     try:
         opened, closed = calendar.session_window(today)
-    except Exception:
+    except calendar.NonSessionDate:
         # Non-session dates are already non-executable at the paper gateway;
         # this fence does not manufacture a calendar answer.
         return ""
+    except Exception as exc:                                  # noqa: BLE001
+        requested = getattr(today, "isoformat", lambda: str(today))()
+        return (
+            "restore-grade DAY-order recovery cannot evaluate its XNYS "
+            "calendar fence; exposure increases are blocked: "
+            f"calendar={calendar.calendar_version()}, session={requested}, "
+            f"recovery_generation={recovery_generation}, "
+            f"error={type(exc).__module__}.{type(exc).__qualname__}: {exc}")
     with conn.cursor() as cur:
         cur.execute("SELECT pg_postmaster_start_time()")
         row = cur.fetchone()
@@ -2555,14 +2566,16 @@ def execution_increase_fence_reason(*, conn, deployment, today) -> str:
     return (
         _base_restore_increase_fence_reason(conn, deployment, today)
         or upgrade_restore_reason(conn)
-        or postmaster_day_order_fence_reason(conn, today)
+        or postmaster_day_order_fence_reason(
+            conn, today, recovery_generation=deployment.takeover_epoch)
     )
 
 
 def restore_increase_fence_reason(conn, deployment, today) -> str:
     """Operator diagnostic preserving the prior public precedence."""
     return (
-        postmaster_day_order_fence_reason(conn, today)
+        postmaster_day_order_fence_reason(
+            conn, today, recovery_generation=deployment.takeover_epoch)
         or upgrade_restore_reason(conn)
         or _base_restore_increase_fence_reason(conn, deployment, today)
     )

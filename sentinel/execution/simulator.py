@@ -126,6 +126,7 @@ class SimulatedBroker(ExecutionBroker):
             recent_fill_history=True, instrument_identity=True,
             account_bound_observation=True, account_close_valuation=True,
             market_on_open=True))
+    certification_name: str = field(default="simulator", init=False)
 
     #: Explicit historical points.  Absence remains unavailable rather than
     #: silently reusing the simulator's current equity as a past close.

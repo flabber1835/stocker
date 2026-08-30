@@ -684,6 +684,15 @@ window. When no processed watermark exists, recovery starts at the binding's
 `established_at`; every query subtracts a fixed overlap for broker/host clock
 skew and boundary replay.
 
+Each account-bound broker observation is one journal unit of work. The
+normalized observation, account/asset provenance, raw fields, and canonical
+`broker-observation/v2` evidence are written before one final commit; repository
+writes do not commit independently. A failure at any write boundary rolls the
+entire observation back. `observation_integrity_gaps` reports historical rows
+from the former two-commit path that have account provenance but no canonical
+serialized evidence. Those rows are `UNCERTIFIABLE`; reduced normalized columns
+cannot be guessed back into byte-identical evidence.
+
 Alpaca forbids combining `after`/`until` timestamps with its stable order-id
 cursors. Closed recovery therefore pages `status=closed,direction=desc` using
 only exclusive `before_order_id`. Every row must carry an aware, parseable

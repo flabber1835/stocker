@@ -136,6 +136,7 @@ class AutomationExecutionGrant:
     rollout_mode: str
     rollout_version: int
     certificate_sha256: str
+    cancellation_check: Callable[[], None] | None = None
 
     def __post_init__(self) -> None:
         if self.operation_scope not in {"PREPARE", "RECOVER", "EXECUTE"}:
@@ -155,6 +156,13 @@ class AutomationExecutionGrant:
             raise ValueError(
                 "certificate_sha256 must be 64 lowercase hexadecimal "
                 "characters")
+        if (self.cancellation_check is not None
+                and not callable(self.cancellation_check)):
+            raise TypeError("cancellation_check must be callable")
+
+    def require_active(self) -> None:
+        if self.cancellation_check is not None:
+            self.cancellation_check()
 
 
 ExecutionGrant: TypeAlias = (
@@ -198,6 +206,7 @@ class GuardedExecutionBroker(ExecutionBroker):
         self._grant = grant
         self._guard = guard
         self.capabilities = inner.capabilities
+        self.certification_name = getattr(inner, "certification_name", None)
 
     @property
     def grant(self) -> ExecutionGrant:
@@ -245,6 +254,8 @@ class GuardedExecutionBroker(ExecutionBroker):
 
     async def _read(self, operation: BrokerOperation, call):
         try:
+            if isinstance(self._grant, AutomationExecutionGrant):
+                self._grant.require_active()
             await self._guard.before_read(self._grant, operation)
         except BrokerAuthorityRefused:
             raise
@@ -254,6 +265,8 @@ class GuardedExecutionBroker(ExecutionBroker):
                 f"{type(exc).__name__}: {exc}") from exc
         result = await call()
         try:
+            if isinstance(self._grant, AutomationExecutionGrant):
+                self._grant.require_active()
             await self._guard.after_read(self._grant, operation, result)
         except BrokerAuthorityRefused:
             raise
@@ -267,6 +280,10 @@ class GuardedExecutionBroker(ExecutionBroker):
         """Normalize every guard failure as known-before-transport refusal."""
         try:
             await self._guard.before_mutation(self._grant, operation)
+            if isinstance(self._grant, AutomationExecutionGrant):
+                # This is deliberately after the awaited fresh database check
+                # and immediately before the non-awaited transport handoff.
+                self._grant.require_active()
         except PreTransportAuthorityRefused:
             raise
         except Exception as exc:                              # noqa: BLE001
@@ -393,10 +410,7 @@ class GuardedExecutionBroker(ExecutionBroker):
                     "broker clock reports market closed; increase refused "
                     "before transport")
 
-        from sentinel.execution.alpaca import AlpacaExecutionBroker
-
-        if (isinstance(self._inner, AlpacaExecutionBroker)
-                and self.capabilities.instrument_identity):
+        if self.capabilities.pre_submit_instrument_revalidation:
             if not instrument.broker_id:
                 raise PreTransportAuthorityRefused(
                     "durable command has no broker-native instrument identity")

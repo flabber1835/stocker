@@ -37,6 +37,7 @@ from sentinel.automation.model import (
     NonRetryableCallbackRefused,
     TickAction,
     TickResult,
+    TransientInfrastructureFailure,
 )
 from sentinel.automation.service import AutomationService
 from sentinel.config import DEFAULT_BASE_URL, SentinelConfig
@@ -981,7 +982,7 @@ async def test_paper_refusal_class_controls_durable_latching(
 
     monkeypatch.setattr(paper, "execute_automated_paper_plan", refuse)
 
-    expected = (paper.PaperRetryableRefused if retryable
+    expected = (TransientInfrastructureFailure if retryable
                 else NonRetryableCallbackRefused)
     with pytest.raises(expected):
         await runtime.execute(ctx)

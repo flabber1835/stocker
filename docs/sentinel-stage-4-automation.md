@@ -251,13 +251,26 @@ the close it becomes `SUPERSEDED` and is never late-submitted. A rejected or
 cancelled command with remaining delta becomes `BLOCKED`; automation never
 mints unattended retry revisions for terminal broker refusals.
 
-Callback failures have two durable classes. Explicit authority, certificate,
-identity, publication-integrity, plan-integrity, or invariant refusals are
-nonretryable and latch the affected cycle `BLOCKED`. Transport unavailability
-uses bounded `RETRY_WAIT`; a partial or self-inconsistent broker observation
-remains in read-only reconciliation until a fresh COMPLETE observation exists.
-Temporary readiness, account availability, and lower unsettled buying power are
-retryable, while account identity and margin-envelope violations are not.
+Callback behavior is declared by the `PHASE_POLICIES` table. Explicit transient
+infrastructure failures use phase-specific bounded `RETRY_WAIT`; exhaustion
+latches `BLOCKED`. Explicit authority, certificate, identity,
+publication-integrity, plan-integrity, or invariant refusals latch immediately.
+An unknown exception is a terminal software defect, never an inferred outage.
+Every failure retains its stable exception fingerprint, phase attempt/max,
+first/latest failure, next retry, and terminal reason in durable status.
+
+The fingerprinted callback deadline races the callback rather than being checked
+after it returns. Deadline, heartbeat failure, task cancellation, and lease loss
+revoke the callback's cancellation authority before task cancellation. A
+callback that suppresses cancellation cannot keep the service tick open and
+must recheck that authority at every durable side-effect boundary. Production
+callbacks are asynchronous; synchronous hard-deadline work requires a separately
+supervised killable process.
+
+A partial or self-inconsistent broker observation remains in read-only
+reconciliation until a fresh COMPLETE observation exists. Temporary readiness,
+account availability, and lower unsettled buying power are retryable, while
+account identity and margin-envelope violations are not.
 Lease/fence loss cannot authorize either write. Kill, missed-window
 supersession, generation adoption,
 and blocked outcomes are notifier/outbox eligible so a safe inert result is not
@@ -748,8 +761,9 @@ claim values to that service never authorizes broker access.
 
 The overlay passes the complete `AutomationConfig` environment to both the
 run-once lifecycle CLI and persistent worker: publication/execution delays,
-lease/heartbeat/control-poll intervals, retry bounds, and alert claim/attempt
-bounds. Their canonical fingerprint is therefore identical at certificate
+lease/heartbeat/control-poll intervals, callback deadline, retry delay bounds,
+phase-specific retry-attempt bounds, and alert claim/attempt bounds. Their
+canonical fingerprint is therefore identical at certificate
 install, activation, and runtime. A changed value does not inherit authority:
 the worker durably bumps the control generation, engages the kill switch,
 clears the cached authority verdict, invalidates the lease, and requires an

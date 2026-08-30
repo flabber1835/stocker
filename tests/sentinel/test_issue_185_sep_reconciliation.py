@@ -76,7 +76,8 @@ def test_stable_equal_complete_year_passes_key_and_value_proof(monkeypatch):
 
     result = recon.reconcile_year(
         object(), fetch=object(), year=2020,
-        start="2020-01-01", end="2020-12-31")
+        start="2020-01-01", end="2020-12-31",
+        observation_ceiling="2026-08-18")
     assert result.year == 2020
     assert result.rows == 2
     assert result.digest == source.key_digest
@@ -102,7 +103,8 @@ def test_complete_year_keyset_drift_refuses_instead_of_guessing(
     with pytest.raises(recon.SepKeysetDrift, match="Refusing to guess"):
         recon.reconcile_year(
             object(), fetch=object(), year=2020,
-            start="2020-01-01", end="2020-12-31")
+            start="2020-01-01", end="2020-12-31",
+            observation_ceiling="2026-08-18")
 
 
 def test_same_keys_with_stale_price_or_volume_refuse_value_authority(monkeypatch):
@@ -118,7 +120,8 @@ def test_same_keys_with_stale_price_or_volume_refuse_value_authority(monkeypatch
     with pytest.raises(recon.SepValueDrift, match="strategy values disagree"):
         recon.reconcile_year(
             object(), fetch=object(), year=2020,
-            start="2020-01-01", end="2020-12-31")
+            start="2020-01-01", end="2020-12-31",
+            observation_ceiling="2026-08-18")
 
 
 def test_failed_reconciliation_does_not_advance_rotation_cursor(monkeypatch):
@@ -180,7 +183,8 @@ def test_complete_launch_sweep_visits_every_published_year_partition(monkeypatch
         lambda conn: (dt.date(2024, 3, 4), dt.date(2026, 8, 18)))
     calls = []
 
-    def check(conn, *, fetch, year, start, end):
+    def check(conn, *, fetch, year, start, end, observation_ceiling):
+        assert observation_ceiling == dt.date(2026, 8, 18)
         calls.append((year, start, end))
         return recon.ReconciliationResult(
             year=year, start=start, end=end, rows=year,
@@ -208,7 +212,8 @@ def test_complete_launch_sweep_stops_at_first_bad_year_and_claims_no_later_year(
     checked = []
     saved = []
 
-    def check(conn, *, fetch, year, start, end):
+    def check(conn, *, fetch, year, start, end, observation_ceiling):
+        assert observation_ceiling == dt.date(2026, 8, 18)
         checked.append(year)
         if year == 2025:
             raise recon.SepValueDrift("2025 drift")

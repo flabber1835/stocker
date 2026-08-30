@@ -10,7 +10,10 @@ from sentinel import (
     dual_reconciliation,
     paper,
 )
-from sentinel.automation.model import NonRetryableCallbackRefused
+from sentinel.automation.model import (
+    NonRetryableCallbackRefused,
+    TransientInfrastructureFailure,
+)
 
 
 def _runtime():
@@ -154,7 +157,7 @@ def test_prepare_retries_mutable_pre_adoption_book_state(monkeypatch, detail):
         automation_recovery.base.ProductionAutomation, "prepare", base_prepare)
 
     with pytest.raises(
-            paper.PaperRetryableRefused,
+            TransientInfrastructureFailure,
             match="waiting for a flat, settled predecessor account"):
         asyncio.run(runtime.prepare(object()))
 
@@ -177,7 +180,7 @@ def test_prepare_retries_generic_first_plan_working_order_gate(monkeypatch):
         automation_recovery.base.ProductionAutomation, "prepare", base_prepare)
 
     with pytest.raises(
-            paper.PaperRetryableRefused,
+            TransientInfrastructureFailure,
             match="waiting for prior broker orders"):
         asyncio.run(runtime.prepare(object()))
 

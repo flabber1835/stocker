@@ -30,6 +30,7 @@ from sentinel.automation.model import (
     TickResult,
     NonRetryableCallbackRefused,
     StaleLeaderRefused,
+    TransientInfrastructureFailure,
 )
 from sentinel.automation.service import AutomationService
 from sentinel.config import SentinelConfig, build_execution_broker
@@ -46,16 +47,34 @@ from sentinel.execution.guarded import (
     BrokerAuthorityRefused,
 )
 from sentinel.execution.identity import DeploymentIdentity
+from sentinel.execution.contract import resolved_capability_graph
 from sentinel.execution import journal
 from sentinel.execution import target_reprojection
 from sentinel.execution.states import CommandState, RuntimeState
-from sentinel.feed import calendar, ingest, publication, readiness
+from sentinel.feed import authority as feed_authority
+from sentinel.feed import calendar, coherence, ingest, publication, readiness
 from sentinel.feed import store as feed_store
 
 
 PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE = \
     "PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE"
 TARGET_PROJECTION_REFUSED = "TARGET_PROJECTION_REFUSED"
+REFRESH_TRANSIENT_FAILURES = (
+    coherence.TickerMetadataIncomplete,
+    coherence.SeedHistoryIncomplete,
+    feed_authority.VendorPublicationUnstable,
+    feed_authority.FrontierDomainIncomplete,
+)
+
+
+def transient_refresh_failure(exc: BaseException
+                              ) -> TransientInfrastructureFailure:
+    """Translate only reviewed source-stabilization failures into retry."""
+    if not isinstance(exc, REFRESH_TRANSIENT_FAILURES):
+        raise TypeError(
+            "unreviewed refresh exceptions cannot be classified transient")
+    return TransientInfrastructureFailure(
+        f"{type(exc).__name__}: {exc}")
 
 
 def shadow_config_from_env(
@@ -96,9 +115,21 @@ def config_from_env(env: Mapping[str, str] | None = None) -> AutomationConfig:
         "execution_delay_seconds": "SENTINEL_AUTOMATION_EXECUTION_DELAY_SECONDS",
         "lease_seconds": "SENTINEL_AUTOMATION_LEASE_SECONDS",
         "heartbeat_seconds": "SENTINEL_AUTOMATION_HEARTBEAT_SECONDS",
+        "callback_deadline_seconds":
+            "SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS",
         "control_poll_seconds": "SENTINEL_AUTOMATION_CONTROL_POLL_SECONDS",
         "retry_base_seconds": "SENTINEL_AUTOMATION_RETRY_BASE_SECONDS",
         "retry_max_seconds": "SENTINEL_AUTOMATION_RETRY_MAX_SECONDS",
+        "refresh_max_attempts":
+            "SENTINEL_AUTOMATION_REFRESH_MAX_ATTEMPTS",
+        "preflight_recover_max_attempts":
+            "SENTINEL_AUTOMATION_PREFLIGHT_RECOVER_MAX_ATTEMPTS",
+        "prepare_max_attempts":
+            "SENTINEL_AUTOMATION_PREPARE_MAX_ATTEMPTS",
+        "execute_max_attempts":
+            "SENTINEL_AUTOMATION_EXECUTE_MAX_ATTEMPTS",
+        "recover_max_attempts":
+            "SENTINEL_AUTOMATION_RECOVER_MAX_ATTEMPTS",
         "alert_claim_seconds": "SENTINEL_AUTOMATION_ALERT_CLAIM_SECONDS",
         "alert_max_attempts": "SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS",
     }
@@ -113,6 +144,7 @@ def config_from_env(env: Mapping[str, str] | None = None) -> AutomationConfig:
 
 def _grant(context: CycleContext, operation_scope: str, *, binding=None
            ) -> AutomationExecutionGrant:
+    context.require_active()
     cycle = context.cycle
     permit = context.permit
     authority = binding or cycle
@@ -130,7 +162,8 @@ def _grant(context: CycleContext, operation_scope: str, *, binding=None
         takeover_epoch=authority.takeover_epoch,
         rollout_mode=authority.rollout_mode,
         rollout_version=authority.rollout_version,
-        certificate_sha256=authority.certificate_sha256)
+        certificate_sha256=authority.certificate_sha256,
+        cancellation_check=context.require_active)
 
 
 def _actionable_target_deltas(
@@ -325,6 +358,7 @@ class ProductionAutomation:
     def _assert_cycle_authority(
             self, conn, context: CycleContext, *, operation_scope: str,
             verified_control=None):
+        context.require_active()
         if verified_control is None:
             control, certificate = self._assert_control_authority(
                 conn, context.permit)
@@ -452,7 +486,7 @@ class ProductionAutomation:
                         ZoneInfo(calendar.EXCHANGE_TZ)).isoformat())
                 readiness.save_snapshot(conn, report)
                 if not report.ready:
-                    raise RuntimeError(
+                    raise TransientInfrastructureFailure(
                         "published decision close is not operationally ready")
                 current = publication.require_current(conn)
                 return RefreshResult(
@@ -466,11 +500,16 @@ class ProductionAutomation:
                 # session twice, invalidating the shadow record's exact
                 # publication version before PAPER sizing. Wait for that one
                 # authority; never race it from the broker-capable service.
-                raise RuntimeError(
+                raise TransientInfrastructureFailure(
                     "dual refresh is waiting for the dedicated shadow data "
                     "publisher to publish the exact decision close")
-            progress = ingest.daily(
-                conn, today=cycle.decision_session.isoformat())
+            context.require_active()
+            try:
+                progress = ingest.daily(
+                    conn, today=cycle.decision_session.isoformat())
+            except REFRESH_TRANSIENT_FAILURES as exc:
+                raise transient_refresh_failure(exc) from exc
+            context.require_active()
             current = publication.require_current(conn)
             visible = feed_store.latest_visible_session(conn)
             if visible != cycle.decision_session.isoformat():
@@ -481,7 +520,8 @@ class ProductionAutomation:
                     ZoneInfo(calendar.EXCHANGE_TZ)).isoformat())
             readiness.save_snapshot(conn, report)
             if not report.ready:
-                raise RuntimeError("daily refresh completed but readiness failed")
+                raise TransientInfrastructureFailure(
+                    "daily refresh completed but readiness failed")
             return RefreshResult(
                 already_published=False, data_version=str(current.version),
                 publication_fingerprint=publication_fingerprint(current),
@@ -546,6 +586,7 @@ class ProductionAutomation:
                     conn, permit=context.permit, specs=historical_specs)
             broker = self._broker(conn, cycle.decision_session.isoformat())
             try:
+                context.require_active()
                 result = await paper.prepare_paper_plan(
                     conn=conn, broker=broker,
                     base_url=self.sentinel_config.base_url,
@@ -561,8 +602,9 @@ class ProductionAutomation:
                     dual_shadow_starting_cash=(
                         self._shadow_starting_cash
                         if self._dual_run_enabled else None))
-            except paper.PaperRetryableRefused:
-                raise
+                context.require_active()
+            except paper.PaperRetryableRefused as exc:
+                raise TransientInfrastructureFailure(str(exc)) from exc
             except (AuthorityRefused, BrokerAuthorityRefused,
                     paper.PaperActivationRefused) as exc:
                 raise NonRetryableCallbackRefused(
@@ -582,6 +624,8 @@ class ProductionAutomation:
                     "warmup_sessions": result.warmup_sessions,
                     "superseded_plans": result.superseded_plans,
                     "dual_plan_shadow_reconciliation": dual_reconciliation,
+                    "broker_capability_graph":
+                        resolved_capability_graph(broker),
                 })
         finally:
             conn.close()
@@ -595,6 +639,7 @@ class ProductionAutomation:
                 conn, context, operation_scope="RECOVER")
             broker = self._broker(conn, cycle.effective_session.isoformat())
             try:
+                context.require_active()
                 result = await paper.recover_automated_paper_cycle(
                     conn=conn, broker=broker,
                     base_url=self.sentinel_config.base_url,
@@ -608,6 +653,7 @@ class ProductionAutomation:
                     dual_shadow_starting_cash=(
                         self._shadow_starting_cash
                         if self._dual_run_enabled else None))
+                context.require_active()
             except paper.PreOpenShareUnitAuthorityUnavailable as exc:
                 detail = str(exc)
                 return ExecuteResult(
@@ -622,8 +668,8 @@ class ProductionAutomation:
                         "effective_session":
                             cycle.effective_session.isoformat(),
                     })
-            except paper.PaperRetryableRefused:
-                raise
+            except paper.PaperRetryableRefused as exc:
+                raise TransientInfrastructureFailure(str(exc)) from exc
             except (AuthorityRefused, BrokerAuthorityRefused,
                     paper.PaperActivationRefused) as exc:
                 raise NonRetryableCallbackRefused(
@@ -791,6 +837,7 @@ class ProductionAutomation:
                     conn, current_plan, pending_is_retryable=False)
             broker = self._broker(conn, cycle.effective_session.isoformat())
             try:
+                context.require_active()
                 result = await paper.execute_automated_paper_plan(
                     conn=conn, broker=broker,
                     base_url=self.sentinel_config.base_url,
@@ -804,6 +851,7 @@ class ProductionAutomation:
                     dual_shadow_starting_cash=(
                         self._shadow_starting_cash
                         if self._dual_run_enabled else None))
+                context.require_active()
             except paper.PreOpenShareUnitAuthorityUnavailable as exc:
                 detail = str(exc)
                 return ExecuteResult(
@@ -818,8 +866,8 @@ class ProductionAutomation:
                         "effective_session":
                             cycle.effective_session.isoformat(),
                     })
-            except paper.PaperRetryableRefused:
-                raise
+            except paper.PaperRetryableRefused as exc:
+                raise TransientInfrastructureFailure(str(exc)) from exc
             except (AuthorityRefused, BrokerAuthorityRefused,
                     paper.PaperActivationRefused) as exc:
                 raise NonRetryableCallbackRefused(

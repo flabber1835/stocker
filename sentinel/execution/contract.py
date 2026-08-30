@@ -37,7 +37,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Optional, Sequence
+from typing import Optional, Protocol, Sequence, runtime_checkable
 
 from sentinel.execution.states import CommandState
 
@@ -115,6 +115,10 @@ class BrokerCapabilities:
     # capability and it is false until a real adapter earns it.
     account_fill_interval_evidence: bool = False
     instrument_identity: bool = False
+    # The adapter's broker-native identity can change independently between
+    # preparation and submission and must therefore be resolved again at the
+    # final pre-transport boundary.
+    pre_submit_instrument_revalidation: bool = False
     account_bound_observation: bool = False
     # Historical broker close valuation is a separately certified capability.
     # The presence of an adapter method is deliberately insufficient: a vendor
@@ -142,6 +146,56 @@ class BrokerCapabilities:
                 f"Unsupported capabilities fail closed: silently substituting "
                 f"something the adapter CAN do would change the execution model "
                 f"without anyone deciding to.")
+
+
+@runtime_checkable
+class OrderSubmitter(Protocol):
+    async def submit(self, *, client_key: str, instrument: "BrokerInstrument",
+                     side: "Side", quantity: Decimal) -> "CommandOutcome": ...
+
+
+@runtime_checkable
+class OrderStatusResolver(Protocol):
+    async def find_by_client_key(
+            self, client_key: str) -> "BrokerOrder | None": ...
+
+
+@runtime_checkable
+class OpenOrderObserver(Protocol):
+    async def observe(self) -> "BrokerObservation": ...
+
+
+@runtime_checkable
+class BrokerClockProvider(Protocol):
+    async def market_clock(self): ...
+
+
+@runtime_checkable
+class CashObservable(Protocol):
+    async def account_cash_activities(
+            self, *, after: datetime, through: datetime,
+            since_event_id: str | None = None): ...
+
+
+@runtime_checkable
+class EvidenceProducingBroker(Protocol):
+    capabilities: BrokerCapabilities
+
+    async def identify_account(self) -> "BrokerAccountIdentity": ...
+    async def observe(self) -> "BrokerObservation": ...
+
+
+@runtime_checkable
+class GenerationFencedBroker(Protocol):
+    @property
+    def grant(self): ...
+
+
+@runtime_checkable
+class RecoveryAwareBroker(Protocol):
+    async def observe_with_terminal_recovery(
+            self, *, submitted_after: datetime,
+            processed_through: datetime) -> "BrokerObservation": ...
 
 
 @dataclass(frozen=True)
@@ -657,6 +711,7 @@ class ExecutionBroker(abc.ABC):
 
     #: Declared, not inferred. See `BrokerCapabilities`.
     capabilities: BrokerCapabilities = BrokerCapabilities()
+    certification_name: str | None = None
 
     @abc.abstractmethod
     async def identify_account(self) -> BrokerAccountIdentity:
@@ -786,3 +841,31 @@ class ExecutionBroker(abc.ABC):
         del session, interval_start
         raise NotImplementedError(
             "this execution adapter has no certified account fill interval")
+
+
+def resolved_capability_graph(broker: ExecutionBroker) -> dict[str, object]:
+    """One serializable composition-time view of certified broker behavior."""
+    capabilities = broker.capabilities
+
+    def overrides(name: str) -> bool:
+        implementation = getattr(type(broker), name, None)
+        base = getattr(ExecutionBroker, name, None)
+        return callable(implementation) and implementation is not base
+
+    return {
+        "adapter_certification": broker.certification_name,
+        "cash_observable": (
+            capabilities.account_cash_activity_evidence
+            and overrides("account_cash_activities")),
+        "order_submitter": isinstance(broker, OrderSubmitter),
+        "order_status_resolver": isinstance(broker, OrderStatusResolver),
+        "open_order_observer": isinstance(broker, OpenOrderObserver),
+        "broker_clock_provider": overrides("market_clock"),
+        "generation_fenced": isinstance(broker, GenerationFencedBroker),
+        "recovery_aware": isinstance(broker, RecoveryAwareBroker),
+        "evidence_producing": isinstance(broker, EvidenceProducingBroker),
+        "instrument_identity": capabilities.instrument_identity,
+        "pre_submit_instrument_revalidation":
+            capabilities.pre_submit_instrument_revalidation,
+        "account_bound_observation": capabilities.account_bound_observation,
+    }

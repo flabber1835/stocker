@@ -92,7 +92,8 @@ _AUTOMATION_COLUMNS = {
         "cycle_id", "state", "decision_session", "effective_session",
         "plan_id", "plan_fingerprint",
         "last_clean_reconciliation_id", "next_wake_at", "failure_code",
-        "failure_detail", "updated_at", "created_at"},
+        "failure_detail", "attempt_count", "diagnostic", "updated_at",
+        "created_at"},
     "sentinel_alert_outbox": {
         "state", "ack_state", "updated_at"},
     "sentinel_alert_dispatcher_health": {
@@ -706,7 +707,7 @@ def _latest_automation_cycle(conn) -> dict | None:
             " plan_id,plan_fingerprint,next_wake_at,"
             " last_clean_reconciliation_id,"
             " failure_code,"
-            " failure_detail,updated_at"
+            " failure_detail,attempt_count,diagnostic,updated_at"
             " FROM sentinel_automation_cycles"
             " ORDER BY decision_session DESC,created_at DESC LIMIT 1")
         row = cur.fetchone()
@@ -714,7 +715,12 @@ def _latest_automation_cycle(conn) -> dict | None:
         return None
     (cycle_id, state, decision_session, effective_session, plan_id,
      plan_fingerprint, next_wake, clean, failure_code, failure_detail,
-     updated_at) = row
+     attempt_count, diagnostic, updated_at) = row
+    if not isinstance(diagnostic, dict):
+        try:
+            diagnostic = json.loads(diagnostic or "{}")
+        except (TypeError, json.JSONDecodeError):
+            diagnostic = {}
     return {
         "cycle_id": str(cycle_id), "state": str(state),
         "decision_session": str(decision_session),
@@ -725,6 +731,12 @@ def _latest_automation_cycle(conn) -> dict | None:
         "next_wake_at": _utc(next_wake),
         "clean_reconciliation_id": clean,
         "failure_code": failure_code, "failure_detail": failure_detail,
+        "attempt_count": int(attempt_count),
+        "phase_attempt_count": diagnostic.get("phase_attempt_count"),
+        "first_failure_at": diagnostic.get("first_failure_at"),
+        "latest_failure_at": diagnostic.get("latest_failure_at"),
+        "exception_fingerprint": diagnostic.get("exception_fingerprint"),
+        "terminal_reason": diagnostic.get("terminal_reason"),
         "updated_at": _utc(updated_at),
     }
 

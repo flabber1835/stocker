@@ -8,9 +8,11 @@ on:
   # integration with main; this push gate proves the exact branch head too.
   push:
     branches:
+      - main
       - 'fix/**'
+      - 'codex/**'
   pull_request:
-    branches: [main, codex/main-review-remediation]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -100,6 +102,35 @@ jobs:
             -f services/bt-data/Dockerfile.test \
             -t stocker-bt-data-test:ci .
 
+      - name: Record exact-SHA promotion evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          tree_hash="$(git rev-parse 'HEAD^{tree}')"
+          dependency_lock_hash="$(sha256sum \
+            sentinel/requirements.lock tests/requirements.lock \
+            | sha256sum | awk '{print $1}')"
+          test_manifest_hash="$(git ls-files -z tests \
+            | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
+          runtime_digest="$(docker image inspect sentinel-authorized:ci \
+            --format '{{index .RepoDigests 0}}' 2>/dev/null || true)"
+          if [ -z "$runtime_digest" ] || [ "$runtime_digest" = '<no value>' ]; then
+            runtime_digest="$(docker image inspect sentinel-authorized:ci \
+              --format '{{.Id}}')"
+          fi
+          {
+            echo '### Exact-SHA safety evidence'
+            echo
+            echo "- commit: \`$GITHUB_SHA\`"
+            echo "- source tree: \`$tree_hash\`"
+            echo "- workflow run: \`$GITHUB_RUN_ID\`"
+            echo "- dependency locks: \`$dependency_lock_hash\`"
+            echo "- authorized image: \`$runtime_digest\`"
+            echo "- test manifest: \`$test_manifest_hash\`"
+            echo '- schema epoch: `sentinel.behavioral_schema/current`'
+            echo '- semantic epoch: `sentinel.automation_cycle/1`'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Compile the executable Python and test surfaces
         run: |
           docker run --rm --network none --entrypoint python \
@@ -134,6 +165,20 @@ jobs:
             echo 'REFUSED: the complete Sentinel run skipped tests' >&2
             exit 1
           fi
+
+      - name: Enforce automation branch coverage
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --entrypoint sh sentinel-test:ci -c '
+            python -m coverage run --branch \
+              --source=sentinel.automation.service \
+              -m pytest \
+              tests/sentinel/test_automation_service.py \
+              tests/sentinel/test_issue_201_automation_financial_grade.py \
+              tests/sentinel/test_automation_p1_continuity.py \
+              -q -ra &&
+            python -m coverage report --fail-under=80
+          '
 
       - name: Run the prospective Wealth Core boundary without skips
         run: |

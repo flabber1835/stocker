@@ -86,7 +86,8 @@ def reconcile_recent(conn, *, through: str, fetch=None):
 
     for year, lo, hi in _year_windows(start, end):
         sep_reconciliation.reconcile_year(
-            conn, fetch=source_fetch, year=year, start=lo, end=hi)
+            conn, fetch=source_fetch, year=year, start=lo, end=hi,
+            observation_ceiling=through)
 
     current = publication.require_current(conn)
     return maintenance._write_cursor(

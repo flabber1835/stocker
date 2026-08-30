@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from sentinel import __main__ as cli
-from sentinel import authority, paper, schema
+from sentinel import _main_impl, authority, paper, schema
 from sentinel.config import DEFAULT_BASE_URL, SentinelConfig
 from sentinel.controller import frozen_rule
 from sentinel.execution import alpaca, contract, executor, journal
@@ -34,7 +34,7 @@ from sentinel import guarded_administration
 def _authorized_runtime_surface(monkeypatch, tmp_path):
     marker = tmp_path / "authorized-runtime-v1"
     marker.write_bytes(cli.AUTHORIZED_RUNTIME_MARKER_BYTES)
-    monkeypatch.setattr(cli, "AUTHORIZED_RUNTIME_MARKER", marker)
+    monkeypatch.setattr(_main_impl, "AUTHORIZED_RUNTIME_MARKER", marker)
     monkeypatch.setenv(
         cli.AUTHORIZED_RUNTIME_ENV, cli.AUTHORIZED_RUNTIME_VALUE)
 
@@ -85,9 +85,9 @@ def _execution_result(session):
 def _wire_administrative_inspection(monkeypatch):
     grant = object()
     guard = object()
-    monkeypatch.setattr(cli, "_administrative_epoch", lambda *a, **k: 1)
+    monkeypatch.setattr(_main_impl, "_administrative_epoch", lambda *a, **k: 1)
     monkeypatch.setattr(
-        cli, "_authorized_administrative_access",
+        _main_impl, "_authorized_administrative_access",
         lambda *a, **k: (grant, guard))
     monkeypatch.setattr(
         guarded_administration, "GuardedAdministrativeExecutionBroker",
@@ -130,7 +130,7 @@ def test_inspect_builds_typed_adapter_and_prints_complete_read_only_book(
         lambda actual, session: calls.append(
             ("resolver", actual, session)) or resolver)
     monkeypatch.setattr(
-        cli, "build_execution_broker",
+        _main_impl, "build_execution_broker",
         lambda config, *, resolve_security_id: calls.append(
             ("broker", config, resolve_security_id)) or broker)
 
@@ -180,7 +180,7 @@ def test_inspect_does_not_ensure_or_write_database_schemas(monkeypatch):
     monkeypatch.setattr(
         paper, "build_security_resolver", lambda _conn, _session: object())
     monkeypatch.setattr(
-        cli, "build_execution_broker",
+        _main_impl, "build_execution_broker",
         lambda _config, *, resolve_security_id: object())
     monkeypatch.setattr(
         paper, "inspect_paper_account",
@@ -215,7 +215,7 @@ def test_prepare_builds_resolver_after_schemas_and_prints_json(
         return SimpleNamespace(to_dict=lambda: {"dry_run": True})
 
     monkeypatch.setattr(paper, "build_security_resolver", build_resolver)
-    monkeypatch.setattr(cli, "build_execution_broker", build_broker)
+    monkeypatch.setattr(_main_impl, "build_execution_broker", build_broker)
     monkeypatch.setattr(paper, "prepare_paper_plan", prepare)
     args = SimpleNamespace(
         through="2026-08-12", warmup_sessions=252,
@@ -241,7 +241,7 @@ def test_current_plan_never_constructs_a_broker(monkeypatch, capsys):
     calls = []
     conn = _wire_database(monkeypatch, calls)
     monkeypatch.setattr(
-        cli, "build_execution_broker",
+        _main_impl, "build_execution_broker",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("current-paper-plan contacted a broker")))
     monkeypatch.setattr(
@@ -305,7 +305,7 @@ def test_schema_migration_refusal_stops_paper_startup_before_broker(
 
     monkeypatch.setattr(schema, "ensure_schema", refuse_schema)
     monkeypatch.setattr(paper, "build_security_resolver", forbidden)
-    monkeypatch.setattr(cli, "build_execution_broker", forbidden)
+    monkeypatch.setattr(_main_impl, "build_execution_broker", forbidden)
     monkeypatch.setattr(paper, "prepare_paper_plan", forbidden)
     monkeypatch.setattr(paper, "current_paper_plan", forbidden)
     monkeypatch.setattr(paper, "execute_paper_plan", forbidden)
@@ -339,7 +339,7 @@ def test_execute_passes_every_explicit_confirmation(monkeypatch, capsys):
         lambda actual, session: calls.append(
             ("resolver", actual, session)) or resolver)
     monkeypatch.setattr(
-        cli, "build_execution_broker",
+        _main_impl, "build_execution_broker",
         lambda config, *, resolve_security_id: calls.append(
             ("broker", resolve_security_id)) or broker)
 
@@ -401,7 +401,7 @@ def test_execute_exit_and_authorization_reflect_operator_attention(
     monkeypatch.setattr(
         paper, "build_security_resolver", lambda conn, session: object())
     monkeypatch.setattr(
-        cli, "build_execution_broker",
+        _main_impl, "build_execution_broker",
         lambda config, *, resolve_security_id: object())
 
     async def execute(**kwargs):
@@ -422,7 +422,7 @@ def test_activation_refusal_is_an_operator_checkpoint(monkeypatch, capsys):
     monkeypatch.setattr(
         paper, "build_security_resolver", lambda conn, session: object())
     monkeypatch.setattr(
-        cli, "build_execution_broker",
+        _main_impl, "build_execution_broker",
         lambda config, *, resolve_security_id: object())
 
     async def refuse(**kwargs):
@@ -448,7 +448,7 @@ def test_operational_refusals_are_caught_as_attention_exit(
     monkeypatch.setattr(
         paper, "build_security_resolver", lambda actual, session: object())
     monkeypatch.setattr(
-        cli, "build_execution_broker",
+        _main_impl, "build_execution_broker",
         lambda config, *, resolve_security_id: object())
 
     async def refuse(**kwargs):
@@ -512,7 +512,7 @@ def test_pinned_rollout_does_not_load_broken_controller_and_warns_of_risk(
 
     monkeypatch.setattr(authority, "set_rollout_mode", set_mode)
     monkeypatch.setattr(
-        cli, "_current_system_identities",
+        _main_impl, "_current_system_identities",
         lambda: (_ for _ in ()).throw(
             AssertionError("pinned transition loaded broken controller")))
 
@@ -671,7 +671,7 @@ def test_pinned_rollout_requires_literal_exposure_increase_acknowledgement(
 def test_generic_controller_rollout_refuses_before_identity_or_database(
         monkeypatch, capsys):
     monkeypatch.setattr(
-        cli, "_current_system_identities",
+        _main_impl, "_current_system_identities",
         lambda: (_ for _ in ()).throw(
             frozen_rule.FrozenRuleTampered("controller digest mismatch")))
     monkeypatch.setattr(
@@ -698,7 +698,7 @@ def test_broker_command_refuses_before_configuration_without_authorized_image(
         monkeypatch, tmp_path, capsys):
     monkeypatch.delenv(cli.AUTHORIZED_RUNTIME_ENV, raising=False)
     monkeypatch.setattr(
-        cli, "AUTHORIZED_RUNTIME_MARKER", tmp_path / "missing-marker")
+        _main_impl, "AUTHORIZED_RUNTIME_MARKER", tmp_path / "missing-marker")
     monkeypatch.setattr(
         cli.SentinelConfig, "from_env",
         classmethod(lambda cls: (_ for _ in ()).throw(
@@ -716,7 +716,7 @@ def test_broker_command_refuses_before_configuration_without_authorized_image(
 def test_emergency_fencing_does_not_depend_on_authorized_image(monkeypatch):
     monkeypatch.delenv(cli.AUTHORIZED_RUNTIME_ENV, raising=False)
     monkeypatch.setattr(
-        cli, "AUTHORIZED_RUNTIME_MARKER", Path("/definitely/missing"))
+        _main_impl, "AUTHORIZED_RUNTIME_MARKER", Path("/definitely/missing"))
 
     assert cli._require_authorized_runtime(
         "engage-paper-automation-kill-switch") is None
@@ -739,7 +739,7 @@ def test_inspection_refusals_are_caught_without_a_traceback(
     monkeypatch.setattr(
         paper, "build_security_resolver", lambda _conn, _session: object())
     monkeypatch.setattr(
-        cli, "build_execution_broker",
+        _main_impl, "build_execution_broker",
         lambda _config, *, resolve_security_id: object())
 
     async def refuse(**_kwargs):
@@ -804,20 +804,21 @@ def test_command_parser_preserves_required_confirmations_and_warmup_default(
         seen["rollout"] = (actual_config, vars(args))
         return cli.EXIT_OK
 
-    monkeypatch.setattr(cli, "_prepare_paper_plan", prepare)
-    monkeypatch.setattr(cli, "_inspect_paper_account", inspect)
-    monkeypatch.setattr(cli, "_inspect_empty_paper_account", inspect_empty)
-    monkeypatch.setattr(cli, "_bind_empty_paper_account", bind_empty)
+    monkeypatch.setattr(_main_impl, "_prepare_paper_plan", prepare)
+    monkeypatch.setattr(_main_impl, "_inspect_paper_account", inspect)
     monkeypatch.setattr(
-        cli, "cmd_create_empty_paper_binding_candidate", empty_candidate)
-    monkeypatch.setattr(cli, "_execute_paper_plan", execute)
+        _main_impl, "_inspect_empty_paper_account", inspect_empty)
+    monkeypatch.setattr(_main_impl, "_bind_empty_paper_account", bind_empty)
     monkeypatch.setattr(
-        cli, "_install_system_certificate", install_certificate)
+        _main_impl, "cmd_create_empty_paper_binding_candidate", empty_candidate)
+    monkeypatch.setattr(_main_impl, "_execute_paper_plan", execute)
     monkeypatch.setattr(
-        cli, "_revoke_system_certificate", revoke_certificate)
+        _main_impl, "_install_system_certificate", install_certificate)
     monkeypatch.setattr(
-        cli, "_activate_system_certificate", activate_certificate)
-    monkeypatch.setattr(cli, "_set_paper_rollout_mode", set_rollout)
+        _main_impl, "_revoke_system_certificate", revoke_certificate)
+    monkeypatch.setattr(
+        _main_impl, "_activate_system_certificate", activate_certificate)
+    monkeypatch.setattr(_main_impl, "_set_paper_rollout_mode", set_rollout)
 
     assert cli.main([
         "inspect-paper-account", "--deployment-id", "nas-01",

@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT / "shared"))
 
 from fakes import FakeBroker  # noqa: E402
 from sentinel import __main__ as cli  # noqa: E402
+from sentinel import _main_impl  # noqa: E402
 from sentinel import (  # noqa: E402
     binding, broker as broker_mod, guarded_administration, handover, schema)
 from sentinel.config import (  # noqa: E402
@@ -47,7 +48,7 @@ from stock_strategy_shared.broker.alpaca import (  # noqa: E402
 def _authorized_runtime_surface(monkeypatch, tmp_path):
     marker = tmp_path / "authorized-runtime-v1"
     marker.write_bytes(cli.AUTHORIZED_RUNTIME_MARKER_BYTES)
-    monkeypatch.setattr(cli, "AUTHORIZED_RUNTIME_MARKER", marker)
+    monkeypatch.setattr(_main_impl, "AUTHORIZED_RUNTIME_MARKER", marker)
     monkeypatch.setenv(
         cli.AUTHORIZED_RUNTIME_ENV, cli.AUTHORIZED_RUNTIME_VALUE)
 
@@ -208,7 +209,7 @@ class TestLegacyPlanIsRetired:
         for key, value in env(SENTINEL_STATE_DIR=str(tmp_path)).items():
             monkeypatch.setenv(key, value)
         monkeypatch.setattr(
-            cli, "build_broker",
+            _main_impl, "build_broker",
             lambda _cfg: (_ for _ in ()).throw(
                 AssertionError("retired plan contacted a broker")))
 
@@ -243,7 +244,7 @@ class TestEstablishOwnershipIsRetired:
         broker = FakeBroker({"AAPL": 10})
         for k, v in env(SENTINEL_STATE_DIR=str(tmp_path)).items():
             monkeypatch.setenv(k, v)
-        monkeypatch.setattr(cli, "build_broker", lambda cfg: broker)
+        monkeypatch.setattr(_main_impl, "build_broker", lambda cfg: broker)
 
         cli.main(["establish-ownership", "--poll-seconds", "0"])
         assert broker.closes == []
@@ -287,7 +288,7 @@ class TestEstablishOwnershipIsRetired:
                 schema.SchemaMigrationRefused(
                     "behavioral migration authority is corrupt")))
         monkeypatch.setattr(
-            cli, "build_broker",
+            _main_impl, "build_broker",
             lambda _config: (_ for _ in ()).throw(
                 AssertionError(
                     f"{command} built a broker after schema refusal")))
@@ -335,12 +336,13 @@ class TestEstablishOwnershipIsRetired:
         monkeypatch.setattr(schema, "ensure_schema", lambda _conn: None)
         monkeypatch.setattr(binding, "load", lambda _conn: None)
         monkeypatch.setattr(
-            cli, "_authorized_administrative_access",
+            _main_impl, "_authorized_administrative_access",
             lambda *_args, **_kwargs: (object(), object()))
         monkeypatch.setattr(
             guarded_administration, "GuardedAdministrativeBroker",
             lambda *, inner, grant, guard: inner)
-        monkeypatch.setattr(cli, "build_broker", lambda _config: object())
+        monkeypatch.setattr(
+            _main_impl, "build_broker", lambda _config: object())
 
         async def refuse(**_kwargs):
             raise error
