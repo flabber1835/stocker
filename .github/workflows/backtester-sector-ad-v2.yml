@@ -6,11 +6,6 @@ on:
       - research/backtester
     paths:
       - '.github/workflows/backtester-sector-ad-v2.yml'
-      - 'backtester/experiments/2026-08-27-sector-abc/**'
-      - 'backtester/run_sector_ad_causal_terminal_terms_v2.py'
-      - 'backtester/causal_terminal_terms.py'
-      - 'backtester/data/causal-terminal-terms-v1.json'
-      - 'backtester/data/causal-terminal-terms-v1.SHA256'
   workflow_dispatch:
 
 permissions:
@@ -23,7 +18,7 @@ concurrency:
 jobs:
   fresh-sector-ad-v2:
     name: Fresh chronological A/D replay v2
-    if: github.ref_name == 'research/backtester'
+    if: github.event_name == 'workflow_dispatch' && github.ref_name == 'research/backtester'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
 
