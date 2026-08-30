@@ -1,0 +1,160 @@
+name: Backtester - canonical PIT build attempt
+
+on:
+  workflow_call:
+    inputs:
+      attempt:
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and certify canonical PIT dataset
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      CERTIFICATION_WARMUP_START: '2006-01-03'
+      CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+      CERTIFICATION_END_SESSION: '2026-07-31'
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - name: Check out frozen reconstruction authorities
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/canonical_pit_dataset.py
+            /backtester/canonical_pit_package.py
+            /backtester/strict_pit_metadata.py
+            /backtester/causal_split_overrides.py
+            /backtester/causal_terminal_terms.py
+            /backtester/historical_cash.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/causal-split-overrides-v1.json
+            /backtester/data/causal-split-overrides-v1.SHA256
+            /backtester/data/causal-split-overrides-v1.d/**
+            /backtester/data/causal-terminal-terms-v1.json
+            /backtester/data/causal-terminal-terms-v1.SHA256
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /tests/backtester/test_canonical_pit_dataset.py
+            /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
+            /research/sentinel-fastgate/pit-evidence/generated/**
+            /PIT input data/MANIFEST.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
+            /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
+            /PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz
+            /PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SFP/**
+
+      - name: Record immutable reconstruction identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "research/backtester"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test -z "$(git status --porcelain)"
+          echo "BACKTESTER_BRANCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+
+      - name: Reconstruct frozen SFP archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          parts=(sharadar/SFP/SHARADAR_SFP.zip.*)
+          test "${#parts[@]}" -ge 1
+          cat "${parts[@]}" > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+
+      - name: Check out pinned runtime closure read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - name: Verify pinned runtime identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED=887f479b15ad861313da666ad698034d3847121c
+          test "$(git -C main-src rev-parse HEAD)" = "${EXPECTED}"
+          test -z "$(git -C main-src status --porcelain)"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+
+      - name: Compile and test reconstruction contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile backtester/canonical_pit_dataset.py backtester/canonical_pit_package.py
+          python -m unittest tests.backtester.test_canonical_pit_dataset -v
+
+      - name: Build full-window canonical PIT dataset
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANONICAL_PATH=backtester-results/canonical-pit-20y
+          mkdir -p backtester-results
+          set +e
+          python backtester/canonical_pit_dataset.py build \
+            --output "${CANONICAL_PATH}" \
+            --warmup-start "${CERTIFICATION_WARMUP_START}" \
+            --measurement-start "${CERTIFICATION_MEASUREMENT_START}" \
+            --end "${CERTIFICATION_END_SESSION}" \
+            2>&1 | tee canonical-pit-20y.log
+          BUILD_RC=${PIPESTATUS[0]}
+          set -e
+          if [[ "${BUILD_RC}" -eq 0 ]]; then
+            python backtester/canonical_pit_dataset.py validate --dataset "${CANONICAL_PATH}"
+          elif [[ "${BUILD_RC}" -eq 2 && -f "${CANONICAL_PATH}/manifest.json" ]]; then
+            python backtester/canonical_pit_dataset.py validate \
+              --dataset "${CANONICAL_PATH}" --allow-failed
+            echo "Canonical certification gate reported blockers; publication will fail closed."
+          else
+            exit "${BUILD_RC}"
+          fi
+
+      - name: Upload certified dataset for publication
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-pit-20y-${{ github.run_id }}
+          path: backtester-results/canonical-pit-20y
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Upload reconstruction log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-pit-20y-log-${{ github.run_id }}-attempt-${{ inputs.attempt }}
+          path: canonical-pit-20y.log
+          if-no-files-found: warn
+          retention-days: 90
+          compression-level: 6

@@ -17,6 +17,12 @@ from backtester.canonical_pit_dataset import (
     _dataset_hash,
     _member,
 )
+from backtester.canonical_pit_package import (
+    POINTER_SCHEMA,
+    load_pointer,
+    verify_pointer_dataset,
+    write_pointer,
+)
 from backtester.causal_split_overrides import _load_sidecar_records
 from backtester.strict_pit_metadata import SecurityTypeAuthority
 
@@ -54,8 +60,10 @@ def _artifact(root: Path, *, status: str = "PASS") -> Path:
     }
     manifest = {
         "schema": SCHEMA,
+        "dataset_id": "strict-pit-test",
         "status": status,
         "dataset_hash": _dataset_hash(members),
+        "reconstruction_code_sha": "b" * 40,
         "window": {
             "warmup_start": "2006-01-03",
             "measurement_start": "2006-01-03",
@@ -157,6 +165,51 @@ class CanonicalPITDatasetTests(unittest.TestCase):
         self.assertIn("role=spy date={ds}", text)
         self.assertIn("phase=WARMUP cagr=N/A", text)
         self.assertIn("_quarter_last", text)
+
+    def test_package_pointer_pins_and_revalidates_dataset(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            dataset = _artifact(root / "pit")
+            pointer_path = root / "pointer.json"
+            package = "ghcr.io/flabber1835/stocker-canonical-pit@sha256:" + "c" * 64
+            written = write_pointer(
+                dataset_path=dataset,
+                output=pointer_path,
+                package=package,
+                source_run_id="123",
+                source_run_url="https://github.com/flabber1835/stocker/actions/runs/123",
+            )
+            self.assertEqual(written["schema"], POINTER_SCHEMA)
+            self.assertEqual(load_pointer(pointer_path)["package"], package)
+            self.assertEqual(
+                verify_pointer_dataset(pointer_path, dataset)["dataset_hash"],
+                written["dataset_hash"],
+            )
+
+            changed = json.loads(pointer_path.read_text(encoding="utf-8"))
+            changed["package"] = "ghcr.io/flabber1835/stocker-canonical-pit:latest"
+            pointer_path.write_text(json.dumps(changed), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "not pinned"):
+                load_pointer(pointer_path)
+
+    def test_dataset_build_and_replay_are_separate_workflows(self) -> None:
+        build = Path(
+            ".github/workflows/backtester-build-canonical-pit-attempt.yml"
+        ).read_text(encoding="utf-8")
+        orchestrator = Path(
+            ".github/workflows/backtester-build-canonical-pit-20y.yml"
+        ).read_text(encoding="utf-8")
+        replay = Path(
+            ".github/workflows/backtester-research-only-20y.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("canonical_pit_dataset.py build", build)
+        self.assertNotIn("canonical_pit_dataset.py build", replay)
+        self.assertNotIn("SHARADAR_SEP_", replay)
+        self.assertIn("packages: write", orchestrator)
+        self.assertIn("packages: read", replay)
+        self.assertIn("canonical-pit-20y.json", replay)
+        self.assertIn("docker pull", replay)
+        self.assertEqual(orchestrator.count("uses: ./.github/workflows/backtester-build-canonical-pit-attempt.yml"), 3)
 
 
 if __name__ == "__main__":

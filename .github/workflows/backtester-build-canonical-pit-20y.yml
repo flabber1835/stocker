@@ -1,0 +1,185 @@
+name: Backtester - build and store canonical PIT 20-year dataset
+run-name: Build and store canonical PIT 20-year dataset — ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+  packages: write
+
+concurrency:
+  group: backtester-build-canonical-pit-20y
+  cancel-in-progress: false
+
+jobs:
+  attempt_1:
+    name: Reconstruction attempt 1
+    if: github.ref_name == 'research/backtester'
+    uses: ./.github/workflows/backtester-build-canonical-pit-attempt.yml
+    with:
+      attempt: 1
+    secrets: inherit
+
+  attempt_2:
+    name: Reconstruction attempt 2 after runner interruption
+    needs: attempt_1
+    if: always() && needs.attempt_1.result == 'failure'
+    uses: ./.github/workflows/backtester-build-canonical-pit-attempt.yml
+    with:
+      attempt: 2
+    secrets: inherit
+
+  attempt_3:
+    name: Reconstruction attempt 3 after runner interruption
+    needs: [attempt_1, attempt_2]
+    if: always() && needs.attempt_1.result == 'failure' && needs.attempt_2.result == 'failure'
+    uses: ./.github/workflows/backtester-build-canonical-pit-attempt.yml
+    with:
+      attempt: 3
+    secrets: inherit
+
+  publish:
+    name: Publish immutable package and branch pointer
+    needs: [attempt_1, attempt_2, attempt_3]
+    if: >-
+      always() && (
+        needs.attempt_1.result == 'success' ||
+        needs.attempt_2.result == 'success' ||
+        needs.attempt_3.result == 'success'
+      )
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out research branch publication target
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/backtester
+          fetch-depth: 0
+          persist-credentials: true
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/canonical_pit_dataset.py
+            /backtester/canonical_pit_package.py
+            /backtester/canonical-pit.Dockerfile
+            /backtester/strict_pit_metadata.py
+            /backtester/causal_split_overrides.py
+            /backtester/causal_terminal_terms.py
+            /backtester/historical_cash.py
+            /backtester/data/canonical-pit-20y.json
+
+      - name: Prove publication boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "research/backtester"
+          git merge-base --is-ancestor "${GITHUB_SHA}" HEAD
+          test -z "$(git status --porcelain)"
+
+      - name: Download certified dataset from successful attempt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: canonical-pit-20y-${{ github.run_id }}
+          path: backtester-results/canonical-pit-20y
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Check out pinned runtime closure read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - name: Install frozen validation runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+
+      - name: Revalidate publication input
+        shell: bash
+        run: |
+          set -euo pipefail
+          python backtester/canonical_pit_dataset.py validate --dataset backtester-results/canonical-pit-20y
+
+      - name: Publish content-addressed dataset to GitHub packages
+        id: package
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          DATASET_HASH=$(python -c "import json; print(json.load(open('backtester-results/canonical-pit-20y/manifest.json'))['dataset_hash'])")
+          IMAGE="ghcr.io/flabber1835/stocker-canonical-pit:strict-pit-${DATASET_HASH}"
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker build \
+            --file backtester/canonical-pit.Dockerfile \
+            --build-arg SOURCE_REPOSITORY="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --build-arg DATASET_HASH="${DATASET_HASH}" \
+            --tag "${IMAGE}" \
+            backtester-results/canonical-pit-20y
+          docker push "${IMAGE}"
+          docker pull "${IMAGE}"
+          PACKAGE=$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE}")
+          case "${PACKAGE}" in
+            ghcr.io/flabber1835/stocker-canonical-pit@sha256:*) ;;
+            *) echo "unexpected package digest: ${PACKAGE}" >&2; exit 1 ;;
+          esac
+          echo "package=${PACKAGE}" >> "${GITHUB_OUTPUT}"
+          echo "dataset_hash=${DATASET_HASH}" >> "${GITHUB_OUTPUT}"
+
+      - name: Commit admitted package pointer to research branch
+        shell: bash
+        env:
+          PACKAGE: ${{ steps.package.outputs.package }}
+        run: |
+          set -euo pipefail
+          POINTER=backtester/data/canonical-pit-20y.json
+          python backtester/canonical_pit_package.py write \
+            --dataset backtester-results/canonical-pit-20y \
+            --output "${POINTER}" \
+            --package "${PACKAGE}" \
+            --source-run-id "${GITHUB_RUN_ID}" \
+            --source-run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          git add -- "${POINTER}"
+          if git diff --cached --quiet; then
+            echo "Canonical pointer already matches the published package."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "data(backtester): pin canonical PIT ${{ steps.package.outputs.dataset_hash }}"
+          git fetch origin research/backtester:refs/remotes/origin/research/backtester
+          test "$(git rev-parse HEAD^)" = "$(git rev-parse origin/research/backtester)"
+          git push origin HEAD:research/backtester
+
+      - name: Write publication summary
+        shell: bash
+        env:
+          PACKAGE: ${{ steps.package.outputs.package }}
+          DATASET_HASH: ${{ steps.package.outputs.dataset_hash }}
+        run: |
+          set -euo pipefail
+          {
+            echo '## Canonical PIT dataset published'
+            echo
+            echo "Dataset hash: \`${DATASET_HASH}\`"
+            echo
+            echo "Package: \`${PACKAGE}\`"
+            echo
+            echo 'Pointer: `backtester/data/canonical-pit-20y.json`'
+          } >> "${GITHUB_STEP_SUMMARY}"
