@@ -24,11 +24,17 @@ concurrency:
 
 jobs:
   host-python-38-compatibility:
-    name: ${{ github.event_name == 'pull_request' && 'host-python-38-synthetic-merge' || 'host-python-38-exact-head' }}
+    name: host-python-38-${{ matrix.scope }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        scope: ${{ fromJSON(github.event_name == 'pull_request' && '["exact-head","synthetic-merge"]' || '["exact-head"]') }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ matrix.scope == 'exact-head' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
 
       - name: Install the minimum supported NAS host Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
@@ -44,27 +50,34 @@ jobs:
           python -m compileall -q -f scripts
 
   certification-and-durability:
-    name: ${{ github.event_name == 'pull_request' && 'sentinel-synthetic-merge' || 'sentinel-exact-head' }}
+    name: sentinel-${{ matrix.scope }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        scope: ${{ fromJSON(github.event_name == 'pull_request' && '["exact-head","synthetic-merge"]' || '["exact-head"]') }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 2
+          ref: ${{ matrix.scope == 'exact-head' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
 
       - name: Verify the checked-out pull-request merge result
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          if [ '${{ matrix.scope }}' = 'exact-head' ]; then
+            test "$(git rev-parse HEAD)" = "$expected_head"
+          else
+            test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
             parent_count="$(git rev-list --parents -n 1 HEAD | awk '{print NF - 1}')"
             if [ "$parent_count" -ne 2 ]; then
               echo "REFUSED: pull-request checkout is not a synthetic merge commit" >&2
               exit 1
             fi
             expected_base='${{ github.event.pull_request.base.sha }}'
-            expected_head='${{ github.event.pull_request.head.sha }}'
             git merge-base --is-ancestor HEAD^1 HEAD
             git merge-base --is-ancestor HEAD^2 HEAD
             test "$(git rev-parse HEAD^1)" = "$expected_base"
@@ -269,7 +282,7 @@ jobs:
             -f docker-compose.sentinel-backup.yml \
             -f docker-compose.sentinel-automation.yml \
             --profile authorized-cli config --quiet
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+          if [ '${{ matrix.scope }}' = 'synthetic-merge' ]; then
             git diff --check HEAD^1 HEAD
           else
             git diff --check HEAD^ HEAD

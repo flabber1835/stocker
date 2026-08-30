@@ -142,13 +142,17 @@ def test_pull_request_safety_is_read_only_and_publication_is_main_only():
 def test_pull_request_ci_proves_it_is_testing_the_synthetic_merge():
     workflow = _read(".github/workflows/sentinel-safety.yml")
     assert "pull_request:\n    branches: [main]" in workflow
+    assert 'scope: ${{ fromJSON(github.event_name == \'pull_request\'' in workflow
+    assert 'if [ \'${{ matrix.scope }}\' = \'exact-head\' ]' in workflow
+    assert 'test "$(git rev-parse HEAD)" = "$expected_head"' in workflow
     assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in workflow
-    assert 'if [ "$GITHUB_EVENT_NAME" = "pull_request" ]' in workflow
     assert "git rev-list --parents -n 1 HEAD" in workflow
     assert 'if [ "$parent_count" -ne 2 ]' in workflow
     assert "pull-request checkout is not a synthetic merge commit" in workflow
     assert "git merge-base --is-ancestor HEAD^1 HEAD" in workflow
     assert "git merge-base --is-ancestor HEAD^2 HEAD" in workflow
+    assert "name: sentinel-${{ matrix.scope }}" in workflow
+    assert "name: host-python-38-${{ matrix.scope }}" in workflow
 
 
 def test_main_push_runs_exact_sha_safety_and_branch_coverage():
