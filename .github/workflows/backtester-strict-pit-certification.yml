@@ -2,15 +2,6 @@ name: Backtester - strict PIT production/research certification
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - research/backtester
-    paths:
-      - '.github/workflows/backtester-strict-pit-certification.yml'
-      - 'backtester/run_certification_parallel.py'
-      - 'backtester/run_production_strict_pit_certification.py'
-      - 'backtester/run_research_strict_pit_certification.py'
-      - 'backtester/strict_pit_metadata.py'
 
 permissions:
   contents: read
