@@ -4,7 +4,7 @@
   "issue": 294,
   "overlay": "backtester/production_cooldown_age_zero.patch",
   "production_sha": "887f479b15ad861313da666ad698034d3847121c",
-  "reason": "retry research/production divergence comparison with overlay regenerated from exact pinned production source lines",
-  "requested_at": "2026-08-30T21:40:00Z",
+  "reason": "retry research/production divergence comparison with valid context-free unified diff",
+  "requested_at": "2026-08-30T21:44:00Z",
   "schema": "backtester.canonical-pit-cooldown-overlay-request/1"
 }
