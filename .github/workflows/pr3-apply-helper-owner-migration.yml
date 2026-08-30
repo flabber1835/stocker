@@ -1,0 +1,122 @@
+name: PR3 apply helper owner migration
+
+on:
+  push:
+    branches:
+      - 'fix/pr3-paper-test-canonical-owners-ci'
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: codex/pr3-paper-test-canonical-owners
+          fetch-depth: 1
+      - name: Migrate helper ownership
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def rw(path, fn):
+              p = Path(path)
+              t = p.read_text(encoding='utf-8')
+              p.write_text(fn(t), encoding='utf-8')
+
+          def after(t, marker, addition):
+              assert marker in t, marker
+              return t if addition in t else t.replace(marker, marker + addition, 1)
+
+          def conftest(t):
+              marker = '\n_PAPER_DECOMPOSITION_LEGACY_MODULES = {'
+              assert marker in t
+              return t[:t.index(marker)] + '\n'
+          rw('tests/conftest.py', conftest)
+
+          def admin(t):
+              old = ('    from sentinel import paper\n'
+                     '    from sentinel.execution.simulator import SimulatedBroker\n')
+              new = ('    from sentinel.paper import inspection as paper_inspection\n'
+                     '    from sentinel.execution.simulator import SimulatedBroker\n')
+              assert t.count(old) == 1
+              t = t.replace(old, new, 1)
+              assert t.count('paper._require_certified_paper_broker(wrapped)') == 1
+              return t.replace(
+                  'paper._require_certified_paper_broker(wrapped)',
+                  'paper_inspection._require_certified_paper_broker(wrapped)', 1)
+          rw('tests/sentinel/test_administrative_authority.py', admin)
+
+          def automation(t):
+              marker = ('from sentinel import (\n'
+                        '    authority, automation_runtime, informational_paper_mirror, paper)\n')
+              t = after(t, marker,
+                        'from sentinel.paper import (\n'
+                        '    inspection as paper_inspection,\n'
+                        '    validation as paper_validation,\n'
+                        ')\n')
+              assert t.count('paper._validate_automation_grant') == 2
+              t = t.replace('paper._validate_automation_grant',
+                            'paper_validation._validate_automation_grant')
+              assert t.count('paper._recovery_account_identity_or_refuse') == 1
+              t = t.replace('paper._recovery_account_identity_or_refuse',
+                            'paper_inspection._recovery_account_identity_or_refuse')
+              assert t.count('paper._account_or_refuse') == 1
+              return t.replace('paper._account_or_refuse',
+                               'paper_inspection._account_or_refuse')
+          rw('tests/sentinel/test_automation_runtime.py', automation)
+
+          def target209(t):
+              t = after(t, 'from sentinel import paper\n',
+                        'from sentinel.paper import targets as paper_targets\n')
+              assert t.count('paper._target_action_multipliers') == 1
+              return t.replace('paper._target_action_multipliers',
+                               'paper_targets._target_action_multipliers')
+          rw('tests/sentinel/test_issue209_target_reprojection.py', target209)
+
+          def bil223(t):
+              t = after(t, 'from sentinel import identity, paper, trial\n',
+                        'from sentinel.paper import (\n'
+                        '    preparation as paper_preparation,\n'
+                        '    targets as paper_targets,\n'
+                        ')\n')
+              seam = 'monkeypatch.setattr(\n        paper, "shadow_target",'
+              assert t.count(seam) == 2
+              t = t.replace(seam,
+                            'monkeypatch.setattr(\n        paper_preparation, "shadow_target",', 1)
+              t = t.replace(seam,
+                            'monkeypatch.setattr(\n        paper_targets, "shadow_target",', 1)
+              assert t.count('paper._load_marks_and_tickers') == 1
+              t = t.replace('paper._load_marks_and_tickers',
+                            'paper_preparation._load_marks_and_tickers')
+              assert t.count('paper.journal') == 1
+              t = t.replace('paper.journal', 'paper_targets.journal')
+              t = t.replace('paper.reconciliation', 'paper_targets.reconciliation')
+              assert t.count('paper._target_projection_or_refuse') == 1
+              return t.replace('paper._target_projection_or_refuse',
+                               'paper_targets._target_projection_or_refuse')
+          rw('tests/sentinel/test_issue223_bil_evidence.py', bil223)
+
+          def regressions(t):
+              t = after(t, 'from sentinel import paper\n',
+                        'from sentinel.paper import validation as paper_validation\n')
+              for name in ('load_rollout_state', 'publication', 'feed_store',
+                           'load_controller', 'runtime_strategy_identity', 'calendar',
+                           '_readiness_or_refuse', '_validate_broker_grant'):
+                  t = t.replace(f'paper.{name}', f'paper_validation.{name}')
+              return t
+          rw('tests/sentinel/test_runtime_regressions_137_148_149_150.py', regressions)
+          PY
+          git diff --check
+          git config user.name "OpenAI"
+          git config user.email "noreply@openai.com"
+          git add tests/conftest.py \
+            tests/sentinel/test_administrative_authority.py \
+            tests/sentinel/test_automation_runtime.py \
+            tests/sentinel/test_issue209_target_reprojection.py \
+            tests/sentinel/test_issue223_bil_evidence.py \
+            tests/sentinel/test_runtime_regressions_137_148_149_150.py
+          git commit -m "test: migrate paper helper owners"
+          git push origin HEAD:codex/pr3-paper-test-canonical-owners
