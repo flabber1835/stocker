@@ -149,6 +149,15 @@ class CanonicalPITDatasetTests(unittest.TestCase):
             self.assertNotIn("build_dataset", text)
             self.assertIn("CanonicalPITDataset", text)
 
+    def test_research_progress_reports_research_and_spy(self) -> None:
+        text = Path(
+            "backtester/run_research_strict_pit_certification.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("role=research date={ds}", text)
+        self.assertIn("role=spy date={ds}", text)
+        self.assertIn("phase=WARMUP cagr=N/A", text)
+        self.assertIn("_quarter_last", text)
+
 
 if __name__ == "__main__":
     unittest.main()

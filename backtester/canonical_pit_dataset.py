@@ -636,6 +636,8 @@ def build_dataset(
     session_parts: dict[str, list[str]] = defaultdict(list)
     dividend_by_event: dict[tuple[str, str], float] = {}
     raw_stream = _raw_sep_rows(root / "sharadar", start, end, source_inputs)
+    progress_year: int | None = None
+    progress_rows = 0
 
     try:
         for normalized in normalise_sep_rows(
@@ -678,7 +680,17 @@ def build_dataset(
                 "identity_source": "SEP_STRICT_PRIOR_CIK_EPISODE_V1",
             }
             year = int(session[:4])
+            if year != progress_year:
+                if progress_year is not None:
+                    print(
+                        f"[CANONICAL PROGRESS] year={progress_year} "
+                        f"observations={progress_rows:,}",
+                        flush=True,
+                    )
+                progress_year = year
+                progress_rows = 0
             canonical_line = observation_writers[year].write(row)
+            progress_rows += 1
             session_parts[session].append("O\0" + canonical_line)
             observation_rows_by_session[session] += 1
             observed_security_ids.add(sid)
@@ -697,6 +709,12 @@ def build_dataset(
                 metadata_writer.write(timeline_row)
                 last_metadata[sid] = metadata_tuple
     finally:
+        if progress_year is not None:
+            print(
+                f"[CANONICAL PROGRESS] year={progress_year} "
+                f"observations={progress_rows:,}",
+                flush=True,
+            )
         for writer in observation_writers.values():
             writer.close()
         metadata_writer.close()

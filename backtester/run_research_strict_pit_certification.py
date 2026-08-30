@@ -317,6 +317,14 @@ def strict_tid(ticker, ds):
         raise RuntimeError("strict research security-type seam changed")
     text = text.replace(old_elig, new_elig, 1)
 
+    measurement_needle = "            if date>=START:"
+    measurement_new = """            if date in _quarter_last and date < START:
+                print(f'[CERT_PROGRESS] role=research date={ds} phase=WARMUP cagr=N/A',flush=True)
+            if date>=START:"""
+    if text.count(measurement_needle) != 1:
+        raise RuntimeError("strict research measurement seam changed")
+    text = text.replace(measurement_needle, measurement_new, 1)
+
     text = text.replace(
         "term_tids={tmap[tk] for tk,rs in dayact.items() if tk in tmap and any(a in TERMINAL for a,_,_ in rs)}",
         "term_tids={z for tk,rs in dayact.items() if (z:=strict_tid(tk,ds)) is not None and any(a in TERMINAL for a,_,_ in rs)}",
@@ -338,7 +346,10 @@ def strict_tid(ticker, ds):
     checkpoint_new = r'''if date in _quarter_last:
                     _elapsed=(date-START).days/365.2425
                     _cc=0.0 if _elapsed<=0 else float(navs['control'])**(1.0/_elapsed)-1.0
+                    _spy_multiple=float(spy.loc[date,'closeadj'])/float(spy.loc[START,'closeadj'])
+                    _spy_cagr=0.0 if _elapsed<=0 else _spy_multiple**(1.0/_elapsed)-1.0
                     print(f'[CERT_CAGR] role=research date={ds} cagr={_cc:.12f}',flush=True)
+                    print(f'[CERT_CAGR] role=spy date={ds} cagr={_spy_cagr:.12f}',flush=True)
                 prev_perf_date=date; prev_close_eq=eq'''
     if text.count(checkpoint) != 1:
         raise RuntimeError("strict research checkpoint seam changed")
