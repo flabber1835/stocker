@@ -192,6 +192,8 @@ c = x.bfill()
         self.assertIn("_causal_dtype_safe_poison_observations", poison_source)
         self.assertIn("frame[_causal_bool_column].astype(bool)", poison_source)
         self.assertIn("frame[_causal_text_column].astype(object)", poison_source)
+        self.assertIn("_causal_semantic_poison_manifest", poison_source)
+        self.assertIn("terminal_rows_source", poison_source)
         compile(poison_source, "<causal-research-poison>", "exec")
 
 
