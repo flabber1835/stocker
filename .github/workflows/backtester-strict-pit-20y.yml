@@ -119,6 +119,7 @@ jobs:
           test "${ACTUAL}" = "${EXPECTED}"
           test -z "$(git -C main-src status --porcelain)"
           echo "BACKTESTER_MAIN_SHA=${ACTUAL}" >> "${GITHUB_ENV}"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
 
       - name: Set up Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
