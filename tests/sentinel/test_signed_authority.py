@@ -598,7 +598,9 @@ def _write(path: Path, value, *, canonical=False) -> bytes:
 
 def issuer_fixture(tmp_path: Path, *, wealth_verdict="GO", strict_xfails=0,
                    strict_skips=0,
-                   completed_checks=len(evidence.COMPLETED_CHECK_IDS)):
+                   completed_checks=len(evidence.COMPLETED_CHECK_IDS),
+                   certification_revision=(
+                       formal_baseline.APPROVED_CERTIFICATION_REVISION)):
     from sentinel.controller.frozen_rule import load as load_controller
     from stock_strategy_shared import identity_hashes
     from stock_strategy_shared.wealth_core.hashes import HASH_ORDER
@@ -623,7 +625,7 @@ def issuer_fixture(tmp_path: Path, *, wealth_verdict="GO", strict_xfails=0,
     base_value = {
         "schema": "sentinel.certification_manifest/2",
         "lifecycle": "FINALIZED", "verdict": "PASS", "failures": [],
-        "git_commit": "a" * 40, "identity_hash": sha("1"),
+        "git_commit": certification_revision, "identity_hash": sha("1"),
         "final_corpus_hash": sha("6"),
         "sentinel_source_hash": sha("b"),
         "wealth_core_source_hash": wealth_source,
@@ -670,7 +672,7 @@ def issuer_fixture(tmp_path: Path, *, wealth_verdict="GO", strict_xfails=0,
             "sha256": hashlib.sha256(pre_bytes).hexdigest(),
             "lifecycle": "FROZEN",
             "identity_hash": base_value["identity_hash"],
-            "git_commit": "a" * 40,
+            "git_commit": certification_revision,
             "certification_input_sha256": sha("0"),
             "runtime_image_digest": "sha256:" + sha("d"),
             "test_image_digest": "sha256:" + sha("e"),
@@ -772,7 +774,7 @@ def issuer_fixture(tmp_path: Path, *, wealth_verdict="GO", strict_xfails=0,
     wealth, controller = wealth_path.read_bytes(), controller_path.read_bytes()
 
     target = {
-        "git_commit": "a" * 40,
+        "git_commit": certification_revision,
         "runtime_image_digest": "sha256:" + sha("d"),
         "test_image_digest": "sha256:" + sha("e"),
         "automation_config_sha256": automation_sha,
@@ -990,6 +992,34 @@ def test_issuer_anchors_external_certification_source_to_preserved_revision():
     assert not issuer._validate_external_loader_bundle(tampered)
     forged_bundle = dict(provenance, canonical_loader_bundle=tampered)
     assert not issuer._validate_external_certification_source(forged_bundle)
+
+    manifest = {
+        "git_commit": formal_baseline.APPROVED_CERTIFICATION_REVISION,
+        "sentinel_test_image": {
+            "source_revision": formal_baseline.APPROVED_CERTIFICATION_REVISION},
+        "bt_engine_image": {
+            "source_revision": formal_baseline.APPROVED_CERTIFICATION_REVISION},
+    }
+    assert issuer._validate_external_certification_manifest(manifest)
+    for image in ("sentinel_test_image", "bt_engine_image"):
+        changed = json.loads(json.dumps(manifest))
+        changed[image]["source_revision"] = "d" * 40
+        assert not issuer._validate_external_certification_manifest(changed)
+
+
+def test_issuer_refuses_changed_terminal_coalescing_revision(
+        monkeypatch, tmp_path):
+    # Build a fully self-consistent upstream bundle for a revision whose only
+    # modeled economic change is terminal_coalescing.py. The producer and its
+    # current three-file bundle retain their approved digests.
+    monkeypatch.setattr(
+        evidence, "_validate_external_certification_manifest",
+        lambda _value: True)
+    document, _claims_path, index, _key_path = issuer_fixture(
+        tmp_path, certification_revision="d" * 40)
+    with pytest.raises(issuer.IssuanceRefused,
+                       match="approved external certification revision"):
+        issuer.validate_evidence(document, index)
 
 
 def test_issuer_revalidates_formal_forward_run_and_refuses_forged_pass(

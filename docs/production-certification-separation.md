@@ -41,9 +41,11 @@ they are not rewritten to fit this architecture.
 Production authority accepts historical expected-hash evidence only when its
 producer digest and complete canonical-loader bundle exactly match the bytes at
 that preserved revision. The authority-evidence producer and offline
-certificate issuer each carry and enforce that immutable digest manifest. A
-revision label, a syntactically valid digest, or a loader bundle consistent with
-its own claimed contents is not an anchor and must fail closed.
+certificate issuer each carry and enforce that immutable digest manifest. Both
+trust boundaries also require the finalized external manifest commit, test
+image source revision, and baseline-engine source revision to equal the
+preserved revision. A syntactically valid digest or a loader bundle consistent
+with its own claimed contents is not an anchor and must fail closed.
 
 The separation starts from `main` commit
 `670b3fcc09f8c76e37f925b63783826ce8a1fdcc`. Historical evidence must always

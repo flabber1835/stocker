@@ -222,7 +222,8 @@ def test_publication_root_must_equal_certification_generation(tmp_path):
             output=tmp_path / "policy.json")
 
 
-def formal_test_inputs(tmp_path, *, xfailed=3, identity_hash="d" * 64):
+def formal_test_inputs(tmp_path, *, xfailed=3, identity_hash="d" * 64,
+                       git_commit="c" * 40):
     images = {
         "sentinel_runtime_image": {
             "repo_digests": ["sentinel@sha256:" + "a" * 64]},
@@ -231,7 +232,7 @@ def formal_test_inputs(tmp_path, *, xfailed=3, identity_hash="d" * 64):
     }
     common = {
         "schema": "sentinel.certification_manifest/2",
-        "verdict": "PASS", "failures": [], "git_commit": "c" * 40,
+        "verdict": "PASS", "failures": [], "git_commit": git_commit,
         "identity_hash": identity_hash,
         "image_source_hashes": {"certification_inputs": "e" * 64},
         **images,
@@ -258,7 +259,7 @@ def formal_test_inputs(tmp_path, *, xfailed=3, identity_hash="d" * 64):
         "base_manifest": {
             "path": pre.as_posix(), "sha256": hashlib.sha256(pre_bytes).hexdigest(),
             "lifecycle": "FROZEN", "identity_hash": identity_hash,
-            "git_commit": "c" * 40,
+            "git_commit": git_commit,
             "certification_input_sha256": "e" * 64,
             "runtime_image_digest": "sha256:" + "a" * 64,
             "test_image_digest": "sha256:" + "b" * 64,
@@ -280,7 +281,9 @@ def formal_test_inputs(tmp_path, *, xfailed=3, identity_hash="d" * 64):
     return run, pre, base, base_bytes
 
 
-def certification_producer_inputs(tmp_path, *, xfailed=0):
+def certification_producer_inputs(
+        tmp_path, *, xfailed=0,
+        certification_revision=formal_baseline.APPROVED_CERTIFICATION_REVISION):
     from sentinel.controller.frozen_rule import load as load_controller
     from stock_strategy_shared import identity_hashes
     wealth_source = identity_hashes.wealth_core_source_hash()
@@ -289,7 +292,8 @@ def certification_producer_inputs(tmp_path, *, xfailed=0):
     identity_hash = hashlib.sha256(json.dumps(
         environment, sort_keys=True).encode()).hexdigest()
     run, pre, base, _ = formal_test_inputs(
-        tmp_path, xfailed=xfailed, identity_hash=identity_hash)
+        tmp_path, xfailed=xfailed, identity_hash=identity_hash,
+        git_commit=certification_revision)
     base_value = json.loads(base.read_bytes())
     base_value.update({
         "final_corpus_hash": "1" * 64,
@@ -450,6 +454,36 @@ def test_external_certification_source_is_anchored_to_preserved_revision():
     assert not evidence._validate_external_loader_bundle(tampered)
     forged_bundle = dict(provenance, canonical_loader_bundle=tampered)
     assert not evidence._validate_external_certification_source(forged_bundle)
+
+    manifest = {
+        "git_commit": formal_baseline.APPROVED_CERTIFICATION_REVISION,
+        "sentinel_test_image": {
+            "source_revision": formal_baseline.APPROVED_CERTIFICATION_REVISION},
+        "bt_engine_image": {
+            "source_revision": formal_baseline.APPROVED_CERTIFICATION_REVISION},
+    }
+    assert evidence._validate_external_certification_manifest(manifest)
+    for image in ("sentinel_test_image", "bt_engine_image"):
+        changed = json.loads(json.dumps(manifest))
+        changed[image]["source_revision"] = "d" * 40
+        assert not evidence._validate_external_certification_manifest(changed)
+
+
+def test_changed_terminal_coalescing_revision_cannot_produce_authority(tmp_path):
+    # This synthetic revision represents a terminal_coalescing.py-only change.
+    # The approved producer digest and current three-file bundle stay untouched.
+    values = certification_producer_inputs(
+        tmp_path, certification_revision="d" * 40)
+    with pytest.raises(evidence.EvidenceRefused,
+                       match="approved external certification revision"):
+        evidence.produce_certification_decisions(
+            output=tmp_path / "changed-terminal-decisions",
+            base_manifest=values["base"], test_summary=values["summary"],
+            expected_hashes=values["expected"], baseline_run=values["baseline"],
+            forward_run=values["raw"], forward_reviewed=values["reviewed"],
+            reference_artifact=values["reference"],
+            confirm_inputs_sha256=values["confirm"], reviewer="alice",
+            ticket="CERT-terminal-change", reviewed_at="2026-08-13T12:00:00Z")
 
 
 def test_legacy_portable_baseline_row_cannot_be_promoted_to_go(tmp_path):

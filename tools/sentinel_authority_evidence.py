@@ -99,6 +99,21 @@ def _validate_external_certification_source(value: object) -> bool:
                 value.get("canonical_loader_bundle")))
 
 
+def _validate_external_certification_manifest(value: object) -> bool:
+    """Bind certification execution and both economic images to one revision."""
+    if not isinstance(value, Mapping):
+        return False
+    test_image = value.get("sentinel_test_image")
+    engine_image = value.get("bt_engine_image")
+    return (value.get("git_commit") == APPROVED_CERTIFICATION_REVISION
+            and isinstance(test_image, Mapping)
+            and test_image.get("source_revision")
+            == APPROVED_CERTIFICATION_REVISION
+            and isinstance(engine_image, Mapping)
+            and engine_image.get("source_revision")
+            == APPROVED_CERTIFICATION_REVISION)
+
+
 def _source_config_sha256(value: Mapping) -> str:
     """Hash source-owned numeric configuration without putting floats in claims."""
     payload = json.dumps(
@@ -833,6 +848,10 @@ def produce_certification_decisions(
             f"{decision_inputs_sha256}")
     if base.get("schema") != "sentinel.certification_manifest/2":
         raise EvidenceRefused("decision base manifest schema is unknown")
+    if not _validate_external_certification_manifest(base):
+        raise EvidenceRefused(
+            "expected hashes do not bind the approved external certification "
+            "revision and images")
     if tests.get("schema") != TEST_SUMMARY_SCHEMA:
         raise EvidenceRefused("decision test-summary schema is unknown")
     if (set(expected) != {"schema", "status", "window", "hashes", "corpus",

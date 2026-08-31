@@ -94,6 +94,21 @@ def _validate_external_certification_source(value: object) -> bool:
                 value.get("canonical_loader_bundle")))
 
 
+def _validate_external_certification_manifest(value: object) -> bool:
+    """Bind certification execution and both economic images to one revision."""
+    if not isinstance(value, Mapping):
+        return False
+    test_image = value.get("sentinel_test_image")
+    engine_image = value.get("bt_engine_image")
+    return (value.get("git_commit") == APPROVED_CERTIFICATION_REVISION
+            and isinstance(test_image, Mapping)
+            and test_image.get("source_revision")
+            == APPROVED_CERTIFICATION_REVISION
+            and isinstance(engine_image, Mapping)
+            and engine_image.get("source_revision")
+            == APPROVED_CERTIFICATION_REVISION)
+
+
 def _strict_json(payload: bytes, *, label: str,
                  allow_floating_point: bool = False) -> Mapping:
     def unique(pairs):
@@ -611,6 +626,11 @@ def validate_evidence(claims: Mapping, index_path: Path) -> None:
         if producer[field] != _sha256(loaded[artifact][1]):
             raise IssuanceRefused(
                 f"producer {field} does not bind indexed {artifact} bytes")
+    if not _validate_external_certification_manifest(
+            loaded["base_manifest"][2]):
+        raise IssuanceRefused(
+            "evidence does not bind the approved external certification "
+            "revision and images")
     _validate_formal_test_evidence(loaded)
     for field in ("strict_xfails", "strict_skips", "strict_xpasses",
                   "failed_tests"):
