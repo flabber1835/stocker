@@ -61,6 +61,13 @@ jobs:
           python-version: '3.12'
           check-latest: false
 
+      - name: Install pinned reconstruction runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e shared
+
       - name: Compile and test reconstruction rules
         shell: bash
         run: |
