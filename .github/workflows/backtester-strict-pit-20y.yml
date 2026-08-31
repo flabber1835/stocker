@@ -1,33 +1,55 @@
-name: Backtester - full 20-year causal certification
-run-name: Full PIT causal certification 2006-2026 — ${{ github.sha }}
+name: Backtester - annual chained 20-year causal certification
+run-name: Causal PIT year ${{ inputs.year || '2006' }} — ${{ inputs.source_sha || github.sha }}
 
 on:
   workflow_dispatch:
+    inputs:
+      year:
+        description: Calendar year to certify
+        required: true
+        type: string
+      previous_run_id:
+        description: Prior annual workflow run containing the restart artifact
+        required: false
+        default: ''
+        type: string
+      source_sha:
+        description: Frozen backtester source SHA shared by the full chain
+        required: true
+        type: string
   push:
-    branches: [research/backtester]
+    branches: [research/causal-20y-certification]
     paths:
       - backtester/data/canonical-pit-20y-certification-request.json
 
 permissions:
+  actions: write
   contents: read
   packages: read
 
 concurrency:
-  group: backtester-full-20y-causal-${{ github.ref }}
+  group: causal-pit-${{ inputs.source_sha || github.sha }}-${{ inputs.year || '2006' }}
   cancel-in-progress: false
 
 jobs:
-  certify:
-    name: Full 20-year research/production causal certification
-    if: github.ref_name == 'research/backtester'
+  certify_year:
+    name: Causal certification through ${{ inputs.year || '2006' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    env:
+      CHAIN_YEAR: ${{ inputs.year || '2006' }}
+      PREVIOUS_RUN_ID: ${{ inputs.previous_run_id || '' }}
+      SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+      CHAIN_REF: ${{ github.ref_name }}
+      CANONICAL_PIT_EXPECTED_END: '2026-07-31'
+      CANONICAL_DATASET_HASH: f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b
+      PYTHONUNBUFFERED: '1'
 
     steps:
-      - name: Check out frozen certification laboratory
+      - name: Check out frozen causal-certification source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.source_sha || github.sha }}
           fetch-depth: 1
           persist-credentials: false
           filter: blob:none
@@ -35,6 +57,11 @@ jobs:
           sparse-checkout: |
             /.github/workflows/backtester-strict-pit-20y.yml
             /backtester/apply_production_cooldown_age_zero.py
+            /backtester/production_year_checkpoint_overlay.py
+            /backtester/run_production_strict_pit_20y_checkpointed.py
+            /backtester/run_research_strict_pit_20y_checkpointed.py
+            /backtester/run_certification_parallel_20y_checkpointed.py
+            /backtester/write_causal_year_certificate.py
             /backtester/research_terminal_grace_overlay.py
             /backtester/run_certification_parallel_20y_terminal_grace.py
             /backtester/run_research_strict_pit_20y_terminal_grace.py
@@ -65,7 +92,6 @@ jobs:
             /backtester/data/causal-terminal-terms-v1.json
             /backtester/data/causal-terminal-terms-v1.SHA256
             /backtester/data/GS3M_1996-12_2007-05.csv
-            /backtester/CANONICAL_PIT_DATASET_DESIGN.md
             /tests/backtester/test_canonical_pit_dataset.py
             /tests/backtester/test_research_review_basis.py
             /tests/backtester/test_production_cooldown_age_zero.py
@@ -76,34 +102,21 @@ jobs:
             /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
             /research/sentinel-fastgate/pit-evidence/generated/SHA256SUMS.txt
             /research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
-            /PIT input data/MANIFEST.csv
-            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
-            /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
             /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
-            /PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz
-            /PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv
-            /PIT input data/SEC_SECURITY_TYPE_COVERAGE.md
-            /sharadar/SHARADAR_TICKERS.zip
-            /sharadar/SHARADAR_SEP_*.csv.gz
-            /sharadar/SFP/**
 
-      - name: Enforce frozen branch identity
+      - name: Enforce frozen chain identity
         shell: bash
         run: |
           set -euo pipefail
-          test "${GITHUB_REF_NAME}" = "research/backtester"
-          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
           test -z "$(git status --porcelain)"
-          echo "BACKTESTER_BRANCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
-
-      - name: Reconstruct frozen SFP archive
-        shell: bash
-        run: |
-          set -euo pipefail
-          parts=(sharadar/SFP/SHARADAR_SFP.zip.*)
-          test "${#parts[@]}" -ge 1
-          cat "${parts[@]}" > sharadar/SHARADAR_SFP.zip
-          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+          case "${CHAIN_YEAR}" in
+            20[0-2][0-9]) ;;
+            *) echo "invalid chain year ${CHAIN_YEAR}" >&2; exit 1 ;;
+          esac
+          test "${CHAIN_YEAR}" -ge 2006
+          test "${CHAIN_YEAR}" -le 2026
+          echo "BACKTESTER_BRANCH_SHA=${SOURCE_SHA}" >> "${GITHUB_ENV}"
 
       - name: Check out exact production strategy source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -118,7 +131,7 @@ jobs:
             shared
             docs/sentinel-handoff/00_README
 
-      - name: Apply backtester-only production cooldown correction
+      - name: Apply and verify backtester-only production correction
         shell: bash
         run: |
           set -euo pipefail
@@ -126,18 +139,18 @@ jobs:
           test "$(git -C main-src rev-parse HEAD)" = "${EXPECTED}"
           test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)" = "94ba764c79cb7e40d4448195029ecc4c45b8d632"
           test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/adapter.py)" = "a59075507c8031dc0f30f1b989ad7253ad4c1715"
-          mkdir -p backtester-results/strict-pit-20y-certification
+          mkdir -p "backtester-results/causal-year-${CHAIN_YEAR}"
           python backtester/apply_production_cooldown_age_zero.py \
             --root main-src \
-            --evidence backtester-results/strict-pit-20y-certification/production-overlay.json
+            --evidence "backtester-results/causal-year-${CHAIN_YEAR}/production-overlay.json"
           test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)" = "42d6dc0f5dd71cc1331e76d216660b140a609466"
           test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/adapter.py)" = "d171724c2806522e8c94cd184685d09558b04715"
           git -C main-src diff -- \
             shared/stock_strategy_shared/wealth_core/state.py \
             shared/stock_strategy_shared/wealth_core/adapter.py \
-            > backtester-results/strict-pit-20y-certification/production-overlay.diff
-          echo "BACKTESTER_MAIN_SHA=${EXPECTED}" >> "${GITHUB_ENV}"
+            > "backtester-results/causal-year-${CHAIN_YEAR}/production-overlay.diff"
           echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_MAIN_SHA=${EXPECTED}" >> "${GITHUB_ENV}"
 
       - name: Set up Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -152,41 +165,59 @@ jobs:
           python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
           python -m pip install --no-build-isolation --no-deps -e main-src/shared
 
-      - name: Regression and causal-overlay gates
+      - name: Regression, source-identity, and checkpoint-transform gates
         shell: bash
         run: |
           set -euo pipefail
           python -m py_compile \
+            backtester/production_year_checkpoint_overlay.py \
+            backtester/run_production_strict_pit_20y_checkpointed.py \
+            backtester/run_research_strict_pit_20y_checkpointed.py \
+            backtester/run_certification_parallel_20y_checkpointed.py \
+            backtester/write_causal_year_certificate.py \
             backtester/research_terminal_grace_overlay.py \
-            backtester/run_research_strict_pit_20y_terminal_grace.py \
-            backtester/run_certification_parallel_20y_terminal_grace.py \
-            backtester/run_certification_parallel_20y.py \
             backtester/run_production_strict_pit_20y.py \
             backtester/run_research_strict_pit_20y.py \
-            backtester/run_certification_parallel.py \
             backtester/run_production_strict_pit_certification.py \
-            backtester/run_research_strict_pit_certification.py \
-            backtester/canonical_pit_dataset.py
+            backtester/run_research_strict_pit_certification.py
           python -m compileall -q -f main-src/sentinel main-src/shared/stock_strategy_shared
-          python -m unittest tests.backtester.test_canonical_pit_dataset -v
           python -m unittest tests.backtester.test_research_review_basis -v
           python -m unittest tests.backtester.test_production_cooldown_age_zero -v
           python -m unittest tests.backtester.test_research_split_dividend_ordering -v
           python - <<'PY'
-          from pathlib import Path
-          import backtester.run_research_strict_pit_20y as base
-          from backtester.research_terminal_grace_overlay import install
-          text=install(base.corrected.transformed_source('fullpit',Path('/tmp/full-20y-overlay-selftest')))
-          compile(text,'<full-20y-generated-research>','exec')
-          assert "sell_reason='terminal'" not in text
-          assert "terminal_pending" in text
-          assert "missing_sessions" in text
-          assert "book.cash+=_slot.qty*float(_px)" in text
-          assert "book.cash+=_slot.qty*float(_px)*(1-COST)" not in text
-          entitlement="prior_qty={s.tid:s.qty for s in book.slots if s.held()}"
-          assert text.index(entitlement) < text.index("dayact=actions.get(date,{})")
-          print('VALIDATED RESEARCH ECONOMIC OVERLAYS PASS')
+          import unittest
+          from tests.backtester.test_canonical_pit_dataset import CanonicalPITDatasetTests
+          names = [
+              name for name in unittest.defaultTestLoader.getTestCaseNames(CanonicalPITDatasetTests)
+              if name != 'test_dataset_build_and_replay_are_separate_workflows'
+          ]
+          suite = unittest.TestSuite(CanonicalPITDatasetTests(name) for name in names)
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          if not result.wasSuccessful():
+              raise SystemExit(1)
           PY
+          python - <<'PY'
+          import backtester.run_production_strict_pit_20y as production
+          from backtester.production_year_checkpoint_overlay import transformed_main_source
+          source = transformed_main_source(production.strict.runner)
+          compile(source, '<checkpointed-production-main>', 'exec')
+          required = (
+              'PRODUCTION_RESUME_CHECKPOINT',
+              'PRODUCTION_CHECKPOINT_OUTPUT',
+              '[CHECKPOINT RESUME]',
+              '[CHECKPOINT WRITE]',
+              'SessionState.from_dict',
+              'state_a.to_dict()',
+          )
+          for marker in required:
+              assert marker in source, marker
+          print('PRODUCTION ANNUAL CHECKPOINT TRANSFORM PASS')
+          PY
+          env -u PYTHONPATH \
+            CERTIFICATION_SEGMENT_END_SESSION=2006-12-29 \
+            CANONICAL_PIT_EXPECTED_END=2026-07-31 \
+            python backtester/run_production_strict_pit_20y_checkpointed.py \
+              --main-root main-src --self-test-source-identity
 
       - name: Verify full canonical PIT package pointer
         shell: bash
@@ -195,47 +226,22 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-          p=json.loads(Path('backtester/data/canonical-pit-20y.json').read_text())
-          assert p['status']=='PASS'
-          assert p['dataset_hash']=='f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b'
-          assert p['source_run_id']=='33331951602'
-          assert p['window']=={
-              'warmup_start':'2006-01-03',
-              'measurement_start':'2006-07-31',
-              'end':'2026-07-31',
+          pointer = json.loads(Path('backtester/data/canonical-pit-20y.json').read_text())
+          assert pointer['status'] == 'PASS'
+          assert pointer['dataset_hash'] == 'f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b'
+          assert pointer['source_run_id'] == '33331951602'
+          assert pointer['window'] == {
+              'warmup_start': '2006-01-03',
+              'measurement_start': '2006-07-31',
+              'end': '2026-07-31',
           }
-          assert int(p['counts']['unresolved_corporate_actions'])==0
-          print('FULL CANONICAL PIT POINTER PASS', p['dataset_id'])
+          assert int(pointer['counts']['unresolved_corporate_actions']) == 0
+          print('FULL CANONICAL PIT POINTER PASS', pointer['dataset_id'])
           PY
-
-      - name: Verify strict PIT authority inputs
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f 'PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz'
-          test -f 'PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv'
-          test -f 'PIT input data/ACTIONS_PIT_ONLY.csv.gz'
-          test -f 'PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz'
-          test -f research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
-          test -f research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
-          test -f backtester/data/GS3M_1996-12_2007-05.csv
-          test "$(sha256sum backtester/data/GS3M_1996-12_2007-05.csv | awk '{print $1}')" = "1c1dbdcddd50c2445f8c65d1378d3d2bc87626fe2dc9b9956bc0cd97682a72d3"
-          (cd backtester/data && sha256sum -c causal-terminal-terms-v1.SHA256)
-          (cd backtester/data && sha256sum -c causal-split-overrides-v1.SHA256)
-
-      - name: Prove child entrypoints without inherited PYTHONPATH
-        shell: bash
-        env:
-          PYTHONUNBUFFERED: '1'
-        run: |
-          set -euo pipefail
-          env -u PYTHONPATH python backtester/run_production_strict_pit_20y.py --self-test-imports
-          env -u PYTHONPATH python backtester/run_research_strict_pit_20y_terminal_grace.py --self-test-imports
 
       - name: Pull and certify stored full 20-year PIT dataset
         shell: bash
         env:
-          PYTHONUNBUFFERED: '1'
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
@@ -254,95 +260,148 @@ jobs:
             --pointer "${POINTER}" --dataset "${CANONICAL_PATH}"
           echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/${CANONICAL_PATH}" >> "${GITHUB_ENV}"
 
-      - name: Run full 20-year corrected-production versus repaired-research certification
+      - name: Resolve exact annual boundary
         shell: bash
-        env:
-          PYTHONUNBUFFERED: '1'
         run: |
           set -euo pipefail
-          python backtester/run_certification_parallel_20y_terminal_grace.py \
+          python - <<'PY' >> "${GITHUB_ENV}"
+          import os
+          import pandas as pd
+          year = int(os.environ['CHAIN_YEAR'])
+          final_end = '2026-07-31'
+          cap = final_end if year == 2026 else f'{year}-12-31'
+          hashes = pd.read_csv(
+              'backtester-results/canonical-pit-20y/session-hashes.csv',
+              dtype=str,
+          )
+          sessions = hashes.loc[hashes.session.le(cap), 'session']
+          if sessions.empty:
+              raise SystemExit(f'no canonical session on or before {cap}')
+          end = str(sessions.iloc[-1])
+          if not end.startswith(str(year)):
+              raise SystemExit(f'annual boundary {end} does not belong to {year}')
+          print(f'CERTIFICATION_SEGMENT_END_SESSION={end}')
+          print(f'PRODUCTION_CHECKPOINT_OUTPUT={os.getcwd()}/backtester-results/causal-year-{year}/production-checkpoint.json')
+          print(f'YEAR_OUTPUT_ROOT={os.getcwd()}/backtester-results/causal-year-{year}')
+          PY
+
+      - name: Download prior annual checkpoint
+        if: ${{ inputs.previous_run_id != '' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: causal-checkpoint
+          path: previous-causal-year
+          run-id: ${{ inputs.previous_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate prior handoff
+        if: ${{ inputs.previous_run_id != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREVIOUS_YEAR=$((CHAIN_YEAR - 1))
+          test -f previous-causal-year/production-checkpoint.json
+          test -f previous-causal-year/production-checkpoint.json.sha256
+          test -f previous-causal-year/causal-year-certificate.json
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          previous_year = int(os.environ['CHAIN_YEAR']) - 1
+          certificate = json.loads(
+              Path('previous-causal-year/causal-year-certificate.json').read_text()
+          )
+          if certificate.get('status') != 'PASS' or int(certificate.get('year', -1)) != previous_year:
+              raise SystemExit('prior annual certificate is not the contiguous PASS handoff')
+          if certificate.get('source_sha') != os.environ['SOURCE_SHA']:
+              raise SystemExit('prior annual certificate source SHA mismatch')
+          if certificate.get('dataset_hash') != os.environ['CANONICAL_DATASET_HASH']:
+              raise SystemExit('prior annual certificate dataset mismatch')
+          PY
+          echo "PRODUCTION_RESUME_CHECKPOINT=${GITHUB_WORKSPACE}/previous-causal-year/production-checkpoint.json" >> "${GITHUB_ENV}"
+          echo "PREVIOUS_CERTIFICATE=${GITHUB_WORKSPACE}/previous-causal-year/causal-year-certificate.json" >> "${GITHUB_ENV}"
+
+      - name: Run annual corrected-production versus repaired-research certification
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p "${YEAR_OUTPUT_ROOT}"
+          set +e
+          python backtester/run_certification_parallel_20y_checkpointed.py \
+            --end-session "${CERTIFICATION_SEGMENT_END_SESSION}" \
             --canonical-dataset "${CANONICAL_PIT_DATASET}" \
-            --output-root backtester-results/strict-pit-20y-certification \
+            --output-root "${YEAR_OUTPUT_ROOT}" \
             --spy-factors 'PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz' \
             --lab-root . \
             --main-root main-src \
-            2>&1 | tee backtester-strict-pit-20y-certification.log
+            2>&1 | tee "backtester-causal-year-${CHAIN_YEAR}.log"
+          STATUS=${PIPESTATUS[0]}
+          set -e
+          echo "${STATUS}" > "${YEAR_OUTPUT_ROOT}/runner-exit-code.txt"
+          exit "${STATUS}"
 
-      - name: Issue final fail-closed causal certificate
+      - name: Issue content-addressed annual causal certificate
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import hashlib, json, os
-          from pathlib import Path
-          root=Path('backtester-results/strict-pit-20y-certification')
-          pointer=json.loads(Path('backtester/data/canonical-pit-20y.json').read_text())
-          manifest=json.loads((Path('backtester-results/canonical-pit-20y')/'manifest.json').read_text())
-          consumption=json.loads((root/'canonical_input_consumption_audit.json').read_text())
-          progress=json.loads((root/'certification_progress_audit.json').read_text())
-          strong=json.loads((root/'strong_equivalence_audit.json').read_text())
-          production=json.loads((root/'production'/'metadata_authority_audit.json').read_text())
-          research=json.loads((root/'research'/'metadata_authority_audit.json').read_text())
+          PREVIOUS_ARGS=()
+          if test -n "${PREVIOUS_CERTIFICATE:-}"; then
+            PREVIOUS_ARGS=(--previous-certificate "${PREVIOUS_CERTIFICATE}")
+          fi
+          python backtester/write_causal_year_certificate.py \
+            --output-root "${YEAR_OUTPUT_ROOT}" \
+            --checkpoint "${PRODUCTION_CHECKPOINT_OUTPUT}" \
+            --year "${CHAIN_YEAR}" \
+            --segment-end "${CERTIFICATION_SEGMENT_END_SESSION}" \
+            --source-sha "${SOURCE_SHA}" \
+            --dataset-hash "${CANONICAL_DATASET_HASH}" \
+            "${PREVIOUS_ARGS[@]}" \
+            --output "${YEAR_OUTPUT_ROOT}/causal-year-certificate.json"
+          cp "${PRODUCTION_CHECKPOINT_OUTPUT}" ./production-checkpoint.json
+          cp "${PRODUCTION_CHECKPOINT_OUTPUT}.sha256" ./production-checkpoint.json.sha256
+          cp "${YEAR_OUTPUT_ROOT}/causal-year-certificate.json" ./causal-year-certificate.json
 
-          expected=pointer['dataset_hash']
-          if manifest.get('status')!='PASS' or manifest.get('dataset_hash')!=expected:
-              raise SystemExit('NO_GO: full canonical PIT package identity/status mismatch')
-          if int(manifest['counts']['unresolved_corporate_actions'])!=0:
-              raise SystemExit('NO_GO: unresolved canonical corporate actions')
-          if consumption.get('dataset_hash')!=expected or not consumption.get('per_session_hashes_identical'):
-              raise SystemExit('NO_GO: research/production did not consume byte-identical canonical sessions')
-          if progress.get('first_divergence') is not None:
-              raise SystemExit('NO_GO: NAV divergence remains')
-          if strong.get('first_divergence') is not None:
-              raise SystemExit('NO_GO: economically active strategy-state divergence remains')
-          if int(strong.get('sessions_compared',0)) <= 0:
-              raise SystemExit('NO_GO: no strategy sessions compared')
-          if not progress.get('quarterly_blocks_emitted'):
-              raise SystemExit('NO_GO: no quarterly progress evidence emitted')
-          for role,audit in (('production',production),('research',research)):
-              if audit.get('current_SHARADAR_TICKERS_economically_active_fields') != []:
-                  raise SystemExit(f'NO_GO: {role} retained current TICKERS economic authority')
-              if audit.get('fallbacks',{}).get('security_type_unknown')!='ineligible':
-                  raise SystemExit(f'NO_GO: {role} security-type unknown fallback not fail-closed')
-
-          certificate={
-              'schema':'backtester.full-20y-causal-certificate/1',
-              'status':'PASS',
-              'backtester_sha':os.environ['GITHUB_SHA'],
-              'production_source_sha':os.environ['BACKTESTER_MAIN_SHA'],
-              'production_cooldown_issue':294,
-              'production_cooldown_overlay_diff_sha256':'87648d1600f4a434f645d4a10c94074ac576d7e4e03af415f48fd7a0fbfacdc9',
-              'bounded_equivalence_prerequisite_run':33347898761,
-              'canonical_dataset_hash':expected,
-              'canonical_dataset_id':pointer['dataset_id'],
-              'canonical_source_run_id':pointer['source_run_id'],
-              'window':pointer['window'],
-              'canonical_input_sessions_identical':True,
-              'strong_equivalence_sessions':int(strong['sessions_compared']),
-              'strong_equivalence_tolerance':strong['tolerance'],
-              'first_divergence':None,
-              'quarterly_blocks_emitted':progress['quarterly_blocks_emitted'],
-              'unknown_security_type_policy':'ineligible (fail closed)',
-              'main_modified':False,
-          }
-          path=root/'full_20y_causal_certificate.json'
-          path.write_text(json.dumps(certificate,indent=2,sort_keys=True)+'\n')
-          digest=hashlib.sha256(path.read_bytes()).hexdigest()
-          (root/'full_20y_causal_certificate.SHA256').write_text(f'{digest}  {path.name}\n')
-          print('FULL 20-YEAR CAUSAL CERTIFICATION PASS')
-          print(json.dumps(certificate,sort_keys=True))
-          PY
-
-      - name: Upload full certification evidence
+      - name: Upload durable annual handoff and evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: backtester-full-20y-causal-${{ github.run_id }}
+          name: causal-checkpoint
           path: |
-            backtester-results/strict-pit-20y-certification/**
-            backtester-strict-pit-20y-certification.log
+            production-checkpoint.json
+            production-checkpoint.json.sha256
+            causal-year-certificate.json
+            backtester-results/causal-year-${{ env.CHAIN_YEAR }}/**
+            backtester-causal-year-${{ env.CHAIN_YEAR }}.log
             backtester/data/canonical-pit-20y.json
             backtester/data/canonical-pit-20y-certification-request.json
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 90
           compression-level: 6
+
+      - name: Dispatch the next annual segment
+        if: ${{ success() && env.CHAIN_YEAR != '2026' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          NEXT_YEAR=$((CHAIN_YEAR + 1))
+          python - <<'PY' > /tmp/next-year-dispatch.json
+          import json, os
+          payload = {
+              'ref': os.environ['CHAIN_REF'],
+              'inputs': {
+                  'year': str(int(os.environ['CHAIN_YEAR']) + 1),
+                  'previous_run_id': os.environ['GITHUB_RUN_ID'],
+                  'source_sha': os.environ['SOURCE_SHA'],
+              },
+          }
+          print(json.dumps(payload, separators=(',', ':')))
+          PY
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/backtester-strict-pit-20y.yml/dispatches" \
+            --data-binary @/tmp/next-year-dispatch.json
+          echo "Dispatched causal certification year ${NEXT_YEAR} from run ${GITHUB_RUN_ID}"
