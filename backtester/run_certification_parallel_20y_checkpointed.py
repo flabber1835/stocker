@@ -2,6 +2,7 @@
 """Annual, restartable research/production strict-PIT causal certification."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,14 @@ _real_dataset = cert.CanonicalPITDataset
 _real_strong_equivalence = cert._strong_equivalence
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _full_package_dataset(path, *, expected_start=None, expected_end=None, **kwargs):
     return _real_dataset(
         path,
@@ -25,7 +34,12 @@ def _full_package_dataset(path, *, expected_start=None, expected_end=None, **kwa
 
 
 def _verify_prefix_consumption(output_root: Path, expected_hash: str) -> None:
-    """Authenticate the exact canonical prefix consumed by both annual engines."""
+    """Authenticate the exact canonical prefix consumed by both annual engines.
+
+    Child bundles remain byte-for-byte self-consistent. Prefix evidence is
+    written to separate files owned by this annual orchestrator, preserving the
+    child manifests and SHA256SUMS contracts.
+    """
     end_session = os.environ.get("CERTIFICATION_END_SESSION", "").strip()
     canonical_root = Path(os.environ["CANONICAL_PIT_DATASET"])
     canonical = pd.read_csv(
@@ -40,6 +54,7 @@ def _verify_prefix_consumption(output_root: Path, expected_hash: str) -> None:
 
     summaries: dict[str, dict] = {}
     prefixes: dict[str, pd.DataFrame] = {}
+    prefix_hashes: dict[str, str] = {}
     for role in ("research", "production"):
         summaries[role] = json.loads(
             (output_root / role / "summary.json").read_text(encoding="utf-8")
@@ -50,8 +65,8 @@ def _verify_prefix_consumption(output_root: Path, expected_hash: str) -> None:
                 f"{role} canonical dataset hash mismatch: "
                 f"{observed_hash} != {expected_hash}"
             )
-        path = output_root / role / "canonical_input_session_hashes.csv"
-        frame = pd.read_csv(path, dtype=str, keep_default_na=False)
+        child_path = output_root / role / "canonical_input_session_hashes.csv"
+        frame = pd.read_csv(child_path, dtype=str, keep_default_na=False)
         prefix = frame[frame["session"].le(end_session)].copy()
         prefix.reset_index(drop=True, inplace=True)
         if not prefix.equals(expected_prefix):
@@ -59,13 +74,17 @@ def _verify_prefix_consumption(output_root: Path, expected_hash: str) -> None:
                 f"{role} canonical per-session input hashes disagree with "
                 f"the immutable package through {end_session}"
             )
-        prefix.to_csv(path, index=False, lineterminator="\n")
+        prefix_path = (
+            output_root / role / "canonical_input_session_hashes_prefix.csv"
+        )
+        prefix.to_csv(prefix_path, index=False, lineterminator="\n")
         prefixes[role] = prefix
+        prefix_hashes[role] = _sha256(prefix_path)
 
     if not prefixes["research"].equals(prefixes["production"]):
         raise RuntimeError("research/production canonical annual prefixes differ")
     audit = {
-        "schema": "backtester.canonical-input-consumption/2",
+        "schema": "backtester.canonical-input-consumption/3",
         "dataset_hash": expected_hash,
         "prefix_end": end_session,
         "sessions_compared": int(len(expected_prefix)),
@@ -73,6 +92,8 @@ def _verify_prefix_consumption(output_root: Path, expected_hash: str) -> None:
             role: summaries[role]["canonical_pit_dataset_hash"]
             for role in summaries
         },
+        "prefix_evidence_sha256": prefix_hashes,
+        "child_bundles_preserved": True,
         "per_session_hashes_identical": True,
         "package_prefix_authenticated": True,
     }
