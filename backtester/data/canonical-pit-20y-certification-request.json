@@ -1,0 +1,44 @@
+{
+  "purpose": "Launch the fail-closed full 20-year causal certification of retained research against corrected production using the completed canonical PIT dataset",
+  "requested_window": {
+    "warmup_start": "2006-01-03",
+    "measurement_start": "2006-07-31",
+    "end": "2026-07-31"
+  },
+  "canonical_dataset": {
+    "dataset_hash": "f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b",
+    "dataset_id": "strict-pit-2006-01-03-2026-07-31-f9fb220871ad4152",
+    "manifest_sha256": "6ffffa117407b7e2b1eb023ff20b6f8885d93ef86187749bf0c76360acd22608",
+    "package": "ghcr.io/flabber1835/stocker-canonical-pit@sha256:4f53e51d8171aab8a8ac9df90e116d27b0f9b54f95629154685ea8a2394c1265",
+    "source_run_id": 33331951602,
+    "unresolved_corporate_actions": 0
+  },
+  "production_reference": {
+    "source_sha": "887f479b15ad861313da666ad698034d3847121c",
+    "cooldown_issue": 294,
+    "cooldown_overlay_diff_sha256": "87648d1600f4a434f645d4a10c94074ac576d7e4e03af415f48fd7a0fbfacdc9",
+    "scope": "backtester-only; main remains untouched"
+  },
+  "validated_research_repairs": {
+    "age_119_review_basis": "execution-open adjusted price, not entry-session close",
+    "terminal_grace": "production C1 carry/grace/proxy-settlement semantics",
+    "split_dividend_ordering": "same-session split transforms carried prior-close share quantity before dividend entitlement capture"
+  },
+  "bounded_equivalence_prerequisite": {
+    "run_id": 33347898761,
+    "result": "PASS",
+    "window_end": "2007-12-31",
+    "canonical_input_parity": true,
+    "remaining_divergence": null
+  },
+  "required_fail_closed_evidence": [
+    "canonical package verifies and has zero unresolved corporate actions",
+    "research and production consume byte-identical canonical per-session input hashes",
+    "strict-prior metadata authority with unknown security type ineligible",
+    "no first NAV divergence",
+    "no divergence in eligible universe, ranking count, rankings, selected positions, Wealth Core equity, damaged breadth, native target, LD-RC state, allocation, or NAV",
+    "quarterly cumulative research, production, and SPY CAGR progress is emitted after warmup",
+    "final content-addressed causal certificate is emitted only on full PASS"
+  ],
+  "launch": 1
+}
