@@ -713,7 +713,8 @@ def issuer_fixture(tmp_path: Path, *, wealth_verdict="GO", strict_xfails=0,
             "wealth_core_source_hash": wealth_source,
             "runtime_identity_hash": expected_runtime,
             "producer": "tools/wealth_core_expected_hashes.py",
-            "producer_sha256": sha("5"),
+            "producer_sha256":
+                formal_baseline.APPROVED_EXPECTED_HASH_PRODUCER_SHA256,
             "canonical_loader_bundle": formal_baseline.external_loader_bundle(),
             "runtime_environment": {
                 "compatible": True, "pins_match": True,
@@ -961,12 +962,34 @@ def test_offline_issuer_validates_every_digest_and_never_emits_private_key(tmp_p
         issuer.validate_evidence(document, index)
 
 
-def test_issuer_validates_external_loader_bundle_commitment():
+def test_issuer_anchors_external_certification_source_to_preserved_revision():
     bundle = formal_baseline.external_loader_bundle()
+    provenance = {
+        "producer": "tools/wealth_core_expected_hashes.py",
+        "producer_sha256":
+            formal_baseline.APPROVED_EXPECTED_HASH_PRODUCER_SHA256,
+        "canonical_loader_bundle": bundle,
+    }
+    assert issuer.APPROVED_CERTIFICATION_REVISION == (
+        formal_baseline.APPROVED_CERTIFICATION_REVISION)
     assert issuer._validate_external_loader_bundle(bundle)
+    assert issuer._validate_external_certification_source(provenance)
+
+    forged_producer = dict(provenance, producer_sha256=sha("e"))
+    assert not issuer._validate_external_certification_source(forged_producer)
+
     tampered = json.loads(json.dumps(bundle))
-    tampered["sources"]["certification/pit_loader.py"] = "0" * 64
+    tampered["sources"] = {
+        "certification/kernel_adapter.py": "a" * 64,
+        "certification/pit_loader.py": "b" * 64,
+    }
+    payload = {"schema": tampered["schema"], "sources": tampered["sources"]}
+    tampered["sha256"] = hashlib.sha256(json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+        allow_nan=False).encode("ascii")).hexdigest()
     assert not issuer._validate_external_loader_bundle(tampered)
+    forged_bundle = dict(provenance, canonical_loader_bundle=tampered)
+    assert not issuer._validate_external_certification_source(forged_bundle)
 
 
 def test_issuer_revalidates_formal_forward_run_and_refuses_forged_pass(

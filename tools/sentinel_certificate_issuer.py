@@ -38,6 +38,21 @@ from sentinel.execution.authority_gate import (
 EVIDENCE_INDEX_SCHEMA = "sentinel.certificate_evidence_index/1"
 RESOURCE_MEASUREMENT_PRODUCER = "scripts/sentinel-measure.sh"
 _CANONICAL_LOADER_BUNDLE_SCHEMA = "wealth_core.canonical-loader-bundle/1"
+APPROVED_CERTIFICATION_REVISION = (
+    "7f12174273dfa071a25614d2c4a1be8ebfdfbc3a")
+_EXPECTED_HASH_PRODUCER = "tools/wealth_core_expected_hashes.py"
+_APPROVED_EXPECTED_HASH_PRODUCER_SHA256 = (
+    "8ea492a9f53d1f3cb6ba28ca3c6f5d50d1471942772b5fa04832fdd7d215c2b4")
+_APPROVED_CANONICAL_LOADER_SOURCES = {
+    "services/backtester/app/wealth_core_replay.py":
+        "03c966510fe47b6572c6f2c629797e3a898a6ed3ec14114e7d094b92d558142a",
+    "services/backtester/app/wealth_core_replay_impl.py":
+        "2ebce6ca026f944b812ab2b0bf290db5eaa4df7b42a12710b6f3bb41613c2f7d",
+    "shared/stock_strategy_shared/split_reconciliation.py":
+        "a32f6698763bfd110b309fc42d9bb39b1c2e0272bd81e5ff659a5f7a5017dfd7",
+}
+_APPROVED_CANONICAL_LOADER_BUNDLE_SHA256 = (
+    "7d10f4b00e41b78764e81cadbaad7c3a0564b6db6678c983d78fc7cbfe11c669")
 REQUIRED_EVIDENCE = frozenset({
     "certification_manifest", "wealth_core", "controller", "forward_chain",
     "resource_envelope", "publication_policy", "reference_artifact",
@@ -58,21 +73,25 @@ def _sha256(payload: bytes) -> str:
 
 
 def _validate_external_loader_bundle(value: object) -> bool:
-    """Validate certification-owned sources from their own commitment."""
+    """Match the loader bytes approved at ``APPROVED_CERTIFICATION_REVISION``."""
     if not isinstance(value, Mapping):
         return False
-    sources = value.get("sources")
-    if (value.get("schema") != _CANONICAL_LOADER_BUNDLE_SCHEMA
-            or not isinstance(sources, Mapping) or not sources):
-        return False
-    if any(not isinstance(path, str) or not path
-           or re.fullmatch(r"[0-9a-f]{64}", str(digest)) is None
-           for path, digest in sources.items()):
-        return False
-    payload = {"schema": value["schema"], "sources": dict(sources)}
-    return value.get("sha256") == _sha256(json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
-        allow_nan=False).encode("ascii"))
+    expected = {
+        "schema": _CANONICAL_LOADER_BUNDLE_SCHEMA,
+        "sources": _APPROVED_CANONICAL_LOADER_SOURCES,
+        "sha256": _APPROVED_CANONICAL_LOADER_BUNDLE_SHA256,
+    }
+    return dict(value) == expected
+
+
+def _validate_external_certification_source(value: object) -> bool:
+    """Bind an expected-hash artifact to the preserved reviewed source bytes."""
+    return (isinstance(value, Mapping)
+            and value.get("producer") == _EXPECTED_HASH_PRODUCER
+            and value.get("producer_sha256")
+            == _APPROVED_EXPECTED_HASH_PRODUCER_SHA256
+            and _validate_external_loader_bundle(
+                value.get("canonical_loader_bundle")))
 
 
 def _strict_json(payload: bytes, *, label: str,
@@ -661,7 +680,6 @@ def validate_evidence(claims: Mapping, index_path: Path) -> None:
     expected_corpus = (expected_hashes or {}).get("corpus") or {}
     expected_values = (expected_hashes or {}).get("hashes")
     from stock_strategy_shared.wealth_core.hashes import HASH_ORDER
-    loader_bundle = expected_provenance.get("canonical_loader_bundle")
     population_fields = (
         "distinct_securities", "first_session_securities",
         "last_session_securities", "maximum_session_securities")
@@ -678,11 +696,7 @@ def validate_evidence(claims: Mapping, index_path: Path) -> None:
             or any(expected_corpus[field]
                    > expected_corpus["distinct_securities"]
                    for field in population_fields[1:])
-            or expected_provenance.get("producer")
-            != "tools/wealth_core_expected_hashes.py"
-            or re.fullmatch(r"[0-9a-f]{64}", str(
-                expected_provenance.get("producer_sha256") or "")) is None
-            or not _validate_external_loader_bundle(loader_bundle)
+            or not _validate_external_certification_source(expected_provenance)
             or not isinstance(baseline, Mapping)
             or baseline.get("mode") != "baseline_replay"
             or baseline.get("status") != "success"
