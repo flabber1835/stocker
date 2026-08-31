@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   diagnose:
-    name: Compare exact leadership/ranking rows on 2006-08-08
+    name: Compare and independently adjudicate ranking rows on 2006-08-08
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -35,6 +35,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /.github/workflows/backtester-ranking-diagnostic-2006-08-08.yml
+            /backtester/adjudicate_ranking_2006_08_08.py
             /backtester/apply_production_cooldown_age_zero.py
             /backtester/production_year_checkpoint_overlay.py
             /backtester/run_production_strict_pit_20y_checkpointed.py
@@ -115,6 +116,7 @@ jobs:
           python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
           python -m pip install --no-build-isolation --no-deps -e main-src/shared
           python -m py_compile \
+            backtester/adjudicate_ranking_2006_08_08.py \
             backtester/run_production_strict_pit_20y_checkpointed.py \
             backtester/run_research_strict_pit_20y_checkpointed.py \
             backtester/run_certification_parallel_20y_checkpointed.py
@@ -164,6 +166,19 @@ jobs:
             echo "expected strong-equivalence diagnostic exit 3, got ${STATUS}" >&2
             exit 1
           fi
+
+      - name: Adjudicate with independent 80-digit canonical reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          python backtester/adjudicate_ranking_2006_08_08.py \
+            --dataset "${CANONICAL_PIT_DATASET}" \
+            --diagnostic-log ranking-diagnostic/diagnostic.log \
+            --output ranking-diagnostic/high-precision-adjudication.json \
+            2>&1 | tee ranking-diagnostic/adjudication.log
+          grep -F '[ADJUDICATION] verdict=' ranking-diagnostic/adjudication.log
+          grep -F '[ADJUDICATION ORDER]' ranking-diagnostic/adjudication.log
+          grep -F '[ADJUDICATION WITNESS]' ranking-diagnostic/adjudication.log
 
       - name: Upload ranking diagnostic evidence
         if: always()
