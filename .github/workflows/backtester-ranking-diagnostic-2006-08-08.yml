@@ -1,0 +1,130 @@
+name: Backtester - ranking divergence diagnostic 2006-08-08
+run-name: Ranking diagnostic 2006-08-08 — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/causal-20y-certification]
+    paths:
+      - .github/workflows/backtester-ranking-diagnostic-2006-08-08.yml
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  diagnose:
+    name: Compare exact leadership/ranking rows on 2006-08-08
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CANONICAL_PIT_EXPECTED_END: '2026-07-31'
+      CERTIFICATION_SEGMENT_END_SESSION: '2006-08-08'
+      CERTIFICATION_RANKING_DIAGNOSTIC_SESSION: '2006-08-08'
+      BACKTESTER_BRANCH_SHA: ${{ github.sha }}
+      BACKTESTER_MAIN_SHA: 887f479b15ad861313da666ad698034d3847121c
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - name: Check out diagnostic source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Check out exact production strategy source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+            docs/sentinel-handoff/00_README
+
+      - name: Apply exact backtester-only production correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C main-src rev-parse HEAD)" = "${BACKTESTER_MAIN_SHA}"
+          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)" = "94ba764c79cb7e40d4448195029ecc4c45b8d632"
+          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/adapter.py)" = "a59075507c8031dc0f30f1b989ad7253ad4c1715"
+          python backtester/apply_production_cooldown_age_zero.py --root main-src
+          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)" = "42d6dc0f5dd71cc1331e76d216660b140a609466"
+          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/adapter.py)" = "d171724c2806522e8c94cd184685d09558b04715"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install exact production runtime closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          python -m py_compile \
+            backtester/run_production_strict_pit_20y_checkpointed.py \
+            backtester/run_research_strict_pit_20y_checkpointed.py \
+            backtester/run_certification_parallel_20y_checkpointed.py
+
+      - name: Pull and verify immutable 20-year PIT package
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CANONICAL_PATH=backtester-results/canonical-pit-20y
+          POINTER=backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          CONTAINER=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p "${CANONICAL_PATH}"
+          docker cp "${CONTAINER}:/canonical-pit/." "${CANONICAL_PATH}"
+          docker rm "${CONTAINER}"
+          trap - EXIT
+          python backtester/canonical_pit_package.py verify --pointer "${POINTER}" --dataset "${CANONICAL_PATH}"
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/${CANONICAL_PATH}" >> "${GITHUB_ENV}"
+          echo "PRODUCTION_CHECKPOINT_OUTPUT=${GITHUB_WORKSPACE}/ranking-diagnostic/production-checkpoint.json" >> "${GITHUB_ENV}"
+
+      - name: Reproduce and expose the first ranking mismatch
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p ranking-diagnostic/run
+          set +e
+          python backtester/run_certification_parallel_20y_checkpointed.py \
+            --end-session "${CERTIFICATION_SEGMENT_END_SESSION}" \
+            --canonical-dataset "${CANONICAL_PIT_DATASET}" \
+            --output-root ranking-diagnostic/run \
+            --spy-factors 'PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz' \
+            --lab-root . \
+            --main-root main-src \
+            2>&1 | tee ranking-diagnostic/diagnostic.log
+          STATUS=${PIPESTATUS[0]}
+          set -e
+          echo "${STATUS}" > ranking-diagnostic/runner-exit-code.txt
+          grep -F '[RANKING DIAGNOSTIC] role=production ' ranking-diagnostic/diagnostic.log
+          grep -F '[RANKING DIAGNOSTIC] role=research ' ranking-diagnostic/diagnostic.log
+          grep -F '[STRONG EQUIVALENCE FAIL]' ranking-diagnostic/diagnostic.log
+          if test "${STATUS}" -ne 3; then
+            echo "expected strong-equivalence diagnostic exit 3, got ${STATUS}" >&2
+            exit 1
+          fi
+
+      - name: Upload ranking diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ranking-diagnostic-2006-08-08
+          path: ranking-diagnostic/**
+          if-no-files-found: error
+          retention-days: 90
