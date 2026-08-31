@@ -1,9 +1,20 @@
 {
-  "purpose": "Launch the fail-closed full 20-year causal certification of retained research against corrected production using the completed canonical PIT dataset",
+  "purpose": "Launch the fail-closed 20-year causal certification as a durable annual checkpoint chain",
   "requested_window": {
     "warmup_start": "2006-01-03",
     "measurement_start": "2006-07-31",
     "end": "2026-07-31"
+  },
+  "execution_model": {
+    "mode": "annual_chained_restart",
+    "first_year": 2006,
+    "final_year": 2026,
+    "maximum_job_minutes": 360,
+    "production_restart_state": "bounded SessionState JSON plus all economically active backtester controller/account state",
+    "research_policy": "fresh retained-research replay through each annual boundary",
+    "handoff": "hash-verified GitHub Actions artifact from the immediately preceding PASS year",
+    "continuation": "the next year is dispatched only after the current annual certificate and artifact succeed",
+    "crash_retention": "every completed year remains an independently downloadable artifact and certificate"
   },
   "canonical_dataset": {
     "dataset_hash": "f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b",
@@ -17,7 +28,8 @@
     "source_sha": "887f479b15ad861313da666ad698034d3847121c",
     "cooldown_issue": 294,
     "cooldown_overlay_diff_sha256": "87648d1600f4a434f645d4a10c94074ac576d7e4e03af415f48fd7a0fbfacdc9",
-    "scope": "backtester-only; main remains untouched"
+    "scope": "backtester-only; main remains untouched",
+    "source_identity": "derived and verified from the pinned checkout inside every annual job"
   },
   "validated_research_repairs": {
     "age_119_review_basis": "execution-open adjusted price, not entry-session close",
@@ -37,8 +49,8 @@
     "strict-prior metadata authority with unknown security type ineligible",
     "no first NAV divergence",
     "no divergence in eligible universe, ranking count, rankings, selected positions, Wealth Core equity, damaged breadth, native target, LD-RC state, allocation, or NAV",
-    "quarterly cumulative research, production, and SPY CAGR progress is emitted after warmup",
-    "final content-addressed causal certificate is emitted only on full PASS"
+    "each annual production checkpoint is content-addressed and resumes only from the immediately preceding certificate",
+    "final content-addressed causal certificate is emitted only after the contiguous 2006-2026 chain passes"
   ],
-  "launch": 1
+  "launch": 2
 }
