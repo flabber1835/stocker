@@ -7,5 +7,17 @@
   "canonical_dataset_hash": "f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b",
   "warmup_start": "2006-01-03",
   "measurement_start": "2006-07-31",
-  "end": "2026-07-31"
+  "end": "2026-07-31",
+  "retry": 2,
+  "previous_failure": {
+    "run_id": 33352236633,
+    "artifact_id": 9744046103,
+    "artifact_zip_sha256": "b666e5554b3bfef6d65dc7eb62d5b7f3c9819a1cb1dd368d52211f8f5b3290b1",
+    "classification": "runtime source-identity invocation failure before historical replay",
+    "cause": "the verified production checkout SHA was not bound to BACKTESTER_MAIN_SHA"
+  },
+  "correction": {
+    "commit": "2c8a51ee4c33718404e03cb2223ad5ef043593d8",
+    "rule": "derive BACKTESTER_MAIN_SHA from the exact --main-root checkout, verify it equals the pinned source, reject conflicting inherited identity, then bind it in-process"
+  }
 }
