@@ -10,9 +10,10 @@ from pathlib import Path
 
 import pandas as pd
 
-SCHEMA = "backtester.causal-year-certificate/2"
+SCHEMA = "backtester.causal-year-certificate/3"
+CHAIN_GENERATION = 3
 CHECKPOINT_SCHEMA = "backtester.production-year-checkpoint/2"
-GENERATION = 2
+CHECKPOINT_GENERATION = 2
 FINAL_END = "2026-07-31"
 
 
@@ -73,8 +74,8 @@ def main() -> int:
 
     if checkpoint.get("schema") != CHECKPOINT_SCHEMA:
         raise RuntimeError("unexpected production checkpoint schema")
-    if int(checkpoint.get("generation", -1)) != GENERATION:
-        raise RuntimeError("production checkpoint generation mismatch")
+    if int(checkpoint.get("generation", -1)) != CHECKPOINT_GENERATION:
+        raise RuntimeError("production checkpoint format generation mismatch")
     if checkpoint.get("backtester_sha") != args.source_sha:
         raise RuntimeError("checkpoint source SHA mismatch")
     if checkpoint.get("dataset_hash") != args.dataset_hash:
@@ -92,10 +93,27 @@ def main() -> int:
         raise RuntimeError("checkpoint PIT Wealth Core history lacks annual boundary")
     if not isinstance(strict_state, dict):
         raise RuntimeError("checkpoint lacks cumulative strict-authority state")
+
+    if consumption.get("schema") != "backtester.canonical-input-consumption/3":
+        raise RuntimeError("unexpected canonical prefix-consumption audit schema")
     if consumption.get("dataset_hash") != args.dataset_hash:
         raise RuntimeError("canonical input audit dataset hash mismatch")
+    if consumption.get("prefix_end") != args.segment_end:
+        raise RuntimeError("canonical input audit annual boundary mismatch")
+    if not consumption.get("child_bundles_preserved"):
+        raise RuntimeError("child result bundles were modified after finalization")
     if not consumption.get("per_session_hashes_identical"):
         raise RuntimeError("research and production canonical session hashes differ")
+    if not consumption.get("package_prefix_authenticated"):
+        raise RuntimeError("canonical annual prefix was not authenticated")
+    prefix_hashes = consumption.get("prefix_evidence_sha256") or {}
+    for role in ("production", "research"):
+        prefix_path = root / role / "canonical_input_session_hashes_prefix.csv"
+        if not prefix_path.is_file():
+            raise RuntimeError(f"{role} canonical prefix evidence is missing")
+        if prefix_hashes.get(role) != _sha256(prefix_path):
+            raise RuntimeError(f"{role} canonical prefix evidence hash mismatch")
+
     if progress.get("first_divergence") is not None:
         raise RuntimeError("NAV divergence remains in annual causal segment")
     if strong.get("first_divergence") is not None:
@@ -138,8 +156,8 @@ def main() -> int:
         previous = _load(args.previous_certificate.resolve())
         if previous.get("schema") != SCHEMA:
             raise RuntimeError("previous annual certificate schema mismatch")
-        if int(previous.get("generation", -1)) != GENERATION:
-            raise RuntimeError("previous annual certificate generation mismatch")
+        if int(previous.get("generation", -1)) != CHAIN_GENERATION:
+            raise RuntimeError("previous annual certificate chain generation mismatch")
         if int(previous.get("year", -1)) != args.year - 1:
             raise RuntimeError("previous annual certificate year is not contiguous")
         if previous.get("source_sha") != args.source_sha:
@@ -162,19 +180,30 @@ def main() -> int:
         "canonical_input_consumption_audit": _sha256(
             root / "canonical_input_consumption_audit.json"
         ),
+        "production_input_prefix": _sha256(
+            root / "production" / "canonical_input_session_hashes_prefix.csv"
+        ),
+        "research_input_prefix": _sha256(
+            root / "research" / "canonical_input_session_hashes_prefix.csv"
+        ),
         "certification_progress_audit": _sha256(
             root / "certification_progress_audit.json"
         ),
         "strong_equivalence_audit": _sha256(root / "strong_equivalence_audit.json"),
         "production_daily": _sha256(root / "production" / "daily.csv.gz"),
         "research_daily": _sha256(root / "research" / "daily.csv.gz"),
+        "production_manifest": _sha256(root / "production" / "manifest.json"),
+        "research_manifest": _sha256(root / "research" / "manifest.json"),
+        "production_sha256sums": _sha256(root / "production" / "SHA256SUMS.txt"),
+        "research_sha256sums": _sha256(root / "research" / "SHA256SUMS.txt"),
         "production_summary": _sha256(root / "production" / "summary.json"),
         "research_summary": _sha256(root / "research" / "summary.json"),
     }
 
     body = {
         "schema": SCHEMA,
-        "generation": GENERATION,
+        "generation": CHAIN_GENERATION,
+        "checkpoint_format_generation": CHECKPOINT_GENERATION,
         "status": "PASS",
         "year": args.year,
         "segment_end": args.segment_end,
@@ -192,6 +221,8 @@ def main() -> int:
         "research_rows": int(len(research_daily)),
         "last_session_hash": checkpoint.get("session_hash"),
         "canonical_sessions_identical": True,
+        "canonical_prefix_authenticated": True,
+        "child_bundles_preserved": True,
         "nav_equivalent": True,
         "internal_state_equivalent": True,
         "causal_metadata_fail_closed": True,
