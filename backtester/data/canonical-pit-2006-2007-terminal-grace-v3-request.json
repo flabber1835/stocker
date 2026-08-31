@@ -1,15 +1,28 @@
 {
-  "purpose": "Rerun canonical 2006-2007 research/production equivalence after backtester-only retained-research terminal-grace repair",
+  "purpose": "Rerun canonical 2006-2007 research/production equivalence after backtester-only retained-research terminal-grace and split-dividend ordering repairs",
   "canonical_dataset_hash": "08db292b78f0968b149ec033671b5c5df62ad98a4b2692bcc5dfa575585fa4e6",
   "production_source_sha": "887f479b15ad861313da666ad698034d3847121c",
   "production_cooldown_issue": 294,
-  "retry": 3,
-  "overlay_fix": "bounded semantic anchors around strict-PIT generated terminal-event seam",
+  "retry": 4,
+  "overlay_fix": "bounded semantic anchors around strict-PIT generated terminal-event seam plus post-split prior-close dividend entitlement capture",
   "wrapper_fix": "bootstrap repository root before importing backtester package",
   "research_terminal_divergence": {
     "first_session": "2006-10-26",
     "security_id": "659080056497857391",
     "ticker": "REY",
     "rule": "known terminal event with unreadable terms is carried; grace ages only on sessions without a current mark; proxy settlement has no transaction cost"
+  },
+  "research_split_dividend_divergence": {
+    "source_run_id": 33341153930,
+    "first_session": "2006-12-19",
+    "security_id": "226714775113304174",
+    "ticker": "AEO",
+    "split_ratio": 1.5,
+    "dividend_per_share": 0.075,
+    "pre_split_qty": 118329.0,
+    "post_split_qty": 177493.5,
+    "exact_undercredit": 4437.3375,
+    "observed_equity_delta": 4437.336989805102,
+    "rule": "apply the effective-session split to the carried prior-close holding before capturing dividend entitlement quantity; capture remains before same-open exits or buys"
   }
 }
