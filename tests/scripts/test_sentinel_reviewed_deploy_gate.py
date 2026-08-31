@@ -35,8 +35,6 @@ NOW_TEXT = "2026-08-21T19:30:00Z"
 COMMIT = "a" * 40
 RUNTIME = "sha256:" + "b" * 64
 TEST = "sha256:" + "c" * 64
-BT_ENGINE = "sha256:" + "d" * 64
-BT_DATA = "sha256:" + "e" * 64
 SOURCE = "f" * 64
 PUBLICATION = {
     "publication_fingerprint": "1" * 64,
@@ -77,8 +75,8 @@ def _bundle(tmp_path, *, env=None, dual=False):
             candidate_image_digest=TEST,
             runtime_image_digest=RUNTIME,
             source_identity_sha256=SOURCE,
-            passed=4000, exit_code=0, suites_completed=6,
-            auxiliary_image_digests=(BT_ENGINE, BT_DATA),
+            passed=4000, exit_code=0, suites_completed=3,
+            auxiliary_image_digests=(),
             non_forward_historical_exclusions=(
                 go.NON_FORWARD_HISTORICAL_EXCLUSIONS)),
         gates=gates,

@@ -105,28 +105,6 @@ jobs:
             --build-arg SOURCE_GIT_SHA="${TESTED_SHA}" \
             -f Dockerfile.sentinel-test -t sentinel-test:ci .
 
-      - name: Build the production bt-engine and its pinned test lens
-        run: |
-          docker build \
-            --build-arg SOURCE_GIT_SHA="${TESTED_SHA}" \
-            -f Dockerfile.base -t stocker-base:latest .
-          docker build \
-            --build-arg SOURCE_GIT_SHA="${TESTED_SHA}" \
-            -f services/bt-engine/Dockerfile -t stocker-bt-engine:ci .
-          docker build \
-            --build-arg BT_ENGINE_IMAGE=stocker-bt-engine:ci \
-            --build-arg SOURCE_GIT_SHA="${TESTED_SHA}" \
-            -f services/bt-engine/Dockerfile.test \
-            -t stocker-bt-engine-test:ci .
-          docker build \
-            --build-arg SOURCE_GIT_SHA="${TESTED_SHA}" \
-            -f services/bt-data/Dockerfile -t stocker-bt-data:ci .
-          docker build \
-            --build-arg BT_DATA_IMAGE=stocker-bt-data:ci \
-            --build-arg SOURCE_GIT_SHA="${TESTED_SHA}" \
-            -f services/bt-data/Dockerfile.test \
-            -t stocker-bt-data-test:ci .
-
       - name: Record exact-SHA promotion evidence
         shell: bash
         run: |
@@ -162,15 +140,8 @@ jobs:
             sentinel-test:ci -m compileall -q -f \
             /app/sentinel \
             /usr/local/lib/python3.12/site-packages/stock_strategy_shared \
-            /work/services/backtester/app \
-            /work/tests/sentinel /work/tests/backtester \
+            /work/tests/sentinel \
             /work/tools /work/repo/scripts
-          docker run --rm --network none --entrypoint python \
-            stocker-bt-engine-test:ci -m compileall -q -f \
-            /app/app /shared/stock_strategy_shared /work/tests/bt_engine
-          docker run --rm --network none --entrypoint python \
-            stocker-bt-data-test:ci -m compileall -q -f \
-            /app/app /work/tests/bt_data
 
       - name: Run the complete Sentinel suite without network access
         run: |
@@ -219,40 +190,6 @@ jobs:
           if grep -Eq '(^|, )[0-9]+ (skipped|xfailed|xpassed)(,| in |$)' \
               /tmp/wealth-core-prospective.txt; then
             echo 'REFUSED: the prospective Wealth Core run had non-passes' >&2
-            exit 1
-          fi
-
-      - name: Run cold-boot, canonical replay, and bt-data boundary without skips
-        run: |
-          set -euo pipefail
-          docker run --rm --network none sentinel-test:ci \
-            tests/backtester/test_cold_boot_identity.py \
-            tests/backtester/test_wealth_core_replay.py \
-            tests/backtester/test_price_volume_domain_gate.py \
-            -q -ra 2>&1 | tee /tmp/backtester-focused.txt
-          docker run --rm --network none stocker-bt-data-test:ci \
-            tests/bt_data/test_sharadar_adapter.py \
-            tests/bt_data/test_schema_bootstrap.py \
-            tests/bt_data/test_sf1_coverage.py \
-            tests/bt_data/test_issue_185_volume_domain_migration.py \
-            -q -ra 2>&1 | tee /tmp/bt-data-focused.txt
-          if grep -Eq '(^|, )[0-9]+ skipped(,| in |$)' \
-              /tmp/backtester-focused.txt /tmp/bt-data-focused.txt; then
-            echo 'REFUSED: merge-critical data/replay tests skipped' >&2
-            exit 1
-          fi
-
-      - name: Run the changed bt-engine boundary without network access or skips
-        run: |
-          set -euo pipefail
-          docker run --rm --network none stocker-bt-engine-test:ci \
-            tests/bt_engine/test_wealth_core_api.py \
-            tests/bt_engine/test_wealth_core_warmup.py \
-            tests/bt_engine/test_price_volume_domain_gate.py \
-            -q -ra 2>&1 | tee /tmp/bt-engine-focused.txt
-          if grep -Eq '(^|, )[0-9]+ skipped(,| in |$)' \
-              /tmp/bt-engine-focused.txt; then
-            echo 'REFUSED: the merge-critical bt-engine run skipped tests' >&2
             exit 1
           fi
 

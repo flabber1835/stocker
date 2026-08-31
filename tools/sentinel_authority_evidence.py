@@ -38,11 +38,6 @@ TEST_RUN_SCHEMA = "sentinel.certification-test-run/1"
 HEX = re.compile(r"[0-9a-f]{64}\Z")
 RESOURCE_MEASUREMENT_PRODUCER = "scripts/sentinel-measure.sh"
 _CANONICAL_LOADER_BUNDLE_SCHEMA = "wealth_core.canonical-loader-bundle/1"
-_CANONICAL_LOADER_SOURCES = (
-    "services/backtester/app/wealth_core_replay.py",
-    "services/backtester/app/wealth_core_replay_impl.py",
-    "shared/stock_strategy_shared/split_reconciliation.py",
-)
 COMPLETED_CHECK_IDS = (
     "base_manifest_finalized",
     "formal_test_run",
@@ -67,25 +62,22 @@ def sha(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _canonical_loader_bundle_from_repository(root: Path) -> dict:
-    """Independently recompute the reviewed loader source identity."""
-    sources = {}
-    for logical_path in _CANONICAL_LOADER_SOURCES:
-        path = Path(root).resolve() / logical_path
-        if not path.is_file():
-            raise EvidenceRefused(
-                f"repository canonical loader source is missing: {logical_path}")
-        sources[logical_path] = sha(path.read_bytes())
-    payload = {
-        "schema": _CANONICAL_LOADER_BUNDLE_SCHEMA,
-        "sources": sources,
-    }
-    return {
-        **payload,
-        "sha256": sha(json.dumps(
-            payload, sort_keys=True, separators=(",", ":"),
-            ensure_ascii=True, allow_nan=False).encode("ascii")),
-    }
+def _validate_external_loader_bundle(value: object) -> bool:
+    """Validate a certification-owned source bundle from its own commitment."""
+    if not isinstance(value, Mapping):
+        return False
+    sources = value.get("sources")
+    if (value.get("schema") != _CANONICAL_LOADER_BUNDLE_SCHEMA
+            or not isinstance(sources, Mapping) or not sources):
+        return False
+    if any(not isinstance(path, str) or not path
+           or HEX.fullmatch(str(digest)) is None
+           for path, digest in sources.items()):
+        return False
+    payload = {"schema": value["schema"], "sources": dict(sources)}
+    return value.get("sha256") == sha(json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+        allow_nan=False).encode("ascii"))
 
 
 def _source_config_sha256(value: Mapping) -> str:
@@ -869,17 +861,13 @@ def produce_certification_decisions(
             or any(HEX.fullmatch(str(value)) is None for value in hashes.values())
             or expected.get("status") != "ready"):
         raise EvidenceRefused("expected-hash producer output is incomplete")
-    producer_path = Path(__file__).resolve().with_name(
-        "wealth_core_expected_hashes.py")
-    loader_bundle = _canonical_loader_bundle_from_repository(
-        Path(__file__).resolve().parents[1])
+    loader_bundle = expected_provenance.get("canonical_loader_bundle")
     runtime_environment = expected_provenance.get("runtime_environment")
     if (expected_provenance.get("producer")
             != "tools/wealth_core_expected_hashes.py"
-            or expected_provenance.get("producer_sha256")
-            != sha(producer_path.read_bytes())
-            or expected_provenance.get("canonical_loader_bundle")
-            != loader_bundle
+            or HEX.fullmatch(str(expected_provenance.get(
+                "producer_sha256") or "")) is None
+            or not _validate_external_loader_bundle(loader_bundle)
             or not isinstance(runtime_environment, Mapping)
             or runtime_environment.get("compatible") is not True
             or runtime_environment.get("pins_match") is not True
@@ -889,7 +877,7 @@ def produce_certification_decisions(
             or HEX.fullmatch(str(runtime_environment.get(
                 "image_lock_sha256") or "")) is None):
         raise EvidenceRefused(
-            "expected hashes do not bind the repository producer/runtime")
+            "expected hashes do not bind the external producer/runtime")
     strict = {name: tests.get(name) for name in (
         "failed", "skipped", "xfailed", "xpassed")}
     if any(type(value) is not int or value < 0 for value in strict.values()):

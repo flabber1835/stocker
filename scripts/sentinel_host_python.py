@@ -13,12 +13,9 @@ import sys
 
 MINIMUM_HOST_PYTHON = (3, 8, 15)
 HOST_MODULES = (
-    "compose_image",
     "sentinel_certification_state",
     "sentinel_forward_run",
     "sentinel_host_capabilities",
-    "sentinel_manifest",
-    "sentinel_rehearsal",
     "sentinel_strip_cpu_limits",
     "sentinel_test_run",
 )

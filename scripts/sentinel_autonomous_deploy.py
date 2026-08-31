@@ -663,13 +663,11 @@ def parse_reviewed_validation_bundle(
             or tests.get("passed") <= 0
             or any(tests.get(field) != 0 for field in (
                 "failed", "errors", "skipped", "xfailed", "xpassed"))
-            or tests.get("suites_completed") != 6
+            or tests.get("suites_completed") != 3
             or tests.get("non_forward_historical_exclusions")
             != list(NON_FORWARD_HISTORICAL_EXCLUSIONS)
             or not isinstance(auxiliary, list)
-            or len(auxiliary) != 2
-            or any(_DIGEST.fullmatch(str(item)) is None for item in auxiliary)
-            or len(set(auxiliary)) != 2):
+            or auxiliary != []):
         raise DeployRefused("validation certified test summary is incomplete")
 
     return ReviewedValidation(

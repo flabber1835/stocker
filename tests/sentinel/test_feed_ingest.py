@@ -28,7 +28,6 @@ from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 from sentinel.feed import ingest, sharadar  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
 
-CANONICAL = REPO / "services" / "bt-data" / "app" / "sharadar_client.py"
 
 
 @pytest.fixture(scope="module")

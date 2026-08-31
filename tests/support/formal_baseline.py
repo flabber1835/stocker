@@ -11,6 +11,23 @@ import platform
 from tools import wealth_core_baseline_run as baseline
 
 
+def external_loader_bundle() -> dict:
+    """Return a synthetic self-identifying external certification bundle."""
+    sources = {
+        "certification/kernel_adapter.py": "a" * 64,
+        "certification/pit_loader.py": "b" * 64,
+        "shared/stock_strategy_shared/split_reconciliation.py": "c" * 64,
+    }
+    payload = {
+        "schema": "wealth_core.canonical-loader-bundle/1",
+        "sources": sources,
+    }
+    payload["sha256"] = hashlib.sha256(json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+        allow_nan=False).encode("ascii")).hexdigest()
+    return payload
+
+
 def complete_expected(value: dict) -> dict:
     """Fill only producer fields needed by the formal baseline contract."""
     from stock_strategy_shared.runtime_identity import wealth_core_baseline_identity

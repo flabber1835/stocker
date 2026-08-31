@@ -44,12 +44,8 @@ LABEL org.opencontainers.image.revision=${SOURCE_GIT_SHA}
 # database-backed test SKIPS, and a suite that skipped is not a suite that
 # passed — `scripts/sentinel-certify.sh` treats any skip in this image as a
 # failure for exactly that reason.
-# git is here for the same reason, and only that reason: the manifest tests
-# drive `scripts/sentinel_manifest.py` against a repository dirty by
-# construction, and without the binary that test ERRORS in this image while
-# passing on every host. It is not in `sentinel:latest` and must not be — the
-# runtime artefact has no business running git — but a skip HERE is a
-# certification failure, so the lens has to carry what the suite needs.
+# git is test-only. It is absent from `sentinel:latest`; the runtime artefact
+# does not inspect a checkout.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       postgresql postgresql-client git \
@@ -62,11 +58,8 @@ RUN apt-get update \
 # from this reviewed lock rather than asking pip to resolve anything; `pip
 # check` then proves the combined runtime + test closure is complete.
 #
-# SQLAlchemy is here rather than in the runtime image on purpose: the canonical
-# Wealth Core data path imports it at module scope, and it is a retired-Stocker-
-# stack dependency. `tools/corpus_parity.py` needs it to read bt-postgres;
-# `sentinel:latest` must not carry the retired platform's ORM into an image that
-# liquidates an account.
+# SQLAlchemy remains test-only; the production image does not carry the retired
+# platform's ORM.
 COPY tests/requirements.lock /tmp/test-req/requirements.lock
 RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
         --no-deps -r /tmp/test-req/requirements.lock \
@@ -74,18 +67,7 @@ RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
 
 WORKDIR /work
 COPY tests/ /work/tests/
-# The parity suite compares Sentinel's loader against the CANONICAL Wealth Core
-# data path, which still lives in the backtester. Imported, never run — and if
-# it is absent those tests SKIP rather than silently passing, which is why it is
-# copied explicitly rather than left to chance. It shadows nothing: there is no
-# `services` package in the runtime image.
-COPY services/backtester/ /work/services/backtester/
 COPY tools/ /work/tools/
-# The expected-hash producer and the two independent authority validators hash
-# the shared split resolver by its portable repository path.  Copy only that
-# reviewed source into their /work inspection bundle.  /work/shared is not on
-# PYTHONPATH, so this cannot shadow the resolver installed in the runtime image.
-COPY shared/stock_strategy_shared/split_reconciliation.py /work/shared/stock_strategy_shared/split_reconciliation.py
 # The formal evidence and deployment-provenance suites import these selected
 # invocation producers and host-boundary helpers.
 # Keep the rest of scripts/ inspection-only under /work/repo: copying the whole
@@ -121,7 +103,6 @@ COPY docs/sentinel-breadth-reconstruction/ /work/docs/sentinel-breadth-reconstru
 COPY docs/sentinel-reference-implementation/ /work/docs/sentinel-reference-implementation/
 COPY sentinel/ /work/repo/sentinel/
 COPY shared/ /work/repo/shared/
-COPY Dockerfile.base /work/repo/Dockerfile.base
 COPY Dockerfile.sentinel /work/repo/Dockerfile.sentinel
 COPY Dockerfile.sentinel-authorized /work/repo/Dockerfile.sentinel-authorized
 COPY deploy/sentinel-authorized-runtime-v1 /work/repo/deploy/sentinel-authorized-runtime-v1
@@ -129,12 +110,6 @@ COPY docker-compose.sentinel.yml /work/repo/docker-compose.sentinel.yml
 COPY docker-compose.sentinel-automation.yml /work/repo/docker-compose.sentinel-automation.yml
 COPY docker-compose.sentinel-automation-standby.yml /work/repo/docker-compose.sentinel-automation-standby.yml
 COPY Dockerfile.sentinel-test /work/repo/Dockerfile.sentinel-test
-# The certification harness resolves the bt-engine image out of THIS file and
-# refuses a build context that hides a COPY source, so both are inputs to
-# assertions the suite makes about the machinery. Without them those tests read
-# a repo root where the file simply is not there — and in this image a skip is
-# a FAILURE, so "absent" cannot quietly become "not checked".
-COPY docker-compose.backtest.yml /work/repo/docker-compose.backtest.yml
 COPY docker-compose.sentinel-backup.yml /work/repo/docker-compose.sentinel-backup.yml
 COPY .dockerignore /work/repo/.dockerignore
 COPY .gitattributes /work/repo/.gitattributes
@@ -153,23 +128,9 @@ COPY docs/sentinel-stage-4-automation.md /work/repo/docs/sentinel-stage-4-automa
 COPY docs/sentinel-paper-observation.md /work/repo/docs/sentinel-paper-observation.md
 COPY docs/paper-lifecycle-equivalence.json /work/repo/docs/paper-lifecycle-equivalence.json
 COPY config/paper-observation-boundary.json /work/repo/config/paper-observation-boundary.json
-# bt-engine RUNS the rehearsal and bt-data INGESTS the corpus, so several tests
-# read their source to check what the engine records and how the feed maps a
-# vendor row. INSPECTION ONLY — under /work/repo, never /work, so nothing here
-# is importable and no `services` package shadows anything. That is the split:
-# /work is what the suite imports, /work/repo is what it reads.
-COPY services/bt-engine/ /work/repo/services/bt-engine/
-COPY services/bt-data/ /work/repo/services/bt-data/
-COPY services/backtester/ /work/repo/services/backtester/
-
-# /work carries `tests` and `services`. `sentinel` resolves from /app and
+# /work carries tests. `sentinel` resolves from /app and
 # `stock_strategy_shared` from site-packages — the artefact, in both cases.
-# /work/services/backtester is on the path because the canonical Wealth Core
-# data path is `app.wealth_core_replay` — `app` is a top-level package INSIDE
-# that directory, so /work alone resolves nothing and `tools.corpus_parity`
-# would die on ModuleNotFoundError at the real-window parity step. It shadows
-# nothing: the runtime image has no `app` package.
-ENV PYTHONPATH=/work:/work/services/backtester:/app \
+ENV PYTHONPATH=/work:/app \
     SENTINEL_REPO_ROOT=/work/repo \
     SENTINEL_IN_IMAGE=1 \
     SENTINEL_STATE_DIR=/tmp/sentinel-test-state
@@ -179,17 +140,15 @@ ENV PYTHONPATH=/work:/work/services/backtester:/app \
 # that certified a checkout.
 RUN python -c "from pathlib import Path; \
     import sentinel, stock_strategy_shared.wealth_core as wc; \
-    from app import wealth_core_replay as bt; \
     from scripts import sentinel_feed_gate as feed_gate; \
     from scripts import sentinel_forward_run as forward_run; \
-    import tools.corpus_parity; \
     assert sentinel.__file__.startswith('/app/'), sentinel.__file__; \
     assert '/work' not in wc.__file__, wc.__file__; \
     assert str(forward_run.DEFAULT_PRODUCTION).startswith('/app/'), forward_run.DEFAULT_PRODUCTION; \
     assert str(forward_run.DEFAULT_RUNNER).startswith('/work/tools/'), forward_run.DEFAULT_RUNNER; \
     assert feed_gate.__file__.startswith('/work/scripts/'), feed_gate.__file__; \
     assert Path('/work/scripts/sentinel-measure.sh').is_file(); \
-    print('runtime imports OK:', sentinel.__file__, wc.__file__, bt.__file__)"
+    print('runtime imports OK:', sentinel.__file__, wc.__file__)"
 
 # Overrides the runtime ENTRYPOINT, whose purpose is to refuse to be started
 # casually. A test image needs a plain interpreter.

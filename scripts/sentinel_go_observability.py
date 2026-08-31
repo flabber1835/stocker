@@ -37,9 +37,6 @@ DIM = "\033[2m"
 
 CERTIFICATION_SUITE_LABELS = (
     "GO SCRIPT TESTS",
-    "BACKTESTER BOUNDARY",
-    "BT DATA",
-    "BT ENGINE",
     "WEALTH CORE",
     "SENTINEL",
 )
@@ -254,36 +251,13 @@ def _streaming_run(controller: Any, go: Any, command: Sequence[str], *,
     )
 
 
-def _suite_specs(go: Any, candidate_digest: str, bt_data_digest: str,
-                 bt_engine_digest: str):
+def _suite_specs(go: Any, candidate_digest: str):
     verbose = ("-x", "-vv", "--tb=short", "-ra", "--color=yes")
     return (
         ("GO SCRIPT TESTS", [
             "docker", "run", "--rm", "--network", "none", candidate_digest,
             "tests/scripts/test_sentinel_go_validate.py",
             "tests/scripts/test_sentinel_reviewed_deploy_gate.py",
-            *verbose,
-        ]),
-        ("BACKTESTER BOUNDARY", [
-            "docker", "run", "--rm", "--network", "none", candidate_digest,
-            "tests/backtester/test_cold_boot_identity.py",
-            "tests/backtester/test_wealth_core_replay.py",
-            "tests/backtester/test_price_volume_domain_gate.py",
-            *verbose,
-        ]),
-        ("BT DATA", [
-            "docker", "run", "--rm", "--network", "none", bt_data_digest,
-            "tests/bt_data/test_sharadar_adapter.py",
-            "tests/bt_data/test_schema_bootstrap.py",
-            "tests/bt_data/test_sf1_coverage.py",
-            "tests/bt_data/test_issue_185_volume_domain_migration.py",
-            *verbose,
-        ]),
-        ("BT ENGINE", [
-            "docker", "run", "--rm", "--network", "none", bt_engine_digest,
-            "tests/bt_engine/test_wealth_core_api.py",
-            "tests/bt_engine/test_wealth_core_warmup.py",
-            "tests/bt_engine/test_price_volume_domain_gate.py",
             *verbose,
         ]),
         ("WEALTH CORE", [
@@ -333,10 +307,6 @@ def _probe_certified_suite(go: Any, Summary: Any, runner: Any, *,
     runtime_ref = "sentinel-go-runtime:%s" % commit
     authorized_ref = "sentinel-go-authorized:%s" % commit
     test_ref = "sentinel-go-test:%s" % commit
-    bt_engine_ref = "stocker-go-bt-engine:%s" % commit
-    bt_engine_test_ref = "stocker-go-bt-engine-test:%s" % commit
-    bt_data_ref = "stocker-go-bt-data:%s" % commit
-    bt_data_test_ref = "stocker-go-bt-data-test:%s" % commit
     commands = (
         ["docker", "build", "--network", "host", "--build-arg",
          "SOURCE_GIT_SHA=" + commit, "-t", runtime_ref,
@@ -349,23 +319,6 @@ def _probe_certified_suite(go: Any, Summary: Any, runner: Any, *,
          "SENTINEL_IMAGE=" + authorized_ref, "--build-arg",
          "SOURCE_GIT_SHA=" + commit, "-t", test_ref,
          "-f", "Dockerfile.sentinel-test", "."],
-        ["docker", "build", "--network", "host", "--build-arg",
-         "SOURCE_GIT_SHA=" + commit, "-t", "stocker-base:latest",
-         "-f", "Dockerfile.base", "."],
-        ["docker", "build", "--network", "host", "--build-arg",
-         "SOURCE_GIT_SHA=" + commit, "-t", bt_engine_ref,
-         "-f", "services/bt-engine/Dockerfile", "."],
-        ["docker", "build", "--network", "host", "--build-arg",
-         "BT_ENGINE_IMAGE=" + bt_engine_ref, "--build-arg",
-         "SOURCE_GIT_SHA=" + commit, "-t", bt_engine_test_ref,
-         "-f", "services/bt-engine/Dockerfile.test", "."],
-        ["docker", "build", "--network", "host", "--build-arg",
-         "SOURCE_GIT_SHA=" + commit, "-t", bt_data_ref,
-         "-f", "services/bt-data/Dockerfile", "."],
-        ["docker", "build", "--network", "host", "--build-arg",
-         "BT_DATA_IMAGE=" + bt_data_ref, "--build-arg",
-         "SOURCE_GIT_SHA=" + commit, "-t", bt_data_test_ref,
-         "-f", "services/bt-data/Dockerfile.test", "."],
     )
     _banner("BUILD CERTIFICATION IMAGES")
     for command in commands:
@@ -379,16 +332,12 @@ def _probe_certified_suite(go: Any, Summary: Any, runner: Any, *,
 
     runtime_digest = go._inspect_image_id(runner, authorized_ref)
     candidate_digest = go._inspect_image_id(runner, test_ref)
-    bt_engine_digest = go._inspect_image_id(runner, bt_engine_test_ref)
-    bt_data_digest = go._inspect_image_id(runner, bt_data_test_ref)
-    if not all((runtime_digest, candidate_digest,
-                bt_engine_digest, bt_data_digest)):
+    if not all((runtime_digest, candidate_digest)):
         summary = Summary(
             candidate_image_digest=candidate_digest,
             runtime_image_digest=runtime_digest,
             source_identity_sha256=None,
-            auxiliary_image_digests=tuple(
-                item for item in (bt_engine_digest, bt_data_digest) if item),
+            auxiliary_image_digests=(),
             failure_suite="IMAGE_IDENTITY",
             failure_nodes=(),
         )
@@ -420,9 +369,9 @@ def _probe_certified_suite(go: Any, Summary: Any, runner: Any, *,
     suites_completed = 0
     failure_suite = None
     failure_nodes = ()
-    specs = _suite_specs(go, candidate_digest, bt_data_digest, bt_engine_digest)
+    specs = _suite_specs(go, candidate_digest)
     for index, (label, command) in enumerate(specs, 1):
-        _banner("CERTIFICATION %d/6 - %s" % (index, label))
+        _banner("CERTIFICATION %d/3 - %s" % (index, label))
         suite = runner.run(command)
         combined_output = (suite.stdout or "") + "\n" + (suite.stderr or "")
         counts = go._parse_pytest_summary(combined_output)
@@ -448,8 +397,7 @@ def _probe_certified_suite(go: Any, Summary: Any, runner: Any, *,
         source_identity_sha256=identity_hash,
         exit_code=combined_exit,
         suites_completed=suites_completed,
-        auxiliary_image_digests=tuple(
-            item for item in (bt_engine_digest, bt_data_digest) if item),
+        auxiliary_image_digests=(),
         non_forward_historical_exclusions=go.NON_FORWARD_HISTORICAL_EXCLUSIONS,
         failure_suite=failure_suite,
         failure_nodes=failure_nodes,
@@ -470,14 +418,14 @@ def _probe_certified_suite(go: Any, Summary: Any, runner: Any, *,
          "failure_nodes": list(summary.failure_nodes),
          "suite_order": list(CERTIFICATION_SUITE_LABELS),
          "fail_fast": True,
-         "auxiliary_images_known": len(summary.auxiliary_image_digests) == 2,
+         "auxiliary_images_known": not summary.auxiliary_image_digests,
          "non_forward_historical_exclusions": list(
              summary.non_forward_historical_exclusions),
          "image_known": candidate_digest is not None,
          "runtime_known": runtime_digest is not None,
          "identity_known": identity_hash is not None})
     if summary.complete:
-        _pass("all six certification suites completed with no skips")
+        _pass("all three production safety suites completed with no skips")
     return summary, gate
 
 

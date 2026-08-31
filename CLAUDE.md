@@ -137,18 +137,16 @@ PRODUCTION
   shared/stock_strategy_shared/broker/     base + alpaca, for the MIGRATION only
   docker-compose.sentinel.yml
 
-CERTIFICATION-ONLY — must never enter the production dependency graph
-  services/bt-engine/     Wealth Core rehearsal endpoint. main.py was reduced to
-                          that surface in 2026-08: the eradication deleted the
-                          modules its retired backtester API imported, so the
-                          service could not START and the endpoint it was meant
-                          to preserve was mounted on a dead entrypoint
-  services/bt-data/       Sharadar corpus loader for the certification stack
-  services/backtester/    wealth_core_replay.py, the corpus-parity oracle.
-                          main.py, config_replay.py, parity.py and _vendor/ are
-                          DELETED — unreachable, unimportable, and nothing here
-                          is resurrected merely to satisfy an old entrypoint
+EXTERNAL CERTIFICATION
+  Historical PIT replay, equivalence, restart, performance, and research.
+  Preserved recovery source:
+  research/backtester@7f12174273dfa071a25614d2c4a1be8ebfdfbc3a
+
+REMOVED FROM TRADER
+  services/backtester, services/bt-engine, services/bt-data,
   docker-compose.backtest.yml
+
+TEST-ONLY
   tests/support/          the ephemeral-Postgres fixture
 ```
 

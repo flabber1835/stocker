@@ -1,6 +1,6 @@
 .PHONY: help test lint sentinel-up sentinel-down status panel check-data \
         feed-seed feed-daily feed-status feed-repair identity certify \
-        base-image sentinel-image sentinel-authorized-image
+        sentinel-image sentinel-authorized-image
 
 # ── Sentinel ────────────────────────────────────────────────────────────────
 #
@@ -70,12 +70,6 @@ lint:
 # measurement explicitly supply an immutable repository digest and verify the
 # resolved container identity. Runtime authority binds that digest as a
 # deployment fact, which is stronger than a movable tag.
-base-image:
-	@test -n "$(GIT_SHA)" || { echo "REFUSED: source has no Git commit identity"; exit 2; }
-	@test -z "$$(git status --porcelain)" || { echo "REFUSED: source tree is dirty"; exit 2; }
-	docker build --network host --build-arg SOURCE_GIT_SHA=$$(git rev-parse HEAD) \
-	    -t stocker-base:latest -f Dockerfile.base .
-
 sentinel-image:
 	@test -n "$(GIT_SHA)" || { echo "REFUSED: source has no Git commit identity"; exit 2; }
 	@test -z "$$(git status --porcelain)" || { echo "REFUSED: source tree is dirty"; exit 2; }

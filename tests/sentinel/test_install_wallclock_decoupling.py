@@ -37,10 +37,8 @@ def _tests():
         runtime_image_digest=RUNTIME_DIGEST,
         source_identity_sha256=SOURCE_IDENTITY,
         passed=4703, failed=0, errors=0, skipped=0,
-        xfailed=0, xpassed=0, exit_code=0, suites_completed=6,
-        auxiliary_image_digests=(
-            "sha256:" + "e" * 64,
-            "sha256:" + "f" * 64),
+        xfailed=0, xpassed=0, exit_code=0, suites_completed=3,
+        auxiliary_image_digests=(),
         non_forward_historical_exclusions=go.NON_FORWARD_HISTORICAL_EXCLUSIONS)
 
 
