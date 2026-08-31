@@ -4,7 +4,8 @@
 The production engine's SessionState is already a bounded JSON restart image.
 This overlay keeps the frozen production implementation untouched and transforms
 only the backtester runner function so a long certification can be divided into
-calendar-year jobs. Every handoff is content-addressed and fail-closed.
+calendar-year jobs. Every economically active handoff is content-addressed and
+fail-closed.
 """
 from __future__ import annotations
 
@@ -12,7 +13,8 @@ import inspect
 import textwrap
 
 
-SCHEMA = "backtester.production-year-checkpoint/1"
+SCHEMA = "backtester.production-year-checkpoint/2"
+GENERATION = 2
 FULL_DATASET_END = "2026-07-31"
 
 
@@ -67,6 +69,9 @@ def transformed_main_source(runner) -> str:
     _checkpoint_output = os.environ.get('PRODUCTION_CHECKPOINT_OUTPUT', '').strip()
     _resume_after = None
     _checkpoint_input_sha256 = None
+    _fullstack_module = globals().get('_checkpoint_fullstack_module')
+    _strict_module = globals().get('_checkpoint_strict_module')
+    _progress_module = globals().get('_checkpoint_progress_module')
 
     def _checkpoint_json_default(value):
         if hasattr(value, 'item'):
@@ -81,16 +86,22 @@ def transformed_main_source(runner) -> str:
             raise RuntimeError(f'production checkpoint is missing: {{_checkpoint_path}}')
         _checkpoint_input_sha256 = sha256_file(_checkpoint_path)
         _sidecar = Path(str(_checkpoint_path) + '.sha256')
-        if _sidecar.is_file():
-            _expected_checkpoint_hash = _sidecar.read_text(encoding='utf-8').strip().split()[0]
-            if _checkpoint_input_sha256 != _expected_checkpoint_hash:
-                raise RuntimeError(
-                    f'production checkpoint hash mismatch: '
-                    f'{{_checkpoint_input_sha256}} != {{_expected_checkpoint_hash}}'
-                )
+        if not _sidecar.is_file():
+            raise RuntimeError(f'production checkpoint hash sidecar is missing: {{_sidecar}}')
+        _sidecar_parts = _sidecar.read_text(encoding='utf-8').strip().split()
+        if not _sidecar_parts:
+            raise RuntimeError('production checkpoint hash sidecar is empty')
+        _expected_checkpoint_hash = _sidecar_parts[0]
+        if _checkpoint_input_sha256 != _expected_checkpoint_hash:
+            raise RuntimeError(
+                f'production checkpoint hash mismatch: '
+                f'{{_checkpoint_input_sha256}} != {{_expected_checkpoint_hash}}'
+            )
         _checkpoint = json.loads(_checkpoint_path.read_text(encoding='utf-8'))
         if _checkpoint.get('schema') != {SCHEMA!r}:
             raise RuntimeError('unsupported production checkpoint schema')
+        if int(_checkpoint.get('generation', -1)) != {GENERATION}:
+            raise RuntimeError('production checkpoint generation mismatch')
         if _checkpoint.get('main_sha') != EXPECTED_MAIN_SHA:
             raise RuntimeError('production checkpoint main SHA mismatch')
         if _checkpoint.get('backtester_sha') != os.environ.get('BACKTESTER_BRANCH_SHA'):
@@ -104,6 +115,9 @@ def transformed_main_source(runner) -> str:
             raise RuntimeError(
                 f'production checkpoint boundary {{_resume_after!r}} does not precede {{END_SESSION}}'
             )
+        if _checkpoint.get('session_hash') != canonical_dataset.session_hash(_resume_after):
+            raise RuntimeError('production checkpoint final canonical session hash mismatch')
+
         state_a = SessionState.from_dict(_checkpoint['state_a'])
         state_b = SessionState.from_dict(_checkpoint['state_b'])
         if state_a.last_processed_session != _resume_after or state_b.last_processed_session != _resume_after:
@@ -151,6 +165,56 @@ def transformed_main_source(runner) -> str:
             )
         if not daily_rows or str(daily_rows[-1].get('date')) != _resume_after:
             raise RuntimeError('production checkpoint cumulative daily evidence is incomplete')
+        if len(daily_rows) != expected_pointer:
+            raise RuntimeError(
+                f'production checkpoint daily/session count mismatch: '
+                f'{{len(daily_rows)}} != {{expected_pointer}}'
+            )
+
+        _module_state = _checkpoint.get('module_state') or {{}}
+        if _fullstack_module is not None:
+            _fullstack = _module_state.get('fullstack')
+            if not isinstance(_fullstack, dict):
+                raise RuntimeError('production checkpoint lacks full-stack PIT module state')
+            _fullstack_module._pit_prior_core_close = (
+                None if _fullstack.get('pit_prior_core_close') is None
+                else float(_fullstack['pit_prior_core_close'])
+            )
+            _fullstack_module._pit_core_by_session = {{
+                str(key): (
+                    None if value[0] is None else float(value[0]),
+                    float(value[1]),
+                )
+                for key, value in (_fullstack.get('pit_core_by_session') or {{}}).items()
+            }}
+            if len(_fullstack_module._pit_core_by_session) != expected_pointer:
+                raise RuntimeError(
+                    'production checkpoint PIT core/session count mismatch: '
+                    f'{{len(_fullstack_module._pit_core_by_session)}} != {{expected_pointer}}'
+                )
+            if _resume_after not in _fullstack_module._pit_core_by_session:
+                raise RuntimeError('production checkpoint lacks final PIT Wealth Core observation')
+            _fullstack_module._pit_metadata_observations = int(
+                _fullstack.get('pit_metadata_observations', 0)
+            )
+            _fullstack_module._pit_sec_cik_observations = int(
+                _fullstack.get('pit_sec_cik_observations', 0)
+            )
+        if _strict_module is not None:
+            _strict_state = _module_state.get('strict')
+            if not isinstance(_strict_state, dict):
+                raise RuntimeError('production checkpoint lacks strict authority state')
+            _anchor_stats = _strict_state.get('anchor_issuer_stats') or {{}}
+            if set(_anchor_stats) != set(_strict_module._anchor_issuer_stats):
+                raise RuntimeError('production checkpoint anchor authority keys changed')
+            for _key in _strict_module._anchor_issuer_stats:
+                _strict_module._anchor_issuer_stats[_key] = int(_anchor_stats[_key])
+        if _progress_module is not None:
+            _progress_state = _module_state.get('progress') or {{}}
+            _progress_module._progress_sessions = int(
+                _progress_state.get('progress_sessions', expected_pointer)
+            )
+
         print(
             f'[CHECKPOINT RESUME] through={{_resume_after}} sessions={{expected_pointer:,}} '
             f'sha256={{_checkpoint_input_sha256}}',
@@ -176,8 +240,57 @@ def transformed_main_source(runner) -> str:
             raise RuntimeError('production checkpoint output requires canonical PIT input')
         if state_a.last_processed_session != END_SESSION or state_b.last_processed_session != END_SESSION:
             raise RuntimeError('cannot checkpoint an incomplete production segment')
+        if len(daily_rows) != expected_pointer:
+            raise RuntimeError('cannot checkpoint incomplete cumulative daily evidence')
+
+        _module_state = {{}}
+        if _fullstack_module is not None:
+            _pit_core_by_session = getattr(_fullstack_module, '_pit_core_by_session', None)
+            if not isinstance(_pit_core_by_session, dict):
+                raise RuntimeError('full-stack PIT core history is unavailable at checkpoint')
+            if len(_pit_core_by_session) != expected_pointer:
+                raise RuntimeError(
+                    'full-stack PIT core/session count mismatch at checkpoint: '
+                    f'{{len(_pit_core_by_session)}} != {{expected_pointer}}'
+                )
+            if END_SESSION not in _pit_core_by_session:
+                raise RuntimeError('full-stack PIT core history lacks checkpoint boundary')
+            _module_state['fullstack'] = {{
+                'pit_prior_core_close': (
+                    None if getattr(_fullstack_module, '_pit_prior_core_close', None) is None
+                    else float(_fullstack_module._pit_prior_core_close)
+                ),
+                'pit_core_by_session': dict(sorted(
+                    (
+                        str(key),
+                        [None if value[0] is None else float(value[0]), float(value[1])],
+                    )
+                    for key, value in _pit_core_by_session.items()
+                )),
+                'pit_metadata_observations': int(
+                    getattr(_fullstack_module, '_pit_metadata_observations', 0)
+                ),
+                'pit_sec_cik_observations': int(
+                    getattr(_fullstack_module, '_pit_sec_cik_observations', 0)
+                ),
+            }}
+        if _strict_module is not None:
+            _module_state['strict'] = {{
+                'anchor_issuer_stats': dict(sorted(
+                    (str(key), int(value))
+                    for key, value in _strict_module._anchor_issuer_stats.items()
+                )),
+            }}
+        if _progress_module is not None:
+            _module_state['progress'] = {{
+                'progress_sessions': int(
+                    getattr(_progress_module, '_progress_sessions', expected_pointer)
+                ),
+            }}
+
         _checkpoint_payload = {{
             'schema': {SCHEMA!r},
+            'generation': {GENERATION},
             'main_sha': EXPECTED_MAIN_SHA,
             'backtester_sha': os.environ.get('BACKTESTER_BRANCH_SHA'),
             'dataset_hash': canonical_dataset.dataset_hash,
@@ -216,6 +329,7 @@ def transformed_main_source(runner) -> str:
             'prior_core_close': (
                 None if prior_core_close is None else float(prior_core_close)
             ),
+            'module_state': _module_state,
             'daily_rows': daily_rows,
         }}
         _checkpoint_path = Path(_checkpoint_output).resolve()
@@ -250,8 +364,17 @@ def transformed_main_source(runner) -> str:
     return text
 
 
-def install(runner) -> None:
+def install(
+    runner,
+    *,
+    fullstack_module=None,
+    strict_module=None,
+    progress_module=None,
+) -> None:
     """Replace ``runner.main`` with the deterministic checkpointed variant."""
+    runner._checkpoint_fullstack_module = fullstack_module
+    runner._checkpoint_strict_module = strict_module
+    runner._checkpoint_progress_module = progress_module
     text = transformed_main_source(runner)
     compile(text, "<checkpointed-production-runner-main>", "exec")
     exec(text, runner.__dict__)
