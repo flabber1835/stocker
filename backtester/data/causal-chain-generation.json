@@ -1,0 +1,19 @@
+{
+  "schema": "backtester.causal-chain-generation/1",
+  "generation": 2,
+  "production_checkpoint_schema": "backtester.production-year-checkpoint/2",
+  "annual_certificate_schema": "backtester.causal-year-certificate/2",
+  "required_restart_state": [
+    "production SessionState A and D",
+    "overlay accounts A and D",
+    "split and identity continuity maps",
+    "prior signal and Wealth Core close state",
+    "cumulative daily evidence",
+    "independent PIT Wealth Core open/close history",
+    "strict issuer-authority counters"
+  ],
+  "supersedes": {
+    "generation": 1,
+    "reason": "generation 1 omitted independent PIT Wealth Core continuation state"
+  }
+}
