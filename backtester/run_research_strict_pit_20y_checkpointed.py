@@ -2,6 +2,7 @@
 """Annual-prefix retained-research entrypoint over the full immutable PIT package."""
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import sys
@@ -33,7 +34,29 @@ def _full_package_prefix_source(mode, output):
         raise RuntimeError(
             f"canonical research package-end seam: expected one match, found {count}"
         )
-    return text.replace(old, new, 1)
+    text = text.replace(old, new, 1)
+
+    diagnostic_session = os.environ.get(
+        "CERTIFICATION_RANKING_DIAGNOSTIC_SESSION", ""
+    ).strip()
+    if diagnostic_session:
+        needle = "ordscore=np.lexsort((tick[pool],sid[pool],-score[pool])); durable=pool[ordscore]"
+        if text.count(needle) != 1:
+            raise RuntimeError(
+                "research ranking diagnostic seam: expected one durable-ranking expression"
+            )
+        injected = needle + "\n" + (
+            "                if ds==" + repr(diagnostic_session) + ":\n"
+            "                    _diag_payload={'session':ds,'eligible_universe':int(len(et)),"
+            "'leadership_ids':[str(sid[int(x)]) for x in pool],"
+            "'ranking':[{'security_id':str(sid[int(x)]),'ticker':str(tick[int(x)]),"
+            "'momentum':float(mom[int(x)]),'recent':float(recent[int(x)]),"
+            "'score':float(score[int(x)])} for x in durable]}\n"
+            "                    print('[RANKING DIAGNOSTIC] role=research '+"
+            "json.dumps(_diag_payload,sort_keys=True,separators=(',',':')),flush=True)"
+        )
+        text = text.replace(needle, injected, 1)
+    return text
 
 
 base.corrected.transformed_source = _full_package_prefix_source
