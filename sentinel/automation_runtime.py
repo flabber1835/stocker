@@ -15,6 +15,7 @@ import socket
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from types import MappingProxyType
 from typing import Mapping
 from zoneinfo import ZoneInfo
 
@@ -74,6 +75,30 @@ REFRESH_TRANSIENT_FAILURES = (
     feed_authority.FrontierDomainIncomplete,
 )
 
+AUTOMATION_CONFIG_ENV_BY_FIELD = MappingProxyType({
+    "publication_timing_policy":
+        "SENTINEL_AUTOMATION_PUBLICATION_TIMING_POLICY",
+    "publication_delay_seconds":
+        "SENTINEL_AUTOMATION_PUBLICATION_DELAY_SECONDS",
+    "execution_delay_seconds":
+        "SENTINEL_AUTOMATION_EXECUTION_DELAY_SECONDS",
+    "lease_seconds": "SENTINEL_AUTOMATION_LEASE_SECONDS",
+    "heartbeat_seconds": "SENTINEL_AUTOMATION_HEARTBEAT_SECONDS",
+    "callback_deadline_seconds":
+        "SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS",
+    "control_poll_seconds": "SENTINEL_AUTOMATION_CONTROL_POLL_SECONDS",
+    "retry_base_seconds": "SENTINEL_AUTOMATION_RETRY_BASE_SECONDS",
+    "retry_max_seconds": "SENTINEL_AUTOMATION_RETRY_MAX_SECONDS",
+    "refresh_max_attempts": "SENTINEL_AUTOMATION_REFRESH_MAX_ATTEMPTS",
+    "preflight_recover_max_attempts":
+        "SENTINEL_AUTOMATION_PREFLIGHT_RECOVER_MAX_ATTEMPTS",
+    "prepare_max_attempts": "SENTINEL_AUTOMATION_PREPARE_MAX_ATTEMPTS",
+    "execute_max_attempts": "SENTINEL_AUTOMATION_EXECUTE_MAX_ATTEMPTS",
+    "recover_max_attempts": "SENTINEL_AUTOMATION_RECOVER_MAX_ATTEMPTS",
+    "alert_claim_seconds": "SENTINEL_AUTOMATION_ALERT_CLAIM_SECONDS",
+    "alert_max_attempts": "SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS",
+})
+
 
 def transient_refresh_failure(exc: BaseException
                               ) -> TransientInfrastructureFailure:
@@ -125,15 +150,15 @@ def classify_dependency_failure(
     sqlstate = str(getattr(exc, "sqlstate", "") or "")
     module = type(exc).__module__.lower()
     name = type(exc).__name__
+    if sqlstate.startswith("28") or sqlstate == "42501":
+        return PermanentOperationalRefusal(
+            f"PostgreSQL authority/configuration refusal {sqlstate}: {exc}")
     if (sqlstate.startswith(("08", "40", "53"))
             or sqlstate in {"55P03", "57P01", "57P02", "57P03"}
             or module.startswith(("psycopg", "psycopg2"))
             and name in {"OperationalError", "InterfaceError"}):
         return TransientInfrastructureFailure(
             f"PostgreSQL transient failure {sqlstate or name}: {exc}")
-    if sqlstate.startswith("28") or sqlstate == "42501":
-        return PermanentOperationalRefusal(
-            f"PostgreSQL authority/configuration refusal {sqlstate}: {exc}")
     if isinstance(exc, (TimeoutError, ConnectionError)):
         return TransientInfrastructureFailure(
             f"dependency transport failure {name}: {exc}")
@@ -261,35 +286,12 @@ def shadow_config_from_env(
 
 def config_from_env(env: Mapping[str, str] | None = None) -> AutomationConfig:
     source = os.environ if env is None else env
-    mapping = {
-        "publication_delay_seconds": "SENTINEL_AUTOMATION_PUBLICATION_DELAY_SECONDS",
-        "execution_delay_seconds": "SENTINEL_AUTOMATION_EXECUTION_DELAY_SECONDS",
-        "lease_seconds": "SENTINEL_AUTOMATION_LEASE_SECONDS",
-        "heartbeat_seconds": "SENTINEL_AUTOMATION_HEARTBEAT_SECONDS",
-        "callback_deadline_seconds":
-            "SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS",
-        "control_poll_seconds": "SENTINEL_AUTOMATION_CONTROL_POLL_SECONDS",
-        "retry_base_seconds": "SENTINEL_AUTOMATION_RETRY_BASE_SECONDS",
-        "retry_max_seconds": "SENTINEL_AUTOMATION_RETRY_MAX_SECONDS",
-        "refresh_max_attempts":
-            "SENTINEL_AUTOMATION_REFRESH_MAX_ATTEMPTS",
-        "preflight_recover_max_attempts":
-            "SENTINEL_AUTOMATION_PREFLIGHT_RECOVER_MAX_ATTEMPTS",
-        "prepare_max_attempts":
-            "SENTINEL_AUTOMATION_PREPARE_MAX_ATTEMPTS",
-        "execute_max_attempts":
-            "SENTINEL_AUTOMATION_EXECUTE_MAX_ATTEMPTS",
-        "recover_max_attempts":
-            "SENTINEL_AUTOMATION_RECOVER_MAX_ATTEMPTS",
-        "alert_claim_seconds": "SENTINEL_AUTOMATION_ALERT_CLAIM_SECONDS",
-        "alert_max_attempts": "SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS",
-    }
-    values = {field: int(source[name]) for field, name in mapping.items()
-              if str(source.get(name, "")).strip()}
-    timing_policy = str(source.get(
-        "SENTINEL_AUTOMATION_PUBLICATION_TIMING_POLICY", "")).strip()
-    if timing_policy:
-        values["publication_timing_policy"] = timing_policy
+    values = {}
+    for field, name in AUTOMATION_CONFIG_ENV_BY_FIELD.items():
+        raw = str(source.get(name, "")).strip()
+        if not raw:
+            continue
+        values[field] = raw if field == "publication_timing_policy" else int(raw)
     return AutomationConfig(**values)
 
 

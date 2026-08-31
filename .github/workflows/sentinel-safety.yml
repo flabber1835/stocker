@@ -13,6 +13,10 @@ on:
       - 'codex/**'
   pull_request:
     branches: [main]
+  # GitHub Enterprise Cloud organization/enterprise ruleset workflows accept
+  # pull_request and merge_group. The ruleset binds this exact source path;
+  # named check contexts alone are never merge authority.
+  merge_group:
   workflow_dispatch:
 
 permissions:
@@ -142,12 +146,12 @@ jobs:
           {
             echo '### Exact-SHA safety evidence'
             echo
-            echo "- commit: \`$TESTED_SHA\`"
-            echo "- source tree: \`$tree_hash\`"
-            echo "- workflow run: \`$GITHUB_RUN_ID\`"
-            echo "- dependency locks: \`$dependency_lock_hash\`"
-            echo "- authorized image: \`$runtime_digest\`"
-            echo "- test manifest: \`$test_manifest_hash\`"
+            printf -- '- commit: `%s`\n' "$TESTED_SHA"
+            printf -- '- source tree: `%s`\n' "$tree_hash"
+            printf -- '- workflow run: `%s`\n' "$GITHUB_RUN_ID"
+            printf -- '- dependency locks: `%s`\n' "$dependency_lock_hash"
+            printf -- '- authorized image: `%s`\n' "$runtime_digest"
+            printf -- '- test manifest: `%s`\n' "$test_manifest_hash"
             echo '- schema epoch: `sentinel.behavioral_schema/current`'
             echo '- semantic epoch: `sentinel.automation_cycle/1`'
           } >> "$GITHUB_STEP_SUMMARY"
@@ -198,8 +202,9 @@ jobs:
               tests/sentinel/test_issue_201_automation_financial_grade.py \
               tests/sentinel/test_automation_p1_continuity.py \
               tests/sentinel/test_pr293_review_blockers.py \
+              tests/sentinel/test_pr293_automation_fixes.py \
               -q -ra &&
-            python -m coverage report --fail-under=80
+            python -m coverage report --precision=2 --fail-under=80.00
           '
 
       - name: Run the prospective Wealth Core boundary without skips
@@ -298,10 +303,10 @@ jobs:
           mkdir -p /tmp/sentinel-tested-image
           docker save sentinel-authorized:ci \
             > /tmp/sentinel-tested-image/sentinel-authorized.tar
-          sha256sum /tmp/sentinel-tested-image/sentinel-authorized.tar \
-            > /tmp/sentinel-tested-image/SHA256SUMS
           printf '%s\n' "$TESTED_SHA" \
             > /tmp/sentinel-tested-image/COMMIT
+          cd /tmp/sentinel-tested-image
+          sha256sum sentinel-authorized.tar COMMIT > SHA256SUMS
 
       - name: Retain the exact tested image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

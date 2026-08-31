@@ -170,3 +170,96 @@ authority decisions, state transitions, and exception classification. The
 reconstruction adds branch coverage, strict typing of changed public boundaries,
 mutation checks for fail-open/fail-closed predicates, property/state-model
 tests, and fault injection at callback, lease, broker, and commit boundaries.
+
+The documented merge-gate trust root is a GitHub ruleset **required workflow**,
+bound to the exact source repository and
+`.github/workflows/sentinel-safety.yml`. It is a design and activation
+requirement; it is not active on this repository today. Status-context names
+remain diagnostics and carry no merge authority: every workflow in this
+repository runs as the same GitHub Actions App and can emit the same names. The
+required-workflow rule must come from a GitHub Enterprise Cloud organization or
+enterprise ruleset and must pin the source workflow by repository id plus
+protected ref or immutable commit. The source workflow supports `pull_request`
+and `merge_group`, which are the event families GitHub accepts for a ruleset
+workflow.
+
+`flabber1835/stocker` is currently owned by a personal GitHub account. GitHub
+does not offer ruleset workflows at that ownership level. The safety trust root
+therefore remains an activation gate until either the repository is owned by a
+GitHub Enterprise Cloud organization and the documented organization ruleset is
+active, or a separately installed external CI GitHub App runs the exact-head
+and synthetic-merge gates from configuration outside this repository and the
+ruleset pins each required status to that App's unique integration id. The four
+shared-Actions-App required status contexts must be removed at either activation
+boundary. Under the required-workflow option, workflow source changes pass
+through the previously active source definition before they can alter later
+merge decisions.
+
+After transfer to a GitHub Enterprise Cloud organization, create the
+organization ruleset with this REST payload. GitHub repository id `1233957439`
+is stable across a transfer. `ref` may be replaced by the immutable post-merge
+`sha` when the owner wants an administratively pinned workflow revision.
+
+```json
+{
+  "name": "Sentinel required safety workflow",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "repository_id": {"repository_ids": [1233957439]},
+    "ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}
+  },
+  "rules": [
+    {
+      "type": "workflows",
+      "parameters": {
+        "do_not_enforce_on_create": false,
+        "workflows": [
+          {
+            "path": ".github/workflows/sentinel-safety.yml",
+            "repository_id": 1233957439,
+            "ref": "refs/heads/main"
+          }
+        ]
+      }
+    }
+  ]
+}
+```
+
+Send that body to `POST /orgs/{org}/rulesets`. Confirm the returned source type
+is `Organization`, the rule type is `workflows`, and a fresh commit on an open
+pull request produces the ruleset-workflow run. Then remove
+`required_status_checks` from repository ruleset `21878525`; keep its pull
+request, deletion, and non-fast-forward rules. Advance `main` once during
+activation and confirm that GitHub requires a fresh ruleset-workflow result for
+the updated merge ref before retiring the former strict status-check rule.
+
+Protected image publication has no externally reachable pre-attestation
+registry phase. The tested image is pushed to an ephemeral registry bound only
+to the runner loopback interface. That registry runs the pinned official
+`registry:2.8.3` index digest
+`sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373`,
+which exposes the exact distribution-manifest digest before GHCR receives any
+manifest. GitHub's Sigstore-backed build-provenance action attests the final
+GHCR repository subject and that digest with `push-to-registry: false`,
+publishes the attestation to GitHub's attestations API, and emits a
+self-contained verification bundle. The bundle, promotion intent, and portable
+relative-path checksum manifest are retained as a GitHub artifact for 90 days.
+Only after that durable upload succeeds may the exact commit tag be pushed to
+GHCR. The pinned ORAS 1.3.3 client copies the exact loopback manifest by digest,
+then `oras resolve` must return the attested digest for the final tag. A failed
+attestation or evidence upload therefore leaves no externally reachable image
+manifest.
+
+The publisher accepts one upstream workflow identity: workflow id `333697638`
+at `.github/workflows/sentinel-safety.yml`. Matching the display name is
+insufficient. Its `workflow_run` payload must also identify a successful `push`
+of `main`, the exact repository, and the expected workflow id and path.
+
+Coverage reports use two-decimal precision and an exact `80.00` threshold. The
+callback-result path unconditionally runs complete process-group cleanup, which
+removes the former leader-exit race from both runtime semantics and coverage.
+The gate includes that falsifier and the complete PR-293 automation regression
+module so scheduling cannot decide which side of the threshold is reported.

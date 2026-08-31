@@ -8,6 +8,7 @@ on:
 
 permissions:
   actions: read
+  attestations: write
   contents: read
   packages: write
   id-token: write
@@ -17,7 +18,13 @@ jobs:
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main'
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.workflow_id == 333697638 &&
+      github.event.workflow_run.path == '.github/workflows/sentinel-safety.yml' &&
+      github.event.workflow_run.repository.id == 1233957439 &&
+      github.event.workflow_run.head_repository.id == 1233957439 &&
+      github.event.workflow_run.repository.full_name == github.repository &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -25,6 +32,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
 
       - name: Download the exact tested image artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -34,71 +42,196 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Verify, publish, and retain signed provenance
+      - name: Verify the artifact and compute its loopback registry digest
+        id: subject
         shell: bash
         env:
           TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
           TEST_RUN_ID: ${{ github.event.workflow_run.id }}
           REGISTRY: ghcr.io
           IMAGE_NAME: ${{ github.repository }}/sentinel-authorized
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LOOPBACK_REGISTRY_IMAGE: registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
         run: |
           set -euo pipefail
           cd /tmp/sentinel-tested-image
-          sha256sum --check SHA256SUMS
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          rows = Path("SHA256SUMS").read_text(encoding="utf-8").splitlines()
+          expected = {"sentinel-authorized.tar", "COMMIT"}
+          found = set()
+          for row in rows:
+              match = re.fullmatch(r"[0-9a-f]{64}  ([A-Za-z0-9._-]+)", row)
+              if match is None:
+                  raise SystemExit("REFUSED: non-portable image checksum row")
+              found.add(match.group(1))
+          if found != expected or len(rows) != len(expected):
+              raise SystemExit("REFUSED: incomplete image checksum manifest")
+          PY
+          sha256sum --strict --check SHA256SUMS
           test "$(cat COMMIT)" = "$TESTED_SHA"
           docker load --input sentinel-authorized.tar
           test "$(docker image inspect sentinel-authorized:ci \
             --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" \
             = "$TESTED_SHA"
-          image_ref="${REGISTRY}/${IMAGE_NAME}:${TESTED_SHA}"
-          echo "$GITHUB_TOKEN" | docker login "$REGISTRY" \
-            --username "$GITHUB_ACTOR" --password-stdin
-          docker tag sentinel-authorized:ci "$image_ref"
-          docker push "$image_ref"
-          digest="$(docker image inspect "$image_ref" \
-            --format '{{index .RepoDigests 0}}' | sed 's/^.*@//')"
+          subject_name="${REGISTRY}/${IMAGE_NAME}"
+          final_ref="${subject_name}:${TESTED_SHA}"
+          local_repository="127.0.0.1:5000/sentinel-authorized"
+          local_tag="${local_repository}:${TESTED_SHA}"
+          docker run --detach --name sentinel-promotion-registry \
+            --publish 127.0.0.1:5000:5000 \
+            "$LOOPBACK_REGISTRY_IMAGE"
+          registry_ready=false
+          for _attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error \
+                http://127.0.0.1:5000/v2/ >/dev/null; then
+              registry_ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$registry_ready" = true
+          docker tag sentinel-authorized:ci "$local_tag"
+          docker push "$local_tag" 2>&1 | tee /tmp/loopback-push.log
+          digest="$(sed -nE \
+            's/^.*digest: (sha256:[0-9a-f]{64}).*$/\1/p' \
+            /tmp/loopback-push.log | tail -n 1)"
           case "$digest" in
             sha256:????????????????????????????????????????????????????????????????) ;;
             *) exit 1 ;;
           esac
+
+          {
+            echo "subject_name=$subject_name"
+            echo "final_ref=$final_ref"
+            echo "local_repository=$local_repository"
+            echo "digest=$digest"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create durable Sigstore build provenance
+        id: attestation
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ steps.subject.outputs.subject_name }}
+          subject-digest: ${{ steps.subject.outputs.digest }}
+          push-to-registry: false
+
+      - name: Assemble the retained provenance bundle
+        shell: bash
+        env:
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          TEST_RUN_ID: ${{ github.event.workflow_run.id }}
+          TEST_WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+          TEST_WORKFLOW_PATH: ${{ github.event.workflow_run.path }}
+          SUBJECT_NAME: ${{ steps.subject.outputs.subject_name }}
+          FINAL_REF: ${{ steps.subject.outputs.final_ref }}
+          SUBJECT_DIGEST: ${{ steps.subject.outputs.digest }}
+          ATTESTATION_ID: ${{ steps.attestation.outputs.attestation-id }}
+          ATTESTATION_URL: ${{ steps.attestation.outputs.attestation-url }}
+          ATTESTATION_BUNDLE: ${{ steps.attestation.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          test -s "$ATTESTATION_BUNDLE"
+          test -n "$ATTESTATION_ID"
+          test -n "$ATTESTATION_URL"
           mkdir -p /tmp/sentinel-provenance
-          export image_ref digest
+          cp "$ATTESTATION_BUNDLE" \
+            /tmp/sentinel-provenance/attestation.sigstore.json
           python - <<'PY'
-          import json, os
+          import base64, json, os
+
+          with open(os.environ["ATTESTATION_BUNDLE"], encoding="utf-8") as source:
+              bundle = json.load(source)
+          envelope = bundle.get("dsseEnvelope") if isinstance(bundle, dict) else None
+          if not isinstance(envelope, dict) or not envelope.get("signatures"):
+              raise SystemExit("REFUSED: incomplete Sigstore attestation bundle")
+          try:
+              statement = json.loads(base64.b64decode(
+                  envelope["payload"], validate=True))
+          except (KeyError, TypeError, ValueError) as exc:
+              raise SystemExit(
+                  "REFUSED: malformed Sigstore DSSE payload") from exc
+          algorithm, separator, digest = os.environ["SUBJECT_DIGEST"].partition(":")
+          expected_subject = [{
+              "name": os.environ["SUBJECT_NAME"],
+              "digest": {algorithm: digest},
+          }]
+          if (separator != ":" or algorithm != "sha256" or not digest
+                  or statement.get("_type") != "https://in-toto.io/Statement/v1"
+                  or statement.get("predicateType")
+                  != "https://slsa.dev/provenance/v1"
+                  or statement.get("subject") != expected_subject):
+              raise SystemExit(
+                  "REFUSED: Sigstore payload does not bind the promoted subject")
           evidence = {
-              "schema": "sentinel.exact-sha-provenance/2",
+              "schema": "sentinel.exact-sha-provenance/3",
+              "state": "EVIDENCE_DURABLE_BEFORE_AUTHORIZED_TAG",
               "commit": os.environ["TESTED_SHA"],
               "test_workflow_run": os.environ["TEST_RUN_ID"],
+              "test_workflow_id": os.environ["TEST_WORKFLOW_ID"],
+              "test_workflow_path": os.environ["TEST_WORKFLOW_PATH"],
               "publication_workflow_run": os.environ["GITHUB_RUN_ID"],
-              "tested_image": os.environ["image_ref"],
-              "tested_image_digest": os.environ["digest"],
+              "publication_workflow_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "subject_name": os.environ["SUBJECT_NAME"],
+              "authorized_image": os.environ["FINAL_REF"],
+              "digest_source": "RUNNER_LOOPBACK_REGISTRY",
+              "loopback_registry_image": (
+                  "registry@sha256:"
+                  "a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"),
+              "tested_image_digest": os.environ["SUBJECT_DIGEST"],
+              "attestation_id": os.environ["ATTESTATION_ID"],
+              "attestation_url": os.environ["ATTESTATION_URL"],
           }
           with open("/tmp/sentinel-provenance/provenance.json", "w") as out:
               json.dump(evidence, out, sort_keys=True, separators=(",", ":"))
               out.write("\n")
           PY
-          provenance_sha="$(sha256sum \
-            /tmp/sentinel-provenance/provenance.json | awk '{print $1}')"
-          curl --fail --silent --show-error \
-            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sha256:${provenance_sha}" \
-            > /tmp/sentinel-provenance/oidc-response.json
-          python - <<'PY'
-          import json
-          with open("/tmp/sentinel-provenance/oidc-response.json") as source:
-              token = json.load(source)["value"]
-          with open("/tmp/sentinel-provenance/provenance.oidc.jwt", "w") as out:
-              out.write(token + "\n")
-          PY
-          rm /tmp/sentinel-provenance/oidc-response.json
-          sha256sum /tmp/sentinel-provenance/* \
-            > /tmp/sentinel-provenance/SHA256SUMS
+          cd /tmp/sentinel-provenance
+          sha256sum provenance.json attestation.sigstore.json > SHA256SUMS
+          sha256sum --strict --check SHA256SUMS
 
       - name: Retain signed promotion evidence
+        id: evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sentinel-provenance-${{ github.event.workflow_run.head_sha }}
           path: /tmp/sentinel-provenance
           if-no-files-found: error
           retention-days: 90
+
+      - name: Install the pinned manifest-preserving promotion client
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+        with:
+          version: 1.3.3
+
+      - name: Publish the provenance-authorized commit tag
+        shell: bash
+        env:
+          FINAL_REF: ${{ steps.subject.outputs.final_ref }}
+          LOCAL_REPOSITORY: ${{ steps.subject.outputs.local_repository }}
+          SUBJECT_DIGEST: ${{ steps.subject.outputs.digest }}
+          EVIDENCE_URL: ${{ steps.evidence.outputs.artifact-url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd /tmp/sentinel-provenance
+          sha256sum --strict --check SHA256SUMS
+          echo "$GITHUB_TOKEN" | oras login ghcr.io \
+            --username "$GITHUB_ACTOR" --password-stdin
+          oras cp --from-plain-http \
+            "${LOCAL_REPOSITORY}@${SUBJECT_DIGEST}" "$FINAL_REF"
+          final_digest="$(oras resolve "$FINAL_REF")"
+          test "$final_digest" = "$SUBJECT_DIGEST"
+          {
+            echo '### Protected Sentinel publication'
+            echo
+            printf -- '- image: `%s`\n' "$FINAL_REF"
+            printf -- '- digest: `%s`\n' "$SUBJECT_DIGEST"
+            printf -- '- retained evidence: %s\n' "$EVIDENCE_URL"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Stop the runner-local promotion registry
+        if: always()
+        shell: bash
+        run: docker rm --force sentinel-promotion-registry >/dev/null 2>&1 || true

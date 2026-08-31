@@ -801,6 +801,12 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     """
     by_sec = {b.security_id: b for b in bars}
     res_cancelled: list[dict] = []
+    # Name cooldowns actually STARTED by this session's release transitions.
+    # Comparing only key membership before/after is insufficient: a conversion
+    # can leave a held security with an older cooldown, and a later exit must
+    # reset that same key to age 0 rather than age it immediately to 1.
+    started_slot_cooldowns: set[int] = set()
+    started_security_cooldowns: set[str] = set()
 
     # ── 0. re-label ──────────────────────────────────────────────────────────
     # Before anything reads a ticker. Changes no number and no economic state.
@@ -845,6 +851,10 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     for terms in sorted(terminal_terms,
                         key=lambda t: (t.security_id, t.kind.value)):
         from stock_strategy_shared.wealth_core.terminal import apply_terminal
+        episodes_before_terminal = {
+            slot_id: episode.security_id
+            for slot_id, episode in state.episodes.items()
+        }
         _b = by_sec.get(terms.security_id)
         terminal_result = apply_terminal(
                  state, terms, ledger=ledger, session=session, cfg=cfg,
@@ -860,6 +870,11 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                                    if _b is not None and _b.can_execute
                                    and _b.raw_mark_close else None),
                  counters=settlement_counters)
+        for slot_id, predecessor_security_id in (
+                episodes_before_terminal.items()):
+            if slot_id not in state.episodes:
+                started_slot_cooldowns.add(slot_id)
+                started_security_cooldowns.add(predecessor_security_id)
         transformed, cancelled = _transform_pending_for_terminal(
             state, pending, terms=terms, result=terminal_result,
             session=session)
@@ -934,6 +949,8 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                     f"quantity {ep.current_shares!r}")
             before = state.cash
             apply_exit(state, slot_id=po.slot_id, raw_open=px, cfg=cfg)
+            started_slot_cooldowns.add(po.slot_id)
+            started_security_cooldowns.add(po.security_id)
             ledger.post(session=session, event_type=EventType.SELL,
                         cash_before=before, cash_delta=state.cash - before,
                         security_id=po.security_id, ticker=po.ticker,
@@ -1004,7 +1021,11 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     aged = {sid: ep for sid, ep in state.episodes.items()
             if sid not in entered_this_session}
     saved, state.episodes = state.episodes, aged
-    state.age_one_session(signal_closes)
+    state.age_one_session(
+        signal_closes,
+        skip_slot_cooldowns=started_slot_cooldowns,
+        skip_security_cooldowns=started_security_cooldowns,
+    )
     state.episodes = saved
     for slot_id in entered_this_session:
         # Age 0 at the entry close (locked convention), but this IS the first

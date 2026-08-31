@@ -112,6 +112,28 @@ _CHILD_EXCEPTION_TYPES = {
 }
 
 
+def _reviewed_child_exception_type(
+        exc: BaseException) -> type[BaseException] | None:
+    """Select the most-specific reviewed class represented by ``exc``."""
+    actual = type(exc)
+    exact = _CHILD_EXCEPTION_TYPES.get(
+        (actual.__module__, actual.__qualname__))
+    if exact is actual:
+        return exact
+    matches = tuple(
+        candidate for candidate in _CHILD_EXCEPTION_TYPES.values()
+        if isinstance(exc, candidate))
+    if not matches:
+        return None
+    mro = actual.__mro__
+    return min(
+        matches,
+        key=lambda candidate: (
+            mro.index(candidate),
+            candidate.__module__,
+            candidate.__qualname__))
+
+
 def _json_default(value):  # pragma: no cover - runs in supervised child
     if isinstance(value, datetime):
         return value.isoformat()
@@ -153,10 +175,7 @@ def _callback_child(  # pragma: no cover - measured by process fault tests
             "value": value,
         }
     except BaseException as exc:                              # noqa: BLE001
-        reviewed_class = next(
-            (candidate for candidate in _CHILD_EXCEPTION_TYPES.values()
-             if isinstance(exc, candidate)),
-            None)
+        reviewed_class = _reviewed_child_exception_type(exc)
         serialized_class = reviewed_class or type(exc)
         payload = {
             "kind": "error",
@@ -645,8 +664,7 @@ class AutomationService:
                         if parent_channel.poll():
                             payload = parent_channel.recv_bytes()
                             callback_process.join(timeout=0)
-                            if callback_process.is_alive():
-                                _kill_callback_process(callback_process)
+                            _kill_callback_process(callback_process)
                             return _CallbackOutcome(
                                 value=_decode_child_callback(payload))
                         if not callback_process.is_alive():

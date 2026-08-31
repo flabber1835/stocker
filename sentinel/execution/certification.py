@@ -157,8 +157,11 @@ _ISSUED: dict[int, _IssuedCertification] = {}
 
 _IMPLEMENTATIONS = {
     "alpaca": frozenset({
-        "sentinel.execution.alpaca.AlpacaExecutionBroker",
-        "sentinel.execution.alpaca.HardenedAlpacaExecutionBroker",
+        # Certification advertises stable instrument identity all the way
+        # through the pre-submit mutation boundary.  The retained Original
+        # and Hardened classes still address create-order requests by ticker,
+        # so they may support transport-focused tests but can never receive a
+        # production certification identity.
         "sentinel.execution.alpaca.FinancialGradeAlpacaExecutionBroker",
         "sentinel.execution.alpaca_asset_id.AssetIdAlpacaExecutionBroker",
     }),
