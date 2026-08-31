@@ -3,6 +3,15 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+PINNED_MAIN_ROOT = ROOT / "main-src"
+if PINNED_MAIN_ROOT.is_dir() and str(PINNED_MAIN_ROOT) not in sys.path:
+    sys.path.insert(0, str(PINNED_MAIN_ROOT))
 
 FULL_DATASET_END = "2026-07-31"
 SEGMENT_END = os.environ.get("CERTIFICATION_SEGMENT_END_SESSION", FULL_DATASET_END)
@@ -28,7 +37,16 @@ if SEGMENT_END != FULL_DATASET_END:
     }
 os.environ["CERTIFICATION_END_SESSION"] = SEGMENT_END
 
-install(base.strict.runner)
+# These three modules own state that affects the next economic session or the
+# cumulative production evidence. Format 3 validates every owner before it
+# mutates any restored global.
+install(
+    base.strict.runner,
+    fullstack_module=base.strict.prod,
+    strict_module=base.strict,
+    progress_module=base.strict.base,
+    measurement_start=base.MEASUREMENT_START,
+)
 
 if __name__ == "__main__":
     raise SystemExit(base.main())

@@ -80,6 +80,7 @@ def load_frozen_terminal_terms(
     TerminalTerms,
     TerminalKind,
     identity_binding: str = "frozen",
+    delivered_issuer_resolver=None,
 ) -> tuple[dict[str, tuple[object, ...]], str]:
     """Load, validate, and instantiate exact production ``TerminalTerms``.
 
@@ -222,7 +223,12 @@ def load_frozen_terminal_terms(
                     raise FrozenTerminalTermsError(
                         f"resolved conversion {frozen_sid} requires replay metadata "
                         f"for delivered causal security {delivered_sid}")
-                delivered_issuer, _source = meta[delivered_sid].issuer_key()
+                if delivered_issuer_resolver is None:
+                    delivered_issuer, _source = meta[delivered_sid].issuer_key()
+                else:
+                    delivered_issuer, _source = delivered_issuer_resolver(
+                        delivered_sid, delivered_ticker, session
+                    )
             if not delivered_issuer:
                 raise FrozenTerminalTermsError(
                     f"delivered security {delivered_sid} has no issuer identity")

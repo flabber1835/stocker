@@ -1,0 +1,567 @@
+name: Backtester - production strict-PIT annual worker
+
+on:
+  workflow_call:
+    inputs:
+      year:
+        required: true
+        type: string
+      source_sha:
+        required: true
+        type: string
+      workflow_sha:
+        required: true
+        type: string
+      chain_ref:
+        required: true
+        type: string
+      previous_run_id:
+        required: false
+        default: ''
+        type: string
+      previous_run_attempt:
+        required: false
+        default: ''
+        type: string
+      previous_artifact_name:
+        required: false
+        default: ''
+        type: string
+      previous_certificate_hash:
+        required: false
+        default: ''
+        type: string
+      previous_chain_hash:
+        required: false
+        default: ''
+        type: string
+    outputs:
+      artifact_name:
+        value: ${{ jobs.replay.outputs.artifact_name }}
+      run_id:
+        value: ${{ jobs.replay.outputs.run_id }}
+      run_attempt:
+        value: ${{ jobs.replay.outputs.run_attempt }}
+      certificate_hash:
+        value: ${{ jobs.replay.outputs.certificate_hash }}
+      chain_hash:
+        value: ${{ jobs.replay.outputs.chain_hash }}
+      checkpoint_sha256:
+        value: ${{ jobs.replay.outputs.checkpoint_sha256 }}
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  replay:
+    name: Production PIT through ${{ inputs.year }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    outputs:
+      artifact_name: ${{ steps.identity.outputs.artifact_name }}
+      run_id: ${{ github.run_id }}
+      run_attempt: ${{ github.run_attempt }}
+      certificate_hash: ${{ steps.certificate.outputs.certificate_hash }}
+      chain_hash: ${{ steps.certificate.outputs.chain_hash }}
+      checkpoint_sha256: ${{ steps.certificate.outputs.checkpoint_sha256 }}
+    env:
+      CHAIN_YEAR: ${{ inputs.year }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      WORKFLOW_SHA: ${{ inputs.workflow_sha }}
+      CHAIN_REF: ${{ inputs.chain_ref }}
+      PREVIOUS_RUN_ID: ${{ inputs.previous_run_id }}
+      PREVIOUS_RUN_ATTEMPT: ${{ inputs.previous_run_attempt }}
+      PREVIOUS_ARTIFACT_NAME: ${{ inputs.previous_artifact_name }}
+      PREVIOUS_CERTIFICATE_HASH: ${{ inputs.previous_certificate_hash }}
+      PREVIOUS_CHAIN_HASH: ${{ inputs.previous_chain_hash }}
+      CANONICAL_DATASET_HASH: f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b
+      TERMINAL_CORRECTION_SHA256: cfd65c78317abd1671632b2a730507634cf036e798b0ade89be68194fda430dc
+      CANONICAL_PIT_EXPECTED_END: '2026-07-31'
+      CERTIFICATION_WARMUP_START: '2006-01-03'
+      CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+      PRODUCTION_MAIN_SHA: 887f479b15ad861313da666ad698034d3847121c
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - name: Define attempt-aware evidence identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARTIFACT_NAME="production-year-${CHAIN_YEAR}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "artifact_name=${ARTIFACT_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> "${GITHUB_ENV}"
+
+      - name: Check out frozen annual-chain source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-production-strict-pit-20y.yml
+            /.github/workflows/backtester-production-strict-pit-year-worker.yml
+            /backtester/apply_production_cooldown_age_zero.py
+            /backtester/production_year_checkpoint_overlay.py
+            /backtester/run_production_strict_pit_20y_checkpointed.py
+            /backtester/run_production_strict_pit_20y.py
+            /backtester/run_production_strict_pit_certification.py
+            /backtester/write_production_year_certificate.py
+            /backtester/strict_pit_metadata.py
+            /backtester/canonical_pit_dataset.py
+            /backtester/canonical_pit_package.py
+            /backtester/causal_split_overrides.py
+            /backtester/run_ldrc_corrected_warmup_cash.py
+            /backtester/run_ldrc_nonpit_vs_pit_certified.py
+            /backtester/run_sector_ad_causal_terminal_terms_v2.py
+            /backtester/historical_cash.py
+            /backtester/causal_terminal_terms.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/canonical-pit-20y.json
+            /backtester/data/production-chain-generation.json
+            /backtester/data/production-strict-pit-20y-request.json
+            /backtester/data/causal-split-overrides-v1.json
+            /backtester/data/causal-split-overrides-v1.SHA256
+            /backtester/data/causal-split-overrides-v1.d/**
+            /backtester/data/causal-terminal-terms-v1.json
+            /backtester/data/causal-terminal-terms-v1.SHA256
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /tests/backtester/test_production_annual_chain.py
+            /tests/backtester/test_production_cooldown_age_zero.py
+            /tests/backtester/test_production_year_checkpoint.py
+            /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/SHA256SUMS.txt
+            /research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
+            /PIT input data/MANIFEST.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
+            /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
+            /PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz
+            /PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv
+            /PIT input data/SEC_SECURITY_TYPE_COVERAGE.md
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SFP/**
+
+      - name: Enforce immutable source, chain, and predecessor shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = "${CHAIN_REF}"
+          test "${CHAIN_REF}" = "refs/heads/research/backtester"
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          test "${WORKFLOW_SHA}" = "${SOURCE_SHA}"
+          test -z "$(git status --porcelain)"
+          case "${CHAIN_YEAR}" in
+            20[0-2][0-9]) ;;
+            *) echo "invalid chain year ${CHAIN_YEAR}" >&2; exit 1 ;;
+          esac
+          test "${CHAIN_YEAR}" -ge 2006
+          test "${CHAIN_YEAR}" -le 2026
+          if test "${CHAIN_YEAR}" = 2006; then
+            test -z "${PREVIOUS_RUN_ID}${PREVIOUS_RUN_ATTEMPT}${PREVIOUS_ARTIFACT_NAME}${PREVIOUS_CERTIFICATE_HASH}${PREVIOUS_CHAIN_HASH}"
+          else
+            test -n "${PREVIOUS_RUN_ID}"
+            test -n "${PREVIOUS_RUN_ATTEMPT}"
+            test -n "${PREVIOUS_ARTIFACT_NAME}"
+            test -n "${PREVIOUS_CERTIFICATE_HASH}"
+            test -n "${PREVIOUS_CHAIN_HASH}"
+          fi
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          generation = json.loads(
+              Path('backtester/data/production-chain-generation.json').read_text()
+          )
+          assert generation['generation'] == 1
+          assert generation['production_checkpoint_schema'] == 'backtester.production-year-checkpoint/3'
+          assert generation['production_checkpoint_format_generation'] == 3
+          assert generation['annual_certificate_schema'] == 'backtester.production-year-certificate/1'
+          assert generation['canonical_dataset_hash'] == os.environ['CANONICAL_DATASET_HASH']
+          assert generation['terminal_correction_sha256'] == os.environ['TERMINAL_CORRECTION_SHA256']
+          assert generation['production_main_sha'] == os.environ['PRODUCTION_MAIN_SHA']
+          PY
+          echo "BACKTESTER_BRANCH_SHA=${SOURCE_SHA}" >> "${GITHUB_ENV}"
+
+      - name: Check out exact production strategy source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+            docs/sentinel-handoff/00_README
+
+      - name: Apply and identify the backtester-only production correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C main-src rev-parse HEAD)" = "${PRODUCTION_MAIN_SHA}"
+          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)" = "94ba764c79cb7e40d4448195029ecc4c45b8d632"
+          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/adapter.py)" = "a59075507c8031dc0f30f1b989ad7253ad4c1715"
+          YEAR_ROOT="backtester-results/production-year-${CHAIN_YEAR}"
+          mkdir -p "${YEAR_ROOT}"
+          python backtester/apply_production_cooldown_age_zero.py \
+            --root main-src \
+            --evidence "${YEAR_ROOT}/production-overlay.json"
+          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)" = "42d6dc0f5dd71cc1331e76d216660b140a609466"
+          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/adapter.py)" = "d171724c2806522e8c94cd184685d09558b04715"
+          git -C main-src diff -- \
+            shared/stock_strategy_shared/wealth_core/state.py \
+            shared/stock_strategy_shared/wealth_core/adapter.py \
+            > "${YEAR_ROOT}/production-overlay.diff"
+          PRODUCTION_OVERLAY_SHA256=$(python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path('backtester-results') / f"production-year-{os.environ['CHAIN_YEAR']}"
+          value = json.loads((root / 'production-overlay.json').read_text())['diff_sha256']
+          if len(value) != 64:
+              raise SystemExit('invalid Production overlay identity')
+          print(value)
+          PY
+          )
+          echo "PRODUCTION_OVERLAY_SHA256=${PRODUCTION_OVERLAY_SHA256}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_MAIN_SHA=${PRODUCTION_MAIN_SHA}" >> "${GITHUB_ENV}"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install exact production runtime closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+
+      - name: Genesis regression and checkpoint-transform gates
+        if: ${{ inputs.year == '2006' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            backtester/production_year_checkpoint_overlay.py \
+            backtester/run_production_strict_pit_20y_checkpointed.py \
+            backtester/run_production_strict_pit_20y.py \
+            backtester/run_production_strict_pit_certification.py \
+            backtester/write_production_year_certificate.py
+          python -m compileall -q -f main-src/sentinel main-src/shared/stock_strategy_shared
+          python -m unittest tests.backtester.test_production_cooldown_age_zero -v
+          python -m unittest tests.backtester.test_production_annual_chain -v
+          if python -c 'import pytest' >/dev/null 2>&1; then
+            python -m pytest -q tests/backtester/test_production_year_checkpoint.py
+          else
+            echo 'pytest is not in the frozen Production runtime; checkpoint tests run in repository CI'
+          fi
+          python - <<'PY'
+          import backtester.run_production_strict_pit_20y as production
+          from backtester.production_year_checkpoint_overlay import (
+              FORMAT_GENERATION, SCHEMA, transformed_main_source,
+          )
+          assert FORMAT_GENERATION == 3
+          assert SCHEMA == 'backtester.production-year-checkpoint/3'
+          source = transformed_main_source(production.strict.runner)
+          compile(source, '<checkpointed-production-main>', 'exec')
+          for marker in (
+              'PRODUCTION_RESUME_CHECKPOINT',
+              'PRODUCTION_CHECKPOINT_OUTPUT',
+              'production_core_by_session',
+              'canonical_prefix_sha256',
+              'daily_prefix_sha256',
+              'previous_checkpoint_sha256',
+          ):
+              assert marker in source, marker
+          print('PRODUCTION CHECKPOINT FORMAT 3 TRANSFORM PASS')
+          PY
+          env -u PYTHONPATH \
+            CERTIFICATION_SEGMENT_END_SESSION=2006-12-29 \
+            CANONICAL_PIT_EXPECTED_END=2026-07-31 \
+            python backtester/run_production_strict_pit_20y_checkpointed.py \
+              --main-root main-src --self-test-source-identity
+
+      - name: Verify full canonical PIT package pointer
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          pointer = json.loads(Path('backtester/data/canonical-pit-20y.json').read_text())
+          assert pointer['status'] == 'PASS'
+          assert pointer['dataset_hash'] == os.environ['CANONICAL_DATASET_HASH']
+          assert pointer['source_run_id'] == '33331951602'
+          assert pointer['window'] == {
+              'warmup_start': '2006-01-03',
+              'measurement_start': '2006-07-31',
+              'end': '2026-07-31',
+          }
+          assert int(pointer['counts']['unresolved_corporate_actions']) == 0
+          print('FULL CANONICAL PIT POINTER PASS', pointer['dataset_id'])
+          PY
+
+      - name: Pull and certify stored full 20-year PIT dataset
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CANONICAL_PATH=backtester-results/canonical-pit-20y
+          POINTER=backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          CONTAINER=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p "${CANONICAL_PATH}"
+          docker cp "${CONTAINER}:/canonical-pit/." "${CANONICAL_PATH}"
+          docker rm "${CONTAINER}"
+          trap - EXIT
+          python backtester/canonical_pit_package.py verify \
+            --pointer "${POINTER}" --dataset "${CANONICAL_PATH}"
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/${CANONICAL_PATH}" >> "${GITHUB_ENV}"
+
+      - name: Resolve the exact annual and genesis-gate boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' >> "${GITHUB_ENV}"
+          import os
+          import pandas as pd
+          year = int(os.environ['CHAIN_YEAR'])
+          final_end = '2026-07-31'
+          cap = final_end if year == 2026 else f'{year}-12-31'
+          hashes = pd.read_csv(
+              'backtester-results/canonical-pit-20y/session-hashes.csv', dtype=str
+          )
+          sessions = hashes.loc[hashes.session.le(cap), 'session']
+          if sessions.empty:
+              raise SystemExit(f'no canonical session on or before {cap}')
+          end = str(sessions.iloc[-1])
+          if not end.startswith(str(year)):
+              raise SystemExit(f'annual boundary {end} does not belong to {year}')
+          root = os.path.join(os.getcwd(), 'backtester-results', f'production-year-{year}')
+          print(f'CERTIFICATION_SEGMENT_END_SESSION={end}')
+          print(f'YEAR_OUTPUT_ROOT={root}')
+          print(f'PRODUCTION_OUTPUT_ROOT={root}/production')
+          print(f'PRODUCTION_CHECKPOINT_OUTPUT={root}/production-checkpoint.json')
+          print(f'PRODUCTION_FAILURE_CONTEXT_PATH={root}/production_failure_context.json')
+          if year == 2006:
+              gate_end = hashes.loc[hashes.session.le('2007-12-31'), 'session']
+              if gate_end.empty or not str(gate_end.iloc[-1]).startswith('2007'):
+                  raise SystemExit('no 2007 annual equivalence boundary')
+              print(f'GENESIS_EQUIVALENCE_END_SESSION={gate_end.iloc[-1]}')
+          PY
+          mkdir -p "${YEAR_OUTPUT_ROOT}"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['YEAR_OUTPUT_ROOT'])
+          payload = {
+              'schema': 'backtester.production-year-attempt/1',
+              'status': 'STARTED',
+              'year': int(os.environ['CHAIN_YEAR']),
+              'source_sha': os.environ['SOURCE_SHA'],
+              'workflow_sha': os.environ['WORKFLOW_SHA'],
+              'chain_ref': os.environ['CHAIN_REF'],
+              'run_id': os.environ['GITHUB_RUN_ID'],
+              'run_attempt': int(os.environ['GITHUB_RUN_ATTEMPT']),
+              'artifact_name': os.environ['ARTIFACT_NAME'],
+              'segment_end': os.environ['CERTIFICATION_SEGMENT_END_SESSION'],
+          }
+          (root / 'workflow-attempt.json').write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + '\n'
+          )
+          PY
+
+      - name: Download exact predecessor handoff
+        if: ${{ inputs.year != '2006' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ inputs.previous_artifact_name }}
+          path: previous-production-year
+
+      - name: Authenticate predecessor before resume
+        if: ${{ inputs.year != '2006' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREVIOUS_YEAR=$((CHAIN_YEAR - 1))
+          PREVIOUS_ROOT=previous-production-year/handoff
+          test -f "${PREVIOUS_ROOT}/production-checkpoint.json"
+          test -f "${PREVIOUS_ROOT}/production-checkpoint.json.sha256"
+          test -f "${PREVIOUS_ROOT}/production-year-certificate.json"
+          test -f "${PREVIOUS_ROOT}/production-certificate-chain.json"
+          python backtester/write_production_year_certificate.py validate-handoff \
+            --certificate "${PREVIOUS_ROOT}/production-year-certificate.json" \
+            --chain "${PREVIOUS_ROOT}/production-certificate-chain.json" \
+            --checkpoint "${PREVIOUS_ROOT}/production-checkpoint.json" \
+            --expected-year "${PREVIOUS_YEAR}" \
+            --source-sha "${SOURCE_SHA}" \
+            --workflow-sha "${WORKFLOW_SHA}" \
+            --chain-ref "${CHAIN_REF}" \
+            --dataset-hash "${CANONICAL_DATASET_HASH}" \
+            --production-main-sha "${PRODUCTION_MAIN_SHA}" \
+            --overlay-sha256 "${PRODUCTION_OVERLAY_SHA256}" \
+            --run-id "${PREVIOUS_RUN_ID}" \
+            --run-attempt "${PREVIOUS_RUN_ATTEMPT}" \
+            --artifact-name "${PREVIOUS_ARTIFACT_NAME}" \
+            --certificate-hash "${PREVIOUS_CERTIFICATE_HASH}" \
+            --chain-hash "${PREVIOUS_CHAIN_HASH}"
+          echo "PRODUCTION_RESUME_CHECKPOINT=${GITHUB_WORKSPACE}/${PREVIOUS_ROOT}/production-checkpoint.json" >> "${GITHUB_ENV}"
+          echo "PREVIOUS_CERTIFICATE=${GITHUB_WORKSPACE}/${PREVIOUS_ROOT}/production-year-certificate.json" >> "${GITHUB_ENV}"
+          echo "PREVIOUS_CHAIN=${GITHUB_WORKSPACE}/${PREVIOUS_ROOT}/production-certificate-chain.json" >> "${GITHUB_ENV}"
+
+      - name: Run annual strict-PIT Production replay
+        timeout-minutes: 300
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p "${PRODUCTION_OUTPUT_ROOT}"
+          set +e
+          python backtester/run_production_strict_pit_20y_checkpointed.py \
+            --lab-root . \
+            --main-root main-src \
+            --output "${PRODUCTION_OUTPUT_ROOT}" \
+            2>&1 | tee "backtester-production-year-${CHAIN_YEAR}.log"
+          STATUS=${PIPESTATUS[0]}
+          set -e
+          echo "${STATUS}" > "${YEAR_OUTPUT_ROOT}/runner-exit-code.txt"
+          exit "${STATUS}"
+
+      - name: Prove bounded uninterrupted/resume equivalence at genesis
+        if: ${{ inputs.year == '2006' }}
+        timeout-minutes: 300
+        shell: bash
+        run: |
+          set -euo pipefail
+          GATE_ROOT="${YEAR_OUTPUT_ROOT}/resume-equivalence"
+          mkdir -p "${GATE_ROOT}"
+          env -u PRODUCTION_RESUME_CHECKPOINT \
+            CERTIFICATION_SEGMENT_END_SESSION="${GENESIS_EQUIVALENCE_END_SESSION}" \
+            PRODUCTION_EQUIVALENCE_UNINTERRUPTED=1 \
+            PRODUCTION_CHECKPOINT_OUTPUT="${GATE_ROOT}/uninterrupted-checkpoint.json" \
+            PRODUCTION_FAILURE_CONTEXT_PATH="${GATE_ROOT}/uninterrupted-failure-context.json" \
+            python backtester/run_production_strict_pit_20y_checkpointed.py \
+              --lab-root . \
+              --main-root main-src \
+              --output "${GATE_ROOT}/uninterrupted-output" \
+              2>&1 | tee backtester-production-genesis-uninterrupted.log
+          env \
+            CERTIFICATION_SEGMENT_END_SESSION="${GENESIS_EQUIVALENCE_END_SESSION}" \
+            PRODUCTION_RESUME_CHECKPOINT="${PRODUCTION_CHECKPOINT_OUTPUT}" \
+            PRODUCTION_CHECKPOINT_OUTPUT="${GATE_ROOT}/resumed-checkpoint.json" \
+            PRODUCTION_FAILURE_CONTEXT_PATH="${GATE_ROOT}/resumed-failure-context.json" \
+            python backtester/run_production_strict_pit_20y_checkpointed.py \
+              --lab-root . \
+              --main-root main-src \
+              --output "${GATE_ROOT}/resumed-output" \
+              2>&1 | tee backtester-production-genesis-resumed.log
+          python backtester/write_production_year_certificate.py compare-resume \
+            --uninterrupted-output "${GATE_ROOT}/uninterrupted-output" \
+            --resumed-output "${GATE_ROOT}/resumed-output" \
+            --uninterrupted-checkpoint "${GATE_ROOT}/uninterrupted-checkpoint.json" \
+            --resumed-checkpoint "${GATE_ROOT}/resumed-checkpoint.json" \
+            --split-checkpoint "${PRODUCTION_CHECKPOINT_OUTPUT}" \
+            --output "${GATE_ROOT}/resume-equivalence-audit.json"
+
+      - name: Issue content-addressed Production annual certificate
+        id: certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p handoff
+          PREVIOUS_ARGS=()
+          EQUIVALENCE_ARGS=()
+          if test "${CHAIN_YEAR}" != 2006; then
+            PREVIOUS_ARGS=(
+              --previous-certificate "${PREVIOUS_CERTIFICATE}"
+              --previous-chain "${PREVIOUS_CHAIN}"
+              --previous-run-id "${PREVIOUS_RUN_ID}"
+              --previous-run-attempt "${PREVIOUS_RUN_ATTEMPT}"
+              --previous-artifact-name "${PREVIOUS_ARTIFACT_NAME}"
+              --expected-previous-certificate-hash "${PREVIOUS_CERTIFICATE_HASH}"
+              --expected-previous-chain-hash "${PREVIOUS_CHAIN_HASH}"
+            )
+          else
+            EQUIVALENCE_ARGS=(
+              --equivalence-audit "${YEAR_OUTPUT_ROOT}/resume-equivalence/resume-equivalence-audit.json"
+            )
+          fi
+          python backtester/write_production_year_certificate.py issue \
+            --output-root "${PRODUCTION_OUTPUT_ROOT}" \
+            --checkpoint "${PRODUCTION_CHECKPOINT_OUTPUT}" \
+            --year "${CHAIN_YEAR}" \
+            --segment-end "${CERTIFICATION_SEGMENT_END_SESSION}" \
+            --source-sha "${SOURCE_SHA}" \
+            --workflow-sha "${WORKFLOW_SHA}" \
+            --chain-ref "${CHAIN_REF}" \
+            --dataset-hash "${CANONICAL_DATASET_HASH}" \
+            --production-main-sha "${PRODUCTION_MAIN_SHA}" \
+            --overlay-sha256 "${PRODUCTION_OVERLAY_SHA256}" \
+            --overlay-evidence "${YEAR_OUTPUT_ROOT}/production-overlay.json" \
+            --overlay-diff "${YEAR_OUTPUT_ROOT}/production-overlay.diff" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --artifact-name "${ARTIFACT_NAME}" \
+            "${PREVIOUS_ARGS[@]}" \
+            "${EQUIVALENCE_ARGS[@]}" \
+            --output handoff/production-year-certificate.json \
+            --chain-output handoff/production-certificate-chain.json
+          cp "${PRODUCTION_CHECKPOINT_OUTPUT}" handoff/production-checkpoint.json
+          cp "${PRODUCTION_CHECKPOINT_OUTPUT}.sha256" handoff/production-checkpoint.json.sha256
+          python - <<'PY' >> "${GITHUB_OUTPUT}"
+          import json
+          from pathlib import Path
+          certificate = json.loads(
+              Path('handoff/production-year-certificate.json').read_text()
+          )
+          print(f"certificate_hash={certificate['certificate_hash']}")
+          print(f"chain_hash={certificate['chain_hash']}")
+          print(f"checkpoint_sha256={certificate['checkpoint']['file_sha256']}")
+          PY
+
+      - name: Upload attempt-aware annual handoff and diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.identity.outputs.artifact_name }}
+          path: |
+            handoff/**
+            backtester-results/production-year-${{ inputs.year }}/**
+            backtester-production-year-${{ inputs.year }}.log
+            backtester-production-genesis-uninterrupted.log
+            backtester-production-genesis-resumed.log
+            backtester/data/canonical-pit-20y.json
+            backtester/data/production-chain-generation.json
+            backtester/data/production-strict-pit-20y-request.json
+          if-no-files-found: warn
+          retention-days: 90
+          compression-level: 6
+
+      - name: Publish failed-attempt context
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "## Production PIT annual replay failed — ${CHAIN_YEAR}"
+            echo
+            echo "The chain stopped before the next annual job. The prior certified checkpoint remains the retry boundary."
+            echo
+            echo "Attempt artifact: \`${ARTIFACT_NAME}\`"
+            if test -f "${PRODUCTION_FAILURE_CONTEXT_PATH}"; then
+              echo
+              echo "The artifact contains \`production_failure_context.json\` with the exact fail-closed session and security evidence."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"

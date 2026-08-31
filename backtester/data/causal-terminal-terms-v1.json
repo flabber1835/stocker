@@ -64,6 +64,24 @@
         "https://www.sec.gov/Archives/edgar/data/1136893/000089256907001400/a35541e10vq.htm"
       ],
       "ticker": "EFD1"
+    },
+    {
+      "cash_in_lieu_price_per_delivered_share": 56.17,
+      "cash_per_share": 25.0,
+      "delivered_security_id": "198310",
+      "delivered_ticker": "CELG",
+      "effective_session": "2008-03-07",
+      "exchange_ratio": 0.8367,
+      "kind": "CASH_PLUS_STOCK",
+      "known_by": "2008-03-07",
+      "reference": "Celgene/Pharmion merger: each PHRM common share converted into $25 cash plus 0.8367 CELG common shares; fractional CELG entitlement settled at the $56.17 merger measurement price",
+      "security_id": "180694",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/816284/000136231009002329/c80967e10vk.htm",
+        "https://www.sec.gov/Archives/edgar/data/816284/000103570408000050/d53166a1sv4za.htm",
+        "https://www.nasdaqtrader.com/content/phlxmemos/2008/Mar/0503-08.pdf"
+      ],
+      "ticker": "PHRM"
     }
   ],
   "schema": "backtester.causal-terminal-terms/1"

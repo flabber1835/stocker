@@ -36,8 +36,16 @@ from backtester.strict_pit_metadata import (  # noqa: E402
     build_causal_metadata,
 )
 from backtester.canonical_pit_dataset import CanonicalPITDataset  # noqa: E402
+from backtester.causal_terminal_terms import (  # noqa: E402
+    load_frozen_terminal_terms,
+)
 import backtester.run_ldrc_corrected_warmup_cash as corrected  # noqa: E402
 import sentinel.core.production as strategy_production  # noqa: E402
+from stock_strategy_shared.wealth_core.feed import SecurityMeta  # noqa: E402
+from stock_strategy_shared.wealth_core.terminal import (  # noqa: E402
+    TerminalKind,
+    TerminalTerms,
+)
 
 runner = corrected.runner
 prod = corrected.prod
@@ -48,14 +56,22 @@ MEASUREMENT_START = corrected.MEASUREMENT_START
 CIK_PATH = LAB_ROOT / "research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz"
 POSITIVE_TYPE = LAB_ROOT / "PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz"
 MANUAL_AUDIT = LAB_ROOT / "PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv"
+TERMINAL_CORRECTIONS = LAB_ROOT / "backtester/data/causal-terminal-terms-v1.json"
+TERMINAL_CORRECTIONS_SHA256 = LAB_ROOT / "backtester/data/causal-terminal-terms-v1.SHA256"
 CANONICAL_PATH = os.environ.get("CANONICAL_PIT_DATASET")
 _canonical = (
     CanonicalPITDataset(
         Path(CANONICAL_PATH),
         expected_start=os.environ.get("CERTIFICATION_WARMUP_START", str(runner.CHAIN_START)),
-        expected_end=os.environ.get("CERTIFICATION_END_SESSION", str(runner.END_SESSION)),
+        expected_end=os.environ.get(
+            "CANONICAL_PIT_EXPECTED_END",
+            os.environ.get("CERTIFICATION_END_SESSION", str(runner.END_SESSION)),
+        ),
     )
     if CANONICAL_PATH else None
+)
+prod._production_dataset_hash = (
+    _canonical.dataset_hash if _canonical is not None else None
 )
 
 _identity_audit: dict = (
@@ -69,6 +85,104 @@ _anchor_issuer_stats = {
     "sec_cik": 0,
     "unknown_singleton": 0,
 }
+_terminal_correction_audit: dict = {}
+
+
+_canonical_terminal_terms = CanonicalPITDataset.terminal_terms
+
+
+def _terminal_terms_with_authenticated_corrections(self):
+    """Replace only incomplete canonical terminal rows with frozen exact terms."""
+    canonical = {
+        str(session): list(rows)
+        for session, rows in _canonical_terminal_terms(self).items()
+    }
+    meta, _sectors, resolver, _tickers = self.base_metadata(SecurityMeta)
+
+    def delivered_issuer(security_id: str, _ticker: str, session: str):
+        row = self.metadata_for(str(security_id), str(session))
+        if row is None:
+            return None, None
+        return row.get("issuer_id") or None, row.get("issuer_source") or None
+
+    corrections, correction_hash = load_frozen_terminal_terms(
+        TERMINAL_CORRECTIONS,
+        TERMINAL_CORRECTIONS_SHA256,
+        sessions=self.sessions,
+        resolve_identity=resolver.resolve,
+        meta=meta,
+        TerminalTerms=TerminalTerms,
+        TerminalKind=TerminalKind,
+        identity_binding="resolved",
+        delivered_issuer_resolver=delivered_issuer,
+    )
+    applied = []
+    for session, candidates in sorted(corrections.items()):
+        rows = canonical.get(str(session), [])
+        by_security = {
+            str(term.security_id): index for index, term in enumerate(rows)
+        }
+        for replacement in candidates:
+            sid = str(replacement.security_id)
+            index = by_security.get(sid)
+            if index is None:
+                continue
+            complete, reason = rows[index].completeness(1)
+            if complete:
+                continue
+            replacement_complete, replacement_reason = replacement.completeness(1)
+            if not replacement_complete:
+                raise RuntimeError(
+                    f"terminal correction remains incomplete for {sid} {session}: "
+                    f"{replacement_reason}"
+                )
+            original = rows[index]
+            rows[index] = replacement
+            applied.append({
+                "session": str(session),
+                "security_id": sid,
+                "ticker": "PHRM",
+                "original_kind": str(original.kind.value),
+                "original_incomplete_reason": str(reason),
+                "corrected_kind": str(replacement.kind.value),
+                "reference": str(replacement.reference),
+            })
+        canonical[str(session)] = rows
+    expected = [{
+        "session": "2008-03-07",
+        "security_id": "705177744622024105",
+        "original_kind": "CASH_MERGER",
+        "original_incomplete_reason": "MISSING_CASH_PER_SHARE",
+        "corrected_kind": "CASH_PLUS_STOCK",
+    }]
+    observed = [
+        {key: row[key] for key in expected[0]}
+        for row in applied
+    ]
+    if observed != expected:
+        raise RuntimeError(
+            "authenticated terminal correction set changed: "
+            + json.dumps(observed, sort_keys=True)
+        )
+    _terminal_correction_audit.clear()
+    _terminal_correction_audit.update({
+        "schema": "backtester.production-terminal-corrections/1",
+        "source_sha256": correction_hash,
+        "applied": applied,
+    })
+    print(
+        "[TERMINAL CORRECTION] role=Production applied="
+        f"{len(applied)} source_sha256={correction_hash}",
+        flush=True,
+    )
+    return {
+        session: tuple(sorted(rows, key=lambda term: str(term.security_id)))
+        for session, rows in sorted(canonical.items())
+    }
+
+
+if _canonical is not None:
+    CanonicalPITDataset.terminal_terms = _terminal_terms_with_authenticated_corrections
 
 
 def _norm_int(value) -> str | None:
@@ -448,17 +562,14 @@ def _build_levels_with_quarters(*args, **kwargs):
         )
     sessions = [str(x) for x in result[0]]
     _quarter_ends.clear()
-    for i, session in enumerate(sessions):
-        if session < MEASUREMENT_START:
-            continue
-        current_q = (int(session[:4]), (int(session[5:7]) - 1) // 3)
-        if i + 1 == len(sessions):
-            _quarter_ends.add(session)
-        else:
-            nxt = sessions[i + 1]
-            next_q = (int(nxt[:4]), (int(nxt[5:7]) - 1) // 3)
-            if next_q != current_q:
-                _quarter_ends.add(session)
+    _quarter_ends.update(prod._calendar_checkpoint_sessions(
+        sessions,
+        MEASUREMENT_START,
+        str(runner.END_SESSION),
+    ))
+    # The corrected wrapper's historical comparison checkpoints expose legacy
+    # account labels. Strict Production reporting owns this output instead.
+    prod._year_end_sessions.clear()
     return result
 
 
@@ -478,11 +589,15 @@ _real_step = runner.OverlayAccount.step
 def _step_with_certification_checkpoint(self, *args, **kwargs):
     nav = _real_step(self, *args, **kwargs)
     session = str(base._current_session or "")
+    if str(self.name) == "B":
+        progress_sessions = prod._increment_production_progress(base)
     if str(self.name) == "B" and session in _quarter_ends and session >= MEASUREMENT_START:
-        elapsed = (date.fromisoformat(session) - date.fromisoformat(MEASUREMENT_START)).days / 365.2425
-        cagr = 0.0 if elapsed <= 0 else float(self.nav) ** (1.0 / elapsed) - 1.0
+        cagr = prod._measurement_cagr(float(self.nav), MEASUREMENT_START, session)
         print(
-            f"[CERT_CAGR] role=production date={session} cagr={cagr:.12f}",
+            f"[PROGRESS] role=Production session={session} "
+            f"sessions={progress_sessions} "
+            f"measurement_start={MEASUREMENT_START} "
+            f"multiple={float(self.nav):.12f} cumulative_cagr={cagr:.10%}",
             flush=True,
         )
     return nav
@@ -503,7 +618,11 @@ def _rewrite_bundle_with_audit() -> None:
         identity=_identity_audit,
         security_type=security_type_audit,
     )
-    audit["role"] = "production"
+    audit["role"] = "Production"
+    if _canonical is not None:
+        if not _terminal_correction_audit:
+            raise RuntimeError("Production terminal correction was not exercised")
+        audit["terminal_term_corrections"] = dict(_terminal_correction_audit)
     audit["feed_anchor_issuer_authority"] = {
         "authority": "strict-prior SEC CIK; unknown issuer is causal security singleton",
         **{key: int(value) for key, value in _anchor_issuer_stats.items()},
@@ -522,10 +641,23 @@ def _rewrite_bundle_with_audit() -> None:
     summary["metadata_authority_audit"] = audit
     summary["pit_authority"]["residual_non_pit_fields"] = []
     summary["pit_authority"]["residual_note"] = None
-    summary["comparison_contract"]["D"] = (
-        "strict-D causal PIT: historical price-tape identity/listing, strict-prior SEC CIK/SIC/FF12, "
+    summary["comparison_contract"]["Production"] = (
+        "strict causal PIT Production: historical price-tape identity/listing, strict-prior SEC CIK/SIC/FF12, "
         "strict-prior SEC/EDGAR security type, PIT actions, causal terminal terms, and causal cash"
     )
+    summary["comparison_contract"].pop("D", None)
+    summary.pop("calendar_year_cagr_checkpoints", None)
+    summary.pop("calendar_year_cagr_definition", None)
+    summary["cumulative_production_cagr_checkpoints"] = sorted(_quarter_ends)
+    summary["cumulative_production_cagr_definition"] = (
+        f"Production NAV reset to 1.0 after {MEASUREMENT_START} is processed, "
+        "then annualized through each displayed checkpoint by elapsed calendar days"
+    )
+    if any(
+        key in summary
+        for key in ("calendar_year_cagr_checkpoints", "calendar_year_cagr_definition")
+    ):
+        raise RuntimeError("legacy CAGR reporting fields survived Production finalization")
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     session_hash_path = None
@@ -539,7 +671,14 @@ def _rewrite_bundle_with_audit() -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["strict_pit_metadata"] = True
     manifest["current_SHARADAR_TICKERS_economically_active_fields"] = []
-    for path in (summary_path, audit_path):
+    manifest["public_variants"] = ["Production", "SPY"]
+    manifest["internal_account_labels_exposed"] = False
+    public_outputs = [
+        output / "daily.csv.gz", output / "metrics.csv", summary_path, audit_path
+    ]
+    if session_hash_path is not None:
+        public_outputs.append(session_hash_path)
+    for path in public_outputs:
         manifest.setdefault("outputs", {})[path.name] = {
             "sha256": base._sha256(path), "bytes": path.stat().st_size,
         }
@@ -554,16 +693,38 @@ def _rewrite_bundle_with_audit() -> None:
     )
 
     if audit["current_SHARADAR_TICKERS_economically_active_fields"]:
-        raise RuntimeError("strict D retained current SHARADAR_TICKERS authority")
+        raise RuntimeError("Production retained current SHARADAR_TICKERS authority")
+
+
+def _initialize_reporting_checkpoints() -> None:
+    """Populate live CAGR checkpoints even when canonical loading bypasses SFP."""
+    prod._production_measurement_start = MEASUREMENT_START
+    prod._year_end_sessions.clear()
+    if _canonical is None:
+        return
+    _quarter_ends.clear()
+    _quarter_ends.update(prod._calendar_checkpoint_sessions(
+        _canonical.sessions,
+        MEASUREMENT_START,
+        str(runner.END_SESSION),
+    ))
+    if not _quarter_ends:
+        raise RuntimeError("canonical Production session axis has no reporting checkpoints")
+    print(
+        f"[RUN] Production cumulative CAGR checkpoints={len(_quarter_ends)} "
+        f"measurement_start={MEASUREMENT_START} end={runner.END_SESSION}",
+        flush=True,
+    )
 
 
 def main() -> int:
-    print("[RUN] strict-PIT production certification", flush=True)
+    print("[RUN] strict-PIT Production certification", flush=True)
+    _initialize_reporting_checkpoints()
     rc = int(corrected.main())
     if rc != 0:
         return rc
     _rewrite_bundle_with_audit()
-    print("[PASS] strict-PIT production certification bundle complete", flush=True)
+    print("[PASS] strict-PIT Production certification bundle complete", flush=True)
     return 0
 
 
