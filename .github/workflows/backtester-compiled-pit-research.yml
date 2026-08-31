@@ -1,0 +1,310 @@
+name: Backtester - compiled PIT research acceleration
+run-name: Compiled PIT research build + parity + benchmark — ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - research/backtester-compiled-pit
+    paths:
+      - 'backtester/compiled_pit_research.py'
+      - 'backtester/run_research_strict_pit_20y_fast.py'
+      - 'tests/backtester/test_compiled_pit_research.py'
+      - '.github/workflows/backtester-compiled-pit-research.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: backtester-compiled-pit-research-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-parity-benchmark:
+    if: github.ref_name == 'research/backtester-compiled-pit'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      PYTHONUNBUFFERED: '1'
+      CERTIFICATION_WARMUP_START: '2006-01-03'
+
+    steps:
+      - name: Check out acceleration branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-compiled-pit-research.yml
+            /backtester
+            /tests/backtester
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+
+      - name: Record immutable branch identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test -z "$(git status --porcelain)"
+          echo "BACKTESTER_BRANCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+
+      - name: Check out pinned runtime closure
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - name: Verify pinned runtime identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED=887f479b15ad861313da666ad698034d3847121c
+          test "$(git -C main-src rev-parse HEAD)" = "${EXPECTED}"
+          test -z "$(git -C main-src status --porcelain)"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+
+      - name: Compile and unit-test acceleration seams
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            backtester/compiled_pit_research.py \
+            backtester/run_research_strict_pit_20y_fast.py
+          python -m unittest tests.backtester.test_compiled_pit_research -v
+          python backtester/run_research_strict_pit_20y_fast.py --self-test-imports
+
+      - name: Pull and verify certified canonical PIT package
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          POINTER=backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          DATASET_HASH=$(python -c "import json; print(json.load(open('${POINTER}'))['dataset_hash'])")
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          CONTAINER=$(docker create "${PACKAGE}")
+          trap 'docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p backtester-results/canonical-pit-20y
+          docker cp "${CONTAINER}:/canonical-pit/." backtester-results/canonical-pit-20y
+          docker rm "${CONTAINER}"
+          trap - EXIT
+          python backtester/canonical_pit_package.py verify \
+            --pointer "${POINTER}" \
+            --dataset backtester-results/canonical-pit-20y
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/backtester-results/canonical-pit-20y" >> "${GITHUB_ENV}"
+          echo "CANONICAL_PIT_DATASET_HASH=${DATASET_HASH}" >> "${GITHUB_ENV}"
+
+      - name: Build one-time compiled PIT research tape
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p backtester-results/compiled-pit
+          START=$(date +%s)
+          python backtester/compiled_pit_research.py build \
+            --dataset "${CANONICAL_PIT_DATASET}" \
+            --output backtester-results/compiled-pit \
+            2>&1 | tee compiled-pit-build.log
+          END=$(date +%s)
+          echo "COMPILE_SECONDS=$((END-START))" >> "${GITHUB_ENV}"
+          python backtester/compiled_pit_research.py verify \
+            --tape backtester-results/compiled-pit \
+            --dataset-hash "${CANONICAL_PIT_DATASET_HASH}"
+          echo "COMPILED_PIT_RESEARCH_DATASET=${GITHUB_WORKSPACE}/backtester-results/compiled-pit" >> "${GITHUB_ENV}"
+          df -h .
+
+      - name: Run bounded slow reference replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          START=$(date +%s)
+          python - <<'PY' 2>&1 | tee slow-reference.log
+          import sys
+          import backtester.run_research_strict_pit_20y as replay
+          replay.END_SESSION = '2007-12-31'
+          replay.old.END = replay.END_SESSION
+          replay.old.WINDOWS = {key: (replay.MEASUREMENT_START, None) for key in ('5','10','15','20')}
+          sys.argv = ['bounded-slow', '--mode', 'fullpit', '--output', 'backtester-results/slow-bounded']
+          raise SystemExit(replay.main())
+          PY
+          END=$(date +%s)
+          echo "SLOW_SECONDS=$((END-START))" >> "${GITHUB_ENV}"
+
+      - name: Run bounded accelerated replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          START=$(date +%s)
+          python backtester/run_research_strict_pit_20y_fast.py \
+            --compiled-tape "${COMPILED_PIT_RESEARCH_DATASET}" \
+            --end-session 2007-12-31 \
+            --mode fullpit \
+            --output backtester-results/fast-bounded \
+            2>&1 | tee fast-bounded.log
+          END=$(date +%s)
+          echo "FAST_SECONDS=$((END-START))" >> "${GITHUB_ENV}"
+
+      - name: Require economic parity and a real speedup
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import pandas as pd
+
+          slow = pd.read_csv('backtester-results/slow-bounded/daily.csv.gz', compression='gzip')
+          fast = pd.read_csv('backtester-results/fast-bounded/daily.csv.gz', compression='gzip')
+          if list(slow.columns) != list(fast.columns):
+              raise SystemExit(f'daily columns differ: slow={list(slow.columns)} fast={list(fast.columns)}')
+          pd.testing.assert_frame_equal(slow, fast, check_exact=False, rtol=0.0, atol=1e-12)
+
+          slow_summary = json.loads(Path('backtester-results/slow-bounded/summary.json').read_text())
+          fast_summary = json.loads(Path('backtester-results/fast-bounded/summary.json').read_text())
+          for key in ('buys','sells','split_events_applied','dividend_events_held'):
+              if slow_summary.get(key) != fast_summary.get(key):
+                  raise SystemExit(f'{key} differs: {slow_summary.get(key)} != {fast_summary.get(key)}')
+          if fast_summary.get('canonical_pit_dataset_hash') != os.environ['CANONICAL_PIT_DATASET_HASH']:
+              raise SystemExit('fast replay lost canonical PIT hash binding')
+
+          slow_seconds = int(os.environ['SLOW_SECONDS'])
+          fast_seconds = int(os.environ['FAST_SECONDS'])
+          if fast_seconds >= slow_seconds:
+              raise SystemExit(f'accelerated replay did not speed up: slow={slow_seconds}s fast={fast_seconds}s')
+          ratio = slow_seconds / max(fast_seconds, 1)
+          evidence = {
+              'status': 'PASS',
+              'canonical_pit_dataset_hash': os.environ['CANONICAL_PIT_DATASET_HASH'],
+              'bounded_end': '2007-12-31',
+              'slow_seconds': slow_seconds,
+              'fast_seconds': fast_seconds,
+              'speedup': ratio,
+              'compile_seconds': int(os.environ['COMPILE_SECONDS']),
+              'rows_compared': len(slow),
+              'columns_compared': list(slow.columns),
+              'daily_parity_tolerance': 1e-12,
+          }
+          Path('backtester-results/compiled-pit-benchmark.json').write_text(json.dumps(evidence, indent=2, sort_keys=True) + '\n')
+          print(f"PARITY PASS rows={len(slow)} speedup={ratio:.2f}x slow={slow_seconds}s fast={fast_seconds}s")
+          PY
+
+      - name: Run full 20-year accelerated replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          START=$(date +%s)
+          python backtester/run_research_strict_pit_20y_fast.py \
+            --compiled-tape "${COMPILED_PIT_RESEARCH_DATASET}" \
+            --mode fullpit \
+            --output backtester-results/fast-20y \
+            2>&1 | tee fast-20y.log
+          END=$(date +%s)
+          echo "FAST_20Y_SECONDS=$((END-START))" >> "${GITHUB_ENV}"
+
+      - name: Publish compiled tape to GHCR
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          OWNER=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
+          COMPILER_SHA=$(sha256sum backtester/compiled_pit_research.py | awk '{print $1}')
+          TAG="ghcr.io/${OWNER}/stocker-compiled-pit-research:${CANONICAL_PIT_DATASET_HASH:0:16}-${COMPILER_SHA:0:16}"
+          mkdir -p backtester-results/package-context/compiled-pit
+          cp backtester-results/compiled-pit/* backtester-results/package-context/compiled-pit/
+          cat > backtester-results/package-context/Dockerfile <<'EOF'
+          FROM scratch
+          COPY compiled-pit /compiled-pit
+          EOF
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker build --provenance=false -t "${TAG}" backtester-results/package-context
+          docker push "${TAG}"
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${TAG}" 2>/dev/null || true)
+          python - <<PY
+          import json
+          from pathlib import Path
+          manifest=json.loads(Path('backtester-results/compiled-pit/manifest.json').read_text())
+          out={
+            'status':'PASS',
+            'package':'${TAG}',
+            'repo_digest':'${DIGEST}',
+            'source_dataset_hash':manifest['source_dataset_hash'],
+            'tape_hash':manifest['tape_hash'],
+            'compiler_sha256':manifest['compiler_sha256'],
+            'feature_spec_hash':manifest['feature_spec_hash'],
+            'source_commit':'${GITHUB_SHA}',
+          }
+          Path('backtester-results/compiled-pit-package.json').write_text(json.dumps(out,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(out,indent=2,sort_keys=True))
+          PY
+          echo "COMPILED_PACKAGE=${TAG}" >> "${GITHUB_ENV}"
+
+      - name: Write acceleration summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Compiled PIT research acceleration'
+            echo
+            echo "Branch SHA: \`${GITHUB_SHA}\`"
+            echo
+            echo "Canonical dataset: \`${CANONICAL_PIT_DATASET_HASH:-unavailable}\`"
+            echo
+            echo "One-time compile: \`${COMPILE_SECONDS:-unavailable}s\`"
+            echo
+            echo "Bounded reference: \`${SLOW_SECONDS:-unavailable}s\`"
+            echo
+            echo "Bounded accelerated: \`${FAST_SECONDS:-unavailable}s\`"
+            echo
+            echo "Full 20-year accelerated: \`${FAST_20Y_SECONDS:-unavailable}s\`"
+            echo
+            echo "Compiled package: \`${COMPILED_PACKAGE:-unavailable}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload acceleration evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: backtester-compiled-pit-research-${{ github.run_id }}
+          path: |
+            backtester-results/compiled-pit/manifest.json
+            backtester-results/compiled-pit-benchmark.json
+            backtester-results/compiled-pit-package.json
+            backtester-results/slow-bounded/summary.json
+            backtester-results/fast-bounded/summary.json
+            backtester-results/fast-20y/summary.json
+            backtester-results/fast-20y/metrics.csv
+            backtester-results/fast-20y/daily.csv.gz
+            compiled-pit-build.log
+            slow-reference.log
+            fast-bounded.log
+            fast-20y.log
+          if-no-files-found: warn
+          retention-days: 90
+          compression-level: 6
