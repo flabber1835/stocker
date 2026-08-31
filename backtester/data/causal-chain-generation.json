@@ -1,8 +1,10 @@
 {
   "schema": "backtester.causal-chain-generation/1",
-  "generation": 2,
+  "generation": 3,
   "production_checkpoint_schema": "backtester.production-year-checkpoint/2",
-  "annual_certificate_schema": "backtester.causal-year-certificate/2",
+  "production_checkpoint_format_generation": 2,
+  "annual_certificate_schema": "backtester.causal-year-certificate/3",
+  "canonical_prefix_audit_schema": "backtester.canonical-input-consumption/3",
   "required_restart_state": [
     "production SessionState A and D",
     "overlay accounts A and D",
@@ -12,8 +14,14 @@
     "independent PIT Wealth Core open/close history",
     "strict issuer-authority counters"
   ],
+  "evidence_integrity": [
+    "child result bundles remain byte-for-byte finalized",
+    "annual canonical input prefixes are emitted as separate authenticated files",
+    "annual certificate hashes child manifests and SHA256SUMS files",
+    "checkpoint and certificate chains are source-SHA and dataset-hash bound"
+  ],
   "supersedes": {
-    "generation": 1,
-    "reason": "generation 1 omitted independent PIT Wealth Core continuation state"
+    "generation": 2,
+    "reason": "generation 2 normalized child canonical hash files after child finalization, invalidating their internal checksum contracts"
   }
 }
