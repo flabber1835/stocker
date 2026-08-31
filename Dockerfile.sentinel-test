@@ -144,6 +144,7 @@ COPY .github/workflows/sentinel-safety.yml /work/repo/.github/workflows/sentinel
 COPY .env.example /work/repo/.env.example
 COPY Makefile /work/repo/Makefile
 COPY README.md /work/repo/README.md
+COPY docs/f92c0cc-safety-reconstruction.md /work/repo/docs/f92c0cc-safety-reconstruction.md
 COPY docs/main-review-remediation.md /work/repo/docs/main-review-remediation.md
 COPY docs/sentinel-deployment.md /work/repo/docs/sentinel-deployment.md
 COPY docs/sentinel-paper-activation.md /work/repo/docs/sentinel-paper-activation.md
