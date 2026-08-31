@@ -48,6 +48,13 @@
       "result": "failed before canonical package pull or replay",
       "economic_sessions_processed": 0,
       "reason": "the new checkpointed production entrypoint lacked the standard repository-root import bootstrap during the no-PYTHONPATH self-test"
+    },
+    {
+      "generation": 3,
+      "run_id": 33355416840,
+      "result": "failed closed in 2006 strong equivalence after both economic paths completed",
+      "economic_sessions_processed": 250,
+      "reason": "first exact ranking-hash divergence on 2006-08-08; independent 80-digit adjudication proved production follows the fixed-forward causal signal contract while retained research used current-vintage vendor-adjusted SEP.close"
     }
   ],
   "canonical_dataset": {
@@ -68,14 +75,30 @@
   "validated_research_repairs": {
     "age_119_review_basis": "execution-open adjusted price, not entry-session close",
     "terminal_grace": "production C1 carry/grace/proxy-settlement semantics",
-    "split_dividend_ordering": "same-session split transforms carried prior-close share quantity before dividend entitlement capture"
+    "split_dividend_ordering": "same-session split transforms carried prior-close share quantity before dividend entitlement capture",
+    "fixed_forward_signal": "chronological raw_close multiplied only by canonical split ratios effective through the current session; binary64 signal history and scalar durable-score ordering arithmetic"
+  },
+  "fixed_forward_ranking_adjudication": {
+    "decision_record": "backtester/certification-decisions/2026-08-31-fixed-forward-ranking-contract.md",
+    "disputed_session": "2006-08-08",
+    "diagnostic_run_id": 33411456328,
+    "diagnostic_artifact_id": 9765650269,
+    "fixed_forward_adjudication_run_id": 33414296781,
+    "fixed_forward_adjudication_artifact_id": 9766402373,
+    "verdict": "PRODUCTION_MATCHES_FIXED_FORWARD_CAUSAL_REFERENCE",
+    "production_leadership_exact": true,
+    "production_ranking_exact": true,
+    "research_leadership_exact_before_repair": false,
+    "research_ranking_exact_before_repair": false,
+    "policy": "production causal contract is authoritative; do not weaken the exact ranking gate"
   },
   "bounded_equivalence_prerequisite": {
     "run_id": 33347898761,
     "result": "PASS",
     "window_end": "2007-12-31",
     "canonical_input_parity": true,
-    "remaining_divergence": null
+    "remaining_divergence": null,
+    "note": "predates the fixed-forward ranking adjudication; the relaunched 2006 annual strong-equivalence segment is the required validation of the repaired research signal path"
   },
   "required_fail_closed_evidence": [
     "canonical package verifies and has zero unresolved corporate actions",
@@ -87,5 +110,5 @@
     "each annual production checkpoint is content-addressed and resumes only from the immediately preceding generation-3 certificate",
     "final content-addressed causal certificate is emitted only after the contiguous 2006-2026 generation-3 chain passes"
   ],
-  "launch": 5
+  "launch": 6
 }
