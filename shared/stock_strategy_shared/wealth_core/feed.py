@@ -454,6 +454,7 @@ class Feed:
         # per session by advance()/warmup(), never per security.
         self._session_index = -1
         self._seen_sessions: dict[str, int] = {}
+        self._last_session: str | None = None
 
     def _advance_session(self, session: str) -> int:
         """One global index per market session, assigned in arrival order.
@@ -464,15 +465,19 @@ class Feed:
         """
         if session in self._seen_sessions:
             raise FeedError(f"duplicate feed session {session!r}")
-        if self._seen_sessions:
-            previous = max(self._seen_sessions,
-                           key=self._seen_sessions.__getitem__)
-            if session <= previous:
+        if self._last_session is None and self._seen_sessions:
+            # Legacy/restored state did not persist this derived accelerator.
+            # Pay the scan once at restoration, never once per replay session.
+            self._last_session = max(
+                self._seen_sessions, key=self._seen_sessions.__getitem__)
+        if self._last_session is not None:
+            if session <= self._last_session:
                 raise FeedError(
                     f"feed session {session!r} is out of order after "
-                    f"{previous!r}")
+                    f"{self._last_session!r}")
         self._session_index += 1
         self._seen_sessions[session] = self._session_index
+        self._last_session = session
         return self._session_index
 
     @staticmethod

@@ -107,7 +107,8 @@ def test_pull_requests_run_the_complete_sentinel_safety_suite():
     assert "sentinel-authorized:ci" in workflow
     assert "-f Dockerfile.sentinel-test -t sentinel-test:ci" in workflow
     assert "SENTINEL_IMAGE=sentinel-authorized:ci" in workflow
-    assert workflow.count('--build-arg SOURCE_GIT_SHA="${GITHUB_SHA}"') == 8
+    assert workflow.count('--build-arg SOURCE_GIT_SHA="${TESTED_SHA}"') == 8
+    assert 'TESTED_SHA="$(git rev-parse HEAD)"' in workflow
     assert "tests/sentinel -q -ra" in workflow
     assert "tee /tmp/sentinel-complete.txt" in workflow
     assert "the complete Sentinel run skipped tests" in workflow
@@ -117,16 +118,127 @@ def test_pull_requests_run_the_complete_sentinel_safety_suite():
     assert "git diff --check HEAD^1 HEAD" in workflow
 
 
+def test_pull_request_safety_is_read_only_and_publication_is_main_only():
+    safety = _read(".github/workflows/sentinel-safety.yml")
+    publication = _read(".github/workflows/sentinel-publish.yml")
+    codeowners = _read(".github/CODEOWNERS")
+
+    permissions = safety.split("permissions:", 1)[1].split("concurrency:", 1)[0]
+    assert "contents: read" in permissions
+    assert "packages: write" not in permissions
+    assert "id-token: write" not in permissions
+    assert "docker push" not in safety
+    assert "ACTIONS_ID_TOKEN_REQUEST" not in safety
+
+    assert "workflow_run:" in publication
+    assert "branches: [main]" in publication
+    assert "workflow_run.event == 'push'" in publication
+    assert "workflow_run.head_branch == 'main'" in publication
+    assert "workflow_run.workflow_id == 333697638" in publication
+    assert ("workflow_run.path == "
+            "'.github/workflows/sentinel-safety.yml'") in publication
+    assert "workflow_run.repository.id == 1233957439" in publication
+    assert "workflow_run.head_repository.id == 1233957439" in publication
+    assert "packages: write" in publication
+    assert "id-token: write" in publication
+    assert "attestations: write" in publication
+    assert "run-id: ${{ github.event.workflow_run.id }}" in publication
+    assert "/.github/workflows/ @flabber1835" in codeowners
+
+
 def test_pull_request_ci_proves_it_is_testing_the_synthetic_merge():
     workflow = _read(".github/workflows/sentinel-safety.yml")
-    assert "branches: [main, codex/main-review-remediation]" in workflow
-    assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in workflow
-    assert 'if [ "$GITHUB_EVENT_NAME" = "pull_request" ]' in workflow
+    assert "pull_request:\n    branches: [main]" in workflow
+    assert "merge_group:" in workflow
+    assert 'scope: ${{ fromJSON(github.event_name == \'pull_request\'' in workflow
+    assert 'if [ \'${{ matrix.scope }}\' = \'exact-head\' ]' in workflow
+    assert 'test "$TESTED_SHA" = "$expected_head"' in workflow
+    assert 'test "$TESTED_SHA" = "$GITHUB_SHA"' in workflow
+    assert 'echo "TESTED_SHA=$TESTED_SHA" >> "$GITHUB_ENV"' in workflow
+    assert "printf -- '- commit: `%s`\\n' \"$TESTED_SHA\"" in workflow
+    for variable in ("tree_hash", "GITHUB_RUN_ID", "dependency_lock_hash",
+                     "runtime_digest", "test_manifest_hash"):
+        assert f'"${variable}"' in workflow
+    assert 'printf \'%s\\n\' "$TESTED_SHA"' in workflow
     assert "git rev-list --parents -n 1 HEAD" in workflow
     assert 'if [ "$parent_count" -ne 2 ]' in workflow
     assert "pull-request checkout is not a synthetic merge commit" in workflow
     assert "git merge-base --is-ancestor HEAD^1 HEAD" in workflow
     assert "git merge-base --is-ancestor HEAD^2 HEAD" in workflow
+    assert "name: sentinel-${{ matrix.scope }}" in workflow
+    assert "name: host-python-38-${{ matrix.scope }}" in workflow
+
+
+def test_main_push_runs_exact_sha_safety_and_branch_coverage():
+    workflow = _read(".github/workflows/sentinel-safety.yml")
+    assert "push:\n    branches:\n      - main" in workflow
+    assert "- 'codex/**'" in workflow
+    assert "coverage run --branch" in workflow
+    assert "tests/sentinel/test_pr293_automation_fixes.py" in workflow
+    assert "coverage report --precision=2 --fail-under=80.00" in workflow
+    for evidence in (
+            "source tree", "workflow run", "dependency locks",
+            "authorized image", "test manifest", "schema epoch",
+            "semantic epoch"):
+        assert evidence in workflow
+
+
+def test_publication_persists_verifiable_provenance_before_authorized_tag():
+    safety = _read(".github/workflows/sentinel-safety.yml")
+    publication = _read(".github/workflows/sentinel-publish.yml")
+
+    assert "sha256sum sentinel-authorized.tar COMMIT > SHA256SUMS" in safety
+    assert "sha256sum /tmp/sentinel-tested-image" not in safety
+    assert "actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be" \
+        in publication
+    assert "push-to-registry: false" in publication
+    assert ("registry@sha256:"
+            "a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373") \
+        in publication
+    assert "--publish 127.0.0.1:5000:5000" in publication
+    assert 'docker push "$local_tag"' in publication
+    assert publication.count("docker push ") == 1
+    assert ("oras-project/setup-oras@"
+            "1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d") in publication
+    assert "version: 1.3.3" in publication
+    assert "oras cp --from-plain-http" in publication
+    assert publication.count("oras cp ") == 1
+    assert '"${LOCAL_REPOSITORY}@${SUBJECT_DIGEST}"' in publication
+    assert 'final_digest="$(oras resolve "$FINAL_REF")"' in publication
+    assert 'test "$final_digest" = "$SUBJECT_DIGEST"' in publication
+    assert "attestation.sigstore.json" in publication
+    assert "base64.b64decode" in publication
+    assert 'statement.get("subject") != expected_subject' in publication
+    assert "https://in-toto.io/Statement/v1" in publication
+    assert "https://slsa.dev/provenance/v1" in publication
+    assert "retention-days: 90" in publication
+    assert "sha256sum provenance.json attestation.sigstore.json > SHA256SUMS" \
+        in publication
+    assert "sha256sum /tmp/sentinel-provenance" not in publication
+    assert "ACTIONS_ID_TOKEN_REQUEST" not in publication
+
+    local = publication.index('docker push "$local_tag"')
+    attested = publication.index("uses: actions/attest-build-provenance@")
+    retained = publication.index("name: Retain signed promotion evidence")
+    login = publication.index("oras login ghcr.io")
+    final = publication.index("oras cp --from-plain-http")
+    assert local < attested < retained < login < final
+    pre_attestation = publication[:attested]
+    assert "oras login ghcr.io" not in pre_attestation
+    assert "oras cp " not in pre_attestation
+    assert "docker login ghcr.io" not in pre_attestation
+    assert "docker buildx imagetools create" not in pre_attestation
+
+
+def test_required_workflow_activation_is_exact_and_fail_closed():
+    contract = _read("docs/f92c0cc-safety-reconstruction.md")
+    assert '"type": "workflows"' in contract
+    assert '"repository_ids": [1233957439]' in contract
+    assert '"path": ".github/workflows/sentinel-safety.yml"' in contract
+    assert '"repository_id": 1233957439' in contract
+    assert '"ref": "refs/heads/main"' in contract
+    assert "POST /orgs/{org}/rulesets" in contract
+    assert "ruleset `21878525`" in contract
 
 
 def test_ci_compiles_python_and_syntax_checks_every_tracked_shell_script():

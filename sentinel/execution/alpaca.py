@@ -22,8 +22,8 @@ from sentinel.execution.broker_cash import (
     BrokerCashActivity, BrokerCashActivityBatch, RECOGNIZED_ACTIVITY_TYPES)
 from sentinel.execution.contract import (
     BrokerAccountIdentity, BrokerAccountSnapshot, BrokerCapabilities,
-    BrokerCloseValuation, BrokerFill, BrokerInstrument, BrokerObservation,
-    BrokerOrder, BrokerPosition, CommandOutcome, Completeness, ExecutionBroker,
+    BrokerCloseValuation, BrokerExactOrderLookup, BrokerFill, BrokerInstrument,
+    BrokerObservation, BrokerOrder, BrokerPosition, CommandOutcome, Completeness, ExecutionBroker,
     MalformedBrokerEvidence, Side)
 from sentinel.execution.guarded import BrokerAuthorityRefused
 from sentinel.execution import broker_cash, contract, journal
@@ -374,11 +374,13 @@ class AlpacaExecutionBroker(ExecutionBroker):
         complete_order_pagination=True,
         recent_fill_history=True,
         instrument_identity=True,
+        pre_submit_instrument_revalidation=True,
         account_bound_observation=True,
         fractional_quantities=True,
         minimum_quantity_increment=Decimal("0.000000001"),
         market_on_open=False,
     )
+    certification_name = "alpaca"
     # Method presence is deliberately not production authority.  These flags
     # let the NAS acceptance harness distinguish an implemented read-only
     # candidate from a capability that has actually passed the bound paper
@@ -987,7 +989,13 @@ class AlpacaExecutionBroker(ExecutionBroker):
             raise MalformedBrokerPayload("order payload must be an object")
         symbol = str(payload.get("symbol") or "")
         raw_status = str(payload.get("status") or "")
-        if is_anomalous_status(raw_status):
+        replaced_by = (str(payload["replaced_by"]).strip()
+                       if payload.get("replaced_by") else None)
+        replaces = (str(payload["replaces"]).strip()
+                    if payload.get("replaces") else None)
+        externally_replaced = bool(
+            is_anomalous_status(raw_status) or replaced_by or replaces)
+        if externally_replaced:
             log.warning(
                 "sentinel: order %s reports %r; Sentinel never replaces "
                 "orders, so external replacement remains blocking",
@@ -1012,19 +1020,32 @@ class AlpacaExecutionBroker(ExecutionBroker):
                     where=f"order {payload.get('id')} filled_avg_price")
                 if payload.get("filled_avg_price") not in (None, "") else None),
             submitted_at=_parse_ts(payload.get("submitted_at")),
-            external_replacement=is_anomalous_status(raw_status),
+            external_replacement=externally_replaced,
+            replaced_by=replaced_by,
+            replaces=replaces,
             raw=payload)
 
-    async def find_by_client_key(self, client_key: str) -> Optional[BrokerOrder]:
+    async def find_by_client_key(
+            self, client_key: str) -> BrokerExactOrderLookup:
+        request_started_at = self._now()
+        identity_before = await self.identify_account()
         try:
             payload = await self._get(
                 "/v2/orders:by_client_order_id",
                 {"client_order_id": client_key})
         except Exception as exc:  # noqa: BLE001
             if _is_not_found(exc):
-                return None
-            raise
-        return self._to_order(payload) if payload else None
+                payload = None
+            else:
+                raise
+        identity_after = await self.identify_account()
+        return BrokerExactOrderLookup(
+            client_key=client_key,
+            request_started_at=request_started_at,
+            request_completed_at=self._now(),
+            identity_before=identity_before,
+            identity_after=identity_after,
+            order=self._to_order(payload) if payload else None)
 
     def _validate_submit_response(
             self, payload, *, client_key: str,
@@ -1191,6 +1212,8 @@ def _fingerprint(orders) -> tuple:
          if order.filled_average_price is not None else ""),
         (order.submitted_at.isoformat()
          if order.submitted_at is not None else ""),
+        order.external_replacement,
+        order.replaced_by or "", order.replaces or "",
     ) for order in orders))
 
 
@@ -1239,7 +1262,7 @@ ACTIVITY_FILL_INTERVAL_SOURCE = "alpaca_trading_activity_sse_candidate"
 ACTIVITY_FILL_INTERVAL_SEMANTICS = (
     "ALPACA_ACCOUNT_ACTIVITY_FIXED_EVENT_FRONTIER_UNACCEPTED_V1"
 )
-_OBSERVATION_PREFIX = "broker-observation:v2:"
+_OBSERVATION_PREFIX = "broker-observation:v4:"
 _WITNESS_PREFIX = "terminal-recovery-witness:v3:"
 _PROVENANCE_PREFIX = _OBSERVATION_PREFIX
 _DB_INCARCERATION_CURSOR = "broker-recovery-db-incarnation:v1"
@@ -1594,6 +1617,7 @@ class HardenedAlpacaExecutionBroker(OriginalAlpaca):
 
         return AccountBoundObservation(
             observed_at=observed.observed_at,
+            started_at=observed.started_at,
             orders=tuple(orders),
             positions=tuple(observed.positions),
             completeness=completeness,
@@ -2296,13 +2320,22 @@ def upgrade_restore_reason(conn) -> str:
             "an already-restored database from silently self-certifying")
     return ""
 
-def postmaster_day_order_fence_reason(conn, today) -> str:
+def postmaster_day_order_fence_reason(
+        conn, today, *, recovery_generation=None) -> str:
     try:
         opened, closed = calendar.session_window(today)
-    except Exception:
+    except calendar.NonSessionDate:
         # Non-session dates are already non-executable at the paper gateway;
         # this fence does not manufacture a calendar answer.
         return ""
+    except Exception as exc:                                  # noqa: BLE001
+        requested = getattr(today, "isoformat", lambda: str(today))()
+        return (
+            "restore-grade DAY-order recovery cannot evaluate its XNYS "
+            "calendar fence; exposure increases are blocked: "
+            f"calendar={calendar.calendar_version()}, session={requested}, "
+            f"recovery_generation={recovery_generation}, "
+            f"error={type(exc).__module__}.{type(exc).__qualname__}: {exc}")
     with conn.cursor() as cur:
         cur.execute("SELECT pg_postmaster_start_time()")
         row = cur.fetchone()
@@ -2342,7 +2375,7 @@ def load_provenance(conn, seq: int) -> dict:
         raise RuntimeError(
             f"broker observation {seq} has no account/asset provenance")
     state = _json(row[0], where=f"broker observation {seq} provenance")
-    if (state.get("kind") != "broker-observation/v2"
+    if (state.get("kind") != "broker-observation/v4"
             or state.get("observation_seq") != int(seq)):
         raise RuntimeError(
             f"broker observation {seq} provenance shape is invalid")
@@ -2555,14 +2588,16 @@ def execution_increase_fence_reason(*, conn, deployment, today) -> str:
     return (
         _base_restore_increase_fence_reason(conn, deployment, today)
         or upgrade_restore_reason(conn)
-        or postmaster_day_order_fence_reason(conn, today)
+        or postmaster_day_order_fence_reason(
+            conn, today, recovery_generation=deployment.takeover_epoch)
     )
 
 
 def restore_increase_fence_reason(conn, deployment, today) -> str:
     """Operator diagnostic preserving the prior public precedence."""
     return (
-        postmaster_day_order_fence_reason(conn, today)
+        postmaster_day_order_fence_reason(
+            conn, today, recovery_generation=deployment.takeover_epoch)
         or upgrade_restore_reason(conn)
         or _base_restore_increase_fence_reason(conn, deployment, today)
     )

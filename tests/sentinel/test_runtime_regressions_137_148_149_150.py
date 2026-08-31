@@ -10,7 +10,7 @@ import subprocess
 
 import pytest
 
-from sentinel import authority, binding, paper, schema
+from sentinel import _main_impl, authority, binding, paper, schema
 from sentinel.paper import validation as paper_validation
 import sentinel.__main__ as sentinel_cli
 from sentinel.automation import store as automation_store
@@ -23,6 +23,7 @@ from tests.sentinel import test_signed_authority as signed_fx
 
 
 ROOT = Path(__file__).resolve().parents[2]
+REPO = Path(os.environ.get("SENTINEL_REPO_ROOT") or ROOT)
 
 
 @pytest.fixture(scope="module")
@@ -154,9 +155,9 @@ def test_149_host_emergency_path_needs_no_backup_or_authorized_environment(
         "SENTINEL_FORCE_CPU_LIMITS": "1",
     })
     subprocess.run(
-        ["bash", str(ROOT / "repo/scripts/sentinel-emergency-kill.sh"),
+        ["bash", str(REPO / "scripts/sentinel-emergency-kill.sh"),
          "--actor", "operator", "--reason", "emergency"],
-        cwd=ROOT / "repo", env=env, check=True)
+        cwd=REPO, env=env, check=True)
     argv = argv_file.read_text().splitlines()
     joined = " ".join(argv)
     assert "docker-compose.sentinel-backup.yml" not in joined
@@ -312,13 +313,13 @@ def test_137_candidate_cli_captures_lifecycle_reference_before_warmup(
         def close(self):
             events.append("close")
 
-    monkeypatch.setattr(sentinel_cli, "datetime", Clock)
+    monkeypatch.setattr(_main_impl, "datetime", Clock)
     monkeypatch.setattr(feed_store, "connect", lambda _dsn: Conn())
     monkeypatch.setattr(schema, "require_runtime_schema",
                         lambda _conn: events.append("schema"))
-    monkeypatch.setattr(sentinel_cli, "_closed_preview_frontier",
+    monkeypatch.setattr(_main_impl, "_closed_preview_frontier",
                         lambda _conn: (SimpleNamespace(ready=True), "2026-08-14"))
-    monkeypatch.setattr(sentinel_cli, "_current_system_identities",
+    monkeypatch.setattr(_main_impl, "_current_system_identities",
                         lambda: ({"runtime": 1}, {"strategy": 1}))
     monkeypatch.setattr(
         automation_runtime, "config_from_env",

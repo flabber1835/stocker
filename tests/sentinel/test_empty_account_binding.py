@@ -170,13 +170,24 @@ def activate(conn) -> tuple[dict, str]:
 
 
 def facade(monkeypatch, broker: SimulatedBroker):
-    monkeypatch.setattr(
-        "sentinel.execution.alpaca.AlpacaExecutionBroker", SimulatedBroker)
-    monkeypatch.setattr(
-        "sentinel.execution.certification.require_certified",
-        lambda name: None if name == "alpaca" else pytest.fail(name))
+    from sentinel.execution.alpaca import AlpacaExecutionBroker
+    from sentinel.execution.certification import certify_adapter
+
+    inner = AlpacaExecutionBroker(
+        api_key="test", secret_key="test",
+        base_url="https://paper-api.alpaca.markets")
+
+    async def account_snapshot():
+        return await broker.account_snapshot()
+
+    async def observe():
+        return await broker.observe()
+
+    monkeypatch.setattr(inner, "account_snapshot", account_snapshot)
+    monkeypatch.setattr(inner, "observe", observe)
+    certify_adapter(inner, name="alpaca", mode="ALPACA_PAPER")
     return empty_account.GuardedEmptyAccountBroker(
-        inner=broker,
+        inner=inner,
         grant=AdministrativeAccessGrant(
             operation="ADMIN_BIND_EMPTY", deployment_id="nas-01",
             broker_account_id="paper-123", takeover_epoch=1),

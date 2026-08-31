@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -15,8 +16,8 @@ from sentinel.execution.alpaca import (
     MalformedBrokerPayload)
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
-    BrokerInstrument, BrokerObservation, BrokerOrder, CommandOutcome,
-    Completeness, Side)
+    BrokerAccountIdentity, BrokerExactOrderLookup, BrokerInstrument,
+    BrokerObservation, BrokerOrder, CommandOutcome, Completeness, Side)
 from sentinel.execution.guarded import (
     BrokerAuthorityRefused, ExecutionBrokerGuard, GuardedExecutionBroker,
     ManualExecutionGrant, PreTransportAuthorityRefused)
@@ -117,6 +118,13 @@ def full_order(*, status="new", quantity="2", filled="0", **changes):
     }
     payload.update(changes)
     return payload
+
+
+def test_successor_new_with_replaces_is_external_replacement():
+    broker, _ = adapter()
+    order = broker._to_order(full_order(status="new", replaces="order-0"))
+    assert order.external_replacement is True
+    assert order.replaces == "order-0"
 
 
 def submit(response: Response):
@@ -236,7 +244,8 @@ def test_429_that_actually_landed_is_adopted_without_second_post():
     exact = full_order(status="filled", filled="2")
     broker, http = adapter(
         post=Response(status_code=429, text="rate limited"),
-        routes={"/v2/orders:by_client_order_id": exact})
+        routes={"/v2/account": {"account_number": "PA-1"},
+                "/v2/orders:by_client_order_id": exact})
     identity = CommandIdentity(
         deployment=DEPLOYMENT, plan_id="plan-1", security_id="SEC-AAPL")
     command = Command(
@@ -264,11 +273,17 @@ def test_exact_key_recovery_refuses_changed_economics():
 
     class Broker:
         async def find_by_client_key(self, _key):
-            return found
+            now = datetime.now(UTC)
+            account = BrokerAccountIdentity("alpaca", "PA-1")
+            return BrokerExactOrderLookup(
+                client_key=command.client_key,
+                request_started_at=now, request_completed_at=now,
+                identity_before=account, identity_after=account, order=found)
 
     observation = BrokerObservation(
         observed_at=datetime.now(UTC), orders=(), positions=(),
-        completeness=Completeness.COMPLETE)
+        completeness=Completeness.COMPLETE,
+        account_identity=BrokerAccountIdentity("alpaca", "PA-1"))
     with pytest.raises(BrokerAuthorityRefused, match="contradictory economics"):
         run(recovery.resolve_unknown(Broker(), command, observation))
 
@@ -566,7 +581,9 @@ def test_replayed_native_activity_id_cannot_change_economics():
 
 
 class ClockBroker:
-    capabilities = AlpacaExecutionBroker.capabilities
+    capabilities = replace(
+        AlpacaExecutionBroker.capabilities,
+        pre_submit_instrument_revalidation=False)
 
     def __init__(self, *, is_open=True, clock_error=None):
         self.is_open = is_open

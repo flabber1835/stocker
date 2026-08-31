@@ -31,29 +31,49 @@ class CallbackWatch:
     observed_at: float | None = None
 
 
-def _terminate(child: subprocess.Popen, *, grace_seconds: float = 5.0) -> None:
-    if child.poll() is not None:
-        return
-    child.terminate()
-    try:
-        child.wait(timeout=grace_seconds)
-        return
-    except subprocess.TimeoutExpired:
-        child.kill()
-        child.wait(timeout=max(1.0, grace_seconds))
+def _session_process_groups(session_id: int) -> set[int]:
+    groups: set[int] = set()
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return {session_id}
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            raw = (entry / "stat").read_text(encoding="utf-8")
+            fields = raw[raw.rfind(")") + 2:].split()
+            process_group, process_session = int(fields[2]), int(fields[3])
+        except (OSError, ValueError, IndexError):
+            continue
+        if process_session == session_id:
+            groups.add(process_group)
+    return groups or {session_id}
+
+
+def _terminate(child: subprocess.Popen, *, grace_seconds: float = 0.0) -> None:
+    """Immediately kill every process group in the worker's dedicated session."""
+    del grace_seconds
+    for process_group in _session_process_groups(child.pid):
+        try:
+            os.killpg(process_group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    if child.poll() is None:
+        child.wait(timeout=1)
 
 
 def _callback_deadline_expired(
         watch: CallbackWatch, *, state: str | None, now_monotonic: float,
-        deadline_seconds: float) -> bool:
+        deadline_seconds: float,
+        state_age_seconds: float | None = None) -> bool:
     if not state or not state.endswith("_CALLBACK"):
         watch.state = None
         watch.observed_at = None
         return False
     if watch.state != state or watch.observed_at is None:
         watch.state = state
-        watch.observed_at = now_monotonic
-        return False
+        watch.observed_at = now_monotonic - max(0.0, state_age_seconds or 0.0)
+        return now_monotonic - watch.observed_at > deadline_seconds
     return now_monotonic - watch.observed_at > deadline_seconds
 
 
@@ -76,7 +96,10 @@ def _callback_deadline_expired_during_database_loss(
 
 def _instance_stalled(*, heartbeat_age_seconds: float | None,
                       lease_seconds: float,
-                      startup_grace_elapsed: bool) -> bool:
+                      startup_grace_elapsed: bool,
+                      state: str | None = None) -> bool:
+    if state and state.endswith("_CALLBACK"):
+        return False
     if not startup_grace_elapsed:
         return False
     if heartbeat_age_seconds is None:
@@ -109,13 +132,16 @@ def _holder_id() -> str:
     return f"sentinel-{host}-{uuid.uuid4()}"
 
 
-def _spawn(holder_id: str) -> subprocess.Popen:
+def _spawn(
+        holder_id: str, *, command: tuple[str, ...] | None = None
+        ) -> subprocess.Popen:
     env = os.environ.copy()
     env["SENTINEL_AUTOMATION_HOLDER_ID"] = holder_id
     HOLDER_FILE.write_text(holder_id, encoding="utf-8")
     return subprocess.Popen(
-        [sys.executable, "-m", "sentinel.automation_worker"],
-        stdin=subprocess.DEVNULL, env=env)
+        list(command or (
+            sys.executable, "-m", "sentinel.automation_worker")),
+        stdin=subprocess.DEVNULL, env=env, start_new_session=True)
 
 
 def main() -> int:
@@ -153,6 +179,9 @@ def main() -> int:
         while not stopping:
             code = child.poll()
             if code is not None:
+                # The worker's exit never proves its callback-owned descendants
+                # are gone. Reap the complete old group before replacement.
+                _terminate(child)
                 break
             now_mono = time.monotonic()
             try:
@@ -182,7 +211,8 @@ def main() -> int:
 
             if _callback_deadline_expired(
                     watch, state=state, now_monotonic=now_mono,
-                    deadline_seconds=automation_config.callback_deadline_seconds):
+                    deadline_seconds=automation_config.callback_deadline_seconds,
+                    state_age_seconds=heartbeat_age):
                 print(
                     f"automation supervisor terminating worker {holder_id}: "
                     f"{state} exceeded "
@@ -195,7 +225,8 @@ def main() -> int:
                     heartbeat_age_seconds=heartbeat_age,
                     lease_seconds=automation_config.lease_seconds,
                     startup_grace_elapsed=(
-                        now_mono - started >= startup_grace_seconds)):
+                        now_mono - started >= startup_grace_seconds),
+                    state=state):
                 age_detail = ("missing" if heartbeat_age is None
                               else f"{heartbeat_age:.3f}s")
                 print(

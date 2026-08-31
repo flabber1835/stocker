@@ -160,6 +160,7 @@ def _validate_automation_grant(conn, grant: AutomationExecutionGrant):
     from sentinel.automation import store as automation_store
     from sentinel.automation.model import CycleState, LeaderPermit
 
+    grant.require_active()
     control = automation_store.load_control(conn)
     if not control.enabled or control.kill_switch_engaged:
         raise PaperActivationRefused(

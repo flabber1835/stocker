@@ -687,6 +687,9 @@ def _feed_from_dict(raw: Mapping, meta, elig) -> Feed:
     feed._session_index = int(raw.get("session_index", -1))
     feed._seen_sessions = {str(k): int(v) for k, v in
                            (raw.get("seen_sessions") or {}).items()}
+    if feed._seen_sessions:
+        feed._last_session = max(
+            feed._seen_sessions, key=feed._seen_sessions.__getitem__)
     # `Feed.update()` appends to every SecuritySeries array.  Constructing the
     # dataclass directly from persisted mappings aliases those nested lists and
     # mutates the caller's supposedly immutable prior SessionState.  Copy every

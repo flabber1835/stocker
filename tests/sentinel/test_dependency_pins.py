@@ -103,6 +103,7 @@ class TestTheBaseImageIsPinnedByDigest:
 
 class TestTheCertificationTestToolsAreArtifactLocked:
     EXPECTED = {
+        "coverage": "7.16.0",
         "greenlet": "3.5.5",
         "iniconfig": "2.1.0",
         "packaging": "25.0",

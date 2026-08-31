@@ -25,8 +25,8 @@ def test_recent_reconciliation_splits_cross_year_window_without_gaps(monkeypatch
                         lambda through, count: list(sessions))
     calls = []
 
-    def reconcile(conn, *, fetch, year, start, end):
-        calls.append((year, start, end, fetch))
+    def reconcile(conn, *, fetch, year, start, end, observation_ceiling):
+        calls.append((year, start, end, fetch, observation_ceiling))
         return object()
 
     monkeypatch.setattr(R.sep_reconciliation, "reconcile_year", reconcile)
@@ -37,11 +37,12 @@ def test_recent_reconciliation_splits_cross_year_window_without_gaps(monkeypatch
         lambda conn, **kwargs: kwargs)
 
     result = R.reconcile_recent(object(), through="2026-01-02")
-    assert [(y, lo, hi) for y, lo, hi, _ in calls] == [
+    assert [(y, lo, hi) for y, lo, hi, _, _ in calls] == [
         (2025, "2025-12-30", "2025-12-31"),
         (2026, "2026-01-01", "2026-01-02"),
     ]
-    assert all(fetch is R._export_fetch for _, _, _, fetch in calls)
+    assert all(fetch is R._export_fetch for _, _, _, fetch, _ in calls)
+    assert all(ceiling == "2026-01-02" for *_, ceiling in calls)
     assert result["through"] == dt.date(2026, 1, 2)
     assert result["publication_version"] == 11
 
@@ -57,14 +58,15 @@ def test_recent_reconciliation_preserves_an_explicit_injected_source(monkeypatch
     seen = []
     monkeypatch.setattr(
         R.sep_reconciliation, "reconcile_year",
-        lambda conn, *, fetch, year, start, end: seen.append(fetch))
+        lambda conn, *, fetch, year, start, end, observation_ceiling:
+            seen.append((fetch, observation_ceiling)))
     monkeypatch.setattr(R.publication, "require_current",
                         lambda conn: SimpleNamespace(version=11))
     monkeypatch.setattr(R.maintenance, "_write_cursor",
                         lambda conn, **kwargs: kwargs)
 
     R.reconcile_recent(object(), through="2026-01-02", fetch=injected)
-    assert seen == [injected]
+    assert seen == [(injected, "2026-01-02")]
 
 
 def test_recent_reconciliation_refuses_backward_source_traversal(monkeypatch):

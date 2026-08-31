@@ -167,7 +167,8 @@ def test_annual_reconciliation_refuses_before_staging_or_local_comparison(
     with pytest.raises(session_envelope.SourceSessionEnvelopeViolation):
         sep_reconciliation._source_fingerprint(
             _NoDatabase(), fetch=fetch,
-            start="2026-01-02", end="2026-12-31")
+            start="2026-01-02", end="2026-12-31",
+            observation_ceiling="2026-12-31")
     assert calls == 1
 
 
@@ -177,12 +178,12 @@ def test_recent_complete_export_refuses_future_row_before_staging(
         recent_reconciliation.snapshot_export, "fetch_complete_sep",
         lambda *, start, end: ([_sep("2026-08-25")], {"source": "test"}))
 
-    with pytest.raises(
-            session_envelope.SourceSessionEnvelopeViolation,
+    with pytest.raises(session_envelope.SourceSessionEnvelopeViolation,
             match="session_after_request"):
         sep_reconciliation._source_fingerprint(
             _NoDatabase(), fetch=recent_reconciliation._export_fetch,
-            start="2026-08-21", end="2026-08-24")
+            start="2026-08-21", end="2026-08-24",
+            observation_ceiling="2026-08-24")
 
 
 def test_renormalization_refuses_stable_off_window_history_before_replay():

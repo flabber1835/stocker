@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from tests.support.postgres import _EphemeralPostgres
 
 from sentinel import administrative_authority as administrative
-from sentinel import authority, binding, schema
+from sentinel import _main_impl, authority, binding, schema
 from sentinel.feed import store as feed_store
 from sentinel.broker import CloseResult, SentinelBroker
 from sentinel.execution.commands import Command, LEGACY_MIGRATION_PLAN_PREFIX
@@ -43,7 +43,7 @@ def _authorized_runtime_surface(monkeypatch, tmp_path):
 
     marker = tmp_path / "authorized-runtime-v1"
     marker.write_bytes(cli.AUTHORIZED_RUNTIME_MARKER_BYTES)
-    monkeypatch.setattr(cli, "AUTHORIZED_RUNTIME_MARKER", marker)
+    monkeypatch.setattr(_main_impl, "AUTHORIZED_RUNTIME_MARKER", marker)
     monkeypatch.setenv(
         cli.AUTHORIZED_RUNTIME_ENV, cli.AUTHORIZED_RUNTIME_VALUE)
 
@@ -461,9 +461,9 @@ def test_cli_authority_must_pass_before_broker_construction(monkeypatch):
         constructed = True
         return CountingBroker()
 
-    monkeypatch.setattr(cli, "build_broker", build)
+    monkeypatch.setattr(_main_impl, "build_broker", build)
     monkeypatch.setattr(
-        cli, "_require_administrative_access",
+        _main_impl, "_require_administrative_access",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             authority.AuthorityRefused("no active signed admin certificate")))
     with pytest.raises(authority.AuthorityRefused, match="no active"):
@@ -495,16 +495,17 @@ def test_every_admin_broker_command_authorizes_before_construction(monkeypatch):
     monkeypatch.setattr(
         binding, "require", lambda _conn: binding.AccountBinding(
             "nas-01", "alpaca", "paper-123", 1))
-    monkeypatch.setattr(cli, "_administrative_epoch", lambda *_a, **_k: 1)
     monkeypatch.setattr(
-        cli, "_authorized_administrative_access",
+        _main_impl, "_administrative_epoch", lambda *_a, **_k: 1)
+    monkeypatch.setattr(
+        _main_impl, "_authorized_administrative_access",
         lambda *_a, **_k: (_ for _ in ()).throw(
             authority.AuthorityRefused("signed admin authority unavailable")))
     monkeypatch.setattr(
-        cli, "build_broker",
+        _main_impl, "build_broker",
         lambda *_a, **_k: constructed.append("legacy"))
     monkeypatch.setattr(
-        cli, "build_execution_broker",
+        _main_impl, "build_execution_broker",
         lambda *_a, **_k: constructed.append("execution"))
 
     calls = (
@@ -580,6 +581,7 @@ def test_migration_rechecks_authority_before_ownership_binding(conn):
 
 
 def test_cli_parser_keeps_admin_lifecycle_explicit_and_exact(monkeypatch):
+    from sentinel import _main_impl
     from sentinel import __main__ as cli
     from sentinel.config import DEFAULT_BASE_URL, SentinelConfig
 
@@ -599,7 +601,7 @@ def test_cli_parser_keeps_admin_lifecycle_explicit_and_exact(monkeypatch):
             ("revoke-administrative-certificate",
              "_revoke_administrative_certificate")):
         monkeypatch.setattr(
-            cli, function,
+            _main_impl, function,
             lambda _config, args, name=command: (
                 seen.__setitem__(name, vars(args)), cli.EXIT_OK)[1])
     assert cli.main([

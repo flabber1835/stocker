@@ -40,8 +40,8 @@ from sentinel.execution import (  # noqa: E402
 )
 from sentinel.execution.commands import Command  # noqa: E402
 from sentinel.execution.contract import (  # noqa: E402
-    BrokerAccountIdentity, BrokerInstrument, BrokerObservation, BrokerOrder,
-    Completeness, Side)
+    BrokerAccountIdentity, BrokerExactOrderLookup, BrokerInstrument,
+    BrokerObservation, BrokerOrder, Completeness, Side)
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity  # noqa: E402
 from sentinel.execution.plan import ExecutionPlan  # noqa: E402
 from sentinel.execution.simulator import FaultKind as F, SimulatedBroker  # noqa: E402
@@ -402,6 +402,7 @@ class TestReconciliation:
 
         async def snapshot(**_kwargs):
             return BrokerObservation(
+                started_at=b.now - timedelta(seconds=1),
                 observed_at=b.now, orders=(current_order["value"],),
                 positions=current_positions["value"],
                 terminal_recovery_through=b.now,
@@ -476,6 +477,7 @@ class TestReconciliation:
 
         async def snapshot(**_kwargs):
             return BrokerObservation(
+                started_at=b.now - timedelta(seconds=1),
                 observed_at=b.now, orders=(order["value"],),
                 positions=(position,), terminal_recovery_through=b.now,
                 account_identity=b.account)
@@ -510,6 +512,7 @@ class TestReconciliation:
 
         async def snapshot(**_kwargs):
             return BrokerObservation(
+                started_at=b.now - timedelta(seconds=1),
                 observed_at=b.now, orders=(observed_order,), positions=(),
                 terminal_recovery_through=b.now,
                 account_identity=b.account)
@@ -539,6 +542,7 @@ class TestReconciliation:
 
         async def snapshot(**_kwargs):
             return BrokerObservation(
+                started_at=b.now - timedelta(seconds=1),
                 observed_at=b.now, orders=(observed_order,),
                 positions=(post_split_position,),
                 terminal_recovery_through=b.now,
@@ -886,6 +890,132 @@ class TestReconciliation:
         assert second.runtime_state is RuntimeState.RECONCILING
         assert "changed durable side" in second.detail
         assert journal.terminal_recovery_checkpoint(conn) == checkpoint
+
+    @pytest.mark.parametrize("replacement_state", ["pending_replace", "replaced"])
+    def test_external_replacement_blocks_and_leaves_watermark(
+            self, conn, replacement_state):
+        checkpoint = journal.terminal_recovery_checkpoint(conn)
+        observed_at = checkpoint + timedelta(hours=1)
+        durable = replace(
+            cmd(state=S.ACKNOWLEDGED), broker_order_id="broker-replaced")
+        journal.save_command(conn, durable)
+        broker = self._broker()
+        broker.now = observed_at
+        replacement = BrokerOrder(
+            broker_order_id="broker-replaced", client_key=durable.client_key,
+            instrument=AAA, side=Side.BUY, state=S.ACKNOWLEDGED,
+            quantity=Decimal(10), submitted_at=observed_at - timedelta(minutes=1),
+            external_replacement=True, replaced_by="broker-successor",
+            replaces="broker-predecessor",
+            raw={"status": replacement_state})
+
+        async def snapshot(**_kwargs):
+            return BrokerObservation(
+                started_at=observed_at - timedelta(seconds=1),
+                observed_at=observed_at, orders=(replacement,),
+                terminal_recovery_through=observed_at,
+                completeness=Completeness.COMPLETE,
+                account_identity=broker.account)
+
+        broker.observe_with_terminal_recovery = snapshot
+        result = run(R.reconcile(
+            broker=broker, conn=conn, binding=None, deployment=DEPLOY))
+
+        assert result.runtime_state is RuntimeState.FOREIGN_ACTIVITY
+        assert result.foreign_orders == (replacement,)
+        assert "unauthorized broker replacement" in result.detail
+        assert journal.terminal_recovery_checkpoint(conn) == checkpoint
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT p.positions->>'started_at',o.orders "
+                "FROM sentinel_observations o "
+                "JOIN sentinel_observation_provenance p "
+                "ON p.observation_seq=o.seq "
+                "ORDER BY seq DESC LIMIT 1")
+            started_at, orders = cur.fetchone()
+        assert datetime.fromisoformat(started_at) == (
+            observed_at - timedelta(seconds=1))
+        retained = orders[0]
+        assert retained["submitted_at"] == replacement.submitted_at.isoformat()
+        assert retained["external_replacement"] is True
+        assert retained["replaced_by"] == "broker-successor"
+        assert retained["replaces"] == "broker-predecessor"
+
+    @pytest.mark.parametrize(("raw_status", "external", "replaced_by", "replaces"), [
+        ("pending_replace", True, "broker-successor", None),
+        ("replaced", True, "broker-successor", None),
+        ("new", False, None, "broker-predecessor"),
+    ])
+    def test_exact_key_replacement_race_is_durably_blocked_before_mutation(
+            self, conn, raw_status, external, replaced_by, replaces):
+        checkpoint = journal.terminal_recovery_checkpoint(conn)
+        observed_at = checkpoint + timedelta(hours=1)
+        durable = replace(
+            cmd(state=S.UNKNOWN), broker_order_id="broker-original")
+        journal.save_command(conn, durable)
+        broker = self._broker()
+        broker.now = observed_at
+        initial = BrokerOrder(
+            broker_order_id="broker-original", client_key=durable.client_key,
+            instrument=AAA, side=Side.BUY, state=S.ACKNOWLEDGED,
+            quantity=Decimal(10), submitted_at=observed_at - timedelta(minutes=2))
+        exact = replace(
+            initial, external_replacement=external,
+            replaced_by=replaced_by, replaces=replaces,
+            raw={"status": raw_status})
+        submissions = []
+
+        async def snapshot(**_kwargs):
+            return BrokerObservation(
+                started_at=observed_at - timedelta(seconds=1),
+                observed_at=observed_at, orders=(initial,),
+                terminal_recovery_through=observed_at,
+                completeness=Completeness.COMPLETE,
+                account_identity=broker.account)
+
+        async def exact_lookup(client_key):
+            assert client_key == durable.client_key
+            return BrokerExactOrderLookup(
+                client_key=client_key,
+                request_started_at=observed_at,
+                request_completed_at=observed_at,
+                identity_before=broker.account,
+                identity_after=broker.account,
+                order=exact)
+
+        async def forbidden_submit(*args, **kwargs):
+            submissions.append((args, kwargs))
+            raise AssertionError("blocked reconciliation reached submission")
+
+        broker.observe_with_terminal_recovery = snapshot
+        broker.find_by_client_key = exact_lookup
+        broker.submit = forbidden_submit
+        result = run(R.reconcile(
+            broker=broker, conn=conn, binding=None, deployment=DEPLOY))
+
+        assert result.runtime_state is RuntimeState.FOREIGN_ACTIVITY
+        assert journal.load_commands(conn, DEPLOY)[0].state is S.UNKNOWN
+        assert journal.terminal_recovery_checkpoint(conn) == checkpoint
+        assert submissions == []
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT o.runtime_state,p.canonical_payload_sha256,s.state "
+                "FROM sentinel_observations o "
+                "JOIN sentinel_observation_provenance p "
+                "ON p.observation_seq=o.seq "
+                "JOIN sentinel_processed_sessions s "
+                "ON s.cursor_name=('broker-observation:v4:' || o.seq) "
+                "ORDER BY o.seq DESC LIMIT 1")
+            runtime_state, digest, evidence = cur.fetchone()
+        assert runtime_state == RuntimeState.FOREIGN_ACTIVITY.value
+        assert len(digest) == 64
+        retained_exact = evidence["exact_evidence"][0]
+        assert retained_exact["client_key"] == durable.client_key
+        assert retained_exact["initial_order_id"] == "broker-original"
+        assert retained_exact["request_started_at"]
+        assert retained_exact["request_completed_at"]
+        assert retained_exact["order"]["replaces"] == replaces
+        journal.require_observation_integrity(conn)
 
 
 class TestTerminalRecoveryCrashBoundaries:

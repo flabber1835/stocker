@@ -255,7 +255,7 @@ class SecurityBar:
     security_id: str
     ticker: str
     issuer_id: str
-    closes: Sequence[float]
+    closes: Sequence[float | None]
     raw_close: float | None = None
     eligible: bool = True
     eligibility_reason: str = ""

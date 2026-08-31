@@ -264,6 +264,10 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
     assert_paper_url(base_url)
     _require_certified_paper_broker(broker)
     schema.require_runtime_schema(conn)
+    try:
+        journal.require_observation_integrity(conn)
+    except journal.ObservationEvidenceUncertifiable as exc:
+        raise PaperActivationRefused(str(exc)) from exc
     through_date = (through if isinstance(through, date)
                     else date.fromisoformat(str(through)))
     through_text = through_date.isoformat()

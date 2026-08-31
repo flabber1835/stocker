@@ -14,6 +14,7 @@ from sentinel.broker import CloseResult, SentinelBroker
 from sentinel.execution.contract import (
     BrokerAccountIdentity,
     BrokerAccountSnapshot,
+    BrokerExactOrderLookup,
     BrokerFill,
     BrokerInstrument,
     BrokerObservation,
@@ -282,31 +283,30 @@ class GuardedAdministrativeExecutionBroker(ExecutionBroker):
         if grant.operation != admin_authority.ADMIN_INSPECT:
             raise TypeError(
                 "administrative execution broker requires ADMIN_INSPECT")
-        from sentinel.execution.alpaca import AlpacaExecutionBroker
-        from sentinel.execution.simulator import SimulatedBroker
+        from sentinel.execution.certification import (
+            certify_wrapper, require_certified_adapter)
 
-        if isinstance(inner, AlpacaExecutionBroker):
-            self._certified_adapter = "alpaca"
-        elif isinstance(inner, SimulatedBroker):
-            self._certified_adapter = "simulator"
-        else:
+        try:
+            inner_identity = require_certified_adapter(inner)
+        except Exception as exc:
             raise TypeError(
                 "administrative inspection requires a certified concrete "
-                "execution adapter")
-        from sentinel.execution.certification import require_certified
-
-        require_certified(self._certified_adapter)
+                "execution-adapter capability") from exc
+        self._certified_adapter = inner_identity.name
         self._inner = inner
         self._grant = grant
         self._guard = guard
         self._account_verified = False
         self.capabilities = inner.capabilities
+        self.certification_name = inner.certification_name
+        self.certified_adapter_identity = certify_wrapper(
+            self, inner, wrapper_kind="administrative-read")
 
     def require_certified_adapter(self) -> None:
         """Recheck certification without exposing the guarded inner broker."""
-        from sentinel.execution.certification import require_certified
+        from sentinel.execution.certification import require_certified_adapter
 
-        require_certified(self._certified_adapter)
+        require_certified_adapter(self, expected=self._certified_adapter)
 
     def _before(self, operation: AdministrativeBrokerOperation) -> None:
         self._guard.check(self._grant, operation, None)
@@ -365,6 +365,7 @@ class GuardedAdministrativeExecutionBroker(ExecutionBroker):
         self._before(operation)
         result = await self._inner.observe()
         self._after(operation, result)
+        self._require_result_account(result.account_identity)
         return result
 
     async def observe_with_terminal_recovery(
@@ -377,14 +378,27 @@ class GuardedAdministrativeExecutionBroker(ExecutionBroker):
             submitted_after=submitted_after,
             processed_through=processed_through)
         self._after(operation, result)
+        self._require_result_account(result.account_identity)
         return result
 
-    async def find_by_client_key(self, client_key: str) -> BrokerOrder | None:
+    def _require_result_account(
+            self, identity: BrokerAccountIdentity | None) -> None:
+        if (identity is None
+                or identity.account_id != self._grant.broker_account_id
+                or (self._certified_adapter == "alpaca"
+                    and identity.broker != "alpaca")):
+            raise authority.AuthorityRefused(
+                "administrative broker result does not match the signed "
+                "Alpaca account")
+
+    async def find_by_client_key(
+            self, client_key: str) -> BrokerExactOrderLookup:
         self._require_verified_account()
         operation = AdministrativeBrokerOperation.FIND_BY_CLIENT_KEY
         self._before(operation)
         result = await self._inner.find_by_client_key(client_key)
         self._after(operation, result)
+        self._require_result_account(result.stable_identity)
         return result
 
     async def submit(

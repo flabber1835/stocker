@@ -35,7 +35,7 @@ from __future__ import annotations
 import hashlib
 import json
 from contextlib import contextmanager
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Iterable, Optional, Sequence
@@ -60,6 +60,32 @@ WRITER_LOCK_KEY = 0x5E27_1E10
 
 class WriterLockUnavailable(RuntimeError):
     """Another process holds the writer lock. Do not proceed."""
+
+
+class JournalUnitOfWork:
+    """Own one multi-record journal invariant and its final commit.
+
+    Repository helpers called inside this boundary write only.  A failure at
+    any point rolls the whole invariant back, including failures raised while
+    committing a connection whose server outcome is not known locally.
+    """
+
+    def __init__(self, conn) -> None:
+        self.conn = conn
+
+    def __enter__(self) -> "JournalUnitOfWork":
+        return self
+
+    def __exit__(self, exc_type, _exc, _traceback) -> bool:
+        if exc_type is not None:
+            self.conn.rollback()
+            return False
+        try:
+            self.conn.commit()
+        except BaseException:                                # noqa: BLE001
+            self.conn.rollback()
+            raise
+        return False
 
 
 @contextmanager
@@ -795,11 +821,48 @@ def _terminal_recovery_binding(conn) -> tuple[str, str, datetime]:
         row[2], "account-binding establishment boundary")
 
 
+def _canonical_observation_digest(payload: dict) -> str:
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _canonical_observation_payload(
+        *, seq: int, broker: str, account_id: str,
+        started_at: datetime | None, observed_at: datetime,
+        terminal_recovery_through: datetime | None, completeness: str,
+        positions: list[dict], orders: list[dict],
+        exact_evidence: list[dict]) -> dict:
+    return {
+        "kind": "broker-observation/v4",
+        "observation_seq": int(seq),
+        "broker": str(broker),
+        "account_id": str(account_id),
+        "started_at": (
+            _aware_utc(started_at, "observation start timestamp").isoformat()
+            if started_at is not None else None),
+        "observed_at": _aware_utc(
+            observed_at, "observation timestamp").isoformat(),
+        "terminal_recovery_through": (
+            _aware_utc(
+                terminal_recovery_through,
+                "terminal recovery observation boundary").isoformat()
+            if terminal_recovery_through is not None else None),
+        "completeness": str(completeness),
+        "positions": positions,
+        "orders": orders,
+        "exact_evidence": exact_evidence,
+    }
+
+
 def record_observation(conn, observation: BrokerObservation,
                        runtime_state: str = "") -> int:
-    """Persist broker evidence plus its account/asset provenance."""
+    """Atomically persist normalized, raw, and serialized broker evidence."""
     account_identity = observation.account_identity
     if account_identity is not None:
+        if observation.started_at is None:
+            raise RuntimeError(
+                "account-bound broker observation omitted its request start")
         broker_name, account_id, _ = _terminal_recovery_binding(conn)
         if (account_identity.broker != broker_name
                 or account_identity.account_id != account_id):
@@ -807,92 +870,376 @@ def record_observation(conn, observation: BrokerObservation,
                 "broker observation account identity does not match the durable "
                 "account binding; refusing journal mutation")
 
-    with conn.cursor() as cur:
+    normalized_positions = {
+        key: str(value) for key, value in
+        sorted(observation.positions_by_security().items())
+    }
+    position_provenance = [{
+        "security_id": position.instrument.security_id,
+        "symbol": position.instrument.symbol,
+        "broker_instrument_id": position.instrument.broker_id,
+        "quantity": str(position.quantity),
+    } for position in observation.positions]
+    normalized_orders = [{
+        "id": order.broker_order_id,
+        "key": order.client_key,
+        "security_id": order.instrument.security_id,
+        "symbol": order.instrument.symbol,
+        "broker_instrument_id": order.instrument.broker_id,
+        "side": order.side.value,
+        "state": order.state.value,
+        "qty": str(order.quantity),
+        "filled": str(order.filled_quantity),
+        "filled_average_price": (
+            str(order.filled_average_price)
+            if order.filled_average_price is not None else None),
+        "submitted_at": (
+            order.submitted_at.isoformat()
+            if order.submitted_at is not None else None),
+        "external_replacement": bool(order.external_replacement),
+        "replaced_by": order.replaced_by,
+        "replaces": order.replaces,
+    } for order in observation.orders]
+    exact_evidence = []
+    for exact in observation.exact_order_evidence:
+        order = exact.order
+        exact_evidence.append({
+            "client_key": exact.client_key,
+            "request_started_at": _aware_utc(
+                exact.request_started_at,
+                "exact-order request start").isoformat(),
+            "request_completed_at": _aware_utc(
+                exact.request_completed_at,
+                "exact-order request completion").isoformat(),
+            "identity_before": {
+                "broker": exact.identity_before.broker,
+                "account_id": exact.identity_before.account_id,
+            },
+            "identity_after": {
+                "broker": exact.identity_after.broker,
+                "account_id": exact.identity_after.account_id,
+            },
+            "initial_order_id": exact.initial_order_id,
+            "order": None if order is None else {
+                "broker_order_id": order.broker_order_id,
+                "client_key": order.client_key,
+                "security_id": order.instrument.security_id,
+                "symbol": order.instrument.symbol,
+                "broker_id": order.instrument.broker_id,
+                "side": order.side.value,
+                "state": order.state.value,
+                "quantity": str(order.quantity),
+                "filled_quantity": str(order.filled_quantity),
+                "filled_average_price": (
+                    str(order.filled_average_price)
+                    if order.filled_average_price is not None else None),
+                "submitted_at": (
+                    order.submitted_at.isoformat()
+                    if order.submitted_at is not None else None),
+                "external_replacement": bool(order.external_replacement),
+                "replaced_by": order.replaced_by,
+                "replaces": order.replaces,
+            },
+        })
+
+    with JournalUnitOfWork(conn), conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_observations (observed_at,"
             " terminal_recovery_through, completeness, positions, orders,"
             " runtime_state) VALUES (%s,%s,%s,%s,%s,%s) RETURNING seq",
             (observation.observed_at, observation.terminal_recovery_through,
              observation.completeness.value,
-             json.dumps({k: str(v) for k, v in
-                          sorted(observation.positions_by_security().items())}),
-             json.dumps([{"id": o.broker_order_id, "key": o.client_key,
-                          "security_id": o.instrument.security_id,
-                          "broker_instrument_id": o.instrument.broker_id,
-                          "side": o.side.value, "state": o.state.value,
-                          "qty": str(o.quantity),
-                          "filled": str(o.filled_quantity)}
-                         for o in observation.orders]),
+             json.dumps(normalized_positions, sort_keys=True),
+             json.dumps(normalized_orders, sort_keys=True),
              runtime_state))
         seq = int(cur.fetchone()[0])
         if account_identity is not None:
-            position_identity = [{
-                "security_id": p.instrument.security_id,
-                "symbol": p.instrument.symbol,
-                "broker_instrument_id": p.instrument.broker_id,
-                "quantity": str(p.quantity),
-            } for p in observation.positions]
+            canonical_positions = [{
+                "security_id": item["security_id"],
+                "symbol": item["symbol"],
+                "broker_id": item["broker_instrument_id"],
+                "quantity": item["quantity"],
+            } for item in position_provenance]
+            canonical_orders = [{
+                "broker_order_id": item["id"],
+                "client_key": item["key"],
+                "security_id": item["security_id"],
+                "symbol": item["symbol"],
+                "broker_id": item["broker_instrument_id"],
+                "side": item["side"],
+                "state": item["state"],
+                "quantity": item["qty"],
+                "filled_quantity": item["filled"],
+                "filled_average_price": item["filled_average_price"],
+                "submitted_at": item["submitted_at"],
+                "external_replacement": item["external_replacement"],
+                "replaced_by": item["replaced_by"],
+                "replaces": item["replaces"],
+            } for item in normalized_orders]
+            payload = _canonical_observation_payload(
+                seq=seq, broker=account_identity.broker,
+                account_id=account_identity.account_id,
+                started_at=observation.started_at,
+                observed_at=observation.observed_at,
+                terminal_recovery_through=(
+                    observation.terminal_recovery_through),
+                completeness=observation.completeness.value,
+                positions=canonical_positions, orders=canonical_orders,
+                exact_evidence=exact_evidence)
+            payload_digest = _canonical_observation_digest(payload)
             cur.execute(
                 "INSERT INTO sentinel_observation_provenance"
-                " (observation_seq,broker,broker_account_id,observed_at,positions)"
-                " VALUES (%s,%s,%s,%s,%s)",
-                (seq, account_identity.broker,
-                 account_identity.account_id,
+                " (observation_seq,broker,broker_account_id,observed_at,"
+                " positions,canonical_payload_sha256)"
+                " VALUES (%s,%s,%s,%s,%s,%s)",
+                (seq, account_identity.broker, account_identity.account_id,
                  observation.observed_at,
-                 json.dumps(position_identity, sort_keys=True)))
-    conn.commit()
-
-    if account_identity is not None:
-        payload = {
-            "kind": "broker-observation/v2",
-            "observation_seq": seq,
-            "broker": str(account_identity.broker),
-            "account_id": str(account_identity.account_id),
-            "observed_at": observation.observed_at.astimezone(
-                timezone.utc).isoformat(),
-            "terminal_recovery_through": (
-                observation.terminal_recovery_through.astimezone(
-                    timezone.utc).isoformat()
-                if observation.terminal_recovery_through is not None
-                else None),
-            "completeness": observation.completeness.value,
-            "positions": [
-                {"security_id": p.instrument.security_id,
-                 "symbol": p.instrument.symbol,
-                 "broker_id": p.instrument.broker_id,
-                 "quantity": str(p.quantity)}
-                for p in observation.positions
-            ],
-            "orders": [
-                {"broker_order_id": o.broker_order_id,
-                 "client_key": o.client_key,
-                 "security_id": o.instrument.security_id,
-                 "symbol": o.instrument.symbol,
-                 "broker_id": o.instrument.broker_id,
-                 "side": o.side.value,
-                 "state": o.state.value,
-                 "quantity": str(o.quantity),
-                 "filled_quantity": str(o.filled_quantity),
-                 "filled_average_price": (
-                     str(o.filled_average_price)
-                     if o.filled_average_price is not None else None)}
-                for o in observation.orders
-            ],
-        }
-        cursor_name = f"broker-observation:v2:{seq}"
-        with conn.cursor() as cur:
+                 json.dumps({
+                     "started_at": observation.started_at.isoformat(),
+                     "positions": position_provenance,
+                     "exact_evidence": exact_evidence,
+                 }, sort_keys=True),
+                 payload_digest))
+            cursor_name = f"broker-observation:v4:{seq}"
             cur.execute(
                 "INSERT INTO sentinel_processed_sessions"
                 " (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)"
                 " ON CONFLICT (cursor_name) DO NOTHING",
-                (cursor_name, observation.observed_at.date().isoformat(),
+                (cursor_name, _aware_utc(
+                    observation.observed_at,
+                    "observation timestamp").date().isoformat(),
                  json.dumps(payload, sort_keys=True)))
             if cur.rowcount != 1:
                 raise RuntimeError(
                     f"broker observation provenance {seq} already exists; "
                     "observation identities must be append-only")
-        conn.commit()
     return seq
+
+
+@dataclass(frozen=True)
+class ObservationIntegrityIssue:
+    observation_seq: int
+    reasons: tuple[str, ...]
+
+
+class ObservationEvidenceUncertifiable(RuntimeError):
+    """Historical account-era broker evidence is incomplete or contradictory."""
+
+
+def _decoded_json(value, expected_type):
+    if isinstance(value, expected_type):
+        return value
+    try:
+        decoded = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    return decoded if isinstance(decoded, expected_type) else None
+
+
+def observation_integrity_issues(conn) -> tuple[ObservationIntegrityIssue, ...]:
+    """Inspect every account-era observation from the normalized-row side."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT o.seq,p.broker,p.broker_account_id,p.observed_at,"
+            " p.positions,p.canonical_payload_sha256,s.session,s.state,"
+            " b.broker,b.broker_account_id,o.observed_at,"
+            " o.terminal_recovery_through,o.completeness,o.positions,o.orders"
+            " FROM sentinel_observations o"
+            " JOIN sentinel_account_binding b ON b.id=1"
+            "   AND o.observed_at >= b.established_at"
+            " LEFT JOIN sentinel_observation_provenance p"
+            "   ON p.observation_seq=o.seq"
+            " LEFT JOIN sentinel_processed_sessions s"
+            "   ON s.cursor_name=('broker-observation:v4:' || o.seq::text)"
+            " ORDER BY o.seq")
+        rows = cur.fetchall()
+    issues = []
+    for (
+            seq, provenance_broker, provenance_account, provenance_observed_at,
+            provenance_positions, payload_digest, processed_session, evidence,
+            bound_broker, bound_account, observed_at,
+            terminal_recovery_through, completeness, normalized_positions,
+            normalized_orders,
+    ) in rows:
+        reasons = []
+        provenance_present = provenance_broker is not None
+        if provenance_broker is None:
+            reasons.append("MISSING_PROVENANCE")
+        else:
+            if (provenance_broker != bound_broker
+                    or provenance_account != bound_account):
+                reasons.append("PROVENANCE_IDENTITY_DISAGREEMENT")
+            if provenance_observed_at != observed_at:
+                reasons.append("PROVENANCE_TIME_DISAGREEMENT")
+
+        expected_session = _aware_utc(
+            observed_at, "stored observation timestamp").date().isoformat()
+        if processed_session is None:
+            reasons.append("MISSING_PROCESSED_SESSION")
+        elif str(processed_session) != expected_session:
+            reasons.append("PROCESSED_SESSION_DISAGREEMENT")
+
+        raw_evidence = evidence
+        evidence = _decoded_json(raw_evidence, dict)
+        if raw_evidence is None:
+            reasons.append("MISSING_CANONICAL_EVIDENCE")
+        elif evidence is None:
+            reasons.append("MALFORMED_CANONICAL_EVIDENCE")
+        else:
+            required = {
+                "kind", "observation_seq", "broker", "account_id",
+                "started_at", "observed_at", "terminal_recovery_through",
+                "completeness", "positions", "orders", "exact_evidence",
+            }
+            if not required.issubset(evidence):
+                reasons.append("MALFORMED_CANONICAL_EVIDENCE")
+            else:
+                try:
+                    evidence_seq = int(evidence.get("observation_seq", -1))
+                except (TypeError, ValueError):
+                    evidence_seq = -1
+                if (evidence.get("kind") != "broker-observation/v4"
+                        or evidence_seq != int(seq)
+                        or evidence.get("broker") != bound_broker
+                        or evidence.get("account_id") != bound_account):
+                    reasons.append("CANONICAL_IDENTITY_DISAGREEMENT")
+
+        normalized_positions = _decoded_json(normalized_positions, dict)
+        normalized_orders = _decoded_json(normalized_orders, list)
+        provenance_record = _decoded_json(provenance_positions, dict)
+        provenance_positions = (
+            provenance_record.get("positions")
+            if provenance_record is not None else None)
+        provenance_exact_evidence = (
+            provenance_record.get("exact_evidence")
+            if provenance_record is not None else None)
+        started_at = None
+        if provenance_record is not None:
+            try:
+                started_at = datetime.fromisoformat(
+                    str(provenance_record.get("started_at", "")).replace(
+                        "Z", "+00:00"))
+                started_at = _aware_utc(
+                    started_at, "stored observation start timestamp")
+            except (TypeError, ValueError):
+                started_at = None
+        if provenance_present and started_at is None:
+            reasons.append("MISSING_OBSERVATION_STARTED_AT")
+        expected_payload = None
+        position_fields = {
+            "security_id", "symbol", "broker_instrument_id", "quantity"}
+        order_fields = {
+            "id", "key", "security_id", "symbol", "broker_instrument_id",
+            "side", "state", "qty", "filled", "filled_average_price",
+            "submitted_at", "external_replacement", "replaced_by", "replaces"}
+        exact_fields = {
+            "client_key", "request_started_at", "request_completed_at",
+            "identity_before", "identity_after", "initial_order_id", "order"}
+        exact_identity = {"broker": bound_broker, "account_id": bound_account}
+        sufficient = (
+            provenance_present
+            and started_at is not None
+            and normalized_positions is not None
+            and normalized_orders is not None
+            and provenance_positions is not None
+            and isinstance(provenance_positions, list)
+            and isinstance(provenance_exact_evidence, list)
+            and all(
+                isinstance(item, dict)
+                and exact_fields.issubset(item)
+                and item["identity_before"] == exact_identity
+                and item["identity_after"] == exact_identity
+                for item in provenance_exact_evidence)
+            and all(isinstance(item, dict)
+                    and position_fields.issubset(item)
+                    for item in provenance_positions)
+            and all(isinstance(item, dict) and order_fields.issubset(item)
+                    for item in normalized_orders)
+        )
+        if sufficient:
+            try:
+                positions_from_provenance = {
+                    str(item["security_id"]): str(item["quantity"])
+                    for item in provenance_positions
+                    if Decimal(str(item["quantity"])) != 0
+                }
+                normalized_position_strings = {
+                    str(key): str(value)
+                    for key, value in normalized_positions.items()
+                }
+            except (ArithmeticError, ValueError, TypeError):
+                sufficient = False
+        if sufficient:
+            if normalized_position_strings != positions_from_provenance:
+                reasons.append("NORMALIZED_PROVENANCE_DISAGREEMENT")
+            canonical_positions = [{
+                "security_id": item["security_id"],
+                "symbol": item["symbol"],
+                "broker_id": item["broker_instrument_id"],
+                "quantity": item["quantity"],
+            } for item in provenance_positions]
+            canonical_orders = [{
+                "broker_order_id": item["id"],
+                "client_key": item["key"],
+                "security_id": item["security_id"],
+                "symbol": item["symbol"],
+                "broker_id": item["broker_instrument_id"],
+                "side": item["side"],
+                "state": item["state"],
+                "quantity": item["qty"],
+                "filled_quantity": item["filled"],
+                "filled_average_price": item["filled_average_price"],
+                "submitted_at": item["submitted_at"],
+                "external_replacement": item["external_replacement"],
+                "replaced_by": item["replaced_by"],
+                "replaces": item["replaces"],
+            } for item in normalized_orders]
+            expected_payload = _canonical_observation_payload(
+                seq=int(seq), broker=str(provenance_broker),
+                account_id=str(provenance_account), started_at=started_at,
+                observed_at=observed_at,
+                terminal_recovery_through=terminal_recovery_through,
+                completeness=str(completeness),
+                positions=canonical_positions, orders=canonical_orders,
+                exact_evidence=provenance_exact_evidence)
+            if evidence is not None and evidence != expected_payload:
+                reasons.append("CANONICAL_ECONOMICS_DISAGREEMENT")
+        else:
+            reasons.append("NORMALIZED_EVIDENCE_INSUFFICIENT")
+
+        if (not isinstance(payload_digest, str)
+                or len(payload_digest) != 64
+                or any(character not in "0123456789abcdef"
+                       for character in payload_digest)):
+            reasons.append("MISSING_CANONICAL_PAYLOAD_DIGEST")
+        elif expected_payload is not None:
+            expected_digest = _canonical_observation_digest(expected_payload)
+            evidence_digest = (
+                _canonical_observation_digest(evidence)
+                if evidence is not None else None)
+            if (payload_digest != expected_digest
+                    or evidence_digest != payload_digest):
+                reasons.append("CANONICAL_PAYLOAD_DIGEST_DISAGREEMENT")
+        if reasons:
+            issues.append(ObservationIntegrityIssue(
+                observation_seq=int(seq), reasons=tuple(reasons)))
+    return tuple(issues)
+
+
+def observation_integrity_gaps(conn) -> tuple[int, ...]:
+    return tuple(
+        issue.observation_seq for issue in observation_integrity_issues(conn))
+
+
+def require_observation_integrity(conn) -> None:
+    issues = observation_integrity_issues(conn)
+    if not issues:
+        return
+    detail = "; ".join(
+        f"{issue.observation_seq}:{','.join(issue.reasons)}"
+        for issue in issues)
+    raise ObservationEvidenceUncertifiable(
+        f"UNCERTIFIABLE broker observation evidence: {detail}")
 
 def finalize_observation_runtime(conn, seq: int, runtime_state: str) -> None:
     """Attach the completed reconciliation verdict to its exact observation.

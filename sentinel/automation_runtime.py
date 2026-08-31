@@ -8,11 +8,14 @@ handover or migration.
 from __future__ import annotations
 
 import asyncio
+import errno
 import hashlib
 import os
+import socket
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from types import MappingProxyType
 from typing import Mapping
 from zoneinfo import ZoneInfo
 
@@ -21,15 +24,21 @@ from sentinel.authority import AuthorityRefused, load_rollout_state
 from sentinel.automation import outbox, schedule, store
 from sentinel.automation.model import (
     AutomationConfig,
+    AutomationRefused,
     CycleContext,
     CycleSpec,
+    DataIntegrityFailure,
     ExecuteDisposition,
     ExecuteResult,
+    HumanInterventionRequired,
     PrepareResult,
     RefreshResult,
+    SoftwareDefect,
     TickResult,
     NonRetryableCallbackRefused,
+    PermanentOperationalRefusal,
     StaleLeaderRefused,
+    TransientInfrastructureFailure,
 )
 from sentinel.automation.service import AutomationService
 from sentinel.config import SentinelConfig, build_execution_broker
@@ -46,16 +55,202 @@ from sentinel.execution.guarded import (
     BrokerAuthorityRefused,
 )
 from sentinel.execution.identity import DeploymentIdentity
+from sentinel.execution.contract import resolved_capability_graph
 from sentinel.execution import journal
 from sentinel.execution import target_reprojection
 from sentinel.execution.states import CommandState, RuntimeState
-from sentinel.feed import calendar, ingest, publication, readiness
+from sentinel.feed import authority as feed_authority
+from sentinel.feed import (
+    calendar, coherence, ingest, publication, readiness, sharadar)
 from sentinel.feed import store as feed_store
 
 
 PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE = \
     "PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE"
 TARGET_PROJECTION_REFUSED = "TARGET_PROJECTION_REFUSED"
+REFRESH_TRANSIENT_FAILURES = (
+    coherence.TickerMetadataIncomplete,
+    coherence.SeedHistoryIncomplete,
+    feed_authority.VendorPublicationUnstable,
+    feed_authority.FrontierDomainIncomplete,
+)
+
+AUTOMATION_CONFIG_ENV_BY_FIELD = MappingProxyType({
+    "publication_timing_policy":
+        "SENTINEL_AUTOMATION_PUBLICATION_TIMING_POLICY",
+    "publication_delay_seconds":
+        "SENTINEL_AUTOMATION_PUBLICATION_DELAY_SECONDS",
+    "execution_delay_seconds":
+        "SENTINEL_AUTOMATION_EXECUTION_DELAY_SECONDS",
+    "lease_seconds": "SENTINEL_AUTOMATION_LEASE_SECONDS",
+    "heartbeat_seconds": "SENTINEL_AUTOMATION_HEARTBEAT_SECONDS",
+    "callback_deadline_seconds":
+        "SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS",
+    "control_poll_seconds": "SENTINEL_AUTOMATION_CONTROL_POLL_SECONDS",
+    "retry_base_seconds": "SENTINEL_AUTOMATION_RETRY_BASE_SECONDS",
+    "retry_max_seconds": "SENTINEL_AUTOMATION_RETRY_MAX_SECONDS",
+    "refresh_max_attempts": "SENTINEL_AUTOMATION_REFRESH_MAX_ATTEMPTS",
+    "preflight_recover_max_attempts":
+        "SENTINEL_AUTOMATION_PREFLIGHT_RECOVER_MAX_ATTEMPTS",
+    "prepare_max_attempts": "SENTINEL_AUTOMATION_PREPARE_MAX_ATTEMPTS",
+    "execute_max_attempts": "SENTINEL_AUTOMATION_EXECUTE_MAX_ATTEMPTS",
+    "recover_max_attempts": "SENTINEL_AUTOMATION_RECOVER_MAX_ATTEMPTS",
+    "alert_claim_seconds": "SENTINEL_AUTOMATION_ALERT_CLAIM_SECONDS",
+    "alert_max_attempts": "SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS",
+})
+
+
+def transient_refresh_failure(exc: BaseException
+                              ) -> TransientInfrastructureFailure:
+    """Translate only reviewed source-stabilization failures into retry."""
+    if not isinstance(exc, REFRESH_TRANSIENT_FAILURES):
+        raise TypeError(
+            "unreviewed refresh exceptions cannot be classified transient")
+    return TransientInfrastructureFailure(
+        f"{type(exc).__name__}: {exc}")
+
+
+def require_observation_integrity(conn) -> None:
+    try:
+        journal.require_observation_integrity(conn)
+    except journal.ObservationEvidenceUncertifiable as exc:
+        raise DataIntegrityFailure(str(exc)) from exc
+
+
+def classify_dependency_failure(
+        exc: BaseException) -> AutomationRefused | None:
+    """Map reviewed dependency failures; leave programming defects unknown."""
+    if isinstance(exc, AutomationRefused):
+        return exc
+    if isinstance(exc, REFRESH_TRANSIENT_FAILURES):
+        return transient_refresh_failure(exc)
+    if isinstance(exc, sharadar.MissingApiKey):
+        return PermanentOperationalRefusal(
+            f"Sharadar configuration refused: {exc}")
+    if isinstance(exc, (sharadar.SharadarProtocolError,
+                        sharadar.PaginationError)):
+        return DataIntegrityFailure(
+            f"Sharadar data integrity failure: {type(exc).__name__}: {exc}")
+    if isinstance(exc, sharadar.SharadarRetryDeferred):
+        return TransientInfrastructureFailure(str(exc))
+    if isinstance(exc, sharadar.SharadarRequestError):
+        detail = str(exc)
+        lowered = detail.lower()
+        if "http 401" in lowered or "http 403" in lowered:
+            return PermanentOperationalRefusal(detail)
+        if ("http 429" in lowered
+                or any(f"http {status}" in lowered
+                       for status in range(500, 600))
+                or "after" in lowered and "attempt" in lowered
+                or "timeout" in lowered
+                or "connection" in lowered):
+            return TransientInfrastructureFailure(detail)
+        return PermanentOperationalRefusal(detail)
+
+    sqlstate = str(getattr(exc, "sqlstate", "") or "")
+    module = type(exc).__module__.lower()
+    name = type(exc).__name__
+    if sqlstate.startswith("28") or sqlstate == "42501":
+        return PermanentOperationalRefusal(
+            f"PostgreSQL authority/configuration refusal {sqlstate}: {exc}")
+    if (sqlstate.startswith(("08", "40", "53"))
+            or sqlstate in {"55P03", "57P01", "57P02", "57P03"}
+            or module.startswith(("psycopg", "psycopg2"))
+            and name in {"OperationalError", "InterfaceError"}):
+        return TransientInfrastructureFailure(
+            f"PostgreSQL transient failure {sqlstate or name}: {exc}")
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return TransientInfrastructureFailure(
+            f"dependency transport failure {name}: {exc}")
+    try:
+        import httpx
+    except ImportError:                                      # pragma: no cover
+        httpx = None
+    if httpx is not None and isinstance(
+            exc, (httpx.TimeoutException, httpx.TransportError)):
+        return TransientInfrastructureFailure(
+            f"HTTP transport failure {name}: {exc}")
+    try:
+        import httpcore
+    except ImportError:                                      # pragma: no cover
+        httpcore = None
+    if httpcore is not None and isinstance(
+            exc, (httpcore.TimeoutException, httpcore.NetworkError,
+                  httpcore.RemoteProtocolError)):
+        return TransientInfrastructureFailure(
+            f"HTTP transport failure {name}: {exc}")
+    if isinstance(
+            exc, (FileNotFoundError, FileExistsError, PermissionError,
+                  IsADirectoryError, NotADirectoryError)):
+        return PermanentOperationalRefusal(
+            f"dependency filesystem refusal {name}: {exc}")
+    if isinstance(exc, OSError):
+        if isinstance(exc, socket.gaierror):
+            transient_dns = getattr(socket, "EAI_AGAIN", object())
+            permanent_dns = {
+                value for value in (
+                    getattr(socket, "EAI_FAIL", None),
+                    getattr(socket, "EAI_NONAME", None),
+                ) if value is not None
+            }
+            resource_dns = getattr(socket, "EAI_MEMORY", object())
+            defect_dns = {
+                value for value in (
+                    getattr(socket, "EAI_BADFLAGS", None),
+                    getattr(socket, "EAI_FAMILY", None),
+                    getattr(socket, "EAI_SERVICE", None),
+                    getattr(socket, "EAI_SOCKTYPE", None),
+                ) if value is not None
+            }
+            if exc.errno == transient_dns:
+                return TransientInfrastructureFailure(
+                    f"temporary DNS resolution failure {name}/{exc.errno}: {exc}")
+            if exc.errno in permanent_dns:
+                return PermanentOperationalRefusal(
+                    f"permanent DNS resolution refusal {name}/{exc.errno}: {exc}")
+            if exc.errno == resource_dns:
+                return HumanInterventionRequired(
+                    f"DNS resolver memory exhaustion {name}/{exc.errno}: {exc}")
+            if exc.errno in defect_dns:
+                return SoftwareDefect(
+                    f"DNS resolver configuration defect {name}/{exc.errno}: {exc}")
+            if exc.errno == getattr(socket, "EAI_SYSTEM", object()):
+                underlying = (
+                    getattr(exc, "os_error", None)
+                    or getattr(exc, "__cause__", None)
+                    or getattr(exc, "__context__", None))
+                if isinstance(underlying, OSError) and underlying is not exc:
+                    classified = classify_dependency_failure(underlying)
+                    if classified is not None:
+                        return classified
+                return SoftwareDefect(
+                    "DNS resolver reported EAI_SYSTEM without a classified "
+                    f"underlying errno: {exc}")
+        transient_socket_errnos = {
+            errno.ECONNABORTED, errno.ECONNREFUSED, errno.ECONNRESET,
+            errno.EHOSTUNREACH, errno.ENETDOWN, errno.ENETRESET,
+            errno.ENETUNREACH, errno.EPIPE, errno.ETIMEDOUT,
+        }
+        resource_errnos = {
+            errno.EDQUOT, errno.EMFILE, errno.ENFILE, errno.ENOSPC,
+            errno.EROFS,
+        }
+        permanent_path_errnos = {
+            errno.EACCES, errno.EEXIST, errno.EINVAL, errno.EISDIR,
+            errno.ELOOP, errno.ENAMETOOLONG, errno.ENOENT, errno.ENOTDIR,
+            errno.EPERM,
+        }
+        if exc.errno in transient_socket_errnos:
+            return TransientInfrastructureFailure(
+                f"dependency socket failure {name}/{exc.errno}: {exc}")
+        if exc.errno in resource_errnos:
+            return HumanInterventionRequired(
+                f"dependency resource exhaustion {name}/{exc.errno}: {exc}")
+        if exc.errno in permanent_path_errnos:
+            return PermanentOperationalRefusal(
+                f"dependency filesystem refusal {name}/{exc.errno}: {exc}")
+        return None
+    return None
 
 
 def shadow_config_from_env(
@@ -91,28 +286,18 @@ def shadow_config_from_env(
 
 def config_from_env(env: Mapping[str, str] | None = None) -> AutomationConfig:
     source = os.environ if env is None else env
-    mapping = {
-        "publication_delay_seconds": "SENTINEL_AUTOMATION_PUBLICATION_DELAY_SECONDS",
-        "execution_delay_seconds": "SENTINEL_AUTOMATION_EXECUTION_DELAY_SECONDS",
-        "lease_seconds": "SENTINEL_AUTOMATION_LEASE_SECONDS",
-        "heartbeat_seconds": "SENTINEL_AUTOMATION_HEARTBEAT_SECONDS",
-        "control_poll_seconds": "SENTINEL_AUTOMATION_CONTROL_POLL_SECONDS",
-        "retry_base_seconds": "SENTINEL_AUTOMATION_RETRY_BASE_SECONDS",
-        "retry_max_seconds": "SENTINEL_AUTOMATION_RETRY_MAX_SECONDS",
-        "alert_claim_seconds": "SENTINEL_AUTOMATION_ALERT_CLAIM_SECONDS",
-        "alert_max_attempts": "SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS",
-    }
-    values = {field: int(source[name]) for field, name in mapping.items()
-              if str(source.get(name, "")).strip()}
-    timing_policy = str(source.get(
-        "SENTINEL_AUTOMATION_PUBLICATION_TIMING_POLICY", "")).strip()
-    if timing_policy:
-        values["publication_timing_policy"] = timing_policy
+    values = {}
+    for field, name in AUTOMATION_CONFIG_ENV_BY_FIELD.items():
+        raw = str(source.get(name, "")).strip()
+        if not raw:
+            continue
+        values[field] = raw if field == "publication_timing_policy" else int(raw)
     return AutomationConfig(**values)
 
 
 def _grant(context: CycleContext, operation_scope: str, *, binding=None
            ) -> AutomationExecutionGrant:
+    context.require_active()
     cycle = context.cycle
     permit = context.permit
     authority = binding or cycle
@@ -130,7 +315,8 @@ def _grant(context: CycleContext, operation_scope: str, *, binding=None
         takeover_epoch=authority.takeover_epoch,
         rollout_mode=authority.rollout_mode,
         rollout_version=authority.rollout_version,
-        certificate_sha256=authority.certificate_sha256)
+        certificate_sha256=authority.certificate_sha256,
+        cancellation_check=context.require_active)
 
 
 def _actionable_target_deltas(
@@ -258,7 +444,14 @@ class ProductionAutomation:
             notify=self.notify, terminal=self.certify_terminal_cycle)
 
     def connect(self):
-        return feed_store.connect(self.sentinel_config.database_url)
+        connect_timeout = max(
+            1, min(5, self.automation_config.lease_seconds - 1))
+        statement_timeout_ms = max(
+            1000, (self.automation_config.lease_seconds - 1) * 1000)
+        return feed_store.connect(
+            self.sentinel_config.database_url,
+            connect_timeout=connect_timeout,
+            statement_timeout_ms=statement_timeout_ms)
 
     def _record_authority_verdict(self, conn, permit, *, verdict, detail):
         try:
@@ -325,6 +518,7 @@ class ProductionAutomation:
     def _assert_cycle_authority(
             self, conn, context: CycleContext, *, operation_scope: str,
             verified_control=None):
+        context.require_active()
         if verified_control is None:
             control, certificate = self._assert_control_authority(
                 conn, context.permit)
@@ -439,10 +633,12 @@ class ProductionAutomation:
             if delta.classification is not execution_commands.DeltaClass.NONE)
 
     async def refresh(self, context: CycleContext) -> RefreshResult:
-        conn = self.connect()
+        conn = None
         try:
+            conn = self.connect()
             feed_store.require_feed_schema(conn)
             schema.require_runtime_schema(conn)
+            require_observation_integrity(conn)
             cycle, _control = self._assert_cycle_authority(
                 conn, context, operation_scope="REFRESH")
             visible = feed_store.latest_visible_session(conn)
@@ -452,7 +648,7 @@ class ProductionAutomation:
                         ZoneInfo(calendar.EXCHANGE_TZ)).isoformat())
                 readiness.save_snapshot(conn, report)
                 if not report.ready:
-                    raise RuntimeError(
+                    raise TransientInfrastructureFailure(
                         "published decision close is not operationally ready")
                 current = publication.require_current(conn)
                 return RefreshResult(
@@ -466,11 +662,16 @@ class ProductionAutomation:
                 # session twice, invalidating the shadow record's exact
                 # publication version before PAPER sizing. Wait for that one
                 # authority; never race it from the broker-capable service.
-                raise RuntimeError(
+                raise TransientInfrastructureFailure(
                     "dual refresh is waiting for the dedicated shadow data "
                     "publisher to publish the exact decision close")
-            progress = ingest.daily(
-                conn, today=cycle.decision_session.isoformat())
+            context.require_active()
+            try:
+                progress = ingest.daily(
+                    conn, today=cycle.decision_session.isoformat())
+            except REFRESH_TRANSIENT_FAILURES as exc:
+                raise transient_refresh_failure(exc) from exc
+            context.require_active()
             current = publication.require_current(conn)
             visible = feed_store.latest_visible_session(conn)
             if visible != cycle.decision_session.isoformat():
@@ -481,7 +682,8 @@ class ProductionAutomation:
                     ZoneInfo(calendar.EXCHANGE_TZ)).isoformat())
             readiness.save_snapshot(conn, report)
             if not report.ready:
-                raise RuntimeError("daily refresh completed but readiness failed")
+                raise TransientInfrastructureFailure(
+                    "daily refresh completed but readiness failed")
             return RefreshResult(
                 already_published=False, data_version=str(current.version),
                 publication_fingerprint=publication_fingerprint(current),
@@ -490,14 +692,22 @@ class ProductionAutomation:
                     "ingest": progress.to_dict()
                     if hasattr(progress, "to_dict") else str(progress),
                 })
+        except BaseException as exc:                          # noqa: BLE001
+            mapped = classify_dependency_failure(exc)
+            if mapped is None or mapped is exc:
+                raise
+            raise mapped from exc
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
     async def prepare(self, context: CycleContext) -> PrepareResult:
-        conn = self.connect()
+        conn = None
         try:
+            conn = self.connect()
             feed_store.require_feed_schema(conn)
             schema.require_runtime_schema(conn)
+            require_observation_integrity(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="PREPARE")
             missed = ()
@@ -546,6 +756,7 @@ class ProductionAutomation:
                     conn, permit=context.permit, specs=historical_specs)
             broker = self._broker(conn, cycle.decision_session.isoformat())
             try:
+                context.require_active()
                 result = await paper.prepare_paper_plan(
                     conn=conn, broker=broker,
                     base_url=self.sentinel_config.base_url,
@@ -561,8 +772,9 @@ class ProductionAutomation:
                     dual_shadow_starting_cash=(
                         self._shadow_starting_cash
                         if self._dual_run_enabled else None))
-            except paper.PaperRetryableRefused:
-                raise
+                context.require_active()
+            except paper.PaperRetryableRefused as exc:
+                raise TransientInfrastructureFailure(str(exc)) from exc
             except (AuthorityRefused, BrokerAuthorityRefused,
                     paper.PaperActivationRefused) as exc:
                 raise NonRetryableCallbackRefused(
@@ -582,19 +794,30 @@ class ProductionAutomation:
                     "warmup_sessions": result.warmup_sessions,
                     "superseded_plans": result.superseded_plans,
                     "dual_plan_shadow_reconciliation": dual_reconciliation,
+                    "broker_capability_graph":
+                        resolved_capability_graph(broker),
                 })
+        except BaseException as exc:                          # noqa: BLE001
+            mapped = classify_dependency_failure(exc)
+            if mapped is None or mapped is exc:
+                raise
+            raise mapped from exc
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
     async def recover(self, context: CycleContext) -> ExecuteResult:
-        conn = self.connect()
+        conn = None
         try:
+            conn = self.connect()
             feed_store.require_feed_schema(conn)
             schema.require_runtime_schema(conn)
+            require_observation_integrity(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="RECOVER")
             broker = self._broker(conn, cycle.effective_session.isoformat())
             try:
+                context.require_active()
                 result = await paper.recover_automated_paper_cycle(
                     conn=conn, broker=broker,
                     base_url=self.sentinel_config.base_url,
@@ -608,6 +831,7 @@ class ProductionAutomation:
                     dual_shadow_starting_cash=(
                         self._shadow_starting_cash
                         if self._dual_run_enabled else None))
+                context.require_active()
             except paper.PreOpenShareUnitAuthorityUnavailable as exc:
                 detail = str(exc)
                 return ExecuteResult(
@@ -622,8 +846,8 @@ class ProductionAutomation:
                         "effective_session":
                             cycle.effective_session.isoformat(),
                     })
-            except paper.PaperRetryableRefused:
-                raise
+            except paper.PaperRetryableRefused as exc:
+                raise TransientInfrastructureFailure(str(exc)) from exc
             except (AuthorityRefused, BrokerAuthorityRefused,
                     paper.PaperActivationRefused) as exc:
                 raise NonRetryableCallbackRefused(
@@ -768,14 +992,22 @@ class ProductionAutomation:
                 disposition=ExecuteDisposition.SUCCEEDED,
                 last_clean_reconciliation_id=str(result.observation_id),
                 diagnostic=result.to_dict())
+        except BaseException as exc:                          # noqa: BLE001
+            mapped = classify_dependency_failure(exc)
+            if mapped is None or mapped is exc:
+                raise
+            raise mapped from exc
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
     async def execute(self, context: CycleContext) -> ExecuteResult:
-        conn = self.connect()
+        conn = None
         try:
+            conn = self.connect()
             feed_store.require_feed_schema(conn)
             schema.require_runtime_schema(conn)
+            require_observation_integrity(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="EXECUTE")
             if self._dual_run_enabled:
@@ -791,6 +1023,7 @@ class ProductionAutomation:
                     conn, current_plan, pending_is_retryable=False)
             broker = self._broker(conn, cycle.effective_session.isoformat())
             try:
+                context.require_active()
                 result = await paper.execute_automated_paper_plan(
                     conn=conn, broker=broker,
                     base_url=self.sentinel_config.base_url,
@@ -804,6 +1037,7 @@ class ProductionAutomation:
                     dual_shadow_starting_cash=(
                         self._shadow_starting_cash
                         if self._dual_run_enabled else None))
+                context.require_active()
             except paper.PreOpenShareUnitAuthorityUnavailable as exc:
                 detail = str(exc)
                 return ExecuteResult(
@@ -818,8 +1052,8 @@ class ProductionAutomation:
                         "effective_session":
                             cycle.effective_session.isoformat(),
                     })
-            except paper.PaperRetryableRefused:
-                raise
+            except paper.PaperRetryableRefused as exc:
+                raise TransientInfrastructureFailure(str(exc)) from exc
             except (AuthorityRefused, BrokerAuthorityRefused,
                     paper.PaperActivationRefused) as exc:
                 raise NonRetryableCallbackRefused(
@@ -901,8 +1135,14 @@ class ProductionAutomation:
                                 else result.session.detail
                                 or "paper execution requires re-observation"),
                 diagnostic=result.to_dict())
+        except BaseException as exc:                          # noqa: BLE001
+            mapped = classify_dependency_failure(exc)
+            if mapped is None or mapped is exc:
+                raise
+            raise mapped from exc
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
     async def notify(self, conn, result: TickResult | BaseException):
         if isinstance(result, BaseException):
@@ -1150,6 +1390,21 @@ class ProductionAutomation:
     async def run(self, *, stop, clock=None, sleep=asyncio.sleep,
                   max_ticks: int | None = None) -> int:
         clock = clock or (lambda: datetime.now(ZoneInfo("UTC")))
+        startup_conn = self.connect()
+        try:
+            feed_store.require_feed_schema(startup_conn)
+            schema.require_runtime_schema(startup_conn)
+            try:
+                require_observation_integrity(startup_conn)
+            except DataIntegrityFailure as exc:
+                control = store.load_control(startup_conn)
+                if not control.kill_switch_engaged:
+                    store.engage_kill(
+                        startup_conn, actor="observation-integrity-supervisor",
+                        reason=str(exc))
+                raise
+        finally:
+            startup_conn.close()
         return await self.service.run(
             self.connect, stop=stop, clock=clock, sleep=sleep,
             alert_wake=self.alert_wake, control_wake=self.control_wake,

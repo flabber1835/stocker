@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -10,9 +11,16 @@ from sentinel.automation import store
 from sentinel.automation.model import (
     AutomationConfig,
     AutomationRefused,
+    CallbackDeadlineExceeded,
     ControlBinding,
     CycleState,
+    DataIntegrityFailure,
+    HumanInterventionRequired,
+    NonRetryableCallbackRefused,
+    SoftwareDefect,
+    SupervisorIntegrityFailure,
     StaleLeaderRefused,
+    CancellationAuthority,
     TickAction,
 )
 from sentinel.automation.service import AutomationService
@@ -68,6 +76,24 @@ def config(**changes) -> AutomationConfig:
         retry_max_seconds=30,
     )
     return base.model_copy(update=changes)
+
+
+@pytest.mark.parametrize(("failure", "category"), [
+    (DataIntegrityFailure("bad evidence"), "DATA_INTEGRITY"),
+    (HumanInterventionRequired("operator needed"),
+     "HUMAN_INTERVENTION_REQUIRED"),
+    (SoftwareDefect("broken invariant"), "SOFTWARE_DEFECT"),
+    (CallbackDeadlineExceeded("hung callback"), "SOFTWARE_DEFECT"),
+    (AttributeError("missing field"), "SOFTWARE_DEFECT"),
+])
+def test_failure_taxonomy_is_terminal_and_explicit(failure, category):
+    service = service_for(config())
+    terminal, diagnostic = service._failure_diagnostic(  # noqa: SLF001
+        cycle=SimpleNamespace(diagnostic={}), phase="PREPARE", exc=failure,
+        now=AFTER_WEDNESDAY_CLOSE)
+    assert terminal
+    assert diagnostic["callback_failure"] == category
+    assert len(diagnostic["exception_fingerprint"]) == 64
 
 
 def binding(cfg: AutomationConfig) -> ControlBinding:
@@ -327,11 +353,202 @@ async def test_callback_result_is_refused_after_bounded_runtime() -> None:
         await asyncio.sleep(1.05)
         return "late"
 
-    with pytest.raises(StaleLeaderRefused, match="bounded runtime"):
+    class Context:
+        def __init__(self):
+            self.cancellation = CancellationAuthority()
+
+        def require_active(self):
+            self.cancellation.require_active()
+
+    with pytest.raises(CallbackDeadlineExceeded, match="bounded runtime"):
         await service._invoke(  # noqa: SLF001 - explicit watchdog contract test
             slow,
-            object(),
+            Context(),
             permit=object(),
             phase="PREPARE",
             heartbeat_conn_factory=None,
         )
+
+
+@pytest.mark.asyncio
+async def test_crash_signal_is_delivered_on_the_service_caller_task() -> None:
+    service = service_for(config())
+
+    class Context:
+        def __init__(self):
+            self.cancellation = CancellationAuthority()
+
+        def require_active(self):
+            self.cancellation.require_active()
+
+    def crash(_context):
+        raise SystemExit("injected process death")
+
+    with pytest.raises(SystemExit, match="injected process death"):
+        await service._invoke(  # noqa: SLF001 - crash-boundary contract test
+            crash, Context(), permit=object(), phase="PREPARE",
+            heartbeat_conn_factory=None)
+
+
+@pytest.mark.asyncio
+async def test_production_boundary_rejects_in_process_sync_callback() -> None:
+    service = service_for(config())
+
+    class Context:
+        def __init__(self):
+            self.cancellation = CancellationAuthority()
+
+        def require_active(self):
+            self.cancellation.require_active()
+
+    with pytest.raises(NonRetryableCallbackRefused, match="killable process"):
+        await service._invoke(  # noqa: SLF001 - process-isolation contract test
+            lambda _context: {}, Context(), permit=object(), phase="PREPARE",
+            heartbeat_conn_factory=lambda: pytest.fail("must not heartbeat"))
+
+
+@pytest.mark.asyncio
+async def test_never_returning_callback_durably_blocks_cycle(conn) -> None:
+    cfg = config(
+        heartbeat_seconds=1,
+        callback_deadline_seconds=1,
+        retry_base_seconds=1,
+    )
+    enable(conn, cfg)
+
+    async def never_returns(_context):
+        await asyncio.Event().wait()
+
+    service = AutomationService(
+        config=cfg, holder_id="worker-a", refresh=refresh_result,
+        prepare=never_returns, recover=recovery_success,
+        execute=execution_success)
+    assert (await service.tick(
+        conn, now=AFTER_WEDNESDAY_CLOSE)).action is TickAction.RECOVERED
+    assert (await service.tick(
+        conn, now=AFTER_WEDNESDAY_CLOSE)).action is TickAction.REFRESHED
+
+    blocked = await service.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
+    assert blocked.action is TickAction.BLOCKED
+    assert blocked.cycle.state is CycleState.BLOCKED
+    assert blocked.cycle.failure_code == "CallbackDeadlineExceeded"
+    assert blocked.cycle.diagnostic["callback_failure"] == "SOFTWARE_DEFECT"
+    assert blocked.cycle.diagnostic["terminal_reason"] == "SOFTWARE_DEFECT"
+
+
+@pytest.mark.asyncio
+async def test_supervisor_integrity_failure_exits_run_and_records_failed(
+        conn, pg, monkeypatch) -> None:
+    cfg = config(heartbeat_seconds=1, callback_deadline_seconds=5)
+    enable(conn, cfg)
+    runtime = service_for(cfg)
+    monkeypatch.setattr(runtime, "_assert_clock_skew", lambda **_kwargs: None)
+    assert (await runtime.tick(
+        conn, now=AFTER_WEDNESDAY_CLOSE)).action is TickAction.RECOVERED
+    assert (await runtime.tick(
+        conn, now=AFTER_WEDNESDAY_CLOSE)).action is TickAction.REFRESHED
+
+    async def fail_supervisor_integrity(*_args, **_kwargs):
+        raise SupervisorIntegrityFailure(
+            "PREPARE heartbeat supervisor did not stop within the certified "
+            "boundary")
+
+    monkeypatch.setattr(runtime, "_invoke", fail_supervisor_integrity)
+    with pytest.raises(
+            SupervisorIntegrityFailure, match="did not stop"):
+        await runtime.run(
+            lambda: feed_store.connect(pg.sync_dsn),
+            stop=asyncio.Event(), clock=lambda: AFTER_WEDNESDAY_CLOSE,
+            max_ticks=1)
+
+    verify = feed_store.connect(pg.sync_dsn)
+    try:
+        with verify.cursor() as cur:
+            cur.execute(
+                "SELECT state,last_error FROM "
+                "sentinel_automation_service_instances WHERE instance_id=%s",
+                (runtime.holder_id,))
+            state, last_error = cur.fetchone()
+        assert state == "FAILED"
+        assert "SupervisorIntegrityFailure" in last_error
+    finally:
+        verify.close()
+
+
+@pytest.mark.asyncio
+async def test_callback_that_suppresses_cancellation_cannot_hold_tick_open():
+    cfg = config(
+        heartbeat_seconds=1,
+        callback_deadline_seconds=1,
+        retry_base_seconds=1,
+        retry_max_seconds=30,
+    )
+    service = service_for(cfg)
+    release = asyncio.Event()
+    cancellation_seen = asyncio.Event()
+
+    class Context:
+        def __init__(self):
+            self.cancellation = CancellationAuthority()
+
+        def require_active(self):
+            self.cancellation.require_active()
+
+    context = Context()
+
+    async def stubborn(_context):
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancellation_seen.set()
+            await release.wait()
+        return "late"
+
+    with pytest.raises(CallbackDeadlineExceeded, match="bounded runtime"):
+        await asyncio.wait_for(
+            service._invoke(  # noqa: SLF001 - watchdog fault injection
+                stubborn, context, permit=object(), phase="EXECUTE",
+                heartbeat_conn_factory=None),
+            timeout=1.5)
+    assert context.cancellation.cancelled
+    await asyncio.wait_for(cancellation_seen.wait(), timeout=0.5)
+    release.set()
+    await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_late_database_boundary_rejects_cancelled_authority():
+    cfg = config(heartbeat_seconds=1, callback_deadline_seconds=1)
+    service = service_for(cfg)
+    release = asyncio.Event()
+    rejected = asyncio.Event()
+    mutations = []
+
+    class Context:
+        def __init__(self):
+            self.cancellation = CancellationAuthority()
+
+        def require_active(self):
+            self.cancellation.require_active()
+
+    context = Context()
+
+    async def late_writer(actual):
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await release.wait()
+        try:
+            actual.require_active()
+        except StaleLeaderRefused:
+            rejected.set()
+            raise
+        mutations.append("committed")
+
+    with pytest.raises(CallbackDeadlineExceeded, match="bounded runtime"):
+        await service._invoke(  # noqa: SLF001 - durable boundary injection
+            late_writer, context, permit=object(), phase="PREPARE",
+            heartbeat_conn_factory=None)
+    release.set()
+    await asyncio.wait_for(rejected.wait(), timeout=0.5)
+    assert mutations == []

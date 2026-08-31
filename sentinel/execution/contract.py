@@ -37,7 +37,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Optional, Sequence
+from typing import Optional, Protocol, Sequence, runtime_checkable
 
 from sentinel.execution.states import CommandState
 
@@ -115,6 +115,10 @@ class BrokerCapabilities:
     # capability and it is false until a real adapter earns it.
     account_fill_interval_evidence: bool = False
     instrument_identity: bool = False
+    # The adapter's broker-native identity can change independently between
+    # preparation and submission and must therefore be resolved again at the
+    # final pre-transport boundary.
+    pre_submit_instrument_revalidation: bool = False
     account_bound_observation: bool = False
     # Historical broker close valuation is a separately certified capability.
     # The presence of an adapter method is deliberately insufficient: a vendor
@@ -143,6 +147,62 @@ class BrokerCapabilities:
                 f"something the adapter CAN do would change the execution model "
                 f"without anyone deciding to.")
 
+    def to_dict(self) -> dict[str, object]:
+        return {
+            name: (str(value) if isinstance(value, Decimal) else value)
+            for name, value in self.__dict__.items()
+        }
+
+
+@runtime_checkable
+class OrderSubmitter(Protocol):
+    async def submit(self, *, client_key: str, instrument: "BrokerInstrument",
+                     side: "Side", quantity: Decimal) -> "CommandOutcome": ...
+
+
+@runtime_checkable
+class OrderStatusResolver(Protocol):
+    async def find_by_client_key(
+            self, client_key: str) -> "BrokerExactOrderLookup": ...
+
+
+@runtime_checkable
+class OpenOrderObserver(Protocol):
+    async def observe(self) -> "BrokerObservation": ...
+
+
+@runtime_checkable
+class BrokerClockProvider(Protocol):
+    async def market_clock(self): ...
+
+
+@runtime_checkable
+class CashObservable(Protocol):
+    async def account_cash_activities(
+            self, *, after: datetime, through: datetime,
+            since_event_id: str | None = None): ...
+
+
+@runtime_checkable
+class EvidenceProducingBroker(Protocol):
+    capabilities: BrokerCapabilities
+
+    async def identify_account(self) -> "BrokerAccountIdentity": ...
+    async def observe(self) -> "BrokerObservation": ...
+
+
+@runtime_checkable
+class GenerationFencedBroker(Protocol):
+    @property
+    def grant(self): ...
+
+
+@runtime_checkable
+class RecoveryAwareBroker(Protocol):
+    async def observe_with_terminal_recovery(
+            self, *, submitted_after: datetime,
+            processed_through: datetime) -> "BrokerObservation": ...
+
 
 @dataclass(frozen=True)
 class BrokerAccountIdentity:
@@ -151,6 +211,14 @@ class BrokerAccountIdentity:
     broker: str
     account_id: str
     raw: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if (not isinstance(self.broker, str) or not self.broker.strip()
+                or not isinstance(self.account_id, str)
+                or not self.account_id.strip()):
+            raise ValueError("broker account identity must be complete")
+        if not isinstance(self.raw, dict):
+            raise TypeError("broker account identity raw evidence must be a dict")
 
 
 @dataclass(frozen=True)
@@ -451,11 +519,17 @@ class BrokerOrder:
     #: Sentinel never issues replacements. A broker replacement status is a
     #: typed external-economics anomaly, not merely another working spelling.
     external_replacement: bool = False
+    replaced_by: Optional[str] = None
+    replaces: Optional[str] = None
     raw: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if type(self.external_replacement) is not bool:
             raise TypeError("BrokerOrder.external_replacement must be boolean")
+        for name in ("replaced_by", "replaces"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"BrokerOrder.{name} must be a non-empty string")
         _require_decimal("BrokerOrder.quantity", self.quantity)
         _require_decimal("BrokerOrder.filled_quantity", self.filled_quantity)
         if not self.quantity.is_finite() or self.quantity <= 0:
@@ -491,6 +565,75 @@ class BrokerOrder:
     def is_working(self) -> bool:
         from sentinel.execution.states import blocks_overlapping
         return blocks_overlapping(self.state)
+
+
+@dataclass(frozen=True)
+class BrokerExactOrderLookup:
+    """One exact-key lookup bracketed by typed account identity reads."""
+
+    client_key: str
+    request_started_at: datetime
+    request_completed_at: datetime
+    identity_before: BrokerAccountIdentity
+    identity_after: BrokerAccountIdentity
+    order: Optional[BrokerOrder]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.client_key, str) or not self.client_key.strip():
+            raise ValueError("exact-order lookup requires a client key")
+        for name in ("request_started_at", "request_completed_at"):
+            value = getattr(self, name)
+            if (not isinstance(value, datetime) or value.tzinfo is None
+                    or value.utcoffset() is None):
+                raise ValueError(f"BrokerExactOrderLookup.{name} must be aware")
+        if self.request_started_at > self.request_completed_at:
+            raise ValueError("exact-order lookup completes before it starts")
+        for name in ("identity_before", "identity_after"):
+            if not isinstance(getattr(self, name), BrokerAccountIdentity):
+                raise TypeError(f"BrokerExactOrderLookup.{name} must be typed")
+        if self.order is not None and self.order.client_key != self.client_key:
+            raise ValueError("exact-order lookup changed the requested key")
+
+    @property
+    def stable_identity(self) -> BrokerAccountIdentity:
+        before = (self.identity_before.broker, self.identity_before.account_id)
+        after = (self.identity_after.broker, self.identity_after.account_id)
+        if before != after:
+            raise MalformedBrokerEvidence(
+                "account identity changed around exact-order lookup")
+        return self.identity_before
+
+
+@dataclass(frozen=True)
+class BrokerExactOrderEvidence:
+    """One exact-client-key read included in a finalized observation."""
+
+    client_key: str
+    request_started_at: datetime
+    request_completed_at: datetime
+    identity_before: BrokerAccountIdentity
+    identity_after: BrokerAccountIdentity
+    initial_order_id: Optional[str]
+    order: Optional[BrokerOrder]
+
+    def __post_init__(self) -> None:
+        if not self.client_key:
+            raise ValueError("exact-order evidence requires a client key")
+        if (self.request_started_at.tzinfo is None
+                or self.request_completed_at.tzinfo is None):
+            raise ValueError("exact-order request timestamps must be aware")
+        if self.request_started_at > self.request_completed_at:
+            raise ValueError("exact-order request completes before it starts")
+        for name in ("identity_before", "identity_after"):
+            if not isinstance(getattr(self, name), BrokerAccountIdentity):
+                raise TypeError(f"exact-order evidence {name} must be typed")
+        if ((self.identity_before.broker, self.identity_before.account_id)
+                != (self.identity_after.broker, self.identity_after.account_id)):
+            raise ValueError("exact-order evidence changed account identity")
+        if self.order is not None and self.order.client_key != self.client_key:
+            raise ValueError("exact-order result changed the requested key")
+        if self.initial_order_id is not None and not self.initial_order_id:
+            raise ValueError("initial exact-order relationship is malformed")
 
 
 @dataclass(frozen=True)
@@ -531,6 +674,9 @@ class BrokerObservation:
     #: Certified adapters declaring ``account_bound_observation`` must populate
     #: it and prove that identity stayed stable throughout the snapshot.
     account_identity: Optional[BrokerAccountIdentity] = None
+    #: Exact-key reads required to finalize recovery authority. These are
+    #: collected before the observation is journaled or commands are mutated.
+    exact_order_evidence: tuple = ()
 
     def __post_init__(self) -> None:
         if self.observed_at.tzinfo is None:
@@ -576,6 +722,26 @@ class BrokerObservation:
                     f"BrokerObservation repeats permanent position identity "
                     f"{security_id}")
             position_ids.add(security_id)
+        exact_keys: set[str] = set()
+        for evidence in self.exact_order_evidence:
+            if not isinstance(evidence, BrokerExactOrderEvidence):
+                raise TypeError("exact-order evidence must be typed")
+            if evidence.client_key in exact_keys:
+                raise ValueError(
+                    f"BrokerObservation repeats exact key "
+                    f"{evidence.client_key}")
+            exact_keys.add(evidence.client_key)
+            if (self.account_identity is not None
+                    and ((evidence.identity_before.broker,
+                          evidence.identity_before.account_id)
+                         != (self.account_identity.broker,
+                             self.account_identity.account_id)
+                         or (evidence.identity_after.broker,
+                             evidence.identity_after.account_id)
+                         != (self.account_identity.broker,
+                             self.account_identity.account_id))):
+                raise ValueError(
+                    "exact-order evidence account differs from observation")
 
     @property
     def is_complete(self) -> bool:
@@ -593,6 +759,13 @@ class BrokerObservation:
         for o in self.orders:
             if o.client_key == client_key:
                 return o
+        return None
+
+    def exact_by_client_key(
+            self, client_key: str) -> Optional[BrokerExactOrderEvidence]:
+        for evidence in self.exact_order_evidence:
+            if evidence.client_key == client_key:
+                return evidence
         return None
 
     def require_complete(self, purpose: str) -> None:
@@ -657,6 +830,7 @@ class ExecutionBroker(abc.ABC):
 
     #: Declared, not inferred. See `BrokerCapabilities`.
     capabilities: BrokerCapabilities = BrokerCapabilities()
+    certification_name: str | None = None
 
     @abc.abstractmethod
     async def identify_account(self) -> BrokerAccountIdentity:
@@ -747,7 +921,8 @@ class ExecutionBroker(abc.ABC):
                 observation.observed_at, processed_through))
 
     @abc.abstractmethod
-    async def find_by_client_key(self, client_key: str) -> Optional[BrokerOrder]:
+    async def find_by_client_key(
+            self, client_key: str) -> BrokerExactOrderLookup:
         """The recovery primitive: resolve an UNKNOWN by exact lookup.
 
         `None` means the broker has no such order — which is only safe to act on
@@ -786,3 +961,66 @@ class ExecutionBroker(abc.ABC):
         del session, interval_start
         raise NotImplementedError(
             "this execution adapter has no certified account fill interval")
+
+
+def resolved_capability_graph(broker: ExecutionBroker) -> dict[str, object]:
+    """One serializable composition-time view of certified broker behavior."""
+    from sentinel.execution.certification import require_certified_adapter
+
+    identity = require_certified_adapter(broker)
+    capabilities = broker.capabilities
+
+    def overrides(name: str) -> bool:
+        implementation = getattr(type(broker), name, None)
+        base = getattr(ExecutionBroker, name, None)
+        return callable(implementation) and implementation is not base
+
+    method_availability = {
+        "cash_observable": overrides("account_cash_activities"),
+        "order_submitter": overrides("submit"),
+        "order_status_resolver": overrides("find_by_client_key"),
+        "open_order_observer": overrides("observe"),
+        "broker_clock_provider": overrides("market_clock"),
+        "generation_fenced": isinstance(broker, GenerationFencedBroker),
+        "recovery_aware": overrides("observe_with_terminal_recovery"),
+        "evidence_producing": (
+            overrides("identify_account") and overrides("observe")),
+    }
+    certified = set(identity.capabilities)
+
+    def certified_capability(name: str) -> bool:
+        return name in certified and method_availability[name]
+
+    graph = {
+        "adapter_certification": identity.to_dict(),
+        "cash_observable": (
+            capabilities.account_cash_activity_evidence
+            and certified_capability("cash_observable")),
+        "order_submitter": certified_capability("order_submitter"),
+        "order_status_resolver": certified_capability(
+            "order_status_resolver"),
+        "open_order_observer": certified_capability("open_order_observer"),
+        "broker_clock_provider": certified_capability(
+            "broker_clock_provider"),
+        "generation_fenced": certified_capability("generation_fenced"),
+        "recovery_aware": certified_capability("recovery_aware"),
+        "evidence_producing": certified_capability("evidence_producing"),
+        "instrument_identity": capabilities.instrument_identity,
+        "pre_submit_instrument_revalidation":
+            capabilities.pre_submit_instrument_revalidation,
+        "account_bound_observation": capabilities.account_bound_observation,
+        "method_availability": method_availability,
+        "declared_capabilities": capabilities.to_dict(),
+        "certified_capabilities": sorted(certified),
+    }
+    required = {
+        "order_submitter", "order_status_resolver", "open_order_observer",
+        "evidence_producing", "instrument_identity",
+        "account_bound_observation",
+    }
+    missing = sorted(name for name in required if not graph.get(name))
+    if missing:
+        raise TypeError(
+            "certified broker capability graph is incomplete: "
+            + ",".join(missing))
+    return graph

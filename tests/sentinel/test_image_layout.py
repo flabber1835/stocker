@@ -579,6 +579,7 @@ class TestTheCleanCertificationImageInspectionBundle:
         "docker-compose.sentinel-automation.yml",
         "docker-compose.sentinel-backup.yml",
         "docker-compose.sentinel.yml",
+        "docs/f92c0cc-safety-reconstruction.md",
         "docs/main-review-remediation.md",
         "docs/sentinel-deployment.md",
         "docs/sentinel-paper-activation.md",
@@ -636,7 +637,8 @@ class TestTheCleanCertificationImageInspectionBundle:
 
     def test_the_inspected_docs_survive_the_pruned_build_context(self):
         ignored = (ROOT / ".dockerignore").read_text().splitlines()
-        for path in ("docs/main-review-remediation.md",
+        for path in ("docs/f92c0cc-safety-reconstruction.md",
+                     "docs/main-review-remediation.md",
                      "docs/sentinel-deployment.md",
                      "docs/sentinel-paper-activation.md",
                      "docs/sentinel-paper-observation.md"):

@@ -3,14 +3,17 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from dataclasses import fields
+from dataclasses import fields, replace
 from datetime import date
 from decimal import Decimal
 
 import pytest
 
 from sentinel import schema
+from sentinel.automation.model import CancellationAuthority
 from sentinel.execution import journal, recovery
+from sentinel.execution.certification import (
+    AdapterNotCertified, require_certified_adapter)
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import BrokerInstrument, ExecutionBroker, Side
 from sentinel.execution.guarded import (
@@ -75,14 +78,15 @@ def manual_grant() -> ManualExecutionGrant:
         confirm_submit_paper_orders=True)
 
 
-def automation_grant() -> AutomationExecutionGrant:
+def automation_grant(*, cancellation_check=None) -> AutomationExecutionGrant:
     return AutomationExecutionGrant(
         operation_scope="EXECUTE", cycle_id="cycle-2026-08-13",
         control_generation=3,
         holder_id="appliance-a", fence_token=19,
         broker_account_id="SIM-ACCOUNT", takeover_epoch=1,
         rollout_mode="PINNED_1_00", rollout_version=2,
-        certificate_sha256="a" * 64)
+        certificate_sha256="a" * 64,
+        cancellation_check=cancellation_check)
 
 
 def preparation_grant() -> PaperPreparationGrant:
@@ -308,6 +312,20 @@ def test_revocation_between_read_and_mutation_causes_zero_inner_mutations(
                    for call in inner.calls)
 
 
+def test_cancelled_callback_authority_refuses_late_broker_mutation():
+    authority = CancellationAuthority()
+    inner = SimulatedBroker()
+    broker = Recorder().wrap(
+        inner, automation_grant(cancellation_check=authority.require_active))
+    authority.cancel("callback deadline expired")
+
+    with pytest.raises(PreTransportAuthorityRefused, match="StaleLeaderRefused"):
+        run(broker.submit(
+            client_key="late-submit", instrument=INSTRUMENT,
+            side=Side.BUY, quantity=Decimal("1")))
+    assert not any(call.startswith("submit:") for call in inner.calls)
+
+
 def test_dispatch_reraises_pretransport_refusal_instead_of_inventing_unknown():
     inner = SimulatedBroker()
     recorder = Recorder()
@@ -358,6 +376,18 @@ def test_true_transport_exception_remains_unknown_under_the_guard():
     assert "BrokerUnavailable" in sent.detail
     assert recorder.before_mutations == [
         (broker.grant, BrokerOperation.SUBMIT)]
+
+
+def test_alternate_adapter_cannot_borrow_canonical_wrapper_certification():
+    class AlternateBroker(SimulatedBroker):
+        certification_name = "alternate-test"
+
+    inner = AlternateBroker()
+    inner.capabilities = replace(
+        inner.capabilities, pre_submit_instrument_revalidation=True)
+    broker = Recorder().wrap(inner)
+    with pytest.raises(AdapterNotCertified, match="composition-issued"):
+        require_certified_adapter(broker)
 
 
 @pytest.mark.parametrize("phase", ["before", "after"])

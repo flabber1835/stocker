@@ -24,21 +24,23 @@ class GuardedEmptyAccountBroker:
 
     def __init__(self, *, inner, grant, guard) -> None:
         from sentinel import administrative_authority
-        from sentinel.execution.alpaca import AlpacaExecutionBroker
-        from sentinel.execution.certification import require_certified
+        from sentinel.execution.certification import (
+            certify_wrapper, require_certified_adapter)
 
         if grant.operation != administrative_authority.ADMIN_BIND_EMPTY:
             raise TypeError(
                 "empty-account broker requires ADMIN_BIND_EMPTY")
-        if isinstance(inner, AlpacaExecutionBroker):
-            require_certified("alpaca")
-        else:
+        try:
+            require_certified_adapter(inner, expected="alpaca")
+        except Exception as exc:
             raise TypeError(
                 "empty-account enrollment requires the certified Alpaca "
-                "read adapter")
+                "read adapter") from exc
         self.__inner = inner
         self.__grant = grant
         self.__guard = guard
+        self.certified_adapter_identity = certify_wrapper(
+            self, inner, wrapper_kind="empty-account-read")
 
     def _check(self, result=None) -> None:
         from sentinel.guarded_administration import (
@@ -68,6 +70,11 @@ class GuardedEmptyAccountBroker:
         self.__guard.check(self.__grant, operation, None)
         result = await self.__inner.observe()
         self.__guard.check(self.__grant, operation, result)
+        identity = result.account_identity
+        if (identity is None or identity.broker != "alpaca"
+                or identity.account_id != self.__grant.broker_account_id):
+            raise authority.AuthorityRefused(
+                "empty-account observation differs from signed Alpaca account")
         return result
 
 
@@ -104,6 +111,12 @@ def _account_facts(snapshot: BrokerAccountSnapshot) -> tuple:
 def _strict_account(snapshot: BrokerAccountSnapshot, *, expected_account: str,
                     observation: BrokerObservation) -> None:
     _inspection_account_or_refuse(snapshot, expected_account)
+    identity = observation.account_identity
+    if (identity is None
+            or identity.broker != snapshot.identity.broker
+            or identity.account_id != snapshot.identity.account_id):
+        raise EmptyAccountRefused(
+            "empty-account observation identity differs from its account snapshot")
     inspection = paper.PaperAccountInspection(
         endpoint=authority.PAPER_BASE_URL,
         expected_account=expected_account, account=snapshot,

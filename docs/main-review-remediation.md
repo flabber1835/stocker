@@ -117,16 +117,22 @@ migration, preparation, and execution.
    applies whitespace validation to the synthetic merge result. Local matrices
    remain useful evidence, but they are never described as an independent
    repository check until GitHub records that workflow result.
-8. `Sentinel safety / certification-and-durability` is a repository workflow
-   check, but it is **not currently a required branch-protection check**. No PR
-   or document may call it required until a repository administrator changes
-   the `main` ruleset. The outstanding administrative action is: in repository
-   Settings -> Rules (or the existing `main` branch-protection rule), enable
-   "Require status checks to pass before merging", select the exact check name
-   `Sentinel safety / certification-and-durability`, require the branch to be up
-   to date so the synthetic merge is tested, save the rule, and verify on a new
-   pull request that GitHub labels that check `Required`. This implementation
-   deliberately does not change repository protection.
+8. Repository ruleset `21878525` actively requires the four Sentinel safety
+   status contexts produced for an ordinary pull request. All four contexts are
+   reported by the same GitHub Actions App (integration id `15368`) available to
+   every workflow in this repository, so their active `Required` labels do not
+   establish a trusted workflow source: a pull-request-controlled workflow can
+   emit the same context names. No PR or document may describe those named
+   contexts as trusted merge authority. Closing that trust-root gap requires
+   either a GitHub Enterprise Cloud organization/enterprise ruleset `workflows`
+   rule pinned to repository id `1233957439`,
+   `.github/workflows/sentinel-safety.yml`, and the protected `main` ref, or
+   required checks pinned to a separately installed, dedicated external GitHub
+   App whose configuration is outside pull-request control. When the
+   required-workflow option is activated, remove the four
+   same-App status-context requirements from ruleset `21878525` while preserving
+   its other protections. Until one of those trusted-source controls is active,
+   the merge-gate trust-root finding remains open.
 
 The three strict Wealth Core xfails are one certification debt expressed at
 three boundaries, not three independent defects: the golden pin itself, the

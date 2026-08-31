@@ -73,6 +73,10 @@ class CalendarUnavailable(RuntimeError):
     """
 
 
+class NonSessionDate(ValueError):
+    """The requested calendar date is known not to be an XNYS session."""
+
+
 @lru_cache(maxsize=1)
 def _calendar():
     try:
@@ -286,7 +290,7 @@ def session_window(session: date | str) -> tuple[_dt.datetime, _dt.datetime]:
     label = pd.Timestamp(str(session))
     cal = _calendar()
     if not cal.is_session(label):
-        raise ValueError(f"{session} is not an {EXCHANGE} session")
+        raise NonSessionDate(f"{session} is not an {EXCHANGE} session")
     tz = ZoneInfo(EXCHANGE_TZ)
     opened = cal.session_open(label).to_pydatetime().astimezone(tz)
     closed = cal.session_close(label).to_pydatetime().astimezone(tz)

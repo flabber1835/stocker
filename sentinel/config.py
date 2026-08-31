@@ -235,12 +235,17 @@ def build_execution_broker(config: SentinelConfig, *, resolve_security_id,
     autonomous executor must never acquire those operations by convenience.
     """
     from sentinel.execution.alpaca_asset_id import AssetIdAlpacaExecutionBroker
-    from sentinel.execution.certification import require_certified
+    from sentinel.execution.certification import (
+        certify_adapter, require_certified)
 
     config.assert_paper()
     config.assert_credentials()
     require_certified("alpaca")
-    return AssetIdAlpacaExecutionBroker(
+    broker = AssetIdAlpacaExecutionBroker(
         api_key=config.alpaca_key, secret_key=config.alpaca_secret,
         base_url=config.base_url, resolve_security_id=resolve_security_id,
         to_broker_symbol=to_broker_symbol)
+    certify_adapter(broker, name="alpaca", mode="ALPACA_PAPER")
+    from sentinel.execution.contract import resolved_capability_graph
+    resolved_capability_graph(broker)
+    return broker

@@ -195,7 +195,7 @@ _TARGET_CATALOG_SHA256 = {
 # column/type/null/default, constraints, indexes and triggers while ignoring
 # deployment-local OIDs and column order.
 _STAGE4_CATALOG_SHA256 = (
-    "e93e68accdc7ebcc5b0f987e799623929e372df746bea669b9c532f3493d4d79")
+    "d876dd9583b517bb0a69b7a02d9d869fb32773eb0e44debbe0831c6dc6e73415")
 
 # Corpus tables may legitimately be installed before behavioral schema (the
 # prepare CLI does exactly that).  They do not disqualify a database from being
@@ -256,7 +256,8 @@ _STAGE4_RUNTIME_REQUIRED_COLUMNS = {
     "sentinel_automation_cycles": frozenset({"historical_state_only"}),
     "sentinel_automation_service_instances": frozenset({
         "authority_verdict", "authority_detail", "authority_checked_at"}),
-    "sentinel_observation_provenance": frozenset({"positions"}),
+    "sentinel_observation_provenance": frozenset({
+        "positions", "canonical_payload_sha256"}),
     "sentinel_alert_dispatcher_health": frozenset({
         "dispatcher_id", "started_at", "heartbeat_at", "state",
         "last_attempt_at", "last_success_at", "consecutive_failures",
@@ -761,9 +762,16 @@ DDL = (
         broker            TEXT        NOT NULL,
         broker_account_id TEXT        NOT NULL,
         observed_at       TIMESTAMPTZ NOT NULL,
-        positions         JSONB       NOT NULL DEFAULT '[]'::jsonb)""",
+        positions         JSONB       NOT NULL DEFAULT '[]'::jsonb,
+        canonical_payload_sha256 TEXT CHECK (
+            canonical_payload_sha256 IS NULL OR
+            canonical_payload_sha256 ~ '^[0-9a-f]{64}$'))""",
     """ALTER TABLE sentinel_observation_provenance
         ADD COLUMN IF NOT EXISTS positions JSONB NOT NULL DEFAULT '[]'::jsonb""",
+    """ALTER TABLE sentinel_observation_provenance
+        ADD COLUMN IF NOT EXISTS canonical_payload_sha256 TEXT CHECK (
+            canonical_payload_sha256 IS NULL OR
+            canonical_payload_sha256 ~ '^[0-9a-f]{64}$')""",
 
     # Per-session STRATEGY evidence for the forward paper trial.  Plans, broker
     # observations, commands and fills already have separate durable journals;

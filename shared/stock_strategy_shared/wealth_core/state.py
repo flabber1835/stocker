@@ -31,7 +31,7 @@ import hashlib
 import json
 import math
 from dataclasses import asdict, dataclass, field
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, AbstractSet, Any, Mapping
 
 if TYPE_CHECKING:  # pragma: no cover
     from stock_strategy_shared.wealth_core.marks import EquityView, Mark
@@ -427,18 +427,33 @@ class PortfolioState:
 
     # ── session advance ──────────────────────────────────────────────────────
 
-    def age_one_session(self, split_adjusted_closes: dict[str, float]) -> None:
+    def age_one_session(
+            self,
+            split_adjusted_closes: dict[str, float],
+            *,
+            skip_slot_cooldowns: AbstractSet[int] = frozenset(),
+            skip_security_cooldowns: AbstractSet[str] = frozenset(),
+            ) -> None:
         """Advance every clock by one completed session.
 
         Order matters and is fixed: holdings age and ratchet first, then
         cooldowns. Both use the same "strictly after the event" convention
         documented in the module docstring.
+
+        Cooldowns created during this same session are named by the caller and
+        remain at age 0. Their first completed session strictly after the exit
+        is the next market close. The default ages every cooldown, preserving
+        the direct state-machine API for callers that are already operating at
+        a strictly-after-event close.
         """
         for e in self.episodes.values():
             e.observe_close(split_adjusted_closes.get(e.security_id))
-        for s in self.slots.values():
-            s.age_cooldown()
+        for slot_id, s in self.slots.items():
+            if slot_id not in skip_slot_cooldowns:
+                s.age_cooldown()
         for sid in list(self.security_cooldowns):
+            if sid in skip_security_cooldowns:
+                continue
             self.security_cooldowns[sid] += 1
             if self.security_cooldowns[sid] >= COOLDOWN_SESSIONS:
                 del self.security_cooldowns[sid]

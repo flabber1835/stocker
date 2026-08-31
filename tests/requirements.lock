@@ -7,6 +7,8 @@
 # packages admit only CPython 3.12 Linux wheels for the supported amd64 and
 # arm64 build architectures; pip check validates the combined closure.
 
+coverage==7.16.0 \
+    --hash=sha256:245f7de6d023a5bba375dbec9f2e0869bfa26ac0cc639bbb7b4c814884000b73
 greenlet==3.5.5 \
     --hash=sha256:147b25a42e5ca5be3d42356e8f608b37af715a1c196e9bf9d1627f3341adfe1d \
     --hash=sha256:55272212cbc5f43d1d723725ab931f1939969b7e9523882ca58b55061769d053

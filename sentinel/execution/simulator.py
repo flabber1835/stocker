@@ -54,7 +54,7 @@ from typing import Optional, Sequence
 
 from sentinel.execution.contract import (
     BrokerAccountIdentity, BrokerAccountSnapshot, BrokerCapabilities, BrokerFill,
-    BrokerCloseValuation, BrokerInstrument, BrokerObservation, BrokerOrder,
+    BrokerCloseValuation, BrokerExactOrderLookup, BrokerInstrument, BrokerObservation, BrokerOrder,
     BrokerPosition, CommandOutcome, Completeness, ExecutionBroker, Side)
 from sentinel.execution.states import CommandState as S, blocks_overlapping
 
@@ -126,6 +126,7 @@ class SimulatedBroker(ExecutionBroker):
             recent_fill_history=True, instrument_identity=True,
             account_bound_observation=True, account_close_valuation=True,
             market_on_open=True))
+    certification_name: str = field(default="simulator", init=False)
 
     #: Explicit historical points.  Absence remains unavailable rather than
     #: silently reusing the simulator's current equity as a past close.
@@ -156,6 +157,12 @@ class SimulatedBroker(ExecutionBroker):
     _positions: dict = field(default_factory=dict)
     _fills: list = field(default_factory=list)
     _seq: int = 0
+
+    def __post_init__(self) -> None:
+        from sentinel.execution.certification import certify_adapter
+
+        if type(self) is SimulatedBroker:
+            certify_adapter(self, name="simulator", mode="SIMULATION")
 
     #: Every call, in order. Conformance asserts on the ORDER of reads, not only
     #: on their content.
@@ -378,18 +385,24 @@ class SimulatedBroker(ExecutionBroker):
                 filled_average_price=(Decimal("100") if o.filled else None),
                 submitted_at=o.submitted_at)
 
-    async def find_by_client_key(self, client_key: str) -> Optional[BrokerOrder]:
+    async def find_by_client_key(
+            self, client_key: str) -> BrokerExactOrderLookup:
         self.calls.append(f"find:{client_key}")
         resting = self._by_key(client_key)
-        if resting is None:
-            return None
-        return BrokerOrder(
+        order = None if resting is None else BrokerOrder(
             broker_order_id=resting.broker_order_id, client_key=client_key,
             instrument=resting.instrument, side=resting.side,
             state=resting.state, quantity=resting.quantity,
             filled_quantity=resting.filled,
             filled_average_price=(Decimal("100") if resting.filled else None),
             submitted_at=resting.submitted_at)
+        return BrokerExactOrderLookup(
+            client_key=client_key,
+            request_started_at=self.now,
+            request_completed_at=self.now,
+            identity_before=self.account,
+            identity_after=self.account,
+            order=order)
 
     async def submit(self, *, client_key: str, instrument: BrokerInstrument,
                      side: Side, quantity: Decimal) -> CommandOutcome:

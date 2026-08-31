@@ -14,8 +14,10 @@ from sentinel.automation.model import (
     NonRetryableCallbackRefused,
     StaleLeaderRefused,
     TickAction,
+    TransientInfrastructureFailure,
 )
 from sentinel.automation.service import AutomationService
+from sentinel.automation.health import read_health
 from sentinel.feed import store as feed_store
 from tests.support.postgres import _EphemeralPostgres
 
@@ -515,13 +517,15 @@ async def test_stale_pretransport_retry_terminalizes_and_next_obligation_runs(
     def refresh(context):
         calls.append(("refresh", context.cycle.decision_session.isoformat()))
         if retry_phase == "REFRESH" and fail[retry_phase]:
-            raise RuntimeError("close source is still publishing")
+            raise TransientInfrastructureFailure(
+                "close source is still publishing")
         return refresh_result(context)
 
     def prepare(context):
         calls.append(("prepare", context.cycle.decision_session.isoformat()))
         if retry_phase == "PREPARE" and fail[retry_phase]:
-            raise RuntimeError("prior close evidence is not final")
+            raise TransientInfrastructureFailure(
+                "prior close evidence is not final")
         return prepare_result(context)
 
     service = service_for(cfg, refresh=refresh, prepare=prepare)
@@ -712,20 +716,25 @@ async def test_persistent_run_recomputes_boundaries_across_connections(
     async def no_wait(seconds):
         assert seconds >= 0
 
+    async def recover(context):
+        return recovery_success(context)
+
+    async def refresh(context):
+        return refresh_result(context)
+
+    async def prepare(context):
+        return prepare_result(context)
+
     service = service_for(
-        cfg,
-        recover=lambda context: (
-            calls.append("recover") or recovery_success(context)),
-        refresh=lambda context: (
-            calls.append("refresh") or refresh_result(context)),
-        prepare=lambda context: (
-            calls.append("prepare") or prepare_result(context)))
+        cfg, recover=recover, refresh=refresh, prepare=prepare)
     ticks = await service.run(
         lambda: feed_store.connect(pg.sync_dsn), stop=NeverStop(),
         clock=lambda: AFTER_WEDNESDAY_CLOSE, sleep=no_wait, max_ticks=3)
 
     assert ticks == 3
-    assert calls == ["recover", "refresh", "prepare"]
+    durable = store.latest_cycle(conn)
+    assert durable is not None
+    assert durable.state is CycleState.PLAN_READY
 
 
 @pytest.mark.asyncio
@@ -851,7 +860,8 @@ async def test_nonretryable_recovery_refusal_latches_adopted_cycle_blocked(
     assert blocked.action is TickAction.BLOCKED
     assert blocked.cycle.state is CycleState.BLOCKED
     assert blocked.cycle.failure_code == "NonRetryableCallbackRefused"
-    assert blocked.cycle.diagnostic["callback_failure"] == "NONRETRYABLE"
+    assert blocked.cycle.diagnostic["callback_failure"] == (
+        "PERMANENT_OPERATIONAL_REFUSAL")
     latched = await replacement.tick(conn, now=THURSDAY_AFTER_CLOSE)
     assert latched.action is TickAction.BLOCKED
     assert latched.cycle.cycle_id == blocked.cycle.cycle_id
@@ -868,7 +878,55 @@ async def test_malformed_callback_result_latches_integrity_block(conn) -> None:
     assert blocked.action is TickAction.BLOCKED
     assert blocked.cycle.state is CycleState.BLOCKED
     assert blocked.cycle.failure_code == "ValidationError"
-    assert blocked.cycle.diagnostic["callback_failure"] == "NONRETRYABLE"
+    assert blocked.cycle.diagnostic["callback_failure"] == "DATA_INTEGRITY"
+
+
+@pytest.mark.asyncio
+async def test_unknown_programming_error_latches_as_software_defect(conn) -> None:
+    cfg = config()
+    enable(conn, cfg)
+
+    def defective(_context):
+        raise AttributeError("unexpected callback shape")
+
+    service = service_for(cfg, refresh=defective)
+    assert (await service.tick(
+        conn, now=AFTER_WEDNESDAY_CLOSE)).action is TickAction.RECOVERED
+    blocked = await service.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
+
+    assert blocked.action is TickAction.BLOCKED
+    assert blocked.cycle.state is CycleState.BLOCKED
+    assert blocked.cycle.failure_code == "AttributeError"
+    assert blocked.cycle.diagnostic["callback_failure"] == "SOFTWARE_DEFECT"
+    assert len(blocked.cycle.diagnostic["exception_fingerprint"]) == 64
+    assert blocked.cycle.diagnostic["next_retry_at"] is None
+    health = read_health(conn)
+    assert health.latest_phase_attempt_count == 1
+    assert health.first_failure_at == AFTER_WEDNESDAY_CLOSE
+    assert health.latest_failure_at == AFTER_WEDNESDAY_CLOSE
+    assert health.exception_fingerprint == (
+        blocked.cycle.diagnostic["exception_fingerprint"])
+    assert health.terminal_reason == "SOFTWARE_DEFECT"
+
+
+@pytest.mark.asyncio
+async def test_explicit_transient_failure_exhausts_phase_budget(conn) -> None:
+    cfg = config().model_copy(update={"refresh_max_attempts": 1})
+    enable(conn, cfg)
+
+    def unavailable(_context):
+        raise TransientInfrastructureFailure("publication service unavailable")
+
+    service = service_for(cfg, refresh=unavailable)
+    assert (await service.tick(
+        conn, now=AFTER_WEDNESDAY_CLOSE)).action is TickAction.RECOVERED
+    blocked = await service.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
+
+    assert blocked.action is TickAction.BLOCKED
+    assert blocked.cycle.diagnostic["callback_failure"] == (
+        "TRANSIENT_RETRY_EXHAUSTED")
+    assert blocked.cycle.diagnostic["phase_attempt_count"] == 1
+    assert blocked.cycle.diagnostic["phase_max_attempts"] == 1
 
 
 @pytest.mark.asyncio

@@ -6,10 +6,19 @@ administration.  Its callbacks are supplied by the separately guarded runtime.
 from __future__ import annotations
 
 import asyncio
+import ctypes
+import hashlib
 import inspect
+import json
+import multiprocessing
+import os
+import signal
+import sys
 import threading
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from typing import Any, Awaitable, Callable, Mapping, TypeAlias
 
 from pydantic import ValidationError
@@ -18,18 +27,25 @@ from sentinel.automation import integrity, schedule, store
 from sentinel.automation.model import (
     AutomationConfig,
     AutomationRefused,
+    CallbackDeadlineExceeded,
     CycleContext,
     CycleRecord,
     CycleSpec,
     CycleState,
+    DataIntegrityFailure,
     ExecuteDisposition,
     ExecuteResult,
+    HumanInterventionRequired,
     NonRetryableCallbackRefused,
+    PermanentOperationalRefusal,
     PrepareResult,
     RefreshResult,
+    SoftwareDefect,
+    SupervisorIntegrityFailure,
     TickAction,
     TickResult,
     StaleLeaderRefused,
+    TransientInfrastructureFailure,
 )
 
 
@@ -55,6 +71,224 @@ async def _resolve(value):
     if inspect.isawaitable(value):
         return await value
     return value
+
+
+@dataclass(frozen=True)
+class PhasePolicy:
+    """Data-owned retry and terminal policy for one callback phase."""
+
+    callback_attribute: str
+    success_state: CycleState
+    max_attempts_field: str
+    retry_state: CycleState = CycleState.RETRY_WAIT
+    terminal_state: CycleState = CycleState.BLOCKED
+
+
+@dataclass(frozen=True)
+class _CallbackOutcome:
+    """Keep BaseException delivery on the service caller task.
+
+    asyncio treats SystemExit and KeyboardInterrupt raised by a child task as
+    loop-level termination signals.  Crash-injection callbacks deliberately
+    use those exceptions, so capture them in the child and re-raise them from
+    the service task after the deadline race has selected the callback.
+    """
+
+    value: Any = None
+    error: BaseException | None = None
+
+
+_CHILD_EXCEPTION_TYPES = {
+    (cls.__module__, cls.__qualname__): cls for cls in (
+        CallbackDeadlineExceeded,
+        DataIntegrityFailure,
+        HumanInterventionRequired,
+        NonRetryableCallbackRefused,
+        PermanentOperationalRefusal,
+        SoftwareDefect,
+        StaleLeaderRefused,
+        TransientInfrastructureFailure,
+    )
+}
+
+
+def _reviewed_child_exception_type(
+        exc: BaseException) -> type[BaseException] | None:
+    """Select the most-specific reviewed class represented by ``exc``."""
+    actual = type(exc)
+    exact = _CHILD_EXCEPTION_TYPES.get(
+        (actual.__module__, actual.__qualname__))
+    if exact is actual:
+        return exact
+    matches = tuple(
+        candidate for candidate in _CHILD_EXCEPTION_TYPES.values()
+        if isinstance(exc, candidate))
+    if not matches:
+        return None
+    mro = actual.__mro__
+    return min(
+        matches,
+        key=lambda candidate: (
+            mro.index(candidate),
+            candidate.__module__,
+            candidate.__qualname__))
+
+
+def _json_default(value):  # pragma: no cover - runs in supervised child
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, Enum):
+        return value.value
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    raise TypeError(f"callback result contains {type(value).__name__}")
+
+
+def _arm_parent_death_sigkill(expected_parent_pid: int) -> None:
+    """Bind a Linux callback to the exact worker that constructed it."""
+    if sys.platform != "linux":  # process groups remain the portable boundary
+        return
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(1, signal.SIGKILL, 0, 0, 0) != 0:  # PR_SET_PDEATHSIG
+        error = ctypes.get_errno()
+        raise OSError(error, "PR_SET_PDEATHSIG failed")
+    if os.getppid() != expected_parent_pid:
+        os.kill(os.getpid(), signal.SIGKILL)
+
+
+def _callback_child(  # pragma: no cover - measured by process fault tests
+        callback, context, channel, expected_parent_pid: int,
+        process_group_ready) -> None:
+    """Execute one production callback in a disposable OS process."""
+    try:
+        os.setpgid(0, 0)
+        process_group_ready.set()
+        _arm_parent_death_sigkill(expected_parent_pid)
+        # ``fork`` inherits the parent's running-loop marker. The child owns no
+        # parent tasks or descriptors and starts one fresh loop for its callback.
+        asyncio.events._set_running_loop(None)                # noqa: SLF001
+        value = asyncio.run(callback(context))
+        if hasattr(value, "model_dump"):
+            value = value.model_dump(mode="json")
+        payload = {
+            "kind": "result",
+            "value": value,
+        }
+    except BaseException as exc:                              # noqa: BLE001
+        reviewed_class = _reviewed_child_exception_type(exc)
+        serialized_class = reviewed_class or type(exc)
+        payload = {
+            "kind": "error",
+            "name": serialized_class.__name__,
+            "module": serialized_class.__module__,
+            "qualname": serialized_class.__qualname__,
+            "actual_module": type(exc).__module__,
+            "actual_qualname": type(exc).__qualname__,
+            "detail": str(exc),
+            "reviewed": reviewed_class is not None,
+        }
+    try:
+        channel.send_bytes(json.dumps(
+            payload, sort_keys=True, separators=(",", ":"),
+            default=_json_default).encode("utf-8"))
+    except BaseException as exc:                              # noqa: BLE001
+        fallback = {
+            "kind": "error",
+            "name": "SoftwareDefect",
+            "module": SoftwareDefect.__module__,
+            "qualname": SoftwareDefect.__qualname__,
+            "actual_module": type(exc).__module__,
+            "actual_qualname": type(exc).__qualname__,
+            "detail": (
+                "callback IPC serialization failed: "
+                f"{type(exc).__name__}: {exc}"),
+            "reviewed": True,
+        }
+        try:
+            channel.send_bytes(json.dumps(fallback).encode("utf-8"))
+        except BaseException:                                 # noqa: BLE001
+            pass
+    finally:
+        channel.close()
+
+
+def _decode_child_callback(payload: bytes):
+    try:
+        envelope = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SoftwareDefect(
+            f"callback child returned malformed IPC evidence: {exc}") from exc
+    if envelope.get("kind") == "result":
+        return envelope.get("value")
+    name = str(envelope.get("name", "SoftwareDefect"))
+    module = str(envelope.get("module", "unknown"))
+    qualname = str(envelope.get("qualname", name))
+    detail = str(envelope.get("detail", "callback child failed"))
+    if (module, qualname) == ("builtins", "SystemExit"):
+        raise SystemExit(detail)
+    if (module, qualname) == ("builtins", "KeyboardInterrupt"):
+        raise KeyboardInterrupt(detail)
+    trusted = _CHILD_EXCEPTION_TYPES.get((module, qualname))
+    if bool(envelope.get("reviewed")) and trusted is not None:
+        raise trusted(detail)
+    actual_module = str(envelope.get("actual_module", module))
+    actual_qualname = str(envelope.get("actual_qualname", qualname))
+    raise SoftwareDefect(
+        f"unreviewed callback exception "
+        f"{actual_module}.{actual_qualname}: {detail}")
+
+
+def _kill_callback_process(process, *, join_seconds: float = 1.0) -> None:
+    """Kill the callback's complete process group, including orphaned children."""
+    if process is None:
+        return
+    ready = getattr(process, "_sentinel_process_group_ready", None)
+    try:
+        if ready is not None and ready.is_set() and process.pid is not None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        elif process.pid is not None and process.is_alive():
+            process.kill()
+    except AssertionError:  # constructed but never successfully started
+        return
+    process.join(timeout=join_seconds)
+    deadline = time.monotonic() + join_seconds
+    while (ready is not None and ready.is_set() and process.pid is not None
+           and time.monotonic() < deadline):
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.01)
+    if process.is_alive():
+        raise SoftwareDefect("callback child could not be killed")
+
+
+PHASE_POLICIES = {
+    "REFRESH": PhasePolicy(
+        "refresh", CycleState.PREPARING, "refresh_max_attempts"),
+    "PREFLIGHT_RECOVER": PhasePolicy(
+        "recover", CycleState.REFRESHING_DATA,
+        "preflight_recover_max_attempts"),
+    "PREPARE": PhasePolicy(
+        "prepare", CycleState.PLAN_READY, "prepare_max_attempts"),
+    "EXECUTE": PhasePolicy(
+        "execute", CycleState.RECONCILING, "execute_max_attempts"),
+    "RECOVER": PhasePolicy(
+        "recover", CycleState.SUCCEEDED, "recover_max_attempts"),
+}
+
+
+def _consume_background_result(task: asyncio.Task) -> None:
+    """Observe a late task exception without waiting for cancellation denial."""
+    if task.cancelled():
+        return
+    try:
+        task.exception()
+    except BaseException:                                      # noqa: BLE001
+        pass
 
 
 def _utc(value: datetime) -> datetime:
@@ -152,12 +386,150 @@ class AutomationService:
                 f"{skew:.3f}s > {limit:.3f}s")
 
     @staticmethod
-    def _nonretryable(exc: BaseException) -> bool:
-        """Typed authority/integrity refusals latch instead of spinning."""
-        return (isinstance(exc, (NonRetryableCallbackRefused,
-                                 ValidationError))
-                or (isinstance(exc, AutomationRefused)
-                    and not isinstance(exc, StaleLeaderRefused)))
+    def _exception_fingerprint(exc: BaseException) -> str:
+        identity = (
+            f"{type(exc).__module__}.{type(exc).__qualname__}\0{exc}")
+        return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+    def _failure_diagnostic(
+            self, *, cycle: CycleRecord, phase: str, exc: BaseException,
+            now: datetime) -> tuple[bool, Mapping[str, Any]]:
+        """Classify one failure; unknown exceptions are terminal defects."""
+        policy = PHASE_POLICIES[phase]
+        prior = dict(cycle.diagnostic)
+        prior_phase = str(prior.get("retry_phase", ""))
+        phase_attempt = (
+            int(prior.get("phase_attempt_count", 0)) + 1
+            if prior_phase == phase else 1)
+        first_failure = (
+            str(prior.get("first_failure_at"))
+            if prior_phase == phase and prior.get("first_failure_at")
+            else now.isoformat())
+        explicitly_transient = isinstance(
+            exc, TransientInfrastructureFailure)
+        max_attempts = int(getattr(self.config, policy.max_attempts_field))
+        exhausted = explicitly_transient and phase_attempt >= max_attempts
+        terminal = not explicitly_transient or exhausted
+        if isinstance(exc, (ValidationError, DataIntegrityFailure)):
+            category = "DATA_INTEGRITY"
+        elif isinstance(exc, HumanInterventionRequired):
+            category = "HUMAN_INTERVENTION_REQUIRED"
+        elif isinstance(exc, SoftwareDefect):
+            category = "SOFTWARE_DEFECT"
+        elif isinstance(exc, NonRetryableCallbackRefused):
+            category = "PERMANENT_OPERATIONAL_REFUSAL"
+        elif isinstance(exc, PermanentOperationalRefusal):
+            category = "PERMANENT_OPERATIONAL_REFUSAL"
+        elif explicitly_transient:
+            category = (
+                "TRANSIENT_RETRY_EXHAUSTED" if exhausted
+                else "TRANSIENT_INFRASTRUCTURE")
+        else:
+            category = "SOFTWARE_DEFECT"
+        diagnostic = {
+            "callback_failure": category,
+            "retry_phase": phase,
+            "phase_attempt_count": phase_attempt,
+            "phase_max_attempts": max_attempts,
+            "first_failure_at": first_failure,
+            "latest_failure_at": now.isoformat(),
+            "exception_type": (
+                f"{type(exc).__module__}.{type(exc).__qualname__}"),
+            "exception_fingerprint": self._exception_fingerprint(exc),
+        }
+        return terminal, diagnostic
+
+    def _handle_callback_failure(
+            self, conn, *, now: datetime, cycle: CycleRecord, permit,
+            phase: str, exc: BaseException,
+            recovery_transition: bool = False) -> TickResult:
+        terminal, diagnostic = self._failure_diagnostic(
+            cycle=cycle, phase=phase, exc=exc, now=now)
+        to_state = (
+            PHASE_POLICIES[phase].terminal_state if terminal
+            else PHASE_POLICIES[phase].retry_state)
+        if (recovery_transition and not terminal
+                and cycle.state is CycleState.RETRY_WAIT
+                and cycle.control_generation == permit.control_generation):
+            cycle = store.transition_cycle(
+                conn, permit=permit, cycle_id=cycle.cycle_id,
+                to_state=CycleState.RECONCILING)
+        retry_at = (
+            None if terminal
+            else self._retry_at(
+                now, int(diagnostic["phase_attempt_count"])))
+        diagnostic = {
+            **dict(diagnostic),
+            "next_retry_at": retry_at.isoformat() if retry_at else None,
+            "terminal_reason": (
+                str(diagnostic["callback_failure"]) if terminal else None),
+        }
+        changes = {
+            "next_wake_at": retry_at,
+            "failure_code": type(exc).__name__,
+            "failure_detail": str(exc)[:4000],
+            "diagnostic": diagnostic,
+        }
+        if recovery_transition:
+            cycle = self._recover_transition(
+                conn, permit=permit, cycle=cycle,
+                to_state=to_state, **changes)
+        else:
+            cycle = store.transition_cycle(
+                conn, permit=permit, cycle_id=cycle.cycle_id,
+                to_state=to_state, **changes)
+        return TickResult(
+            action=(TickAction.BLOCKED if terminal
+                    else TickAction.RETRY_SCHEDULED),
+            cycle=cycle, permit=permit, reason=str(exc))
+
+    def _handle_retry_result(
+            self, conn, *, now: datetime, cycle: CycleRecord, permit,
+            phase: str, failure_code: str | None,
+            failure_detail: str | None, result_diagnostic: Mapping[str, Any],
+            last_clean_reconciliation_id: str | None = None,
+            recovery_transition: bool = False) -> TickResult:
+        """Apply the same phase budget to an explicit retry result value."""
+        detail = failure_detail or failure_code or f"{phase} remains incomplete"
+        exc = TransientInfrastructureFailure(detail)
+        terminal, failure_diagnostic = self._failure_diagnostic(
+            cycle=cycle, phase=phase, exc=exc, now=now)
+        retry_at = (
+            None if terminal else self._retry_at(
+                now, int(failure_diagnostic["phase_attempt_count"])))
+        diagnostic = {
+            **dict(result_diagnostic),
+            **dict(failure_diagnostic),
+            "next_retry_at": retry_at.isoformat() if retry_at else None,
+            "terminal_reason": (
+                "TRANSIENT_RETRY_EXHAUSTED" if terminal else None),
+        }
+        if (recovery_transition and not terminal
+                and cycle.state is CycleState.RETRY_WAIT
+                and cycle.control_generation == permit.control_generation):
+            cycle = store.transition_cycle(
+                conn, permit=permit, cycle_id=cycle.cycle_id,
+                to_state=CycleState.RECONCILING)
+        changes = {
+            "next_wake_at": retry_at,
+            "last_clean_reconciliation_id": last_clean_reconciliation_id,
+            "failure_code": failure_code,
+            "failure_detail": failure_detail,
+            "diagnostic": diagnostic,
+        }
+        target = CycleState.BLOCKED if terminal else CycleState.RETRY_WAIT
+        if recovery_transition:
+            cycle = self._recover_transition(
+                conn, permit=permit, cycle=cycle,
+                to_state=target, **changes)
+        else:
+            cycle = store.transition_cycle(
+                conn, permit=permit, cycle_id=cycle.cycle_id,
+                to_state=target, **changes)
+        return TickResult(
+            action=(TickAction.BLOCKED if terminal
+                    else TickAction.RETRY_SCHEDULED),
+            cycle=cycle, permit=permit, reason=detail)
 
     @staticmethod
     def _recover_transition(
@@ -230,62 +602,207 @@ class AutomationService:
         ``callback_deadline_seconds`` policy. Retry backoff remains independent.
         """
         deadline_seconds = self.config.callback_deadline_seconds
-        deadline = time.monotonic() + deadline_seconds
-        if heartbeat_conn_factory is None:
-            result = await _resolve(callback(context))
-            if time.monotonic() > deadline:
-                raise StaleLeaderRefused(
-                    f"{phase} callback exceeded bounded runtime "
-                    f"{deadline_seconds}s")
-            return result
+        if heartbeat_conn_factory is not None and not inspect.iscoroutinefunction(
+                callback):
+            raise NonRetryableCallbackRefused(
+                f"{phase} production callback must be asynchronous; synchronous "
+                "work requires a separately supervised killable process")
 
         stopped = threading.Event()
-        deadline_hit = threading.Event()
         heartbeat_errors: list[BaseException] = []
+        loop = asyncio.get_running_loop()
+        heartbeat_failed = asyncio.Event()
+
+        def signal_heartbeat_failure(exc: BaseException) -> None:
+            heartbeat_errors.append(exc)
+            loop.call_soon_threadsafe(heartbeat_failed.set)
 
         def heartbeat() -> None:
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    deadline_hit.set()
-                    return
-                if stopped.wait(min(self.config.heartbeat_seconds, remaining)):
-                    return
-                if time.monotonic() >= deadline:
-                    deadline_hit.set()
-                    return
-                heartbeat_conn = heartbeat_conn_factory()
+            while not stopped.wait(self.config.heartbeat_seconds):
+                heartbeat_conn = None
                 try:
+                    if stopped.is_set() or context.cancellation.cancelled:
+                        return
+                    heartbeat_conn = heartbeat_conn_factory()
+                    if stopped.is_set() or context.cancellation.cancelled:
+                        return
+                    # The factory applies connection and statement bounds below
+                    # the lease. Recheck immediately before the renewal itself:
+                    # a factory that returned after cancellation owns no lease.
+                    if stopped.is_set() or context.cancellation.cancelled:
+                        return
                     store.heartbeat_lease(
                         heartbeat_conn, permit=permit,
                         lease_seconds=self.config.lease_seconds)
-                    store.register_instance(
-                        heartbeat_conn,
-                        instance_id=self.holder_id,
-                        state=f"{phase}_CALLBACK",
-                        next_wake_at=None)
+                    if stopped.is_set() or context.cancellation.cancelled:
+                        return
                 except BaseException as exc:                    # noqa: BLE001
-                    heartbeat_errors.append(exc)
+                    signal_heartbeat_failure(exc)
                     return
                 finally:
-                    heartbeat_conn.close()
+                    if heartbeat_conn is not None:
+                        try:
+                            heartbeat_conn.close()
+                        except BaseException as exc:              # noqa: BLE001
+                            signal_heartbeat_failure(exc)
+                            return
 
-        worker = threading.Thread(
-            target=heartbeat,
-            name=f"sentinel-heartbeat-{self.holder_id}", daemon=True)
-        worker.start()
+        worker = None
+        worker_started = False
+        callback_process = None
+        parent_channel = None
+        child_channel = None
+        callback_task = None
+        deadline_task = None
+        heartbeat_task = None
+
+        async def invoke_callback():
+            if callback_process is not None:
+                try:
+                    assert parent_channel is not None
+                    while True:
+                        if parent_channel.poll():
+                            payload = parent_channel.recv_bytes()
+                            callback_process.join(timeout=0)
+                            _kill_callback_process(callback_process)
+                            return _CallbackOutcome(
+                                value=_decode_child_callback(payload))
+                        if not callback_process.is_alive():
+                            callback_process.join(timeout=0)
+                            if parent_channel.poll():
+                                return _CallbackOutcome(
+                                    value=_decode_child_callback(
+                                        parent_channel.recv_bytes()))
+                            return _CallbackOutcome(error=SoftwareDefect(
+                                "callback child exited without canonical "
+                                f"result; exitcode={callback_process.exitcode}"))
+                        await asyncio.sleep(0.02)
+                except BaseException as exc:                  # noqa: BLE001
+                    return _CallbackOutcome(error=exc)
+            try:
+                context.require_active()
+                if inspect.iscoroutinefunction(callback):
+                    value = await callback(context)
+                else:
+                    value = await loop.run_in_executor(None, callback, context)
+                    value = await _resolve(value)
+                return _CallbackOutcome(value=value)
+            except BaseException as exc:                      # noqa: BLE001
+                return _CallbackOutcome(error=exc)
+
         try:
-            result = await _resolve(callback(context))
+            if heartbeat_conn_factory is not None:
+                start_conn = None
+                try:
+                    start_conn = heartbeat_conn_factory()
+                    context.require_active()
+                    store.register_instance(
+                        start_conn, instance_id=self.holder_id,
+                        state=f"{phase}_CALLBACK", next_wake_at=None)
+                except BaseException as exc:                  # noqa: BLE001
+                    raise StaleLeaderRefused(
+                        f"{phase} callback heartbeat failed before start: "
+                        f"{exc}") from exc
+                finally:
+                    if start_conn is not None:
+                        try:
+                            start_conn.close()
+                        except BaseException as exc:            # noqa: BLE001
+                            raise StaleLeaderRefused(
+                                f"{phase} callback heartbeat failed before "
+                                f"start: {exc}") from exc
+                try:
+                    process_context = multiprocessing.get_context("fork")
+                except ValueError as exc:
+                    raise SoftwareDefect(
+                        "production callback supervision requires fork process "
+                        "support") from exc
+                context.cancellation.bind_process_event(process_context.Event())
+                process_group_ready = process_context.Event()
+                parent_channel, child_channel = process_context.Pipe(duplex=False)
+                callback_process = process_context.Process(
+                    target=_callback_child,
+                    args=(callback, context, child_channel, os.getpid(),
+                          process_group_ready),
+                    name=f"sentinel-callback-{phase.lower()}")
+                callback_process.start()
+                callback_process._sentinel_process_group_ready = (  # noqa: SLF001
+                    process_group_ready)
+                if not process_group_ready.wait(timeout=1):
+                    _kill_callback_process(callback_process)
+                    raise SoftwareDefect(
+                        "callback process group did not become ready")
+                child_channel.close()
+                child_channel = None
+                worker = threading.Thread(
+                    target=heartbeat,
+                    name=f"sentinel-heartbeat-{self.holder_id}", daemon=True)
+                worker.start()
+                worker_started = True
+
+            callback_task = asyncio.create_task(invoke_callback())
+            deadline_task = asyncio.create_task(asyncio.sleep(deadline_seconds))
+            heartbeat_task = asyncio.create_task(heartbeat_failed.wait())
+            done, _pending = await asyncio.wait(
+                {callback_task, deadline_task, heartbeat_task},
+                return_when=asyncio.FIRST_COMPLETED)
+            if (callback_task in done and deadline_task not in done
+                    and heartbeat_task not in done):
+                outcome = callback_task.result()
+                if outcome.error is not None:
+                    raise outcome.error
+                context.require_active()
+                return outcome.value
+            heartbeat_lost = heartbeat_task in done and heartbeat_errors
+            reason = (
+                f"{phase} callback heartbeat failed: {heartbeat_errors[0]}"
+                if heartbeat_lost else
+                f"{phase} callback exceeded bounded runtime {deadline_seconds}s")
+            context.cancellation.cancel(reason)
+            callback_task.cancel()
+            callback_task.add_done_callback(_consume_background_result)
+            _kill_callback_process(callback_process)
+            if heartbeat_lost:
+                raise StaleLeaderRefused(reason)
+            raise CallbackDeadlineExceeded(reason)
+        except BaseException as exc:                            # noqa: BLE001
+            if callback_task is not None and not callback_task.done():
+                context.cancellation.cancel(
+                    f"{phase} callback invocation stopped: "
+                    f"{type(exc).__name__}")
+                callback_task.cancel()
+                callback_task.add_done_callback(
+                    _consume_background_result)
+            _kill_callback_process(callback_process)
+            raise
         finally:
             stopped.set()
-            worker.join(timeout=self.config.heartbeat_seconds + 1)
-        if deadline_hit.is_set() or time.monotonic() > deadline:
-            raise StaleLeaderRefused(
-                f"{phase} callback exceeded bounded runtime "
-                f"{deadline_seconds}s")
-        if heartbeat_errors:
-            raise heartbeat_errors[0]
-        return result
+            for task in (deadline_task, heartbeat_task):
+                if task is not None:
+                    task.cancel()
+            if worker is not None and worker_started:
+                worker.join(timeout=1)
+                if worker.is_alive():
+                    context.cancellation.cancel(
+                        f"{phase} heartbeat supervisor failed to stop")
+                    _kill_callback_process(callback_process)
+                    raise SupervisorIntegrityFailure(
+                        f"{phase} heartbeat supervisor did not stop within "
+                        "the certified boundary")
+            _kill_callback_process(callback_process)
+            if child_channel is not None:
+                child_channel.close()
+            if parent_channel is not None:
+                parent_channel.close()
+
+    async def _invoke_phase(
+            self, phase: str, context: CycleContext, *, permit,
+            heartbeat_conn_factory=None):
+        policy = PHASE_POLICIES[phase]
+        callback = getattr(self, policy.callback_attribute)
+        return await self._invoke(
+            callback, context, permit=permit, phase=phase,
+            heartbeat_conn_factory=heartbeat_conn_factory)
 
     async def tick(
             self, conn, *, now: datetime,
@@ -590,9 +1107,9 @@ class AutomationService:
             permit, heartbeat_conn_factory=None) -> TickResult:
         try:
             permit = store.require_leader(conn, permit)
-            raw = await self._invoke(
-                self.refresh, CycleContext(cycle=cycle, permit=permit),
-                permit=permit, phase="REFRESH",
+            raw = await self._invoke_phase(
+                "REFRESH", CycleContext(cycle=cycle, permit=permit),
+                permit=permit,
                 heartbeat_conn_factory=heartbeat_conn_factory)
             result = (raw if isinstance(raw, RefreshResult)
                       else RefreshResult.model_validate(raw))
@@ -610,28 +1127,13 @@ class AutomationService:
                 action=TickAction.REFRESHED, cycle=cycle, permit=permit)
         except StaleLeaderRefused:
             raise
+        except SupervisorIntegrityFailure:
+            raise
         except Exception as exc:                                  # noqa: BLE001
             store.require_leader(conn, permit)
-            if self._nonretryable(exc):
-                cycle = store.transition_cycle(
-                    conn, permit=permit, cycle_id=cycle.cycle_id,
-                    to_state=CycleState.BLOCKED, next_wake_at=None,
-                    failure_code=type(exc).__name__,
-                    failure_detail=str(exc)[:4000],
-                    diagnostic={"callback_failure": "NONRETRYABLE",
-                                "retry_phase": "REFRESH"})
-                return TickResult(
-                    action=TickAction.BLOCKED, cycle=cycle, permit=permit,
-                    reason=str(exc))
-            cycle = store.transition_cycle(
-                conn, permit=permit, cycle_id=cycle.cycle_id,
-                to_state=CycleState.RETRY_WAIT,
-                next_wake_at=self._retry_at(now, cycle.attempt_count),
-                failure_code=type(exc).__name__, failure_detail=str(exc)[:4000],
-                diagnostic={"retry_phase": "REFRESH"})
-            return TickResult(
-                action=TickAction.RETRY_SCHEDULED, cycle=cycle, permit=permit,
-                reason=str(exc))
+            return self._handle_callback_failure(
+                conn, now=now, cycle=cycle, permit=permit,
+                phase="REFRESH", exc=exc)
 
     async def _run_preflight_recover(
             self, conn, *, now: datetime, cycle: CycleRecord,
@@ -652,42 +1154,23 @@ class AutomationService:
                 diagnostic=cycle.diagnostic)
         try:
             permit = store.require_leader(conn, permit)
-            raw = await self._invoke(
-                self.recover, CycleContext(cycle=cycle, permit=permit),
-                permit=permit, phase="PREFLIGHT_RECOVER",
+            raw = await self._invoke_phase(
+                "PREFLIGHT_RECOVER",
+                CycleContext(cycle=cycle, permit=permit), permit=permit,
                 heartbeat_conn_factory=heartbeat_conn_factory)
             result = (raw if isinstance(raw, ExecuteResult)
                       else ExecuteResult.model_validate(raw))
             permit = store.require_leader(conn, permit)
         except StaleLeaderRefused:
             raise
+        except SupervisorIntegrityFailure:
+            raise
         except Exception as exc:                                  # noqa: BLE001
             store.require_leader(conn, permit)
-            if self._nonretryable(exc):
-                cycle = self._recover_transition(
-                    conn, permit=permit, cycle=cycle,
-                    to_state=CycleState.BLOCKED, next_wake_at=None,
-                    failure_code=type(exc).__name__,
-                    failure_detail=str(exc)[:4000],
-                    diagnostic={"callback_failure": "NONRETRYABLE",
-                                "retry_phase": "PREFLIGHT_RECOVER"})
-                return TickResult(
-                    action=TickAction.BLOCKED, cycle=cycle, permit=permit,
-                    reason=str(exc))
-            if cycle.state is CycleState.RETRY_WAIT:
-                if cycle.control_generation == permit.control_generation:
-                    cycle = store.transition_cycle(
-                        conn, permit=permit, cycle_id=cycle.cycle_id,
-                        to_state=CycleState.RECONCILING)
-            cycle = self._recover_transition(
-                conn, permit=permit, cycle=cycle,
-                to_state=CycleState.RETRY_WAIT,
-                next_wake_at=self._retry_at(now, cycle.attempt_count),
-                failure_code=type(exc).__name__, failure_detail=str(exc)[:4000],
-                diagnostic={"retry_phase": "PREFLIGHT_RECOVER"})
-            return TickResult(
-                action=TickAction.RETRY_SCHEDULED, cycle=cycle, permit=permit,
-                reason=str(exc))
+            return self._handle_callback_failure(
+                conn, now=now, cycle=cycle, permit=permit,
+                phase="PREFLIGHT_RECOVER", exc=exc,
+                recovery_transition=True)
 
         if (supersede_on_success
                 and result.disposition in {
@@ -744,21 +1227,15 @@ class AutomationService:
             return TickResult(
                 action=TickAction.BLOCKED, cycle=cycle, permit=permit,
                 reason=result.failure_detail or result.failure_code)
-        cycle = self._recover_transition(
-            conn, permit=permit, cycle=cycle,
-            to_state=CycleState.RETRY_WAIT,
-            next_wake_at=self._retry_at(now, cycle.attempt_count),
-            last_clean_reconciliation_id=
-                result.last_clean_reconciliation_id,
+        return self._handle_retry_result(
+            conn, now=now, cycle=cycle, permit=permit,
+            phase="PREFLIGHT_RECOVER",
             failure_code=result.failure_code,
-            failure_detail=result.failure_detail,
-            diagnostic={
-                **dict(result.diagnostic),
-                "retry_phase": "PREFLIGHT_RECOVER",
-            })
-        return TickResult(
-            action=TickAction.RETRY_SCHEDULED, cycle=cycle, permit=permit,
-            reason="journal recovery is incomplete before publication")
+            failure_detail=(result.failure_detail
+                            or "journal recovery is incomplete before publication"),
+            result_diagnostic=result.diagnostic,
+            last_clean_reconciliation_id=result.last_clean_reconciliation_id,
+            recovery_transition=True)
 
     async def _run_recover(
             self, conn, *, now: datetime, cycle: CycleRecord,
@@ -769,43 +1246,22 @@ class AutomationService:
                 conn, permit=permit, cycle_id=cycle.cycle_id)
         try:
             permit = store.require_leader(conn, permit)
-            raw = await self._invoke(
-                self.recover, CycleContext(cycle=cycle, permit=permit),
-                permit=permit, phase="RECOVER",
+            raw = await self._invoke_phase(
+                "RECOVER", CycleContext(cycle=cycle, permit=permit),
+                permit=permit,
                 heartbeat_conn_factory=heartbeat_conn_factory)
             result = (raw if isinstance(raw, ExecuteResult)
                       else ExecuteResult.model_validate(raw))
             permit = store.require_leader(conn, permit)
         except StaleLeaderRefused:
             raise
+        except SupervisorIntegrityFailure:
+            raise
         except Exception as exc:                                  # noqa: BLE001
             store.require_leader(conn, permit)
-            if self._nonretryable(exc):
-                cycle = self._recover_transition(
-                    conn, permit=permit, cycle=cycle,
-                    to_state=CycleState.BLOCKED,
-                    next_wake_at=None,
-                    failure_code=type(exc).__name__,
-                    failure_detail=str(exc)[:4000],
-                    diagnostic={"callback_failure": "NONRETRYABLE",
-                                "retry_phase": "RECOVER"})
-                return TickResult(
-                    action=TickAction.BLOCKED, cycle=cycle, permit=permit,
-                    reason=str(exc))
-            if (cycle.control_generation == permit.control_generation
-                    and cycle.state is CycleState.RETRY_WAIT):
-                cycle = store.transition_cycle(
-                    conn, permit=permit, cycle_id=cycle.cycle_id,
-                    to_state=CycleState.RECONCILING)
-            cycle = self._recover_transition(
-                conn, permit=permit, cycle=cycle,
-                to_state=CycleState.RETRY_WAIT,
-                next_wake_at=self._retry_at(now, cycle.attempt_count),
-                failure_code=type(exc).__name__, failure_detail=str(exc)[:4000],
-                diagnostic={"retry_phase": "RECOVER"})
-            return TickResult(
-                action=TickAction.RETRY_SCHEDULED, cycle=cycle, permit=permit,
-                reason=str(exc))
+            return self._handle_callback_failure(
+                conn, now=now, cycle=cycle, permit=permit,
+                phase="RECOVER", exc=exc, recovery_transition=True)
 
         common = {
             "last_clean_reconciliation_id":
@@ -893,26 +1349,23 @@ class AutomationService:
             return TickResult(
                 action=TickAction.RECOVERED, cycle=cycle, permit=permit,
                 reason="clean recovery permits a fresh executor boundary")
-        cycle = self._recover_transition(
-            conn, permit=permit, cycle=cycle,
-            to_state=CycleState.RETRY_WAIT,
-            next_wake_at=self._retry_at(now, cycle.attempt_count),
-            diagnostic={**dict(result.diagnostic), "retry_phase": "RECOVER"},
-            failure_code=result.failure_code,
-            failure_detail=result.failure_detail,
-            last_clean_reconciliation_id=result.last_clean_reconciliation_id)
-        return TickResult(
-            action=TickAction.RETRY_SCHEDULED, cycle=cycle, permit=permit,
-            reason="read-only recovery remains incomplete")
+        return self._handle_retry_result(
+            conn, now=now, cycle=cycle, permit=permit,
+            phase="RECOVER", failure_code=result.failure_code,
+            failure_detail=(result.failure_detail
+                            or "read-only recovery remains incomplete"),
+            result_diagnostic=result.diagnostic,
+            last_clean_reconciliation_id=result.last_clean_reconciliation_id,
+            recovery_transition=True)
 
     async def _run_prepare(
             self, conn, *, now: datetime, cycle: CycleRecord,
             permit, heartbeat_conn_factory=None) -> TickResult:
         try:
             permit = store.require_leader(conn, permit)
-            raw = await self._invoke(
-                self.prepare, CycleContext(cycle=cycle, permit=permit),
-                permit=permit, phase="PREPARE",
+            raw = await self._invoke_phase(
+                "PREPARE", CycleContext(cycle=cycle, permit=permit),
+                permit=permit,
                 heartbeat_conn_factory=heartbeat_conn_factory)
             result = (raw if isinstance(raw, PrepareResult)
                       else PrepareResult.model_validate(raw))
@@ -967,28 +1420,13 @@ class AutomationService:
                     if historical_missed else None))
         except StaleLeaderRefused:
             raise
+        except SupervisorIntegrityFailure:
+            raise
         except Exception as exc:                                  # noqa: BLE001
             store.require_leader(conn, permit)
-            if self._nonretryable(exc):
-                cycle = store.transition_cycle(
-                    conn, permit=permit, cycle_id=cycle.cycle_id,
-                    to_state=CycleState.BLOCKED, next_wake_at=None,
-                    failure_code=type(exc).__name__,
-                    failure_detail=str(exc)[:4000],
-                    diagnostic={"callback_failure": "NONRETRYABLE",
-                                "retry_phase": "PREPARE"})
-                return TickResult(
-                    action=TickAction.BLOCKED, cycle=cycle, permit=permit,
-                    reason=str(exc))
-            retry_at = self._retry_at(now, cycle.attempt_count)
-            cycle = store.transition_cycle(
-                conn, permit=permit, cycle_id=cycle.cycle_id,
-                to_state=CycleState.RETRY_WAIT, next_wake_at=retry_at,
-                failure_code=type(exc).__name__, failure_detail=str(exc)[:4000],
-                diagnostic={"retry_phase": "PREPARE"})
-            return TickResult(
-                action=TickAction.RETRY_SCHEDULED, cycle=cycle, permit=permit,
-                reason=str(exc))
+            return self._handle_callback_failure(
+                conn, now=now, cycle=cycle, permit=permit,
+                phase="PREPARE", exc=exc)
 
     async def _run_execute(
             self, conn, *, now: datetime, cycle: CycleRecord,
@@ -1003,37 +1441,22 @@ class AutomationService:
                 heartbeat_conn_factory=heartbeat_conn_factory)
         try:
             permit = store.require_leader(conn, permit)
-            raw = await self._invoke(
-                self.execute, CycleContext(cycle=cycle, permit=permit),
-                permit=permit, phase="EXECUTE",
+            raw = await self._invoke_phase(
+                "EXECUTE", CycleContext(cycle=cycle, permit=permit),
+                permit=permit,
                 heartbeat_conn_factory=heartbeat_conn_factory)
             result = (raw if isinstance(raw, ExecuteResult)
                       else ExecuteResult.model_validate(raw))
             permit = store.require_leader(conn, permit)
         except StaleLeaderRefused:
             raise
+        except SupervisorIntegrityFailure:
+            raise
         except Exception as exc:                                  # noqa: BLE001
             store.require_leader(conn, permit)
-            if self._nonretryable(exc):
-                cycle = store.transition_cycle(
-                    conn, permit=permit, cycle_id=cycle.cycle_id,
-                    to_state=CycleState.BLOCKED, next_wake_at=None,
-                    failure_code=type(exc).__name__,
-                    failure_detail=str(exc)[:4000],
-                    diagnostic={"callback_failure": "NONRETRYABLE",
-                                "retry_phase": "EXECUTE"})
-                return TickResult(
-                    action=TickAction.BLOCKED, cycle=cycle, permit=permit,
-                    reason=str(exc))
-            retry_at = self._retry_at(now, cycle.attempt_count)
-            cycle = store.transition_cycle(
-                conn, permit=permit, cycle_id=cycle.cycle_id,
-                to_state=CycleState.RETRY_WAIT, next_wake_at=retry_at,
-                failure_code=type(exc).__name__, failure_detail=str(exc)[:4000],
-                diagnostic={"retry_phase": "EXECUTE"})
-            return TickResult(
-                action=TickAction.RETRY_SCHEDULED, cycle=cycle, permit=permit,
-                reason=str(exc))
+            return self._handle_callback_failure(
+                conn, now=now, cycle=cycle, permit=permit,
+                phase="EXECUTE", exc=exc)
 
         common = {
             "last_clean_reconciliation_id":
@@ -1057,18 +1480,13 @@ class AutomationService:
                 action=TickAction.EXECUTED, cycle=cycle, permit=permit,
                 reason="executor requires complete re-observation")
         if result.disposition is ExecuteDisposition.RETRY:
-            cycle = store.transition_cycle(
-                conn, permit=permit, cycle_id=cycle.cycle_id,
-                to_state=CycleState.RETRY_WAIT,
-                next_wake_at=self._retry_at(now, cycle.attempt_count),
-                diagnostic={**dict(result.diagnostic),
-                            "retry_phase": "EXECUTE"},
-                failure_code=result.failure_code,
+            return self._handle_retry_result(
+                conn, now=now, cycle=cycle, permit=permit,
+                phase="EXECUTE", failure_code=result.failure_code,
                 failure_detail=result.failure_detail,
+                result_diagnostic=result.diagnostic,
                 last_clean_reconciliation_id=
                     result.last_clean_reconciliation_id)
-            return TickResult(
-                action=TickAction.RETRY_SCHEDULED, cycle=cycle, permit=permit)
         cycle = store.transition_cycle(
             conn, permit=permit, cycle_id=cycle.cycle_id,
             to_state=CycleState.BLOCKED, next_wake_at=None, **common)

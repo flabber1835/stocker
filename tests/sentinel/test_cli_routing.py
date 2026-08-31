@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from types import SimpleNamespace
 
 import pytest
@@ -7,6 +8,14 @@ import pytest
 from sentinel import _main_impl
 from sentinel.cli import feed as feed_cli
 from sentinel.cli import main as cli_main
+
+
+def test_executable_boundary_never_mutates_implementation_globals():
+    import sentinel.__main__ as executable
+
+    source = inspect.getsource(executable)
+    assert "setattr(_main_impl" not in source
+    assert "_legacy_overrides" not in source
 
 
 def test_cli_run_resolves_retained_main_dynamically(monkeypatch):

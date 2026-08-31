@@ -29,7 +29,7 @@ from sentinel.core.decision import (
 
 from sentinel.execution import broker_cash, executor, journal
 
-from sentinel.execution.certification import require_certified
+from sentinel.execution.certification import require_certified_adapter
 
 from sentinel.execution.contract import (
     BrokerAccountIdentity,
@@ -48,36 +48,41 @@ from .model import (
 
 DEFENSIVE_SYMBOL = "BIL"
 
-def _require_certified_paper_broker(broker: ExecutionBroker) -> None:
-    """Accept only the two concrete adapters whose behavior is certified.
+# Compatibility seam for older orchestration tests.  This remains an alias to
+# the sealed-token verifier, never to the legacy string registry.
+require_certified = require_certified_adapter
+
+
+def _require_certified_paper_broker(
+        broker: ExecutionBroker, *,
+        expected_wrapper_kind: str = "generation-fenced-execution") -> None:
+    """Accept only adapter identities whose behavior is certified.
 
     Production receives :class:`AlpacaExecutionBroker`; tests receive the
     deterministic simulator. Treating every unknown implementation as the
     simulator would let an unlisted transport borrow a certification it never
     earned merely by choosing a different class name.
     """
-    from sentinel.execution.alpaca import AlpacaExecutionBroker
-    from sentinel.execution.simulator import SimulatedBroker
-    from sentinel.guarded_administration import (
-        GuardedAdministrativeExecutionBroker)
-
-    if isinstance(broker, GuardedAdministrativeExecutionBroker):
-        # This one explicit read-only wrapper validated its concrete adapter at
-        # construction and exposes only a certification recheck, never its
-        # transport object. Arbitrary duck-typed wrappers remain refused.
-        broker.require_certified_adapter()
-        return
-
-    if isinstance(broker, AlpacaExecutionBroker):
-        require_certified("alpaca")
-        return
-    if isinstance(broker, SimulatedBroker):
-        require_certified("simulator")
-        return
-    raise PaperActivationRefused(
-        f"unsupported execution broker {type(broker).__name__}; the paper "
-        "activation path accepts only the certified Alpaca adapter (or the "
-        "deterministic simulator in tests)")
+    try:
+        identity = require_certified(broker)
+        if identity.name == "alpaca":
+            required = {
+                "order_submitter", "order_status_resolver",
+                "open_order_observer", "evidence_producing",
+                "account_bound_observation",
+            }
+            missing = required.difference(identity.capabilities)
+            if (identity.mode != "ALPACA_PAPER"
+                    or identity.wrapper_kind != expected_wrapper_kind
+                    or missing):
+                raise ValueError(
+                    "Alpaca paper composition identity, wrapper kind, mode, "
+                    f"or capabilities refused; missing={sorted(missing)}")
+    except Exception as exc:
+        raise PaperActivationRefused(
+            f"unsupported execution broker {type(broker).__name__}; the paper "
+            "activation path requires a composition-issued adapter identity") \
+            from exc
 
 def _inspection_account_or_refuse(
         snapshot: BrokerAccountSnapshot, expected_account: str) -> None:
@@ -123,18 +128,28 @@ def _inspection_account_or_refuse(
             "paper-account inspection received non-boolean block flags: "
             + ", ".join(malformed_flags))
 
+
 async def inspect_paper_account(*, conn, broker: ExecutionBroker,
                                 base_url: str,
                                 expected_account: str
                                 ) -> PaperAccountInspection:
     """Read the exact inherited book without acquiring mutation authority."""
     assert_paper_url(base_url)
-    _require_certified_paper_broker(broker)
+    _require_certified_paper_broker(
+        broker, expected_wrapper_kind="administrative-read")
 
     account = await broker.account_snapshot()
     _inspection_account_or_refuse(account, expected_account)
     observation = await broker.observe()
     observation.require_complete("paper-account inspection")
+    observed_identity = observation.account_identity
+    if observed_identity is None:
+        raise PaperActivationRefused(
+            "paper-account observation omitted account provenance")
+    if ((observed_identity.broker, observed_identity.account_id)
+            != (account.identity.broker, account.identity.account_id)):
+        raise PaperActivationRefused(
+            "paper-account observation identity differs from its account snapshot")
     if observation.observed_at.tzinfo is None:
         raise PaperActivationRefused(
             "paper-account inspection received a naive observation timestamp")

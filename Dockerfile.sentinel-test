@@ -138,10 +138,13 @@ COPY docker-compose.backtest.yml /work/repo/docker-compose.backtest.yml
 COPY docker-compose.sentinel-backup.yml /work/repo/docker-compose.sentinel-backup.yml
 COPY .dockerignore /work/repo/.dockerignore
 COPY .gitattributes /work/repo/.gitattributes
+COPY .github/CODEOWNERS /work/repo/.github/CODEOWNERS
+COPY .github/workflows/sentinel-publish.yml /work/repo/.github/workflows/sentinel-publish.yml
 COPY .github/workflows/sentinel-safety.yml /work/repo/.github/workflows/sentinel-safety.yml
 COPY .env.example /work/repo/.env.example
 COPY Makefile /work/repo/Makefile
 COPY README.md /work/repo/README.md
+COPY docs/f92c0cc-safety-reconstruction.md /work/repo/docs/f92c0cc-safety-reconstruction.md
 COPY docs/main-review-remediation.md /work/repo/docs/main-review-remediation.md
 COPY docs/sentinel-deployment.md /work/repo/docs/sentinel-deployment.md
 COPY docs/sentinel-paper-activation.md /work/repo/docs/sentinel-paper-activation.md

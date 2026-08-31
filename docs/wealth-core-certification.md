@@ -7,6 +7,16 @@ docs/wealth-core-test-rewrite.md (which narrates how the suite got here) because
 a certification record has to be readable as a claim about the SYSTEM, not about
 the work.
 
+**Post-f92c0cc contract hardening 2026-08-30:** the held-security missing-close
+repair is now reflected in the public type: `SecurityBar.closes` is
+`Sequence[float | None]`, and every signal boundary rejects a missing or
+non-finite arithmetic operand as an unavailable signal. Historical feed
+monotonicity now uses an explicit last-session accelerator; the retained session
+map still detects duplicates, while each new replay session performs a
+constant-time ordering check. Legacy state derives the accelerator once during
+restoration. These are contract and complexity corrections and do not change
+the recorded `NO-GO` verdict.
+
 **ACTIONS correction 2026-08-20:** the prior 664,039-row backfill is no longer
 authoritative. Its `(ticker,date,action)` key could represent only 669,801 of
 672,423 distinct rows in the retained current export, losing 2,622 rows across

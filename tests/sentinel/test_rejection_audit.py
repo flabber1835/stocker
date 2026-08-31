@@ -563,11 +563,11 @@ class TestTheCertifiedPostgresIsAGateNotAWarning:
 
     def parse(self, argv, monkeypatch, capsys, rec):
         import sentinel.__main__ as M
-        from sentinel import identity as ident
+        from sentinel import _main_impl, identity as ident
 
         monkeypatch.setattr(ident, "rehearsal_identity",
                             lambda *a, **kw: rec)
-        monkeypatch.setattr(M, "EXIT_NOT_ESTABLISHED", 2)
+        monkeypatch.setattr(_main_impl, "EXIT_NOT_ESTABLISHED", 2)
 
         class _Cfg:
             database_url = "postgresql://x/y"

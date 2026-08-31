@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from datetime import date, datetime
 from enum import Enum
 from typing import Any, Mapping
@@ -26,7 +27,35 @@ class StaleLeaderRefused(AutomationRefused):
     """The caller no longer owns the current live fencing token."""
 
 
-class NonRetryableCallbackRefused(AutomationRefused):
+class TransientInfrastructureFailure(AutomationRefused):
+    """An explicitly classified temporary dependency failure."""
+
+
+class PermanentOperationalRefusal(AutomationRefused):
+    """An expected operational refusal that requires durable blocking."""
+
+
+class DataIntegrityFailure(PermanentOperationalRefusal):
+    """Evidence is missing, contradictory, or malformed."""
+
+
+class HumanInterventionRequired(PermanentOperationalRefusal):
+    """A safe continuation requires an explicit operator action."""
+
+
+class SoftwareDefect(PermanentOperationalRefusal):
+    """An unexpected programming or invariant failure."""
+
+
+class SupervisorIntegrityFailure(SoftwareDefect):
+    """The worker supervisor can no longer prove its process boundaries."""
+
+
+class CallbackDeadlineExceeded(SoftwareDefect):
+    """A callback exceeded its certified liveness boundary."""
+
+
+class NonRetryableCallbackRefused(PermanentOperationalRefusal):
     """An injected authority or integrity boundary requires an operator."""
 
 
@@ -79,6 +108,11 @@ class AutomationConfig(_FrozenModel):
     retry_max_seconds: int = Field(default=900, ge=1)
     alert_claim_seconds: int = Field(default=60, ge=3)
     alert_max_attempts: int = Field(default=8, ge=1)
+    refresh_max_attempts: int = Field(default=8, ge=1)
+    preflight_recover_max_attempts: int = Field(default=8, ge=1)
+    prepare_max_attempts: int = Field(default=8, ge=1)
+    execute_max_attempts: int = Field(default=8, ge=1)
+    recover_max_attempts: int = Field(default=8, ge=1)
 
     @model_validator(mode="after")
     def _coherent_intervals(self) -> "AutomationConfig":
@@ -303,9 +337,57 @@ class CycleRecord(_FrozenModel):
     completed_at: datetime | None = None
 
 
+class CancellationAuthority:
+    """Revocable authority carried through thread and process boundaries."""
+
+    def __init__(self) -> None:
+        self._cancelled = threading.Event()
+        self._process_cancelled: Any | None = None
+        self._reason = ""
+
+    @property
+    def cancelled(self) -> bool:
+        return (
+            self._cancelled.is_set()
+            or self._process_cancelled is not None
+            and self._process_cancelled.is_set()
+        )
+
+    @property
+    def reason(self) -> str:
+        return self._reason
+
+    def cancel(self, reason: str) -> None:
+        self._reason = str(reason)
+        self._cancelled.set()
+        if self._process_cancelled is not None:
+            self._process_cancelled.set()
+
+    def bind_process_event(self, event: Any) -> None:
+        """Attach the supervisor-owned process-shared revocation primitive."""
+        if self._process_cancelled is not None:
+            raise RuntimeError("callback cancellation already has a process event")
+        self._process_cancelled = event
+        if self._cancelled.is_set():
+            event.set()
+
+    def require_active(self) -> None:
+        if self.cancelled:
+            raise StaleLeaderRefused(
+                self.reason or "callback authority has been cancelled")
+
+
 class CycleContext(_FrozenModel):
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, arbitrary_types_allowed=True)
+
     cycle: CycleRecord
     permit: LeaderPermit
+    cancellation: CancellationAuthority = Field(
+        default_factory=CancellationAuthority)
+
+    def require_active(self) -> None:
+        self.cancellation.require_active()
 
 
 class PrepareResult(_FrozenModel):
@@ -427,6 +509,10 @@ __all__ = [
     "DispatchResult", "ExecuteDisposition", "ExecuteResult",
     "ImmutableAlertChanged", "ImmutableCycleChanged",
     "InvalidCycleTransition", "LeaderPermit", "MissingAutomationState",
-    "NonRetryableCallbackRefused", "PrepareResult", "RefreshResult", "SessionSchedule",
+    "CallbackDeadlineExceeded", "CancellationAuthority", "DataIntegrityFailure",
+    "HumanInterventionRequired", "NonRetryableCallbackRefused",
+    "PermanentOperationalRefusal", "PrepareResult", "RefreshResult",
+    "SessionSchedule", "SoftwareDefect", "SupervisorIntegrityFailure",
+    "TransientInfrastructureFailure",
     "StaleLeaderRefused", "TickAction", "TickResult",
 ]

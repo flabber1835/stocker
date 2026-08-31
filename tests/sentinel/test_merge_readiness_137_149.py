@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from sentinel import binding, schema
+from sentinel import _main_impl, binding, schema
 import sentinel.__main__ as sentinel_cli
 from sentinel.automation import store as automation_store
 from sentinel.automation.model import AutomationConfig, ControlBinding
@@ -56,14 +56,14 @@ def test_137_candidate_survives_more_than_five_minutes_of_build_time(
         def close(self):
             return None
 
-    monkeypatch.setattr(sentinel_cli, "datetime", Clock)
+    monkeypatch.setattr(_main_impl, "datetime", Clock)
     monkeypatch.setattr(feed_store, "connect", lambda _dsn: Conn())
     monkeypatch.setattr(schema, "require_runtime_schema", lambda _conn: None)
     monkeypatch.setattr(
-        sentinel_cli, "_closed_preview_frontier",
+        _main_impl, "_closed_preview_frontier",
         lambda _conn: (SimpleNamespace(ready=True), "2026-08-14"))
     monkeypatch.setattr(
-        sentinel_cli, "_current_system_identities",
+        _main_impl, "_current_system_identities",
         lambda: ({"runtime": 1}, {"strategy": 1}))
     monkeypatch.setattr(
         automation_runtime, "config_from_env",

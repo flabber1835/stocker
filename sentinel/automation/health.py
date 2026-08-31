@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 
 from sentinel.automation import store
 from sentinel.automation.model import MissingAutomationState
+from sentinel.execution import journal
 
 
 class AutomationHealth(BaseModel):
@@ -46,6 +47,12 @@ class AutomationHealth(BaseModel):
     next_wake_at: datetime | None = None
     latest_failure_code: str | None = None
     latest_failure_detail: str | None = None
+    latest_attempt_count: int | None = None
+    latest_phase_attempt_count: int | None = None
+    first_failure_at: datetime | None = None
+    latest_failure_at: datetime | None = None
+    exception_fingerprint: str | None = None
+    terminal_reason: str | None = None
     last_clean_reconciliation_id: str | None = None
     broker_outcome_unresolved: int = 0
     pending_alerts: int = 0
@@ -87,6 +94,31 @@ def read_health(conn) -> AutomationHealth:
             healthy=False, installed=True, operational_ready=False,
             policy_state="CORRUPT", reason=str(exc))
 
+    try:
+        observation_issues = journal.observation_integrity_issues(conn)
+    except Exception as exc:                                  # noqa: BLE001
+        conn.rollback()
+        return AutomationHealth(
+            healthy=False, installed=True, operational_ready=False,
+            policy_state="UNCERTIFIABLE_OBSERVATIONS",
+            enabled=control.enabled,
+            kill_switch_engaged=control.kill_switch_engaged,
+            control_generation=control.generation,
+            reason=("broker observation integrity gate failed: "
+                    f"{type(exc).__name__}: {exc}"))
+    if observation_issues:
+        conn.rollback()
+        detail = "; ".join(
+            f"{issue.observation_seq}:{','.join(issue.reasons)}"
+            for issue in observation_issues)
+        return AutomationHealth(
+            healthy=False, installed=True, operational_ready=False,
+            policy_state="UNCERTIFIABLE_OBSERVATIONS",
+            enabled=control.enabled,
+            kill_switch_engaged=control.kill_switch_engaged,
+            control_generation=control.generation,
+            reason=f"UNCERTIFIABLE broker observation evidence: {detail}")
+
     with conn.cursor() as cur:
         cur.execute(
             "SELECT holder_id,fence_token,heartbeat_at,expires_at,"
@@ -107,7 +139,7 @@ def read_health(conn) -> AutomationHealth:
 
         cur.execute(
             "SELECT cycle_id,state,next_wake_at,failure_code,failure_detail,"
-            " last_clean_reconciliation_id"
+            " last_clean_reconciliation_id,attempt_count,diagnostic"
             " FROM sentinel_automation_cycles c"
             " WHERE c.control_generation=%s OR EXISTS ("
             " SELECT 1 FROM sentinel_automation_cycle_events e"
@@ -167,6 +199,21 @@ def read_health(conn) -> AutomationHealth:
             claims = json.loads(claims or "{}")
         except (TypeError, json.JSONDecodeError):
             claims = {}
+    cycle_diagnostic = cycle[7] if cycle is not None else {}
+    if not isinstance(cycle_diagnostic, dict):
+        try:
+            cycle_diagnostic = json.loads(cycle_diagnostic or "{}")
+        except (TypeError, json.JSONDecodeError):
+            cycle_diagnostic = {}
+
+    def diagnostic_time(name: str) -> datetime | None:
+        raw = cycle_diagnostic.get(name)
+        if not raw:
+            return None
+        try:
+            return datetime.fromisoformat(str(raw))
+        except ValueError:
+            return None
 
     lease_window_seconds = (
         max(1.0, (expires - heartbeat).total_seconds())
@@ -254,6 +301,15 @@ def read_health(conn) -> AutomationHealth:
         latest_failure_code=cycle[3] if cycle else None,
         latest_failure_detail=cycle[4] if cycle else None,
         last_clean_reconciliation_id=cycle[5] if cycle else None,
+        latest_attempt_count=int(cycle[6]) if cycle else None,
+        latest_phase_attempt_count=(
+            int(cycle_diagnostic["phase_attempt_count"])
+            if cycle_diagnostic.get("phase_attempt_count") is not None
+            else None),
+        first_failure_at=diagnostic_time("first_failure_at"),
+        latest_failure_at=diagnostic_time("latest_failure_at"),
+        exception_fingerprint=cycle_diagnostic.get("exception_fingerprint"),
+        terminal_reason=cycle_diagnostic.get("terminal_reason"),
         broker_outcome_unresolved=broker_outcome_unresolved,
         pending_alerts=pending,
         dead_letter_alerts=dead,

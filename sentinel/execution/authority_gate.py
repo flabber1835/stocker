@@ -29,7 +29,9 @@ from sentinel.execution.contract import (
     BrokerAccountIdentity,
     BrokerAccountSnapshot,
     BrokerCloseValuation,
+    BrokerExactOrderLookup,
     BrokerFillIntervalEvidence,
+    BrokerObservation,
 )
 from sentinel.execution.guarded import (
     AutomationExecutionGrant,
@@ -251,16 +253,29 @@ def _authority_operation(
     return "PREPARE_READ" if preparing else "EXECUTE_READ"
 
 
-def _result_account(result: object) -> BrokerAccountIdentity | None:
+def _result_accounts(result: object) -> tuple[BrokerAccountIdentity, ...]:
     if isinstance(result, BrokerAccountIdentity):
-        return result
+        return (result,)
     if isinstance(result, BrokerAccountSnapshot):
-        return result.identity
+        return (result.identity,)
     if isinstance(result, BrokerCloseValuation):
-        return result.identity
+        return (result.identity,)
     if isinstance(result, BrokerFillIntervalEvidence):
-        return result.identity
-    return None
+        return (result.identity,)
+    if isinstance(result, BrokerObservation):
+        if result.account_identity is None:
+            raise AuthorityRefused(
+                "broker observation omitted typed account provenance")
+        return (result.account_identity,)
+    if isinstance(result, BrokerExactOrderLookup):
+        return (result.identity_before, result.identity_after)
+    return ()
+
+
+def _result_account(result: object) -> BrokerAccountIdentity | None:
+    """Compatibility projection for callers that expect one identity."""
+    accounts = _result_accounts(result)
+    return accounts[0] if len(accounts) == 1 else None
 
 
 def build_fresh_execution_guard(
@@ -329,8 +344,9 @@ def build_fresh_execution_guard(
                 else:
                     concrete_cert = authority_check(
                         conn, required_operation=concrete, **kwargs)
-                account = _result_account(result) if result is not None else None
-                if account is not None:
+                accounts = (_result_accounts(result)
+                            if result is not None else ())
+                for account in accounts:
                     expected = getattr(grant, "broker_account_id", None)
                     if isinstance(grant, PaperPreparationGrant):
                         expected = grant.expected_account

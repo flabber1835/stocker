@@ -32,6 +32,7 @@ SUPPORTED_PUBLIC_ROOT_BINDINGS = {
 def test_monolithic_paper_module_was_removed():
     assert not (ROOT / "sentinel" / "paper.py").exists()
     assert PACKAGE.is_dir()
+    assert not (PACKAGE / "compat.py").exists()
 
 
 def test_package_initializer_is_declarative():

@@ -58,6 +58,7 @@ from sentinel.core.loader import (  # noqa: E402
 from sentinel.core.production import PublishedSession, SessionState  # noqa: E402
 from sentinel.execution import (  # noqa: E402
     alpaca,
+    certification,
     journal,
     preopen_authority,
     target_reprojection,
@@ -181,7 +182,8 @@ def conn(pg):
 def simulator_is_certified(monkeypatch):
     """Certification is covered elsewhere; these tests exercise orchestration."""
     monkeypatch.setattr(
-        paper_inspection, "require_certified", lambda _adapter: None)
+        paper_inspection, "require_certified",
+        certification.require_certified_adapter)
     monkeypatch.setattr(paper_preparation, "load_controller", lambda: CONFIG)
     monkeypatch.setattr(
         paper_preparation, "runtime_strategy_identity",
@@ -713,7 +715,8 @@ class _MigrationBridge:
         return outcome
 
     async def find_liquidation(self, client_key):
-        order = await self.execution_broker.find_by_client_key(client_key)
+        lookup = await self.execution_broker.find_by_client_key(client_key)
+        order = lookup.order
         if order is None:
             return None
         return OpenOrder(

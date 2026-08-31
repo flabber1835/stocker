@@ -34,7 +34,10 @@ from __future__ import annotations
 
 from sentinel import backup_guard, paper, shadow_runtime, shadow_segments
 from sentinel import automation_runtime as base
-from sentinel.automation.model import NonRetryableCallbackRefused
+from sentinel.automation.model import (
+    NonRetryableCallbackRefused,
+    TransientInfrastructureFailure,
+)
 
 
 # Exact messages are produced only by the first-plan pre-adoption gates.
@@ -194,6 +197,8 @@ class ProductionAutomation(base.ProductionAutomation):
                             "post-gap PAPER sizing is waiting for prior broker "
                             "orders to settle or be explicitly resolved") from exc
                     raise
+        except paper.PaperRetryableRefused as exc:
+            raise TransientInfrastructureFailure(str(exc)) from exc
         finally:
             dual_plan_authority._REGENESIS_FLAT_SIZING_REQUIRED.reset(token)
 
