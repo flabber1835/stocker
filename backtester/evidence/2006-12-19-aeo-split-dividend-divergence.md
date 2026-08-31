@@ -74,6 +74,25 @@ An exact regression test is added at:
 
 The regression locks both the transformed-source ordering and the exact AEO economic boundary (`$4437.3375`).
 
+## Retry-4 harness finding
+
+Workflow run `33344830842` did **not** reach the economic replay. All regression tests, including the exact AEO test, passed, but the runtime overlay failed while generating the canonical-PIT research source:
+
+`RuntimeError: remove pre-split dividend entitlement capture: expected one source seam, found 0`
+
+The reason was transform ordering, not strategy logic. Without `CANONICAL_PIT_DATASET` set, the retained source still contains the ordinary price-factor split loop. During the actual certification run, the canonical transform replaces that split loop with a direct `canonicalsplit` loop before the AEO overlay is applied. The first overlay version incorrectly matched the ordinary split-loop interior.
+
+The corrected overlay now treats `prior_qty` as its own unique economic seam: it removes that standalone capture and reinserts it at the stable `dayact` boundary, which follows both the ordinary and canonical split implementations and precedes all same-open exit/buy processing. A dedicated regression now covers the canonical `canonicalsplit` variant as well as the ordinary generated form.
+
+Retry-4 artifact:
+
+- workflow run: `33344830842`
+- backtester SHA: `50690f63051e735532bec5d6dfe415e28a92cc87`
+- artifact ID: `9741662646`
+- artifact ZIP SHA256: `8a1a884b041e9eec90fa7c9825a910c38e916b165f9b4e17f3e5cf7befe359f7`
+
+This retry is classified as a harness/source-transform failure; it produced no new research/production economic divergence evidence.
+
 ## Certification consequence
 
 This finding is a retained research backtester event-ordering defect, not a canonical PIT data defect. The bounded 2006-2007 research/production equivalence replay must be rerun after the repair. If another divergence remains, the next first divergence becomes the new investigation boundary.
