@@ -1,0 +1,102 @@
+name: Backtester - fixed-forward ranking adjudication
+run-name: Fixed-forward ranking adjudication — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/causal-20y-certification]
+    paths:
+      - .github/workflows/backtester-fixed-forward-ranking-adjudication.yml
+
+permissions:
+  actions: read
+  contents: read
+  packages: read
+
+jobs:
+  adjudicate:
+    name: Independently adjudicate fixed-forward causal signal ranking
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      EXPECTED_DATASET_HASH: f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b
+      SOURCE_DIAGNOSTIC_ARTIFACT_ID: '9765650269'
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - name: Check out adjudicator
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-fixed-forward-ranking-adjudication.yml
+            /backtester/adjudicate_fixed_forward_ranking_2006_08_08.py
+            /backtester/data/canonical-pit-20y.json
+
+      - name: Recover completed production/research ranking evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p source-diagnostic
+          curl --fail --location \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_DIAGNOSTIC_ARTIFACT_ID}/zip" \
+            --output source-diagnostic.zip
+          unzip -q source-diagnostic.zip -d source-diagnostic
+          LOG=$(find source-diagnostic -type f -name diagnostic.log -print -quit)
+          test -n "${LOG}"
+          grep -F '[RANKING DIAGNOSTIC] role=production ' "${LOG}" >/dev/null
+          grep -F '[RANKING DIAGNOSTIC] role=research ' "${LOG}" >/dev/null
+          echo "DIAGNOSTIC_LOG=${GITHUB_WORKSPACE}/${LOG}" >> "${GITHUB_ENV}"
+
+      - name: Pull immutable canonical PIT package
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          POINTER=backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          POINTER_HASH=$(python -c "import json; print(json.load(open('${POINTER}'))['dataset_hash'])")
+          test "${POINTER_HASH}" = "${EXPECTED_DATASET_HASH}"
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          CONTAINER=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p backtester-results/canonical-pit-20y
+          docker cp "${CONTAINER}:/canonical-pit/." backtester-results/canonical-pit-20y
+          docker rm "${CONTAINER}"
+          trap - EXIT
+          OBSERVED=$(python -c "import json; print(json.load(open('backtester-results/canonical-pit-20y/manifest.json'))['dataset_hash'])")
+          test "${OBSERVED}" = "${EXPECTED_DATASET_HASH}"
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/backtester-results/canonical-pit-20y" >> "${GITHUB_ENV}"
+
+      - name: Run independent 80-digit fixed-forward adjudication
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p fixed-forward-adjudication
+          python backtester/adjudicate_fixed_forward_ranking_2006_08_08.py \
+            --dataset "${CANONICAL_PIT_DATASET}" \
+            --diagnostic-log "${DIAGNOSTIC_LOG}" \
+            --output fixed-forward-adjudication/result.json \
+            2>&1 | tee fixed-forward-adjudication/run.log
+          grep -F '[FIXED-FORWARD ADJUDICATION] verdict=' fixed-forward-adjudication/run.log
+          grep -F '[FIXED-FORWARD ORDER]' fixed-forward-adjudication/run.log
+          grep -F '[FIXED-FORWARD WITNESS]' fixed-forward-adjudication/run.log
+
+      - name: Upload adjudication evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fixed-forward-ranking-adjudication-2006-08-08
+          path: fixed-forward-adjudication/**
+          if-no-files-found: error
+          retention-days: 90
