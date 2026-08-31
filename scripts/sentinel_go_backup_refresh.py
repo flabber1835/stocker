@@ -12,9 +12,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import hmac
+from pathlib import Path
 import re
 import sys
 from typing import Mapping, Optional, Sequence
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 import sentinel_go_lock as go_lock
 import sentinel_go_phase_entry as phase
