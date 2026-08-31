@@ -3,9 +3,16 @@
   "canonical_dataset_hash": "08db292b78f0968b149ec033671b5c5df62ad98a4b2692bcc5dfa575585fa4e6",
   "production_source_sha": "887f479b15ad861313da666ad698034d3847121c",
   "production_cooldown_issue": 294,
-  "retry": 4,
-  "overlay_fix": "bounded semantic anchors around strict-PIT generated terminal-event seam plus post-split prior-close dividend entitlement capture",
+  "retry": 5,
+  "overlay_fix": "stable standalone prior_qty seam moved to the dayact boundary so both ordinary price-factor and canonicalsplit generated split loops are supported fail-closed",
   "wrapper_fix": "bootstrap repository root before importing backtester package",
+  "retry_4_harness_failure": {
+    "run_id": 33344830842,
+    "artifact_id": 9741662646,
+    "artifact_zip_sha256": "8a1a884b041e9eec90fa7c9825a910c38e916b165f9b4e17f3e5cf7befe359f7",
+    "classification": "source-transform harness failure before economic replay",
+    "cause": "AEO overlay matched the ordinary split-loop interior, but canonical PIT replaces that loop with canonicalsplit before runtime overlay installation"
+  },
   "research_terminal_divergence": {
     "first_session": "2006-10-26",
     "security_id": "659080056497857391",
