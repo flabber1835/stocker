@@ -8,16 +8,16 @@
   "warmup_start": "2006-01-03",
   "measurement_start": "2006-07-31",
   "end": "2026-07-31",
-  "retry": 3,
+  "retry": 4,
   "previous_failure": {
-    "run_id": 33352955990,
-    "job_id": 99369666726,
-    "classification": "fail-closed production accounting guard during the 2008 segment",
-    "cause": "PHRM security 705177744622024105 had an incomplete canonical cash-merger event, leaving its 2008-03-24 opening value unresolved during an exposure transition"
+    "run_id": 33362496999,
+    "job_id": 99492463891,
+    "classification": "workflow boundary environment handoff failure before the 2006 production replay",
+    "cause": "the boundary resolver appended YEAR_OUTPUT_ROOT and CERTIFICATION_SEGMENT_END_SESSION to GITHUB_ENV and then consumed them in the same shell step before GitHub exported them"
   },
   "correction": {
     "terminal_terms_sha256": "cfd65c78317abd1671632b2a730507634cf036e798b0ade89be68194fda430dc",
-    "rule": "replace only the incomplete 2008-03-07 PHRM canonical event with authenticated $25 cash plus 0.8367 CELG terms; keep the exact-next-open guard fail-closed",
-    "verification": "exact call-order-preserving resume passed the former failure boundary and checkpointed through 2008-03-31"
+    "rule": "materialize annual boundary variables into an attempt-local env file, persist them to GITHUB_ENV for later steps, and source the same file for immediate same-step use",
+    "verification": "the 2006 boundary step can now create its output directory and workflow-attempt evidence using the exact resolved segment boundary"
   }
 }
