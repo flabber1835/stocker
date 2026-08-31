@@ -6,6 +6,14 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+PINNED_MAIN_ROOT = ROOT / "main-src"
+if PINNED_MAIN_ROOT.is_dir() and str(PINNED_MAIN_ROOT) not in sys.path:
+    sys.path.insert(0, str(PINNED_MAIN_ROOT))
 
 import pandas as pd
 
