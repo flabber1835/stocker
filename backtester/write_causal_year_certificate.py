@@ -25,6 +25,50 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _verify_sha256sums(bundle_root: Path) -> None:
+    """Authenticate the finalized child bundle using its declared checksum file."""
+    sums_path = bundle_root / "SHA256SUMS.txt"
+    if not sums_path.is_file():
+        raise RuntimeError(f"bundle checksum file missing: {sums_path}")
+    seen: set[str] = set()
+    for line_number, raw in enumerate(
+        sums_path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        line = raw.strip()
+        if not line:
+            continue
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            raise RuntimeError(
+                f"malformed checksum line {line_number} in {sums_path}"
+            )
+        expected, name = parts
+        name = name.strip().lstrip("*")
+        if (
+            len(expected) != 64
+            or any(ch not in "0123456789abcdef" for ch in expected.lower())
+            or not name
+            or "/" in name
+            or "\\" in name
+            or name in {".", ".."}
+            or name in seen
+        ):
+            raise RuntimeError(
+                f"invalid checksum entry on line {line_number} in {sums_path}"
+            )
+        path = bundle_root / name
+        if not path.is_file():
+            raise RuntimeError(f"checksummed bundle member missing: {path}")
+        observed = _sha256(path)
+        if observed != expected.lower():
+            raise RuntimeError(
+                f"bundle checksum mismatch for {path}: {observed} != {expected.lower()}"
+            )
+        seen.add(name)
+    if not seen:
+        raise RuntimeError(f"bundle checksum file is empty: {sums_path}")
+
+
 def _json_hash(value: object) -> str:
     blob = json.dumps(
         value,
@@ -133,6 +177,12 @@ def main() -> int:
         if authority.get("fallbacks", {}).get("security_type_unknown") != "ineligible":
             raise RuntimeError(f"{role} security-type fallback is not fail-closed")
 
+    # Production has both a manifest and SHA256SUMS contract. Retained research
+    # intentionally has SHA256SUMS only. Validate each child's actual finalized
+    # checksum contract instead of requiring a nonexistent research manifest.
+    _verify_sha256sums(root / "production")
+    _verify_sha256sums(root / "research")
+
     production_daily = pd.read_csv(
         root / "production" / "daily.csv.gz", compression="gzip", low_memory=False
     )
@@ -193,7 +243,6 @@ def main() -> int:
         "production_daily": _sha256(root / "production" / "daily.csv.gz"),
         "research_daily": _sha256(root / "research" / "daily.csv.gz"),
         "production_manifest": _sha256(root / "production" / "manifest.json"),
-        "research_manifest": _sha256(root / "research" / "manifest.json"),
         "production_sha256sums": _sha256(root / "production" / "SHA256SUMS.txt"),
         "research_sha256sums": _sha256(root / "research" / "SHA256SUMS.txt"),
         "production_summary": _sha256(root / "production" / "summary.json"),
