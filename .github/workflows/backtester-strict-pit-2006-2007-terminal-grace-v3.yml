@@ -67,6 +67,7 @@ jobs:
             /tests/backtester/test_canonical_pit_dataset.py
             /tests/backtester/test_research_review_basis.py
             /tests/backtester/test_production_cooldown_age_zero.py
+            /tests/backtester/test_research_split_dividend_ordering.py
             /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
             /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
             /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
@@ -146,6 +147,7 @@ jobs:
           python -m unittest tests.backtester.test_canonical_pit_dataset -v
           python -m unittest tests.backtester.test_research_review_basis -v
           python -m unittest tests.backtester.test_production_cooldown_age_zero -v
+          python -m unittest tests.backtester.test_research_split_dividend_ordering -v
           python - <<'PY'
           from pathlib import Path
           import backtester.run_research_strict_pit_20y as base
@@ -157,7 +159,10 @@ jobs:
           assert "missing_sessions" in text
           assert "book.cash+=_slot.qty*float(_px)" in text
           assert "book.cash+=_slot.qty*float(_px)*(1-COST)" not in text
-          print('RESEARCH TERMINAL GRACE OVERLAY PASS')
+          entitlement="prior_qty={s.tid:s.qty for s in book.slots if s.held()}"
+          split_tail="if finite(factor) and factor>0: last_factor[tid]=factor"
+          assert text.index(split_tail) < text.index(entitlement) < text.index("dayact=actions.get(date,{})")
+          print('RESEARCH TERMINAL GRACE + SPLIT-DIVIDEND OVERLAY PASS')
           PY
 
       - name: Pull and certify stored canonical 2006-2007 PIT dataset
