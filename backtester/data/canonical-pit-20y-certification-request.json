@@ -55,6 +55,13 @@
       "result": "failed closed in 2006 strong equivalence after both economic paths completed",
       "economic_sessions_processed": 250,
       "reason": "first exact ranking-hash divergence on 2006-08-08; independent 80-digit adjudication proved production follows the fixed-forward causal signal contract while retained research used current-vintage vendor-adjusted SEP.close"
+    },
+    {
+      "generation": 3,
+      "run_id": 33415654354,
+      "result": "2006 economic and strong equivalence passed; annual certificate issuance failed",
+      "economic_sessions_processed": 251,
+      "reason": "certificate incorrectly required research/manifest.json even though the retained research bundle is finalized by SHA256SUMS.txt and does not emit a manifest; checkpoint and evidence artifact were preserved"
     }
   ],
   "canonical_dataset": {
@@ -110,5 +117,5 @@
     "each annual production checkpoint is content-addressed and resumes only from the immediately preceding generation-3 certificate",
     "final content-addressed causal certificate is emitted only after the contiguous 2006-2026 generation-3 chain passes"
   ],
-  "launch": 6
+  "launch": 7
 }
