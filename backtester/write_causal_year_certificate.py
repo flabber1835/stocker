@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""Issue one content-addressed annual link in the 20-year causal certificate chain."""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+
+import pandas as pd
+
+SCHEMA = "backtester.causal-year-certificate/1"
+FINAL_END = "2026-07-31"
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _json_hash(value: object) -> str:
+    blob = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode()
+    return hashlib.sha256(blob).hexdigest()
+
+
+def _load(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output-root", type=Path, required=True)
+    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--year", type=int, required=True)
+    parser.add_argument("--segment-end", required=True)
+    parser.add_argument("--source-sha", required=True)
+    parser.add_argument("--dataset-hash", required=True)
+    parser.add_argument("--previous-certificate", type=Path)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+
+    root = args.output_root.resolve()
+    checkpoint_path = args.checkpoint.resolve()
+    if not checkpoint_path.is_file():
+        raise RuntimeError(f"production checkpoint missing: {checkpoint_path}")
+
+    checkpoint = _load(checkpoint_path)
+    consumption = _load(root / "canonical_input_consumption_audit.json")
+    progress = _load(root / "certification_progress_audit.json")
+    strong = _load(root / "strong_equivalence_audit.json")
+    production_summary = _load(root / "production" / "summary.json")
+    research_summary = _load(root / "research" / "summary.json")
+    production_authority = _load(root / "production" / "metadata_authority_audit.json")
+    research_authority = _load(root / "research" / "metadata_authority_audit.json")
+
+    if checkpoint.get("schema") != "backtester.production-year-checkpoint/1":
+        raise RuntimeError("unexpected production checkpoint schema")
+    if checkpoint.get("backtester_sha") != args.source_sha:
+        raise RuntimeError("checkpoint source SHA mismatch")
+    if checkpoint.get("dataset_hash") != args.dataset_hash:
+        raise RuntimeError("checkpoint dataset hash mismatch")
+    if checkpoint.get("end_session") != args.segment_end:
+        raise RuntimeError("checkpoint segment-end mismatch")
+    if consumption.get("dataset_hash") != args.dataset_hash:
+        raise RuntimeError("canonical input audit dataset hash mismatch")
+    if not consumption.get("per_session_hashes_identical"):
+        raise RuntimeError("research and production canonical session hashes differ")
+    if progress.get("first_divergence") is not None:
+        raise RuntimeError("NAV divergence remains in annual causal segment")
+    if strong.get("first_divergence") is not None:
+        raise RuntimeError("internal strategy-state divergence remains in annual causal segment")
+    if production_summary.get("canonical_pit_dataset_hash") != args.dataset_hash:
+        raise RuntimeError("production summary dataset hash mismatch")
+    if research_summary.get("canonical_pit_dataset_hash") != args.dataset_hash:
+        raise RuntimeError("research summary dataset hash mismatch")
+    for role, authority in (
+        ("production", production_authority),
+        ("research", research_authority),
+    ):
+        if authority.get("role") != role:
+            raise RuntimeError(f"{role} metadata authority role mismatch")
+        if authority.get("current_SHARADAR_TICKERS_economically_active_fields") != []:
+            raise RuntimeError(f"{role} retained current TICKERS economic authority")
+        if authority.get("fallbacks", {}).get("security_type_unknown") != "ineligible":
+            raise RuntimeError(f"{role} security-type fallback is not fail-closed")
+
+    production_daily = pd.read_csv(
+        root / "production" / "daily.csv.gz", compression="gzip", low_memory=False
+    )
+    research_daily = pd.read_csv(
+        root / "research" / "daily.csv.gz", compression="gzip", low_memory=False
+    )
+    if production_daily.empty or research_daily.empty:
+        raise RuntimeError("annual causal daily evidence is empty")
+    if str(production_daily.iloc[-1]["date"])[:10] != args.segment_end:
+        raise RuntimeError("production daily evidence ends at wrong session")
+    if str(research_daily.iloc[-1]["date"])[:10] != args.segment_end:
+        raise RuntimeError("research daily evidence ends at wrong session")
+
+    previous = None
+    previous_chain_hash = None
+    if args.previous_certificate is not None:
+        previous = _load(args.previous_certificate.resolve())
+        if previous.get("schema") != SCHEMA:
+            raise RuntimeError("previous annual certificate schema mismatch")
+        if int(previous.get("year", -1)) != args.year - 1:
+            raise RuntimeError("previous annual certificate year is not contiguous")
+        if previous.get("source_sha") != args.source_sha:
+            raise RuntimeError("previous annual certificate source SHA mismatch")
+        if previous.get("dataset_hash") != args.dataset_hash:
+            raise RuntimeError("previous annual certificate dataset hash mismatch")
+        previous_chain_hash = str(previous.get("chain_hash") or "")
+        if len(previous_chain_hash) != 64:
+            raise RuntimeError("previous annual certificate lacks a valid chain hash")
+
+    evidence_hashes = {
+        "checkpoint": _sha256(checkpoint_path),
+        "checkpoint_sha256_sidecar": _sha256(Path(str(checkpoint_path) + ".sha256")),
+        "canonical_input_consumption_audit": _sha256(
+            root / "canonical_input_consumption_audit.json"
+        ),
+        "certification_progress_audit": _sha256(
+            root / "certification_progress_audit.json"
+        ),
+        "strong_equivalence_audit": _sha256(root / "strong_equivalence_audit.json"),
+        "production_daily": _sha256(root / "production" / "daily.csv.gz"),
+        "research_daily": _sha256(root / "research" / "daily.csv.gz"),
+        "production_summary": _sha256(root / "production" / "summary.json"),
+        "research_summary": _sha256(root / "research" / "summary.json"),
+    }
+
+    body = {
+        "schema": SCHEMA,
+        "status": "PASS",
+        "year": args.year,
+        "segment_end": args.segment_end,
+        "source_sha": args.source_sha,
+        "production_main_sha": checkpoint.get("main_sha"),
+        "dataset_hash": args.dataset_hash,
+        "github_run_id": os.environ.get("GITHUB_RUN_ID"),
+        "previous_certificate_hash": (
+            None if previous is None else previous.get("certificate_hash")
+        ),
+        "previous_chain_hash": previous_chain_hash,
+        "sessions_compared": int(strong.get("sessions_compared", 0)),
+        "production_rows": int(len(production_daily)),
+        "research_rows": int(len(research_daily)),
+        "last_session_hash": checkpoint.get("session_hash"),
+        "canonical_sessions_identical": True,
+        "nav_equivalent": True,
+        "internal_state_equivalent": True,
+        "causal_metadata_fail_closed": True,
+        "evidence_sha256": evidence_hashes,
+        "complete_20_year_certificate": (
+            args.year == 2026 and args.segment_end == FINAL_END
+        ),
+    }
+    certificate_hash = _json_hash(body)
+    chain_material = (previous_chain_hash or "GENESIS") + "\n" + certificate_hash
+    chain_hash = hashlib.sha256(chain_material.encode()).hexdigest()
+    certificate = {
+        **body,
+        "certificate_hash": certificate_hash,
+        "chain_hash": chain_hash,
+    }
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(
+        json.dumps(certificate, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(json.dumps(certificate, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
