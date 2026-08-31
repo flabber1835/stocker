@@ -54,11 +54,8 @@ def test_cache_rejects_extra_top_level_field_even_with_recomputed_hash(
         xfailed=0,
         xpassed=0,
         exit_code=0,
-        suites_completed=6,
-        auxiliary_image_digests=(
-            "sha256:" + "4" * 64,
-            "sha256:" + "5" * 64,
-        ),
+        suites_completed=3,
+        auxiliary_image_digests=(),
         non_forward_historical_exclusions=(
             controller.go.NON_FORWARD_HISTORICAL_EXCLUSIONS),
     )
@@ -88,11 +85,8 @@ def test_cache_rejects_test_summary_field_drift_before_image_inspection(
         "xfailed": 0,
         "xpassed": 0,
         "exit_code": 0,
-        "suites_completed": 6,
-        "auxiliary_image_digests": [
-            "sha256:" + "4" * 64,
-            "sha256:" + "5" * 64,
-        ],
+        "suites_completed": 3,
+        "auxiliary_image_digests": [],
         "non_forward_historical_exclusions": list(
             controller.go.NON_FORWARD_HISTORICAL_EXCLUSIONS),
         "complete": True,

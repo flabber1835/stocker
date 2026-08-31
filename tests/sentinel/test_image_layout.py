@@ -470,21 +470,6 @@ class TestTheBuildContextCarriesWhatTheDockerfilesCOPY:
             "Dockerfile.sentinel-test should COPY tests/ — if that changed, "
             "this whole class needs re-pointing")
 
-    def test_a_full_checkout_covers_the_SERVICE_dockerfiles_too(self):
-        """Where the host runs, the sweep must be the wide one.
-
-        Stated as a property of the layout rather than a skip: either the
-        service tree is present and every one of its Dockerfiles was swept, or
-        this is the image, where that tree is deliberately absent."""
-        if not (ROOT / "services").is_dir():
-            assert os.environ.get("SENTINEL_IN_IMAGE") == "1", (
-                "no services/ tree and not the certified image — the sweep is "
-                "narrower than the checkout it is meant to cover")
-            return
-        seen = {df for df, _ in self.copy_sources()}
-        for df in ROOT.glob("services/*/Dockerfile*"):
-            assert df in seen, df
-
     def test_no_dockerfile_copies_an_ignored_path(self):
         broken = [(str(df.relative_to(ROOT)), src, self.excluded_by(src))
                   for df, src in self.copy_sources()
@@ -569,13 +554,11 @@ class TestTheCleanCertificationImageInspectionBundle:
     REPO_INPUTS = {
         ".dockerignore",
         ".env.example",
-        "Dockerfile.base",
         "Dockerfile.sentinel",
         "Dockerfile.sentinel-authorized",
         "Dockerfile.sentinel-test",
         "Makefile",
         "README.md",
-        "docker-compose.backtest.yml",
         "docker-compose.sentinel-automation.yml",
         "docker-compose.sentinel-backup.yml",
         "docker-compose.sentinel.yml",
@@ -589,9 +572,6 @@ class TestTheCleanCertificationImageInspectionBundle:
         "scripts/",
         "sentinel/",
         "shared/",
-        "services/backtester/",
-        "services/bt-data/",
-        "services/bt-engine/",
         "tools/",
     }
     WORK_INPUTS = {
@@ -599,7 +579,6 @@ class TestTheCleanCertificationImageInspectionBundle:
         "scripts/sentinel_feed_gate.py": "/work/scripts/sentinel_feed_gate.py",
         "scripts/sentinel_forward_run.py": "/work/scripts/sentinel_forward_run.py",
         "scripts/sentinel_test_run.py": "/work/scripts/sentinel_test_run.py",
-        "services/backtester/": "/work/services/backtester/",
         "tests/": "/work/tests/",
         "tools/": "/work/tools/",
     }
@@ -819,7 +798,8 @@ def _repo_paths_named_by(tree_dir: str, base: Path) -> list[tuple[str, int, str,
             if hit is not None:
                 out.append((rel_f, i, hit[1], hit[0]))
     # The roots themselves are not COPY sources and need no checking.
-    return [(f, n, p, r) for f, n, p, r in out if p not in ("", ".", "./")]
+    return [(f, n, p, r) for f, n, p, r in out
+            if p not in ("", ".", "./", "repo")]
 
 
 class TestEveryRepoPathTheCodeREADS_IsCopiedIn:
@@ -864,9 +844,7 @@ class TestEveryRepoPathTheCodeREADS_IsCopiedIn:
     @staticmethod
     def _covered(rel: str, sources) -> bool:
         """A named path is carried when a COPY source IS it, CONTAINS it, or
-        lies beneath it. The last case is `ROOT / "services"` against
-        `COPY services/bt-data/`: partially present, and the callers that do
-        that already branch on what exists."""
+        lies beneath it."""
         rel = rel.rstrip("/")
         return any(rel == s or rel.startswith(s + "/") or s.startswith(rel + "/")
                    for s in sources)
@@ -972,9 +950,8 @@ class TestEveryRepoPathTheCodeREADS_IsCopiedIn:
 
         Each tree is resolved against ITS OWN root. Checking both against ROOT
         was the second half of the same bug: in the image ROOT is /work/repo,
-        so every path a tests module names — `tools/corpus_parity.py`,
-        `services/backtester/app` — read as missing, because they live under
-        /work. Two roots, and every use of them has to say which.
+        while test-side tools live under /work. Two roots, and every use of
+        them has to say which.
 
         `sentinel/requirements.lock` is exempt: it does not exist until the
         first real build.
@@ -994,7 +971,7 @@ class TestNoRepoFileIsReadThroughROOT:
     """The suite runs in TWO layouts, and one of them is the one that counts.
 
     In a checkout `parents[2]` is the repository. Inside the certified image it
-    is /work — tests, an importable backtester copy, tools, and repo/ — while
+    is /work — tests, tools, and repo/ — while
     the repo SOURCES sit at /work/repo. So `ROOT / "scripts" / "sentinel-certify.sh"`
     reads fine on a developer host and raises FileNotFoundError in the image.
 
@@ -1020,7 +997,7 @@ class TestNoRepoFileIsReadThroughROOT:
             if m:
                 d = m.group(2).strip("/")
                 out.add(d or pathlib.PurePosixPath(m.group(1).strip("/")).name)
-        return {d for d in out if d}
+        return {d for d in out if d not in (".", "./", "repo")}
 
     def repo_dests(self) -> set[str]:
         """Paths that live under /work/repo — must be read through REPO."""
@@ -1032,8 +1009,7 @@ class TestNoRepoFileIsReadThroughROOT:
 
     def test_both_sides_of_the_rule_are_populated(self):
         assert {"scripts", "sentinel", "shared"} <= self.repo_dests()
-        assert any(d.startswith("services/backtester") or d == "tests"
-                   for d in self.work_dests()), self.work_dests()
+        assert "tests" in self.work_dests(), self.work_dests()
 
     def test_no_test_module_reads_a_repo_file_through_ROOT(self):
         import re

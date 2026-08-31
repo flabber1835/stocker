@@ -11,6 +11,32 @@ import platform
 from tools import wealth_core_baseline_run as baseline
 
 
+APPROVED_CERTIFICATION_REVISION = (
+    "7f12174273dfa071a25614d2c4a1be8ebfdfbc3a")
+APPROVED_EXPECTED_HASH_PRODUCER_SHA256 = (
+    "8ea492a9f53d1f3cb6ba28ca3c6f5d50d1471942772b5fa04832fdd7d215c2b4")
+
+
+def external_loader_bundle() -> dict:
+    """Return the loader manifest preserved at the approved certification pin."""
+    sources = {
+        "services/backtester/app/wealth_core_replay.py":
+            "03c966510fe47b6572c6f2c629797e3a898a6ed3ec14114e7d094b92d558142a",
+        "services/backtester/app/wealth_core_replay_impl.py":
+            "2ebce6ca026f944b812ab2b0bf290db5eaa4df7b42a12710b6f3bb41613c2f7d",
+        "shared/stock_strategy_shared/split_reconciliation.py":
+            "a32f6698763bfd110b309fc42d9bb39b1c2e0272bd81e5ff659a5f7a5017dfd7",
+    }
+    payload = {
+        "schema": "wealth_core.canonical-loader-bundle/1",
+        "sources": sources,
+    }
+    payload["sha256"] = hashlib.sha256(json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+        allow_nan=False).encode("ascii")).hexdigest()
+    return payload
+
+
 def complete_expected(value: dict) -> dict:
     """Fill only producer fields needed by the formal baseline contract."""
     from stock_strategy_shared.runtime_identity import wealth_core_baseline_identity

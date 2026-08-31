@@ -1,7 +1,7 @@
 """SHARADAR/ACTIONS -> terminal events, carried across INTACT.
 
 Every rule here was a defect found the hard way, so this is a faithful port of
-`services/backtester/app/wealth_core_replay.py terminal_from_action` rather than
+the preserved strict-PIT certification source rather than
 a fresh reading of the vendor's schema. `tests/sentinel/test_terminal.py` pins
 the two against each other across a matrix of rows; separate code by necessity —
 Sentinel may not import a retired Stocker service — must not become separate

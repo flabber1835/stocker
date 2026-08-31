@@ -23,7 +23,6 @@ from sentinel import authority, binding, schema  # noqa: E402
 from sentinel.feed import store as feed_store  # noqa: E402
 from tools import sentinel_certificate_issuer as issuer  # noqa: E402
 from tools import sentinel_authority_evidence as evidence  # noqa: E402
-from tools import wealth_core_expected_hashes as expected_hash_tool  # noqa: E402
 
 
 NOW = datetime(2026, 8, 13, 12, tzinfo=timezone.utc)
@@ -599,7 +598,9 @@ def _write(path: Path, value, *, canonical=False) -> bytes:
 
 def issuer_fixture(tmp_path: Path, *, wealth_verdict="GO", strict_xfails=0,
                    strict_skips=0,
-                   completed_checks=len(evidence.COMPLETED_CHECK_IDS)):
+                   completed_checks=len(evidence.COMPLETED_CHECK_IDS),
+                   certification_revision=(
+                       formal_baseline.APPROVED_CERTIFICATION_REVISION)):
     from sentinel.controller.frozen_rule import load as load_controller
     from stock_strategy_shared import identity_hashes
     from stock_strategy_shared.wealth_core.hashes import HASH_ORDER
@@ -624,7 +625,7 @@ def issuer_fixture(tmp_path: Path, *, wealth_verdict="GO", strict_xfails=0,
     base_value = {
         "schema": "sentinel.certification_manifest/2",
         "lifecycle": "FINALIZED", "verdict": "PASS", "failures": [],
-        "git_commit": "a" * 40, "identity_hash": sha("1"),
+        "git_commit": certification_revision, "identity_hash": sha("1"),
         "final_corpus_hash": sha("6"),
         "sentinel_source_hash": sha("b"),
         "wealth_core_source_hash": wealth_source,
@@ -671,7 +672,7 @@ def issuer_fixture(tmp_path: Path, *, wealth_verdict="GO", strict_xfails=0,
             "sha256": hashlib.sha256(pre_bytes).hexdigest(),
             "lifecycle": "FROZEN",
             "identity_hash": base_value["identity_hash"],
-            "git_commit": "a" * 40,
+            "git_commit": certification_revision,
             "certification_input_sha256": sha("0"),
             "runtime_image_digest": "sha256:" + sha("d"),
             "test_image_digest": "sha256:" + sha("e"),
@@ -714,12 +715,9 @@ def issuer_fixture(tmp_path: Path, *, wealth_verdict="GO", strict_xfails=0,
             "wealth_core_source_hash": wealth_source,
             "runtime_identity_hash": expected_runtime,
             "producer": "tools/wealth_core_expected_hashes.py",
-            "producer_sha256": hashlib.sha256((
-                ROOT / "tools/wealth_core_expected_hashes.py").read_bytes()
-            ).hexdigest(),
-            "canonical_loader_bundle":
-                expected_hash_tool.canonical_loader_bundle_from_repository(
-                    ROOT),
+            "producer_sha256":
+                formal_baseline.APPROVED_EXPECTED_HASH_PRODUCER_SHA256,
+            "canonical_loader_bundle": formal_baseline.external_loader_bundle(),
             "runtime_environment": {
                 "compatible": True, "pins_match": True,
                 "sources_known": True, "pin_drift": {},
@@ -776,7 +774,7 @@ def issuer_fixture(tmp_path: Path, *, wealth_verdict="GO", strict_xfails=0,
     wealth, controller = wealth_path.read_bytes(), controller_path.read_bytes()
 
     target = {
-        "git_commit": "a" * 40,
+        "git_commit": certification_revision,
         "runtime_image_digest": "sha256:" + sha("d"),
         "test_image_digest": "sha256:" + sha("e"),
         "automation_config_sha256": automation_sha,
@@ -966,23 +964,61 @@ def test_offline_issuer_validates_every_digest_and_never_emits_private_key(tmp_p
         issuer.validate_evidence(document, index)
 
 
-def test_issuer_recomputes_the_complete_loader_bundle(tmp_path, monkeypatch):
-    document, _claims_path, index, _key_path = issuer_fixture(tmp_path)
-    changed = expected_hash_tool.canonical_loader_bundle_from_repository(ROOT)
-    changed = json.loads(json.dumps(changed))
-    replay_impl = "services/backtester/app/wealth_core_replay_impl.py"
-    changed["sources"][replay_impl] = "0" * 64
-    changed["sha256"] = hashlib.sha256(json.dumps({
-        "schema": changed["schema"], "sources": changed["sources"],
-    }, sort_keys=True, separators=(",", ":"),
-        ensure_ascii=True, allow_nan=False).encode("ascii")).hexdigest()
-    monkeypatch.setattr(
-        issuer, "_canonical_loader_bundle_from_repository",
-        lambda _root: changed)
+def test_issuer_anchors_external_certification_source_to_preserved_revision():
+    bundle = formal_baseline.external_loader_bundle()
+    provenance = {
+        "producer": "tools/wealth_core_expected_hashes.py",
+        "producer_sha256":
+            formal_baseline.APPROVED_EXPECTED_HASH_PRODUCER_SHA256,
+        "canonical_loader_bundle": bundle,
+    }
+    assert issuer.APPROVED_CERTIFICATION_REVISION == (
+        formal_baseline.APPROVED_CERTIFICATION_REVISION)
+    assert issuer._validate_external_loader_bundle(bundle)
+    assert issuer._validate_external_certification_source(provenance)
 
-    with pytest.raises(
-            issuer.IssuanceRefused,
-            match="repository producer/replay"):
+    forged_producer = dict(provenance, producer_sha256=sha("e"))
+    assert not issuer._validate_external_certification_source(forged_producer)
+
+    tampered = json.loads(json.dumps(bundle))
+    tampered["sources"] = {
+        "certification/kernel_adapter.py": "a" * 64,
+        "certification/pit_loader.py": "b" * 64,
+    }
+    payload = {"schema": tampered["schema"], "sources": tampered["sources"]}
+    tampered["sha256"] = hashlib.sha256(json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+        allow_nan=False).encode("ascii")).hexdigest()
+    assert not issuer._validate_external_loader_bundle(tampered)
+    forged_bundle = dict(provenance, canonical_loader_bundle=tampered)
+    assert not issuer._validate_external_certification_source(forged_bundle)
+
+    manifest = {
+        "git_commit": formal_baseline.APPROVED_CERTIFICATION_REVISION,
+        "sentinel_test_image": {
+            "source_revision": formal_baseline.APPROVED_CERTIFICATION_REVISION},
+        "bt_engine_image": {
+            "source_revision": formal_baseline.APPROVED_CERTIFICATION_REVISION},
+    }
+    assert issuer._validate_external_certification_manifest(manifest)
+    for image in ("sentinel_test_image", "bt_engine_image"):
+        changed = json.loads(json.dumps(manifest))
+        changed[image]["source_revision"] = "d" * 40
+        assert not issuer._validate_external_certification_manifest(changed)
+
+
+def test_issuer_refuses_changed_terminal_coalescing_revision(
+        monkeypatch, tmp_path):
+    # Build a fully self-consistent upstream bundle for a revision whose only
+    # modeled economic change is terminal_coalescing.py. The producer and its
+    # current three-file bundle retain their approved digests.
+    monkeypatch.setattr(
+        evidence, "_validate_external_certification_manifest",
+        lambda _value: True)
+    document, _claims_path, index, _key_path = issuer_fixture(
+        tmp_path, certification_revision="d" * 40)
+    with pytest.raises(issuer.IssuanceRefused,
+                       match="approved external certification revision"):
         issuer.validate_evidence(document, index)
 
 

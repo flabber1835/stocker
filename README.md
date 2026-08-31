@@ -33,12 +33,12 @@ make check-data
 make test                            # process-isolated repository suites
 ```
 
-The Wealth Core rehearsal stack is defined in
-`docker-compose.backtest.yml`. It contains only PostgreSQL, the Sharadar data
-service, and the deterministic engine. It has no broker-facing service. The
-separate Stage 4 Sentinel automation overlay is installed disabled and killed,
-requires immutable image identities plus signed authority, and is never part of
-the rehearsal stack.
+Historical replay and strategy research live outside the production trader.
+The pre-separation certification environment is preserved at
+`research/backtester@7f12174273dfa071a25614d2c4a1be8ebfdfbc3a`. Construction of
+the standalone certification system is deferred. The Stage 4 Sentinel
+automation overlay remains installed disabled and killed and requires immutable
+image identities plus signed authority.
 
 Safety boundaries:
 

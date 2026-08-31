@@ -22,9 +22,6 @@ spec.loader.exec_module(obs)
 def test_certification_runs_short_surfaces_before_long_sentinel_suite():
     assert obs.CERTIFICATION_SUITE_LABELS == (
         "GO SCRIPT TESTS",
-        "BACKTESTER BOUNDARY",
-        "BT DATA",
-        "BT ENGINE",
         "WEALTH CORE",
         "SENTINEL",
     )

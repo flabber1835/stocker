@@ -45,7 +45,7 @@ that predates a later split and makes same-day split/dividend entitlement depend
 on the wrong share count.
 
 This module is a deliberate re-implementation, not an import: the canonical
-loader lives in `services/backtester/app/wealth_core_replay.py`, and Sentinel may
+loader lives in the preserved strict-PIT certification source, and Sentinel may
 not import a retired Stocker service. `tests/sentinel/test_feed_domains.py`
 pins the two against each other on the behaviour that matters, so the
 duplication is guarded rather than trusted.

@@ -180,6 +180,3 @@ class TestTheGateIsNotVacuous:
         assert "/app" in joined and "PYTHONPATH=/work" in joined, (
             "the runtime image's /app must be on the path for `sentinel` to "
             "resolve to the artefact")
-        assert "/work/services/backtester" in joined, (
-            "`app.wealth_core_replay` is a top-level package inside that "
-            "directory, so the real-window parity step cannot import it")

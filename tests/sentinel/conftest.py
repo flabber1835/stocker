@@ -33,10 +33,6 @@ _SINGLETON_REFUSAL_TESTS = {
 }
 _FEED_RUNTIME_SCHEMA_CONTRACT_PREFIX = "test_issue_165_feed_schema"
 _ISSUE_178_SOURCE_AUTHORITY_PREFIX = "test_issue_178_"
-_CANONICAL_REPLAY_SOURCE_TEST_MODULES = {
-    "test_feed_domains",
-    "test_terminal",
-}
 
 
 def _legacy_feed_fixture_install(conn) -> None:
@@ -96,16 +92,6 @@ def _runtime_schema_test_double_compat(request, monkeypatch):
                 "runtime_image_digest": "sha256:" + "b" * 64,
                 "image_source_revision": "a" * 40,
             })
-
-    # The public backtester module is now deliberately a thin economic-domain
-    # gate; the retained canonical replay bytes moved beside it to
-    # wealth_core_replay_impl.py. Historical drift tests must keep pinning the
-    # implementation that actually defines the duplicated behavior, not mistake
-    # the new facade for a missing canonical definition.
-    if module_name in _CANONICAL_REPLAY_SOURCE_TEST_MODULES:
-        request.module.CANONICAL = (
-            ROOT / "services" / "backtester" / "app" /
-            "wealth_core_replay_impl.py")
 
     # The legacy readiness fixture predates the dedicated recent-export cursor.
     # Its purpose is to construct a corpus that is healthy except for the one

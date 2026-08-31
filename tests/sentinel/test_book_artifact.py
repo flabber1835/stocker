@@ -317,27 +317,7 @@ class TestTheWindowIsCHECKED:
 
 # ── 5. and PRODUCTION actually calls it ──────────────────────────────────────
 
-class TestTheRehearsalEMITSIt:
-    """The artifact existed, was tested, was documented as emitted by the run —
-    and nothing in production ever called it. `rehearse_chain` had the bulk
-    RunResult in hand, derived performance and the terminal reconciliation from
-    it, and then discarded it."""
-
-    def test_rehearse_chain_calls_from_run_result(self):
-        src = (REPO / "services" / "bt-engine" / "app"
-               / "wealth_core_chain.py").read_text()
-        assert "book_artifact.from_run_result(" in src, (
-            "the three-year certification path still does not emit the book, "
-            "so --book has nothing to consume but a hand-written file")
-
-    def test_it_is_on_the_RESULT_and_in_its_serialisation(self):
-        src = (REPO / "services" / "bt-engine" / "app"
-               / "wealth_core_chain.py").read_text()
-        assert "book_artifact: dict" in src
-        assert '"book_artifact": dict(self.book_artifact)' in src, (
-            "emitted into a field that to_dict() drops is the same as not "
-            "emitting it — the API persists to_dict()")
-
+class TestTheSharedBookArtifactBoundary:
     def test_the_canonical_module_is_SHARED_not_sentinel_only(self):
         """bt-engine produces it and Sentinel consumes it, and neither may
         import the other. One implementation, reachable from both."""
@@ -411,24 +391,3 @@ class TestAgainstTheREALPortfolioState:
         `rehearse_chain` accumulates them per session and passes them here."""
         rec = B.from_run_result(self.run(), extra_held=["MIDDLE"], **W)
         assert {"OLD", "MIDDLE", "NEW"} <= set(rec["held"])
-
-
-class TestTheREHEARSALCollectsTheLabelUnion:
-
-    def test_it_accumulates_per_session_not_from_the_final_state(self):
-        src = (REPO / "services" / "bt-engine" / "app"
-               / "wealth_core_chain.py").read_text()
-        assert "label_union" in src
-        assert "extra_held=sorted(label_union)" in src, (
-            "the union is collected and then not passed, which is the same as "
-            "not collecting it")
-
-    def test_the_collection_is_INSIDE_the_session_loop(self):
-        """Reading the final state instead would lose every intermediate label,
-        and bounded retention would lose the objects that named them."""
-        src = (REPO / "services" / "bt-engine" / "app"
-               / "wealth_core_chain.py").read_text().splitlines()
-        loop = next(i for i, l in enumerate(src) if l.strip() == "for session in sessions:")
-        collect = next(i for i, l in enumerate(src) if "label_union.update" in l)
-        emit = next(i for i, l in enumerate(src) if "extra_held=sorted(label_union)" in l)
-        assert loop < collect < emit

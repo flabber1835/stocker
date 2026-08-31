@@ -20,7 +20,6 @@ sys.path.insert(0, str(ROOT / "shared"))
 
 from sentinel.feed import domains as D  # noqa: E402
 
-CANONICAL = ROOT / "services" / "backtester" / "app" / "wealth_core_replay.py"
 
 
 def row(ticker, date, close, closeunadj, open_=None, volume=1_000_000):
@@ -232,26 +231,6 @@ class TestSplitRatio:
     def test_missing_or_nonpositive_inputs_mean_no_split(self):
         assert D.split_ratio_from_domains(None, 100.0, 50.0, 50.0) == 1.0
         assert D.split_ratio_from_domains(0.0, 100.0, 50.0, 50.0) == 1.0
-
-    def test_it_matches_the_CANONICAL_implementation(self):
-        """Pinned against the backtester's loader on the same inputs. The two are
-        separate code by necessity; they must not become separate behaviour."""
-        import importlib.util
-        src = CANONICAL.read_text()
-        start = src.index("def split_ratio_from_domains")
-        end = src.index("# ── SHARADAR/ACTIONS", start)
-        ns: dict = {}
-        exec(compile(src[start:end], str(CANONICAL), "exec"), ns)
-        canonical = ns["split_ratio_from_domains"]
-        cases = [
-            (50.0, 100.0, 50.0, 50.0), (100.0, 10.0, 100.0, 100.0),
-            (100.0, 100.3, 100.0, 100.0), (50.0, 99.985, 50.0, 50.0),
-            (None, 100.0, 50.0, 50.0), (12.5, 25.0, 12.5, 12.5),
-            (33.0, 33.0, 33.0, 33.0), (10.0, 70.0, 10.0, 10.0),
-        ]
-        for c in cases:
-            assert D.split_ratio_from_domains(*c) == canonical(*c), f"drift at {c}"
-
 
 class TestNormalisation:
     def test_the_open_is_SCALED_into_the_as_traded_domain(self):

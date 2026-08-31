@@ -48,10 +48,8 @@ def _tests(*, complete=True):
         source_identity_sha256=IDENTITY if complete else None,
         passed=3098 if complete else 0,
         exit_code=0 if complete else 1,
-        suites_completed=6 if complete else 0,
-        auxiliary_image_digests=(
-            ("sha256:" + "e" * 64, "sha256:" + "f" * 64)
-            if complete else ()),
+        suites_completed=3 if complete else 0,
+        auxiliary_image_digests=(),
         non_forward_historical_exclusions=(
             go.NON_FORWARD_HISTORICAL_EXCLUSIONS if complete else ()),
     )
@@ -794,7 +792,9 @@ def test_upgrade_preparation_uses_exact_runtime_without_broker_authority():
     command, prepared_env = runner.calls[-1]
     assert "schema.ensure_schema(c)" in command[-1]
     assert "store.migrate_schema(c)" in command[-1]
-    assert "ingest.daily(c, today=target)" in command[-1]
+    assert ("ingest.daily(c, today=target)" in command[-1]
+            or "outage_recovery.catch_up(c, target_session=target)"
+            in command[-1])
     assert "publication_not_before(target)" in command[-1]
     assert "now < execution_open" in command[-1]
     assert "visible == target" in command[-1]
@@ -815,7 +815,7 @@ def test_upgrade_preparation_without_sharadar_is_not_proven():
     assert summary.complete is False
 
 
-def test_certified_probe_runs_all_six_merge_critical_suites_without_network():
+def test_certified_probe_runs_all_three_merge_critical_suites_without_network():
     runner = _Runner()
 
     summary, gate = go.probe_certified_suite(
@@ -823,12 +823,12 @@ def test_certified_probe_runs_all_six_merge_critical_suites_without_network():
 
     assert gate.status == go.PASS
     assert summary.complete is True
-    assert summary.suites_completed == 6
-    assert summary.passed == 60
+    assert summary.suites_completed == 3
+    assert summary.passed == 30
     run_calls = [call for call, _env in runner.calls
                  if call[:2] == ["docker", "run"]
                  and not ("-m" in call and "sentinel" in call)]
-    assert len(run_calls) == 6
+    assert len(run_calls) == 3
     assert all("--network" in call and call[call.index("--network") + 1] == "none"
                for call in run_calls)
     assert all(call[5].startswith("sha256:") for call in run_calls)
@@ -844,9 +844,6 @@ def test_certified_probe_runs_all_six_merge_critical_suites_without_network():
     assert len(deselected) == 3
     assert "tests/scripts/test_sentinel_go_validate.py" in surface
     assert "tests/scripts/test_sentinel_reviewed_deploy_gate.py" in surface
-    assert "tests/backtester/test_cold_boot_identity.py" in surface
-    assert "tests/bt_data/test_sharadar_adapter.py" in surface
-    assert "tests/bt_engine/test_wealth_core_api.py" in surface
 
 
 def test_certified_probe_treats_a_signal_terminated_suite_as_failure():

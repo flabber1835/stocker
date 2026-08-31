@@ -225,15 +225,13 @@ class TestSummary:
             and self.skipped == 0
             and self.xfailed == 0
             and self.xpassed == 0
-            and self.suites_completed == 6
+            and self.suites_completed == 3
             and self.non_forward_historical_exclusions
             == NON_FORWARD_HISTORICAL_EXCLUSIONS
             and self.candidate_image_digest is not None
             and self.runtime_image_digest is not None
             and self.source_identity_sha256 is not None
-            and len(self.auxiliary_image_digests) == 2
-            and all(_IMAGE_DIGEST.fullmatch(item)
-                    for item in self.auxiliary_image_digests)
+            and not self.auxiliary_image_digests
         )
 
     def to_dict(self) -> dict:
@@ -889,10 +887,6 @@ def probe_certified_suite(runner: CommandRunner, *, commit: Optional[str],
     runtime_ref = "sentinel-go-runtime:%s" % commit
     authorized_ref = "sentinel-go-authorized:%s" % commit
     test_ref = "sentinel-go-test:%s" % commit
-    bt_engine_ref = "stocker-go-bt-engine:%s" % commit
-    bt_engine_test_ref = "stocker-go-bt-engine-test:%s" % commit
-    bt_data_ref = "stocker-go-bt-data:%s" % commit
-    bt_data_test_ref = "stocker-go-bt-data-test:%s" % commit
     commands = (
         ["docker", "build", "--network", "host", "--build-arg",
          "SOURCE_GIT_SHA=" + commit, "-t", runtime_ref,
@@ -905,23 +899,6 @@ def probe_certified_suite(runner: CommandRunner, *, commit: Optional[str],
          "SENTINEL_IMAGE=" + authorized_ref, "--build-arg",
          "SOURCE_GIT_SHA=" + commit, "-t", test_ref,
          "-f", "Dockerfile.sentinel-test", "."],
-        ["docker", "build", "--network", "host", "--build-arg",
-         "SOURCE_GIT_SHA=" + commit, "-t", "stocker-base:latest",
-         "-f", "Dockerfile.base", "."],
-        ["docker", "build", "--network", "host", "--build-arg",
-         "SOURCE_GIT_SHA=" + commit, "-t", bt_engine_ref,
-         "-f", "services/bt-engine/Dockerfile", "."],
-        ["docker", "build", "--network", "host", "--build-arg",
-         "BT_ENGINE_IMAGE=" + bt_engine_ref, "--build-arg",
-         "SOURCE_GIT_SHA=" + commit, "-t", bt_engine_test_ref,
-         "-f", "services/bt-engine/Dockerfile.test", "."],
-        ["docker", "build", "--network", "host", "--build-arg",
-         "SOURCE_GIT_SHA=" + commit, "-t", bt_data_ref,
-         "-f", "services/bt-data/Dockerfile", "."],
-        ["docker", "build", "--network", "host", "--build-arg",
-         "BT_DATA_IMAGE=" + bt_data_ref, "--build-arg",
-         "SOURCE_GIT_SHA=" + commit, "-t", bt_data_test_ref,
-         "-f", "services/bt-data/Dockerfile.test", "."],
     )
     for command in commands:
         if runner.run(command).returncode != 0:
@@ -932,16 +909,12 @@ def probe_certified_suite(runner: CommandRunner, *, commit: Optional[str],
 
     runtime_digest = _inspect_image_id(runner, authorized_ref)
     candidate_digest = _inspect_image_id(runner, test_ref)
-    bt_engine_digest = _inspect_image_id(runner, bt_engine_test_ref)
-    bt_data_digest = _inspect_image_id(runner, bt_data_test_ref)
-    if not all((runtime_digest, candidate_digest,
-                bt_engine_digest, bt_data_digest)):
+    if not all((runtime_digest, candidate_digest)):
         summary = TestSummary(
             candidate_image_digest=candidate_digest,
             runtime_image_digest=runtime_digest,
             source_identity_sha256=None,
-            auxiliary_image_digests=tuple(
-                item for item in (bt_engine_digest, bt_data_digest) if item),
+            auxiliary_image_digests=(),
         )
         return summary, make_gate(
             "certified_suite_no_skips", FAIL, now_text,
@@ -972,21 +945,6 @@ def probe_certified_suite(runner: CommandRunner, *, commit: Optional[str],
          "tests/scripts/test_sentinel_go_validate.py",
          "tests/scripts/test_sentinel_reviewed_deploy_gate.py",
          "-q", "-ra"],
-        ["docker", "run", "--rm", "--network", "none", candidate_digest,
-         "tests/backtester/test_cold_boot_identity.py",
-         "tests/backtester/test_wealth_core_replay.py",
-         "tests/backtester/test_price_volume_domain_gate.py", "-q", "-ra"],
-        ["docker", "run", "--rm", "--network", "none", bt_data_digest,
-         "tests/bt_data/test_sharadar_adapter.py",
-         "tests/bt_data/test_schema_bootstrap.py",
-         "tests/bt_data/test_sf1_coverage.py",
-         "tests/bt_data/test_issue_185_volume_domain_migration.py",
-         "-q", "-ra"],
-        ["docker", "run", "--rm", "--network", "none", bt_engine_digest,
-         "tests/bt_engine/test_wealth_core_api.py",
-         "tests/bt_engine/test_wealth_core_warmup.py",
-         "tests/bt_engine/test_price_volume_domain_gate.py",
-         "-q", "-ra"],
     )
     aggregate = {
         "passed": 0, "failed": 0, "errors": 0, "skipped": 0,
@@ -1012,8 +970,7 @@ def probe_certified_suite(runner: CommandRunner, *, commit: Optional[str],
         source_identity_sha256=identity_hash,
         exit_code=combined_exit,
         suites_completed=suites_completed,
-        auxiliary_image_digests=tuple(
-            item for item in (bt_engine_digest, bt_data_digest) if item),
+        auxiliary_image_digests=(),
         non_forward_historical_exclusions=(
             NON_FORWARD_HISTORICAL_EXCLUSIONS),
         **aggregate,
@@ -1026,7 +983,7 @@ def probe_certified_suite(runner: CommandRunner, *, commit: Optional[str],
          "xfailed": summary.xfailed, "xpassed": summary.xpassed,
          "exit_code": summary.exit_code,
          "suites_completed": summary.suites_completed,
-         "auxiliary_images_known": len(summary.auxiliary_image_digests) == 2,
+         "auxiliary_images_known": not summary.auxiliary_image_digests,
          "non_forward_historical_exclusions": list(
              summary.non_forward_historical_exclusions),
          "image_known": candidate_digest is not None,

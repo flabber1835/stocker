@@ -19,7 +19,6 @@ sys.path.insert(0, str(ROOT / "shared"))
 from sentinel.core import terminal as T  # noqa: E402
 from stock_strategy_shared.wealth_core.terminal import TerminalKind  # noqa: E402
 
-CANONICAL = ROOT / "services" / "backtester" / "app" / "wealth_core_replay.py"
 S = "2024-06-03"
 
 
@@ -91,94 +90,3 @@ class TestTheRulesAndWhatTheyCost:
     def test_every_TARGET_side_action_terminates(self, action):
         assert T.terminal_from_action(row(action=action), S,
                                       security_id="P1") is not None
-
-
-class TestItHasNotDriftedFromTheCANONICAL:
-    """A port that drifts agrees on the easy rows and diverges on the hard ones."""
-
-    def _canonical(self):
-        """Extract the canonical definitions by AST and exec them in isolation.
-
-        NOT importlib: the backtester module pulls in sqlalchemy and a package
-        context it does not have here, and the first version of this test SKIPPED
-        on that — 11 silent skips on the guard whose entire job is to catch
-        drift. A drift guard that can skip is not a guard.
-
-        NOT a hand-built globals dict either: the version before that failed 11
-        ways because the harness itself diverged. This takes the exact top-level
-        definitions the function closes over, from the service's own source, and
-        gives them the REAL shared types.
-        """
-        import ast
-        import enum
-
-        from stock_strategy_shared.wealth_core.terminal import (
-            TerminalKind as _TK, TerminalTerms as _TT)
-
-        src = CANONICAL.read_text()
-        tree = ast.parse(src)
-        wanted = {"ActionSide", "TERMINAL_ACTION_SIDES", "TERMINAL_ACTIONS",
-                  "_VENDOR_SENTINELS", "vendor_symbol", "terminal_from_action"}
-        picked = []
-        for node in tree.body:
-            name = getattr(node, "name", None)
-            if name is None and isinstance(node, (ast.Assign, ast.AnnAssign)):
-                targets = ([node.target] if isinstance(node, ast.AnnAssign)
-                           else node.targets)
-                name = next((t.id for t in targets if isinstance(t, ast.Name)), None)
-            if name in wanted:
-                picked.append(node)
-        missing = wanted - {getattr(n, "name", None) or
-                            (n.targets[0].id if isinstance(n, ast.Assign)
-                             else n.target.id) for n in picked}
-        assert not missing, (
-            f"the canonical source no longer defines {sorted(missing)} — the "
-            f"port cannot be pinned against something that moved. Find where it "
-            f"went before trusting sentinel/core/terminal.py.")
-
-        ns = {"Enum": enum.Enum, "TerminalKind": _TK, "TerminalTerms": _TT,
-              "Optional": __import__("typing").Optional, "__name__": "_canonical"}
-        exec(compile(ast.Module(body=picked, type_ignores=[]),
-                     str(CANONICAL), "exec"), ns)
-        return ns["terminal_from_action"]
-
-    @pytest.mark.parametrize("kw", [
-        {},
-        {"action": "acquisitionby", "value": 6768.8, "contraticker": "BRK.A"},
-        {"action": "acquisitionby", "value": 9792.6, "contraticker": "N/A"},
-        {"action": "mergerto", "contraticker": "XYZ"},
-        {"action": "bankruptcyliquidation"},
-        {"action": "regulatorydelisting", "value": 0.0},
-        {"action": "voluntarydelisting", "value": 0.2},
-        {"action": "acquisitionof"},
-        {"action": "mergerfrom", "contraticker": "AAA"},
-        {"action": "split"},
-        {"value": 0.0, "contraticker": "--"},
-    ])
-    def test_same_verdict_as_the_backtester(self, kw):
-        canonical = self._canonical()
-        mine = T.terminal_from_action(row(**kw), S, security_id="P1")
-        theirs = canonical(row(**kw), S, security_id="P1")
-        if theirs is None or mine is None:
-            assert mine is theirs is None
-            return
-        assert mine.kind == theirs.kind
-        assert mine.cash_per_share == theirs.cash_per_share
-        assert mine.exchange_ratio == theirs.exchange_ratio
-        assert mine.delivered_ticker == theirs.delivered_ticker
-        assert mine.reference == theirs.reference
-
-    def test_the_action_vocabularies_MATCH(self):
-        src = CANONICAL.read_text()
-        for action in T.TERMINAL_ACTIONS:
-            assert f'"{action}": ActionSide.TARGET' in src
-        assert "acquisitionof" not in T.TERMINAL_ACTIONS
-
-    def test_both_stream_normalizers_use_the_shared_coalescing_contract(self):
-        import inspect
-
-        canonical = CANONICAL.read_text()
-        sentinel = inspect.getsource(T)
-        for source in (canonical, sentinel):
-            assert "from stock_strategy_shared.terminal_coalescing import" in source
-            assert "coalesce_terminal_terms(" in source

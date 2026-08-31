@@ -15,14 +15,6 @@ from scripts import sentinel_forward_run as producer
 REPO = Path(os.environ.get("SENTINEL_REPO_ROOT") or producer.ROOT)
 
 
-def test_certification_manifest_keeps_publication_version_numeric():
-    script = (REPO / "scripts" / "sentinel-certify.sh").read_text()
-    assert '"sentinel_data_version": sentinel_data_version' in script
-    assert '"sentinel_data_version": str(parity["sentinel_data_version"])' \
-        not in script
-    assert "not isinstance(sentinel_data_version, int)" in script
-
-
 def test_forward_report_schema_versions_defensive_evidence():
     assert producer.REPORT_SCHEMA == "sentinel.production-forward-chain/2"
 

@@ -1,6 +1,6 @@
 # Production trader and certification separation
 
-**Decision status:** accepted; separation in progress.
+**Decision status:** accepted; legacy platform removal in progress.
 
 The production trader contains one deterministic session transition and the
 operational code needed to run it safely. Full historical replay is a separate
@@ -33,10 +33,19 @@ access or mutate the production book.
 
 ## Preserved evidence boundary
 
-The pre-separation strict-PIT work remains preserved at the immutable Git commit
-`7f12174273dfa071a25614d2c4a1be8ebfdfbc3a` on `research/backtester`. Its
+The pre-separation strict-PIT work remains preserved at
+`research/backtester@7f12174273dfa071a25614d2c4a1be8ebfdfbc3a`. Its
 certified corpora, results, fixtures, and replay environment remain evidence;
 they are not rewritten to fit this architecture.
+
+Production authority accepts historical expected-hash evidence only when its
+producer digest and complete canonical-loader bundle exactly match the bytes at
+that preserved revision. The authority-evidence producer and offline
+certificate issuer each carry and enforce that immutable digest manifest. Both
+trust boundaries also require the finalized external manifest commit, test
+image source revision, and baseline-engine source revision to equal the
+preserved revision. A syntactically valid digest or a loader bundle consistent
+with its own claimed contents is not an anchor and must fail closed.
 
 The separation starts from `main` commit
 `670b3fcc09f8c76e37f925b63783826ce8a1fdcc`. Historical evidence must always
@@ -53,15 +62,18 @@ transition it imported.
 4. Prove exact one-session, historical-chain, and serialize/restart equivalence.
 5. Move certification runners, metrics, benchmarks, fixtures, experiments,
    and replay infrastructure behind a separate package and image boundary.
+   This gate is deferred until the standalone certification system is built.
 6. Delete `services/backtester`, `services/bt-engine`, `services/bt-data`, and
-   `docker-compose.backtest.yml` from the trader after the replacement
-   certification path has produced accepted evidence.
+   `docker-compose.backtest.yml` from the trader. The immutable
+   `research/backtester` pin is the recovery source while gate 5 is deferred.
+   `main` does not provide full historical replay during that interval.
 7. Define an economic source manifest that includes the canonical kernel and
    its shared state model, excludes certification-only files, and re-certify
    that identity before production is deployed.
 
-Each gate is reviewable and fail-closed. Gate 6 cannot precede accepted gate-4
-evidence. There is no production state migration in this separation: the
+Each gate is reviewable and fail-closed. The preserved strict-PIT commit is the
+accepted evidence boundary for deleting the legacy services before gate 5.
+There is no production state migration in this separation: the
 trader has not been deployed, so its first persisted envelope is created with
 the corrected source identity.
 
