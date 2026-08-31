@@ -4,7 +4,10 @@ from pathlib import Path
 import unittest
 
 import backtester.run_research_strict_pit_20y as base
-from backtester.research_terminal_grace_overlay import install
+from backtester.research_terminal_grace_overlay import (
+    _move_prior_qty_after_split,
+    install,
+)
 
 
 class ResearchSplitDividendOrderingTest(unittest.TestCase):
@@ -24,11 +27,21 @@ class ResearchSplitDividendOrderingTest(unittest.TestCase):
         self.assertLess(text.index(entitlement), text.index(dayact))
         self.assertLess(text.index(entitlement), text.index(exits))
         self.assertLess(text.index(entitlement), text.index(buys))
-        self.assertNotIn(
-            "prior_qty={s.tid:s.qty for s in book.slots if s.held()}\n"
-            "            for tid0,cs,cr in zip(tids,c,cu):",
-            text,
+
+    def test_canonical_split_loop_variant_uses_same_stable_ordering(self) -> None:
+        entitlement = "            prior_qty={s.tid:s.qty for s in book.slots if s.held()}\n"
+        canonical_split = (
+            "            for tid0,ratio0 in zip(tids,canonicalsplit[tids]):\n"
+            "                tid=int(tid0); ratio=float(ratio0)\n"
+            "                if abs(ratio-1.0)>1e-12:\n"
+            "                    split_events+=1\n"
         )
+        dayact = "            dayact=actions.get(date,{})\n"
+        transformed = _move_prior_qty_after_split(entitlement + canonical_split + dayact)
+
+        self.assertEqual(transformed.count(entitlement), 1)
+        self.assertLess(transformed.index(canonical_split), transformed.index(entitlement))
+        self.assertLess(transformed.index(entitlement), transformed.index(dayact))
 
     def test_aeo_2006_12_19_exact_economic_boundary(self) -> None:
         # Run 33341153930 isolated the first post-REY divergence to AEO.
