@@ -2,6 +2,8 @@
 """Annual-segment strict-PIT production entrypoint with durable restart state."""
 from __future__ import annotations
 
+import json
+import math
 import os
 from pathlib import Path
 import sys
@@ -47,6 +49,64 @@ install(
     strict_module=base.strict,
     progress_module=base.strict.base,
 )
+
+# Diagnostic-only observer. It receives the already-computed ephemeral candidate
+# rows and cannot alter state, ordering, intents, or execution. The observer is
+# inert unless an explicit target session is supplied by a diagnostic workflow.
+_DIAGNOSTIC_SESSION = os.environ.get(
+    "CERTIFICATION_RANKING_DIAGNOSTIC_SESSION", ""
+).strip()
+if _DIAGNOSTIC_SESSION:
+    _diagnostic_plan_session = base.strict.strategy_production.plan_session
+
+    def _plan_session_with_ranking_diagnostic(*args, **kwargs):
+        plan = _diagnostic_plan_session(*args, **kwargs)
+        if str(plan.session) == _DIAGNOSTIC_SESSION:
+            top = [row for row in plan.leadership_candidates if row.in_top_decile]
+
+            def leadership_key(row):
+                momentum = float(row.momentum) if row.momentum is not None else float("nan")
+                return (
+                    0 if math.isfinite(momentum) else 1,
+                    -momentum if math.isfinite(momentum) else 0.0,
+                    str(row.security_id),
+                    str(row.ticker),
+                )
+
+            def ranking_key(row):
+                score = float(row.score) if row.score is not None else float("nan")
+                return (
+                    0 if math.isfinite(score) else 1,
+                    -score if math.isfinite(score) else 0.0,
+                    str(row.security_id),
+                    str(row.ticker),
+                )
+
+            leadership = sorted(top, key=leadership_key)
+            ranked = sorted(top, key=ranking_key)
+            payload = {
+                "session": str(plan.session),
+                "eligible_universe": int(plan.eligible_universe_count),
+                "leadership_ids": [str(row.security_id) for row in leadership],
+                "ranking": [
+                    {
+                        "security_id": str(row.security_id),
+                        "ticker": str(row.ticker),
+                        "momentum": row.momentum,
+                        "recent": row.recent,
+                        "score": row.score,
+                    }
+                    for row in ranked
+                ],
+            }
+            print(
+                "[RANKING DIAGNOSTIC] role=production "
+                + json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                flush=True,
+            )
+        return plan
+
+    base.strict.strategy_production.plan_session = _plan_session_with_ranking_diagnostic
 
 if __name__ == "__main__":
     raise SystemExit(base.main())
