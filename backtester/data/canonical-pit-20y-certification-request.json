@@ -1,12 +1,12 @@
 {
-  "purpose": "Launch generation-2 fail-closed 20-year causal certification as a durable annual checkpoint chain",
+  "purpose": "Launch generation-3 fail-closed 20-year causal certification as an evidence-preserving annual checkpoint chain",
   "requested_window": {
     "warmup_start": "2006-01-03",
     "measurement_start": "2006-07-31",
     "end": "2026-07-31"
   },
   "execution_model": {
-    "generation": 2,
+    "generation": 3,
     "mode": "annual_chained_restart",
     "first_year": 2006,
     "final_year": 2026,
@@ -20,21 +20,27 @@
       "strict issuer-authority and progress counters"
     ],
     "research_policy": "fresh retained-research replay through each annual boundary",
-    "canonical_prefix_policy": "both engines authenticate the exact immutable session-hash prefix through the annual boundary",
+    "canonical_prefix_policy": "both engines authenticate separate immutable session-hash prefix files through the annual boundary",
+    "child_bundle_policy": "production and research result bundles remain byte-for-byte finalized so their manifests and SHA256SUMS remain valid",
     "handoff": "hash-verified GitHub Actions artifact from the immediately preceding PASS year",
     "continuation": "the next year is dispatched only after the current annual certificate and artifact succeed",
     "crash_retention": "every completed year remains an independently downloadable artifact and certificate for 90 days"
   },
-  "generation_1_disposition": {
-    "run_id": 33354234590,
-    "result": "failed before replay at generated-source compile gate",
-    "economic_sessions_processed": 0,
-    "superseded": true,
-    "reasons": [
-      "generated newline literal was not escape-stable",
-      "checkpoint contract did not yet carry independent PIT Wealth Core continuation state"
-    ]
-  },
+  "superseded_launches": [
+    {
+      "generation": 1,
+      "run_id": 33354234590,
+      "result": "failed before replay at generated-source compile gate",
+      "economic_sessions_processed": 0,
+      "reason": "generated newline literal was not escape-stable and the checkpoint contract lacked independent PIT Wealth Core continuation state"
+    },
+    {
+      "generation": 2,
+      "run_id": 33354938563,
+      "result": "superseded during setup",
+      "reason": "annual prefix normalization would have modified finalized child hash files after their manifests and SHA256SUMS were written"
+    }
+  ],
   "canonical_dataset": {
     "dataset_hash": "f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b",
     "dataset_id": "strict-pit-2006-01-03-2026-07-31-f9fb220871ad4152",
@@ -64,12 +70,13 @@
   },
   "required_fail_closed_evidence": [
     "canonical package verifies and has zero unresolved corporate actions",
-    "research and production consume the authenticated identical canonical prefix",
+    "research and production consume separately authenticated identical canonical prefixes",
     "strict-prior metadata authority with unknown security type ineligible",
+    "child result bundle checksums remain internally valid",
     "no first NAV divergence",
     "no divergence in eligible universe, ranking count, rankings, selected positions, Wealth Core equity, damaged breadth, native target, LD-RC state, allocation, or NAV",
-    "each annual production checkpoint is content-addressed and resumes only from the immediately preceding generation-2 certificate",
-    "final content-addressed causal certificate is emitted only after the contiguous 2006-2026 generation-2 chain passes"
+    "each annual production checkpoint is content-addressed and resumes only from the immediately preceding generation-3 certificate",
+    "final content-addressed causal certificate is emitted only after the contiguous 2006-2026 generation-3 chain passes"
   ],
-  "launch": 3
+  "launch": 4
 }
