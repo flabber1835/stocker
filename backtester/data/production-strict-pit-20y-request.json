@@ -1,0 +1,11 @@
+{
+  "schema": "backtester.production-strict-pit-20y-request/1",
+  "requested_at": "2026-08-31",
+  "purpose": "Run corrected production only across the certified 2006-01-03 through 2026-07-31 canonical PIT dataset while research optimization proceeds independently.",
+  "production_source_sha": "887f479b15ad861313da666ad698034d3847121c",
+  "production_overlay_issue": 294,
+  "canonical_dataset_hash": "f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b",
+  "warmup_start": "2006-01-03",
+  "measurement_start": "2006-07-31",
+  "end": "2026-07-31"
+}
