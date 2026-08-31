@@ -50,6 +50,39 @@ def _replace_bounded_once(
     return text[:start] + replacement + text[end:]
 
 
+def _move_prior_qty_after_split(text: str) -> str:
+    """Capture dividend entitlement after either split-loop implementation.
+
+    The ordinary retained replay discovers splits from adjusted/raw price-factor
+    changes. The canonical-PIT transform replaces that loop with a direct
+    ``canonicalsplit`` loop. Both implementations end immediately before the
+    stable ``dayact`` anchor, so moving the standalone entitlement capture to
+    that anchor avoids depending on either loop's interior while remaining
+    fail-closed on duplicate/missing economic seams.
+    """
+    entitlement = "            prior_qty={s.tid:s.qty for s in book.slots if s.held()}\n"
+    dayact = "            dayact=actions.get(date,{})\n"
+    if text.count(entitlement) != 1:
+        raise RuntimeError(
+            "dividend entitlement capture: expected one source seam, "
+            f"found {text.count(entitlement)}"
+        )
+    if text.count(dayact) != 1:
+        raise RuntimeError(
+            f"post-split day-action anchor: expected one source seam, found {text.count(dayact)}"
+        )
+    if text.index(entitlement) > text.index(dayact):
+        raise RuntimeError("dividend entitlement capture unexpectedly already follows day-action anchor")
+    text = text.replace(entitlement, "", 1)
+    insertion = (
+        "            # Capture prior-close entitlement after split-domain conversion,\n"
+        "            # before any same-open exits or buys.\n"
+        + entitlement
+        + dayact
+    )
+    return text.replace(dayact, insertion, 1)
+
+
 def install(text: str) -> str:
     text = _replace_once(
         text,
@@ -66,18 +99,7 @@ def install(text: str) -> str:
     # share domain, then uses that transformed prior-close quantity for the
     # entitlement. Move the capture after split processing but before exits and
     # buys so ex-date entitlement remains tied to the prior-close holding.
-    text = _replace_once(
-        text,
-        "            prior_qty={s.tid:s.qty for s in book.slots if s.held()}\n            for tid0,cs,cr in zip(tids,c,cu):",
-        "            for tid0,cs,cr in zip(tids,c,cu):",
-        "remove pre-split dividend entitlement capture",
-    )
-    text = _replace_once(
-        text,
-        "                if finite(factor) and factor>0: last_factor[tid]=factor\n            dayact=actions.get(date,{})\n",
-        "                if finite(factor) and factor>0: last_factor[tid]=factor\n            # Capture prior-close entitlement after split-domain conversion,\n            # before any same-open exits or buys.\n            prior_qty={s.tid:s.qty for s in book.slots if s.held()}\n            dayact=actions.get(date,{})\n",
-        "post-split prior-close dividend entitlement capture",
-    )
+    text = _move_prior_qty_after_split(text)
 
     start_anchor = "            dayact=actions.get(date,{})\n"
     end_anchor = "            open_eq,_=book.equity(opraw)\n"
@@ -150,10 +172,13 @@ def install(text: str) -> str:
 """
     text = _replace_once(text, old_mark, new_mark, "terminal grace sweep")
 
+    entitlement = "prior_qty={s.tid:s.qty for s in book.slots if s.held()}"
+    dayact = "dayact=actions.get(date,{})"
+    if text.count(entitlement) != 1 or text.index(entitlement) > text.index(dayact):
+        raise RuntimeError("retained research split-dividend ordering repair did not survive overlay")
     forbidden = (
         "sell_reason='terminal'",
         "px2=book.last_raw.get(s.tid",
-        "prior_qty={s.tid:s.qty for s in book.slots if s.held()}\n            for tid0,cs,cr in zip(tids,c,cu):",
     )
     for needle in forbidden:
         if needle in text:
