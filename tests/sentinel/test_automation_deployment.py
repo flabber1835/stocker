@@ -142,7 +142,8 @@ def test_test_lens_inherits_authorized_runtime_without_transport_intent():
 
     assert "ARG SENTINEL_IMAGE=sentinel-authorized:latest" in dockerfile
     assert "FROM ${SENTINEL_IMAGE}" in dockerfile
-    assert "SENTINEL_IMAGE=sentinel-authorized:latest" in certify
+    assert "standalone historical certification system is not installed" in certify
+    assert "SENTINEL_IMAGE=" not in certify
     assert "SENTINEL_IMAGE=sentinel-authorized:ci" in workflow
     assert "SENTINEL_AUTHORIZED_RUNTIME" not in dockerfile
     assert "ALPACA_API_KEY" not in dockerfile

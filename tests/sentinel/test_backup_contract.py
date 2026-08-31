@@ -196,11 +196,11 @@ def test_backup_status_enforces_a_bounded_age_without_pruning():
     assert " rm " not in text
 
 
-def test_certification_refuses_without_backup_readiness():
+def test_retired_in_trader_certification_refuses_before_any_mutation():
     text = _read("scripts/sentinel-certify.sh")
-    assert "SENTINEL_BACKUP_DIR is unset" in text
-    assert "scripts/sentinel-backup-status.sh" in text
-    assert text.index("scripts/sentinel-backup-status.sh") < text.index("TRUNCATE TABLE")
+    assert "standalone historical certification system is not installed" in text
+    assert "TRUNCATE TABLE" not in text
+    assert "docker compose" not in text
 
 
 def test_backup_root_refuses_the_repository(tmp_path):
@@ -362,7 +362,6 @@ def test_supported_compose_wrapper_always_includes_backup_and_preserves_refusal(
     assert 'BACKUP="docker-compose.sentinel-backup.yml"' in resolver
     assert "sentinel_backup_root >/dev/null" in resolver
     assert 'exec docker compose "${COMPOSE_ARGS[@]}" "$@"' in resolver
-    for relative in ("Makefile", "scripts/sentinel-certify.sh",
-                     "scripts/sentinel-measure.sh",
+    for relative in ("Makefile", "scripts/sentinel-measure.sh",
                      "docs/sentinel-paper-activation.md"):
         assert "sentinel-compose.sh --run" in _read(relative), relative

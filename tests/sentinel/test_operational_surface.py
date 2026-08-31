@@ -268,12 +268,12 @@ def _executable(path: Path, body: str) -> Path:
     return path
 
 
-def test_make_certify_requires_and_forwards_an_exact_window():
+def test_make_certify_is_a_fail_closed_external_boundary():
     body = _read("Makefile")
     target = body[body.index("certify:"):]
-    assert 'test -n "$(START)" -a -n "$(END)" -a -n "$(PHASE)"' in target
-    assert 'sentinel-certify.sh --start "$(START)" --end "$(END)"' in target
-    assert "--$(PHASE)-only" in target
+    assert "bash scripts/sentinel-certify.sh" in target
+    assert "--build-only" not in target
+    assert "--verify-only" not in target
 
 
 def test_make_host_test_runner_installs_async_pytest_support():

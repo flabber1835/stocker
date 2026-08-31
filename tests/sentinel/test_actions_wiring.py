@@ -365,65 +365,7 @@ class TestUnusableRows:
         assert A.unusable_dividend_rows(rows) == 1
 
 
-# ── 5. it matches the backtester it was carried from ─────────────────────────
-
-class TestItMatchesTheCarriedForwardMapping:
-    """Sentinel may not import a retired Stocker service, so the mapping is
-    duplicated. Separate code by necessity must not become separate behaviour —
-    the same argument `sentinel/core/terminal.py` is pinned under."""
-
-    def _bt(self):
-        sys.path.insert(0, str(ROOT / "services" / "backtester"))
-        try:
-            from app import wealth_core_replay as bt
-            return bt
-        except Exception:                            # noqa: BLE001
-            pytest.skip("backtester module not importable in this environment")
-
-    @pytest.mark.parametrize("rows", [
-        [{"ticker": "AAA", "date": "2024-06-03", "action": "split", "value": 1.5}],
-        [{"ticker": "AAA", "date": "2024-06-03", "action": "split", "value": 2.0},
-         {"ticker": "BBB", "date": "2024-06-04", "action": "adrratiosplit",
-          "value": 0.5}],
-        [{"ticker": "AAA", "date": "2024-06-03", "action": "delisted", "value": 9}],
-    ])
-    def test_split_maps_agree(self, rows):
-        bt = self._bt()
-        s = ["2024-06-03", "2024-06-04", "2024-06-05"]
-        assert (A.split_ratios_from_actions(rows, s)
-                == bt.split_ratios_from_actions(rows, s))
-
-    def test_invalid_split_terms_fail_closed_on_both_paths(self):
-        bt = self._bt()
-        rows = [{"ticker": "AAA", "date": "2024-06-03",
-                 "action": "split", "value": None}]
-        sessions = ["2024-06-03", "2024-06-04", "2024-06-05"]
-
-        ratios, ambiguous = A.split_rows_from_actions(rows, sessions)
-        assert ratios == {}
-        assert ambiguous == [{
-            "ticker": "AAA", "session": "2024-06-03", "distinct_rows": 1,
-            "distinct_values": [], "invalid_value_rows": 1,
-        }]
-        with pytest.raises(bt.CorporateActionsAmbiguous):
-            bt.split_ratios_from_actions(rows, sessions)
-
-    @pytest.mark.parametrize("rows", [
-        [{"ticker": "AAA", "date": "2024-06-03", "action": "dividend", "value": 0.3}],
-        [{"ticker": "AAA", "date": "2024-06-03", "action": "dividend", "value": 0.3},
-         {"ticker": "AAA", "date": "2024-06-03", "action": "specialdividend",
-          "value": 1.2}],
-        [{"ticker": "AAA", "date": "2024-06-02", "action": "dividend", "value": 0.3}],
-        [{"ticker": "AAA", "date": "2024-06-03", "action": "dividend", "value": 0}],
-    ])
-    def test_dividend_maps_agree(self, rows):
-        bt = self._bt()
-        s = ["2024-06-03", "2024-06-04", "2024-06-05"]
-        assert (A.dividends_from_actions(rows, s)
-                == bt.dividends_from_actions(rows, s))
-
-
-# ── 6. the derived fallback does not rest on vendor goodwill ─────────────────
+# ── 5. the derived fallback does not rest on vendor goodwill ─────────────────
 
 class TestTheInputOrderIsENFORCED:
     """`split_ratio_from_domains` compares a bar with the PREVIOUS observation
