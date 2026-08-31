@@ -31,6 +31,51 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-ranking-diagnostic-2006-08-08.yml
+            /backtester/apply_production_cooldown_age_zero.py
+            /backtester/production_year_checkpoint_overlay.py
+            /backtester/run_production_strict_pit_20y_checkpointed.py
+            /backtester/run_research_strict_pit_20y_checkpointed.py
+            /backtester/run_certification_parallel_20y_checkpointed.py
+            /backtester/research_terminal_grace_overlay.py
+            /backtester/run_certification_parallel_20y_terminal_grace.py
+            /backtester/run_research_strict_pit_20y_terminal_grace.py
+            /backtester/run_certification_parallel_20y.py
+            /backtester/run_production_strict_pit_20y.py
+            /backtester/run_research_strict_pit_20y.py
+            /backtester/run_certification_parallel.py
+            /backtester/run_production_strict_pit_certification.py
+            /backtester/run_research_strict_pit_certification.py
+            /backtester/strict_pit_metadata.py
+            /backtester/canonical_pit_dataset.py
+            /backtester/canonical_pit_package.py
+            /backtester/strict_pit_run15_diagnostics.py
+            /backtester/causal_split_overrides.py
+            /backtester/run_ldrc_corrected_warmup_cash.py
+            /backtester/run_ldrc_nonpit_vs_pit_certified.py
+            /backtester/run_sector_ad_causal_terminal_terms_v2.py
+            /backtester/run_research_ldrc_corrected_warmup_cash.py
+            /backtester/run_research_ldrc_nonpit_vs_fullpit.py
+            /backtester/historical_cash.py
+            /backtester/causal_terminal_terms.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/canonical-pit-20y.json
+            /backtester/data/causal-split-overrides-v1.json
+            /backtester/data/causal-split-overrides-v1.SHA256
+            /backtester/data/causal-split-overrides-v1.d/**
+            /backtester/data/causal-terminal-terms-v1.json
+            /backtester/data/causal-terminal-terms-v1.SHA256
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/SHA256SUMS.txt
+            /research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
+            /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
 
       - name: Check out exact production strategy source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
