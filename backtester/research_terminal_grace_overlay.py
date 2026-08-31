@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""Backtester-only retained-research terminal settlement overlay.
+"""Backtester-only retained-research economic-equivalence overlay.
 
-Align the compact retained research replay with frozen production's C1 semantics:
-a documented terminal event with unreadable consideration is carried while it
-continues to print, then ages only on sessions without a valid price. After ten
-missing-price sessions it is proxy-settled at the last trustworthy raw mark,
-without transaction cost, and the slot/security cooldown begins at age zero.
+Align the compact retained research replay with frozen production on two proven
+execution/accounting seams:
+
+1. C1 terminal settlement: a documented terminal event with unreadable
+   consideration is carried while it continues to print, then ages only on
+   sessions without a valid price. After ten missing-price sessions it is
+   proxy-settled at the last trustworthy raw mark, without transaction cost,
+   and the slot/security cooldown begins at age zero.
+2. Same-session split + dividend entitlement: split transformations apply to
+   prior-close holdings before the dividend entitlement quantity is captured.
+   The entitlement quantity is therefore the post-split share count of the
+   prior-close holding, while still excluding same-open purchases.
 """
 from __future__ import annotations
 
@@ -26,9 +33,9 @@ def _replace_bounded_once(
     """Replace one generated-source region without depending on its interior.
 
     The strict-PIT transform legitimately rewrites code inside the retained
-    replay.  Matching the entire pre-transform block therefore makes the overlay
-    depend on irrelevant formatting.  The economic seam is instead bounded by
-    two stable statements.  Both anchors must be unique and correctly ordered.
+    replay. Matching the entire pre-transform block therefore makes the overlay
+    depend on irrelevant formatting. The economic seam is instead bounded by
+    two stable statements. Both anchors must be unique and correctly ordered.
     """
     starts = text.count(start_anchor)
     ends = text.count(end_anchor)
@@ -49,6 +56,27 @@ def install(text: str) -> str:
         "    sec_ready:dict=field(default_factory=dict); initialized:bool=False; last_raw:dict=field(default_factory=dict)",
         "    sec_ready:dict=field(default_factory=dict); terminal_pending:dict=field(default_factory=dict); initialized:bool=False; last_raw:dict=field(default_factory=dict)",
         "terminal pending state",
+    )
+
+    # The retained research replay captured prior-close share quantity before
+    # applying the session's split. On a same-session split + dividend (AEO,
+    # 2006-12-19: 1.5 split and $0.075 dividend), this under-credited the
+    # dividend by exactly 118329 * (1.5 - 1) * 0.075 = $4,437.3375.
+    # Production first transforms the carried position into the current raw
+    # share domain, then uses that transformed prior-close quantity for the
+    # entitlement. Move the capture after split processing but before exits and
+    # buys so ex-date entitlement remains tied to the prior-close holding.
+    text = _replace_once(
+        text,
+        "            prior_qty={s.tid:s.qty for s in book.slots if s.held()}\n            for tid0,cs,cr in zip(tids,c,cu):",
+        "            for tid0,cs,cr in zip(tids,c,cu):",
+        "remove pre-split dividend entitlement capture",
+    )
+    text = _replace_once(
+        text,
+        "                if finite(factor) and factor>0: last_factor[tid]=factor\n            dayact=actions.get(date,{})\n",
+        "                if finite(factor) and factor>0: last_factor[tid]=factor\n            # Capture prior-close entitlement after split-domain conversion,\n            # before any same-open exits or buys.\n            prior_qty={s.tid:s.qty for s in book.slots if s.held()}\n            dayact=actions.get(date,{})\n",
+        "post-split prior-close dividend entitlement capture",
     )
 
     start_anchor = "            dayact=actions.get(date,{})\n"
@@ -122,8 +150,12 @@ def install(text: str) -> str:
 """
     text = _replace_once(text, old_mark, new_mark, "terminal grace sweep")
 
-    forbidden = ("sell_reason='terminal'", "px2=book.last_raw.get(s.tid")
+    forbidden = (
+        "sell_reason='terminal'",
+        "px2=book.last_raw.get(s.tid",
+        "prior_qty={s.tid:s.qty for s in book.slots if s.held()}\n            for tid0,cs,cr in zip(tids,c,cu):",
+    )
     for needle in forbidden:
         if needle in text:
-            raise RuntimeError(f"retained research immediate-terminal-sale defect survived overlay: {needle}")
+            raise RuntimeError(f"retained research economic defect survived overlay: {needle}")
     return text
