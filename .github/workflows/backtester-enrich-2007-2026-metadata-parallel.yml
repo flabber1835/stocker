@@ -1,0 +1,407 @@
+name: Backtester - parallel 2007-2026 metadata reconstruction
+run-name: Parallel SEC metadata 2007-2026 — ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [research/enrich-pit-2007-2026-metadata]
+    paths:
+      - '.github/workflows/backtester-enrich-2007-2026-metadata-parallel.yml'
+      - 'backtester/prepare_historical_metadata_year_candidates.py'
+      - 'backtester/reconstruct_historical_metadata_year.py'
+      - 'backtester/merge_historical_metadata_years.py'
+      - 'tests/backtester/test_reconstruct_historical_metadata_year.py'
+
+permissions:
+  actions: read
+  contents: write
+  packages: read
+
+concurrency:
+  group: reconstruct-2007-2026-historical-metadata
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare 2007-2026 candidates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      CANONICAL: backtester-results/canonical-pit-20y
+      CANDIDATES: backtester-results/metadata-candidates-2007-2026
+      POINTER: backtester/data/canonical-pit-20y.json
+      EXISTING: research/sentinel-fastgate/pit-evidence/generated
+    steps:
+      - name: Check out exact parallel-harvest source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install pinned verification runtime
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e shared
+
+      - name: Verify parallel reconstruction code and retained SEC inputs
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          python -m py_compile \
+            backtester/prepare_historical_metadata_year_candidates.py \
+            backtester/reconstruct_historical_metadata_year.py \
+            backtester/merge_historical_metadata_years.py
+          python -m unittest tests.backtester.test_reconstruct_historical_metadata_year -v
+          (cd "${EXISTING}" && sha256sum -c SHA256SUMS.txt && sha256sum -c SEC_SIC_SHA256SUMS.txt)
+
+      - name: Pull and authenticate frozen canonical PIT package
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          CONTAINER=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true' EXIT
+          rm -rf "${CANONICAL}" && mkdir -p "${CANONICAL}"
+          docker cp "${CONTAINER}:/canonical-pit/." "${CANONICAL}"
+          docker rm "${CONTAINER}"
+          trap - EXIT
+          python backtester/canonical_pit_package.py verify --pointer "${POINTER}" --dataset "${CANONICAL}"
+
+      - name: Prepare per-year candidate shards with visible progress
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          python backtester/prepare_historical_metadata_year_candidates.py \
+            --canonical-dataset "${CANONICAL}" \
+            --output "${CANDIDATES}" \
+            --from-year 2007 \
+            --through-year 2026
+
+      - name: Acquire one SEC discovery index for all year runners
+        run: |
+          set -euo pipefail
+          mkdir -p "${CANDIDATES}/discovery"
+          curl --fail --location --retry 8 --retry-all-errors \
+            --user-agent 'stocker-historical-metadata-certification/1.0 contact=m.bron01@gmail.com' \
+            https://www.sec.gov/files/company_tickers.json \
+            -o "${CANDIDATES}/discovery/sec_company_tickers.json"
+          printf '%s\n' \
+            'Current SEC ticker metadata is discovery-only.' \
+            'Historical identity requires independent evidence from a historically filed SEC primary document.' \
+            > "${CANDIDATES}/discovery/README.txt"
+          (
+            cd "${CANDIDATES}"
+            find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+            sha256sum -c SHA256SUMS.txt
+          )
+
+      - name: Upload candidate shards
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: metadata-candidates-2007-2026-${{ github.sha }}
+          path: backtester-results/metadata-candidates-2007-2026/**
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+
+  wait_for_2006:
+    name: Wait for current 2006 SEC run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RUN_ID: '33439128106'
+    steps:
+      - name: Preserve SEC request budget until 2006 finishes
+        run: |
+          set -euo pipefail
+          while true; do
+            payload=$(curl --fail --silent --show-error \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}")
+            status=$(python -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"${payload}")
+            conclusion=$(python -c 'import json,sys; print(json.load(sys.stdin).get("conclusion") or "")' <<<"${payload}")
+            echo "[WAIT] 2006_run=${RUN_ID} status=${status} conclusion=${conclusion:-pending}"
+            if test "${status}" = completed; then
+              break
+            fi
+            sleep 60
+          done
+          echo "[WAIT] 2006 SEC runner released request budget; parallel years may start."
+
+  harvest:
+    name: SEC metadata ${{ matrix.year }}
+    needs: [prepare, wait_for_2006]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        year: [2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026]
+    env:
+      YEAR: ${{ matrix.year }}
+      CANDIDATES: backtester-results/metadata-candidates-2007-2026
+      EXISTING: research/sentinel-fastgate/pit-evidence/generated
+      OUT: backtester-results/historical-metadata-${{ matrix.year }}
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - name: Check out exact parallel-harvest source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Download authenticated candidate shards
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: metadata-candidates-2007-2026-${{ github.sha }}
+          path: backtester-results/metadata-candidates-2007-2026
+
+      - name: Verify candidate shard and harvester
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          python -m py_compile backtester/reconstruct_historical_metadata_year.py
+          (
+            cd "${CANDIDATES}"
+            sha256sum -c SHA256SUMS.txt
+          )
+          test -s "${CANDIDATES}/candidates-${YEAR}.csv.gz"
+          echo "::notice title=Live SEC ${YEAR} progress::Open the next step. [PROGRESS] lines show exact tickers completed / total and percentage."
+
+      - name: Harvest ${{ matrix.year }} SEC evidence — LIVE PROGRESS
+        run: |
+          set -euo pipefail
+          mkdir -p "${OUT}"
+          python backtester/reconstruct_historical_metadata_year.py \
+            --target-year "${YEAR}" \
+            --candidates "${CANDIDATES}/candidates-${YEAR}.csv.gz" \
+            --existing-ticker-cik "${EXISTING}/sec_cik_change_events.csv.gz" \
+            --discovery-tickers "${CANDIDATES}/discovery/sec_company_tickers.json" \
+            --output "${OUT}/evidence" \
+            --delay 1.35 \
+            --progress-every 10 \
+            2>&1 | tee "${OUT}/reconstruction.log"
+
+      - name: Verify year evidence and prepare compact tables artifact
+        run: |
+          set -euo pipefail
+          (cd "${OUT}/evidence" && sha256sum -c SHA256SUMS.txt)
+          mkdir -p "${OUT}/tables"
+          cp "${OUT}/evidence/coverage.json" "${OUT}/tables/coverage.json"
+          cp "${OUT}/evidence/network_failures.json" "${OUT}/tables/network_failures.json"
+          cp "${OUT}/evidence/identity_events.csv.gz" "${OUT}/tables/identity_events.csv.gz"
+          cp "${OUT}/evidence/security_type_events.csv.gz" "${OUT}/tables/security_type_events.csv.gz"
+          cp "${OUT}/evidence/sic_events.csv.gz" "${OUT}/tables/sic_events.csv.gz"
+          cp "${OUT}/evidence/source_manifest.csv.gz" "${OUT}/tables/source_manifest.csv.gz"
+          cp "${OUT}/evidence/unresolved.csv.gz" "${OUT}/tables/unresolved.csv.gz"
+          (
+            cd "${OUT}/tables"
+            sha256sum coverage.json network_failures.json identity_events.csv.gz security_type_events.csv.gz sic_events.csv.gz source_manifest.csv.gz unresolved.csv.gz > SHA256SUMS.txt
+            sha256sum -c SHA256SUMS.txt
+          )
+          python - <<'PY'
+          import json, os
+          c=json.load(open(os.environ['OUT']+'/evidence/coverage.json'))
+          e,n=c['evidence'],c['network']
+          summary=(
+            f"### SEC metadata {c['target_year']}\n"
+            f"- Candidate tickers: {c['baseline']['candidate_tickers']:,}\n"
+            f"- Identity events: {e['historically_verified_identity_events']:,}\n"
+            f"- Type events: {e['security_type_events']:,}\n"
+            f"- SIC events: {e['sic_events']:,}\n"
+            f"- Unresolved episodes: {e['unresolved_episode_records']:,}\n"
+            f"- SEC requests: {n['requests']:,}\n"
+            f"- Network failures retained: {len(n['failures']):,}\n"
+          )
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as fh: fh.write(summary)
+          PY
+
+      - name: Upload ${{ matrix.year }} compact evidence tables
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: historical-metadata-year-${{ matrix.year }}-tables-${{ github.sha }}
+          path: backtester-results/historical-metadata-${{ matrix.year }}/tables/**
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+
+      - name: Upload ${{ matrix.year }} immutable SEC primary filing bytes
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: historical-metadata-year-${{ matrix.year }}-primary-${{ github.sha }}
+          path: backtester-results/historical-metadata-${{ matrix.year }}/evidence/primary-sec-filings/**
+          if-no-files-found: warn
+          retention-days: 90
+          compression-level: 6
+
+      - name: Upload ${{ matrix.year }} reconstruction log
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: historical-metadata-year-${{ matrix.year }}-log-${{ github.sha }}
+          path: backtester-results/historical-metadata-${{ matrix.year }}/reconstruction.log
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+
+  merge:
+    name: Merge and audit 2007-2026 evidence
+    needs: harvest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      INPUT: backtester-results/year-table-artifacts
+      MERGED: backtester-results/historical-metadata-2007-2026-merged
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Check out exact parallel-harvest source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Download all 20 compact year artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: historical-metadata-year-*-tables-${{ github.sha }}
+          path: backtester-results/year-table-artifacts
+          merge-multiple: false
+
+      - name: Verify each year artifact then merge with conflict audit
+        run: |
+          set -euo pipefail
+          count=0
+          while IFS= read -r sums; do
+            count=$((count + 1))
+            (cd "$(dirname "${sums}")" && sha256sum -c SHA256SUMS.txt)
+          done < <(find "${INPUT}" -name SHA256SUMS.txt -type f | sort)
+          test "${count}" -eq 20
+          python backtester/merge_historical_metadata_years.py \
+            --input "${INPUT}" \
+            --output "${MERGED}" \
+            --from-year 2007 \
+            --through-year 2026
+
+      - name: Retain year artifact IDs and digests in merged evidence
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" \
+            -o "${MERGED}/run-artifacts-raw.json"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ['MERGED'])
+          payload=json.load(open(root/'run-artifacts-raw.json'))
+          rows=[]
+          for a in payload.get('artifacts',[]):
+              name=a.get('name','')
+              if name.startswith('historical-metadata-year-'):
+                  rows.append({k:a.get(k) for k in ('id','name','size_in_bytes','digest','expired','archive_download_url')})
+          rows=sorted(rows,key=lambda x:x['name'])
+          (root/'year-artifacts.json').write_text(json.dumps({'schema':'backtester.historical-metadata-year-artifacts/1','artifacts':rows},indent=2,sort_keys=True)+'\n')
+          (root/'run-artifacts-raw.json').unlink()
+          PY
+          (
+            cd "${MERGED}"
+            find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+            sha256sum -c SHA256SUMS.txt
+          )
+
+      - name: Write repository coverage report
+        run: |
+          set -euo pipefail
+          cp "${MERGED}/coverage.json" backtester/data/historical-metadata-2007-2026-coverage.json
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          c=json.load(open('backtester/data/historical-metadata-2007-2026-coverage.json'))
+          lines=['# 2007-2026 parallel historical metadata evidence harvest','',
+                 f"Source commit: `{os.environ['GITHUB_SHA']}`",'',
+                 'This is an evidence-harvest checkpoint. Admission into an enriched canonical PIT dataset is a separate fail-closed gate.','',
+                 '| Year | Candidate tickers | Identity | Type | SIC | Unresolved | SEC requests | Failures |',
+                 '|---:|---:|---:|---:|---:|---:|---:|---:|']
+          for y in range(2007,2027):
+              r=c['years'][str(y)]; b,e,n=r['baseline'],r['evidence'],r['network']
+              lines.append(f"| {y} | {b['candidate_tickers']:,} | {e['historically_verified_identity_events']:,} | {e['security_type_events']:,} | {e['sic_events']:,} | {e['unresolved_episode_records']:,} | {n['requests']:,} | {len(n['failures']):,} |")
+          m=c['merged']
+          lines += ['',f"Merged identity events: {m['identity_events']:,}",f"Merged type events: {m['security_type_events']:,}",f"Merged SIC events: {m['sic_events']:,}",f"Merged unresolved records: {m['unresolved_episode_records']:,}",'',
+                    'Causal rule: `filed < decision_session`. Current SEC ticker metadata is discovery-only.','',
+                    'Each year retains separate compact tables, immutable primary SEC filing bytes, and reconstruction logs as GitHub Actions artifacts.']
+          p=Path('backtester/reports/2007-2026-parallel-historical-metadata-evidence-harvest.md'); p.parent.mkdir(parents=True,exist_ok=True); p.write_text('\n'.join(lines)+'\n')
+          PY
+
+      - name: Upload merged audited evidence tables
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: historical-metadata-2007-2026-merged-${{ github.sha }}
+          path: backtester-results/historical-metadata-2007-2026-merged/**
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+
+      - name: Commit coverage report and artifact pointer
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          coverage=Path('backtester/data/historical-metadata-2007-2026-coverage.json')
+          pointer={
+            'schema':'backtester.historical-metadata-2007-2026-artifact-pointer/1',
+            'status':'EVIDENCE_HARVEST_COMPLETE',
+            'source_sha':os.environ['GITHUB_SHA'],
+            'workflow_run_id':os.environ['GITHUB_RUN_ID'],
+            'workflow_run_url':f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+            'artifact':{'id':os.environ['ARTIFACT_ID'],'name':f"historical-metadata-2007-2026-merged-{os.environ['GITHUB_SHA']}",'digest':os.environ['ARTIFACT_DIGEST'],'url':os.environ['ARTIFACT_URL'],'retention_days':90},
+            'coverage_sha256':hashlib.sha256(coverage.read_bytes()).hexdigest(),
+            'causal_rule':'filed < decision_session',
+            'progress_contract':'Each year job prints [PROGRESS] tickers=done/total pct=... in the GitHub Actions live log.',
+            'primary_source_artifacts':'Separate per-year immutable primary SEC filing artifacts are indexed by year-artifacts.json in the merged artifact.',
+            'next_gate':'combine with 2006 evidence, admit causally into enriched metadata timeline, rebuild canonical PIT dataset, then rerun certification',
+          }
+          Path('backtester/data/historical-metadata-2007-2026-enrichment.json').write_text(json.dumps(pointer,indent=2,sort_keys=True)+'\n')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            backtester/data/historical-metadata-2007-2026-coverage.json \
+            backtester/data/historical-metadata-2007-2026-enrichment.json \
+            backtester/reports/2007-2026-parallel-historical-metadata-evidence-harvest.md
+          git commit -m 'data(backtester): retain 2007-2026 parallel metadata evidence [skip ci]'
+          git push origin HEAD:research/enrich-pit-2007-2026-metadata
