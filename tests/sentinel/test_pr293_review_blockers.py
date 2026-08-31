@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import errno
+import json
 import multiprocessing
 import os
 import signal
@@ -50,6 +51,59 @@ from sentinel.execution.states import CommandState
 from sentinel.feed import sharadar
 from sentinel.paper import PaperActivationRefused
 from sentinel.paper.inspection import _require_certified_paper_broker
+
+
+def _callback_envelope(**changes) -> bytes:
+    payload = {
+        "kind": "error",
+        "name": "RuntimeError",
+        "module": "builtins",
+        "qualname": "RuntimeError",
+        "actual_module": "builtins",
+        "actual_qualname": "RuntimeError",
+        "detail": "callback failed",
+        "reviewed": False,
+    }
+    payload.update(changes)
+    return json.dumps(payload).encode("utf-8")
+
+
+def test_callback_ipc_decoder_covers_every_authority_class() -> None:
+    assert service_module._decode_child_callback(  # noqa: SLF001
+        b'{"kind":"result","value":{"ok":true}}') == {"ok": True}
+    with pytest.raises(SoftwareDefect, match="malformed IPC evidence"):
+        service_module._decode_child_callback(b"not-json")  # noqa: SLF001
+    with pytest.raises(SystemExit, match="stopped"):
+        service_module._decode_child_callback(_callback_envelope(  # noqa: SLF001
+            name="SystemExit", qualname="SystemExit", detail="stopped"))
+    with pytest.raises(KeyboardInterrupt, match="interrupted"):
+        service_module._decode_child_callback(_callback_envelope(  # noqa: SLF001
+            name="KeyboardInterrupt", qualname="KeyboardInterrupt",
+            detail="interrupted"))
+    with pytest.raises(TransientInfrastructureFailure, match="retry"):
+        service_module._decode_child_callback(_callback_envelope(  # noqa: SLF001
+            name="TransientInfrastructureFailure",
+            module=TransientInfrastructureFailure.__module__,
+            qualname=TransientInfrastructureFailure.__qualname__,
+            detail="retry", reviewed=True))
+    with pytest.raises(SoftwareDefect, match="builtins.RuntimeError"):
+        service_module._decode_child_callback(_callback_envelope())  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_background_callback_results_are_always_consumed() -> None:
+    cancelled = asyncio.create_task(asyncio.sleep(10))
+    cancelled.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await cancelled
+    service_module._consume_background_result(cancelled)  # noqa: SLF001
+
+    async def fails():
+        raise RuntimeError("late failure")
+
+    failed = asyncio.create_task(fails())
+    await asyncio.sleep(0)
+    service_module._consume_background_result(failed)  # noqa: SLF001
 
 
 def config(*, deadline: int = 1) -> AutomationConfig:
