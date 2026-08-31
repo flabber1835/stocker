@@ -1,9 +1,8 @@
-"""The deterministic production brain for one Sentinel session.
+"""Production state, feature warm-up, corpus loading, and persistence seams.
 
-This module deliberately stops before execution projection.  It owns one
-authoritative, JSON-serialisable envelope and composes the already-certified
-Wealth Core live step, recovered breadth classifier, SPY sensor and controller.
-The caller supplies a published session snapshot; no broker or clock is read.
+The pure economic transition lives in :mod:`sentinel.core.kernel`. This module
+owns its authoritative JSON-serialisable envelope and the production adapters
+that prepare or persist it. No historical portfolio simulator lives here.
 """
 from __future__ import annotations
 
@@ -13,33 +12,28 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Mapping, Sequence
 
-from stock_strategy_shared.wealth_core.adapter import PendingOrder
 from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
-from stock_strategy_shared.wealth_core.engine import (
-    Reason, WealthCoreConfig, score_universe)
+from stock_strategy_shared.wealth_core.engine import WealthCoreConfig, score_universe
 from stock_strategy_shared.wealth_core.feed import (
     Feed, FeedError, SecurityMeta, SecuritySeries, VendorBar)
-from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
-from stock_strategy_shared.wealth_core.live import plan_session
+from stock_strategy_shared.wealth_core.ledger import Ledger
 from stock_strategy_shared.wealth_core.signals import REQUIRED_CLOSES
 from stock_strategy_shared.wealth_core.state import DEFAULT_SLOTS, PortfolioState
 from stock_strategy_shared.wealth_core.terminal import TerminalTerms
 
-from sentinel.breadth.classifier import Holding, session_breadth
+from sentinel.breadth.classifier import Holding
 from sentinel.breadth.returns import lag_return
 from sentinel.controller.concordance import (
     RecentLeadershipState, advance_recent_leadership,
     is_concordance_identity, state_from_dict as leadership_state_from_dict,
     state_to_dict as leadership_state_to_dict)
-from sentinel.controller.concordance_parent import (
-    STRATEGY_ID as CONCORDANCE_PARENT_STRATEGY_ID)
 from sentinel.controller.frozen_rule import ControllerConfig
 from sentinel.controller.ldrc import (
-    LDRCState, ldrc_step, state_from_dict as ldrc_state_from_dict,
+    LDRCState, state_from_dict as ldrc_state_from_dict,
     state_to_dict as ldrc_state_to_dict)
 from sentinel.controller.machine import (
     Controller, Observation, validate_controller_state)
-from sentinel.regime.spy import MIN_CLOSES, dated_spy_regime
+from sentinel.regime.spy import MIN_CLOSES
 
 ENVELOPE_VERSION = 5
 LEGACY_ENVELOPE_VERSIONS = frozenset({2, 3, 4})
@@ -693,7 +687,7 @@ def _feed_from_dict(raw: Mapping, meta, elig) -> Feed:
     # `Feed.update()` appends to every SecuritySeries array.  Constructing the
     # dataclass directly from persisted mappings aliases those nested lists and
     # mutates the caller's supposedly immutable prior SessionState.  Copy every
-    # mutable column at this boundary so `advance_state` remains a pure
+    # mutable column at this boundary so `advance_session` remains a pure
     # transition and a pre-transition commitment cannot change under its own
     # verifier.
     feed.series = {
@@ -781,178 +775,15 @@ def advance_state(prior: SessionState | Mapping, published: PublishedSession,
                   strategy_identity: Mapping,
                   wealth_config: WealthCoreConfig | None = None,
                   eligibility_config: EligibilityConfig | None = None,
-                  concordance_audit=None
-                  ) -> SessionState:
-    """Pure one-session transition. Persist its return in the caller's txn."""
-    env = (prior if isinstance(prior, SessionState)
-           else SessionState.from_dict(prior))
-    if env.version != ENVELOPE_VERSION:
-        raise ValueError(f"unsupported production state version {env.version!r}")
-    running_identity = dict(strategy_identity)
-    missing = REQUIRED_IDENTITY_FIELDS - set(running_identity)
-    if missing:
-        raise ValueError("running strategy identity is incomplete: "
-                         + ", ".join(sorted(missing)))
-    if running_identity["strategy"] != controller_config.strategy_id \
-            or running_identity["controller_rule_sha256"] != controller_config.digest:
-        raise ValueError("running strategy/controller identity disagrees with configuration")
-    if env.strategy_identity != running_identity:
-        raise ValueError("persisted strategy/config/source identity differs from running identity")
-    concordance = is_concordance_identity(running_identity)
-    if (concordance
-            and controller_config.strategy_id != CONCORDANCE_PARENT_STRATEGY_ID):
-        raise ValueError(
-            "Concordance overlay requires the versioned hardened 30pp parent")
-    if env.last_processed_session and published.session <= env.last_processed_session:
-        raise ValueError("production sessions must advance strictly")
-    if env.data_version is not None and published.data_version < env.data_version:
-        raise ValueError("corpus publication version moved backwards")
+                  concordance_audit=None) -> SessionState:
+    """Compatibility entry point; new callers import the canonical kernel."""
+    from sentinel.core.kernel import advance_session
 
-    elig = eligibility_config or EligibilityConfig()
-    state = PortfolioState.from_dict(env.wealth_core)
-    pending = [PendingOrder.from_dict(p) for p in env.pending]
-    ledger = Ledger.from_dict(env.ledger)
-    last_known = dict(env.last_known)
-    feed = _feed_from_dict(env.feed, published.meta, elig)
-    _restore_missing_feed_anchors(feed, published)
-    ledger_event_boundary = len(ledger.events)
-    plan = plan_session(
-        session=published.session, bars=published.bars, meta=published.meta,
-        state=state, pending=pending, ledger=ledger, last_known=last_known,
-        feed=feed, cfg=wealth_config, eligibility_cfg=elig,
-        terminal_events=published.terminal_events)
-
-    # A stop is evidence only when its pending SELL actually filled.  Plan
-    # intents are close-time decisions; the append-only ledger records the
-    # completed fill with canonical typed event and reason values.
-    completed_stops = [
-        event for event in ledger.events[ledger_event_boundary:]
-        if event.session == published.session
-        and event.event_type is EventType.SELL
-        and event.reason == Reason.EXIT_TRAILING_STOP.value
-    ]
-
-    held = holdings_from_shadow(state, feed, published.sectors)
-    breadth = session_breadth(held)
-    navs = list(env.shadow_nav_history)
-    nav = float(plan.estimated_equity)
-    navs.append(nav)
-    navs = navs[-41:]
-    peak = max(float(env.shadow_peak_nav), nav)
-    stops = list(env.trailing_stop_sessions)
-    stops.extend([published.session] * len(completed_stops))
-    # Retain every completed stop from the current controller session plus
-    # exactly the preceding 19 controller sessions; never age by calendar day.
-    recent_sessions = (list(env.controller_session_history) + [published.session])[-20:]
-    recent_session_set = set(recent_sessions)
-    stops = [stop_session for stop_session in stops
-             if stop_session in recent_session_set]
-    damaged = list(env.breadth_history) + [breadth.damaged_breadth]
-    regime = dated_spy_regime(
-        published.spy_sessions, published.spy_closeadj,
-        decision_session=published.session,
-        expected_sessions=published.spy_expected_sessions)
-    ob = Observation(
-        session=published.session, shadow_nav=nav,
-        damaged_breadth=breadth.damaged_breadth,
-        green_breadth=breadth.green_breadth,
-        shadow_drawdown=(nav / peak - 1.0 if peak else None),
-        shadow_r5=_period_return(navs, 5), shadow_r10=_period_return(navs, 10),
-        shadow_r20=_period_return(navs, 20), shadow_r40=_period_return(navs, 40),
-        damaged_breadth_delta5=(damaged[-1] - damaged[-6]
-                                if len(damaged) >= 6 else None),
-        spy_r20=regime.spy_r20, spy_vol_ratio=regime.spy_vol_ratio)
-    ob = Observation(**{**asdict(ob), "stops20": len(stops)})
-    ctl = Controller(controller_config)
-    controller_state, native_decision = ctl.step(
-        observation=ob, state=env.controller)
-    decision = native_decision.to_dict()
-    recent_leadership_state = env.recent_leadership
-    ldrc_state = env.ldrc
-    concordance_evidence = {}
-    if concordance:
-        witness_before = leadership_state_from_dict(
-            env.recent_leadership or {})
-        witness_after, witness_decision = advance_recent_leadership(
-            session=published.session,
-            candidate_rows=plan.leadership_candidates,
-            eligible_universe_count=plan.eligible_universe_count,
-            signal_closes=plan.signal_closes, state=witness_before)
-        overlay_before = ldrc_state_from_dict(env.ldrc or {})
-        overlay_after, overlay_decision = ldrc_step(
-            session=published.session,
-            native_allocation=native_decision.target_core_exposure,
-            effective_native_allocation=(
-                overlay_before.previous_native_allocation),
-            wc_drawdown=ob.shadow_drawdown,
-            recent_r20=witness_decision.recent_r20,
-            recent_r40=witness_decision.recent_r40,
-            spy_r20=regime.spy_r20, state=overlay_before)
-        if overlay_decision.desired_allocation > native_decision.target_core_exposure + 1e-15:
-            raise AssertionError("Concordance cannot increase native exposure")
-        if concordance_audit is not None:
-            # Certification-only seam.  The callback receives the SAME
-            # ephemeral Wealth Core rows and native inputs as production, plus
-            # production's outputs to compare.  Nothing returned by the audit
-            # callback can alter strategy state or execution.
-            concordance_audit(
-                session=published.session,
-                candidate_rows=tuple(plan.leadership_candidates),
-                eligible_universe_count=plan.eligible_universe_count,
-                signal_closes=dict(plan.signal_closes),
-                native_allocation=native_decision.target_core_exposure,
-                effective_native_allocation=(
-                    overlay_before.previous_native_allocation),
-                wc_drawdown=ob.shadow_drawdown, spy_r20=regime.spy_r20,
-                production_witness_decision=asdict(witness_decision),
-                production_witness_state=leadership_state_to_dict(witness_after),
-                production_ldrc_decision=asdict(overlay_decision),
-                production_ldrc_state=ldrc_state_to_dict(overlay_after),
-                production_final_allocation=overlay_decision.desired_allocation,
-            )
-        decision = {
-            **decision,
-            "native_target_core_exposure":
-                native_decision.target_core_exposure,
-            "target_core_exposure": overlay_decision.desired_allocation,
-            "ldrc": asdict(overlay_decision),
-        }
-        recent_leadership_state = leadership_state_to_dict(witness_after)
-        ldrc_state = ldrc_state_to_dict(overlay_after)
-        concordance_evidence = {
-            "native_controller": native_decision.to_dict(),
-            "recent_leadership": asdict(witness_decision),
-            "recent_leadership_readiness": {
-                "history_sessions": len(witness_after.session_history),
-                "r20_available": witness_decision.recent_r20 is not None,
-                "r40_available": witness_decision.recent_r40 is not None,
-            },
-            "ldrc": asdict(overlay_decision),
-        }
-    evidence = {"observation": asdict(ob), "breadth": {
-        "denominator": breadth.denominator, "greens": breadth.greens,
-        "ambers": breadth.ambers, "reds": breadth.reds,
-        "holdings": [asdict(h) for h in held]},
-        "wealth_core": _bounded_evidence(
-            {"wealth_core": plan.to_dict()})["wealth_core"],
-        **concordance_evidence}
-    wealth_core = state.to_dict()
-    pending_state = [p.to_dict() for p in pending]
-    protected = _path_dependent_security_ids(wealth_core, pending_state)
-    return SessionState(
-        wealth_core=wealth_core, pending=pending_state,
-        ledger=ledger.to_dict(),
-        last_known=_bounded_last_known(last_known, protected),
-        feed=_feed_to_dict(feed, protected),
-        controller=controller_state, shadow_nav_history=navs,
-        shadow_peak_nav=peak, trailing_stop_sessions=stops,
-        controller_session_history=recent_sessions,
-        breadth_history=damaged[-6:], last_processed_session=published.session,
-        data_version=published.data_version,
-        strategy_identity=dict(env.strategy_identity),
-        last_decision=decision, last_evidence=evidence,
-        recent_leadership=recent_leadership_state, ldrc=ldrc_state,
-        concordance_witness_origin=env.concordance_witness_origin)
+    return advance_session(
+        prior, published, controller_config=controller_config,
+        strategy_identity=strategy_identity, wealth_config=wealth_config,
+        eligibility_config=eligibility_config,
+        concordance_audit=concordance_audit)
 
 
 def advance_and_persist(conn, session: str, prior: SessionState | Mapping, *,
@@ -961,6 +792,7 @@ def advance_and_persist(conn, session: str, prior: SessionState | Mapping, *,
                         strategy_identity: Mapping,
                         commit_pin: bool = True, **kwargs) -> dict:
     """Catch-up callback: compute only; catch_up commits envelope + cursor."""
+    from sentinel.core.kernel import advance_session
     from sentinel.feed.publication import pinned
     canonical_prior = SessionState.from_dict(
         prior.to_dict() if isinstance(prior, SessionState) else prior)
@@ -972,7 +804,7 @@ def advance_and_persist(conn, session: str, prior: SessionState | Mapping, *,
                 canonical_prior.feed["series"].keys()))
         if published.data_version != publication.version:
             raise RuntimeError("loaded publication version differs from session pin")
-        result = advance_state(
+        result = advance_session(
             canonical_prior, published, controller_config=controller_config,
             strategy_identity=strategy_identity, **kwargs)
         return result.to_dict()

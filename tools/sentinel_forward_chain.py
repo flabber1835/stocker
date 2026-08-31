@@ -41,10 +41,10 @@ from sentinel import identity
 from sentinel.controller.frozen_rule import load as load_controller
 from sentinel.controller.machine import Controller
 from sentinel.core.decision import publication_fingerprint, runtime_strategy_identity
+from sentinel.core.kernel import advance_session as advance_state
 from sentinel.core.loader import load_window
 from sentinel.core.production import (
     SessionState,
-    advance_state,
     load_published_session,
     warm_session_state,
 )

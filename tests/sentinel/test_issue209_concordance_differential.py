@@ -26,10 +26,10 @@ def test_reference_pins_exact_simplified_three_signal_constants():
 
 
 def test_production_audit_seam_is_observational_only():
-    from sentinel.core import production
-    signature = inspect.signature(production.advance_state)
+    from sentinel.core import kernel
+    signature = inspect.signature(kernel.advance_session)
     assert signature.parameters["concordance_audit"].default is None
-    source = inspect.getsource(production.advance_state)
+    source = inspect.getsource(kernel.advance_session)
     assert "concordance_audit(" in source
     assert "= concordance_audit(" not in source
 

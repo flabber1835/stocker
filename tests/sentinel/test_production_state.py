@@ -63,6 +63,24 @@ def _advance(state, published, config):
                          strategy_identity=state.strategy_identity)
 
 
+def test_compatibility_entry_point_is_exactly_the_canonical_session_kernel():
+    from sentinel.core.kernel import advance_session
+
+    config, before = _fresh()
+    published = _published()
+    expected = advance_session(
+        SessionState.from_dict(before.to_dict()), published,
+        controller_config=config,
+        strategy_identity=before.strategy_identity)
+    actual = advance_state(
+        SessionState.from_dict(before.to_dict()), published,
+        controller_config=config,
+        strategy_identity=before.strategy_identity)
+
+    assert actual.to_dict() == expected.to_dict()
+    assert actual.state_hash == expected.state_hash
+
+
 def _synthetic_published(number: int, version: int = 7) -> PublishedSession:
     """One fixed-width session from a production-shaped, split-bearing feed."""
     session = f"S{number:04d}"
@@ -428,7 +446,7 @@ def test_stop_evidence_waits_for_executed_fill_and_pending_exit_survives(monkeyp
         return SimpleNamespace(estimated_equity=100_000, intents=[object()],
                                to_dict=lambda: {})
 
-    monkeypatch.setattr("sentinel.core.production.plan_session", fake_plan)
+    monkeypatch.setattr("sentinel.core.kernel.plan_session", fake_plan)
     state = _advance(state, _published("2026-08-10"), config)
     assert state.last_evidence["observation"]["stops20"] == 0
     assert len(state.pending) == 1
@@ -457,7 +475,7 @@ def test_completed_stops_keep_multiplicity_for_exactly_twenty_controller_session
         return SimpleNamespace(estimated_equity=100_000, intents=[],
                                to_dict=lambda: {})
 
-    monkeypatch.setattr("sentinel.core.production.plan_session", fake_plan)
+    monkeypatch.setattr("sentinel.core.kernel.plan_session", fake_plan)
     for day in range(1, 21):
         state = _advance(state, _published(f"2026-01-{day:02d}"), config)
     assert state.last_evidence["observation"]["stops20"] == 3

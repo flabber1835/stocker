@@ -1,7 +1,8 @@
 """Broker-free, commitment-bearing forward observation of canonical state.
 
 This module has one economic job: advance :class:`SessionState` through the
-same :func:`advance_state` function used by production, after an XNYS session
+same :func:`sentinel.core.kernel.advance_session` function used by production,
+after an XNYS session
 has become a published corpus fact.  It deliberately has no broker seam.  The
 pure/store-generic boundary can produce only ``CANDIDATE``/``NOT_DEPLOYABLE``.
 Only :class:`PostgresShadowRuntime`, which owns the real publication pin and
@@ -27,9 +28,9 @@ from typing import Any, Mapping, Protocol, Sequence
 
 from sentinel.controller.frozen_rule import ControllerConfig
 from sentinel.controller.machine import Controller
+from sentinel.core.kernel import advance_session as advance_state
 from sentinel.core.production import (
-    DefensiveBar, PublishedSession, SessionState, advance_state,
-    load_published_session)
+    DefensiveBar, PublishedSession, SessionState, load_published_session)
 from sentinel.feed import calendar
 
 
