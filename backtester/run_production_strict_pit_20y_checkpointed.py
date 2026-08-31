@@ -28,7 +28,16 @@ if SEGMENT_END != FULL_DATASET_END:
     }
 os.environ["CERTIFICATION_END_SESSION"] = SEGMENT_END
 
-install(base.strict.runner)
+# The durable handoff includes the production SessionState plus the independent
+# full-stack PIT Wealth Core return path and strict metadata authority counters.
+# These module globals affect the next session or final evidence and therefore
+# cross the annual boundary with the same fail-closed identity contract.
+install(
+    base.strict.runner,
+    fullstack_module=base.strict.prod,
+    strict_module=base.strict,
+    progress_module=base.strict.base,
+)
 
 if __name__ == "__main__":
     raise SystemExit(base.main())
