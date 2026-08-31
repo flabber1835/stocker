@@ -3,7 +3,8 @@
   "canonical_dataset_hash": "08db292b78f0968b149ec033671b5c5df62ad98a4b2692bcc5dfa575585fa4e6",
   "production_source_sha": "887f479b15ad861313da666ad698034d3847121c",
   "production_cooldown_issue": 294,
-  "retry": 5,
+  "retry": 6,
+  "trigger_reason": "explicit retrigger after retry-5 push did not receive an Actions check suite",
   "overlay_fix": "stable standalone prior_qty seam moved to the dayact boundary so both ordinary price-factor and canonicalsplit generated split loops are supported fail-closed",
   "wrapper_fix": "bootstrap repository root before importing backtester package",
   "retry_4_harness_failure": {
