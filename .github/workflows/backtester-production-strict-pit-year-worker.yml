@@ -336,7 +336,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY' >> "${GITHUB_ENV}"
+          BOUNDARY_ENV="${RUNNER_TEMP}/production-boundaries-${CHAIN_YEAR}.env"
+          python - <<'PY' > "${BOUNDARY_ENV}"
           import os
           import pandas as pd
           year = int(os.environ['CHAIN_YEAR'])
@@ -363,6 +364,11 @@ jobs:
                   raise SystemExit('no 2007 annual equivalence boundary')
               print(f'GENESIS_EQUIVALENCE_END_SESSION={gate_end.iloc[-1]}')
           PY
+          cat "${BOUNDARY_ENV}" >> "${GITHUB_ENV}"
+          set -a
+          source "${BOUNDARY_ENV}"
+          set +a
+          rm -f "${BOUNDARY_ENV}"
           mkdir -p "${YEAR_OUTPUT_ROOT}"
           python - <<'PY'
           import json, os
