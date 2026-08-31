@@ -10,7 +10,9 @@ from pathlib import Path
 
 import pandas as pd
 
-SCHEMA = "backtester.causal-year-certificate/1"
+SCHEMA = "backtester.causal-year-certificate/2"
+CHECKPOINT_SCHEMA = "backtester.production-year-checkpoint/2"
+GENERATION = 2
 FINAL_END = "2026-07-31"
 
 
@@ -50,8 +52,15 @@ def main() -> int:
 
     root = args.output_root.resolve()
     checkpoint_path = args.checkpoint.resolve()
+    checkpoint_sidecar = Path(str(checkpoint_path) + ".sha256")
     if not checkpoint_path.is_file():
         raise RuntimeError(f"production checkpoint missing: {checkpoint_path}")
+    if not checkpoint_sidecar.is_file():
+        raise RuntimeError(f"production checkpoint sidecar missing: {checkpoint_sidecar}")
+    checkpoint_digest = _sha256(checkpoint_path)
+    sidecar_parts = checkpoint_sidecar.read_text(encoding="utf-8").strip().split()
+    if not sidecar_parts or sidecar_parts[0] != checkpoint_digest:
+        raise RuntimeError("production checkpoint sidecar does not authenticate checkpoint")
 
     checkpoint = _load(checkpoint_path)
     consumption = _load(root / "canonical_input_consumption_audit.json")
@@ -62,14 +71,27 @@ def main() -> int:
     production_authority = _load(root / "production" / "metadata_authority_audit.json")
     research_authority = _load(root / "research" / "metadata_authority_audit.json")
 
-    if checkpoint.get("schema") != "backtester.production-year-checkpoint/1":
+    if checkpoint.get("schema") != CHECKPOINT_SCHEMA:
         raise RuntimeError("unexpected production checkpoint schema")
+    if int(checkpoint.get("generation", -1)) != GENERATION:
+        raise RuntimeError("production checkpoint generation mismatch")
     if checkpoint.get("backtester_sha") != args.source_sha:
         raise RuntimeError("checkpoint source SHA mismatch")
     if checkpoint.get("dataset_hash") != args.dataset_hash:
         raise RuntimeError("checkpoint dataset hash mismatch")
     if checkpoint.get("end_session") != args.segment_end:
         raise RuntimeError("checkpoint segment-end mismatch")
+    module_state = checkpoint.get("module_state") or {}
+    fullstack = module_state.get("fullstack")
+    strict_state = module_state.get("strict")
+    if not isinstance(fullstack, dict):
+        raise RuntimeError("checkpoint lacks full-stack PIT continuation state")
+    if not isinstance(fullstack.get("pit_core_by_session"), dict):
+        raise RuntimeError("checkpoint lacks cumulative PIT Wealth Core history")
+    if args.segment_end not in fullstack["pit_core_by_session"]:
+        raise RuntimeError("checkpoint PIT Wealth Core history lacks annual boundary")
+    if not isinstance(strict_state, dict):
+        raise RuntimeError("checkpoint lacks cumulative strict-authority state")
     if consumption.get("dataset_hash") != args.dataset_hash:
         raise RuntimeError("canonical input audit dataset hash mismatch")
     if not consumption.get("per_session_hashes_identical"):
@@ -105,6 +127,10 @@ def main() -> int:
         raise RuntimeError("production daily evidence ends at wrong session")
     if str(research_daily.iloc[-1]["date"])[:10] != args.segment_end:
         raise RuntimeError("research daily evidence ends at wrong session")
+    if int(strong.get("sessions_compared", -1)) != len(production_daily):
+        raise RuntimeError("strong-equivalence session count disagrees with production evidence")
+    if len(production_daily) != len(research_daily):
+        raise RuntimeError("research and production daily evidence lengths differ")
 
     previous = None
     previous_chain_hash = None
@@ -112,19 +138,27 @@ def main() -> int:
         previous = _load(args.previous_certificate.resolve())
         if previous.get("schema") != SCHEMA:
             raise RuntimeError("previous annual certificate schema mismatch")
+        if int(previous.get("generation", -1)) != GENERATION:
+            raise RuntimeError("previous annual certificate generation mismatch")
         if int(previous.get("year", -1)) != args.year - 1:
             raise RuntimeError("previous annual certificate year is not contiguous")
         if previous.get("source_sha") != args.source_sha:
             raise RuntimeError("previous annual certificate source SHA mismatch")
         if previous.get("dataset_hash") != args.dataset_hash:
             raise RuntimeError("previous annual certificate dataset hash mismatch")
+        if checkpoint.get("previous_checkpoint_sha256") != previous.get(
+            "production_checkpoint_sha256"
+        ):
+            raise RuntimeError("production checkpoint does not link to prior certified checkpoint")
         previous_chain_hash = str(previous.get("chain_hash") or "")
         if len(previous_chain_hash) != 64:
             raise RuntimeError("previous annual certificate lacks a valid chain hash")
+    elif checkpoint.get("previous_checkpoint_sha256") is not None:
+        raise RuntimeError("genesis checkpoint unexpectedly references a predecessor")
 
     evidence_hashes = {
-        "checkpoint": _sha256(checkpoint_path),
-        "checkpoint_sha256_sidecar": _sha256(Path(str(checkpoint_path) + ".sha256")),
+        "checkpoint": checkpoint_digest,
+        "checkpoint_sha256_sidecar": _sha256(checkpoint_sidecar),
         "canonical_input_consumption_audit": _sha256(
             root / "canonical_input_consumption_audit.json"
         ),
@@ -140,6 +174,7 @@ def main() -> int:
 
     body = {
         "schema": SCHEMA,
+        "generation": GENERATION,
         "status": "PASS",
         "year": args.year,
         "segment_end": args.segment_end,
@@ -147,6 +182,7 @@ def main() -> int:
         "production_main_sha": checkpoint.get("main_sha"),
         "dataset_hash": args.dataset_hash,
         "github_run_id": os.environ.get("GITHUB_RUN_ID"),
+        "production_checkpoint_sha256": checkpoint_digest,
         "previous_certificate_hash": (
             None if previous is None else previous.get("certificate_hash")
         ),
@@ -159,6 +195,7 @@ def main() -> int:
         "nav_equivalent": True,
         "internal_state_equivalent": True,
         "causal_metadata_fail_closed": True,
+        "restart_state_complete": True,
         "evidence_sha256": evidence_hashes,
         "complete_20_year_certificate": (
             args.year == 2026 and args.segment_end == FINAL_END
