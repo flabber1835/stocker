@@ -1,0 +1,148 @@
+name: Backtester - progress-visible 2006 metadata reconstruction
+run-name: Progress SEC metadata 2006 — ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [research/enrich-pit-2007-2026-metadata]
+    paths:
+      - '.github/workflows/backtester-enrich-2006-metadata-progress.yml'
+
+permissions:
+  contents: read
+  packages: read
+
+# Same concurrency key as the old opaque 2006 harvester. This new run
+# deliberately cancels the old run so the SEC request budget is released.
+concurrency:
+  group: reconstruct-2006-historical-metadata-resilient
+  cancel-in-progress: true
+
+jobs:
+  reconstruct_2006:
+    name: SEC metadata 2006 — LIVE PROGRESS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      CANONICAL: backtester-results/canonical-pit-20y
+      CANDIDATES: backtester-results/metadata-candidates-2006
+      OUT: backtester-results/historical-metadata-2006-parallel
+      POINTER: backtester/data/canonical-pit-20y.json
+      EXISTING: research/sentinel-fastgate/pit-evidence/generated
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - name: Check out exact progress-harvest source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install pinned verification runtime
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e shared
+
+      - name: Verify reconstruction code and retained SEC inputs
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          python -m py_compile \
+            backtester/prepare_historical_metadata_year_candidates.py \
+            backtester/reconstruct_historical_metadata_year.py
+          python -m unittest tests.backtester.test_reconstruct_historical_metadata_year -v
+          (cd "${EXISTING}" && sha256sum -c SHA256SUMS.txt && sha256sum -c SEC_SIC_SHA256SUMS.txt)
+
+      - name: Pull and authenticate frozen canonical PIT package
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          CONTAINER=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true' EXIT
+          rm -rf "${CANONICAL}" && mkdir -p "${CANONICAL}"
+          docker cp "${CONTAINER}:/canonical-pit/." "${CANONICAL}"
+          docker rm "${CONTAINER}"
+          trap - EXIT
+          python backtester/canonical_pit_package.py verify --pointer "${POINTER}" --dataset "${CANONICAL}"
+
+      - name: Prepare 2006 candidate shard
+        run: |
+          set -euo pipefail
+          python backtester/prepare_historical_metadata_year_candidates.py \
+            --canonical-dataset "${CANONICAL}" \
+            --output "${CANDIDATES}" \
+            --from-year 2006 \
+            --through-year 2006
+
+      - name: Acquire SEC discovery index
+        run: |
+          set -euo pipefail
+          mkdir -p "${CANDIDATES}/discovery"
+          curl --fail --location --retry 8 --retry-all-errors \
+            --user-agent 'stocker-historical-metadata-certification/1.0 contact=m.bron01@gmail.com' \
+            https://www.sec.gov/files/company_tickers.json \
+            -o "${CANDIDATES}/discovery/sec_company_tickers.json"
+
+      - name: Harvest 2006 SEC evidence — LIVE PROGRESS
+        run: |
+          set -euo pipefail
+          echo "::notice title=2006 live progress::This step prints [PROGRESS] year=2006 tickers=done/total pct=... every 10 tickers."
+          mkdir -p "${OUT}"
+          python backtester/reconstruct_historical_metadata_year.py \
+            --target-year 2006 \
+            --candidates "${CANDIDATES}/candidates-2006.csv.gz" \
+            --existing-ticker-cik "${EXISTING}/sec_cik_change_events.csv.gz" \
+            --discovery-tickers "${CANDIDATES}/discovery/sec_company_tickers.json" \
+            --output "${OUT}/evidence" \
+            --delay 1.35 \
+            --progress-every 10 \
+            2>&1 | tee "${OUT}/reconstruction.log"
+
+      - name: Verify 2006 evidence
+        run: |
+          set -euo pipefail
+          (cd "${OUT}/evidence" && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import json, os
+          c=json.load(open(os.environ['OUT']+'/evidence/coverage.json'))
+          e,n=c['evidence'],c['network']
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as fh:
+              fh.write(f"### SEC metadata 2006\n- Candidate tickers: {c['baseline']['candidate_tickers']:,}\n- Identity events: {e['historically_verified_identity_events']:,}\n- Type events: {e['security_type_events']:,}\n- SIC events: {e['sic_events']:,}\n- Unresolved episodes: {e['unresolved_episode_records']:,}\n- SEC requests: {n['requests']:,}\n- Network failures retained: {len(n['failures']):,}\n")
+          PY
+
+      - name: Upload 2006 evidence tables and log
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: historical-metadata-year-2006-${{ github.sha }}
+          path: |
+            backtester-results/historical-metadata-2006-parallel/evidence/coverage.json
+            backtester-results/historical-metadata-2006-parallel/evidence/network_failures.json
+            backtester-results/historical-metadata-2006-parallel/evidence/identity_events.csv.gz
+            backtester-results/historical-metadata-2006-parallel/evidence/security_type_events.csv.gz
+            backtester-results/historical-metadata-2006-parallel/evidence/sic_events.csv.gz
+            backtester-results/historical-metadata-2006-parallel/evidence/source_manifest.csv.gz
+            backtester-results/historical-metadata-2006-parallel/evidence/unresolved.csv.gz
+            backtester-results/historical-metadata-2006-parallel/reconstruction.log
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+
+      - name: Upload 2006 immutable SEC primary filing bytes
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: historical-metadata-year-2006-primary-${{ github.sha }}
+          path: backtester-results/historical-metadata-2006-parallel/evidence/primary-sec-filings/**
+          if-no-files-found: warn
+          retention-days: 90
+          compression-level: 6
