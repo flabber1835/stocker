@@ -71,6 +71,8 @@ class CertifiedAdapterIdentity:
     mode: str
     capabilities: tuple[str, ...]
     conformance_suite: str
+    wrapper_kind: str | None
+    composition_sha256: str
     _seal: object
 
     def to_dict(self) -> dict:
@@ -81,6 +83,8 @@ class CertifiedAdapterIdentity:
             "mode": self.mode,
             "capabilities": list(self.capabilities),
             "conformance_suite": self.conformance_suite,
+            "wrapper_kind": self.wrapper_kind,
+            "composition_sha256": self.composition_sha256,
         }
 
 
@@ -141,7 +145,15 @@ REGISTRY: Mapping[str, AdapterCertification] = {
 
 _SEAL = object()
 _ISSUED_LOCK = threading.Lock()
-_ISSUED: dict[int, tuple[weakref.ReferenceType, CertifiedAdapterIdentity]] = {}
+@dataclass(frozen=True)
+class _IssuedCertification:
+    reference: weakref.ReferenceType
+    identity: CertifiedAdapterIdentity
+    inner_reference: weakref.ReferenceType | None = None
+    configuration: tuple[object, ...] = ()
+
+
+_ISSUED: dict[int, _IssuedCertification] = {}
 
 _IMPLEMENTATIONS = {
     "alpaca": frozenset({
@@ -174,6 +186,20 @@ _CONFORMANCE_SUITES = {
     "simulator": "sentinel.execution-contract-oracle/1",
 }
 
+_WRAPPER_SPECS = {
+    "generation-fenced-execution": (
+        "sentinel.execution.guarded.GuardedExecutionBroker",
+        "_inner", ("_grant", "_guard")),
+    "administrative-read": (
+        "sentinel.guarded_administration.GuardedAdministrativeExecutionBroker",
+        "_inner", ("_grant", "_guard")),
+    "empty-account-read": (
+        "sentinel.empty_account.GuardedEmptyAccountBroker",
+        "_GuardedEmptyAccountBroker__inner",
+        ("_GuardedEmptyAccountBroker__grant",
+         "_GuardedEmptyAccountBroker__guard")),
+}
+
 
 def _implementation(value) -> str:
     cls = type(value)
@@ -189,18 +215,35 @@ def _source_sha256(value) -> str:
     return hashlib.sha256(source).hexdigest()
 
 
-def _store_identity(value, identity: CertifiedAdapterIdentity) -> None:
+def _store_identity(
+        value, identity: CertifiedAdapterIdentity, *, inner=None,
+        configuration: tuple[object, ...] = ()) -> None:
     key = id(value)
 
     def discard(reference) -> None:
         with _ISSUED_LOCK:
             current = _ISSUED.get(key)
-            if current is not None and current[0] is reference:
+            if current is not None and current.reference is reference:
                 _ISSUED.pop(key, None)
 
     reference = weakref.ref(value, discard)
     with _ISSUED_LOCK:
-        _ISSUED[key] = (reference, identity)
+        _ISSUED[key] = _IssuedCertification(
+            reference=reference, identity=identity,
+            inner_reference=(weakref.ref(inner) if inner is not None else None),
+            configuration=configuration)
+
+
+def _composition_sha256(
+        *, wrapper, inner, inner_identity: CertifiedAdapterIdentity,
+        wrapper_kind: str, configuration: tuple[object, ...]) -> str:
+    fields = (
+        wrapper_kind, _implementation(wrapper), _source_sha256(wrapper),
+        _implementation(inner), inner_identity.source_sha256,
+        inner_identity.mode, inner_identity.conformance_suite,
+        str(id(inner)), *(str(id(item)) for item in configuration),
+    )
+    return hashlib.sha256("\0".join(fields).encode("utf-8")).hexdigest()
 
 
 def certify_adapter(value, *, name: str,
@@ -222,6 +265,8 @@ def certify_adapter(value, *, name: str,
         mode=mode,
         capabilities=tuple(sorted(_CERTIFIED_CAPABILITIES[name])),
         conformance_suite=_CONFORMANCE_SUITES[name],
+        wrapper_kind=None,
+        composition_sha256="",
         _seal=_SEAL)
     _store_identity(value, identity)
     return identity
@@ -230,8 +275,22 @@ def certify_adapter(value, *, name: str,
 def certify_wrapper(wrapper, inner, *, wrapper_kind: str
                     ) -> CertifiedAdapterIdentity:
     """Bind a canonical wrapper to the already certified inner instance."""
-    inner_identity = require_certified_adapter(inner)
+    spec = _WRAPPER_SPECS.get(wrapper_kind)
+    if spec is None:
+        raise AdapterNotCertified(
+            f"wrapper kind {wrapper_kind!r} is not certified")
+    expected_implementation, inner_attr, configuration_attrs = spec
     implementation = _implementation(wrapper)
+    if implementation != expected_implementation:
+        raise AdapterNotCertified(
+            f"wrapper implementation {implementation!r} cannot claim "
+            f"{wrapper_kind!r} certification")
+    if getattr(wrapper, inner_attr, None) is not inner:
+        raise AdapterNotCertified(
+            "wrapper does not retain the exact supplied inner adapter")
+    configuration = tuple(
+        getattr(wrapper, name) for name in configuration_attrs)
+    inner_identity = require_certified_adapter(inner)
     capabilities = set(inner_identity.capabilities)
     if wrapper_kind == "generation-fenced-execution":
         capabilities.add("generation_fenced")
@@ -243,8 +302,13 @@ def certify_wrapper(wrapper, inner, *, wrapper_kind: str
         capabilities=tuple(sorted(capabilities)),
         conformance_suite=(
             f"{inner_identity.conformance_suite}+wrapper:{wrapper_kind}"),
+        wrapper_kind=wrapper_kind,
+        composition_sha256=_composition_sha256(
+            wrapper=wrapper, inner=inner, inner_identity=inner_identity,
+            wrapper_kind=wrapper_kind, configuration=configuration),
         _seal=_SEAL)
-    _store_identity(wrapper, identity)
+    _store_identity(
+        wrapper, identity, inner=inner, configuration=configuration)
     return identity
 
 
@@ -252,13 +316,37 @@ def require_certified_adapter(value, *, expected: str | None = None
                               ) -> CertifiedAdapterIdentity:
     with _ISSUED_LOCK:
         retained = _ISSUED.get(id(value))
-    if retained is None or retained[0]() is not value:
+    if retained is None or retained.reference() is not value:
         raise AdapterNotCertified(
             f"adapter instance {_implementation(value)!r} has no composition-"
             "issued certification identity")
-    identity = retained[1]
+    identity = retained.identity
     if identity._seal is not _SEAL:
         raise AdapterNotCertified("adapter certification seal is invalid")
+    if identity.wrapper_kind is not None:
+        spec = _WRAPPER_SPECS.get(identity.wrapper_kind)
+        if spec is None or _implementation(value) != spec[0]:
+            raise AdapterNotCertified(
+                "certified wrapper implementation or kind changed")
+        inner = getattr(value, spec[1], None)
+        if (retained.inner_reference is None
+                or retained.inner_reference() is not inner):
+            raise AdapterNotCertified(
+                "certified wrapper inner adapter instance changed")
+        configuration = tuple(getattr(value, name) for name in spec[2])
+        if (len(configuration) != len(retained.configuration)
+                or any(current is not issued for current, issued in zip(
+                    configuration, retained.configuration))):
+            raise AdapterNotCertified(
+                "certified wrapper guard configuration changed")
+        inner_identity = require_certified_adapter(inner)
+        composition = _composition_sha256(
+            wrapper=value, inner=inner, inner_identity=inner_identity,
+            wrapper_kind=identity.wrapper_kind,
+            configuration=configuration)
+        if composition != identity.composition_sha256:
+            raise AdapterNotCertified(
+                "certified wrapper composition identity changed")
     if expected is not None and identity.name != expected:
         raise AdapterNotCertified(
             f"adapter is certified as {identity.name!r}, expected {expected!r}")

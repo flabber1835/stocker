@@ -911,6 +911,14 @@ def record_observation(conn, observation: BrokerObservation,
             "request_completed_at": _aware_utc(
                 exact.request_completed_at,
                 "exact-order request completion").isoformat(),
+            "identity_before": {
+                "broker": exact.identity_before.broker,
+                "account_id": exact.identity_before.account_id,
+            },
+            "identity_after": {
+                "broker": exact.identity_after.broker,
+                "account_id": exact.identity_after.account_id,
+            },
             "initial_order_id": exact.initial_order_id,
             "order": None if order is None else {
                 "broker_order_id": order.broker_order_id,
@@ -1124,6 +1132,10 @@ def observation_integrity_issues(conn) -> tuple[ObservationIntegrityIssue, ...]:
             "id", "key", "security_id", "symbol", "broker_instrument_id",
             "side", "state", "qty", "filled", "filled_average_price",
             "submitted_at", "external_replacement", "replaced_by", "replaces"}
+        exact_fields = {
+            "client_key", "request_started_at", "request_completed_at",
+            "identity_before", "identity_after", "initial_order_id", "order"}
+        exact_identity = {"broker": bound_broker, "account_id": bound_account}
         sufficient = (
             provenance_present
             and started_at is not None
@@ -1132,6 +1144,12 @@ def observation_integrity_issues(conn) -> tuple[ObservationIntegrityIssue, ...]:
             and provenance_positions is not None
             and isinstance(provenance_positions, list)
             and isinstance(provenance_exact_evidence, list)
+            and all(
+                isinstance(item, dict)
+                and exact_fields.issubset(item)
+                and item["identity_before"] == exact_identity
+                and item["identity_after"] == exact_identity
+                for item in provenance_exact_evidence)
             and all(isinstance(item, dict)
                     and position_fields.issubset(item)
                     for item in provenance_positions)

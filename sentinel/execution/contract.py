@@ -163,7 +163,7 @@ class OrderSubmitter(Protocol):
 @runtime_checkable
 class OrderStatusResolver(Protocol):
     async def find_by_client_key(
-            self, client_key: str) -> "BrokerOrder | None": ...
+            self, client_key: str) -> "BrokerExactOrderLookup": ...
 
 
 @runtime_checkable
@@ -211,6 +211,14 @@ class BrokerAccountIdentity:
     broker: str
     account_id: str
     raw: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if (not isinstance(self.broker, str) or not self.broker.strip()
+                or not isinstance(self.account_id, str)
+                or not self.account_id.strip()):
+            raise ValueError("broker account identity must be complete")
+        if not isinstance(self.raw, dict):
+            raise TypeError("broker account identity raw evidence must be a dict")
 
 
 @dataclass(frozen=True)
@@ -560,12 +568,51 @@ class BrokerOrder:
 
 
 @dataclass(frozen=True)
+class BrokerExactOrderLookup:
+    """One exact-key lookup bracketed by typed account identity reads."""
+
+    client_key: str
+    request_started_at: datetime
+    request_completed_at: datetime
+    identity_before: BrokerAccountIdentity
+    identity_after: BrokerAccountIdentity
+    order: Optional[BrokerOrder]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.client_key, str) or not self.client_key.strip():
+            raise ValueError("exact-order lookup requires a client key")
+        for name in ("request_started_at", "request_completed_at"):
+            value = getattr(self, name)
+            if (not isinstance(value, datetime) or value.tzinfo is None
+                    or value.utcoffset() is None):
+                raise ValueError(f"BrokerExactOrderLookup.{name} must be aware")
+        if self.request_started_at > self.request_completed_at:
+            raise ValueError("exact-order lookup completes before it starts")
+        for name in ("identity_before", "identity_after"):
+            if not isinstance(getattr(self, name), BrokerAccountIdentity):
+                raise TypeError(f"BrokerExactOrderLookup.{name} must be typed")
+        if self.order is not None and self.order.client_key != self.client_key:
+            raise ValueError("exact-order lookup changed the requested key")
+
+    @property
+    def stable_identity(self) -> BrokerAccountIdentity:
+        before = (self.identity_before.broker, self.identity_before.account_id)
+        after = (self.identity_after.broker, self.identity_after.account_id)
+        if before != after:
+            raise MalformedBrokerEvidence(
+                "account identity changed around exact-order lookup")
+        return self.identity_before
+
+
+@dataclass(frozen=True)
 class BrokerExactOrderEvidence:
     """One exact-client-key read included in a finalized observation."""
 
     client_key: str
     request_started_at: datetime
     request_completed_at: datetime
+    identity_before: BrokerAccountIdentity
+    identity_after: BrokerAccountIdentity
     initial_order_id: Optional[str]
     order: Optional[BrokerOrder]
 
@@ -577,6 +624,12 @@ class BrokerExactOrderEvidence:
             raise ValueError("exact-order request timestamps must be aware")
         if self.request_started_at > self.request_completed_at:
             raise ValueError("exact-order request completes before it starts")
+        for name in ("identity_before", "identity_after"):
+            if not isinstance(getattr(self, name), BrokerAccountIdentity):
+                raise TypeError(f"exact-order evidence {name} must be typed")
+        if ((self.identity_before.broker, self.identity_before.account_id)
+                != (self.identity_after.broker, self.identity_after.account_id)):
+            raise ValueError("exact-order evidence changed account identity")
         if self.order is not None and self.order.client_key != self.client_key:
             raise ValueError("exact-order result changed the requested key")
         if self.initial_order_id is not None and not self.initial_order_id:
@@ -678,6 +731,17 @@ class BrokerObservation:
                     f"BrokerObservation repeats exact key "
                     f"{evidence.client_key}")
             exact_keys.add(evidence.client_key)
+            if (self.account_identity is not None
+                    and ((evidence.identity_before.broker,
+                          evidence.identity_before.account_id)
+                         != (self.account_identity.broker,
+                             self.account_identity.account_id)
+                         or (evidence.identity_after.broker,
+                             evidence.identity_after.account_id)
+                         != (self.account_identity.broker,
+                             self.account_identity.account_id))):
+                raise ValueError(
+                    "exact-order evidence account differs from observation")
 
     @property
     def is_complete(self) -> bool:
@@ -857,7 +921,8 @@ class ExecutionBroker(abc.ABC):
                 observation.observed_at, processed_through))
 
     @abc.abstractmethod
-    async def find_by_client_key(self, client_key: str) -> Optional[BrokerOrder]:
+    async def find_by_client_key(
+            self, client_key: str) -> BrokerExactOrderLookup:
         """The recovery primitive: resolve an UNKNOWN by exact lookup.
 
         `None` means the broker has no such order — which is only safe to act on

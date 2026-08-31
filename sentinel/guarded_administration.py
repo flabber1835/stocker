@@ -14,6 +14,7 @@ from sentinel.broker import CloseResult, SentinelBroker
 from sentinel.execution.contract import (
     BrokerAccountIdentity,
     BrokerAccountSnapshot,
+    BrokerExactOrderLookup,
     BrokerFill,
     BrokerInstrument,
     BrokerObservation,
@@ -364,6 +365,7 @@ class GuardedAdministrativeExecutionBroker(ExecutionBroker):
         self._before(operation)
         result = await self._inner.observe()
         self._after(operation, result)
+        self._require_result_account(result.account_identity)
         return result
 
     async def observe_with_terminal_recovery(
@@ -376,14 +378,27 @@ class GuardedAdministrativeExecutionBroker(ExecutionBroker):
             submitted_after=submitted_after,
             processed_through=processed_through)
         self._after(operation, result)
+        self._require_result_account(result.account_identity)
         return result
 
-    async def find_by_client_key(self, client_key: str) -> BrokerOrder | None:
+    def _require_result_account(
+            self, identity: BrokerAccountIdentity | None) -> None:
+        if (identity is None
+                or identity.account_id != self._grant.broker_account_id
+                or (self._certified_adapter == "alpaca"
+                    and identity.broker != "alpaca")):
+            raise authority.AuthorityRefused(
+                "administrative broker result does not match the signed "
+                "Alpaca account")
+
+    async def find_by_client_key(
+            self, client_key: str) -> BrokerExactOrderLookup:
         self._require_verified_account()
         operation = AdministrativeBrokerOperation.FIND_BY_CLIENT_KEY
         self._before(operation)
         result = await self._inner.find_by_client_key(client_key)
         self._after(operation, result)
+        self._require_result_account(result.stable_identity)
         return result
 
     async def submit(

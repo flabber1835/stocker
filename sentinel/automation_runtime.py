@@ -137,6 +137,23 @@ def classify_dependency_failure(
     if isinstance(exc, (TimeoutError, ConnectionError)):
         return TransientInfrastructureFailure(
             f"dependency transport failure {name}: {exc}")
+    try:
+        import httpx
+    except ImportError:                                      # pragma: no cover
+        httpx = None
+    if httpx is not None and isinstance(
+            exc, (httpx.TimeoutException, httpx.TransportError)):
+        return TransientInfrastructureFailure(
+            f"HTTP transport failure {name}: {exc}")
+    try:
+        import httpcore
+    except ImportError:                                      # pragma: no cover
+        httpcore = None
+    if httpcore is not None and isinstance(
+            exc, (httpcore.TimeoutException, httpcore.NetworkError,
+                  httpcore.RemoteProtocolError)):
+        return TransientInfrastructureFailure(
+            f"HTTP transport failure {name}: {exc}")
     if isinstance(
             exc, (FileNotFoundError, FileExistsError, PermissionError,
                   IsADirectoryError, NotADirectoryError)):
@@ -208,11 +225,6 @@ def classify_dependency_failure(
             return PermanentOperationalRefusal(
                 f"dependency filesystem refusal {name}/{exc.errno}: {exc}")
         return None
-    if module.startswith(("httpx", "httpcore")) and name in {
-            "TimeoutException", "ConnectError", "ReadError", "WriteError",
-            "PoolTimeout", "NetworkError", "RemoteProtocolError"}:
-        return TransientInfrastructureFailure(
-            f"HTTP transport failure {name}: {exc}")
     return None
 
 

@@ -706,7 +706,7 @@
       "owner": "inspection"
     },
     "_require_certified_paper_broker": {
-      "generated_ast_sha256": "7eb6890e1b8049111360d977d43d90bb7ade68f2c9f110ab5426227b45cccbfb",
+      "generated_ast_sha256": "80264b0b9b5f8b93f78aa943e746db36adab3512b6c599d308b1037667d3dac3",
       "original_ast_sha256": "7ea512f407921883f5f83d4a436f69070b713fe89ddceed46cefa5ee55b023f3",
       "original_lines": [
         323,
@@ -823,7 +823,7 @@
       "owner": "execution"
     },
     "inspect_paper_account": {
-      "generated_ast_sha256": "bc010ce3f867773a21cde304aa1fa3b5186957f4251aabfb6d7ec7200e7257b0",
+      "generated_ast_sha256": "860c8001bd7f4a6a47445b186ea11ad83f39d5e90ff4e9bd73883d55c3dcdf0f",
       "original_ast_sha256": "bc010ce3f867773a21cde304aa1fa3b5186957f4251aabfb6d7ec7200e7257b0",
       "original_lines": [
         400,

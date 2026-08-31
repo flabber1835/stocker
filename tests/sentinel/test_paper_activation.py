@@ -713,7 +713,8 @@ class _MigrationBridge:
         return outcome
 
     async def find_liquidation(self, client_key):
-        order = await self.execution_broker.find_by_client_key(client_key)
+        lookup = await self.execution_broker.find_by_client_key(client_key)
+        order = lookup.order
         if order is None:
             return None
         return OpenOrder(

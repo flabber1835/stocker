@@ -54,7 +54,7 @@ from typing import Optional, Sequence
 
 from sentinel.execution.contract import (
     BrokerAccountIdentity, BrokerAccountSnapshot, BrokerCapabilities, BrokerFill,
-    BrokerCloseValuation, BrokerInstrument, BrokerObservation, BrokerOrder,
+    BrokerCloseValuation, BrokerExactOrderLookup, BrokerInstrument, BrokerObservation, BrokerOrder,
     BrokerPosition, CommandOutcome, Completeness, ExecutionBroker, Side)
 from sentinel.execution.states import CommandState as S, blocks_overlapping
 
@@ -385,18 +385,24 @@ class SimulatedBroker(ExecutionBroker):
                 filled_average_price=(Decimal("100") if o.filled else None),
                 submitted_at=o.submitted_at)
 
-    async def find_by_client_key(self, client_key: str) -> Optional[BrokerOrder]:
+    async def find_by_client_key(
+            self, client_key: str) -> BrokerExactOrderLookup:
         self.calls.append(f"find:{client_key}")
         resting = self._by_key(client_key)
-        if resting is None:
-            return None
-        return BrokerOrder(
+        order = None if resting is None else BrokerOrder(
             broker_order_id=resting.broker_order_id, client_key=client_key,
             instrument=resting.instrument, side=resting.side,
             state=resting.state, quantity=resting.quantity,
             filled_quantity=resting.filled,
             filled_average_price=(Decimal("100") if resting.filled else None),
             submitted_at=resting.submitted_at)
+        return BrokerExactOrderLookup(
+            client_key=client_key,
+            request_started_at=self.now,
+            request_completed_at=self.now,
+            identity_before=self.account,
+            identity_after=self.account,
+            order=order)
 
     async def submit(self, *, client_key: str, instrument: BrokerInstrument,
                      side: Side, quantity: Decimal) -> CommandOutcome:

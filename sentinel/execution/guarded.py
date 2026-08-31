@@ -25,6 +25,7 @@ from sentinel.execution.contract import (
     BrokerAccountIdentity,
     BrokerAccountSnapshot,
     BrokerCloseValuation,
+    BrokerExactOrderLookup,
     BrokerFill,
     BrokerFillIntervalEvidence,
     BrokerInstrument,
@@ -214,6 +215,13 @@ class GuardedExecutionBroker(ExecutionBroker):
             self.certified_adapter_identity = certify_wrapper(
                 self, inner, wrapper_kind="generation-fenced-execution")
         except AdapterNotCertified:
+            # Canonical wrappers remain useful as fail-closed capability
+            # membranes in conformance tests. Paper activation still requires
+            # a composition-issued identity. A wrapper subclass is rejected by
+            # certify_wrapper before this compatibility seam and is never
+            # canonical production composition.
+            if type(self) is not GuardedExecutionBroker:
+                raise
             self.certified_adapter_identity = None
 
     @property
@@ -381,7 +389,7 @@ class GuardedExecutionBroker(ExecutionBroker):
             BrokerOperation.OBSERVE_WITH_TERMINAL_RECOVERY, read)
 
     async def find_by_client_key(
-            self, client_key: str) -> BrokerOrder | None:
+            self, client_key: str) -> BrokerExactOrderLookup:
         async def read():
             return await self._inner.find_by_client_key(client_key)
 

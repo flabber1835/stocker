@@ -8,7 +8,10 @@ import signal
 import socket
 import sys
 import time
+from datetime import date, datetime, timezone
+from decimal import Decimal
 
+import httpx
 import pytest
 
 from sentinel.automation import service as service_module
@@ -31,8 +34,19 @@ from sentinel.execution.certification import (
     AdapterNotCertified,
     require_certified_adapter,
 )
-from sentinel.execution.contract import resolved_capability_graph
+from sentinel.empty_account import EmptyAccountRefused, _strict_account
+from sentinel.execution.contract import (
+    BrokerAccountIdentity, BrokerAccountSnapshot, BrokerExactOrderLookup,
+    BrokerInstrument, BrokerObservation, BrokerOrder, Completeness, Side,
+    resolved_capability_graph,
+)
+from sentinel.execution.guarded import (
+    BrokerAuthorityRefused, ExecutionBrokerGuard, GuardedExecutionBroker,
+    ManualExecutionGrant,
+)
+from sentinel.execution.reconcile import _exact_lookup_account_or_refuse
 from sentinel.execution.simulator import SimulatedBroker
+from sentinel.execution.states import CommandState
 from sentinel.feed import sharadar
 from sentinel.paper import PaperActivationRefused
 from sentinel.paper.inspection import _require_certified_paper_broker
@@ -165,6 +179,37 @@ async def test_sigterm_ignoring_child_has_no_post_deadline_grace(
     assert not marker.exists()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("complete", [True, False])
+async def test_callback_descendant_is_reaped_before_outcome_progression(
+        harmless_heartbeat, tmp_path, complete) -> None:
+    marker = tmp_path / f"descendant-write-{complete}"
+
+    async def callback(_context):
+        child = os.fork()
+        if child == 0:  # pragma: no cover - separate fault process
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            time.sleep(1.4)
+            marker.write_text("unsafe", encoding="utf-8")
+            os._exit(0)
+        if complete:
+            return {"completed": True}
+        time.sleep(5)
+
+    if complete:
+        result = await service(deadline=1)._invoke(  # noqa: SLF001
+            callback, Context(), permit=object(), phase="PREPARE",
+            heartbeat_conn_factory=Connection)
+        assert result == {"completed": True}
+    else:
+        with pytest.raises(CallbackDeadlineExceeded):
+            await service(deadline=1)._invoke(  # noqa: SLF001
+                callback, Context(), permit=object(), phase="PREPARE",
+                heartbeat_conn_factory=Connection)
+    await asyncio.sleep(1.6)
+    assert not marker.exists()
+
+
 def test_callback_dies_when_automation_worker_is_sigkilled(tmp_path) -> None:
     marker = tmp_path / "orphan-write"
     ready = tmp_path / "callback-ready"
@@ -256,6 +301,13 @@ time.sleep(10)
             automation_supervisor._terminate(first, grace_seconds=0)  # noqa: SLF001
         if second is not None:
             automation_supervisor._terminate(second, grace_seconds=0)  # noqa: SLF001
+
+
+def test_supervisor_anchors_first_callback_poll_to_registered_start() -> None:
+    watch = automation_supervisor.CallbackWatch()
+    assert automation_supervisor._callback_deadline_expired(  # noqa: SLF001
+        watch, state="PREPARE_CALLBACK", now_monotonic=100.0,
+        deadline_seconds=30.0, state_age_seconds=31.0)
 
 
 @pytest.mark.asyncio
@@ -421,6 +473,71 @@ def test_alpaca_label_cannot_spoof_composition_certification() -> None:
         _require_certified_paper_broker(spoofed)
 
 
+def test_guarded_wrapper_subclass_cannot_mint_certification() -> None:
+    class Bypass(GuardedExecutionBroker):
+        async def submit(self, **_kwargs):
+            raise AssertionError("bypassed guard")
+
+    async def before(_grant, _operation):
+        return None
+
+    async def after(_grant, _operation, _result):
+        return None
+
+    with pytest.raises(AdapterNotCertified, match="wrapper implementation"):
+        Bypass(
+            inner=SimulatedBroker(),
+            grant=ManualExecutionGrant(
+                confirm_paper_account="SIM-ACCOUNT",
+                confirm_plan_id="plan", confirm_effective_session=date(2026, 8, 31),
+                confirm_submit_paper_orders=True),
+            guard=ExecutionBrokerGuard(
+                before_read=before, after_read=after,
+                before_mutation=before))
+
+
+def _snapshot(account_id: str) -> BrokerAccountSnapshot:
+    return BrokerAccountSnapshot(
+        identity=BrokerAccountIdentity("alpaca", account_id),
+        equity=Decimal("100"), cash=Decimal("100"),
+        buying_power=Decimal("100"), multiplier=Decimal("1"),
+        status="ACTIVE")
+
+
+def _observation(account_id: str) -> BrokerObservation:
+    now = datetime.now(timezone.utc)
+    return BrokerObservation(
+        observed_at=now, started_at=now, orders=(), positions=(),
+        completeness=Completeness.COMPLETE,
+        account_identity=BrokerAccountIdentity("alpaca", account_id))
+
+
+def test_empty_account_snapshot_a_then_observation_b_is_refused() -> None:
+    with pytest.raises(EmptyAccountRefused, match="differs"):
+        _strict_account(
+            _snapshot("A"), expected_account="A", observation=_observation("B"))
+
+
+@pytest.mark.parametrize("positive", [False, True])
+def test_exact_lookup_from_account_b_cannot_mutate_account_a(positive) -> None:
+    observation = _observation("A")
+    now = observation.observed_at
+    order = None
+    if positive:
+        order = BrokerOrder(
+            broker_order_id="b-order", client_key="durable-key",
+            instrument=BrokerInstrument("SEC", "SEC", "asset"),
+            side=Side.BUY, state=CommandState.ACKNOWLEDGED,
+            quantity=Decimal("1"))
+    lookup = BrokerExactOrderLookup(
+        client_key="durable-key", request_started_at=now,
+        request_completed_at=now,
+        identity_before=BrokerAccountIdentity("alpaca", "B"),
+        identity_after=BrokerAccountIdentity("alpaca", "B"), order=order)
+    with pytest.raises(BrokerAuthorityRefused, match="differs"):
+        _exact_lookup_account_or_refuse(lookup, observation)
+
+
 def test_capability_graph_separates_certified_and_inherited_methods() -> None:
     graph = resolved_capability_graph(SimulatedBroker())
     assert "recovery_aware" in graph["certified_capabilities"]
@@ -450,6 +567,12 @@ def test_capability_graph_separates_certified_and_inherited_methods() -> None:
      PermanentOperationalRefusal),
     (OSError(errno.ENOSPC, "disk full"),
      HumanInterventionRequired),
+    (httpx.ReadTimeout("read timed out"),
+     TransientInfrastructureFailure),
+    (httpx.ConnectTimeout("connect timed out"),
+     TransientInfrastructureFailure),
+    (httpx.WriteTimeout("write timed out"),
+     TransientInfrastructureFailure),
 ])
 def test_dependency_failures_receive_reviewed_taxonomy(exc, expected) -> None:
     assert isinstance(

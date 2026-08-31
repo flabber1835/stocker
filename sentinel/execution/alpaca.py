@@ -22,8 +22,8 @@ from sentinel.execution.broker_cash import (
     BrokerCashActivity, BrokerCashActivityBatch, RECOGNIZED_ACTIVITY_TYPES)
 from sentinel.execution.contract import (
     BrokerAccountIdentity, BrokerAccountSnapshot, BrokerCapabilities,
-    BrokerCloseValuation, BrokerFill, BrokerInstrument, BrokerObservation,
-    BrokerOrder, BrokerPosition, CommandOutcome, Completeness, ExecutionBroker,
+    BrokerCloseValuation, BrokerExactOrderLookup, BrokerFill, BrokerInstrument,
+    BrokerObservation, BrokerOrder, BrokerPosition, CommandOutcome, Completeness, ExecutionBroker,
     MalformedBrokerEvidence, Side)
 from sentinel.execution.guarded import BrokerAuthorityRefused
 from sentinel.execution import broker_cash, contract, journal
@@ -1025,16 +1025,27 @@ class AlpacaExecutionBroker(ExecutionBroker):
             replaces=replaces,
             raw=payload)
 
-    async def find_by_client_key(self, client_key: str) -> Optional[BrokerOrder]:
+    async def find_by_client_key(
+            self, client_key: str) -> BrokerExactOrderLookup:
+        request_started_at = self._now()
+        identity_before = await self.identify_account()
         try:
             payload = await self._get(
                 "/v2/orders:by_client_order_id",
                 {"client_order_id": client_key})
         except Exception as exc:  # noqa: BLE001
             if _is_not_found(exc):
-                return None
-            raise
-        return self._to_order(payload) if payload else None
+                payload = None
+            else:
+                raise
+        identity_after = await self.identify_account()
+        return BrokerExactOrderLookup(
+            client_key=client_key,
+            request_started_at=request_started_at,
+            request_completed_at=self._now(),
+            identity_before=identity_before,
+            identity_after=identity_after,
+            order=self._to_order(payload) if payload else None)
 
     def _validate_submit_response(
             self, payload, *, client_key: str,

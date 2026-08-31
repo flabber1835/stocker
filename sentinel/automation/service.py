@@ -15,6 +15,7 @@ import os
 import signal
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -134,9 +135,12 @@ def _arm_parent_death_sigkill(expected_parent_pid: int) -> None:
 
 
 def _callback_child(  # pragma: no cover - measured by process fault tests
-        callback, context, channel, expected_parent_pid: int) -> None:
+        callback, context, channel, expected_parent_pid: int,
+        process_group_ready) -> None:
     """Execute one production callback in a disposable OS process."""
     try:
+        os.setpgid(0, 0)
+        process_group_ready.set()
         _arm_parent_death_sigkill(expected_parent_pid)
         # ``fork`` inherits the parent's running-loop marker. The child owns no
         # parent tasks or descriptors and starts one fresh loop for its callback.
@@ -216,19 +220,29 @@ def _decode_child_callback(payload: bytes):
 
 
 def _kill_callback_process(process, *, join_seconds: float = 1.0) -> None:
-    """Immediately revoke kernel execution; SIGTERM has no safety grace."""
+    """Kill the callback's complete process group, including orphaned children."""
     if process is None:
         return
+    ready = getattr(process, "_sentinel_process_group_ready", None)
     try:
-        alive = process.is_alive()
+        if ready is not None and ready.is_set() and process.pid is not None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        elif process.pid is not None and process.is_alive():
+            process.kill()
     except AssertionError:  # constructed but never successfully started
         return
-    if not alive:
-        if process is not None:
-            process.join(timeout=0)
-        return
-    process.kill()
     process.join(timeout=join_seconds)
+    deadline = time.monotonic() + join_seconds
+    while (ready is not None and ready.is_set() and process.pid is not None
+           and time.monotonic() < deadline):
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.01)
     if process.is_alive():
         raise SoftwareDefect("callback child could not be killed")
 
@@ -603,11 +617,6 @@ class AutomationService:
                         lease_seconds=self.config.lease_seconds)
                     if stopped.is_set() or context.cancellation.cancelled:
                         return
-                    store.register_instance(
-                        heartbeat_conn,
-                        instance_id=self.holder_id,
-                        state=f"{phase}_CALLBACK",
-                        next_wake_at=None)
                 except BaseException as exc:                    # noqa: BLE001
                     signal_heartbeat_failure(exc)
                     return
@@ -665,6 +674,25 @@ class AutomationService:
 
         try:
             if heartbeat_conn_factory is not None:
+                start_conn = None
+                try:
+                    start_conn = heartbeat_conn_factory()
+                    context.require_active()
+                    store.register_instance(
+                        start_conn, instance_id=self.holder_id,
+                        state=f"{phase}_CALLBACK", next_wake_at=None)
+                except BaseException as exc:                  # noqa: BLE001
+                    raise StaleLeaderRefused(
+                        f"{phase} callback heartbeat failed before start: "
+                        f"{exc}") from exc
+                finally:
+                    if start_conn is not None:
+                        try:
+                            start_conn.close()
+                        except BaseException as exc:            # noqa: BLE001
+                            raise StaleLeaderRefused(
+                                f"{phase} callback heartbeat failed before "
+                                f"start: {exc}") from exc
                 try:
                     process_context = multiprocessing.get_context("fork")
                 except ValueError as exc:
@@ -672,12 +700,20 @@ class AutomationService:
                         "production callback supervision requires fork process "
                         "support") from exc
                 context.cancellation.bind_process_event(process_context.Event())
+                process_group_ready = process_context.Event()
                 parent_channel, child_channel = process_context.Pipe(duplex=False)
                 callback_process = process_context.Process(
                     target=_callback_child,
-                    args=(callback, context, child_channel, os.getpid()),
+                    args=(callback, context, child_channel, os.getpid(),
+                          process_group_ready),
                     name=f"sentinel-callback-{phase.lower()}")
                 callback_process.start()
+                callback_process._sentinel_process_group_ready = (  # noqa: SLF001
+                    process_group_ready)
+                if not process_group_ready.wait(timeout=1):
+                    _kill_callback_process(callback_process)
+                    raise SoftwareDefect(
+                        "callback process group did not become ready")
                 child_channel.close()
                 child_channel = None
                 worker = threading.Thread(

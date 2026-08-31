@@ -9,7 +9,8 @@ from sentinel.execution import recovery
 from sentinel.execution.alpaca import RetryableCommandOutcome
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
-    BrokerInstrument, BrokerObservation, CommandOutcome, Completeness, Side)
+    BrokerAccountIdentity, BrokerExactOrderLookup, BrokerInstrument,
+    BrokerObservation, CommandOutcome, Completeness, Side)
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
 from sentinel.execution.states import CommandState as S
 
@@ -51,13 +52,19 @@ class AbsentThenAcceptBroker:
 
     async def find_by_client_key(self, _client_key):
         self.lookups += 1
-        return None
+        now = datetime.now(UTC)
+        account = BrokerAccountIdentity("alpaca", "PA-1")
+        return BrokerExactOrderLookup(
+            client_key=_client_key, request_started_at=now,
+            request_completed_at=now, identity_before=account,
+            identity_after=account, order=None)
 
     async def observe(self):
         self.observations += 1
         return BrokerObservation(
             observed_at=datetime.now(UTC), orders=(), positions=(),
-            completeness=Completeness.COMPLETE)
+            completeness=Completeness.COMPLETE,
+            account_identity=BrokerAccountIdentity("alpaca", "PA-1"))
 
 
 def test_429_absence_retries_once_under_the_exact_same_durable_key():

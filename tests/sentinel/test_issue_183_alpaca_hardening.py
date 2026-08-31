@@ -16,8 +16,8 @@ from sentinel.execution.alpaca import (
     MalformedBrokerPayload)
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
-    BrokerInstrument, BrokerObservation, BrokerOrder, CommandOutcome,
-    Completeness, Side)
+    BrokerAccountIdentity, BrokerExactOrderLookup, BrokerInstrument,
+    BrokerObservation, BrokerOrder, CommandOutcome, Completeness, Side)
 from sentinel.execution.guarded import (
     BrokerAuthorityRefused, ExecutionBrokerGuard, GuardedExecutionBroker,
     ManualExecutionGrant, PreTransportAuthorityRefused)
@@ -244,7 +244,8 @@ def test_429_that_actually_landed_is_adopted_without_second_post():
     exact = full_order(status="filled", filled="2")
     broker, http = adapter(
         post=Response(status_code=429, text="rate limited"),
-        routes={"/v2/orders:by_client_order_id": exact})
+        routes={"/v2/account": {"account_number": "PA-1"},
+                "/v2/orders:by_client_order_id": exact})
     identity = CommandIdentity(
         deployment=DEPLOYMENT, plan_id="plan-1", security_id="SEC-AAPL")
     command = Command(
@@ -272,11 +273,17 @@ def test_exact_key_recovery_refuses_changed_economics():
 
     class Broker:
         async def find_by_client_key(self, _key):
-            return found
+            now = datetime.now(UTC)
+            account = BrokerAccountIdentity("alpaca", "PA-1")
+            return BrokerExactOrderLookup(
+                client_key=command.client_key,
+                request_started_at=now, request_completed_at=now,
+                identity_before=account, identity_after=account, order=found)
 
     observation = BrokerObservation(
         observed_at=datetime.now(UTC), orders=(), positions=(),
-        completeness=Completeness.COMPLETE)
+        completeness=Completeness.COMPLETE,
+        account_identity=BrokerAccountIdentity("alpaca", "PA-1"))
     with pytest.raises(BrokerAuthorityRefused, match="contradictory economics"):
         run(recovery.resolve_unknown(Broker(), command, observation))
 

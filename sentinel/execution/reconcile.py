@@ -46,7 +46,8 @@ from fractions import Fraction
 from typing import Callable, Mapping, Optional
 
 from sentinel.execution.contract import (
-    BrokerExactOrderEvidence, BrokerObservation, Completeness, ExecutionBroker)
+    BrokerExactOrderEvidence, BrokerExactOrderLookup, BrokerObservation,
+    Completeness, ExecutionBroker)
 from sentinel.execution.identity import DeploymentIdentity, is_sentinel_key
 from sentinel.execution.guarded import BrokerAuthorityRefused
 from sentinel.execution.states import (
@@ -64,6 +65,19 @@ def _is_broker_instance(broker, broker_type: type) -> bool:
             return True
         broker = getattr(broker, "_inner", None)
     return False
+
+
+def _exact_lookup_account_or_refuse(
+        lookup: BrokerExactOrderLookup,
+        observation: BrokerObservation):
+    identity = lookup.stable_identity
+    observed = observation.account_identity
+    if (observed is None
+            or (identity.broker, identity.account_id)
+            != (observed.broker, observed.account_id)):
+        raise BrokerAuthorityRefused(
+            "exact lookup account differs from account-bound observation")
+    return identity
 
 #: `security_id -> cumulative share-count multiplier over the gap`.
 #: Injected rather than queried inline so the rule can be tested without a
@@ -511,9 +525,8 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     exact_evidence: list[BrokerExactOrderEvidence] = []
     for client_key in _keys_requiring_exact_evidence(observation, stored):
         initial = observation.by_client_key(client_key)
-        request_started_at = datetime.now(timezone.utc)
         try:
-            exact = await broker.find_by_client_key(client_key)
+            lookup = await broker.find_by_client_key(client_key)
         except BrokerAuthorityRefused:
             raise
         except Exception as exc:                              # noqa: BLE001
@@ -522,14 +535,25 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
                 observation=observation,
                 detail=f"exact lookup failed for durable command "
                        f"{client_key}: {exc}")
-        request_completed_at = datetime.now(timezone.utc)
+        try:
+            exact_identity = _exact_lookup_account_or_refuse(
+                lookup, observation)
+            binding_mod.verify(conn, exact_identity)
+        except Exception as exc:                              # noqa: BLE001
+            return ReconciliationResult(
+                runtime_state=RuntimeState.BROKER_DEGRADED,
+                observation=observation,
+                detail=f"exact lookup account provenance refused for "
+                       f"{client_key}: {exc}")
         exact_evidence.append(BrokerExactOrderEvidence(
             client_key=client_key,
-            request_started_at=request_started_at,
-            request_completed_at=request_completed_at,
+            request_started_at=lookup.request_started_at,
+            request_completed_at=lookup.request_completed_at,
+            identity_before=lookup.identity_before,
+            identity_after=lookup.identity_after,
             initial_order_id=(
                 initial.broker_order_id if initial is not None else None),
-            order=exact))
+            order=lookup.order))
     observation = replace(
         observation, exact_order_evidence=tuple(exact_evidence))
 

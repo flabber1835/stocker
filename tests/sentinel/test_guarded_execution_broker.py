@@ -12,6 +12,8 @@ import pytest
 from sentinel import schema
 from sentinel.automation.model import CancellationAuthority
 from sentinel.execution import journal, recovery
+from sentinel.execution.certification import (
+    AdapterNotCertified, require_certified_adapter)
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import BrokerInstrument, ExecutionBroker, Side
 from sentinel.execution.guarded import (
@@ -376,7 +378,7 @@ def test_true_transport_exception_remains_unknown_under_the_guard():
         (broker.grant, BrokerOperation.SUBMIT)]
 
 
-def test_alternate_adapter_composes_by_capability_not_concrete_class():
+def test_alternate_adapter_cannot_borrow_canonical_wrapper_certification():
     class AlternateBroker(SimulatedBroker):
         certification_name = "alternate-test"
 
@@ -384,16 +386,8 @@ def test_alternate_adapter_composes_by_capability_not_concrete_class():
     inner.capabilities = replace(
         inner.capabilities, pre_submit_instrument_revalidation=True)
     broker = Recorder().wrap(inner)
-    instrument = BrokerInstrument(
-        security_id="SEC-AAA", symbol="AAA", broker_id="sim-asset-SEC-AAA")
-
-    outcome = run(broker.submit(
-        client_key="alternate-capability", instrument=instrument,
-        side=Side.SELL, quantity=Decimal("1")))
-
-    assert outcome.state is CommandState.ACKNOWLEDGED
-    assert any(call.startswith("resolve_instrument:") for call in inner.calls)
-    assert any(call.startswith("submit:") for call in inner.calls)
+    with pytest.raises(AdapterNotCertified, match="composition-issued"):
+        require_certified_adapter(broker)
 
 
 @pytest.mark.parametrize("phase", ["before", "after"])

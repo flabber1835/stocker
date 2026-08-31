@@ -107,7 +107,8 @@ def test_pull_requests_run_the_complete_sentinel_safety_suite():
     assert "sentinel-authorized:ci" in workflow
     assert "-f Dockerfile.sentinel-test -t sentinel-test:ci" in workflow
     assert "SENTINEL_IMAGE=sentinel-authorized:ci" in workflow
-    assert workflow.count('--build-arg SOURCE_GIT_SHA="${GITHUB_SHA}"') == 8
+    assert workflow.count('--build-arg SOURCE_GIT_SHA="${TESTED_SHA}"') == 8
+    assert 'TESTED_SHA="$(git rev-parse HEAD)"' in workflow
     assert "tests/sentinel -q -ra" in workflow
     assert "tee /tmp/sentinel-complete.txt" in workflow
     assert "the complete Sentinel run skipped tests" in workflow
@@ -144,8 +145,11 @@ def test_pull_request_ci_proves_it_is_testing_the_synthetic_merge():
     assert "pull_request:\n    branches: [main]" in workflow
     assert 'scope: ${{ fromJSON(github.event_name == \'pull_request\'' in workflow
     assert 'if [ \'${{ matrix.scope }}\' = \'exact-head\' ]' in workflow
-    assert 'test "$(git rev-parse HEAD)" = "$expected_head"' in workflow
-    assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in workflow
+    assert 'test "$TESTED_SHA" = "$expected_head"' in workflow
+    assert 'test "$TESTED_SHA" = "$GITHUB_SHA"' in workflow
+    assert 'echo "TESTED_SHA=$TESTED_SHA" >> "$GITHUB_ENV"' in workflow
+    assert 'echo "- commit: \\`$TESTED_SHA\\`"' in workflow
+    assert 'printf \'%s\\n\' "$TESTED_SHA"' in workflow
     assert "git rev-list --parents -n 1 HEAD" in workflow
     assert 'if [ "$parent_count" -ne 2 ]' in workflow
     assert "pull-request checkout is not a synthetic merge commit" in workflow

@@ -70,6 +70,11 @@ class GuardedEmptyAccountBroker:
         self.__guard.check(self.__grant, operation, None)
         result = await self.__inner.observe()
         self.__guard.check(self.__grant, operation, result)
+        identity = result.account_identity
+        if (identity is None or identity.broker != "alpaca"
+                or identity.account_id != self.__grant.broker_account_id):
+            raise authority.AuthorityRefused(
+                "empty-account observation differs from signed Alpaca account")
         return result
 
 
@@ -106,6 +111,12 @@ def _account_facts(snapshot: BrokerAccountSnapshot) -> tuple:
 def _strict_account(snapshot: BrokerAccountSnapshot, *, expected_account: str,
                     observation: BrokerObservation) -> None:
     _inspection_account_or_refuse(snapshot, expected_account)
+    identity = observation.account_identity
+    if (identity is None
+            or identity.broker != snapshot.identity.broker
+            or identity.account_id != snapshot.identity.account_id):
+        raise EmptyAccountRefused(
+            "empty-account observation identity differs from its account snapshot")
     inspection = paper.PaperAccountInspection(
         endpoint=authority.PAPER_BASE_URL,
         expected_account=expected_account, account=snapshot,

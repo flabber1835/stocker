@@ -7,7 +7,8 @@ from typing import Tuple
 
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
-    BrokerObservation, BrokerOrder, CommandOutcome, ExecutionBroker)
+    BrokerExactOrderLookup, BrokerObservation, BrokerOrder, CommandOutcome,
+    ExecutionBroker)
 from sentinel.execution.guarded import (
     BrokerAuthorityRefused, PreTransportAuthorityRefused)
 from sentinel.execution.states import CommandState, CommandState as S
@@ -17,6 +18,20 @@ from sentinel.execution.states import CommandState, CommandState as S
 # scheduler.  One short, same-key retry closes the ordinary rate-limit case;
 # anything longer remains UNKNOWN for the normal reconciliation loop.
 MAX_INLINE_RATE_LIMIT_RETRY_DELAY = Decimal("5")
+
+
+def _lookup_order(
+        lookup: BrokerExactOrderLookup,
+        observation: BrokerObservation | None = None) -> BrokerOrder | None:
+    identity = lookup.stable_identity
+    if observation is not None:
+        observed = observation.account_identity
+        if (observed is None
+                or (identity.broker, identity.account_id)
+                != (observed.broker, observed.account_id)):
+            raise BrokerAuthorityRefused(
+                "exact-key lookup account differs from account-bound observation")
+    return lookup.order
 
 
 def prepare_send(command: Command) -> Command:
@@ -103,7 +118,8 @@ async def _retry_rate_limited_submit(
                     f"the {MAX_INLINE_RATE_LIMIT_RETRY_DELAY}s inline retry cap"))
 
     try:
-        exact = await broker.find_by_client_key(command.client_key)
+        exact = _lookup_order(
+            await broker.find_by_client_key(command.client_key))
         if exact is not None:
             return _receipt_from_positive(
                 command, exact, where="rate-limit exact lookup")
@@ -137,7 +153,8 @@ async def _retry_rate_limited_submit(
     # Re-read exact identity after the backoff.  A broker may accept the first
     # POST asynchronously after returning/propagating its throttle response.
     try:
-        exact = await broker.find_by_client_key(command.client_key)
+        exact = _lookup_order(
+            await broker.find_by_client_key(command.client_key), observation)
         if exact is not None:
             return _receipt_from_positive(
                 command, exact, where="post-backoff exact lookup")
@@ -222,7 +239,8 @@ async def resolve_unknown(broker: ExecutionBroker, command: Command,
     if command.state is not S.UNKNOWN:
         raise ValueError(f"not UNKNOWN: {command.state.value}")
 
-    found = await broker.find_by_client_key(command.client_key)
+    found = _lookup_order(
+        await broker.find_by_client_key(command.client_key), observation)
     if found is not None:
         _assert_order_matches_command(
             command, found, where="exact client-key lookup")

@@ -53,7 +53,9 @@ DEFENSIVE_SYMBOL = "BIL"
 require_certified = require_certified_adapter
 
 
-def _require_certified_paper_broker(broker: ExecutionBroker) -> None:
+def _require_certified_paper_broker(
+        broker: ExecutionBroker, *,
+        expected_wrapper_kind: str = "generation-fenced-execution") -> None:
     """Accept only adapter identities whose behavior is certified.
 
     Production receives :class:`AlpacaExecutionBroker`; tests receive the
@@ -62,7 +64,20 @@ def _require_certified_paper_broker(broker: ExecutionBroker) -> None:
     earned merely by choosing a different class name.
     """
     try:
-        require_certified(broker)
+        identity = require_certified(broker)
+        if identity.name == "alpaca":
+            required = {
+                "order_submitter", "order_status_resolver",
+                "open_order_observer", "evidence_producing",
+                "account_bound_observation",
+            }
+            missing = required.difference(identity.capabilities)
+            if (identity.mode != "ALPACA_PAPER"
+                    or identity.wrapper_kind != expected_wrapper_kind
+                    or missing):
+                raise ValueError(
+                    "Alpaca paper composition identity, wrapper kind, mode, "
+                    f"or capabilities refused; missing={sorted(missing)}")
     except Exception as exc:
         raise PaperActivationRefused(
             f"unsupported execution broker {type(broker).__name__}; the paper "
@@ -113,18 +128,28 @@ def _inspection_account_or_refuse(
             "paper-account inspection received non-boolean block flags: "
             + ", ".join(malformed_flags))
 
+
 async def inspect_paper_account(*, conn, broker: ExecutionBroker,
                                 base_url: str,
                                 expected_account: str
                                 ) -> PaperAccountInspection:
     """Read the exact inherited book without acquiring mutation authority."""
     assert_paper_url(base_url)
-    _require_certified_paper_broker(broker)
+    _require_certified_paper_broker(
+        broker, expected_wrapper_kind="administrative-read")
 
     account = await broker.account_snapshot()
     _inspection_account_or_refuse(account, expected_account)
     observation = await broker.observe()
     observation.require_complete("paper-account inspection")
+    observed_identity = observation.account_identity
+    if observed_identity is None:
+        raise PaperActivationRefused(
+            "paper-account observation omitted account provenance")
+    if ((observed_identity.broker, observed_identity.account_id)
+            != (account.identity.broker, account.identity.account_id)):
+        raise PaperActivationRefused(
+            "paper-account observation identity differs from its account snapshot")
     if observation.observed_at.tzinfo is None:
         raise PaperActivationRefused(
             "paper-account inspection received a naive observation timestamp")

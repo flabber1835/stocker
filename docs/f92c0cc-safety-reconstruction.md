@@ -18,6 +18,17 @@ operator-cancellation loop. Deadline, heartbeat loss, lease loss, and caller
 cancellation set a process-shared revocation event and immediately send
 `SIGKILL`; there is no cooperative or `SIGTERM` grace interval.
 
+The callback is the leader of a dedicated process group inside the automation
+worker's dedicated session. Every callback-created descendant inherits that
+group unless it deliberately creates another group; the external supervisor
+therefore enumerates and kills every process group in the worker session. The
+worker kills the callback group after every result, exception, authority loss,
+heartbeat loss, or deadline. Cleanup includes a group whose leader has already
+exited. Callback completion is not durable progression until that group is
+empty. The worker registers the callback state before starting the child, and
+the external deadline is anchored to that registration timestamp. Every safety
+termination is immediate `SIGKILL` of the complete session.
+
 Each child receives one immutable `CycleContext` containing its cycle and leader
 permit. It returns only a canonical JSON callback result over a one-way IPC
 channel. The parent races child completion against the fingerprinted deadline
@@ -78,6 +89,16 @@ checks the processed-session date, and verifies both the expected and stored
 payload against the independent digest. Historical rows missing any source
 field, provenance, serialized evidence, or digest are `UNCERTIFIABLE`.
 
+Every account-derived result carries typed account provenance. Observations,
+snapshots, close valuations, fill intervals, cash evidence, and exact-key reads
+are rejected unless their identity matches the signed grant and durable account
+binding. An exact-key read brackets the lookup with account identity reads and
+retains both identities in the finalized observation. Reconciliation records no
+evidence and changes no command state when either bracket differs from the
+initial observation or binding. Empty-account enrollment and administrative
+inspection likewise compare each observation identity with its paired snapshot
+and signed account before treating the book as empty or stable.
+
 ## 4. Fail-closed calendar recovery
 
 The restore DAY-order fence distinguishes a known non-session from inability to
@@ -110,6 +131,14 @@ bound to the exact adapter implementation and source hash, broker mode,
 certified capability set, and conformance suite. Broker-owned diagnostic labels
 grant no authority. Runtime evidence separately records available methods,
 declared capability bits, and independently certified capabilities.
+
+Wrapper certification is a closed registry of exact canonical classes and
+wrapper-kind strings. Subclasses are ineligible. The issued identity binds the
+exact inner adapter instance and the exact immutable grant/guard configuration;
+the registry rechecks those object bindings and the composition digest at every
+production use. Paper activation additionally requires Alpaca,
+`ALPACA_PAPER`, the canonical wrapper kind, and the complete required capability
+set.
 
 CLI and paper compatibility behavior lives in explicit legacy adapters. Normal
 entry points call canonical owners through immutable dependency objects. No
