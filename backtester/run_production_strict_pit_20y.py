@@ -7,6 +7,7 @@ import json
 import math
 import os
 from pathlib import Path
+import subprocess
 import sys
 
 # This file is executed as a script by the parallel orchestrator.  Python then
@@ -28,6 +29,7 @@ WARMUP_START = "2006-01-03"
 MEASUREMENT_START = "2006-07-31"
 FULL_END_SESSION = "2026-07-31"
 END_SESSION = os.environ.get("CERTIFICATION_END_SESSION", FULL_END_SESSION)
+EXPECTED_MAIN_SHA = "887f479b15ad861313da666ad698034d3847121c"
 
 strict.corrected.WARMUP_START = WARMUP_START
 strict.corrected.MEASUREMENT_START = MEASUREMENT_START
@@ -78,6 +80,53 @@ if strict.base.BOUNDARY_SESSION < WARMUP_START:
     strict.base.BOUNDARY_SESSION = "9999-12-31"
 if END_SESSION != FULL_END_SESSION:
     strict.runner.MEASUREMENT_WINDOWS = {1: MEASUREMENT_START}
+
+
+def _option_path(flag: str, default: Path) -> Path:
+    args = list(sys.argv[1:])
+    for i, value in enumerate(args):
+        if value == flag:
+            if i + 1 >= len(args):
+                raise RuntimeError(f"{flag} requires a path")
+            return Path(args[i + 1])
+        prefix = flag + "="
+        if value.startswith(prefix):
+            return Path(value[len(prefix):])
+    return default
+
+
+def _bind_verified_main_identity() -> tuple[Path, str]:
+    """Bind the runner identity variable to the independently verified checkout.
+
+    The underlying historical runner deliberately refuses to execute unless
+    ``BACKTESTER_MAIN_SHA`` names the exact production source.  Derive that value
+    from the checkout used by this invocation, reject any conflicting inherited
+    value, then expose the verified SHA to the runner in this same process.
+    """
+    main_root = _option_path("--main-root", PINNED_MAIN_ROOT).resolve()
+    if not main_root.is_dir():
+        raise RuntimeError(f"pinned production checkout is missing: {main_root}")
+    completed = subprocess.run(
+        ["git", "-C", str(main_root), "rev-parse", "HEAD"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    actual = completed.stdout.strip()
+    if completed.returncode != 0 or not actual:
+        detail = completed.stderr.strip() or "git returned no SHA"
+        raise RuntimeError(f"cannot verify pinned production checkout {main_root}: {detail}")
+    if actual != EXPECTED_MAIN_SHA:
+        raise RuntimeError(
+            f"production checkout mismatch: expected {EXPECTED_MAIN_SHA}, got {actual}"
+        )
+    inherited = os.environ.get("BACKTESTER_MAIN_SHA", "").strip()
+    if inherited and inherited != actual:
+        raise RuntimeError(
+            f"conflicting BACKTESTER_MAIN_SHA: checkout={actual} environment={inherited}"
+        )
+    os.environ["BACKTESTER_MAIN_SHA"] = actual
+    return main_root, actual
 
 
 def _active_split_adjudications() -> dict[tuple[str, str], dict]:
@@ -155,6 +204,17 @@ def main() -> int:
             flush=True,
         )
         return 0
+    main_root, main_sha = _bind_verified_main_identity()
+    if "--self-test-source-identity" in sys.argv[1:]:
+        print(
+            f"[SELFTEST PASS] production source identity root={main_root} sha={main_sha}",
+            flush=True,
+        )
+        return 0
+    print(
+        f"[SOURCE IDENTITY PASS] production_root={main_root} sha={main_sha}",
+        flush=True,
+    )
     print(
         f"[CONTRACT] role=production warmup={WARMUP_START} "
         f"measurement={MEASUREMENT_START} end={END_SESSION}",
