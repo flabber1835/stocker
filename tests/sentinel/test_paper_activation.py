@@ -58,6 +58,7 @@ from sentinel.core.loader import (  # noqa: E402
 from sentinel.core.production import PublishedSession, SessionState  # noqa: E402
 from sentinel.execution import (  # noqa: E402
     alpaca,
+    certification,
     journal,
     preopen_authority,
     target_reprojection,
@@ -181,7 +182,8 @@ def conn(pg):
 def simulator_is_certified(monkeypatch):
     """Certification is covered elsewhere; these tests exercise orchestration."""
     monkeypatch.setattr(
-        paper_inspection, "require_certified", lambda _adapter: None)
+        paper_inspection, "require_certified",
+        certification.require_certified_adapter)
     monkeypatch.setattr(paper_preparation, "load_controller", lambda: CONFIG)
     monkeypatch.setattr(
         paper_preparation, "runtime_strategy_identity",

@@ -136,7 +136,13 @@ async def _migrate_account_locked(*, broker: SentinelBroker, conn,
             "Credentials identify where a request would go; they are not "
             "human approval to liquidate whatever unbound account they reach.")
 
-    account = await broker.account()
+    try:
+        account = await broker.account()
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise MigrationRefused(
+            f"the broker did not report a valid account id, so it cannot be "
+            f"checked against the expected {expected_account}. An "
+            "unverifiable account is not a matching one.") from exc
     observed_id = _account_id(account)
     if observed_id and observed_id != expected_account:
         raise MigrationRefused(

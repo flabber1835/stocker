@@ -40,8 +40,8 @@ from sentinel.execution import (  # noqa: E402
 )
 from sentinel.execution.commands import Command  # noqa: E402
 from sentinel.execution.contract import (  # noqa: E402
-    BrokerAccountIdentity, BrokerInstrument, BrokerObservation, BrokerOrder,
-    Completeness, Side)
+    BrokerAccountIdentity, BrokerExactOrderLookup, BrokerInstrument,
+    BrokerObservation, BrokerOrder, Completeness, Side)
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity  # noqa: E402
 from sentinel.execution.plan import ExecutionPlan  # noqa: E402
 from sentinel.execution.simulator import FaultKind as F, SimulatedBroker  # noqa: E402
@@ -975,7 +975,13 @@ class TestReconciliation:
 
         async def exact_lookup(client_key):
             assert client_key == durable.client_key
-            return exact
+            return BrokerExactOrderLookup(
+                client_key=client_key,
+                request_started_at=observed_at,
+                request_completed_at=observed_at,
+                identity_before=broker.account,
+                identity_after=broker.account,
+                order=exact)
 
         async def forbidden_submit(*args, **kwargs):
             submissions.append((args, kwargs))
