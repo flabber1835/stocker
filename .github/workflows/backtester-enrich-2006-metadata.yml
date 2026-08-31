@@ -1,0 +1,219 @@
+name: Backtester - reconstruct 2006 historical metadata
+run-name: Reconstruct 2006 SEC metadata — ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [research/enrich-pit-2006-metadata]
+    paths:
+      - '.github/workflows/backtester-enrich-2006-metadata.yml'
+      - 'backtester/reconstruct_historical_metadata_2006.py'
+      - 'tests/backtester/test_reconstruct_historical_metadata_2006.py'
+      - 'backtester/certification-decisions/2026-08-31-historical-metadata-enrichment-contract.md'
+
+permissions:
+  actions: read
+  contents: write
+  packages: read
+
+concurrency:
+  group: reconstruct-2006-historical-metadata
+  cancel-in-progress: false
+
+jobs:
+  reconstruct:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      OUT: backtester-results/historical-metadata-2006
+      CANONICAL: backtester-results/canonical-pit-20y
+      POINTER: backtester/data/canonical-pit-20y.json
+      EXISTING: research/sentinel-fastgate/pit-evidence/generated
+      EXPECTED_DATASET_HASH: f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b
+
+    steps:
+      - name: Check out exact enrichment source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Enforce branch and source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = 'research/enrich-pit-2006-metadata'
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test -z "$(git status --porcelain)"
+          python - <<'PY'
+          import json
+          p=json.load(open('backtester/data/canonical-pit-20y.json'))
+          assert p['status']=='PASS'
+          assert p['dataset_hash']=='f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b'
+          assert p['window']['warmup_start']=='2006-01-03'
+          PY
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Compile and test reconstruction rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile backtester/reconstruct_historical_metadata_2006.py
+          python -m unittest tests.backtester.test_reconstruct_historical_metadata_2006 -v
+
+      - name: Verify retained SEC evidence inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd "${EXISTING}"
+            sha256sum -c SHA256SUMS.txt
+            sha256sum -c SEC_SIC_SHA256SUMS.txt
+          )
+
+      - name: Pull and authenticate frozen canonical PIT package
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          CONTAINER=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true' EXIT
+          rm -rf "${CANONICAL}"
+          mkdir -p "${CANONICAL}"
+          docker cp "${CONTAINER}:/canonical-pit/." "${CANONICAL}"
+          docker rm "${CONTAINER}"
+          trap - EXIT
+          python backtester/canonical_pit_package.py verify --pointer "${POINTER}" --dataset "${CANONICAL}"
+
+      - name: Acquire SEC discovery index with checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${OUT}/discovery"
+          curl --fail --location --retry 5 --retry-all-errors \
+            --user-agent 'stocker-historical-metadata-certification/1.0 contact=m.bron01@gmail.com' \
+            https://www.sec.gov/files/company_tickers.json \
+            -o "${OUT}/discovery/sec_company_tickers.json"
+          sha256sum "${OUT}/discovery/sec_company_tickers.json" > "${OUT}/discovery/sec_company_tickers.json.sha256"
+          cat > "${OUT}/discovery/README.txt" <<'EOF'
+          SEC company_tickers.json is used only to discover candidate CIKs when the
+          historical evidence has no CIK. It is never accepted as historical identity
+          or economically active metadata. A candidate is admitted only when a
+          historically filed SEC primary document independently verifies the ticker.
+          EOF
+
+      - name: Harvest causally dated 2003-2006 SEC primary evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python backtester/reconstruct_historical_metadata_2006.py \
+            --canonical-dataset "${CANONICAL}" \
+            --existing-ticker-cik "${EXISTING}/sec_cik_change_events.csv.gz" \
+            --discovery-tickers "${OUT}/discovery/sec_company_tickers.json" \
+            --output "${OUT}/evidence" \
+            --delay 0.12 \
+            2>&1 | tee "${OUT}/reconstruction.log"
+
+      - name: Verify generated evidence integrity and write report
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "${OUT}/evidence" && sha256sum -c SHA256SUMS.txt)
+          cp "${OUT}/evidence/coverage.json" backtester/data/historical-metadata-2006-coverage.json
+          cp "${OUT}/evidence/network_failures.json" backtester/data/historical-metadata-2006-network-failures.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          c=json.load(open('backtester/data/historical-metadata-2006-coverage.json'))
+          b=c['baseline']; e=c['evidence']; n=c['network']
+          lines=[
+            '# 2006 historical metadata evidence harvest', '',
+            f"Source commit: `{__import__('os').environ['GITHUB_SHA']}`", '',
+            'This report is an evidence-harvest checkpoint. It does not yet admit an enriched canonical dataset.', '',
+            f"- 2006 candidate-session rows: {b['candidate_session_rows_2006']:,}",
+            f"- security episodes needing type or sector enrichment: {b['episodes_needing_type_or_sector_enrichment']:,}",
+            f"- baseline unknown-type observations: {b['unknown_type_observations']:,}",
+            f"- baseline missing-sector observations: {b['missing_sector_observations']:,}",
+            f"- historically verified ticker/CIK events harvested: {e['historically_verified_identity_events']:,}",
+            f"- security-type evidence events harvested: {e['security_type_events']:,}",
+            f"- SIC evidence events harvested: {e['sic_events']:,}",
+            f"- opening-2006 verified identity pairs: {e['opening_2006_verified_identity_pairs']:,}",
+            f"- opening-2006 resolved type pairs: {e['opening_2006_resolved_type_pairs']:,}",
+            f"- opening-2006 SIC pairs: {e['opening_2006_sic_pairs']:,}",
+            f"- unresolved episode records: {e['unresolved_episode_records']:,}",
+            f"- SEC network failures retained: {len(n['failures']):,}", '',
+            'Causal rule: `filed < decision_session`. Current SEC ticker metadata is discovery-only.', '',
+            'Full primary filing bytes, event tables, source URLs/hashes, unresolved cases, logs and SHA256SUMS are retained in the GitHub Actions artifact referenced by the committed pointer.'
+          ]
+          p=Path('backtester/reports/2006-historical-metadata-evidence-harvest.md')
+          p.parent.mkdir(parents=True, exist_ok=True)
+          p.write_text('\n'.join(lines)+'\n')
+          PY
+
+      - name: Upload immutable reconstruction evidence
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: historical-metadata-2006-evidence-${{ github.sha }}
+          path: |
+            backtester-results/historical-metadata-2006/**
+            backtester/data/canonical-pit-20y.json
+            backtester/certification-decisions/2026-08-31-historical-metadata-enrichment-contract.md
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+
+      - name: Commit coverage, reasoning report, and artifact pointer
+        shell: bash
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          coverage=Path('backtester/data/historical-metadata-2006-coverage.json')
+          failures=Path('backtester/data/historical-metadata-2006-network-failures.json')
+          pointer={
+            'schema':'backtester.historical-metadata-2006-artifact-pointer/1',
+            'status':'EVIDENCE_HARVEST_COMPLETE',
+            'source_sha':os.environ['GITHUB_SHA'],
+            'workflow_run_id':os.environ['GITHUB_RUN_ID'],
+            'workflow_run_url':f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+            'artifact':{
+              'id':os.environ['ARTIFACT_ID'],
+              'name':f"historical-metadata-2006-evidence-{os.environ['GITHUB_SHA']}",
+              'digest':os.environ['ARTIFACT_DIGEST'],
+              'url':os.environ['ARTIFACT_URL'],
+              'retention_days':90,
+            },
+            'canonical_dataset_hash':os.environ['EXPECTED_DATASET_HASH'],
+            'coverage_sha256':hashlib.sha256(coverage.read_bytes()).hexdigest(),
+            'network_failures_sha256':hashlib.sha256(failures.read_bytes()).hexdigest(),
+            'causal_rule':'filed < decision_session',
+            'next_gate':'admit evidence into enriched metadata timeline, quantify remaining material unknowns, then replay 2006',
+          }
+          Path('backtester/data/historical-metadata-2006-enrichment.json').write_text(json.dumps(pointer,indent=2,sort_keys=True)+'\n')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            backtester/data/historical-metadata-2006-coverage.json \
+            backtester/data/historical-metadata-2006-network-failures.json \
+            backtester/data/historical-metadata-2006-enrichment.json \
+            backtester/reports/2006-historical-metadata-evidence-harvest.md
+          git commit -m 'data(backtester): retain 2006 historical metadata reconstruction evidence [skip ci]'
+          git push origin HEAD:research/enrich-pit-2006-metadata
