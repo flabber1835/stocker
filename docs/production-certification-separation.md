@@ -1,6 +1,6 @@
 # Production trader and certification separation
 
-**Decision status:** accepted; migration in progress.
+**Decision status:** accepted; separation in progress.
 
 The production trader contains one deterministic session transition and the
 operational code needed to run it safely. Full historical replay is a separate
@@ -33,17 +33,17 @@ access or mutate the production book.
 
 ## Preserved evidence boundary
 
-The pre-migration strict-PIT work remains preserved at the immutable Git commit
+The pre-separation strict-PIT work remains preserved at the immutable Git commit
 `7f12174273dfa071a25614d2c4a1be8ebfdfbc3a` on `research/backtester`. Its
 certified corpora, results, fixtures, and replay environment remain evidence;
 they are not rewritten to fit this architecture.
 
-The migration starts from `main` commit
+The separation starts from `main` commit
 `670b3fcc09f8c76e37f925b63783826ce8a1fdcc`. Historical evidence must always
 record both its corpus identity and the production source revision whose
 transition it imported.
 
-## Migration gates
+## Separation gates
 
 1. Preserve the strict-PIT evidence named above.
 2. Extract `sentinel.core.kernel.advance_session` without changing its input,
@@ -56,14 +56,14 @@ transition it imported.
 6. Delete `services/backtester`, `services/bt-engine`, `services/bt-data`, and
    `docker-compose.backtest.yml` from the trader after the replacement
    certification path has produced accepted evidence.
-7. Define an economic source manifest that excludes certification-only files,
-   re-certify that identity, bump the production envelope schema, and perform
-   an explicit state migration. No persisted identity is silently accepted
-   across this change.
+7. Define an economic source manifest that includes the canonical kernel and
+   its shared state model, excludes certification-only files, and re-certify
+   that identity before production is deployed.
 
 Each gate is reviewable and fail-closed. Gate 6 cannot precede accepted gate-4
-evidence. Gate 7 cannot reinterpret an existing `wealth_core_source_sha256`;
-the new manifest and envelope version must make the identity change explicit.
+evidence. There is no production state migration in this separation: the
+trader has not been deployed, so its first persisted envelope is created with
+the corrected source identity.
 
 ## Invariants
 
@@ -76,4 +76,4 @@ the new manifest and envelope version must make the identity change explicit.
 - Historical replay has no broker import, execution authority, or production
   persistence capability.
 - Certification-only source changes do not change the final production economic
-  identity after the gate-7 migration.
+  identity after gate 7.

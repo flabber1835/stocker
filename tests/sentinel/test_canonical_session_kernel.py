@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import os
 from pathlib import Path
 
 from sentinel import shadow_observation
 from sentinel.core import kernel, production
+from sentinel.core.decision import data_semantics_source_identity
 from tools import (
     sentinel_concordance_differential,
     sentinel_forward_chain,
@@ -53,6 +55,7 @@ def test_kernel_has_no_io_clock_execution_or_broker_imports():
         elif isinstance(node, ast.ImportFrom) and node.module:
             imported.add(node.module)
     forbidden = (
+        "sentinel.core.production",
         "sentinel.feed.store",
         "sentinel.paper",
         "stock_strategy_shared.broker",
@@ -65,6 +68,15 @@ def test_kernel_has_no_io_clock_execution_or_broker_imports():
         for module in imported
         for prefix in forbidden
     )
+
+
+def test_runtime_source_identity_covers_the_canonical_kernel():
+    identity = data_semantics_source_identity()
+    files = {item["module"]: item["sha256"] for item in identity["files"]}
+
+    assert files["sentinel.core.kernel"] == hashlib.sha256(
+        Path(kernel.__file__).read_bytes()
+    ).hexdigest()
 
 
 def test_separation_decision_pins_preserved_strict_pit_evidence():

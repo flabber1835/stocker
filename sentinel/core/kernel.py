@@ -33,7 +33,7 @@ from sentinel.controller.ldrc import (
     state_to_dict as ldrc_state_to_dict,
 )
 from sentinel.controller.machine import Controller, Observation
-from sentinel.core.production import (
+from sentinel.core.session import (
     ENVELOPE_VERSION,
     REQUIRED_IDENTITY_FIELDS,
     PublishedSession,

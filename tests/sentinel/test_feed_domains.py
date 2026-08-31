@@ -53,6 +53,8 @@ CLOSEADJ_PERMITTED = (
     "sentinel/feed/coherence.py",
     # Production is the narrow loader/transport into PublishedSession.
     "sentinel/core/production.py",
+    # Shared type definition for that exact published SPY transport.
+    "sentinel/core/session.py",
     # The sole composition that hands the published series to the sensor.
     "sentinel/core/kernel.py",
     # Commitment-only forward observer: hashes the exact already-composed
@@ -148,6 +150,7 @@ class TestTheForbiddenColumn:
             "sentinel/feed/schema.py",
             "sentinel/feed/coherence.py",
             "sentinel/core/production.py",
+            "sentinel/core/session.py",
             "sentinel/core/kernel.py",
             "sentinel/shadow_observation.py",
         )

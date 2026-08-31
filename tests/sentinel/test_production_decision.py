@@ -440,6 +440,8 @@ def test_data_semantics_bundle_names_transitive_book_dependencies():
         "sentinel.breadth.classifier",
         "sentinel.controller.machine",
         "sentinel.core.catchup",
+        "sentinel.core.kernel",
+        "sentinel.core.session",
         "sentinel.execution.target_reprojection",
         "sentinel.feed.actions_map",
         "sentinel.feed.domains",
