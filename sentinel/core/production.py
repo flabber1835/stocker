@@ -33,7 +33,7 @@ from sentinel.controller.ldrc import (
     state_to_dict as ldrc_state_to_dict)
 from sentinel.controller.machine import (
     Controller, Observation, validate_controller_state)
-from sentinel.regime.spy import MIN_CLOSES
+from sentinel.feed.readiness_impl import REQUIRED_SPY_SESSIONS as MIN_CLOSES
 
 ENVELOPE_VERSION = 5
 LEGACY_ENVELOPE_VERSIONS = frozenset({2, 3, 4})

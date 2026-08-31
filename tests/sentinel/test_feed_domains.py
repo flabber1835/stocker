@@ -51,8 +51,10 @@ CLOSEADJ_PERMITTED = (
     # Reference-source authority hashes the dedicated SFP/SPY total-return
     # field; it does not expose that domain to security signals or marks.
     "sentinel/feed/coherence.py",
-    # The sole composition that hands the published series to the sensor.
+    # Production is the narrow loader/transport into PublishedSession.
     "sentinel/core/production.py",
+    # The sole composition that hands the published series to the sensor.
+    "sentinel/core/kernel.py",
     # Commitment-only forward observer: hashes the exact already-composed
     # PublishedSession input but never exposes the SPY series to holdings,
     # marks, sizing, or execution.
@@ -146,6 +148,7 @@ class TestTheForbiddenColumn:
             "sentinel/feed/schema.py",
             "sentinel/feed/coherence.py",
             "sentinel/core/production.py",
+            "sentinel/core/kernel.py",
             "sentinel/shadow_observation.py",
         )
 

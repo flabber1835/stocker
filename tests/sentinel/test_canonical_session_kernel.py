@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import os
 from pathlib import Path
 
 from sentinel import shadow_observation
@@ -13,6 +14,7 @@ from tools import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
+REPO = Path(os.environ.get("SENTINEL_REPO_ROOT") or ROOT)
 
 
 def test_production_and_certification_bind_the_exact_kernel_function():
@@ -67,7 +69,7 @@ def test_kernel_has_no_io_clock_execution_or_broker_imports():
 
 def test_separation_decision_pins_preserved_strict_pit_evidence():
     decision = (
-        ROOT / "docs" / "production-certification-separation.md"
+        REPO / "docs" / "production-certification-separation.md"
     ).read_text(encoding="utf-8")
     assert "7f12174273dfa071a25614d2c4a1be8ebfdfbc3a" in decision
     assert "research/backtester" in decision
