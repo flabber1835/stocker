@@ -44,6 +44,7 @@ docs/
 # not belong in an image build context.
 !docs/f92c0cc-safety-reconstruction.md
 !docs/main-review-remediation.md
+!docs/production-certification-separation.md
 !docs/sentinel-deployment.md
 !docs/sentinel-paper-activation.md
 !docs/sentinel-paper-observation.md

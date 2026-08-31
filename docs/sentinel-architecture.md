@@ -1,5 +1,13 @@
 # Sentinel — architecture and build plan
 
+> **CURRENT TARGET BOUNDARY:** Full historical replay is being separated from
+> the production trader. Production retains feature-only warm-up, the canonical
+> one-session transition, real-state outage catch-up, and the operational safety
+> layers. Certification repeatedly imports that exact transition. See
+> `docs/production-certification-separation.md` for the accepted decision,
+> preservation pin, migration gates, and deletion criteria for the legacy
+> backtest services.
+
 **Status: IMPLEMENTED, NOT ACTIVATED.** The canonical Wealth Core shadow,
 frozen exposure controller, version-3 production `SessionState`, daily
 transition, and paper-plan decision adapter now exist. The separately

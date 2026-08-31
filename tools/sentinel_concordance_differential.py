@@ -1,7 +1,7 @@
 """No-oracle deterministic integration differential for Simplified LD-RC v3.
 
 Both sides receive the same pinned Sharadar/Wealth-Core/native-parent inputs.
-The production side is :func:`sentinel.core.production.advance_state`. The
+The production side is :func:`sentinel.core.kernel.advance_session`. The
 reference side below is deliberately handwritten from the retained strategy
 formula and imports neither ``recent_leadership`` nor ``ldrc`` nor the
 production Concordance integration module. No historical expected-allocation
@@ -30,12 +30,13 @@ from unittest.mock import patch
 from sentinel.controller.concordance_parent import load as load_concordance_parent
 from sentinel.controller.machine import Controller
 from sentinel.core.decision import runtime_strategy_identity
+from sentinel.core.kernel import advance_session as advance_state
 from sentinel.core.loader import (
     load_meta as load_current_meta, load_sectors as load_current_sectors,
     load_window,
 )
 from sentinel.core.production import (
-    SessionState, advance_state, load_published_session, warm_session_state,
+    SessionState, load_published_session, warm_session_state,
 )
 from sentinel.feed import calendar, publication, store as feed_store
 from sentinel.feed.readiness import REQUIRED_SPY_SESSIONS

@@ -25,7 +25,7 @@ from sentinel.authority import RolloutMode, RolloutState
 from sentinel.binding import AccountMismatch, AccountNotBound
 from sentinel.controller.concordance import (
     IDENTITY_OVERLAY_FIELD, is_concordance_identity)
-from sentinel.core.production import SessionState
+from sentinel.core.session import SessionState
 from sentinel.execution.commands import committed_quantity
 from sentinel.execution.plan import ExecutionPlan
 from sentinel.execution.projection import Projection, desired_basket, project
@@ -47,7 +47,9 @@ _DATA_SEMANTICS_MODULES = (
     "sentinel.core.catchup",
     "sentinel.core.decision",
     "sentinel.core.loader",
+    "sentinel.core.kernel",
     "sentinel.core.production",
+    "sentinel.core.session",
     "sentinel.core.terminal",
     "sentinel.execution.plan",
     "sentinel.execution.projection",

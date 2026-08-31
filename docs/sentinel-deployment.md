@@ -1857,6 +1857,11 @@ accepted group is recorded separately as ``collapsed`` with reason
 explicit buckets -- excluded, resolved, collapsed, unresolved -- while Wealth
 Core receives exactly one event per economic key.
 
+The production/certification boundary is governed by
+`docs/production-certification-separation.md`. The legacy backtest rig remains
+available only until its exact-transition replacement has passed the documented
+equivalence gate; it is not part of the target production trader.
+
 ``check-data`` loads this exact normalized stream and verifies both source-row
 conservation and uniqueness of the stream Wealth Core will consume.  Bootstrap,
 one-session production, forward-chain certification, and the canonical replay

@@ -506,8 +506,8 @@ class TestNoLeakIntoOtherDomains:
                 if isinstance(node, ast.Import):
                     assert not any("regime" in a.name for a in node.names), py
 
-    def test_only_production_composition_imports_the_SPY_sensor(self):
-        """Only deterministic production composition may cross this seam."""
+    def test_only_the_session_kernel_imports_the_SPY_sensor(self):
+        """Only the deterministic one-session kernel may cross this seam."""
         import ast
         importers = []
         paths = sorted((REPO / "sentinel").rglob("*.py"))
@@ -520,9 +520,9 @@ class TestNoLeakIntoOtherDomains:
             for node in ast.walk(tree):
                 if isinstance(node, ast.ImportFrom) and "regime" in (node.module or ""):
                     importers.append(relative)
-        assert importers == ["sentinel/core/production.py"], (
+        assert importers == ["sentinel/core/kernel.py"], (
             "something now imports the SPY sensor: " + ", ".join(importers)
-            + ". Only the deterministic production composition may do so.")
+            + ". Only the deterministic session kernel may do so.")
 
 
 class TestTheSeamIntoTheController:
