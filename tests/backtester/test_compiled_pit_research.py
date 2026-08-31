@@ -86,6 +86,7 @@ class CompiledYearTests(unittest.TestCase):
 
 class TransformTests(unittest.TestCase):
     def test_fast_transform_removes_slow_feature_and_classification_loops(self):
+        os.environ["CANONICAL_PIT_DATASET"] = "/tmp/canonical-pit-transform-selftest"
         os.environ["COMPILED_PIT_RESEARCH_DATASET"] = "/tmp/compiled-pit-transform-selftest"
         import backtester.run_research_strict_pit_20y_fast as fast
 
