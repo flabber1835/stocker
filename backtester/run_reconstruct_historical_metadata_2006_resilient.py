@@ -5,6 +5,8 @@ The evidence harvester deliberately retains the original reconstruction semantic
 This wrapper only strengthens transport behavior for GitHub-hosted runners: interrupted
 chunked responses, remote disconnects, and other HTTP transport exceptions are retried
 without admitting partial bytes into the evidence cache.
+
+This file is also the explicit launch trigger for the resilient GitHub Actions harvest.
 """
 from __future__ import annotations
 
