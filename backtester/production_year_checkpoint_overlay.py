@@ -342,13 +342,13 @@ def transformed_main_source(runner) -> str:
                 sort_keys=True,
                 allow_nan=False,
                 default=_checkpoint_json_default,
-            ) + '\n',
+            ) + chr(10),
             encoding='utf-8',
         )
         os.replace(_checkpoint_tmp, _checkpoint_path)
         _checkpoint_hash = sha256_file(_checkpoint_path)
         Path(str(_checkpoint_path) + '.sha256').write_text(
-            f'{{_checkpoint_hash}}  {{_checkpoint_path.name}}\n',
+            f'{{_checkpoint_hash}}  {{_checkpoint_path.name}}' + chr(10),
             encoding='utf-8',
         )
         print(
