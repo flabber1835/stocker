@@ -45,12 +45,13 @@ _TIMELINE_RE = re.compile(r"^[0-9A-F]{8}$")
 def _publication_recovery_target(conn) -> dict[str, object]:
     """Bind this publication to one branch-unique PostgreSQL recovery target.
 
-    ``recovery_target_xid`` matches the on-disk 32-bit TransactionId.  The
-    64-bit xid8 is retained to identify its wraparound epoch, and an admissible
-    base backup must come from that same epoch so the 32-bit target occurs only
-    once in the replay interval.  The WAL timeline is recorded explicitly:
-    PostgreSQL defaults targeted recovery to the latest archived timeline, which
-    is unsafe after an earlier PITR has forked history.
+    ``recovery_target_xid`` matches the on-disk 32-bit TransactionId. The
+    64-bit xid8 is retained to identify its wraparound epoch, and recovery must
+    select a base backup whose captured xid8 epoch equals
+    ``required_base_xid_epoch``. That makes the 32-bit target unique within the
+    replay interval. The WAL timeline is recorded explicitly because PostgreSQL
+    defaults targeted recovery to the latest archived timeline after a PITR
+    forks history.
     """
     with conn.cursor() as cur:
         cur.execute(
