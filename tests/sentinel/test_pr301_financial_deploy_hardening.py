@@ -84,6 +84,14 @@ def test_authorized_services_enable_strict_ownership_and_kernel_hardening():
         assert service["security_opt"] == ["no-new-privileges:true"]
 
 
+def test_ordinary_python_services_have_same_kernel_hardening():
+    doc = yaml.safe_load((ROOT / "docker-compose.sentinel.yml").read_text())
+    for name in ("sentinel", "sentinel-panel"):
+        service = doc["services"][name]
+        assert service["cap_drop"] == ["ALL"]
+        assert service["security_opt"] == ["no-new-privileges:true"]
+
+
 def test_deployable_image_has_fixed_non_root_user_and_test_lens_reenters_root():
     runtime = (ROOT / "Dockerfile.sentinel").read_text()
     test_image = (ROOT / "Dockerfile.sentinel-test").read_text()
