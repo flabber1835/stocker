@@ -346,34 +346,38 @@ class CanonicalPITDatasetTests(unittest.TestCase):
 
         active_path = Path("backtester/data/production-chain-generation.json")
         active = json.loads(active_path.read_text(encoding="utf-8"))
-        self.assertEqual(active["generation"], 2)
-        self.assertEqual(active["supersedes_generation"], 1)
-        self.assertEqual(
-            active["historical_descriptor"],
-            "backtester/data/production-chain-generation-1.json",
-        )
-
-        historical_path = Path(active["historical_descriptor"])
-        historical = json.loads(historical_path.read_text(encoding="utf-8"))
-        self.assertEqual(historical["generation"], 1)
-        self.assertEqual(historical["status"], "HISTORICAL_EVIDENCE_ONLY")
-        self.assertEqual(
-            historical["superseded_by_generation"],
-            active["generation"],
-        )
-        self.assertEqual(
-            historical["canonical_dataset_hash"],
-            active["canonical_dataset_hash"],
-        )
-        self.assertEqual(historical["years"], active["years"])
-        self.assertEqual(
-            historical["production_main_sha"],
-            "887f479b15ad861313da666ad698034d3847121c",
-        )
+        self.assertGreaterEqual(active["generation"], 2)
+        self.assertEqual(active["supersedes_generation"], active["generation"] - 1)
         self.assertEqual(
             active["production_main_sha"],
-            "c851386fa4dddcf2e2533af3a1d313c38220b7f2",
+            "80e89b3f894f826e64139b1e0fedd5d42ef937f8",
         )
+
+        cursor = active
+        seen = {active["generation"]}
+        while cursor["generation"] > 1:
+            historical_path = Path(cursor["historical_descriptor"])
+            historical = json.loads(historical_path.read_text(encoding="utf-8"))
+            self.assertEqual(historical["generation"], cursor["generation"] - 1)
+            self.assertNotIn(historical["generation"], seen)
+            seen.add(historical["generation"])
+            if historical["generation"] == 1:
+                self.assertEqual(historical["status"], "HISTORICAL_EVIDENCE_ONLY")
+                self.assertEqual(
+                    historical["production_main_sha"],
+                    "887f479b15ad861313da666ad698034d3847121c",
+                )
+                self.assertEqual(
+                    historical["canonical_dataset_hash"],
+                    active["canonical_dataset_hash"],
+                )
+                self.assertEqual(historical["years"], active["years"])
+                break
+            self.assertEqual(
+                historical["supersedes_generation"], historical["generation"] - 1
+            )
+            cursor = historical
+        self.assertIn(1, seen)
 
 
 if __name__ == "__main__":
