@@ -99,3 +99,15 @@ def test_deployable_image_has_fixed_non_root_user_and_test_lens_reenters_root():
     assert "useradd --system --uid 10001 --gid 10001" in runtime
     assert "FROM ${SENTINEL_IMAGE}" in test_image
     assert "USER root" in test_image
+
+
+def test_autonomous_deploy_migrates_existing_audit_volume_before_bootstrap():
+    launcher = (ROOT / "scripts/sentinel-autonomous-deploy.sh").read_text()
+    migration = (ROOT / "scripts/sentinel-state-volume-permissions.sh").read_text()
+    call = "bash scripts/sentinel-state-volume-permissions.sh"
+    assert call in launcher
+    assert launcher.index(call) < launcher.index(
+        'exec "$PYTHON" scripts/sentinel_autonomous_deploy_bootstrap.py')
+    assert 'VOLUME="sentinel_sentinel_state"' in migration
+    assert 'chown -R 10001:10001 /sentinel-state' in migration
+    assert '--network none' in migration
