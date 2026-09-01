@@ -10,7 +10,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER = ROOT / "backtester" / "run_production_current_main_strict_pit_20y.py"
-CURRENT_MAIN_SHA = "c851386fa4dddcf2e2533af3a1d313c38220b7f2"
+CURRENT_MAIN_SHA = "89f6218ff116b4dafc4ca8ac6159337d1718e2e1"
 
 
 def _load_launcher():
@@ -25,9 +25,18 @@ def _load_launcher():
 def test_launcher_pins_current_main_and_forbids_source_patch() -> None:
     text = LAUNCHER.read_text(encoding="utf-8")
     assert CURRENT_MAIN_SHA in text
+    assert '"sentinel/core/production.py": "1809c2a31216b247dd0b727178680d41fce80c48"' in text
     assert "status\", \"--porcelain" in text
     assert "patched=false" in text
     assert "apply_production_cooldown_age_zero" not in text
+
+
+def test_launcher_requires_experiment_start_origin_main_equality() -> None:
+    text = LAUNCHER.read_text(encoding="utf-8")
+    assert "verify_experiment_start_origin_main(root)" in text
+    assert "+refs/heads/main:refs/remotes/origin/main" in text
+    assert '"rev-parse", "refs/remotes/origin/main"' in text
+    assert "resolved != CURRENT_MAIN_SHA" in text
 
 
 def test_current_main_kernel_is_the_production_advance_state_target() -> None:
