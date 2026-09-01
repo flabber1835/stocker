@@ -147,6 +147,7 @@ except journal.RecoveredOrderConflict as exc:
     assert "prefix" in str(exc)
 else:
     raise SystemExit("strict recovered-order policy did not fail closed")
+print("PR301_STRICT_RECOVERED_ORDER_PASS")
   '
 
 printf '%s\n' 'PR301_RUNTIME_BOUNDARY_PASS'
