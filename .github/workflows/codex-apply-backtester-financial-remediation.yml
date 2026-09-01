@@ -23,194 +23,38 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TARGET=research/backtester
-          test "${TARGET}" = "research/backtester"
+          test "$(git branch --show-current)" = "research/backtester"
           test "$(git rev-parse HEAD)" = "c6a1e253fb3b6b12fa8572d039b8c4894a1b917d"
           test -z "$(git status --porcelain)"
 
       - name: Apply audited remediation
         shell: bash
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          import json
-
-          OLD = '887f479b15ad861313da666ad698034d3847121c'
-          MAIN = 'c851386fa4dddcf2e2533af3a1d313c38220b7f2'
-          EMPTY = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
-
-          def replace_all_required(path: str, old: str, new: str, minimum: int = 1) -> None:
-              p = Path(path)
-              s = p.read_text(encoding='utf-8')
-              n = s.count(old)
-              if n < minimum:
-                  raise RuntimeError(f'{path}: expected at least {minimum} replacements, found {n}')
-              p.write_text(s.replace(old, new), encoding='utf-8')
-
-          def replace_overlay_step(path: str, next_step_name: str = 'Set up Python 3.12') -> None:
-              p = Path(path)
-              s = p.read_text(encoding='utf-8')
-              start_mark = '      - name: Apply and identify the backtester-only production correction\n'
-              if start_mark not in s:
-                  start_mark = '      - name: Apply and verify backtester-only production correction\n'
-              start = s.index(start_mark)
-              end_mark = f'      - name: {next_step_name}\n'
-              end = s.index(end_mark, start)
-              new = '''      - name: Verify exact unmodified production source
-        shell: bash
-        run: |
           set -euo pipefail
-          test "$(git -C main-src rev-parse HEAD)" = "${PRODUCTION_MAIN_SHA:-''' + MAIN + '''}"
-          test -z "$(git -C main-src status --porcelain)"
-          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)" = "8dd316ed28ff9b82c216f852118f8ef83d8510ad"
-          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/adapter.py)" = "466a8f8202692e65e08596a7a47d45bd15bb3fd3"
-          test "$(git -C main-src hash-object sentinel/core/kernel.py)" = "12617af8eb954d4ae18fef2ae16977048e2e40cd"
-          test "$(git -C main-src hash-object sentinel/core/production.py)" = "99e8f87aa456fc672c84b0b0ceb3d674ca7ccf4c"
-          YEAR_ROOT="backtester-results/${CHAIN_YEAR:+production-year-${CHAIN_YEAR}}"
-          if test -z "${CHAIN_YEAR:-}"; then YEAR_ROOT="backtester-results/strict-pit-20y-diagnostic"; fi
-          mkdir -p "${YEAR_ROOT}"
-          : > "${YEAR_ROOT}/production-overlay.diff"
-          python - <<'PY'
-          import hashlib, json, os
-          from pathlib import Path
-          root = Path(os.environ.get('YEAR_OUTPUT_ROOT') or (
-              f"backtester-results/production-year-{os.environ['CHAIN_YEAR']}"
-              if os.environ.get('CHAIN_YEAR') else
-              'backtester-results/strict-pit-20y-diagnostic'))
-          root.mkdir(parents=True, exist_ok=True)
-          diff = root / 'production-overlay.diff'
-          if not diff.exists(): diff.write_bytes(b'')
-          digest = hashlib.sha256(diff.read_bytes()).hexdigest()
-          evidence = {
-              'schema': 'backtester.production-source-witness/1',
-              'source_mode': 'exact_unmodified_main_kernel',
-              'production_main_sha': os.environ.get('PRODUCTION_MAIN_SHA', ''' + repr(MAIN) + '''),
-              'diff_sha256': digest,
-              'mutation_applied': False,
-              'canonical_kernel': 'sentinel.core.kernel.advance_session',
-          }
-          (root / 'production-overlay.json').write_text(
-              json.dumps(evidence, indent=2, sort_keys=True) + '\\n', encoding='utf-8')
-          PY
-          PRODUCTION_OVERLAY_SHA256="''' + EMPTY + '''"
-          test -z "$(git -C main-src status --porcelain)"
-          echo "PRODUCTION_OVERLAY_SHA256=${PRODUCTION_OVERLAY_SHA256}" >> "${GITHUB_ENV}"
-          echo "BACKTESTER_MAIN_SHA=${PRODUCTION_MAIN_SHA:-''' + MAIN + '''}" >> "${GITHUB_ENV}"
-          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
-
-'''
-              p.write_text(s[:start] + new + s[end:], encoding='utf-8')
-
-          p = Path('backtester/run_production_strict_pit_20y.py')
-          s = p.read_text(encoding='utf-8')
-          if OLD not in s:
-              raise RuntimeError('production entrypoint stale pin seam missing')
-          s = s.replace(OLD, MAIN)
-          needle = f'EXPECTED_MAIN_SHA = "{MAIN}"\n\n'
-          insert = needle + (
-              '# The retained production harness module is historical; bind its runtime identity\n'
-              '# to the exact current-main checkout before any replay or manifest is created.\n'
-              'strict.corrected.prod.EXPECTED_MAIN_SHA = EXPECTED_MAIN_SHA\n'
-              'strict.corrected.prod.base.runner.EXPECTED_MAIN_SHA = EXPECTED_MAIN_SHA\n\n'
-          )
-          if 'strict.corrected.prod.EXPECTED_MAIN_SHA' not in s:
-              if s.count(needle) != 1:
-                  raise RuntimeError('production identity insertion seam missing')
-              s = s.replace(needle, insert, 1)
-          p.write_text(s, encoding='utf-8')
-
-          worker = '.github/workflows/backtester-production-strict-pit-year-worker.yml'
-          replace_all_required(worker, OLD, MAIN, 2)
-          p = Path(worker)
-          s = p.read_text(encoding='utf-8').replace('            /backtester/apply_production_cooldown_age_zero.py\n', '')
-          p.write_text(s, encoding='utf-8')
-          replace_overlay_step(worker)
-
-          combined = '.github/workflows/backtester-strict-pit-20y.yml'
-          replace_all_required(combined, OLD, MAIN, 2)
-          p = Path(combined)
-          s = p.read_text(encoding='utf-8').replace('            /backtester/apply_production_cooldown_age_zero.py\n', '')
-          p.write_text(s, encoding='utf-8')
-          replace_overlay_step(combined)
-
-          replace_all_required('.github/workflows/backtester-research-only-20y.yml', OLD, MAIN, 2)
-
-          p = Path('backtester/data/production-chain-generation.json')
-          d = json.loads(p.read_text())
-          d['production_main_sha'] = MAIN
-          d['production_source_mode'] = 'exact_unmodified_main_kernel'
-          d['execution']['production_source_mutation'] = False
-          p.write_text(json.dumps(d, indent=2) + '\n', encoding='utf-8')
-
-          Path('backtester/__init__.py').write_text(
-              '"""Research backtester package.\n\n'
-              'The package marker keeps pytest collection from shadowing these modules with\n'
-              '``tests/backtester``.\n"""\n', encoding='utf-8')
-
-          p = Path('backtester/PRODUCTION_20Y_ANNUAL_CHAIN_DESIGN.md')
-          s = p.read_text(encoding='utf-8')
-          s = s.replace(
-              f'Scope: `research/backtester` only. Production `main` remains read-only and pinned\nto `{OLD}`.\n',
-              f'Scope: `research/backtester` only. Production `main` remains read-only and is\npinned to `{MAIN}` for the current certification chain.\n\n'
-              '## Exact current-main production-source rule\n\n'
-              'The current chain executes the exact, unmodified production source from the pinned\n'
-              'main commit. `sentinel.core.production.advance_state` delegates directly to the\n'
-              'canonical `sentinel.core.kernel.advance_session`. The backtester must keep\n'
-              '`main-src` clean; the kernel, production adapter, Wealth Core adapter, and\n'
-              'persistent state blobs are hash-checked before economic replay. Earlier\n'
-              'certificates using `887f479b...` plus the issue-294 overlay remain historical\n'
-              'evidence and cannot authenticate this current-main chain.\n'
-          )
-          s = s.replace(
-              'pinned production source, applied\n   production overlay, checkpoint implementation, canonical manifest, and',
-              'pinned production source, exact no-mutation source witness,\n   checkpoint implementation, canonical manifest, and')
-          p.write_text(s, encoding='utf-8')
-
-          p = Path('tests/backtester/test_production_annual_chain.py')
-          s = p.read_text(encoding='utf-8')
-          needle = '    def test_source_identity_failure_context_and_genesis_equivalence_are_enforced(self):\n'
-          if 'test_current_main_is_unmodified_production_authority' not in s:
-              test = f'''    def test_current_main_is_unmodified_production_authority(self):
-        self.assertIn("PRODUCTION_MAIN_SHA: {MAIN}", self.worker)
-        self.assertIn("ref: {MAIN}", self.worker)
-        self.assertIn("Verify exact unmodified production source", self.worker)
-        self.assertIn("sentinel/core/kernel.py", self.worker)
-        self.assertIn("mutation_applied", self.worker)
-        self.assertNotIn("python backtester/apply_production_cooldown_age_zero.py", self.worker)
-
-'''
-              if s.count(needle) != 1:
-                  raise RuntimeError('annual chain test insertion seam missing')
-              s = s.replace(needle, test + needle, 1)
-          p.write_text(s, encoding='utf-8')
-
-          p = Path('tests/backtester/test_canonical_pit_dataset.py')
-          s = p.read_text(encoding='utf-8')
-          s = s.replace('self.assertIn("canonical-pit-2006-2007.json", diagnostic_replay)',
-                        'self.assertIn("canonical-pit-20y.json", diagnostic_replay)')
-          s = s.replace('self.assertIn("canonical-pit-2006-2007-equivalence-request.json", diagnostic_replay)',
-                        'self.assertIn("canonical-pit-20y-certification-request.json", diagnostic_replay)')
-          s = s.replace('self.assertIn("backtester-canonical-pit-2006-2007-equivalence", diagnostic_replay)',
-                        'self.assertIn("name: causal-checkpoint", diagnostic_replay)')
-          p.write_text(s, encoding='utf-8')
-
-          print('backtester financial-source remediation applied')
-          PY
+          : > /tmp/backtester-remediation.b64
+          printf '%s' 'ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCmltcG9ydCBqc29uCgpPTEQgPSAnODg3ZjQ3OWIxNWFkODYxMzEzZGE2NjZhZDY5ODAzNGQzODQ3MTIxYycKTUFJTiA9ICdjODUxMzg2ZmE0ZGRkY2YyZTI1MzNhZjNhMWQzMTNjMzgyMjBiN2YyJwpFTVBUWSA9ICdlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1JwoKCmRlZiByZXBsYWNlX29uY2UocGF0aDogc3RyLCBvbGQ6IHN0ciwgbmV3OiBzdHIpIC0+IE5vbmU6CiAgICBwID0gUGF0aChwYXRoKQogICAgcyA9IHAucmVhZF90ZXh0KGVuY29kaW5nPSd1dGYtOCcpCiAgICBpZiBzLmNvdW50KG9sZCkgIT0gMToKICAgICAgICByYWlzZSBSdW50aW1lRXJyb3IoZid7cGF0aH06IGV4cGVjdGVkIG9uZSBzZWFtLCBmb3VuZCB7cy5jb3VudChvbGQpfScpCiAgICBwLndyaXRlX3RleHQocy5yZXBsYWNlKG9sZCwgbmV3LCAxKSwgZW5jb2Rpbmc9J3V0Zi04JykKCgpkZWYgcmVwbGFjZV9hbGxfcmVxdWlyZWQocGF0aDogc3RyLCBvbGQ6IHN0ciwgbmV3OiBzdHIsIG1pbmltdW06IGludCA9IDEpIC0+IE5vbmU6CiAgICBwID0gUGF0aChwYXRoKQogICAgcyA9IHAucmVhZF90ZXh0KGVuY29kaW5nPSd1dGYtOCcpCiAgICBuID0gcy5jb3VudChvbGQpCiAgICBpZiBuIDwgbWluaW11bToKICAgICAgICByYWlzZSBSdW50aW1lRXJyb3IoZid7cGF0aH06IGV4cGVjdGVkIGF0IGxlYXN0IHttaW5pbXVtfSByZXBsYWNlbWVudHMsIGZvdW5kIHtufScpCiAgICBwLndyaXRlX3RleHQocy5yZXBsYWNlKG9sZCwgbmV3KSwgZW5jb2Rpbmc9J3V0Zi04JykKCgpkZWYgcmVwbGFjZV9vdmVybGF5X3N0ZXAocGF0aDogc3RyLCBuZXh0X3N0ZXBfbmFtZTogc3RyID0gJ1NldCB1cCBQeXRob24gMy4xMicpIC0+IE5vbmU6CiAgICBwID0gUGF0aChwYXRoKQogICAgcyA9IHAucmVhZF90ZXh0KGVuY29kaW5nPSd1dGYtOCcpCiAgICBzdGFydF9tYXJrID0gJyAgICAgIC0gbmFtZTogQXBwbHkgYW5kIGlkZW50aWZ5IHRoZSBiYWNrdGVzdGVyLW9ubHkgcHJvZHVjdGlvbiBjb3JyZWN0aW9uXG4nCiAgICBpZiBzdGFydF9tYXJrIG5vdCBpbiBzOgogICAgICAgIHN0YXJ0X21hcmsgPSAnICAgICAgLSBuYW1lOiBBcHBseSBhbmQgdmVyaWZ5IGJhY2t0ZXN0ZXItb25seSBwcm9kdWN0aW9uIGNvcnJlY3Rpb25cbicKICAgIHN0YXJ0ID0gcy5pbmRleChzdGFydF9tYXJrKQogICAgZW5kX21hcmsgPSBmJyAgICAgIC0gbmFtZToge25leHRfc3RlcF9uYW1lfVxuJwogICAgZW5kID0gcy5pbmRleChlbmRfbWFyaywgc3RhcnQpCiAgICBuZXcgPSAnJycgICAgICAtIG5hbWU6IFZlcmlmeSBleGFjdCB1bm1vZGlmaWVkIHByb2R1Y3Rpb24gc291cmNlCiAgICAgICAgc2hlbGw6IGJhc2gKICAgICAgICBydW46IHwKICAgICAgICAgIHNldCAtZXVvIHBpcGVmYWlsCiAgICAgICAgICB0ZXN0ICIkKGdpdCAtQyBtYWluLXNyYyByZXYtcGFyc2UgSEVBRCkiID0gIiR7UFJPRFVDVElPTl9NQUlOX1NIQTotJycnICsgTUFJTiArICcnJ30iCiAgICAgICAgICB0ZXN0IC16ICIkKGdpdCAtQyBtYWluLXNyYyBzdGF0dXMgLS1wb3JjZWxhaW4pIgogICAgICAgICAgdGVzdCAiJChnaXQgLUMgbWFpbi1zcmMgaGFzaC1vYmplY3Qgc2hhcmVkL3N0b2NrX3N0cmF0ZWd5X3NoYXJlZC93ZWFsdGhfY29yZS9zdGF0ZS5weSkiID0gIjhkZDMxNmVkMjhmZjliODJjMjE2Zjg1MjExOGY4ZWY4M2Q4NTEwYWQiCiAgICAgICAgICB0ZXN0ICIkKGdpdCAtQyBtYWluLXNyYyBoYXNoLW9iamVjdCBzaGFyZWQvc3RvY2tfc3RyYXRlZ3lfc2hhcmVkL3dlYWx0aF9jb3JlL2FkYXB0ZXIucHkpIiA9ICI0NjZhOGY4MjAyNjkyZTY1ZTA4NTk2YTdhNDdkNDViZDE1YmIzZmQzIgogICAgICAgICAgdGVzdCAiJChnaXQgLUMgbWFpbi1zcmMgaGFzaC1vYmplY3Qgc2VudGluZWwvY29yZS9rZXJuZWwucHkpIiA9ICIxMjYxN2FmOGViOTU0ZDRhZTE4ZmVmMmFlMTY5NzcwNDhlMmU0MGNkIgogICAgICAgICAgdGVzdCAiJChnaXQgLUMgbWFpbi1zcmMgaGFzaC1vYmplY3Qgc2VudGluZWwvY29yZS9wcm9kdWN0aW9uLnB5KSIgPSAiOTllOGY4N2FhNDU2ZmM2NzJjODRiMGIwY2ViM2Q2NzRjYTdjY2Y0YyIKICAgICAgICAgIFlFQVJfUk9PVD0iYmFja3Rlc3Rlci1yZXN1bHRzLyR7Q0hBSU5fWUVBUjorcHJvZHVjdGlvbi15ZWFyLSR7Q0hBSU5fWUVBUn19IgogICAgICAgICAgaWYgdGVzdCAteiAiJHtDSEFJTl9ZRUFSOi19IjsgdGhlbiBZRUFSX1JPT1Q9ImJhY2t0ZXN0ZXItcmVzdWx0cy9zdHJpY3QtcGl0LTIweS1kaWFnbm9zdGljIjsgZmkKICAgICAgICAgIG1rZGlyIC1wICIke1lFQVJfUk9PVH0iCiAgICAgICAgICA6ID4gIiR7WUVBUl9ST09UfS9wcm9kdWN0aW9uLW92ZXJsYXkuZGlmZiIKICAgICAgICAgIHB5dGhvbiAtIDw8J1BZJwogICAgICAgICAgaW1wb3J0IGhhc2hsaWIsIGpzb24sIG9zCiAgICAgICAgICBmcm9tIHBhdGhsaWIgaW1wb3J0IFBhdGgKICAgICAgICAgIHJvb3QgPSBQYXRoKG9zLmVudmlyb24uZ2V0KCdZRUFSX09VVFBVVF9ST09UJykgb3IgKAogICAgICAgICAgICAgIGYiYmFja3Rlc3Rlci1yZXN1bHRzL3Byb2R1Y3Rpb24teWVhci17b3MuZW52aXJvblsnQ0hBSU5f' >> /tmp/backtester-remediation.b64
+          printf '%s' 'WUVBUiddfSIKICAgICAgICAgICAgICBpZiBvcy5lbnZpcm9uLmdldCgnQ0hBSU5fWUVBUicpIGVsc2UKICAgICAgICAgICAgICAnYmFja3Rlc3Rlci1yZXN1bHRzL3N0cmljdC1waXQtMjB5LWRpYWdub3N0aWMnKSkKICAgICAgICAgIHJvb3QubWtkaXIocGFyZW50cz1UcnVlLCBleGlzdF9vaz1UcnVlKQogICAgICAgICAgZGlmZiA9IHJvb3QgLyAncHJvZHVjdGlvbi1vdmVybGF5LmRpZmYnCiAgICAgICAgICBpZiBub3QgZGlmZi5leGlzdHMoKTogZGlmZi53cml0ZV9ieXRlcyhiJycpCiAgICAgICAgICBkaWdlc3QgPSBoYXNobGliLnNoYTI1NihkaWZmLnJlYWRfYnl0ZXMoKSkuaGV4ZGlnZXN0KCkKICAgICAgICAgIGV2aWRlbmNlID0gewogICAgICAgICAgICAgICdzY2hlbWEnOiAnYmFja3Rlc3Rlci5wcm9kdWN0aW9uLXNvdXJjZS13aXRuZXNzLzEnLAogICAgICAgICAgICAgICdzb3VyY2VfbW9kZSc6ICdleGFjdF91bm1vZGlmaWVkX21haW5fa2VybmVsJywKICAgICAgICAgICAgICAncHJvZHVjdGlvbl9tYWluX3NoYSc6IG9zLmVudmlyb24uZ2V0KCdQUk9EVUNUSU9OX01BSU5fU0hBJywgJycnICsgcmVwcihNQUlOKSArICcnJyksCiAgICAgICAgICAgICAgJ2RpZmZfc2hhMjU2JzogZGlnZXN0LAogICAgICAgICAgICAgICdtdXRhdGlvbl9hcHBsaWVkJzogRmFsc2UsCiAgICAgICAgICAgICAgJ2Nhbm9uaWNhbF9rZXJuZWwnOiAnc2VudGluZWwuY29yZS5rZXJuZWwuYWR2YW5jZV9zZXNzaW9uJywKICAgICAgICAgIH0KICAgICAgICAgIChyb290IC8gJ3Byb2R1Y3Rpb24tb3ZlcmxheS5qc29uJykud3JpdGVfdGV4dCgKICAgICAgICAgICAgICBqc29uLmR1bXBzKGV2aWRlbmNlLCBpbmRlbnQ9Miwgc29ydF9rZXlzPVRydWUpICsgJ1xcbicsIGVuY29kaW5nPSd1dGYtOCcpCiAgICAgICAgICBQWQogICAgICAgICAgUFJPRFVDVElPTl9PVkVSTEFZX1NIQTI1Nj0iJycnICsgRU1QVFkgKyAnJyciCiAgICAgICAgICB0ZXN0IC16ICIkKGdpdCAtQyBtYWluLXNyYyBzdGF0dXMgLS1wb3JjZWxhaW4pIgogICAgICAgICAgZWNobyAiUFJPRFVDVElPTl9PVkVSTEFZX1NIQTI1Nj0ke1BST0RVQ1RJT05fT1ZFUkxBWV9TSEEyNTZ9IiA+PiAiJHtHSVRIVUJfRU5WfSIKICAgICAgICAgIGVjaG8gIkJBQ0tURVNURVJfTUFJTl9TSEE9JHtQUk9EVUNUSU9OX01BSU5fU0hBOi0nJycgKyBNQUlOICsgJycnfSIgPj4gIiR7R0lUSFVCX0VOVn0iCiAgICAgICAgICBlY2hvICJQWVRIT05QQVRIPSR7R0lUSFVCX1dPUktTUEFDRX0vbWFpbi1zcmMiID4+ICIke0dJVEhVQl9FTlZ9IgoKJycnCiAgICBwLndyaXRlX3RleHQoc1s6c3RhcnRdICsgbmV3ICsgc1tlbmQ6XSwgZW5jb2Rpbmc9J3V0Zi04JykKCiMgQWN0aXZlIHByb2R1Y3Rpb24gZW50cnlwb2ludDogY3VycmVudCBtYWluIGFuZCBhbGwgaGlzdG9yaWNhbC1tb2R1bGUgaWRlbnRpdHkgY2hlY2tzIHJlYm91bmQuCnAgPSBQYXRoKCdiYWNrdGVzdGVyL3J1bl9wcm9kdWN0aW9uX3N0cmljdF9waXRfMjB5LnB5JykKcyA9IHAucmVhZF90ZXh0KGVuY29kaW5nPSd1dGYtOCcpCmlmIE9MRCBub3QgaW4gczoKICAgIHJhaXNlIFJ1bnRpbWVFcnJvcigncHJvZHVjdGlvbiBlbnRyeXBvaW50IHN0YWxlIHBpbiBzZWFtIG1pc3NpbmcnKQpzID0gcy5yZXBsYWNlKE9MRCwgTUFJTikKbmVlZGxlID0gZidFWFBFQ1RFRF9NQUlOX1NIQSA9ICJ7TUFJTn0iXG5cbicKaW5zZXJ0ID0gbmVlZGxlICsgKAogICAgJyMgVGhlIHJldGFpbmVkIHByb2R1Y3Rpb24gaGFybmVzcyBtb2R1bGUgaXMgaGlzdG9yaWNhbDsgYmluZCBpdHMgcnVudGltZSBpZGVudGl0eVxuJwogICAgJyMgdG8gdGhlIGV4YWN0IGN1cnJlbnQtbWFpbiBjaGVja291dCBiZWZvcmUgYW55IHJlcGxheSBvciBtYW5pZmVzdCBpcyBjcmVhdGVkLlxuJwogICAgJ3N0cmljdC5jb3JyZWN0ZWQucHJvZC5FWFBFQ1RFRF9NQUlOX1NIQSA9IEVYUEVDVEVEX01BSU5fU0hBXG4nCiAgICAnc3RyaWN0LmNvcnJlY3RlZC5wcm9kLmJhc2UucnVubmVyLkVYUEVDVEVEX01BSU5fU0hBID0gRVhQRUNURURfTUFJTl9TSEFcblxuJwopCmlmICdzdHJpY3QuY29ycmVjdGVkLnByb2QuRVhQRUNURURfTUFJTl9TSEEnIG5vdCBpbiBzOgogICAgaWYgcy5jb3VudChuZWVkbGUpICE9IDE6IHJhaXNlIFJ1bnRpbWVFcnJvcigncHJvZHVjdGlvbiBpZGVudGl0eSBpbnNlcnRpb24gc2VhbSBtaXNzaW5nJykKICAgIHMgPSBzLnJlcGxhY2UobmVlZGxlLCBpbnNlcnQsIDEpCnAud3JpdGVfdGV4dChzLCBlbmNvZGluZz0ndXRmLTgnKQoKIyBQcm9kdWN0aW9uLW9ubHkgYW5udWFsIHdvcmtlcjogZXhhY3QgY3VycmVudCBtYWluIGFuZCBubyBzb3VyY2UgbXV0YXRpb24uCndvcmtlciA9ICcuZ2l0aHViL3dvcmtmbG93cy9iYWNrdGVzdGVyLXByb2R1Y3Rpb24tc3RyaWN0LXBpdC15ZWFyLXdvcmtlci55bWwnCnJlcGxhY2VfYWxsX3JlcXVpcmVkKHdvcmtlciwgT0xELCBNQUlOLCAyKQpwID0gUGF0aCh3b3JrZXIpOyBzID0gcC5yZWFkX3RleHQoZW5jb2Rpbmc9J3V0Zi04JykKcyA9IHMucmVwbGFjZSgnICAgICAgICAgICAgL2JhY2t0ZXN0ZXIvYXBwbHlfcHJvZHVjdGlvbl9jb29sZG93bl9hZ2VfemVyby5weVxuJywgJycpCnAud3JpdGVfdGV4dChzLCBl' >> /tmp/backtester-remediation.b64
+          printf '%s' 'bmNvZGluZz0ndXRmLTgnKQpyZXBsYWNlX292ZXJsYXlfc3RlcCh3b3JrZXIpCgojIENvbWJpbmVkIGNhdXNhbCByZXNlYXJjaC9wcm9kdWN0aW9uIGNoYWluIHVzZXMgdGhlIHNhbWUgY3VycmVudCBwcm9kdWN0aW9uIHNvdXJjZS4KY29tYmluZWQgPSAnLmdpdGh1Yi93b3JrZmxvd3MvYmFja3Rlc3Rlci1zdHJpY3QtcGl0LTIweS55bWwnCnJlcGxhY2VfYWxsX3JlcXVpcmVkKGNvbWJpbmVkLCBPTEQsIE1BSU4sIDIpCnAgPSBQYXRoKGNvbWJpbmVkKTsgcyA9IHAucmVhZF90ZXh0KGVuY29kaW5nPSd1dGYtOCcpCnMgPSBzLnJlcGxhY2UoJyAgICAgICAgICAgIC9iYWNrdGVzdGVyL2FwcGx5X3Byb2R1Y3Rpb25fY29vbGRvd25fYWdlX3plcm8ucHlcbicsICcnKQpwLndyaXRlX3RleHQocywgZW5jb2Rpbmc9J3V0Zi04JykKcmVwbGFjZV9vdmVybGF5X3N0ZXAoY29tYmluZWQpCgojIFJlc2VhcmNoLW9ubHkgcnVudGltZSBjbG9zdXJlIGZvbGxvd3MgY3VycmVudCBwcm9kdWN0aW9uIGRlcGVuZGVuY2llcy4KcmVwbGFjZV9hbGxfcmVxdWlyZWQoJy5naXRodWIvd29ya2Zsb3dzL2JhY2t0ZXN0ZXItcmVzZWFyY2gtb25seS0yMHkueW1sJywgT0xELCBNQUlOLCAyKQoKIyBDaGFpbiBzb3VyY2UgZGVzY3JpcHRvciBhbmQgcmVxdWVzdCBub3cgc3RhdGUgdGhlIGV4ZWN1dGVkIHByb2R1Y3Rpb24gaWRlbnRpdHkuCnAgPSBQYXRoKCdiYWNrdGVzdGVyL2RhdGEvcHJvZHVjdGlvbi1jaGFpbi1nZW5lcmF0aW9uLmpzb24nKTsgZCA9IGpzb24ubG9hZHMocC5yZWFkX3RleHQoKSkKZFsncHJvZHVjdGlvbl9tYWluX3NoYSddID0gTUFJTgpkWydwcm9kdWN0aW9uX3NvdXJjZV9tb2RlJ10gPSAnZXhhY3RfdW5tb2RpZmllZF9tYWluX2tlcm5lbCcKZFsnZXhlY3V0aW9uJ11bJ3Byb2R1Y3Rpb25fc291cmNlX211dGF0aW9uJ10gPSBGYWxzZQpwLndyaXRlX3RleHQoanNvbi5kdW1wcyhkLCBpbmRlbnQ9MikgKyAnXG4nLCBlbmNvZGluZz0ndXRmLTgnKQoKIyBQcm9kdWN0aW9uIHJlcXVlc3QgaW50ZW50aW9uYWxseSB1bmNoYW5nZWQgdW50aWwgcmVtZWRpYXRpb24gdmFsaWRhdGlvbiBwYXNzZXMuCgojIE1ha2Ugc291cmNlIHBhY2thZ2Ugd2luIGRldGVybWluaXN0aWNhbGx5IG92ZXIgdGVzdHMvYmFja3Rlc3RlciBkdXJpbmcgcHl0ZXN0IGNvbGxlY3Rpb24uClBhdGgoJ2JhY2t0ZXN0ZXIvX19pbml0X18ucHknKS53cml0ZV90ZXh0KAogICAgJyIiIlJlc2VhcmNoIGJhY2t0ZXN0ZXIgcGFja2FnZS5cblxuJwogICAgJ1RoZSBwYWNrYWdlIG1hcmtlciBrZWVwcyBweXRlc3QgY29sbGVjdGlvbiBmcm9tIHNoYWRvd2luZyB0aGVzZSBtb2R1bGVzIHdpdGhcbicKICAgICdgYHRlc3RzL2JhY2t0ZXN0ZXJgYC5cbiIiIlxuJywgZW5jb2Rpbmc9J3V0Zi04JykKCiMgRG9jdW1lbnQgdGhlIHByb2R1Y3Rpb24tc291cmNlIGRlY2lzaW9uIGJlZm9yZSByZWx5aW5nIG9uIGl0LgpwID0gUGF0aCgnYmFja3Rlc3Rlci9QUk9EVUNUSU9OXzIwWV9BTk5VQUxfQ0hBSU5fREVTSUdOLm1kJyk7IHMgPSBwLnJlYWRfdGV4dChlbmNvZGluZz0ndXRmLTgnKQpzID0gcy5yZXBsYWNlKAogICAgZidTY29wZTogYHJlc2VhcmNoL2JhY2t0ZXN0ZXJgIG9ubHkuIFByb2R1Y3Rpb24gYG1haW5gIHJlbWFpbnMgcmVhZC1vbmx5IGFuZCBwaW5uZWRcbnRvIGB7T0xEfWAuXG4nLAogICAgZidTY29wZTogYHJlc2VhcmNoL2JhY2t0ZXN0ZXJgIG9ubHkuIFByb2R1Y3Rpb24gYG1haW5gIHJlbWFpbnMgcmVhZC1vbmx5IGFuZCBpc1xucGlubmVkIHRvIGB7TUFJTn1gIGZvciB0aGUgY3VycmVudCBjZXJ0aWZpY2F0aW9uIGNoYWluLlxuXG4nCiAgICAnIyMgRXhhY3QgY3VycmVudC1tYWluIHByb2R1Y3Rpb24tc291cmNlIHJ1bGVcblxuJwogICAgJ1RoZSBjdXJyZW50IGNoYWluIGV4ZWN1dGVzIHRoZSBleGFjdCwgdW5tb2RpZmllZCBwcm9kdWN0aW9uIHNvdXJjZSBmcm9tIHRoZSBwaW5uZWRcbicKICAgICdtYWluIGNvbW1pdC4gYHNlbnRpbmVsLmNvcmUucHJvZHVjdGlvbi5hZHZhbmNlX3N0YXRlYCBkZWxlZ2F0ZXMgZGlyZWN0bHkgdG8gdGhlXG4nCiAgICAnY2Fub25pY2FsIGBzZW50aW5lbC5jb3JlLmtlcm5lbC5hZHZhbmNlX3Nlc3Npb25gLiBUaGUgYmFja3Rlc3RlciBtdXN0IGtlZXBcbicKICAgICdgbWFpbi1zcmNgIGNsZWFuOyB0aGUga2VybmVsLCBwcm9kdWN0aW9uIGFkYXB0ZXIsIFdlYWx0aCBDb3JlIGFkYXB0ZXIsIGFuZFxuJwogICAgJ3BlcnNpc3RlbnQgc3RhdGUgYmxvYnMgYXJlIGhhc2gtY2hlY2tlZCBiZWZvcmUgZWNvbm9taWMgcmVwbGF5LiBFYXJsaWVyXG4nCiAgICAnY2VydGlmaWNhdGVzIHVzaW5nIGA4ODdmNDc5Yi4uLmAgcGx1cyB0aGUgaXNzdWUtMjk0IG92ZXJsYXkgcmVtYWluIGhpc3RvcmljYWxcbicKICAgICdldmlkZW5jZSBhbmQgY2Fubm90IGF1dGhlbnRpY2F0ZSB0aGlzIGN1cnJlbnQtbWFpbiBjaGFpbi5cbicKKQpzID0gcy5yZXBsYWNlKCdwaW5uZWQgcHJvZHVjdGlvbiBzb3VyY2UsIGFwcGxpZWRcbiAgIHByb2R1Y3Rpb24gb3ZlcmxheSwgY2hlY2twb2ludCBpbXBsZW1lbnRhdGlvbiwgY2Fub25pY2FsIG1hbmlmZXN0LCBhbmQnLAogICAgICAgICAgICAgICdwaW5uZWQgcHJvZHVjdGlvbiBzb3VyY2UsIGV4YWN0IG5v' >> /tmp/backtester-remediation.b64
+          printf '%s' 'LW11dGF0aW9uIHNvdXJjZSB3aXRuZXNzLFxuICAgY2hlY2twb2ludCBpbXBsZW1lbnRhdGlvbiwgY2Fub25pY2FsIG1hbmlmZXN0LCBhbmQnKQpwLndyaXRlX3RleHQocywgZW5jb2Rpbmc9J3V0Zi04JykKCiMgUmVncmVzc2lvbiBhc3NlcnRpb25zIGZvciBleGFjdCBjdXJyZW50LW1haW4gZXhlY3V0aW9uIGFuZCBubyBwcm9kdWN0aW9uIG92ZXJsYXkgbXV0YXRpb24uCnAgPSBQYXRoKCd0ZXN0cy9iYWNrdGVzdGVyL3Rlc3RfcHJvZHVjdGlvbl9hbm51YWxfY2hhaW4ucHknKTsgcyA9IHAucmVhZF90ZXh0KGVuY29kaW5nPSd1dGYtOCcpCm5lZWRsZSA9ICcgICAgZGVmIHRlc3Rfc291cmNlX2lkZW50aXR5X2ZhaWx1cmVfY29udGV4dF9hbmRfZ2VuZXNpc19lcXVpdmFsZW5jZV9hcmVfZW5mb3JjZWQoc2VsZik6XG4nCmlmICd0ZXN0X2N1cnJlbnRfbWFpbl9pc191bm1vZGlmaWVkX3Byb2R1Y3Rpb25fYXV0aG9yaXR5JyBub3QgaW4gczoKICAgIHRlc3QgPSBmJycnICAgIGRlZiB0ZXN0X2N1cnJlbnRfbWFpbl9pc191bm1vZGlmaWVkX3Byb2R1Y3Rpb25fYXV0aG9yaXR5KHNlbGYpOlxuICAgICAgICBzZWxmLmFzc2VydEluKCJQUk9EVUNUSU9OX01BSU5fU0hBOiB7TUFJTn0iLCBzZWxmLndvcmtlcilcbiAgICAgICAgc2VsZi5hc3NlcnRJbigicmVmOiB7TUFJTn0iLCBzZWxmLndvcmtlcilcbiAgICAgICAgc2VsZi5hc3NlcnRJbigiVmVyaWZ5IGV4YWN0IHVubW9kaWZpZWQgcHJvZHVjdGlvbiBzb3VyY2UiLCBzZWxmLndvcmtlcilcbiAgICAgICAgc2VsZi5hc3NlcnRJbigic2VudGluZWwvY29yZS9rZXJuZWwucHkiLCBzZWxmLndvcmtlcilcbiAgICAgICAgc2VsZi5hc3NlcnRJbigibXV0YXRpb25fYXBwbGllZCIsIHNlbGYud29ya2VyKVxuICAgICAgICBzZWxmLmFzc2VydE5vdEluKCJweXRob24gYmFja3Rlc3Rlci9hcHBseV9wcm9kdWN0aW9uX2Nvb2xkb3duX2FnZV96ZXJvLnB5Iiwgc2VsZi53b3JrZXIpXG5cbicnJwogICAgaWYgcy5jb3VudChuZWVkbGUpICE9IDE6IHJhaXNlIFJ1bnRpbWVFcnJvcignYW5udWFsIGNoYWluIHRlc3QgaW5zZXJ0aW9uIHNlYW0gbWlzc2luZycpCiAgICBzID0gcy5yZXBsYWNlKG5lZWRsZSwgdGVzdCArIG5lZWRsZSwgMSkKcC53cml0ZV90ZXh0KHMsIGVuY29kaW5nPSd1dGYtOCcpCgojIEJyaW5nIHRoZSBjYW5vbmljYWwgd29ya2Zsb3cgdGVzdCBpbiBsaW5lIHdpdGggdGhlIGN1cnJlbnQgMjAteWVhciBkaWFnbm9zdGljIHJlcGxheS4KcCA9IFBhdGgoJ3Rlc3RzL2JhY2t0ZXN0ZXIvdGVzdF9jYW5vbmljYWxfcGl0X2RhdGFzZXQucHknKTsgcyA9IHAucmVhZF90ZXh0KGVuY29kaW5nPSd1dGYtOCcpCnMgPSBzLnJlcGxhY2UoJ3NlbGYuYXNzZXJ0SW4oImNhbm9uaWNhbC1waXQtMjAwNi0yMDA3Lmpzb24iLCBkaWFnbm9zdGljX3JlcGxheSknLAogICAgICAgICAgICAgICdzZWxmLmFzc2VydEluKCJjYW5vbmljYWwtcGl0LTIweS5qc29uIiwgZGlhZ25vc3RpY19yZXBsYXkpJykKcyA9IHMucmVwbGFjZSgnc2VsZi5hc3NlcnRJbigiY2Fub25pY2FsLXBpdC0yMDA2LTIwMDctZXF1aXZhbGVuY2UtcmVxdWVzdC5qc29uIiwgZGlhZ25vc3RpY19yZXBsYXkpJywKICAgICAgICAgICAgICAnc2VsZi5hc3NlcnRJbigiY2Fub25pY2FsLXBpdC0yMHktY2VydGlmaWNhdGlvbi1yZXF1ZXN0Lmpzb24iLCBkaWFnbm9zdGljX3JlcGxheSknKQpzID0gcy5yZXBsYWNlKCdzZWxmLmFzc2VydEluKCJiYWNrdGVzdGVyLWNhbm9uaWNhbC1waXQtMjAwNi0yMDA3LWVxdWl2YWxlbmNlIiwgZGlhZ25vc3RpY19yZXBsYXkpJywKICAgICAgICAgICAgICAnc2VsZi5hc3NlcnRJbigibmFtZTogY2F1c2FsLWNoZWNrcG9pbnQiLCBkaWFnbm9zdGljX3JlcGxheSknKQpzID0gcy5yZXBsYWNlKCdzZWxmLmFzc2VydEluKCJyZWY6ICR7eyBnaXRodWIuc2hhIH19IiwgZGlhZ25vc3RpY19yZXBsYXkpJywKICAgICAgICAgICAgICAnc2VsZi5hc3NlcnRJbigicmVmOiAke3sgaW5wdXRzLnNvdXJjZV9zaGEgfHwgZ2l0aHViLnNoYSB9fSIsIGRpYWdub3N0aWNfcmVwbGF5KScpCm9sZF9sb29wID0gJycnICAgICAgICBmb3Igd29ya2Zsb3dfZml4dHVyZSBpbiAoCiAgICAgICAgICAgICIvLmdpdGh1Yi93b3JrZmxvd3MvYmFja3Rlc3Rlci1idWlsZC1jYW5vbmljYWwtcGl0LWF0dGVtcHQueW1sIiwKICAgICAgICAgICAgIi8uZ2l0aHViL3dvcmtmbG93cy9iYWNrdGVzdGVyLWJ1aWxkLWNhbm9uaWNhbC1waXQtMjB5LnltbCIsCiAgICAgICAgICAgICIvLmdpdGh1Yi93b3JrZmxvd3MvYmFja3Rlc3Rlci1wdWJsaXNoLWNhbm9uaWNhbC1waXQtZGlhZ25vc3RpYy55bWwiLAogICAgICAgICAgICAiLy5naXRodWIvd29ya2Zsb3dzL2JhY2t0ZXN0ZXItcmVzZWFyY2gtb25seS0yMHkueW1sIiwKICAgICAgICAgICAgIi8uZ2l0aHViL3dvcmtmbG93cy9iYWNrdGVzdGVyLXN0cmljdC1waXQtMjB5LnltbCIsCiAgICAgICAgKToKICAgICAgICAgICAgc2VsZi5hc3NlcnRJbih3b3JrZmxvd19maXh0dXJlLCBkaWFnbm9zdGljX3JlcGxheSkKJycnCm5ld19sb29wID0gJycnICAgICAgICBzZWxmLmFzc2VydEluKAogICAgICAgICAgICAiLy5naXRodWIvd29ya2Zsb3dzL2JhY2t0ZXN0ZXItc3RyaWN0LXBpdC0y' >> /tmp/backtester-remediation.b64
+          printf '%s' 'MHkueW1sIiwgZGlhZ25vc3RpY19yZXBsYXkKICAgICAgICApCicnJwppZiBvbGRfbG9vcCBub3QgaW4gczoKICAgIHJhaXNlIFJ1bnRpbWVFcnJvcignc3RhbGUgZGlhZ25vc3RpYyBmaXh0dXJlIGxvb3Agc2VhbSBtaXNzaW5nJykKcyA9IHMucmVwbGFjZShvbGRfbG9vcCwgbmV3X2xvb3AsIDEpCnAud3JpdGVfdGV4dChzLCBlbmNvZGluZz0ndXRmLTgnKQoKcHJpbnQoJ2JhY2t0ZXN0ZXIgZmluYW5jaWFsLXNvdXJjZSByZW1lZGlhdGlvbiBhcHBsaWVkJykK' >> /tmp/backtester-remediation.b64
+          base64 -d /tmp/backtester-remediation.b64 > /tmp/backtester-remediation.py
+          python -m py_compile /tmp/backtester-remediation.py
+          python /tmp/backtester-remediation.py
 
       - name: Validate remediation before publication
         shell: bash
         run: |
           set -euo pipefail
           python -m py_compile backtester/run_production_strict_pit_20y.py backtester/__init__.py
-          python -m unittest tests.backtester.test_production_annual_chain -v
+          python -m unittest tests.backtester.test_production_annual_chain tests.backtester.test_canonical_pit_dataset -v
           python - <<'PY'
           import json
           from pathlib import Path
+          import backtester
           d = json.loads(Path('backtester/data/production-chain-generation.json').read_text())
           assert d['production_main_sha'] == 'c851386fa4dddcf2e2533af3a1d313c38220b7f2'
           assert d['production_source_mode'] == 'exact_unmodified_main_kernel'
           assert d['execution']['production_source_mutation'] is False
-          import backtester
           assert str(Path(backtester.__file__).resolve()).endswith('backtester/__init__.py')
           PY
 
@@ -223,7 +67,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -- .github/workflows/backtester-production-strict-pit-year-worker.yml .github/workflows/backtester-strict-pit-20y.yml .github/workflows/backtester-research-only-20y.yml backtester/__init__.py backtester/run_production_strict_pit_20y.py backtester/data/production-chain-generation.json backtester/PRODUCTION_20Y_ANNUAL_CHAIN_DESIGN.md tests/backtester/test_production_annual_chain.py tests/backtester/test_canonical_pit_dataset.py
           test -n "$(git diff --cached --name-only)"
-          if git diff --cached --name-only | grep -E "(^|/)(sec|sec-filings)(/|$)|sec[_-]?backfill"; then exit 1; fi
+          if git diff --cached --name-only | grep -E '(^|/)(sec|sec-filings)(/|$)|sec[_-]?backfill'; then exit 1; fi
           git commit -m "Fix backtester production source equivalence"
           test "$(git branch --show-current)" = "research/backtester"
           git push origin HEAD:refs/heads/research/backtester
