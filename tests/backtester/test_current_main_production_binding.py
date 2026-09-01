@@ -61,6 +61,25 @@ def test_current_main_kernel_executes_prior_orders_before_close_decision() -> No
     assert "execute orders decided BEFORE this session" in source
 
 
+def test_strict_pit_stack_bridges_plan_session_to_current_kernel_owner() -> None:
+    code = (
+        "import backtester.run_production_strict_pit_20y as replay; "
+        "import sentinel.core.kernel as kernel; "
+        "import sentinel.core.production as production; "
+        "assert kernel.plan_session is replay._current_plan_session_proxy; "
+        "assert production.plan_session is replay.strict._plan_session_with_boundary_evidence; "
+        "assert replay.strict._real_plan_session is replay._exact_plan_session"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout
+
+
 def test_launcher_rejects_nonmatching_or_dirty_production_checkout(tmp_path: Path) -> None:
     launcher = _load_launcher()
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
