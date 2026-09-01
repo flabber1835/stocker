@@ -11,21 +11,22 @@ for key in list(sys.modules.keys()):
 sys.path.insert(0, os.path.join(ROOT, "shared"))
 sys.path.insert(0, os.path.join(ROOT, "services", "backtester"))
 
-# Legacy reporting regression names remain useful fixtures. Bind them to the
-# centralized public Production finalizer used by the corrected runtime so the
-# tests exercise the executable reporting implementation, not a retired copy.
-try:
-    import backtester.run_ldrc_nonpit_vs_pit_certified as _reporting
-    from backtester import production_public_reporting as _public_reporting
 
-    _reporting._public_production_daily = _public_reporting.public_production_daily
-    _reporting._public_production_metrics = _public_reporting.public_production_metrics
-    _reporting._public_metric_summary = _public_reporting.public_metric_summary
-    _reporting._write_final_comparison = (
-        lambda: _public_reporting.write_final_comparison(_reporting)
+def pytest_collection_modifyitems(session, config, items):
+    """Bind legacy reporting test names to the executable public finalizer.
+
+    The reporting module imports the pinned Production runtime and is therefore
+    loaded by its own test module during collection. Bind after collection so
+    this fixture never changes dependency/import order.
+    """
+    reporting = sys.modules.get("backtester.run_ldrc_nonpit_vs_pit_certified")
+    if reporting is None:
+        return
+    from backtester import production_public_reporting as public_reporting
+
+    reporting._public_production_daily = public_reporting.public_production_daily
+    reporting._public_production_metrics = public_reporting.public_production_metrics
+    reporting._public_metric_summary = public_reporting.public_metric_summary
+    reporting._write_final_comparison = (
+        lambda: public_reporting.write_final_comparison(reporting)
     )
-except Exception:
-    # Some focused tests intentionally import before the pinned production
-    # checkout/runtime is available. Their own imports will surface any real
-    # dependency error; do not make collection depend on this compatibility bind.
-    pass
