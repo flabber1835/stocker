@@ -1,6 +1,8 @@
 {
   "schema": "backtester.production-chain-generation/1",
   "generation": 1,
+  "status": "HISTORICAL_EVIDENCE_ONLY",
+  "superseded_by_generation": 2,
   "years": {
     "first": 2006,
     "last": 2026,
