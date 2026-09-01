@@ -17,7 +17,7 @@
   "resume_equivalence_schema": "backtester.production-resume-equivalence/1",
   "canonical_dataset_hash": "f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b",
   "terminal_correction_sha256": "cfd65c78317abd1671632b2a730507634cf036e798b0ade89be68194fda430dc",
-  "production_main_sha": "80e89b3f894f826e64139b1e0fedd5d42ef937f8",
+  "production_main_sha": "6d07c2b76066121906e50b4c11876c48849144a0",
   "production_source_mode": "pristine-current-main",
   "production_overlay_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "production_blob_ids": {
