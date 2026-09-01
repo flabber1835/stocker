@@ -9,7 +9,7 @@ Fixes two measurement defects in the earlier certified replay:
    return before/missing BIL, sourced from frozen GS3M authority.
 
 The strategy implementation remains the exact pinned current-main production
-code. A is current/non-PIT metadata; D is full-stack PIT metadata.
+code. Internal comparison labels are removed from the finalized public bundle.
 """
 from __future__ import annotations
 
@@ -28,6 +28,7 @@ if str(LAB_ROOT) not in sys.path:
     sys.path.insert(0, str(LAB_ROOT))
 
 from backtester.historical_cash import complete_cash_factors
+from backtester import production_public_reporting
 
 SOURCE = LAB_ROOT / "backtester" / "run_ldrc_nonpit_vs_pit_certified.py"
 WARMUP_START = "1997-01-02"
@@ -46,6 +47,18 @@ runner = base.runner
 
 runner.CHAIN_START = WARMUP_START
 runner.EXPERIMENT_ID = "2026-08-29-ldrc-warmup-cash-corrected"
+
+# Current public reporting is owned here. The retained comparison module still
+# contains an obsolete direct finalizer that reads a pre-gzip filename; suppress
+# that intermediate finalization and issue one authenticated public bundle after
+# the measurement trim below.
+prod._finalize_production_result = lambda result: int(result)
+prod._year_end_sessions = set(getattr(prod, "_year_end_sessions", set()))
+prod._production_measurement_start = MEASUREMENT_START
+prod._public_production_daily = production_public_reporting.public_production_daily
+prod._public_production_metrics = production_public_reporting.public_production_metrics
+prod._public_metric_summary = production_public_reporting.public_metric_summary
+prod._write_final_comparison = lambda: production_public_reporting.write_final_comparison(prod)
 
 _cash_provenance: dict = {}
 _original_sfp_builder = base._real_build_sfp_levels
@@ -164,10 +177,8 @@ def _corrected_raw_sep_rows(root: Path, manifest, end: str, observed_inputs: dic
 
 runner.raw_sep_rows = _corrected_raw_sep_rows
 
-# Compose with the already-installed full-stack PIT accounting wrapper. It is
-# the owner of Production's independent Wealth Core return stream and of the
-# unresolved-open fail-closed guard. This layer only adds measurement rebasing
-# and year-end reporting; it must never bypass that economic wrapper stack.
+# Compose with the already-installed full-stack PIT accounting wrapper. It owns
+# Production's independent Wealth Core return stream and unresolved-open guard.
 _pre_measurement_account_step = runner.OverlayAccount.step
 
 
@@ -230,7 +241,7 @@ def _finalize_provenance() -> None:
         "measurement_policy": "actual BIL when available; strict-prior completed-month GS3M before or when BIL unavailable",
     }
     summary["calendar_year_cagr_definition"] = (
-        "cumulative measured LD-RC NAV from 1998-01-02 after full 1997 machine warm-up"
+        "cumulative measured Production NAV from 1998-01-02 after full 1997 machine warm-up"
     )
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
