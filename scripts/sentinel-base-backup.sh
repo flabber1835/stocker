@@ -192,12 +192,12 @@ ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
   test -d "/sentinel-backup/base/$final"
 ' sh "$STAGING" "$NAME"
 STAGING_CREATED=0
-${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
-  name="$1"
-  test -f "/sentinel-backup/base/$name/sentinel-recovery-marker"
-  test -f "/sentinel-backup/base/$name/sentinel-pitr-base-identity"
-' sh "$NAME" || {
-  echo "REFUSED: promoted backup lost required recovery metadata" >&2; exit 4; }
+${COMPOSE[@]} exec -T sentinel-postgres \
+  test -f "/sentinel-backup/base/$NAME/sentinel-recovery-marker" || {
+  echo "REFUSED: promoted backup lost its post-base recovery marker" >&2; exit 4; }
+${COMPOSE[@]} exec -T sentinel-postgres \
+  test -f "/sentinel-backup/base/$NAME/sentinel-pitr-base-identity" || {
+  echo "REFUSED: promoted backup lost its PITR base identity" >&2; exit 4; }
 
 # Machine-readable mutation evidence is consumed by certified GO orchestration;
 # the exact path remains the existing operator/restore contract.
