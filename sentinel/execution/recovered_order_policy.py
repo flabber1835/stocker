@@ -1,20 +1,29 @@
 """Fail-closed ownership policy for broker orders absent from the journal.
 
 A ``sntl-`` prefix is useful classification metadata, but it is not an
-authentication proof.  After a stale restore, an order that is present at the
+authentication proof. After a stale restore, an order that is present at the
 broker and absent from ``sentinel_commands`` has no durable preimage from which
-Sentinel can recompute its client key.  Such an order must therefore remain
-ambiguous and fence new risk until an operator resolves it.
+Sentinel can recompute its client key. Broker-capable production services enable
+STRICT_V1 and keep such an order ambiguous until an operator reconciles it.
 
-Known commands are unaffected: their exact deterministic keys still reconcile
-through the ordinary journal path.
+The default remains the historical recovery behavior for deterministic tests
+and broker-free tooling. Production Compose is responsible for asserting the
+strict authority mode on every service that receives Alpaca credentials.
 """
 from __future__ import annotations
+
+import os
 
 from sentinel.execution import journal
 
 
+AUTHORITY_ENV = "SENTINEL_RECOVERED_ORDER_AUTHORITY"
+STRICT_AUTHORITY = "STRICT_V1"
 _ORIGINAL_ADOPT = journal.adopt_recovered_order
+
+
+def strict_enabled() -> bool:
+    return str(os.environ.get(AUTHORITY_ENV, "")).strip() == STRICT_AUTHORITY
 
 
 def refuse_unauthenticated_recovered_order(
@@ -30,7 +39,9 @@ def refuse_unauthenticated_recovered_order(
 
 
 def install() -> None:
-    """Install the production recovery policy exactly once."""
+    """Install the strict production recovery policy exactly once when enabled."""
+    if not strict_enabled():
+        return
     current = journal.adopt_recovered_order
     if current is refuse_unauthenticated_recovered_order:
         return
@@ -40,4 +51,7 @@ def install() -> None:
     journal.adopt_recovered_order = refuse_unauthenticated_recovered_order
 
 
-__all__ = ["install", "refuse_unauthenticated_recovered_order"]
+__all__ = [
+    "AUTHORITY_ENV", "STRICT_AUTHORITY", "install", "strict_enabled",
+    "refuse_unauthenticated_recovered_order",
+]
