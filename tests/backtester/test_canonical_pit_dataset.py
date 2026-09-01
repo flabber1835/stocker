@@ -350,7 +350,7 @@ class CanonicalPITDatasetTests(unittest.TestCase):
         self.assertEqual(active["supersedes_generation"], active["generation"] - 1)
         self.assertEqual(
             active["production_main_sha"],
-            "80e89b3f894f826e64139b1e0fedd5d42ef937f8",
+            "6d07c2b76066121906e50b4c11876c48849144a0",
         )
 
         cursor = active
