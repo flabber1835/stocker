@@ -1,23 +1,23 @@
 {
   "schema": "backtester.production-strict-pit-20y-request/1",
   "requested_at": "2026-09-01",
-  "purpose": "Run current Production across the certified 2006-01-03 through 2026-07-31 canonical PIT dataset after retiring the unsupported legacy 1998 replay.",
+  "purpose": "Run current Production across the certified 2006-01-03 through 2026-07-31 canonical PIT dataset after repairing the annual worker source closure.",
   "production_source_sha": "80e89b3f894f826e64139b1e0fedd5d42ef937f8",
   "production_overlay_issue": 294,
   "canonical_dataset_hash": "f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b",
   "warmup_start": "2006-01-03",
   "measurement_start": "2006-07-31",
   "end": "2026-07-31",
-  "retry": 5,
+  "retry": 6,
   "previous_failure": {
-    "run_id": 33543858724,
-    "job_id": 99976460958,
-    "classification": "unsupported legacy replay authority window",
-    "cause": "the legacy 1998 LD-RC workflow required SPY total-return warm-up from 1997-01-02, but the retained certified SFP factor authority does not reach that boundary; the replay correctly refused rather than fabricating benchmark history"
+    "run_id": 33544652003,
+    "job_id": 99979057482,
+    "classification": "annual worker sparse-checkout dependency closure failure before replay",
+    "cause": "run_ldrc_corrected_warmup_cash imports backtester.production_public_reporting, but the annual worker sparse checkout omitted that module; the genesis gate therefore failed closed before loading the canonical package or running 2006"
   },
   "correction": {
     "terminal_terms_sha256": "cfd65c78317abd1671632b2a730507634cf036e798b0ade89be68194fda430dc",
-    "rule": "retire the unsupported 1998 experiment and execute the generation-4 annual Production chain on the canonical certified 2006-2026 PIT window",
-    "verification": "generation 4 pins current main 80e89b3f894f826e64139b1e0fedd5d42ef937f8, canonical dataset f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b, warm-up 2006-01-03, and measurement start 2006-07-31"
+    "rule": "include production_public_reporting.py in the immutable annual worker source closure, assert the file exists after sparse checkout, and compile it in the genesis gate",
+    "verification": "the 2006 genesis gate must import the full current strict-PIT Production stack before the canonical package is pulled or any replay session executes"
   }
 }
