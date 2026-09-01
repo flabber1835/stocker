@@ -80,6 +80,15 @@ def test_strict_recovered_order_policy_refuses_prefix_only_ownership():
             object(), order, deployment=object())
 
 
+def test_runtime_falsifier_exercises_strict_policy_through_fresh_process():
+    script = (ROOT / "scripts/test-pr301-runtime-boundaries.sh").read_text()
+    assert "SENTINEL_RECOVERED_ORDER_AUTHORITY=STRICT_V1" in script
+    assert (
+        "journal.adopt_recovered_order is "
+        "policy.refuse_unauthenticated_recovered_order" in script)
+    assert "journal.RecoveredOrderConflict" in script
+
+
 def test_authorized_services_enable_strict_ownership_and_kernel_hardening():
     doc = yaml.safe_load(
         (ROOT / "docker-compose.sentinel-automation.yml").read_text())
