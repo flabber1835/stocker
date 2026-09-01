@@ -17,7 +17,6 @@ if _RUNNER_PACKAGE not in _test_package.__path__:
     _test_package.__path__.append(_RUNNER_PACKAGE)
 
 import backtester.run_ldrc_nonpit_vs_pit_certified as reporting
-import backtester.run_production_strict_pit_certification as strict_reporting
 
 
 def _metric_block(multiplier: float) -> dict:
@@ -357,8 +356,6 @@ def test_final_bundle_is_publicly_production_only_and_rehashes_outputs(
     })
     reporting._write_final_comparison()
     first_sums = (tmp_path / "SHA256SUMS.txt").read_bytes()
-    # The corrected wrapper finalizes once before and once after measurement
-    # trimming. Public naming and hashes must therefore be idempotent.
     reporting._write_final_comparison()
     assert (tmp_path / "SHA256SUMS.txt").read_bytes() == first_sums
 
@@ -416,6 +413,9 @@ def test_strict_finalizer_removes_stale_calendar_cagr_fields():
 def test_authenticated_phrm_terms_replace_only_the_incomplete_canonical_event(
     monkeypatch,
 ):
+    import backtester.run_production_strict_pit_20y as production_replay
+
+    strict_reporting = production_replay.strict
     incomplete = strict_reporting.TerminalTerms(
         session="2008-03-07",
         security_id="705177744622024105",
