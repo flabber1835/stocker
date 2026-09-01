@@ -1,0 +1,43 @@
+{
+  "schema": "backtester.historical-metadata-reconstruction-v2.source-lock/1",
+  "causal_rule": "filed < decision_session",
+  "canonical_pit": {
+    "dataset_sha256": "f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b",
+    "pointer": "backtester/data/canonical-pit-20y.json"
+  },
+  "sec_bulk": {
+    "authority": "SEC Insider Transactions Data Sets, as-filed Forms 3/4/5 flattened data",
+    "repository_path": "sec",
+    "git_tree_sha1": "396aac6fe82e57b8dad1f8249548f1c8c7627d95",
+    "first_year": 2006,
+    "through_year": 2026,
+    "through_quarter": 2,
+    "archive_count": 82,
+    "required_members": [
+      "SUBMISSION.tsv",
+      "NONDERIV_TRANS.tsv",
+      "NONDERIV_HOLDING.tsv"
+    ],
+    "security_type_rule": "Only non-derivative Table I security titles may support listed security type; derivative tables are never positive common-equity authority"
+  },
+  "retained_sec_evidence": {
+    "repository_path": "research/sentinel-fastgate/pit-evidence/generated",
+    "git_tree_sha1": "220bb3f15ccd771d8f3137db6f9cba5754d01024",
+    "checksum_manifests": [
+      "SHA256SUMS.txt",
+      "SEC_SIC_SHA256SUMS.txt"
+    ],
+    "sic_source": "sec_sic_submissions.csv.gz"
+  },
+  "web_fallback": {
+    "current_sec_company_tickers_role": "discovery-only; never causal authority",
+    "partitioning": "unique validated CIK/source objects, not calendar year",
+    "required_resume_identity": [
+      "source_sha",
+      "canonical_dataset_sha256",
+      "candidates_sha256",
+      "plan_sha256",
+      "parser_sha256"
+    ]
+  }
+}
