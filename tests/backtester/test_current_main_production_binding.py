@@ -46,7 +46,7 @@ def test_current_main_kernel_is_the_production_advance_state_target() -> None:
 
     source = Path(production.__file__).read_text(encoding="utf-8")
     assert "from sentinel.core.kernel import advance_session" in source
-    assert "return advance_session(" in source
+    assert "result = advance_session(" in source
     assert callable(kernel.advance_session)
 
 
