@@ -8,6 +8,7 @@ on:
     paths:
       - 'backtester/**'
       - 'services/backtester/**'
+      - 'services/bt-engine/Dockerfile'
       - 'tools/**'
       - 'tests/backtester/**'
       - 'tests/support/**'
@@ -41,6 +42,7 @@ jobs:
             /.github/workflows/**
             /backtester/**
             /services/backtester/**
+            /services/bt-engine/Dockerfile
             /tools/**
             /tests/__init__.py
             /tests/conftest.py
