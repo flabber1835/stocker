@@ -75,7 +75,8 @@ def catch_up(conn, *, target_session: str) -> OutageRecoveryResult:
         # unpublished candidate while the last published frontier remains at
         # the requested target. Returning here would permanently skip the normal
         # daily recovery machinery and leave readiness fail-closed forever.
-        coherence = publication.coherence(conn)
+        coherence = publication.operational_coherence(
+            conn, frontier=target)
         if coherence.coherent and not publication.chain_gaps(conn):
             return OutageRecoveryResult(target, "ALREADY_CURRENT", None, None)
 
@@ -108,7 +109,7 @@ def catch_up(conn, *, target_session: str) -> OutageRecoveryResult:
         raise OutageRecoveryRefused(
             "canonical outage recovery completed without exact target frontier: "
             f"target={target!r} visible={visible_after!r}")
-    publication.assert_coherent(conn)
+    publication.assert_operationally_coherent(conn, frontier=target)
     if publication.chain_gaps(conn):
         raise OutageRecoveryRefused(
             "canonical outage recovery left a publication-chain gap")

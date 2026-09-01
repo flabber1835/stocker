@@ -1225,16 +1225,31 @@ shifts and a two-session adjustment bridge are resolved only by the shared
 stream state machine; each applies the stated event exactly once. When ACTIONS
 contains no event, both loaders retain the same snapped price-domain fallback.
 
-Certification-only reporting is not enough for an unresolved split.  A split
-changes the cumulative signal basis on every later session, so any published
-active unsafe disposition—`SPLIT_DISAGREEMENT`, `SPLIT_ONLY_DERIVED`,
-`SEAM_SPLIT_UNCORROBORATED`, or `AMBIGUOUS_SPLIT_MULTIPLICITY`—anywhere at or
-before the decision frontier makes `check-data` fail and therefore prevents
-normal plan preparation.  The check is full-history rather than warm-up-window
-scoped.  A later published resolved disposition for the same event clears it
-through the existing append-only anomaly lifecycle; an unpublished retry
-cannot.  The runtime does not invent a ratio or compensate the book while the
-evidence is unresolved.
+Certification-only reporting is not enough for an unresolved split. A split
+changes both the cumulative signal basis and absolute share anchors. Published
+active unsafe dispositions in the operational session window always make
+`check-data` fail. The operational universe is the set of permanent identities
+with published bars in the operational/catch-up window, expanded by
+path-dependent production state, current/recent holdings, targets, commands,
+and reconciliation. Only the historical aliases of those identities are added;
+the retained identity projection does not turn every dead historical listing
+into a current dependency. Older dispositions fail whenever their security is
+in that closure because their economic effect can propagate into present units
+or identity. An old disposition outside the closure can be historical-only for
+production, and it still blocks full retained-history certification. A later published resolved
+disposition for the same event clears it through the append-only anomaly
+lifecycle; an unpublished retry cannot. The runtime never invents a ratio or
+compensates the book while relevant evidence is unresolved.
+
+`check-data` records the operational classification in the append-only corpus
+quarantine report. `feed-status` recomputes the classification from the current
+published frontier and durable state, appends that assessment, and renders the
+fresh result with each unresolved run's affected date range, affected
+securities, evidence/anomaly kinds, verdict, and reasons. Before the first
+publication it reports that operational classification is awaiting a published
+frontier while continuing to show ingest progress. A restart recomputes against
+the same durable cursor/state and also retains earlier assessments, so an old
+revision cannot disappear merely because the process that discovered it exited.
 
 The broker boundary consumes the same decision rather than reopening ACTIONS
 as a second authority.  It snaps the raw ex-date forward to the first XNYS

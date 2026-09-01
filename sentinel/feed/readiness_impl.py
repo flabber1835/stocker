@@ -28,9 +28,9 @@ issuer keys         an issuer group per security, or the GOOG/GOOGL defect
                     cannot be detected at all
 actions             corporate actions present near the frontier
 corpus version      a published version exists for a decision to RECORD
-corpus coherence    no committed rows belong to an ingest nothing published —
-                    those are invisible to every reader, and a corpus quietly
-                    frozen at last Tuesday looks identical to a healthy one
+corpus coherence    no unpublished candidate intersects the production causal
+                    closure; safely old candidates remain invisible, reported,
+                    and strict full-history certification-blocking
 ```
 
 `WARN` exists for the one case that is genuinely a judgement call — coverage
@@ -48,6 +48,7 @@ from typing import Optional
 
 from sentinel.feed import calendar as _cal
 from sentinel.feed import publication as _publication
+from sentinel.feed.requirements import PREFERRED_SESSIONS, REQUIRED_SPY_SESSIONS
 from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
 from stock_strategy_shared.wealth_core.signals import (
     LONG_LOOKBACK_SESSIONS,
@@ -58,15 +59,6 @@ from stock_strategy_shared.wealth_core.signals import (
 #: closes[-(LONG_LOOKBACK_SESSIONS + 1)], so 127 closes are needed before a
 #: security can be scored at all.
 REQUIRED_SESSIONS = REQUIRED_CLOSES
-
-#: §8's preferred startup window. Above REQUIRED and below this is a WARN: the
-#: engine will run, with no margin for a vendor gap.
-PREFERRED_SESSIONS = 252
-
-# Production loads a dated 41-session tail (20-session return plus the dated
-# volatility context and operational margin).  Keep readiness about corpus
-# completeness; the SPY sensor remains isolated to its certified consumer.
-REQUIRED_SPY_SESSIONS = 41
 
 # The newest cross-section is compared with the recent, production-shaped
 # population rather than with an absolute ticker count.  IPOs/delistings make an
@@ -254,29 +246,30 @@ def _add_version_checks(conn, r: "Readiness") -> None:
     """
     publication = _publication
     try:
-        report = publication.coherence(conn)
+        report = publication.operational_coherence(conn, persist=True)
     except Exception as exc:                              # noqa: BLE001
         # FAIL, never skip. A visibility rule that cannot be evaluated has not
         # been satisfied, and every count in this report is scoped by it.
         r.add("corpus coherence", FAIL,
-              f"corpus coherence could not be evaluated: {exc!r}. Every other "
+              f"production operational coherence could not be evaluated: {exc!r}. Every other "
               f"check here measures the PUBLISHED corpus, so none of them can "
               f"be trusted until this one answers.", None)
         return
 
     if report.coherent:
-        r.add("corpus coherence", PASS,
-              "every committed row belongs to a published ingest", 0)
+        historical = len(report.historical_only)
+        detail = "no unpublished candidate intersects production dependencies"
+        if historical:
+            detail += (f"; {historical} unpublished run(s) are durably "
+                       "classified historical-only and still block full certification")
+        r.add("corpus coherence", PASS, detail, report.to_dict())
     else:
         r.add("corpus coherence", FAIL,
-              f"{report.unpublished_rows:,} committed row(s) belong to "
-              f"{len(report.unpublished_runs)} ingest run(s) that never "
-              f"published: {list(report.unpublished_runs)}. Those rows are "
-              f"INVISIBLE to every reader, so the corpus is frozen at the last "
-              f"published version while the fetch appears to be working. "
-              f"Complete and validate a run before publishing it; durably "
-              f"fail and retry an incomplete run. Never publish unresolved "
-              f"evidence merely to clear this readiness failure.",
+              f"{len(report.blocking)} unpublished ingest run(s) intersect "
+              f"the production dependency closure: "
+              f"{[item.run_id for item in report.blocking]}. Candidate rows "
+              f"are INVISIBLE; reconcile a covering retry and never publish "
+              f"unresolved evidence merely to clear this readiness failure.",
               report.to_dict())
 
     published = publication.current(conn)

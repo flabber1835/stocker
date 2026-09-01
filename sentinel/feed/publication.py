@@ -5,6 +5,13 @@ import json
 
 from sentinel.feed import _publication_impl as _core
 from sentinel.feed._publication_impl import *  # noqa: F403
+from sentinel.feed.operational_coherence import (  # noqa: F401
+    assert_operationally_coherent,
+    operational_boundary,
+    operational_coherence,
+    persist_report as persist_operational_coherence,
+    quarantine_status,
+)
 
 # Explicit static seam retained for provenance/certification tests.
 _run_producer_identity = _core._run_producer_identity
@@ -108,5 +115,11 @@ def publish(conn, *, run_id=None, window_start=None, window_end=None,
 
 
 __all__ = list(getattr(_core, "__all__", ()))
-if "publish" not in __all__:
-    __all__.append("publish")
+for _name in (
+        "publish", "coherence", "assert_coherent",
+        "full_historical_coherence", "assert_full_historical_coherent",
+        "operational_boundary", "operational_coherence",
+        "assert_operationally_coherent", "persist_operational_coherence",
+        "quarantine_status"):
+    if _name not in __all__:
+        __all__.append(_name)

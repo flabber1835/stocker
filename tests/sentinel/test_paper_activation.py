@@ -1162,6 +1162,56 @@ def test_real_fresh_boot_pipeline_is_restart_equivalent_and_adopts_one_plan(
     assert _mutations(broker) == []
 
 
+def test_historical_only_revision_preserves_state_targets_and_execution_plan(
+        conn, monkeypatch):
+    """The quarantine report is not an economic input to current planning."""
+    old_session = "2018-08-31"
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_bars (security_id,session,ticker,close_signal,"
+            "close_unadjusted,open_unadjusted,volume,split_ratio,"
+            "dividend_per_share) VALUES "
+            "('P-CURRENT',%s,'CURRENT',100,100,99,1000000,1,0),"
+            "('P-HIST',%s,'HIST',10,10,10,1000,1,0)",
+            (DECISION.isoformat(), old_session))
+    conn.commit()
+    _bound, _pinned, state, original_plan = _install_current_authorities(conn)
+    original_state_hash = state.state_hash
+    original_targets = dict(original_plan.target_basket)
+    original_plan_hash = original_plan.fingerprint()
+
+    candidate = feed_store.IngestRun(conn, "daily")
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE sentinel_bars SET close_signal=11,close_unadjusted=11,"
+            "last_written_run_id=%s WHERE security_id='P-HIST' AND session=%s",
+            (candidate.progress.run_id, old_session))
+    conn.commit()
+
+    _ready(monkeypatch)
+
+    def operational_readiness(connection, **_kwargs):
+        report = publication.operational_coherence(connection, persist=True)
+        return SimpleNamespace(
+            ready=report.coherent,
+            failures=[] if report.coherent else [SimpleNamespace(
+                name="corpus coherence", detail="production blocking")])
+
+    monkeypatch.setattr(
+        paper_preparation.readiness, "check_readiness", operational_readiness)
+    result = _prepare(conn, _broker())
+    resumed = SessionState.from_dict(catchup.resume_state(conn))
+
+    assert publication.full_historical_coherence(conn).coherent is False
+    assert publication.operational_coherence(conn).coherent is True
+    assert resumed.state_hash == original_state_hash
+    assert result.plan.shadow_snapshot_hash == original_state_hash
+    assert dict(result.plan.target_basket) == original_targets
+    assert result.plan.fingerprint() == original_plan_hash
+    assert result.plan == original_plan
+    assert journal.latest_plan(conn) == original_plan
+
+
 def test_prepare_resumes_v3_across_missed_sessions_and_restart_is_equivalent(
         conn, monkeypatch):
     bound = _bind(conn)

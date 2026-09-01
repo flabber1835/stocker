@@ -154,7 +154,7 @@ class TestAHealthyCorpus:
 
 
 class TestSplitSourceAgreement:
-    def test_the_runtime_fence_is_full_history_and_fail_closed(self, monkeypatch):
+    def test_old_unrelated_split_is_outside_operational_closure(self, monkeypatch):
         observed = {}
 
         def active_rows(_conn, *, start, end, kinds):
@@ -166,6 +166,13 @@ class TestSplitSourceAgreement:
             }]
 
         monkeypatch.setattr(R._anomalies, "active_rows", active_rows)
+        monkeypatch.setattr(
+            R._publication, "operational_boundary",
+            lambda *_args, **_kwargs: type("Boundary", (), {
+                "start": "2024-01-01", "end": TODAY})())
+        monkeypatch.setattr(
+            R._operational, "production_dependencies",
+            lambda _conn, **_kwargs: (set(), {"CURRENT"}))
         result = R.Readiness()
         R._add_split_agreement_check(object(), result, frontier=TODAY)
 
@@ -178,10 +185,10 @@ class TestSplitSourceAgreement:
             ),
         }
         check = by_name(result)["split source agreement"]
-        assert check.status == R.FAIL
-        assert "BOUNDARY" in check.detail
+        assert check.status == R.PASS
+        assert "production closure" in check.detail
 
-    def test_an_old_active_disagreement_blocks_normal_readiness(self, conn):
+    def test_an_old_current_universe_disagreement_blocks_normal_readiness(self, conn):
         """A split outside both rolling windows still rebases every later
         signal.  This fails if the fence is removed or narrowed to 127/252
         sessions, while every other readiness clause remains healthy.
@@ -190,7 +197,7 @@ class TestSplitSourceAgreement:
         event_session = sessions(300)[0]
         S.write_anomalies(conn, [{
             "kind": "SPLIT_DISAGREEMENT",
-            "ticker": "BOUNDARY",
+            "ticker": "T0",
             "session": event_session,
             "detail": "ACTIONS 2.0 vs price-domain 2.03",
         }])
@@ -198,7 +205,7 @@ class TestSplitSourceAgreement:
         result = R.check_readiness(conn, today=TODAY)
         check = by_name(result)["split source agreement"]
         assert check.status == R.FAIL
-        assert "BOUNDARY" in check.detail
+        assert "T0" in check.detail
         assert result.ready is False
 
     @pytest.mark.parametrize("kind", [
@@ -213,6 +220,13 @@ class TestSplitSourceAgreement:
                 "kind": kind, "ticker": "UNSAFE", "session": "2020-01-02",
                 "publication_version": 48,
             }])
+        monkeypatch.setattr(
+            R._publication, "operational_boundary",
+            lambda *_args, **_kwargs: type("Boundary", (), {
+                "start": "2024-01-01", "end": TODAY})())
+        monkeypatch.setattr(
+            R._operational, "production_dependencies",
+            lambda _conn, **_kwargs: (set(), {"UNSAFE"}))
         result = R.Readiness()
 
         R._add_split_agreement_check(object(), result, frontier=TODAY)

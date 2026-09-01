@@ -18,6 +18,7 @@ from sentinel.feed import authority as _authority
 from sentinel.feed import anomalies as _anomalies
 from sentinel.feed import calendar as _cal
 from sentinel.feed import maintenance as _maintenance
+from sentinel.feed import operational_coherence as _operational
 from sentinel.feed import publication as _publication
 from sentinel.feed import readiness_impl as _impl
 from sentinel.feed import recent_reconciliation as _recent
@@ -94,6 +95,9 @@ def _add_split_agreement_check(conn, result, *, frontier: str) -> None:
     """Refuse a normally-ready corpus with unresolved split economics."""
     name = "split source agreement"
     try:
+        boundary = _publication.operational_boundary(conn, frontier=frontier)
+        _security_ids, active_tickers = _operational.production_dependencies(
+            conn, boundary=boundary)
         rows = _anomalies.active_rows(
             conn, start="1900-01-01", end=str(frontier),
             kinds=RUNTIME_BLOCKING_SPLIT_KINDS)
@@ -104,11 +108,14 @@ def _add_split_agreement_check(conn, result, *, frontier: str) -> None:
             f"{type(exc).__name__}: {exc}")
         return
 
+    rows = [row for row in rows
+            if (str(row["session"]) >= boundary.start
+                or str(row["ticker"]).upper() in active_tickers)]
     if not rows:
         result.add(
             name, _impl.PASS,
-            f"no active unsafe published split disposition exists through "
-            f"{frontier}", 0)
+            f"no active unsafe published split disposition intersects the "
+            f"production closure {boundary.start}..{frontier}", 0)
         return
 
     shown = "; ".join(
@@ -117,7 +124,8 @@ def _add_split_agreement_check(conn, result, *, frontier: str) -> None:
     more = f" (+{len(rows) - 10} more)" if len(rows) > 10 else ""
     result.add(
         name, _impl.FAIL,
-        f"{len(rows)} active unsafe published split disposition(s) through "
+        f"{len(rows)} active unsafe published split disposition(s) intersect "
+        f"the production dependency closure through "
         f"{frontier}: {shown}{more}. Share-count evidence is uncorroborated, "
         "ambiguous, or contradictory; no normal plan may be prepared until a "
         "later published disposition resolves each event.",

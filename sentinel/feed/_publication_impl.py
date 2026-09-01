@@ -103,11 +103,10 @@ class NoPublishedVersion(RuntimeError):
 class CorpusIncoherent(RuntimeError):
     """Rows exist that no publication represents.
 
-    Raised by `assert_coherent`, which planning calls BEFORE reading. The rows
-    are already invisible to every reader — that part is enforced by
-    `visible_predicate()` and needs no cooperation — so this is not what keeps a
-    decision honest. It is what stops the system from quietly running on a
-    truncated corpus for a week because a publication failed on a Tuesday.
+    Raised by strict full-history coherence and by the production operational
+    classifier when a candidate intersects its dependency closure. The rows are
+    already invisible to every reader — that part is enforced by
+    `visible_predicate()` and needs no cooperation.
 
     The remedy depends on the candidate state: a complete validated run may be
     published, while a failed or incomplete run must be durably failed and
@@ -299,7 +298,12 @@ def coherence(conn, *, exhaustive: bool = False) -> CoherenceReport:
 
 
 def assert_coherent(conn, *, exhaustive: bool = False) -> CoherenceReport:
-    """Fail closed before planning. Returns the report when it is clean."""
+    """Fail closed across the entire retained corpus.
+
+    This compatibility name remains the strict certification/research gate.
+    Production planning uses ``assert_operationally_coherent`` from the public
+    facade instead.
+    """
     report = coherence(conn, exhaustive=exhaustive)
     if not report.coherent:
         raise CorpusIncoherent(
@@ -311,6 +315,12 @@ def assert_coherent(conn, *, exhaustive: bool = False) -> CoherenceReport:
             f"incomplete run. Never publish unresolved evidence to clear this "
             f"alarm.")
     return report
+
+
+# Explicit names make scope visible at call sites while preserving the strict
+# historical meaning of the long-standing compatibility API.
+full_historical_coherence = coherence
+assert_full_historical_coherent = assert_coherent
 
 
 def assert_retry_superseded_prior_candidates(conn, *, run_id: str) -> None:

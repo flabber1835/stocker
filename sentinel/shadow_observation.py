@@ -984,7 +984,9 @@ class PostgresFullyPublishedSessionSource:
 
         expected = _xnys_session(session, where="requested shadow session")
         with publication_store.pinned(self.conn, commit=False) as publication:
-            publication_store.assert_coherent(self.conn)
+            publication_store.assert_operationally_coherent(
+                self.conn, frontier=expected,
+                extra_security_ids=tuple(known_feed_security_ids))
             published = self.load_published(
                 self.conn, expected,
                 known_feed_security_ids=tuple(known_feed_security_ids))
@@ -1927,7 +1929,10 @@ class PostgresShadowRuntime:
                     else _next_session(rows[-1]["session"]))
         try:
             with publication_store.pinned(self.conn, commit=False) as publication:
-                publication_store.assert_coherent(self.conn)
+                publication_store.assert_operationally_coherent(
+                    self.conn, frontier=expected,
+                    extra_security_ids=tuple(
+                        (prior.feed.get("series") or {}).keys()))
                 gaps = publication_store.chain_gaps(self.conn)
                 if gaps:
                     raise ShadowObservationRefused(
@@ -2028,7 +2033,10 @@ class PostgresShadowRuntime:
                  SessionState.from_dict(rows[-2]["state"]))
         try:
             with publication_store.pinned(self.conn, commit=False) as publication:
-                publication_store.assert_coherent(self.conn)
+                publication_store.assert_operationally_coherent(
+                    self.conn, frontier=session,
+                    extra_security_ids=tuple(
+                        (prior.feed.get("series") or {}).keys()))
                 if publication_store.chain_gaps(self.conn):
                     raise ShadowObservationRefused(
                         "corpus publication chain has gaps; SHADOW_GO refused")
@@ -2142,7 +2150,10 @@ class PostgresShadowRuntime:
         session = latest["session"]
         try:
             with publication_store.pinned(self.conn, commit=False) as publication:
-                publication_store.assert_coherent(self.conn)
+                publication_store.assert_operationally_coherent(
+                    self.conn, frontier=session,
+                    extra_security_ids=tuple(
+                        (state.feed.get("series") or {}).keys()))
                 gaps = publication_store.chain_gaps(self.conn)
                 if gaps:
                     raise ShadowObservationRefused(
@@ -2198,7 +2209,9 @@ class PostgresShadowRuntime:
         live_publication_sha256 = None
         try:
             with publication_store.pinned(self.conn, commit=False) as publication:
-                publication_store.assert_coherent(self.conn)
+                publication_store.assert_operationally_coherent(
+                    self.conn, extra_security_ids=tuple(
+                        (state.feed.get("series") or {}).keys()))
                 if publication_store.chain_gaps(self.conn):
                     raise ShadowObservationRefused(
                         "corpus publication chain has gaps; SHADOW_GO refused")

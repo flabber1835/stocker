@@ -17,6 +17,29 @@ Production owns:
 - one current execution plan after catch-up; and
 - controller, reconciliation, execution, recovery, and broker safety.
 
+Production coherence is deliberately scoped to an explicit operational causal
+closure, not to every retained historical row.  Its session boundary is the
+earliest of (a) the source-owned preferred Wealth Core history margin, (b) the
+persisted catch-up cursor, and (c) one predecessor session needed to establish
+the split/action boundary.  The preferred margin is currently 252 XNYS
+sessions, which exceeds the engine-owned 127-close minimum.  Controller,
+breadth, and portfolio history older than that boundary is consumed only from
+the content-addressed durable production state.
+
+The closure is economic as well as temporal. The operational universe consists
+of securities with published price evidence in the operational/catch-up window,
+plus every security named by live state, targets, commands, expected holdings,
+or reconciliation. Historical ticker aliases and related-ticker metadata are
+then added only for those permanent identities. A long-inactive, never-held
+historical identity is not made operational merely because its pairing remains
+in the retained identity projection. Unpublished price-only evidence strictly
+before the boundary is historical-only when its security is absent from this
+closure. An unpublished split, dividend, terminal, or identity fact for a
+security in the closure remains production-blocking regardless of its date.
+Current-window price/sensor rows, missed-session inputs, the published frontier,
+and every execution/reconciliation identity are always blocking. Candidate rows
+remain invisible under the publication predicate in either class.
+
 Certification owns:
 
 - the immutable point-in-time corpus and its publication identity;
@@ -25,6 +48,11 @@ Certification owns:
 - state and decision hash verification;
 - performance, benchmark, CAGR, and drawdown measurement; and
 - experiments and golden scenarios that have no production authority.
+
+Certification coherence remains corpus-wide.  A historical-only quarantine
+that production may safely route around is still unresolved evidence and makes
+full retained-history certification refuse until a covering retry publishes or
+supersedes it.
 
 The production image contains no HTTP backtest service, historical portfolio
 database, benchmark calculator, experiment mode, replay-progress state, or

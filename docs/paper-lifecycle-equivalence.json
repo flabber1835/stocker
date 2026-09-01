@@ -778,7 +778,7 @@
       "owner": "validation"
     },
     "_validate_broker_grant": {
-      "generated_ast_sha256": "9d5abe4792e561d5cc315d791929a186a6aedc00bc8ecdaef3a19aff6253b88e",
+      "generated_ast_sha256": "a10cb381c28e916db84d14fe6fbc617043ac4e1beaaf165a2287250fdc4ce282",
       "original_ast_sha256": "9d5abe4792e561d5cc315d791929a186a6aedc00bc8ecdaef3a19aff6253b88e",
       "original_lines": [
         1309,
@@ -841,7 +841,7 @@
       "owner": "preparation"
     },
     "recover_automated_paper_cycle": {
-      "generated_ast_sha256": "e2e43177e762c04e50a6884446343f70989e52e3801aa80b548733eb68ef93af",
+      "generated_ast_sha256": "c7fbae974f57abc8d30a3c5601765bc81a37a526994f58674788bad86d945ccd",
       "original_ast_sha256": "1adc6243e01fd836443dc238a8b0dce24b4f0f28de198160c7f063bd550a9059",
       "original_lines": [
         2800,
