@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,6 +9,7 @@ import pytest
 from sentinel import backup_guard, backup_runtime_authority
 from sentinel.automation.model import (
     AutomationConfig,
+    CallbackDeadlineExceeded,
     NonRetryableCallbackRefused,
     TransientInfrastructureFailure,
 )
@@ -57,6 +58,36 @@ def test_transient_outage_never_exhausts_activation_generation():
     assert diagnostic["callback_failure"] == "TRANSIENT_INFRASTRUCTURE"
     assert diagnostic["availability_retry_unbounded"] is True
     assert diagnostic["phase_attempt_count"] == 1001
+
+
+def test_long_data_callback_restarts_after_deadline_without_blocking():
+    service = _service(refresh_max_attempts=1)
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+    cycle = SimpleNamespace(diagnostic={
+        "retry_phase": "REFRESH", "phase_attempt_count": 40})
+    terminal, diagnostic = service._failure_diagnostic(
+        cycle=cycle,
+        phase="REFRESH",
+        exc=CallbackDeadlineExceeded("bounded refresh runtime reached"),
+        now=now,
+    )
+    assert terminal is False
+    assert diagnostic["callback_failure"] == "BOUNDED_CALLBACK_RESTART"
+    assert diagnostic["bounded_checkpoint_restart"] is True
+
+
+def test_execution_callback_deadline_remains_terminal():
+    service = _service(execute_max_attempts=100)
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+    cycle = SimpleNamespace(diagnostic={})
+    terminal, diagnostic = service._failure_diagnostic(
+        cycle=cycle,
+        phase="EXECUTE",
+        exc=CallbackDeadlineExceeded("execution transport boundary timed out"),
+        now=now,
+    )
+    assert terminal is True
+    assert diagnostic["callback_failure"] == "SOFTWARE_DEFECT"
 
 
 def test_unbounded_retry_backoff_saturates_without_huge_integer_growth():
@@ -152,6 +183,7 @@ def test_unattended_services_enable_runtime_restore_horizon():
     compose = (ROOT / "docker-compose.sentinel-automation.yml").read_text(
         encoding="utf-8")
     assert compose.count("SENTINEL_RUNTIME_BACKUP_AUTHORITY: REQUIRED_V1") >= 2
+    assert "SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS:-1000000" in compose
 
 
 def test_shadow_timeout_is_restartable_not_terminal_latch():
