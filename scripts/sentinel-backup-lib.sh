@@ -153,7 +153,7 @@ sentinel_backup_root() {
       }
     else
       echo "REFUSED: backup durable-target marker is missing: $marker" >&2
-      echo "run scripts/sentinel-backup-initialize.sh only while the verified external target is mounted" >&2
+      echo "run scripts/sentinel-compose.sh --initialize-backup only while the verified external target is mounted" >&2
       return 2
     fi
   done
