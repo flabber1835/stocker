@@ -93,7 +93,7 @@ jobs:
           rm -rf remediation-src
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- .github/workflows/backtester-production-strict-pit-year-worker.yml .github/workflows/backtester-strict-pit-20y.yml .github/workflows/backtester-research-only-20y.yml backtester/__init__.py backtester/run_production_strict_pit_20y.py backtester/data/production-chain-generation.json backtester/PRODUCTION_20Y_ANNUAL_CHAIN_DESIGN.md tests/backtester/test_production_annual_chain.py tests/backtester/test_canonical_pit_dataset.py
+          git add --sparse -- .github/workflows/backtester-production-strict-pit-year-worker.yml .github/workflows/backtester-strict-pit-20y.yml .github/workflows/backtester-research-only-20y.yml backtester/__init__.py backtester/run_production_strict_pit_20y.py backtester/data/production-chain-generation.json backtester/PRODUCTION_20Y_ANNUAL_CHAIN_DESIGN.md tests/backtester/test_production_annual_chain.py tests/backtester/test_canonical_pit_dataset.py
           test -n "$(git diff --cached --name-only)"
           if git diff --cached --name-only | grep -E '(^|/)(sec|sec-filings)(/|$)|sec[_-]?backfill'; then exit 1; fi
           git commit -m "Fix backtester production source equivalence"
