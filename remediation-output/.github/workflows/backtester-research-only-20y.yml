@@ -1,0 +1,210 @@
+name: Backtester - research-only stored canonical PIT 20-year replay
+run-name: Research-only stored canonical PIT 20-year replay — ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: backtester-research-only-20y-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  research:
+    name: Pull certified PIT package + retained research replay
+    if: github.ref_name == 'research/backtester'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      CERTIFICATION_WARMUP_START: '2006-01-03'
+      CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+      CERTIFICATION_END_SESSION: '2026-07-31'
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - name: Check out replay code and admitted dataset pointer
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-research-only-20y.yml
+            /backtester/run_research_strict_pit_20y.py
+            /backtester/run_research_strict_pit_certification.py
+            /backtester/canonical_pit_dataset.py
+            /backtester/canonical_pit_package.py
+            /backtester/strict_pit_metadata.py
+            /backtester/causal_split_overrides.py
+            /backtester/causal_terminal_terms.py
+            /backtester/historical_cash.py
+            /backtester/run_research_ldrc_corrected_warmup_cash.py
+            /backtester/run_research_ldrc_nonpit_vs_fullpit.py
+            /backtester/run_ldrc_corrected_warmup_cash.py
+            /backtester/run_ldrc_nonpit_vs_pit_certified.py
+            /backtester/data/canonical-pit-20y.json
+            /tests/backtester/test_canonical_pit_dataset.py
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+
+      - name: Record immutable replay identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "research/backtester"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test -z "$(git status --porcelain)"
+          test -f backtester/data/canonical-pit-20y.json
+          echo "BACKTESTER_BRANCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+
+      - name: Check out pinned runtime closure read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: c851386fa4dddcf2e2533af3a1d313c38220b7f2
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - name: Verify pinned runtime identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED=c851386fa4dddcf2e2533af3a1d313c38220b7f2
+          test "$(git -C main-src rev-parse HEAD)" = "${EXPECTED}"
+          test -z "$(git -C main-src status --porcelain)"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+
+      - name: Compile and test research consumer contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            backtester/canonical_pit_dataset.py \
+            backtester/canonical_pit_package.py \
+            backtester/run_research_strict_pit_certification.py \
+            backtester/run_research_strict_pit_20y.py
+          python -m unittest tests.backtester.test_canonical_pit_dataset -v
+          python backtester/run_research_strict_pit_20y.py --self-test-imports
+
+      - name: Pull and verify stored canonical PIT package
+        id: dataset
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          POINTER=backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          CONTAINER=$(docker create "${PACKAGE}")
+          trap 'docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p backtester-results/canonical-pit-20y
+          docker cp "${CONTAINER}:/canonical-pit/." backtester-results/canonical-pit-20y
+          docker rm "${CONTAINER}"
+          trap - EXIT
+          python backtester/canonical_pit_package.py verify \
+            --pointer "${POINTER}" \
+            --dataset backtester-results/canonical-pit-20y
+          DATASET_HASH=$(python -c "import json; print(json.load(open('${POINTER}'))['dataset_hash'])")
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/backtester-results/canonical-pit-20y" >> "${GITHUB_ENV}"
+          echo "dataset_hash=${DATASET_HASH}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run retained research for the full 20 years
+        shell: bash
+        run: |
+          set -euo pipefail
+          python backtester/run_research_strict_pit_20y.py \
+            --mode fullpit \
+            --output backtester-results/research-only-20y \
+            2>&1 | tee research-only-20y.log
+
+      - name: Verify canonical consumption and quarterly reporting
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          pointer = json.loads(Path('backtester/data/canonical-pit-20y.json').read_text())
+          canonical = json.loads(Path('backtester-results/canonical-pit-20y/manifest.json').read_text())
+          research = json.loads(Path('backtester-results/research-only-20y/summary.json').read_text())
+          if canonical.get('status') != 'PASS':
+              raise SystemExit('canonical dataset did not certify')
+          if int(canonical['counts']['unresolved_corporate_actions']) != 0:
+              raise SystemExit('canonical dataset retains unresolved corporate actions')
+          if canonical.get('dataset_hash') != pointer.get('dataset_hash'):
+              raise SystemExit('canonical dataset differs from admitted pointer')
+          if research.get('canonical_pit_dataset_hash') != pointer.get('dataset_hash'):
+              raise SystemExit('research did not attest the admitted dataset hash')
+
+          log = Path('research-only-20y.log').read_text()
+          rows = re.findall(
+              r'\[CERT_CAGR\] role=(research|spy) date=(\d{4}-\d{2}-\d{2}) cagr=([-+.0-9]+)',
+              log,
+          )
+          dates = {}
+          for role, date, cagr in rows:
+              dates.setdefault(date, {})[role] = float(cagr)
+          incomplete = [date for date, values in dates.items() if set(values) != {'research', 'spy'}]
+          if not dates or incomplete:
+              raise SystemExit(f'incomplete quarterly output: {incomplete}')
+          if 'phase=WARMUP cagr=N/A' not in log:
+              raise SystemExit('warmup was not explicitly labelled')
+
+          lines = [
+              '## Research-only stored canonical PIT 20-year replay',
+              '',
+              f"Canonical dataset hash: `{pointer['dataset_hash']}`",
+              '',
+              f"Canonical package: `{pointer['package']}`",
+              '',
+              '| Date | Research cumulative CAGR | SPY cumulative CAGR |',
+              '|---|---:|---:|',
+          ]
+          for date in sorted(dates):
+              values = dates[date]
+              lines.append(f"| {date} | {values['research']:.2%} | {values['spy']:.2%} |")
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as handle:
+              handle.write('\n'.join(lines) + '\n')
+          print(f"RESEARCH 20Y PASS dataset_hash={pointer['dataset_hash']} quarters={len(dates)}")
+          PY
+
+      - name: Upload immutable research evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: backtester-research-only-20y-${{ github.run_id }}
+          path: |
+            backtester/data/canonical-pit-20y.json
+            backtester-results/canonical-pit-20y/manifest.json
+            backtester-results/canonical-pit-20y/SHA256SUMS.txt
+            backtester-results/research-only-20y/**
+            research-only-20y.log
+          if-no-files-found: warn
+          retention-days: 90
+          compression-level: 6
