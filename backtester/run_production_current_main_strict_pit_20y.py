@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-CURRENT_MAIN_SHA = "6d07c2b76066121906e50b4c11876c48849144a0"
+CURRENT_MAIN_SHA = "bb7747fe329a1a89de555e2a44cb2f04a7eaa285"
 EXPECTED_PRODUCTION_BLOBS = {
     "sentinel/core/kernel.py": "12617af8eb954d4ae18fef2ae16977048e2e40cd",
     "sentinel/core/production.py": "e4ebfebae2fa1a737c52063af63003a82b6e19cf",
