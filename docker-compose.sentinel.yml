@@ -21,61 +21,19 @@
 name: sentinel
 
 services:
-  # Sentinel's OWN database. bt-postgres already holds 35M rows of the same
-  # corpus and reading it would have been faster — rejected because it is a
-  # Stocker-stack container running the Wealth Core rehearsals, and a Sentinel
-  # that cannot start unless a retired platform's database is up is not a
-  # retirement.
   sentinel-postgres:
-    # PINNED BY DIGEST, like the Python base. Leaving the database on a mutable
-    # tag while pinning tzdata to the day is inconsistent in the direction that
-    # matters: the corpus digests in the identity record are produced by reading
-    # rows back OUT of this server, and a minor upgrade can change collation and
-    # float text output. This digest is postgres 16.14; `identity --start/--end`
-    # records `SHOW server_version` and flags a mismatch.
     image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
     restart: unless-stopped
-    # ABOVE DOCKER'S 64MB DEFAULT, and this is not a tuning knob — it is a
-    # defect that has already been paid for once. PostgreSQL puts a parallel
-    # query's per-worker segments in /dev/shm, and on a corpus this size any
-    # parallel plan wants more than 64MiB. The failure is
-    #
-    #     could not resize shared memory segment "/PostgreSQL.3229497642"
-    #     to 67128672 bytes: No space left on device
-    #
-    # which reads like a full disk and is not one; 67128672 IS 64MiB, and that
-    # number is the only tell. It cost a long detour through query plans and
-    # index checks before anything pointed at shared memory.
-    #
-    # This container now holds what bt-postgres used to (the ~35M-row Sharadar
-    # corpus every window scan reads), so it inherits bt-postgres's 1gb rather
-    # than the live stack's 512mb. The guard that would have caught the omission
-    # named the two compose files the retirement deleted — see
-    # tests/test_postgres_shm.py, which now discovers them instead.
     shm_size: 1gb
-    # SET EARLY AND GENEROUSLY, tightened to the measured envelope later. The
-    # value is not the point yet; ENFORCEMENT is. Nothing should ever be
-    # certified in an unbounded environment — that is how the 8b OOM ended up
-    # INFERRED from a silent exit rather than measured, and it is the same shape
-    # as the Stocker pipeline crash-loop that `PIPELINE_MEM_LIMIT` exists for.
     mem_limit: 1g
     cpus: 1.5
     environment:
       POSTGRES_USER: sentinel
-      # NO DEFAULT. `:?` makes compose REFUSE to start without it rather than
-      # silently using a known word. A fallback credential is a credential
-      # everybody has.
       POSTGRES_PASSWORD: ${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}
       POSTGRES_DB: sentinel
     volumes:
       - sentinel_pgdata:/var/lib/postgresql/data
     ports:
-      # LOOPBACK ONLY. `5435:5432` binds 0.0.0.0 on most Docker installs, which
-      # put the behavioural state — the command journal, the account binding —
-      # on the LAN behind a password that defaulted to the word "sentinel". An
-      # attacker or a stray client editing that state is far worse than one
-      # crashing the process. Published at all only so the certification tools
-      # and psql can reach it from the host.
       - "127.0.0.1:5435:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U sentinel -h 127.0.0.1"]
@@ -88,41 +46,13 @@ services:
       context: .
       dockerfile: Dockerfile.sentinel
       network: host
-    # `latest` is the local-development default only.
-    #
-    # The formal resource measurement exports an exact reviewed repo digest in
-    # SENTINEL_RUNTIME_IMAGE_REF and lets Compose itself resolve it.  The
-    # inspection-only compose_image.py fallback deliberately REFUSES this
-    # interpolation: Compose can also source `.env` and configured env files,
-    # so reproducing it from the Python process environment could attribute the
-    # run to a different image.  No certification caller asks that fallback to
-    # resolve this profile-gated service.
-    #
-    # Commit pinning happens where it can be VERIFIED instead: `make
-    # sentinel-image` builds `sentinel:<git-sha>` alongside this alias, and the
-    # identity record captures the resolved image DIGEST — which is stronger
-    # than a tag, since a tag can be moved and a digest cannot.
-    # Default remains the local development tag. Certification measurement may
-    # set SENTINEL_RUNTIME_IMAGE_REF to an exact reviewed repo digest and then
-    # proves the resulting container image id before accepting its report.
     image: ${SENTINEL_RUNTIME_IMAGE_REF:-sentinel:latest}
-    # run-only: `docker compose up` must not prepare, migrate, or execute.
     profiles: ["cli"]
-    # The engine's own ceiling. The former 2 GiB limit was measured too low on
-    # the production NAS: the complete ACTIONS v5 reconciliation was cgroup-
-    # killed at ~2.09 GiB RSS on 2026-08-23. Raising this reviewed envelope to
-    # 4 GiB is the immediate operational correction proven by the successful
-    # retry on the same NAS. Issue #235 retains the longer-term requirement to
-    # make the full export/reconciliation path memory-bounded and tighten this
-    # ceiling again after measurement.
     mem_limit: 4g
     cpus: 2.0
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
     environment:
-      # PAPER URL ONLY. The ordinary service deliberately has no broker or
-      # standing artifact authority. The host wrapper injects non-secret feed
-      # identity with per-invocation `compose run --env` flags only after it has
-      # bound the selected image to clean HEAD; broker/admin commands remain
-      # restricted to the marker-bearing, digest-qualified authorized overlay.
       ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
       SENTINEL_STATE_DIR: /var/lib/sentinel
       SENTINEL_MAX_CYCLES: ${SENTINEL_MAX_CYCLES:-40}
@@ -130,59 +60,30 @@ services:
       SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel
       SHARADAR_API_KEY: ${SHARADAR_API_KEY:-}
     volumes:
-      # AUDIT EVIDENCE ONLY. `ownership.jsonl` used to be the authority, and its
-      # absence re-armed a liquidation — which is why this comment used to call
-      # it the most safety-critical mount in the file. It is not any more: the
-      # binding lives in `sentinel_account_binding` in PostgreSQL, written in
-      # the same transaction as the ownership events, and every reader
-      # (`status`, the panel, the runtime) goes to the database.
-      #
-      # The genuinely irreplaceable volume is now `sentinel_pgdata`. Losing this
-      # one costs a convenience log; losing that one costs the book.
       - sentinel_state:/var/lib/sentinel
-
     depends_on:
       sentinel-postgres:
         condition: service_healthy
 
-  # The one read-only panel. Replaces Stocker's eight-tab dashboard entirely and
-  # reuses its port (8004), so the bookmark and the phone home-screen shortcut
-  # keep working across the retirement.
-  #
-  # NO PROFILE: unlike either command/orchestration surface, this one is meant
-  # to be UP. It has no write routes and never constructs a broker — a phone
-  # refreshing it every 30s must not become an unattended API client.
   sentinel-panel:
     build:
       context: .
       dockerfile: Dockerfile.sentinel
       network: host
-    # Use the same exact runtime selector as the CLI. During a reviewed
-    # deployment the bootstrap replaces this with the promoted immutable
-    # RepoDigest, so the mobile panel cannot remain on an older local `latest`
-    # image while trading runs newer code. Local development still defaults to
-    # the convenience alias.
     image: ${SENTINEL_RUNTIME_IMAGE_REF:-sentinel:latest}
     restart: unless-stopped
-    # A read-only page has no business growing. Small on purpose: a phone
-    # refreshing every 30s must not be able to compete with the trading process
-    # for the host's memory.
     mem_limit: 512m
     cpus: 0.5
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
     command: ["-m", "uvicorn", "sentinel.panel.app:app",
               "--host", "0.0.0.0", "--port", "8000"]
-    # The image's ENTRYPOINT is `python -m sentinel`, whose whole purpose is to
-    # refuse to be started casually. Overriding it to plain `python` is what
-    # lets this container serve HTTP without inheriting a CLI that can
-    # liquidate an account.
     entrypoint: ["python"]
     ports:
       - "127.0.0.1:8004:8000"
     environment:
       SENTINEL_STATE_DIR: /var/lib/sentinel
       SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel
-      # Non-secret reviewed facts let the DB-only panel select the correct
-      # performance authority.  No Alpaca credential enters this service.
       SENTINEL_REVIEWED_DEPLOYMENT_MODE: ${SENTINEL_REVIEWED_DEPLOYMENT_MODE:-}
       SENTINEL_SHADOW_OBSERVATION_ID: ${SENTINEL_SHADOW_OBSERVATION_ID:-primary}
       SENTINEL_SHADOW_STARTING_CASH: ${SENTINEL_SHADOW_STARTING_CASH:-100000}
@@ -191,16 +92,9 @@ services:
       SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256: ${SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256:-}
       SENTINEL_GIT_COMMIT: ${SENTINEL_GIT_COMMIT:-}
       SENTINEL_RUNTIME_IMAGE_DIGEST: ${SENTINEL_RUNTIME_IMAGE_DIGEST:-}
-      # DELIBERATELY NO ALPACA CREDENTIALS. The panel has no code path to the
-      # broker, and withholding the keys means that stays true even if one is
-      # added by mistake.
     volumes:
-      # READ-ONLY mount of the ownership log. The panel displays that state; it
-      # must never be able to write it.
       - sentinel_state:/var/lib/sentinel:ro
     healthcheck:
-      # Bounded database/schema readiness; read-only and broker-free. See
-      # sentinel/panel/app.py.
       test: ["CMD-SHELL",
              "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3).status==200 else 1)\""]
       interval: 30s
