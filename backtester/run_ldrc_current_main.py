@@ -2,7 +2,7 @@
 """Bind the corrected chronological replay to the exact main checkout for this run.
 
 The retained comparison module predates the current Production ownership split and
-still contains a historical source constant.  The workflow resolves ``main`` once,
+still contains a historical source constant. The workflow resolves ``main`` once,
 checks it out read-only, and exports that immutable SHA as BACKTESTER_MAIN_SHA.
 This launcher propagates that exact identity through every retained replay seam
 before any session is processed.
@@ -12,6 +12,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import re
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 import backtester.run_ldrc_corrected_warmup_cash as corrected
 
@@ -29,7 +34,7 @@ def bind_run_start_main() -> str:
     root = Path(root_text).resolve()
 
     # The compatibility modules must actually have loaded from the immutable
-    # checkout whose SHA we are about to certify.  A sys.path leak would otherwise
+    # checkout whose SHA we are about to certify. A sys.path leak would otherwise
     # let the identity say one revision while Python executes another.
     for module in (corrected.prod.production_kernel, corrected.prod.production):
         source = Path(module.__file__).resolve()
