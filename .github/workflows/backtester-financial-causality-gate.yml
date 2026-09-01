@@ -9,6 +9,7 @@ on:
       - 'backtester/**'
       - 'tests/backtester/**'
       - 'tests/conftest.py'
+      - '.github/workflows/backtester-production-strict-pit-year-worker.yml'
       - '.github/workflows/backtester-financial-causality-gate.yml'
 
 permissions:
@@ -32,6 +33,8 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /.github/workflows/backtester-financial-causality-gate.yml
+            /.github/workflows/backtester-production-strict-pit-20y.yml
+            /.github/workflows/backtester-production-strict-pit-year-worker.yml
             /backtester/**
             /tests/__init__.py
             /tests/conftest.py
@@ -124,4 +127,5 @@ jobs:
             tests/backtester/test_forward_bias_regression.py \
             tests/backtester/test_certification_parallel.py \
             tests/backtester/test_research_review_basis.py \
-            tests/backtester/test_research_split_dividend_ordering.py
+            tests/backtester/test_research_split_dividend_ordering.py \
+            tests/backtester/test_production_annual_chain.py
