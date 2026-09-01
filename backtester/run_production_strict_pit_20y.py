@@ -29,7 +29,15 @@ WARMUP_START = "2006-01-03"
 MEASUREMENT_START = "2006-07-31"
 FULL_END_SESSION = "2026-07-31"
 END_SESSION = os.environ.get("CERTIFICATION_END_SESSION", FULL_END_SESSION)
-EXPECTED_MAIN_SHA = "887f479b15ad861313da666ad698034d3847121c"
+EXPECTED_MAIN_SHA = "c851386fa4dddcf2e2533af3a1d313c38220b7f2"
+
+# The retained production harness module is historical and still carries the
+# source identity it was first certified against. This active entrypoint binds
+# every runtime identity check and manifest field to the exact current-main
+# checkout before replay. The compatibility entry point in current main delegates
+# directly to sentinel.core.kernel.advance_session.
+strict.corrected.prod.EXPECTED_MAIN_SHA = EXPECTED_MAIN_SHA
+strict.corrected.prod.base.runner.EXPECTED_MAIN_SHA = EXPECTED_MAIN_SHA
 
 strict.corrected.WARMUP_START = WARMUP_START
 strict.corrected.MEASUREMENT_START = MEASUREMENT_START
