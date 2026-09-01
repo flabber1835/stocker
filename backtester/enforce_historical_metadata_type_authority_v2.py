@@ -9,6 +9,8 @@ historical trading symbol and class description co-occur on the filing cover.
 from __future__ import annotations
 
 import argparse
+import csv
+import gzip
 import json
 from pathlib import Path
 
@@ -19,22 +21,26 @@ SCHEMA = "backtester.historical-metadata-reconstruction-v2.security-type-authori
 
 def demote_bulk(bulk_dir: Path) -> dict:
     path = bulk_dir / "bulk_security_type_sources.csv.gz"
-    rows = base.read_gzip_csv(path)
-    output = []
+    tmp = bulk_dir / ".bulk_security_type_sources.demoted.csv.gz"
     observed = {"common": 0, "non_common": 0, "unknown": 0}
-    for row in rows:
-        classification = str(row.get("classification") or "unknown")
-        observed[classification if classification in observed else "unknown"] += 1
-        item = dict(row)
-        item["observed_classification"] = classification
-        item["classification"] = "unknown"
-        item["authority"] = "SUPPLEMENTARY_ONLY_SEC_FORM345_NONDERIVATIVE_TITLE_NOT_LISTED_CLASS_AUTHORITY"
-        output.append(item)
     fields = [
         "accession", "filed", "cik", "sec_symbol", "document_type", "classification",
         "observed_classification", "security_title_evidence", "authority", "archive", "archive_sha256",
     ]
-    base.write_gzip_csv(path, fields, output)
+
+    def rows():
+        with gzip.open(path, "rt", encoding="utf-8", newline="") as fh:
+            for row in csv.DictReader(fh):
+                classification = str(row.get("classification") or "unknown")
+                observed[classification if classification in observed else "unknown"] += 1
+                item = dict(row)
+                item["observed_classification"] = classification
+                item["classification"] = "unknown"
+                item["authority"] = "SUPPLEMENTARY_ONLY_SEC_FORM345_NONDERIVATIVE_TITLE_NOT_LISTED_CLASS_AUTHORITY"
+                yield item
+
+    base.write_gzip_csv(tmp, fields, rows())
+    tmp.replace(path)
     coverage_path = bulk_dir / "bulk_coverage.json"
     coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
     coverage.update({
@@ -42,6 +48,7 @@ def demote_bulk(bulk_dir: Path) -> dict:
         "form345_type_role": "supplementary_only_not_admitted",
         "supplementary_type_observations": observed,
         "admitted_security_type_sources": 0,
+        "demotion_mode": "streaming_bounded_memory",
     })
     coverage_path.write_text(json.dumps(coverage, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     base.write_checksums(bulk_dir)
