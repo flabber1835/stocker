@@ -1,23 +1,23 @@
 {
   "schema": "backtester.production-strict-pit-20y-request/1",
   "requested_at": "2026-09-01",
-  "purpose": "Run current Production across the certified 2006-01-03 through 2026-07-31 canonical PIT dataset after repairing the annual worker source closure.",
-  "production_source_sha": "80e89b3f894f826e64139b1e0fedd5d42ef937f8",
+  "purpose": "Run current Production across the certified 2006-01-03 through 2026-07-31 canonical PIT dataset after rebinding generation 4 to the current PR #300 main revision.",
+  "production_source_sha": "6d07c2b76066121906e50b4c11876c48849144a0",
   "production_overlay_issue": 294,
   "canonical_dataset_hash": "f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b",
   "warmup_start": "2006-01-03",
   "measurement_start": "2006-07-31",
   "end": "2026-07-31",
-  "retry": 6,
+  "retry": 7,
   "previous_failure": {
-    "run_id": 33544652003,
-    "job_id": 99979057482,
-    "classification": "annual worker sparse-checkout dependency closure failure before replay",
-    "cause": "run_ldrc_corrected_warmup_cash imports backtester.production_public_reporting, but the annual worker sparse checkout omitted that module; the genesis gate therefore failed closed before loading the canonical package or running 2006"
+    "run_id": 33547480041,
+    "job_id": 99988505771,
+    "classification": "stale current-main identity preflight after PR #300 merge",
+    "cause": "origin/main advanced from 80e89b3f894f826e64139b1e0fedd5d42ef937f8 to 6d07c2b76066121906e50b4c11876c48849144a0 before the 2006 worker; the fail-closed experiment-start guard stopped the chain before any replay session executed"
   },
   "correction": {
     "terminal_terms_sha256": "cfd65c78317abd1671632b2a730507634cf036e798b0ade89be68194fda430dc",
-    "rule": "include production_public_reporting.py in the immutable annual worker source closure, assert the file exists after sparse checkout, and compile it in the genesis gate",
-    "verification": "the 2006 genesis gate must import the full current strict-PIT Production stack before the canonical package is pulled or any replay session executes"
+    "rule": "rebind the generation-4 descriptor, annual worker, current-main launcher, fast financial gate, and all binding assertions to 6d07c2b76066121906e50b4c11876c48849144a0 while preserving the unchanged audited Production blob IDs and complete annual-worker reporting closure",
+    "verification": "financial-causality run 33548441777 passed the exact current-main source closure, launcher binding, financial source contracts, package identity, and complete backtester regression suite before this retry was requested"
   }
 }
