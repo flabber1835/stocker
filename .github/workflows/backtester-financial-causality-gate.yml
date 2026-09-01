@@ -21,7 +21,7 @@ permissions:
 jobs:
   financial-causality:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       CURRENT_MAIN_SHA: c851386fa4dddcf2e2533af3a1d313c38220b7f2
       PYTHONUNBUFFERED: '1'
@@ -35,11 +35,7 @@ jobs:
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /.github/workflows/backtester-financial-causality-gate.yml
-            /.github/workflows/backtester-production-strict-pit-20y.yml
-            /.github/workflows/backtester-production-strict-pit-year-worker.yml
-            /.github/workflows/backtester-research-only-20y.yml
-            /.github/workflows/backtester-strict-pit-20y.yml
+            /.github/workflows/**
             /backtester/**
             /tests/__init__.py
             /tests/conftest.py
@@ -90,7 +86,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared:${{ github.workspace }}
         run: |
           set -euo pipefail
-          python -m compileall -q -f backtester
+          python -m compileall -q -f backtester tests/backtester
           python -m py_compile \
             main-src/sentinel/core/kernel.py \
             main-src/sentinel/core/production.py \
@@ -105,6 +101,38 @@ jobs:
           set -euo pipefail
           python backtester/run_production_current_main_strict_pit_20y.py \
             --main-root main-src --self-test-source-identity
+
+      - name: Verify financial-grade source contracts
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python backtester/run_research_strict_pit_20y.py --self-test-imports
+          python - <<'PY'
+          from pathlib import Path
+          production = Path('backtester/run_production_strict_pit_20y.py').read_text()
+          research = Path('backtester/run_research_strict_pit_20y.py').read_text()
+          workflow = Path('.github/workflows/backtester-research-only-20y.yml').read_text()
+          for marker in (
+              'DIVIDEND_SETTLEMENT_LAG_SESSIONS = 15',
+              'MAX_TRAILING_VOLUME_PARTICIPATION = 0.10',
+              'def _capacity_guard(',
+              'def _resolved_nav_guard(',
+              'recent-leadership next-close return is unresolved',
+              '_install_financial_guards()',
+          ):
+              assert marker in production, marker
+          for marker in (
+              'FINANCIAL_GRADE_DIVIDEND_LAG_SESSIONS = 15',
+              'install_terminal_grace(text)',
+              'financial-grade NAV unresolved',
+              'unresolved recent-leadership return',
+          ):
+              assert marker in research, marker
+          assert '/backtester/research_terminal_grace_overlay.py' in workflow
+          print('FINANCIAL-GRADE SOURCE CONTRACT PASS')
+          PY
 
       - name: Prove pytest imports the runtime backtester package
         shell: bash
@@ -121,16 +149,10 @@ jobs:
           print('BACKTESTER PACKAGE IDENTITY PASS', path)
           PY
 
-      - name: Run permanent financial and forward-bias regressions
+      - name: Run complete backtester regression suite
         shell: bash
         env:
           PYTHONPATH: ${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared:${{ github.workspace }}
         run: |
           set -euo pipefail
-          python -m pytest -q \
-            tests/backtester/test_current_main_production_binding.py \
-            tests/backtester/test_forward_bias_regression.py \
-            tests/backtester/test_certification_parallel.py \
-            tests/backtester/test_research_review_basis.py \
-            tests/backtester/test_research_split_dividend_ordering.py \
-            tests/backtester/test_production_annual_chain.py
+          python -m pytest -q tests/backtester
