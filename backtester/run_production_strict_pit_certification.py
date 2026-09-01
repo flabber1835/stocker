@@ -40,6 +40,7 @@ from backtester.causal_terminal_terms import (  # noqa: E402
     load_frozen_terminal_terms,
 )
 import backtester.run_ldrc_corrected_warmup_cash as corrected  # noqa: E402
+import sentinel.core.kernel as strategy_kernel  # noqa: E402
 import sentinel.core.production as strategy_production  # noqa: E402
 from stock_strategy_shared.wealth_core.feed import SecurityMeta  # noqa: E402
 from stock_strategy_shared.wealth_core.terminal import (  # noqa: E402
@@ -374,8 +375,6 @@ def preflight_strict_boundaries(session: str) -> dict:
     class _State:
         feed = {"series": {}}
 
-    # Reproduce the real failure shape at warm-up start: a pre-chain security
-    # whose static current-TICKERS issuer fields have intentionally been removed.
     synthetic_sid = "STRICT-PREFLIGHT-SID"
     synthetic_ticker = "STRICT-PREFLIGHT-UNKNOWN"
     anchors = _strict_build_anchor_map(
@@ -390,16 +389,10 @@ def preflight_strict_boundaries(session: str) -> dict:
     if anchor is None:
         raise RuntimeError("strict anchor preflight did not create the pre-chain anchor")
     if anchor.issuer_id != f"SEC_UNKNOWN:{synthetic_sid}":
-        raise RuntimeError(
-            f"strict unknown-issuer anchor mismatch: {anchor.issuer_id!r}"
-        )
+        raise RuntimeError(f"strict unknown-issuer anchor mismatch: {anchor.issuer_id!r}")
     if abs(float(anchor.prior_split_factor) - 1.25) > 1e-15:
         raise RuntimeError("strict anchor preflight changed the split-factor basis")
 
-    # The CIK corpus itself begins after the 2006-01-03 warm-up boundary. That is
-    # a valid state under the contract: issuer is a singleton until evidence
-    # becomes causally available. Verify strict-prior semantics at the corpus's
-    # first real filing boundary instead of demanding evidence before it exists.
     if _canonical is not None:
         for key in _anchor_issuer_stats:
             _anchor_issuer_stats[key] = 0
@@ -409,10 +402,7 @@ def preflight_strict_boundaries(session: str) -> dict:
             "legacy_issuer_key_reached": False,
             "split_anchor_preserved": True,
         }
-        print(
-            "[PREFLIGHT PASS] canonical PIT dataset boundary "
-            + json.dumps(result, sort_keys=True), flush=True,
-        )
+        print("[PREFLIGHT PASS] canonical PIT dataset boundary " + json.dumps(result, sort_keys=True), flush=True)
         return result
     first = _issuer_authority.first_evidence()
     if first is None:
@@ -420,17 +410,12 @@ def preflight_strict_boundaries(session: str) -> dict:
     filed, known_ticker, known_cik = first
     same_day = _issuer_authority.strict_prior_cik(known_ticker, filed)
     if same_day is not None:
-        raise RuntimeError(
-            f"strict-prior CIK leaked same-day evidence for {known_ticker} on {filed}"
-        )
+        raise RuntimeError(f"strict-prior CIK leaked same-day evidence for {known_ticker} on {filed}")
     probe_session = (date.fromisoformat(filed) + timedelta(days=1)).isoformat()
-    known_issuer, known_source = _issuer_authority.issuer(
-        "STRICT-PREFLIGHT-KNOWN", known_ticker, probe_session
-    )
+    known_issuer, known_source = _issuer_authority.issuer("STRICT-PREFLIGHT-KNOWN", known_ticker, probe_session)
     if known_issuer != f"SEC_CIK:{known_cik}" or known_source != "SEC_CIK_STRICT_PRIOR":
         raise RuntimeError("strict known-issuer preflight disagrees with SEC CIK authority")
 
-    # Keep runtime evidence counters free of synthetic preflight observations.
     for key in _anchor_issuer_stats:
         _anchor_issuer_stats[key] = 0
     result = {
@@ -462,50 +447,49 @@ def _strict_pit_meta_map(pub):
                 "SEC Common Stock" if classification == "common" else
                 "SEC Non-Common" if classification == "non_common" else None
             )
-            issuer_id = (
-                f"SEC_UNKNOWN:{sid}" if row is None else str(row["issuer_id"])
-            )
-            issuer_source = (
-                "SEC_STRICT_PRIOR_UNKNOWN_SINGLETON"
-                if row is None else str(row["issuer_source"])
-            )
+            issuer_id = f"SEC_UNKNOWN:{sid}" if row is None else str(row["issuer_id"])
+            issuer_source = "SEC_STRICT_PRIOR_UNKNOWN_SINGLETON" if row is None else str(row["issuer_source"])
             result[str(sid)] = prod._PitSecurityMeta(
                 security_id=str(sid), ticker=str(meta.ticker), category=category,
-                permaticker=None, related_tickers=(),
-                first_session=meta.first_session, last_session=None,
-                exchange=None, exchange_authoritative=False,
+                permaticker=None, related_tickers=(), first_session=meta.first_session,
+                last_session=None, exchange=None, exchange_authoritative=False,
                 pit_issuer_id=issuer_id, pit_issuer_source=issuer_source,
             )
         return result
     if _security_authority is None:
-        _security_authority = SecurityTypeAuthority(
-            POSITIVE_TYPE, MANUAL_AUDIT, pub.sectors.model
-        )
+        _security_authority = SecurityTypeAuthority(POSITIVE_TYPE, MANUAL_AUDIT, pub.sectors.model)
     result = {}
     for sid, meta in pub.meta.items():
-        issuer_id, source = _issuer_authority.issuer(
-            str(sid), str(meta.ticker), str(pub.session)
-        )
+        issuer_id, source = _issuer_authority.issuer(str(sid), str(meta.ticker), str(pub.session))
         prod._pit_metadata_observations += 1
         if source == "SEC_CIK_STRICT_PRIOR":
             prod._pit_sec_cik_observations += 1
         result[str(sid)] = prod._PitSecurityMeta(
-            security_id=str(sid),
-            ticker=str(meta.ticker),
+            security_id=str(sid), ticker=str(meta.ticker),
             category=_security_authority.category(str(meta.ticker), str(pub.session)),
-            permaticker=None,
-            related_tickers=(),
-            first_session=meta.first_session,
-            last_session=None,
-            exchange=None,
-            exchange_authoritative=False,
-            pit_issuer_id=issuer_id,
-            pit_issuer_source=source,
+            permaticker=None, related_tickers=(), first_session=meta.first_session,
+            last_session=None, exchange=None, exchange_authoritative=False,
+            pit_issuer_id=issuer_id, pit_issuer_source=source,
         )
     return result
 
 
 prod._pit_meta_map = _strict_pit_meta_map
+
+# Current Production owns the pure plan call in sentinel.core.kernel. Retained
+# certification instruments the historical core.production.plan_session seam.
+# Install that compatibility seam here (not at package import time) and route the
+# kernel through it so every strict-PIT import path observes identical economics.
+if not hasattr(strategy_production, "plan_session"):
+    _kernel_plan_session_original = strategy_kernel.plan_session
+    strategy_production.plan_session = _kernel_plan_session_original
+
+    def _strict_kernel_plan_session_proxy(*args, **kwargs):
+        return strategy_production.plan_session(*args, **kwargs)
+
+    strategy_kernel.plan_session = _strict_kernel_plan_session_proxy
+else:
+    _kernel_plan_session_original = strategy_production.plan_session
 
 _real_plan_session = strategy_production.plan_session
 strategy_production._certification_strategy_boundary = {}
@@ -521,10 +505,7 @@ def _plan_session_with_boundary_evidence(*args, **kwargs):
             str(row.security_id),
             str(row.ticker),
         )
-    ranked = sorted(
-        (row for row in plan.leadership_candidates if row.in_top_decile),
-        key=ranking_key,
-    )
+    ranked = sorted((row for row in plan.leadership_candidates if row.in_top_decile), key=ranking_key)
     rank_ids = [str(row.security_id) for row in ranked]
     state_after = plan.state_after or {}
     positions = sorted(
@@ -556,19 +537,10 @@ def _build_levels_with_quarters(*args, **kwargs):
         result = _real_build_levels(*args, **kwargs)
     else:
         spy_level, spy_return = _canonical.benchmark()
-        result = (
-            list(_canonical.sessions), spy_level, spy_return,
-            _canonical.cash_factors(),
-        )
+        result = (list(_canonical.sessions), spy_level, spy_return, _canonical.cash_factors())
     sessions = [str(x) for x in result[0]]
     _quarter_ends.clear()
-    _quarter_ends.update(prod._calendar_checkpoint_sessions(
-        sessions,
-        MEASUREMENT_START,
-        str(runner.END_SESSION),
-    ))
-    # The corrected wrapper's historical comparison checkpoints expose legacy
-    # account labels. Strict Production reporting owns this output instead.
+    _quarter_ends.update(prod._calendar_checkpoint_sessions(sessions, MEASUREMENT_START, str(runner.END_SESSION)))
     prod._year_end_sessions.clear()
     return result
 
@@ -594,10 +566,9 @@ def _step_with_certification_checkpoint(self, *args, **kwargs):
     if str(self.name) == "B" and session in _quarter_ends and session >= MEASUREMENT_START:
         cagr = prod._measurement_cagr(float(self.nav), MEASUREMENT_START, session)
         print(
-            f"[PROGRESS] role=Production session={session} "
-            f"sessions={progress_sessions} "
-            f"measurement_start={MEASUREMENT_START} "
-            f"multiple={float(self.nav):.12f} cumulative_cagr={cagr:.10%}",
+            f"[PROGRESS] role=Production session={session} sessions={progress_sessions} "
+            f"measurement_start={MEASUREMENT_START} multiple={float(self.nav):.12f} "
+            f"cumulative_cagr={cagr:.10%}",
             flush=True,
         )
     return nav
@@ -614,10 +585,7 @@ def _rewrite_bundle_with_audit() -> None:
         if _canonical is not None else _security_authority.audit()
     )
     output = base.OUTPUT
-    audit = authority_audit(
-        identity=_identity_audit,
-        security_type=security_type_audit,
-    )
+    audit = authority_audit(identity=_identity_audit, security_type=security_type_audit)
     audit["role"] = "Production"
     if _canonical is not None:
         if not _terminal_correction_audit:
@@ -635,9 +603,7 @@ def _rewrite_bundle_with_audit() -> None:
     sums_path = output / "SHA256SUMS.txt"
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     summary["strict_pit_metadata"] = True
-    summary["canonical_pit_dataset_hash"] = (
-        _canonical.dataset_hash if _canonical is not None else None
-    )
+    summary["canonical_pit_dataset_hash"] = _canonical.dataset_hash if _canonical is not None else None
     summary["metadata_authority_audit"] = audit
     summary["pit_authority"]["residual_non_pit_fields"] = []
     summary["pit_authority"]["residual_note"] = None
@@ -653,10 +619,7 @@ def _rewrite_bundle_with_audit() -> None:
         f"Production NAV reset to 1.0 after {MEASUREMENT_START} is processed, "
         "then annualized through each displayed checkpoint by elapsed calendar days"
     )
-    if any(
-        key in summary
-        for key in ("calendar_year_cagr_checkpoints", "calendar_year_cagr_definition")
-    ):
+    if any(key in summary for key in ("calendar_year_cagr_checkpoints", "calendar_year_cagr_definition")):
         raise RuntimeError("legacy CAGR reporting fields survived Production finalization")
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -673,9 +636,7 @@ def _rewrite_bundle_with_audit() -> None:
     manifest["current_SHARADAR_TICKERS_economically_active_fields"] = []
     manifest["public_variants"] = ["Production", "SPY"]
     manifest["internal_account_labels_exposed"] = False
-    public_outputs = [
-        output / "daily.csv.gz", output / "metrics.csv", summary_path, audit_path
-    ]
+    public_outputs = [output / "daily.csv.gz", output / "metrics.csv", summary_path, audit_path]
     if session_hash_path is not None:
         public_outputs.append(session_hash_path)
     for path in public_outputs:
