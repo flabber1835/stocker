@@ -539,9 +539,9 @@ def _revoke_system_key(config: SentinelConfig, args) -> int:
     conn = feed_store.connect(config.database_url)
     try:
         schema.ensure_schema(conn)
-        # Key revocation must remain available while execution owns the shared
-        # writer lock. The authority transaction's row locks and monotonic
-        # generation are the relevant serialization boundary.
+        # Key revocation remains available while execution owns the writer
+        # lock. The separate authority-transition lock serializes certificate
+        # and key lifecycle changes without waiting for broker work.
         authority.revoke_signed_key(
             conn, key_id=args.key_id, reason=args.reason, commit=True)
     except _paper_refusal_types() as exc:

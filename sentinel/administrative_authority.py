@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Mapping
 
 from sentinel import authority, binding as binding_mod
+from sentinel.authority import repository as authority_repository
 from sentinel.config import assert_paper_url
 
 
@@ -349,6 +350,7 @@ def install_administrative_certificate(
     for operation in operations:
         _binding_matches_operation(conn, context=context, operation=operation)
 
+    authority_repository.lock_authority_transition(conn)
     generation, highest, active_sha, state_exists = _authority_state(
         conn, lock=True)
     claims = certificate.claims
@@ -544,6 +546,7 @@ def activate_administrative_certificate(
     _context_matches(certificate, context)
     for operation in operations:
         _binding_matches_operation(conn, context=context, operation=operation)
+    authority_repository.lock_authority_transition(conn)
     generation, highest, active_sha, exists = _authority_state(conn, lock=True)
     if not exists:
         raise authority.AuthorityRefused(
@@ -562,6 +565,12 @@ def activate_administrative_certificate(
         if int(claims["issuer_generation"]) != int(cur.fetchone()[0]):
             raise authority.AuthorityRefused(
                 "a newer staged administrative certificate exists")
+        cur.execute(
+            "SELECT 1 FROM sentinel_execution_key_revocations WHERE key_id=%s",
+            (certificate.key_id,))
+        if cur.fetchone() is not None:
+            raise authority.AuthorityRefused(
+                "administrative certificate key is durably revoked")
         next_generation = generation + 1
         if active_sha is not None:
             cur.execute(
@@ -620,6 +629,7 @@ def revoke_administrative_certificate(
     if not reason:
         raise authority.AuthorityRefused(
             "administrative certificate revocation requires a reason")
+    authority_repository.lock_authority_transition(conn)
     generation, _highest, active_sha, exists = _authority_state(conn, lock=True)
     if not exists or active_sha != certificate_sha256:
         raise authority.AuthorityRefused(
@@ -659,7 +669,12 @@ def consume_empty_binding_authority(
         trust_roots_path: Path = authority.DEFAULT_TRUST_ROOTS_PATH,
         trust_roots: Mapping[str, authority.TrustRoot] | None = None,
         commit: bool = False) -> None:
-    """One-shot fence used in the same transaction as the first binding."""
+    """One-shot fence used in the same transaction as the first binding.
+
+    The caller owns the wider failure rollback.  The supported binding path is
+    inside ``journal.writer_lock``, whose exception boundary performs it.
+    """
+    authority_repository.lock_authority_transition(conn)
     certificate = load_active_administrative_certificate(
         conn, now=now, trust_roots_path=trust_roots_path,
         trust_roots=trust_roots)

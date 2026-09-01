@@ -94,11 +94,38 @@ root bytes, claim evaluation order, exception types, and refusal messages are
 preserved. Pure verification accepts explicit roots and time and performs no
 database work.
 
-Repository helpers do not commit, roll back, or acquire new locks. Lifecycle
-functions preserve the current SQL statement order, `FOR UPDATE` placement,
-lock order, commit flags, rollback-on-`BaseException` behavior, and caller-owned
-writer-lock boundary. Emergency certificate and key revocation remain outside
-the execution writer lock.
+Repository helpers do not commit or roll back. Lifecycle functions preserve
+the current SQL statement order, `FOR UPDATE` placement, commit flags,
+rollback-on-`BaseException` behavior, and caller-owned writer-lock boundary.
+Emergency certificate and key revocation remain outside the execution writer
+lock.
+
+All execution-certificate and administrative-certificate transitions, global
+key revocation, and one-shot administrative-authority consumption acquire one
+transaction-scoped authority-transition advisory lock before their first row
+lock or mutation. The lock is released by the existing commit or rollback
+boundary; `commit=False` deliberately retains it for the caller's wider
+transaction. This common first lock preserves each repository operation's
+existing row locks and SQL order while preventing a certificate lifecycle row
+and an authority-singleton row from being acquired in opposite orders by
+concurrent transitions. Global key revocation retains its
+execution-state-before-administrative-state row-lock order behind the same
+common lock. Standalone rollout transitions retain their existing optimistic
+row fencing; rollout mutation performed by certificate activation is protected
+by the certificate transition lock.
+
+Activation retains its established validation and refusal ordering before the
+first lock. After acquiring the authority-transition lock it re-reads
+certificate/key revocation immediately before lifecycle,
+authority-generation, or rollout mutation. Administrative activation applies
+the same post-lock key-revocation check. A revocation queued after activation
+therefore completes after activation and leaves the authority revoked; a
+revocation queued first makes activation refuse. The advisory lock serializes
+authority transitions only: it never waits for, acquires, or weakens the
+execution writer lock, so emergency control remains reachable during a broker
+operation. Callers that already hold the execution writer lock acquire the
+authority-transition lock afterward; no supported path acquires those locks in
+the reverse order.
 
 The retained unsigned system-certificate reader and revoker remain supported
 for restore validation of deployed historical databases. These rows never

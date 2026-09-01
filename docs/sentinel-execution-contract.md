@@ -416,6 +416,15 @@ emergency control and recoverable network effects. A database lock cannot make
 an external HTTP request atomic, and serializing the control behind a broker
 operation would weaken the emergency-control contract.
 
+Authority lifecycle mutations serialize only against one another through the
+transaction-scoped authority-transition advisory lock. Activation and
+revocation take that lock before their first authority row lock; activation
+then re-reads certificate and key revocation immediately before its durable
+mutation. Thus a revocation queued behind activation completes afterward and
+leaves authority revoked, while a revocation queued first makes activation
+refuse. This lock is disjoint from the execution writer lock and never extends
+across broker I/O.
+
 ---
 
 ## 4. No autonomous broker-native close

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from sentinel import administrative_authority as administrative
 from sentinel import authority
 from sentinel.authority import canonical, lifecycle, model, repository, validation
 
@@ -60,6 +61,10 @@ class _Connection:
 def test_lifecycle_commit_false_and_rollback_preserve_existing_boundary(
         monkeypatch):
     calls = []
+    locks = []
+    monkeypatch.setattr(
+        repository, "lock_authority_transition",
+        lambda conn: locks.append(conn))
     monkeypatch.setattr(
         repository, "revoke_key_rows",
         lambda conn, *, key_id, reason: calls.append((conn, key_id, reason)))
@@ -77,6 +82,7 @@ def test_lifecycle_commit_false_and_rollback_preserve_existing_boundary(
         (committed, "key-1", "reviewed"),
         (outer_transaction, "key-2", "reviewed"),
     ]
+    assert locks == [committed, outer_transaction]
 
     class PrimaryFailure(BaseException):
         pass
@@ -90,9 +96,64 @@ def test_lifecycle_commit_false_and_rollback_preserve_existing_boundary(
         lifecycle.revoke_signed_key(
             failed, key_id="key-3", reason="reviewed", commit=False)
     assert (failed.commits, failed.rollbacks) == (0, 1)
+    assert locks == [committed, outer_transaction, failed]
 
 
-def test_repository_pins_existing_row_lock_order():
+def test_common_transition_lock_precedes_existing_row_lock_orders():
+    transition_lock = inspect.getsource(repository.lock_authority_transition)
+    assert "pg_advisory_xact_lock" in transition_lock
+    assert "pg_try_advisory" not in transition_lock
+
+    lifecycle_install = inspect.getsource(lifecycle.install_signed_certificate)
+    assert lifecycle_install.index("verify_signed_certificate") < \
+        lifecycle_install.index("lock_authority_transition")
+    assert lifecycle_install.index("lock_authority_transition") < \
+        lifecycle_install.index("authority_state_for_install")
+
+    lifecycle_activation = inspect.getsource(
+        lifecycle.activate_signed_certificate)
+    assert lifecycle_activation.index("_verified_durable_certificate") < \
+        lifecycle_activation.index("lock_authority_transition")
+    assert lifecycle_activation.index("lock_authority_transition") < \
+        lifecycle_activation.index("authority_state_for_install")
+    assert lifecycle_activation.index("lock_authority_transition") < \
+        lifecycle_activation.rindex("_require_durable_revocation_clear")
+
+    lifecycle_revocation = inspect.getsource(
+        lifecycle.revoke_signed_certificate)
+    assert lifecycle_revocation.index("lock_authority_transition") < \
+        lifecycle_revocation.index("revoke_certificate_rows")
+    key_revocation_lifecycle = inspect.getsource(lifecycle.revoke_signed_key)
+    assert key_revocation_lifecycle.index("lock_authority_transition") < \
+        key_revocation_lifecycle.index("revoke_key_rows")
+
+    administrative_install = inspect.getsource(
+        administrative.install_administrative_certificate)
+    assert administrative_install.index("verify_signed_certificate") < \
+        administrative_install.index("lock_authority_transition")
+    assert administrative_install.index("lock_authority_transition") < \
+        administrative_install.index("_authority_state")
+
+    administrative_activation = inspect.getsource(
+        administrative.activate_administrative_certificate)
+    assert administrative_activation.index("_verified_row") < \
+        administrative_activation.index("lock_authority_transition")
+    assert administrative_activation.index("lock_authority_transition") < \
+        administrative_activation.index("_authority_state")
+    assert administrative_activation.index("lock_authority_transition") < \
+        administrative_activation.rindex(
+            "sentinel_execution_key_revocations")
+
+    administrative_revocation = inspect.getsource(
+        administrative.revoke_administrative_certificate)
+    assert administrative_revocation.index("lock_authority_transition") < \
+        administrative_revocation.index("_authority_state")
+    empty_binding_consumption = inspect.getsource(
+        administrative.consume_empty_binding_authority)
+    assert empty_binding_consumption.index("lock_authority_transition") < \
+        empty_binding_consumption.index(
+            "load_active_administrative_certificate")
+
     activation = inspect.getsource(repository.activate_certificate_rows)
     assert activation.index("UPDATE sentinel_rollout_state") < \
         activation.index(

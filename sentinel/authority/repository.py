@@ -17,6 +17,24 @@ from .model import (
 )
 
 
+AUTHORITY_TRANSITION_LOCK_KEY = 0x5E27_A071
+
+
+def lock_authority_transition(conn) -> None:
+    """Serialize every durable authority mutation for this transaction.
+
+    This transaction-scoped lock is deliberately separate from the execution
+    writer lock.  It is the common first lock for execution-certificate and
+    administrative-certificate transitions, global key revocation, and
+    one-shot administrative-authority consumption; the existing row-lock
+    order inside each repository operation remains unchanged.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT pg_advisory_xact_lock(%s)",
+            (AUTHORITY_TRANSITION_LOCK_KEY,))
+
+
 def authority_state_for_install(
         conn) -> tuple[int, int, str | None, bool]:
     with conn.cursor() as cur:

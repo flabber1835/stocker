@@ -104,6 +104,7 @@ def install_signed_certificate(
     _require_context_matches_durable_state(conn, context)
     _context_matches(certificate, context, rollout_phase="from")
 
+    repository.lock_authority_transition(conn)
     (generation, highest_issuer, active_sha,
      authority_state_exists) = repository.authority_state_for_install(conn)
     claims = certificate.claims
@@ -181,18 +182,24 @@ def _verified_durable_certificate(
             != stored_expires_at.astimezone(timezone.utc)):
         raise AuthorityRefused(
             "durable signed-certificate parsed fields differ from exact bytes")
-    certificate_revoked, key_revoked = repository.durable_revocation_flags(
+    _require_durable_revocation_clear(
         conn, certificate_sha256=certificate_sha256,
-        key_id=certificate.key_id)
-    if certificate_revoked or status == "REVOKED":
-        raise AuthorityRefused("signed certificate is revoked")
-    if key_revoked:
-        raise AuthorityRefused("signed certificate key is durably revoked")
+        key_id=certificate.key_id, status=str(status))
     return SignedSystemCertificate(
         certificate_sha256, certificate.envelope, certificate.claims,
         certificate.key_id, status=str(status), installed_at=installed_at,
         install_sequence=int(install_sequence),
         authority_generation=(int(generation) if generation is not None else None))
+
+
+def _require_durable_revocation_clear(
+        conn, *, certificate_sha256: str, key_id: str, status: str) -> None:
+    certificate_revoked, key_revoked = repository.durable_revocation_flags(
+        conn, certificate_sha256=certificate_sha256, key_id=key_id)
+    if certificate_revoked or status == "REVOKED":
+        raise AuthorityRefused("signed certificate is revoked")
+    if key_revoked:
+        raise AuthorityRefused("signed certificate key is durably revoked")
 
 
 def load_installed_signed_certificate(
@@ -230,6 +237,7 @@ def activate_signed_certificate(
         raise AuthorityRefused("only a staged signed certificate can be activated")
     _require_context_matches_durable_state(conn, context)
     _context_matches(certificate, context, rollout_phase="from")
+    repository.lock_authority_transition(conn)
     generation, highest_issuer, active_sha, _ = \
         repository.authority_state_for_install(conn)
     claims = certificate.claims
@@ -266,6 +274,12 @@ def activate_signed_certificate(
     next_rollout_sha = (certificate_sha256
                         if next_mode is RolloutMode.CONTROLLER else None)
     next_generation = generation + 1
+    # Keep the activation decision adjacent to its durable mutation.  The
+    # common transaction lock prevents supported revocation paths from
+    # changing these rows between this fresh check and commit.
+    _require_durable_revocation_clear(
+        conn, certificate_sha256=certificate_sha256,
+        key_id=certificate.key_id, status=certificate.status)
     repository.activate_certificate_rows(
         conn, certificate_sha256=certificate_sha256, claims=claims,
         current=current, generation=generation, active_sha=active_sha,
@@ -324,6 +338,7 @@ def revoke_signed_certificate(
     reason = str(reason).strip()
     if not reason:
         raise AuthorityRefused("certificate revocation requires a reason")
+    repository.lock_authority_transition(conn)
     repository.revoke_certificate_rows(
         conn, certificate_sha256=certificate_sha256, reason=reason)
     if commit:
@@ -336,6 +351,7 @@ def revoke_signed_key(
     reason = str(reason).strip()
     if not reason:
         raise AuthorityRefused("key revocation requires a reason")
+    repository.lock_authority_transition(conn)
     repository.revoke_key_rows(conn, key_id=key_id, reason=reason)
     if commit:
         conn.commit()
