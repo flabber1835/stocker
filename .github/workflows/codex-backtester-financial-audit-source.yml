@@ -42,7 +42,6 @@ jobs:
             /Makefile
             /pytest.ini
             /docker-compose.backtest.yml
-            !/backtester/data/
             !/backtester/evidence/
             !/sec/
             !/sec-filings/
@@ -73,6 +72,7 @@ jobs:
           text_suffixes = {
               '.py', '.pyi', '.md', '.rst', '.txt', '.toml', '.ini', '.cfg',
               '.yaml', '.yml', '.json', '.sql', '.sh', '.ps1', '.dockerfile',
+              '.csv', '.sha256', '.lock',
           }
           exact_names = {
               'Dockerfile', 'Makefile', 'pytest.ini', '.dockerignore',
@@ -80,7 +80,7 @@ jobs:
           }
           excluded_prefixes = (
               '.git/', 'artifacts/', 'PIT input data/', 'sec/', 'sec-filings/',
-              'backtester/data/', 'backtester/evidence/',
+              'backtester/evidence/',
           )
           excluded_exact = {
               'orion_fetch_sec_coverpage_security_type.ps1',
