@@ -87,6 +87,27 @@ def test_strict_research_and_production_entrypoints_force_pit_mode() -> None:
         assert 'CERTIFICATION_STRICT_PIT' in text, relative
 
 
+def test_certified_launch_workflows_preserve_strict_pit_contracts() -> None:
+    research_only = (
+        ROOT / ".github/workflows/backtester-research-only-20y.yml"
+    ).read_text(encoding="utf-8")
+    combined = (
+        ROOT / ".github/workflows/backtester-strict-pit-20y.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "python backtester/run_research_strict_pit_20y.py" in research_only
+    assert "--mode fullpit" in research_only
+    assert "ref: 887f479b15ad861313da666ad698034d3847121c" in research_only
+    assert "test -z \"$(git -C main-src status --porcelain)\"" in research_only
+
+    assert "run_production_strict_pit_20y_checkpointed.py" in combined
+    assert "run_research_strict_pit_20y_checkpointed.py" in combined
+    assert "run_certification_parallel_20y_checkpointed.py" in combined
+    assert "ref: 887f479b15ad861313da666ad698034d3847121c" in combined
+    assert "CERTIFICATION_SEGMENT_END_SESSION" in combined
+    assert "CANONICAL_PIT_EXPECTED_END=2026-07-31" in combined
+
+
 def test_research_review_basis_contract_is_present_in_financial_transform() -> None:
     text = (ROOT / "backtester" / "run_research_ldrc_nonpit_vs_fullpit.py").read_text(
         encoding="utf-8"
