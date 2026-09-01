@@ -45,6 +45,10 @@ class _XidConnection:
 
 
 def test_publication_binds_branch_unique_wrap_safe_pitr_target():
+    # xid8 4294968296 is epoch 1, 32-bit xid 1000. PostgreSQL recovery matches
+    # the latter; retaining the former plus a same-epoch base constraint prevents
+    # xid wraparound ambiguity, while the explicit timeline prevents PITR forks
+    # from redirecting recovery to a different transaction 1000.
     evidence = publication._publication_recovery_target(
         _XidConnection(("4294968296", "00000011")))
     assert evidence == {
