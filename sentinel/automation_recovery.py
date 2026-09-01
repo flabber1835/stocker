@@ -32,12 +32,27 @@ never mint a receipt or enable the pre-adoption exception by reading state.
 """
 from __future__ import annotations
 
-from sentinel import backup_guard, paper, shadow_segments
+from datetime import datetime, timezone
+
+from sentinel import (
+    backup_guard,
+    backup_runtime_authority,
+    paper,
+    shadow_segments,
+)
 from sentinel import automation_runtime as base
 from sentinel.automation.model import (
     NonRetryableCallbackRefused,
     TransientInfrastructureFailure,
 )
+from sentinel.automation_resilience import RecoveryAutomationService
+from sentinel.execution.contract import MalformedBrokerEvidence
+from sentinel.execution.guarded import BrokerAuthorityRefused
+
+
+class RetryableBackupUnavailable(
+        TransientInfrastructureFailure, backup_guard.BackupUnavailable):
+    """Temporary durability loss retaining the public backup-fence identity."""
 
 
 # Exact messages are produced only by the first-plan pre-adoption gates.
@@ -76,16 +91,77 @@ class _LateBoundRegenesisFlatSizing:
 class ProductionAutomation(base.ProductionAutomation):
     """Retain canonical automation behavior with production recovery guards."""
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # Production availability is duration-independent. A typed temporary
+        # dependency failure may last for days and still heal with no change in
+        # financial authority. Rebuild only the broker-independent service
+        # wrapper; all canonical callbacks remain the base runtime methods.
+        self.service = RecoveryAutomationService(
+            config=self.automation_config, holder_id=self.holder_id,
+            refresh=self.refresh, prepare=self.prepare,
+            recover=self.recover, execute=self.execute,
+            notify=self.notify, terminal=self.certify_terminal_cycle)
+
     def _require_backup_for_new_mutation(self, operation: str):
         conn = self.connect()
         try:
             try:
+                backup_runtime_authority.require(conn, operation=operation)
                 return backup_guard.require_writes_permitted(
                     conn, operation=operation)
-            except backup_guard.BackupConfigurationRefused as exc:
+            except (backup_guard.BackupUnavailable,
+                    backup_runtime_authority.BackupRuntimeUnavailable) as exc:
+                raise RetryableBackupUnavailable(
+                    f"backup durability is temporarily unavailable: {exc}") from exc
+            except (backup_guard.BackupConfigurationRefused,
+                    backup_runtime_authority.BackupRuntimeRefused) as exc:
                 raise NonRetryableCallbackRefused(
                     "backup durability configuration/integrity refused: "
                     f"{exc}") from exc
+        finally:
+            conn.rollback()
+            conn.close()
+
+    async def _require_external_execution_clock(self, context) -> None:
+        """Bind new transport to an independent Alpaca wall-clock observation."""
+        context.require_active()
+        conn = self.connect()
+        try:
+            broker = self._broker(
+                conn, context.cycle.effective_session.isoformat())
+            clock = await broker.market_clock()
+            with conn.cursor() as cur:
+                cur.execute("SELECT clock_timestamp()")
+                row = cur.fetchone()
+            if row is None or row[0] is None or row[0].tzinfo is None:
+                raise NonRetryableCallbackRefused(
+                    "execution clock authority has no timezone-aware database time")
+            host_now = datetime.now(timezone.utc)
+            database_now = row[0].astimezone(timezone.utc)
+            broker_now = clock.timestamp.astimezone(timezone.utc)
+            limit = float(self.automation_config.maximum_clock_skew_seconds)
+            host_broker = abs((host_now - broker_now).total_seconds())
+            database_broker = abs((database_now - broker_now).total_seconds())
+            if host_broker > limit or database_broker > limit:
+                raise TransientInfrastructureFailure(
+                    "independent Alpaca clock disagrees with host/database time: "
+                    f"host={host_broker:.3f}s database={database_broker:.3f}s "
+                    f"limit={limit:.3f}s")
+            context.require_active()
+        except TransientInfrastructureFailure:
+            raise
+        except MalformedBrokerEvidence as exc:
+            raise NonRetryableCallbackRefused(
+                f"Alpaca clock evidence is malformed: {exc}") from exc
+        except BrokerAuthorityRefused as exc:
+            raise NonRetryableCallbackRefused(
+                f"Alpaca clock authority refused: {exc}") from exc
+        except Exception as exc:  # reviewed dependency classifier owns transport
+            mapped = base.classify_dependency_failure(exc)
+            if mapped is None:
+                raise
+            raise mapped from exc
         finally:
             conn.rollback()
             conn.close()
@@ -198,6 +274,7 @@ class ProductionAutomation(base.ProductionAutomation):
 
     async def execute(self, context):
         self._require_backup_for_new_mutation("automation new order execution")
+        await self._require_external_execution_clock(context)
         return await super().execute(context)
 
     # recover() is intentionally inherited with NO backup fence. It performs
@@ -210,4 +287,6 @@ class ProductionAutomation(base.ProductionAutomation):
 
 config_from_env = base.config_from_env
 
-__all__ = ["ProductionAutomation", "config_from_env"]
+__all__ = [
+    "ProductionAutomation", "RetryableBackupUnavailable", "config_from_env",
+]

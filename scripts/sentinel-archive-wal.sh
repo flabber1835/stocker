@@ -12,6 +12,8 @@ refuse() {
 source_wal="$1"
 wal_name="$2"
 archive_dir="$3"
+marker="$archive_dir/.sentinel-independent-durable-target-v1"
+marker_content="sentinel-independent-durable-target-v1"
 
 case "$wal_name" in
   ""|.|..|*/*) refuse "invalid WAL filename: $wal_name" ;;
@@ -20,6 +22,10 @@ esac
   refuse "source is not a readable regular file: $source_wal"
 [ -d "$archive_dir" ] && [ ! -L "$archive_dir" ] || \
   refuse "archive directory is missing or is a symlink: $archive_dir"
+[ -f "$marker" ] && [ ! -L "$marker" ] || \
+  refuse "independent durable-target marker is missing: $marker"
+[ "$(cat "$marker")" = "$marker_content" ] || \
+  refuse "independent durable-target marker is invalid: $marker"
 
 target="$archive_dir/$wal_name"
 temporary=""

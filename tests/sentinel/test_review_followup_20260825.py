@@ -147,7 +147,7 @@ def test_shadow_retry_threshold_latches_instead_of_exit_restart_loop(
     monkeypatch.setattr(shadow_supervisor, "_latched_wait", lambda stopping: 91)
     assert shadow_supervisor.run() == 91
     assert latch.exists()
-    assert "bounded retry/timeout threshold" in latch.read_text(encoding="utf-8")
+    assert "bounded semantic retry threshold" in latch.read_text(encoding="utf-8")
 
 
 def test_callback_deadline_remains_bounded_during_database_loss():

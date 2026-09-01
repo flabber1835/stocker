@@ -22,7 +22,13 @@ from datetime import datetime, timezone
 import os
 from typing import Optional
 
-from sentinel import backup_guard, schema, shadow_runtime, shadow_segments
+from sentinel import (
+    backup_guard,
+    backup_runtime_authority,
+    schema,
+    shadow_runtime,
+    shadow_segments,
+)
 from sentinel import shadow_service as base
 from sentinel.execution import journal
 from sentinel.feed import calendar, outage_recovery, publication, readiness
@@ -37,10 +43,22 @@ def _utc(now: Optional[datetime]) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def _require_backup_conn(conn, operation: str) -> None:
+    try:
+        backup_runtime_authority.require(conn, operation=operation)
+    except backup_runtime_authority.BackupRuntimeUnavailable as exc:
+        raise backup_guard.BackupUnavailable(
+            f"{operation}: runtime restore horizon unavailable: {exc}") from exc
+    except backup_runtime_authority.BackupRuntimeRefused as exc:
+        raise backup_guard.BackupConfigurationRefused(
+            f"{operation}: runtime restore horizon refused: {exc}") from exc
+    backup_guard.require_writes_permitted(conn, operation=operation)
+
+
 def _require_backup(config: base.ShadowServiceConfig, operation: str) -> None:
     conn = feed_store.connect(config.database_url)
     try:
-        backup_guard.require_writes_permitted(conn, operation=operation)
+        _require_backup_conn(conn, operation)
     finally:
         conn.rollback()
         conn.close()
@@ -90,8 +108,7 @@ def _roll_and_advance(config: base.ShadowServiceConfig, *, target: str) -> dict:
     try:
         feed_store.require_feed_schema(conn)
         schema.require_runtime_schema(conn)
-        backup_guard.require_writes_permitted(
-            conn, operation="shadow outage data catch-up")
+        _require_backup_conn(conn, "shadow outage data catch-up")
         outage_recovery.catch_up(conn, target_session=target)
         report = readiness.check_readiness(conn)
         if not report.ready:

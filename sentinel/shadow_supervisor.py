@@ -4,6 +4,9 @@ Each shadow advance executes in a disposable child process. A wedged ingest,
 replay, filesystem or database call therefore cannot stall the publisher
 forever. Transient publication lag is retried; integrity refusals latch the
 service unhealthy instead of being restart-looped back to a false green state.
+A hard child deadline is a process-liveness boundary, not evidence of financial
+corruption: a long resumable catch-up may cross it repeatedly and is restarted
+until its durable checkpoints converge.
 """
 from __future__ import annotations
 
@@ -95,7 +98,7 @@ def _health(max_age_seconds: float, *, config=None) -> int:
 def run() -> int:
     config = ShadowServiceConfig.from_env()
     deadline_seconds = float(os.environ.get(
-        "SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS", "900"))
+        "SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS", "7200"))
     if deadline_seconds < 30 or deadline_seconds > 7200:
         print("REFUSED: SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS must be in [30,7200]",
               file=sys.stderr)
@@ -153,20 +156,23 @@ def run() -> int:
             _latch(f"shadow worker exited unexpectedly with {code}")
             return _latched_wait(lambda: stopping)
 
-        if code in {EXIT_RETRY, 124}:
-            # Non-availability retries and hard timeouts still indicate a local
-            # malfunction/wedge and retain the bounded terminal latch.
+        if code == EXIT_RETRY:
+            # A typed non-availability retry represents a local semantic failure
+            # and remains bounded. A hard timeout is different: the child was
+            # forcibly stopped at a known process boundary and the canonical
+            # ingest/catch-up paths are restart-convergent, so timeout duration
+            # alone cannot permanently poison an otherwise valid deployment.
             consecutive_failures += 1
             if consecutive_failures >= failure_threshold:
                 _latch(
-                    "shadow publisher exceeded bounded retry/timeout threshold",
+                    "shadow publisher exceeded bounded semantic retry threshold",
                     failures=consecutive_failures)
                 return _latched_wait(lambda: stopping)
         else:
-            # SUCCESS, causal WAITING, and typed external AVAILABILITY loss are
-            # responsive states. Sharadar or the backup target may remain down
-            # for days and heal without operator reset; no stale performance or
-            # broker authority is created while they are unavailable.
+            # SUCCESS, causal WAITING, typed external AVAILABILITY loss, and a
+            # bounded hard timeout are responsive states. The latter may repeat
+            # while a multi-hour/multi-day resumable catch-up advances durable
+            # checkpoints. Financial health stays red until convergence.
             consecutive_failures = 0
 
         deadline = time.monotonic() + config.poll_seconds
