@@ -1,0 +1,181 @@
+name: Codex backtester financial audit bundle
+
+on:
+  push:
+    branches:
+      - codex/backtester-financial-audit-20260831
+    paths:
+      - .github/workflows/codex-backtester-financial-audit-source.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out pinned audit branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify pinned source and build source bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="c6a1e253fb3b6b12fa8572d039b8c4894a1b917d"
+          actual="$(git rev-parse HEAD^)"
+          test "$actual" = "$expected"
+          mkdir -p audit/source audit/reports
+          printf '%s\n' "$expected" > audit/reports/audited_source_sha.txt
+          printf '%s\n' "$(git rev-parse HEAD)" > audit/reports/audit_workflow_sha.txt
+          python - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import os
+          import shutil
+          import subprocess
+          from pathlib import Path
+
+          root = Path('.')
+          out = Path('audit/source')
+          report = Path('audit/reports')
+
+          text_suffixes = {
+              '.py', '.pyi', '.md', '.rst', '.txt', '.toml', '.ini', '.cfg',
+              '.yaml', '.yml', '.json', '.sql', '.sh', '.ps1', '.dockerfile',
+          }
+          exact_names = {
+              'Dockerfile', 'Makefile', 'pytest.ini', '.dockerignore',
+              '.gitattributes', '.gitignore', '.env.example',
+          }
+          excluded_prefixes = (
+              '.git/', 'artifacts/', 'PIT input data/', 'sec/', 'sec-filings/',
+              'backtester/data/', 'backtester/evidence/',
+          )
+          excluded_exact = {
+              'orion_fetch_sec_coverpage_security_type.ps1',
+              'orion_fetch_sec_coverpage_security_type_v3.ps1',
+              'listing.csv',
+              '.github/workflows/codex-backtester-financial-audit-source.yml',
+          }
+
+          tracked = subprocess.check_output(
+              ['git', 'ls-tree', '-r', '--name-only', 'HEAD^'], text=True
+          ).splitlines()
+
+          included: list[str] = []
+          excluded: list[str] = []
+          manifest: list[str] = []
+
+          def is_sec_backfill_code(path: str) -> bool:
+              low = path.lower()
+              name = Path(path).name.lower()
+              return (
+                  'sec_backfill' in low
+                  or 'sec-backfill' in low
+                  or ('backfill' in name and 'sec' in name)
+                  or ('sec' in name and ('coverpage' in name or 'filing' in name)
+                  or (path.startswith('.github/workflows/') and 'sec' in name)
+              )
+
+          for rel in tracked:
+              p = Path(rel)
+              include_type = p.name in exact_names or p.suffix.lower() in text_suffixes
+              if not include_type:
+                  continue
+              if rel in excluded_exact or rel.startswith(excluded_prefixes) or is_sec_backfill_code(rel):
+                  excluded.append(rel)
+                  continue
+              src = root / rel
+              if not src.is_file():
+                  continue
+              try:
+                  data = src.read_bytes()
+                  data.decode('utf-8')
+              except (UnicodeDecodeError, OSError):
+                  excluded.append(rel)
+                  continue
+              dst = out / rel
+              dst.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(src, dst)
+              included.append(rel)
+              manifest.append(f"{hashlib.sha256(data).hexdigest()}  {rel}")
+
+          (report / 'included_files.txt').write_text('\n'.join(included) + '\n', encoding='utf-8')
+          (report / 'excluded_files.txt').write_text('\n'.join(excluded) + '\n', encoding='utf-8')
+          (report / 'sha256_manifest.txt').write_text('\n'.join(manifest) + '\n', encoding='utf-8')
+          (report / 'counts.txt').write_text(
+              f"included={len(included)}\nexcluded={len(excluded)}\n", encoding='utf-8'
+          )
+          PY
+
+      - name: Compile all included Python source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q audit/source
+
+      - name: Generate static-risk triage report
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import ast
+          import re
+          from pathlib import Path
+
+          root = Path('audit/source')
+          output = Path('audit/reports/static_risk_triage.txt')
+          patterns = {
+              'negative_shift': re.compile(r'\.shift\s*\(\s*-'),
+              'backfill': re.compile(r'\b(?:bfill|backfill)\s*\('),
+              'centered_window': re.compile(r'\bcenter\s*=\s*True\b'),
+              'future_named_value': re.compile(r'\b(?:future|forward|lead|next_(?:day|session|close|open|price))\b', re.I),
+              'whole_sample_rank': re.compile(r'\b(?:rank|quantile|percentile)\s*\('),
+              'same_bar_execution_terms': re.compile(r'\b(?:same[-_ ]?(?:day|bar|session)|close[-_ ]?(?:fill|execution))\b', re.I),
+              'float_money_terms': re.compile(r'\b(?:cash|nav|equity|price|notional|proceeds|cost_basis)\b.*\bfloat\b|\bfloat\b.*\b(?:cash|nav|equity|price|notional|proceeds|cost_basis)\b', re.I),
+          }
+
+          rows: list[str] = []
+          syntax_errors: list[str] = []
+          for path in sorted(root.rglob('*.py')):
+              rel = path.relative_to(root)
+              text = path.read_text(encoding='utf-8')
+              try:
+                  ast.parse(text, filename=str(rel))
+              except SyntaxError as exc:
+                  syntax_errors.append(f'{rel}:{exc.lineno}:{exc.offset}: {exc.msg}')
+              for lineno, line in enumerate(text.splitlines(), 1):
+                  for label, pattern in patterns.items():
+                      if pattern.search(line):
+                          rows.append(f'{label}\t{rel}:{lineno}\t{line.strip()}')
+
+          header = [
+              'STATIC TRIAGE ONLY — every match requires manual financial review.',
+              f'python_files={sum(1 for _ in root.rglob("*.py"))}',
+              f'syntax_errors={len(syntax_errors)}',
+              f'pattern_matches={len(rows)}',
+              '',
+              '[SYNTAX_ERRORS]',
+              *syntax_errors,
+              '',
+              '[PATTERN_MATCHES]',
+              *rows,
+          ]
+          output.write_text('\n'.join(header) + '\n', encoding='utf-8')
+          PY
+
+      - name: Upload audit source and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtester-financial-audit-source-c6a1e253
+          path: audit/
+          if-no-files-found: error
+          retention-days: 7
