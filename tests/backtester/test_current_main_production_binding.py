@@ -10,7 +10,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER = ROOT / "backtester" / "run_production_current_main_strict_pit_20y.py"
-CURRENT_MAIN_SHA = "80e89b3f894f826e64139b1e0fedd5d42ef937f8"
+CURRENT_MAIN_SHA = "6d07c2b76066121906e50b4c11876c48849144a0"
 
 
 def _load_launcher():
