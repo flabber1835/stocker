@@ -39,6 +39,11 @@ FROM ${SENTINEL_IMAGE}
 ARG SOURCE_GIT_SHA=unknown
 LABEL org.opencontainers.image.revision=${SOURCE_GIT_SHA}
 
+# The deployable parent intentionally drops root. This derivative is a
+# certification/build lens and needs root only to install PostgreSQL/git test
+# tooling. Production images never contain this USER override.
+USER root
+
 # Postgres BINARIES, not a server: `tests/integration/conftest` spins up a
 # throwaway cluster with initdb/pg_ctl per module. Without them every
 # database-backed test SKIPS, and a suite that skipped is not a suite that

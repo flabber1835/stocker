@@ -105,6 +105,18 @@ jobs:
             --build-arg SOURCE_GIT_SHA="${TESTED_SHA}" \
             -f Dockerfile.sentinel-test -t sentinel-test:ci .
 
+      - name: Exercise the production non-root runtime boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/test-pr301-runtime-boundaries.sh sentinel-authorized:ci
+
+      - name: Falsify exact-XID PostgreSQL physical recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/test-pr301-pitr-recovery.sh
+
       - name: Record exact-SHA promotion evidence
         shell: bash
         run: |

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from sentinel.feed import _publication_impl as _core
 from sentinel.feed._publication_impl import (  # noqa: F401
@@ -35,6 +36,55 @@ from sentinel.feed.operational_coherence import (  # noqa: F401
 
 # Explicit static seam retained for provenance/certification tests.
 _run_producer_identity = _core._run_producer_identity
+
+PITR_EVIDENCE_SCHEMA = "sentinel.corpus-publication-pitr/2"
+_XID_MODULUS = 1 << 32
+_TIMELINE_RE = re.compile(r"^[0-9A-F]{8}$")
+
+
+def _publication_recovery_target(conn) -> dict[str, object]:
+    """Bind this publication to one branch-unique PostgreSQL recovery target.
+
+    ``recovery_target_xid`` matches the on-disk 32-bit TransactionId. The
+    64-bit xid8 is retained to identify its wraparound epoch, and recovery must
+    select a base backup whose captured xid8 epoch equals
+    ``required_base_xid_epoch``. That makes the 32-bit target unique within the
+    replay interval. The WAL timeline is recorded explicitly because PostgreSQL
+    defaults targeted recovery to the latest archived timeline after a PITR
+    forks history.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT pg_current_xact_id()::text,"
+            " substring(pg_walfile_name(pg_current_wal_lsn()) from 1 for 8)")
+        row = cur.fetchone()
+    if row is None or len(row) < 2:
+        raise _core.CorpusIncoherent(
+            "PostgreSQL did not return transaction/timeline authority for PITR")
+    try:
+        source_xid8 = int(str(row[0] or "").strip())
+    except ValueError as exc:
+        raise _core.CorpusIncoherent(
+            "PostgreSQL returned a malformed xid8 for publication PITR") from exc
+    timeline_hex = str(row[1] or "").strip().upper()
+    if source_xid8 < 3 or not _TIMELINE_RE.fullmatch(timeline_hex):
+        raise _core.CorpusIncoherent(
+            "PostgreSQL returned invalid transaction/timeline authority for PITR")
+    recovery_xid = source_xid8 % _XID_MODULUS
+    if recovery_xid < 3:
+        raise _core.CorpusIncoherent(
+            "publication xid maps to a reserved 32-bit recovery transaction id")
+    xid_epoch = source_xid8 // _XID_MODULUS
+    return {
+        "schema": PITR_EVIDENCE_SCHEMA,
+        "source_xid8": str(source_xid8),
+        "source_xid_epoch": xid_epoch,
+        "recovery_target_xid": str(recovery_xid),
+        "recovery_target_timeline": f"0x{timeline_hex}",
+        "required_base_xid_epoch": xid_epoch,
+        "recovery_target_inclusive": True,
+        "recovery_target_action": "promote",
+    }
 
 
 def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
@@ -75,6 +125,10 @@ def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
             retired_action_bars = None
         previous = current(conn)
         publication_evidence = dict(evidence or {})
+        if "pitr" in publication_evidence:
+            raise _core.CorpusIncoherent(
+                "caller may not supply publication PITR authority")
+        publication_evidence["pitr"] = _publication_recovery_target(conn)
         if run_id is not None:
             supplied_producer = publication_evidence.get("producer")
             if supplied_producer is not None and supplied_producer != producer:
@@ -135,7 +189,7 @@ def publish(conn, *, run_id=None, window_start=None, window_end=None,
 
 
 __all__ = [
-    "publish", "coherence", "assert_coherent",
+    "PITR_EVIDENCE_SCHEMA", "publish", "coherence", "assert_coherent",
     "full_historical_coherence", "assert_full_historical_coherent",
     "operational_boundary", "operational_coherence",
     "assert_operationally_coherent", "persist_operational_coherence",

@@ -12,6 +12,7 @@ x-sentinel-authorized-environment: &sentinel-authorized-environment
   SENTINEL_TEST_IMAGE_DIGEST: ${SENTINEL_TEST_IMAGE_DIGEST:?set immutable certification test image digest}
   SENTINEL_AUTHORIZED_RUNTIME: SIGNED_DIGEST_SERVICE_V1
   SENTINEL_RUNTIME_BACKUP_AUTHORITY: REQUIRED_V1
+  SENTINEL_RECOVERED_ORDER_AUTHORITY: STRICT_V1
   SENTINEL_AUTOMATION_PUBLICATION_DELAY_SECONDS: ${SENTINEL_AUTOMATION_PUBLICATION_DELAY_SECONDS:-900}
   SENTINEL_AUTOMATION_PUBLICATION_TIMING_POLICY: ${SENTINEL_AUTOMATION_PUBLICATION_TIMING_POLICY:-SHARADAR_SEP_SFP_SECOND_UPDATE_PLUS_15M_2345_AMERICA_NEW_YORK_V1}
   SENTINEL_AUTOMATION_EXECUTION_DELAY_SECONDS: ${SENTINEL_AUTOMATION_EXECUTION_DELAY_SECONDS:-60}
@@ -41,12 +42,39 @@ x-sentinel-authorized-environment: &sentinel-authorized-environment
   SENTINEL_REVIEWED_DEPLOYMENT_MODE: ${SENTINEL_REVIEWED_DEPLOYMENT_MODE:-}
 
 services:
+  # A narrow, networkless root helper repairs only the access bits required to
+  # present public signed certificates to the fixed uid/gid 10001 runtime. The
+  # deployment attempt directories themselves are intentionally 0700, so file
+  # chmod alone is insufficient. Receipts, command logs and candidates remain
+  # unreadable; directories gain execute-only traversal and signed certificate
+  # JSON gains read permission. No broker/database credentials enter this helper.
+  sentinel-authority-permissions:
+    image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
+    profiles: ["authorized-cli"]
+    restart: "no"
+    network_mode: "none"
+    user: "0:0"
+    cap_drop: ["ALL"]
+    cap_add: ["DAC_OVERRIDE", "FOWNER"]
+    security_opt: ["no-new-privileges:true"]
+    entrypoint: ["sh", "-ceu"]
+    command:
+      - |
+        find /authority -type d -exec chmod 0711 {} +
+        find /authority -type f -name '*-certificate.json' -exec chmod 0644 {} +
+    volumes:
+      - type: bind
+        source: ${SENTINEL_AUTHORITY_ARTIFACTS_DIR:-./artifacts/authority}
+        target: /authority
+
   sentinel-authorized-cli:
     image: ${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel-authorized}@${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable SENTINEL_RUNTIME_IMAGE_DIGEST}
     profiles: ["authorized-cli"]
     restart: "no"
     mem_limit: 2g
     cpus: 1.0
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
     command: ["status"]
     environment:
       <<: *sentinel-authorized-environment
@@ -60,6 +88,8 @@ services:
     depends_on:
       sentinel-postgres:
         condition: service_healthy
+      sentinel-authority-permissions:
+        condition: service_completed_successfully
 
   sentinel-automation:
     image: ${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel-authorized}@${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable SENTINEL_RUNTIME_IMAGE_DIGEST}
@@ -67,6 +97,8 @@ services:
     restart: unless-stopped
     mem_limit: 2g
     cpus: 1.0
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
     entrypoint: ["python", "-m", "sentinel.automation_supervisor"]
     environment:
       <<: *sentinel-authorized-environment
@@ -85,14 +117,14 @@ services:
       sentinel-postgres:
         condition: service_healthy
 
-  # Broker-free alert delivery. Unattended deployment refuses to treat a local
-  # log write as notification; a real HTTPS webhook must be configured.
   sentinel-alert-dispatcher:
     image: ${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel-authorized}@${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable SENTINEL_RUNTIME_IMAGE_DIGEST}
     profiles: ["automation"]
     restart: unless-stopped
     mem_limit: 512m
     cpus: 0.5
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
     entrypoint: ["python", "-m", "sentinel.alert_service"]
     environment:
       ALPACA_BASE_URL: https://paper-api.alpaca.markets
@@ -125,15 +157,14 @@ services:
       sentinel-postgres:
         condition: service_healthy
 
-  # Dedicated reviewed shadow observer. Each advance runs in a disposable child
-  # under a hard deadline, so ingest/replay/network hangs cannot block PAPER
-  # preparation indefinitely.
   sentinel-shadow:
     image: ${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel-authorized}@${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable SENTINEL_RUNTIME_IMAGE_DIGEST}
     profiles: ["shadow"]
     restart: unless-stopped
     mem_limit: 2g
     cpus: 1.0
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
     entrypoint: ["python", "-m", "sentinel.shadow_supervisor"]
     environment:
       SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel

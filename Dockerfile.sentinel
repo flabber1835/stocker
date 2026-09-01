@@ -106,7 +106,15 @@ COPY sentinel/ /app/sentinel/
 # that administrative state machine. The directory still exists in the image so
 # a configured audit-volume mount has a stable, writable target.
 ENV SENTINEL_STATE_DIR=/var/lib/sentinel
-RUN mkdir -p /var/lib/sentinel
+RUN groupadd --system --gid 10001 sentinel \
+    && useradd --system --uid 10001 --gid 10001 \
+         --home-dir /var/lib/sentinel --shell /usr/sbin/nologin sentinel \
+    && mkdir -p /var/lib/sentinel \
+    && chown -R 10001:10001 /var/lib/sentinel
+
+# Financial runtime processes do not require host-root authority. The fixed uid
+# is part of the image and therefore part of the immutable deployment artifact.
+USER 10001:10001
 
 # No default command that TRADES. `migrate-account` liquidates a LEGACY book;
 # it is not something a container restart policy should be able to trigger on its

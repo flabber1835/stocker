@@ -74,4 +74,9 @@ if [ "$before" != "$after" ]; then
   exec bash scripts/sentinel-autonomous-deploy.sh "$@"
 fi
 
+# The deployable image now runs as fixed uid/gid 10001. Upgrade an existing
+# audit-only named volume before the bootstrap starts any new runtime. Fresh
+# installations have no volume yet and this helper exits successfully.
+bash scripts/sentinel-state-volume-permissions.sh
+
 exec "$PYTHON" scripts/sentinel_autonomous_deploy_bootstrap.py "$@"
