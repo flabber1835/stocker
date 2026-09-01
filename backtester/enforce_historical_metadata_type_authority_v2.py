@@ -4,7 +4,7 @@
 Form 3/4/5 Table I titles are retained as supplementary instrument evidence but
 never admitted as the listed ticker's security type. Positive common/non-common
 classification requires an SEC periodic/registration filing where the exact
-historical trading symbol and class description co-occur on the filing cover.
+historical trading symbol and class description co-occur on the same filing.
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from pathlib import Path
 
 from backtester import historical_metadata_reconstruction_v2 as base
 
-SCHEMA = "backtester.historical-metadata-reconstruction-v2.security-type-authority/1"
+SCHEMA = "backtester.historical-metadata-reconstruction-v2.security-type-authority/2"
 
 
 def demote_bulk(bulk_dir: Path) -> dict:
@@ -58,6 +58,17 @@ def demote_bulk(bulk_dir: Path) -> dict:
 def filter_web(web_dir: Path) -> dict:
     path = web_dir / "web_security_type_sources.csv.gz"
     rows = base.read_gzip_csv(path) if path.exists() else []
+    identity_rows = base.read_gzip_csv(web_dir / "web_identity_sources.csv.gz") if (web_dir / "web_identity_sources.csv.gz").exists() else []
+    identity_keys = {
+        (
+            str(row.get("accession") or ""),
+            base.validate_cik(row.get("cik")),
+            base.norm_ticker(row.get("sec_symbol")),
+            str(row.get("source_sha256") or ""),
+        )
+        for row in identity_rows
+        if str(row.get("accession") or "") and base.validate_cik(row.get("cik")) and base.norm_ticker(row.get("sec_symbol"))
+    }
     allowed_forms = {value.upper() for value in base.PERIODIC_FORMS}
     kept = []
     rejected = []
@@ -66,22 +77,39 @@ def filter_web(web_dir: Path) -> dict:
         classification = str(row.get("classification") or "unknown")
         evidence = str(row.get("security_title_evidence") or "").strip()
         symbol = base.norm_ticker(row.get("sec_symbol"))
-        if form in allowed_forms and classification in {"common", "non_common"} and evidence and symbol:
+        cik = base.validate_cik(row.get("cik"))
+        accession = str(row.get("accession") or "")
+        source_sha = str(row.get("source_sha256") or "")
+        same_filing_identity = (accession, cik, symbol, source_sha) in identity_keys
+        if (
+            form in allowed_forms
+            and classification in {"common", "non_common"}
+            and evidence
+            and symbol
+            and cik
+            and accession
+            and source_sha
+            and same_filing_identity
+        ):
             item = dict(row)
-            item["authority"] = "SEC_PERIODIC_OR_REGISTRATION_COVER_EXACT_TICKER_CLASS_COOCCURRENCE"
+            item["authority"] = "SEC_PERIODIC_OR_REGISTRATION_SAME_FILING_EXACT_TICKER_IDENTITY_AND_CLASS"
             kept.append(item)
         else:
             rejected.append({
                 "security_id_hint": row.get("security_id_hint", ""),
-                "accession": row.get("accession", ""),
+                "accession": accession,
                 "filed": row.get("filed", ""),
-                "cik": row.get("cik", ""),
-                "sec_symbol": row.get("sec_symbol", ""),
+                "cik": cik,
+                "sec_symbol": symbol,
                 "document_type": form,
                 "classification": classification,
-                "reason": "not_periodic_registration_exact_ticker_class_authority",
+                "reason": (
+                    "missing_same_filing_exact_ticker_identity_proof"
+                    if not same_filing_identity
+                    else "not_periodic_registration_exact_ticker_class_authority"
+                ),
                 "source_url": row.get("source_url", ""),
-                "source_sha256": row.get("source_sha256", ""),
+                "source_sha256": source_sha,
             })
     fields = [
         "security_id_hint", "accession", "filed", "cik", "sec_symbol", "document_type", "classification",
@@ -93,7 +121,6 @@ def filter_web(web_dir: Path) -> dict:
         "classification", "reason", "source_url", "source_sha256",
     ], rejected)
 
-    identity_rows = base.read_gzip_csv(web_dir / "web_identity_sources.csv.gz") if (web_dir / "web_identity_sources.csv.gz").exists() else []
     sic_rows = base.read_gzip_csv(web_dir / "web_sic_sources.csv.gz") if (web_dir / "web_sic_sources.csv.gz").exists() else []
     normalized_evidence = base.normalized_web_evidence_hash(identity_rows, kept, sic_rows)
 
@@ -109,7 +136,7 @@ def filter_web(web_dir: Path) -> dict:
     coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
     coverage.update({
         "security_type_authority_schema": SCHEMA,
-        "security_type_source_rule": "periodic/registration SEC cover exact historical ticker and class co-occurrence",
+        "security_type_source_rule": "periodic/registration same-source exact historical ticker identity proof plus class description",
         "admitted_security_type_sources": len(kept),
         "rejected_non_authoritative_security_type_sources": len(rejected),
         "normalized_evidence_sha256": normalized_evidence,
