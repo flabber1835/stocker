@@ -80,6 +80,7 @@ jobs:
           set -euo pipefail
           python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
           python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          python -m pip install -r services/backtester/requirements.txt
           python -m pip install pytest
 
       - name: Compile audited financial paths
