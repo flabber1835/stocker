@@ -8,6 +8,11 @@ markers and a contiguous full-size external WAL chain from the newest base
 backup's post-backup recovery marker through the archiver's latest successful
 segment. The base itself uses streamed WAL, so its START WAL is not the external
 archive continuity boundary.
+
+The ordinary backup guard deliberately allows a short DEGRADED grace period.
+Unattended financial mutation is stricter: the first unresolved archive failure
+fences new feed/plan/order mutation while read-only broker recovery stays live.
+This prevents a long outage from consuming the primary disk with retained WAL.
 """
 from __future__ import annotations
 
@@ -136,7 +141,7 @@ def require(conn, *, operation: str) -> dict:
     start = _recovery_wal(conn, base)
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT last_archived_wal,"
+            "SELECT last_archived_wal,last_archived_time,last_failed_time,"
             " pg_size_bytes(current_setting('wal_segment_size'))"
             " FROM pg_stat_archiver")
         row = cur.fetchone()
@@ -144,7 +149,12 @@ def require(conn, *, operation: str) -> dict:
         raise BackupRuntimeUnavailable(
             f"{operation}: PostgreSQL has no successful archived WAL frontier")
     end = str(row[0])
-    segment_size = int(row[1])
+    last_ok = row[1]
+    last_fail = row[2]
+    segment_size = int(row[3])
+    if last_fail is not None and (last_ok is None or last_fail > last_ok):
+        raise BackupRuntimeUnavailable(
+            f"{operation}: PostgreSQL WAL archiver has an unresolved failure")
     expected = _expected_wals(start, end, segment_size=segment_size)
 
     with conn.cursor() as cur:
