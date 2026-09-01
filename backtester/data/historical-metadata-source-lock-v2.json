@@ -9,6 +9,7 @@
     "authority": "SEC Insider Transactions Data Sets, as-filed Forms 3/4/5 flattened data",
     "repository_path": "sec",
     "git_tree_sha1": "396aac6fe82e57b8dad1f8249548f1c8c7627d95",
+    "sha256_manifest": "research/sentinel-fastgate/pit-evidence/generated/coverage.json:archives[].sha256",
     "first_year": 2006,
     "through_year": 2026,
     "through_quarter": 2,
