@@ -85,6 +85,19 @@ def filter_web(web_dir: Path) -> dict:
         "security_id_hint", "accession", "filed", "cik", "sec_symbol", "document_type",
         "classification", "reason", "source_url", "source_sha256",
     ], rejected)
+
+    identity_rows = base.read_gzip_csv(web_dir / "web_identity_sources.csv.gz") if (web_dir / "web_identity_sources.csv.gz").exists() else []
+    sic_rows = base.read_gzip_csv(web_dir / "web_sic_sources.csv.gz") if (web_dir / "web_sic_sources.csv.gz").exists() else []
+    normalized_evidence = base.normalized_web_evidence_hash(identity_rows, kept, sic_rows)
+
+    checkpoint_path = web_dir / "checkpoint.json"
+    if checkpoint_path.exists():
+        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        checkpoint["normalized_evidence_sha256"] = normalized_evidence
+        checkpoint["security_type_authority_schema"] = SCHEMA
+        checkpoint["post_fetch_security_type_authority_filter"] = True
+        checkpoint_path.write_text(json.dumps(checkpoint, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
     coverage_path = web_dir / "web_coverage.json"
     coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
     coverage.update({
@@ -92,6 +105,7 @@ def filter_web(web_dir: Path) -> dict:
         "security_type_source_rule": "periodic/registration SEC cover exact historical ticker and class co-occurrence",
         "admitted_security_type_sources": len(kept),
         "rejected_non_authoritative_security_type_sources": len(rejected),
+        "normalized_evidence_sha256": normalized_evidence,
     })
     coverage_path.write_text(json.dumps(coverage, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     base.write_checksums(web_dir, exclude={".http-cache"})
