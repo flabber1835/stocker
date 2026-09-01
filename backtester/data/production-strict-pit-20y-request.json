@@ -1,23 +1,25 @@
 {
   "schema": "backtester.production-strict-pit-20y-request/1",
   "requested_at": "2026-09-01",
-  "purpose": "Run current Production across the certified 2006-01-03 through 2026-07-31 canonical PIT dataset after correcting the AUM scope of the strict-PIT capacity guard.",
+  "purpose": "Run current Production across the certified 2006-01-03 through 2026-07-31 canonical PIT dataset after correcting the capacity-scope and checkpoint progress-count defects.",
   "production_source_sha": "bb7747fe329a1a89de555e2a44cb2f04a7eaa285",
   "production_overlay_issue": 294,
   "canonical_dataset_hash": "f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b",
   "warmup_start": "2006-01-03",
   "measurement_start": "2006-07-31",
   "end": "2026-07-31",
-  "retry": 9,
+  "retry": 10,
   "previous_failure": {
-    "run_id": 33564625251,
-    "job_id": 100044886913,
-    "classification": "unscoped scale-dependent volume participation guard during Production warm-up",
-    "cause": "the certification harness applied a 10% trailing-20-session volume ceiling to absolute shares produced by an arbitrary $100,000,000 normalization anchor; the 2006 replay failed on 2006-07-06 at 15.48079% participation even though no certification AUM was declared"
+    "run_id": 33571276793,
+    "job_id": 100065556786,
+    "classification": "checkpoint progress-count serialization mismatch after successful 2006 Production replay",
+    "cause": "two nested reporting wrappers incremented the same _progress_sessions owner once each per Production session, producing progress_sessions=502 at the 251-session 2006 checkpoint and correctly failing the checkpoint pointer invariant"
   },
   "correction": {
     "terminal_terms_sha256": "cfd65c78317abd1671632b2a730507634cf036e798b0ade89be68194fda430dc",
-    "rule": "preserve exact Production fill/state semantics; treat the 10% trailing-volume rule as scale-neutral capacity evidence unless PRODUCTION_CERTIFICATION_CAPITAL_USD explicitly binds replay AUM, in which case replay at that AUM and fail closed above 10%",
-    "verification": "financial-causality run 33571163504 passed exact current-main source closure, compilation, current-main launcher binding, financial source contracts, package identity, and all 280 backtester regressions on branch head 36455e0145aedf802cdd9014a93ab22a0b29a7e9 before this retry was requested"
+    "capacity_rule": "preserve exact Production fill/state semantics; treat the 10% trailing-volume rule as scale-neutral capacity evidence unless PRODUCTION_CERTIFICATION_CAPITAL_USD explicitly binds replay AUM",
+    "checkpoint_rule": "the inherited full-stack Production reporting layer is the sole runtime owner increment for _progress_sessions; the strict wrapper reads the resulting count and fails closed unless it advances exactly once per canonical Production session",
+    "retry_9_evidence": "Retry 9 passed the former 2006-07-06 capacity blocker, completed the 2006 economic replay through 2006-12-29 at Production multiple 1.137274649957, then failed only while validating checkpoint progress count 502 against canonical pointer 251",
+    "verification": "financial-causality run 33573183153 passed exact current-main closure, compilation, current-main launcher binding, financial source contracts, package identity, and all 282 backtester regressions on branch head cb9877fd5972c6147a15bd861dc01faa75c5dc5d"
   }
 }
