@@ -1,0 +1,221 @@
+name: Codex backtester financial audit tests
+
+on:
+  push:
+    branches:
+      - codex/backtester-financial-audit-20260831
+    paths:
+      - .github/workflows/codex-backtester-financial-tests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  financial-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out pinned backtester source
+        uses: actions/checkout@v4
+        with:
+          ref: c6a1e253fb3b6b12fa8572d039b8c4894a1b917d
+          path: source
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-*.yml
+            /backtester/
+            /tests/backtester/
+            /shared/
+            /sentinel/core/
+            /services/backtester/app/
+            /pytest.ini
+            /AGENTS.md
+            !/backtester/evidence/
+
+      - name: Check out exact production source
+        uses: actions/checkout@v4
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /sentinel/
+            /shared/
+            /services/backtester/app/
+
+      - name: Verify source identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = c6a1e253fb3b6b12fa8572d039b8c4894a1b917d
+          test "$(git -C main-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
+          mkdir -p audit-results/pinned-production-source
+          printf '%s\n' "$(git -C source rev-parse HEAD)" > audit-results/research-backtester-sha.txt
+          printf '%s\n' "$(git -C main-src rev-parse HEAD)" > audit-results/production-source-sha.txt
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install exact production runtime and test runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          python -m pip install pytest
+
+      - name: Apply certified production cooldown correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python source/backtester/apply_production_cooldown_age_zero.py \
+            --root main-src \
+            --evidence audit-results/production-cooldown-overlay.json
+
+      - name: Build synthetic certified canonical fixture
+        shell: bash
+        working-directory: source
+        env:
+          PYTHONPATH: ${{ github.workspace }}/source:${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared:${{ github.workspace }}/main-src/services/backtester
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from tests.backtester.test_canonical_pit_dataset import _artifact
+          _artifact(Path('../audit-results/test-canonical'))
+          PY
+
+      - name: Run exact annual-worker regression gates
+        shell: bash
+        working-directory: source
+        env:
+          CANONICAL_PIT_DATASET: ${{ github.workspace }}/audit-results/test-canonical
+          CERTIFICATION_WARMUP_START: '2006-01-03'
+          CERTIFICATION_END_SESSION: '2006-01-03'
+          CANONICAL_PIT_EXPECTED_END: '2006-01-03'
+          PYTHONPATH: ${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared:${{ github.workspace }}/main-src/services/backtester
+        run: |
+          set -o pipefail
+          python -m compileall -q -f backtester main-src/sentinel main-src/shared/stock_strategy_shared
+          python -m unittest tests.backtester.test_production_cooldown_age_zero -v 2>&1 | tee ../audit-results/production-cooldown-tests.log
+          python -m unittest tests.backtester.test_production_annual_chain -v 2>&1 | tee ../audit-results/production-annual-chain-tests.log
+          python -m pytest -q tests/backtester/test_production_year_checkpoint.py 2>&1 | tee ../audit-results/production-checkpoint-tests.log
+
+      - name: Run research and reporting financial regressions
+        shell: bash
+        working-directory: source
+        env:
+          CANONICAL_PIT_DATASET: ${{ github.workspace }}/audit-results/test-canonical
+          CERTIFICATION_WARMUP_START: '2006-01-03'
+          CERTIFICATION_END_SESSION: '2006-01-03'
+          CANONICAL_PIT_EXPECTED_END: '2006-01-03'
+          PYTHONPATH: ${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared:${{ github.workspace }}/main-src/services/backtester
+        run: |
+          set +e
+          set -o pipefail
+          python -m unittest \
+            tests.backtester.test_canonical_pit_dataset \
+            tests.backtester.test_certification_parallel \
+            tests.backtester.test_research_review_basis \
+            tests.backtester.test_research_split_dividend_ordering \
+            tests.backtester.test_production_reporting \
+            -v 2>&1 | tee ../audit-results/research-reporting-tests.log
+          echo "${PIPESTATUS[0]}" > ../audit-results/research-reporting-tests.exit
+          python -m pytest -q tests/backtester --disable-warnings 2>&1 | tee ../audit-results/whole-backtester-pytest.log
+          echo "${PIPESTATUS[0]}" > ../audit-results/whole-backtester-pytest.exit
+          exit 0
+
+      - name: Trace production module origins
+        shell: bash
+        working-directory: source
+        env:
+          CANONICAL_PIT_DATASET: ${{ github.workspace }}/audit-results/test-canonical
+          CERTIFICATION_WARMUP_START: '2006-01-03'
+          CERTIFICATION_END_SESSION: '2006-01-03'
+          CANONICAL_PIT_EXPECTED_END: '2006-01-03'
+          BACKTESTER_MAIN_SHA: 887f479b15ad861313da666ad698034d3847121c
+          PYTHONPATH: ${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared:${{ github.workspace }}/main-src/services/backtester
+        run: |
+          set -euo pipefail
+          env -u PYTHONPATH python backtester/run_production_strict_pit_20y.py \
+            --self-test-imports \
+            --main-root ../main-src \
+            --lab-root . 2>&1 | tee ../audit-results/production-import-self-test.log
+          python - <<'PY' > ../audit-results/production-module-origins.json
+          import hashlib, importlib, json
+          names = [
+              'sentinel.core.production',
+              'stock_strategy_shared.wealth_core.adapter',
+              'stock_strategy_shared.wealth_core.engine',
+              'stock_strategy_shared.wealth_core.feed',
+              'stock_strategy_shared.wealth_core.state',
+              'stock_strategy_shared.wealth_core.settlement',
+              'stock_strategy_shared.split_reconciliation',
+          ]
+          out = {}
+          for name in names:
+              module = importlib.import_module(name)
+              path = module.__file__
+              data = open(path, 'rb').read()
+              out[name] = {'path': path, 'sha256': hashlib.sha256(data).hexdigest()}
+          print(json.dumps(out, indent=2, sort_keys=True))
+          PY
+
+      - name: Compare branch and production financial modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' > audit-results/branch-vs-production-files.json
+          import hashlib, json
+          from pathlib import Path
+          roots = {'branch': Path('source'), 'production': Path('main-src')}
+          paths = set()
+          for prefix in (
+              'shared/stock_strategy_shared/wealth_core',
+              'shared/stock_strategy_shared/split_reconciliation.py',
+              'sentinel/core/production.py',
+              'services/backtester/app/wealth_core_replay.py',
+              'services/backtester/app/wealth_core_replay_impl.py',
+          ):
+              p = roots['branch'] / prefix
+              if p.is_dir():
+                  paths.update(str(x.relative_to(roots['branch'])) for x in p.rglob('*.py'))
+              elif p.is_file():
+                  paths.add(prefix)
+          out = []
+          for rel in sorted(paths):
+              row = {'path': rel}
+              for label, root in roots.items():
+                  p = root / rel
+                  if p.is_file():
+                      row[label] = hashlib.sha256(p.read_bytes()).hexdigest()
+                  else:
+                      row[label] = None
+              row['same'] = row['branch'] == row['production']
+              out.append(row)
+          print(json.dumps(out, indent=2, sort_keys=True))
+          PY
+          cp -R main-src/shared/stock_strategy_shared/wealth_core audit-results/pinned-production-source/
+          cp main-src/shared/stock_strategy_shared/split_reconciliation.py audit-results/pinned-production-source/
+          mkdir -p audit-results/pinned-production-source/sentinel/core
+          cp main-src/sentinel/core/production.py audit-results/pinned-production-source/sentinel/core/
+          mkdir -p audit-results/pinned-production-source/services/backtester/app
+          cp main-src/services/backtester/app/wealth_core_replay.py audit-results/pinned-production-source/services/backtester/app/
+          cp main-src/services/backtester/app/wealth_core_replay_impl.py audit-results/pinned-production-source/services/backtester/app/
+
+      - name: Upload audit reports and pinned production closure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtester-financial-tests-c6a1e253
+          path: audit-results/
+          if-no-files-found: error
+          retention-days: 7
