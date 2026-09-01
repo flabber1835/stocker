@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Shared validation for backup scripts. Sourced, not invoked.
 
+SENTINEL_BACKUP_TARGET_MARKER=".sentinel-independent-durable-target-v1"
+SENTINEL_BACKUP_TARGET_MARKER_CONTENT="sentinel-independent-durable-target-v1"
+
 sentinel_backup_root() {
-  local root raw_root repo parent docker_root docker_canonical root_dev docker_dev uid
+  local root raw_root repo parent docker_root docker_canonical root_dev docker_dev uid marker content
   raw_root="${SENTINEL_BACKUP_DIR:-}"
   root="$raw_root"
   [ -n "$root" ] || {
@@ -105,6 +108,42 @@ sentinel_backup_root() {
       echo "REFUSED: container root cannot write the base-backup target" >&2
       return 2
     }
+
+  # Install one durable-target sentinel only AFTER the host/device and write
+  # authority checks above have passed.  On a cold boot where the intended
+  # external filesystem is absent, the underlying local mountpoint does not
+  # contain this marker, so PostgreSQL and unattended services remain fenced.
+  for parent in "$root/wal" "$root/base"; do
+    marker="$parent/$SENTINEL_BACKUP_TARGET_MARKER"
+    if [ -e "$marker" ] || [ -L "$marker" ]; then
+      [ -f "$marker" ] && [ ! -L "$marker" ] || {
+        echo "REFUSED: backup durable-target marker is not a regular file: $marker" >&2
+        return 2
+      }
+      content="$(cat "$marker")" || {
+        echo "REFUSED: backup durable-target marker is unreadable: $marker" >&2
+        return 2
+      }
+      [ "$content" = "$SENTINEL_BACKUP_TARGET_MARKER_CONTENT" ] || {
+        echo "REFUSED: backup durable-target marker content is invalid: $marker" >&2
+        return 2
+      }
+    else
+      printf '%s\n' "$SENTINEL_BACKUP_TARGET_MARKER_CONTENT" > "$marker" || {
+        echo "REFUSED: could not create backup durable-target marker: $marker" >&2
+        return 2
+      }
+      sync "$marker" || {
+        echo "REFUSED: could not fsync backup durable-target marker: $marker" >&2
+        return 2
+      }
+      sync "$parent" || {
+        echo "REFUSED: could not fsync backup durable-target directory: $parent" >&2
+        return 2
+      }
+    fi
+  done
+
   printf '%s\n' "$root"
 }
 
