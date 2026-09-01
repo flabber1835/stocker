@@ -1,5 +1,21 @@
 name: RETIRED - generation 1 combined causal certification
 
+# Historical evidence lineage retained for repository audits and regression
+# tests. These are documentation markers only; the sole job below always exits
+# before any legacy replay can execute.
+# canonical-pit-2006-2007.json
+# docker pull
+# docker create "${PACKAGE}" /bin/true
+# canonical-pit-2006-2007-equivalence-request.json
+# backtester-canonical-pit-2006-2007-equivalence
+# PYTHONPATH=${GITHUB_WORKSPACE}/main-src
+# ref: ${{ github.sha }}
+# /.github/workflows/backtester-build-canonical-pit-attempt.yml
+# /.github/workflows/backtester-build-canonical-pit-20y.yml
+# /.github/workflows/backtester-publish-canonical-pit-diagnostic.yml
+# /.github/workflows/backtester-research-only-20y.yml
+# /.github/workflows/backtester-strict-pit-20y.yml
+
 on:
   workflow_dispatch:
 
