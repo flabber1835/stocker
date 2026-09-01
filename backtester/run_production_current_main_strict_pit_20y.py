@@ -16,12 +16,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-CURRENT_MAIN_SHA = "89f6218ff116b4dafc4ca8ac6159337d1718e2e1"
+CURRENT_MAIN_SHA = "80e89b3f894f826e64139b1e0fedd5d42ef937f8"
 EXPECTED_PRODUCTION_BLOBS = {
     "sentinel/core/kernel.py": "12617af8eb954d4ae18fef2ae16977048e2e40cd",
-    "sentinel/core/production.py": "1809c2a31216b247dd0b727178680d41fce80c48",
+    "sentinel/core/production.py": "e4ebfebae2fa1a737c52063af63003a82b6e19cf",
     "shared/stock_strategy_shared/wealth_core/adapter.py": "466a8f8202692e65e08596a7a47d45bd15bb3fd3",
-    "shared/stock_strategy_shared/wealth_core/state.py": "8dd316ed28ff9b82c216f852118f8ef83d8510ad",
+    "shared/stock_strategy_shared/wealth_core/state.py": "1921399aca503ae5e2cbfd6125792c09464ba22b",
 }
 
 
@@ -81,8 +81,6 @@ def verify_unmodified_current_main(root: Path) -> None:
 
 
 def _load_retained_harness():
-    # Import only when an actual historical replay is requested. Source-identity
-    # and causality checks must remain independent of SEC evidence construction.
     import backtester.run_production_strict_pit_20y as retained
     return retained
 
