@@ -125,4 +125,28 @@ docker run --rm --network none --user 10001:10001 \
     test -s /var/lib/sentinel/runtime-smoke
   '
 
+# Exercise the strict recovered-order ownership rule through the same fresh
+# process/environment activation path used by the authorized Compose services.
+# This proves the package import actually replaces the historical adopter and
+# that a bare sntl- prefix cannot create durable production ownership authority.
+docker run --rm --network none --user 10001:10001 \
+  --cap-drop ALL --security-opt no-new-privileges:true \
+  -e SENTINEL_RECOVERED_ORDER_AUTHORITY=STRICT_V1 \
+  --entrypoint python "$RUNTIME_IMAGE" -c '
+from types import SimpleNamespace
+from sentinel.execution import journal
+from sentinel.execution import recovered_order_policy as policy
+assert journal.adopt_recovered_order is policy.refuse_unauthenticated_recovered_order
+order = SimpleNamespace(
+    client_key="sntl-prefix-only",
+    instrument=SimpleNamespace(security_id="SEC:AMBIGUOUS"),
+)
+try:
+    journal.adopt_recovered_order(None, order, deployment=None)
+except journal.RecoveredOrderConflict as exc:
+    assert "prefix" in str(exc)
+else:
+    raise SystemExit("strict recovered-order policy did not fail closed")
+  '
+
 printf '%s\n' 'PR301_RUNTIME_BOUNDARY_PASS'
