@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      CURRENT_MAIN_SHA: 80e89b3f894f826e64139b1e0fedd5d42ef937f8
+      CURRENT_MAIN_SHA: 6d07c2b76066121906e50b4c11876c48849144a0
       PYTHONUNBUFFERED: '1'
 
     steps:
