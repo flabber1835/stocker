@@ -86,6 +86,10 @@ jobs:
               'orion_fetch_sec_coverpage_security_type.ps1',
               'orion_fetch_sec_coverpage_security_type_v3.ps1',
               'listing.csv',
+              '.github/workflows/orion-fetch-sec-coverpage-security-type.yml',
+              '.github/workflows/orion-sec-gap-metadata.yml',
+              '.github/workflows/orion-sec-security-type-coverage.yml',
+              '.github/workflows/sec-pit-reconstruction.yml',
           }
 
           tracked = subprocess.check_output(
@@ -105,7 +109,6 @@ jobs:
                   or 'sec-backfill' in low
                   or ('backfill' in name and 'sec' in name)
                   or ('sec' in name and ('coverpage' in name or 'filing' in name))
-                  or (path.startswith('.github/workflows/') and 'sec' in name)
               )
 
           for rel in tracked:
@@ -208,3 +211,4 @@ jobs:
           path: audit/
           if-no-files-found: error
           retention-days: 7
+          include-hidden-files: true
