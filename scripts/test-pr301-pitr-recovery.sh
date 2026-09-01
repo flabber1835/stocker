@@ -37,8 +37,11 @@ timeline_hex() {
 }
 
 xid_epoch() {
-  psql -h "$work" -Atq -v ON_ERROR_STOP=1 -v xid8="$1" -c \
-    "SELECT trunc(:'xid8'::numeric / 4294967296)::bigint"
+  case "$1" in
+    ''|*[!0-9]*) echo "invalid xid8" >&2; return 2 ;;
+  esac
+  psql -h "$work" -Atq -v ON_ERROR_STOP=1 -c \
+    "SELECT trunc($1::numeric / 4294967296)::bigint"
 }
 
 initdb -D "$primary" -A trust --no-locale >/dev/null
