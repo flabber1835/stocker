@@ -3,8 +3,8 @@ set -euo pipefail
 
 POSTGRES_IMAGE="postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b"
 
-docker run --rm --network none --user postgres \
-  --entrypoint bash "$POSTGRES_IMAGE" -ceu '
+docker run --rm -i --network none --user postgres \
+  --entrypoint bash "$POSTGRES_IMAGE" -seu <<'PR301_PITR_INNER'
 work="$(mktemp -d /tmp/pr301-pitr.XXXXXX)"
 primary="$work/primary"
 base="$work/base"
@@ -30,7 +30,7 @@ archive_command = 'test -f $archive/%f || cp %p $archive/%f'
 EOF
 
 pg_ctl -D "$primary" -o "-k $work" -w start >/dev/null
-psql -h "$work" -v ON_ERROR_STOP=1 -q <<SQL
+psql -h "$work" -v ON_ERROR_STOP=1 -q <<'SQL'
 CREATE TABLE pitr_probe (
   id text PRIMARY KEY,
   publication_fingerprint text NOT NULL
@@ -90,4 +90,4 @@ test "$(psql -h "$work" -Atq -c "SELECT publication_fingerprint FROM pitr_probe 
 test "$(psql -h "$work" -Atq -c 'SELECT pg_is_in_recovery()')" = f
 
 printf 'PR301_PITR_PASS xid=%s fingerprint=%s\n' "$p_xid" "$fingerprint"
-'
+PR301_PITR_INNER
