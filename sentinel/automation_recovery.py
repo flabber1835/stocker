@@ -38,6 +38,7 @@ from sentinel.automation.model import (
     NonRetryableCallbackRefused,
     TransientInfrastructureFailure,
 )
+from sentinel.automation_resilience import RecoveryAutomationService
 
 
 # Exact messages are produced only by the first-plan pre-adoption gates.
@@ -76,12 +77,27 @@ class _LateBoundRegenesisFlatSizing:
 class ProductionAutomation(base.ProductionAutomation):
     """Retain canonical automation behavior with production recovery guards."""
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # Production availability is duration-independent. A typed temporary
+        # dependency failure may last for days and still heal with no change in
+        # financial authority. Rebuild only the broker-independent service
+        # wrapper; all canonical callbacks remain the base runtime methods.
+        self.service = RecoveryAutomationService(
+            config=self.automation_config, holder_id=self.holder_id,
+            refresh=self.refresh, prepare=self.prepare,
+            recover=self.recover, execute=self.execute,
+            notify=self.notify, terminal=self.certify_terminal_cycle)
+
     def _require_backup_for_new_mutation(self, operation: str):
         conn = self.connect()
         try:
             try:
                 return backup_guard.require_writes_permitted(
                     conn, operation=operation)
+            except backup_guard.BackupUnavailable as exc:
+                raise TransientInfrastructureFailure(
+                    f"backup durability is temporarily unavailable: {exc}") from exc
             except backup_guard.BackupConfigurationRefused as exc:
                 raise NonRetryableCallbackRefused(
                     "backup durability configuration/integrity refused: "
