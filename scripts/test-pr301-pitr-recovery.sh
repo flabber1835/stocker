@@ -41,6 +41,17 @@ wait_for_archive() {
   fail "archive did not receive $file"
 }
 
+wait_for_promotion() {
+  label="$1"
+  for _ in $(seq 1 60); do
+    state="$(psql -h "$work" -Atq -c 'SELECT pg_is_in_recovery()' \
+      2>/dev/null || true)"
+    [ "$state" = "f" ] && return 0
+    sleep 1
+  done
+  fail "$label did not promote within 60 seconds"
+}
+
 timeline_hex() {
   psql -h "$work" -Atq -v ON_ERROR_STOP=1 -c \
     "SELECT substring(pg_walfile_name(pg_current_wal_lsn()) from 1 for 8)"
@@ -133,8 +144,7 @@ recovery_target_action = 'promote'
 EOF
 touch "$branch/recovery.signal"
 pg_ctl -D "$branch" -o "-k $work" -w start >/dev/null
-require_equal "branch promoted" \
-  "$(psql -h "$work" -Atq -c 'SELECT pg_is_in_recovery()')" "f"
+wait_for_promotion "branch recovery"
 branch_timeline_hex="$(timeline_hex)"
 [ "$branch_timeline_hex" != "$p_timeline_hex" ] || \
   fail "promotion did not create a new WAL timeline"
@@ -194,6 +204,7 @@ recovery_target_action = 'promote'
 EOF
 touch "$ambiguous/recovery.signal"
 pg_ctl -D "$ambiguous" -o "-k $work" -w start >/dev/null
+wait_for_promotion "latest-timeline target recovery"
 require_equal "latest timeline excludes original P" \
   "$(psql -h "$work" -Atq -c "SELECT count(*) FROM pitr_probe WHERE id='P'")" "0"
 require_equal "latest timeline selected fork R" \
@@ -212,6 +223,7 @@ recovery_target_action = 'promote'
 EOF
 touch "$restore/recovery.signal"
 pg_ctl -D "$restore" -o "-k $work" -w start >/dev/null
+wait_for_promotion "explicit-timeline target recovery"
 
 require_equal "explicit timeline includes P" \
   "$(psql -h "$work" -Atq -c "SELECT count(*) FROM pitr_probe WHERE id='P'")" "1"
