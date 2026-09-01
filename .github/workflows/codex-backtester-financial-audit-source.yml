@@ -16,26 +16,51 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Check out pinned audit branch
+      - name: Check out pinned financial source sparsely
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: c6a1e253fb3b6b12fa8572d039b8c4894a1b917d
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/
+            /backtester/
+            /research/
+            /tools/
+            /shared/
+            /tests/
+            /docs/
+            /sentinel/
+            /services/
+            /sharadar/
+            /config/
+            /scripts/
+            /AGENTS.md
+            /CLAUDE.md
+            /README.md
+            /Makefile
+            /pytest.ini
+            /docker-compose.backtest.yml
+            !/backtester/data/
+            !/backtester/evidence/
+            !/sec/
+            !/sec-filings/
 
       - name: Verify pinned source and build source bundle
         shell: bash
         run: |
           set -euo pipefail
           expected="c6a1e253fb3b6b12fa8572d039b8c4894a1b917d"
-          actual="$(git rev-parse HEAD^)"
+          actual="$(git rev-parse HEAD)"
           test "$actual" = "$expected"
           mkdir -p audit/source audit/reports
           printf '%s\n' "$expected" > audit/reports/audited_source_sha.txt
-          printf '%s\n' "$(git rev-parse HEAD)" > audit/reports/audit_workflow_sha.txt
+          printf '%s\n' "$GITHUB_SHA" > audit/reports/audit_workflow_sha.txt
           python - <<'PY'
           from __future__ import annotations
 
           import hashlib
-          import os
           import shutil
           import subprocess
           from pathlib import Path
@@ -43,6 +68,7 @@ jobs:
           root = Path('.')
           out = Path('audit/source')
           report = Path('audit/reports')
+          expected = 'c6a1e253fb3b6b12fa8572d039b8c4894a1b917d'
 
           text_suffixes = {
               '.py', '.pyi', '.md', '.rst', '.txt', '.toml', '.ini', '.cfg',
@@ -60,15 +86,15 @@ jobs:
               'orion_fetch_sec_coverpage_security_type.ps1',
               'orion_fetch_sec_coverpage_security_type_v3.ps1',
               'listing.csv',
-              '.github/workflows/codex-backtester-financial-audit-source.yml',
           }
 
           tracked = subprocess.check_output(
-              ['git', 'ls-tree', '-r', '--name-only', 'HEAD^'], text=True
+              ['git', 'ls-tree', '-r', '--name-only', expected], text=True
           ).splitlines()
 
           included: list[str] = []
           excluded: list[str] = []
+          unavailable: list[str] = []
           manifest: list[str] = []
 
           def is_sec_backfill_code(path: str) -> bool:
@@ -92,6 +118,7 @@ jobs:
                   continue
               src = root / rel
               if not src.is_file():
+                  unavailable.append(rel)
                   continue
               try:
                   data = src.read_bytes()
@@ -107,9 +134,11 @@ jobs:
 
           (report / 'included_files.txt').write_text('\n'.join(included) + '\n', encoding='utf-8')
           (report / 'excluded_files.txt').write_text('\n'.join(excluded) + '\n', encoding='utf-8')
+          (report / 'sparse_unavailable_files.txt').write_text('\n'.join(unavailable) + '\n', encoding='utf-8')
           (report / 'sha256_manifest.txt').write_text('\n'.join(manifest) + '\n', encoding='utf-8')
           (report / 'counts.txt').write_text(
-              f"included={len(included)}\nexcluded={len(excluded)}\n", encoding='utf-8'
+              f"included={len(included)}\nexcluded={len(excluded)}\nunavailable={len(unavailable)}\n",
+              encoding='utf-8',
           )
           PY
 
