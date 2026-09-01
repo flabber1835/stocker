@@ -5,9 +5,8 @@ durable target. Unattended services cannot trust a path string after a reboot:
 a missing external mount can expose the underlying local directory. When the
 reviewed production mode is enabled, ask PostgreSQL to prove the durable-target
 markers and a contiguous full-size external WAL chain from the newest base
-backup's post-backup recovery marker through the archiver's latest successful
-segment. The base itself uses streamed WAL, so its START WAL is not the external
-archive continuity boundary.
+backup's exact manifest End-LSN through the archiver's latest successful
+segment. The retained post-base recovery marker must lie inside the same chain.
 
 The ordinary backup guard deliberately allows a short DEGRADED grace period.
 Unattended financial mutation is stricter: the first unresolved archive failure
@@ -29,6 +28,7 @@ WAL_ROOT = "/sentinel-backup/wal"
 _BASE_NAME = re.compile(r"base-[0-9]{8}T[0-9]{6}Z\Z")
 _WAL_NAME = re.compile(r"[0-9A-F]{24}\Z")
 _RECOVERY_WAL = re.compile(r"^wal=([0-9A-F]{24})$", re.MULTILINE)
+_LSN = re.compile(r"^([0-9A-F]+)/([0-9A-F]+)$")
 
 
 class BackupRuntimeUnavailable(RuntimeError):
@@ -91,6 +91,47 @@ def _recovery_wal(conn, base: str) -> str:
     return matches[0]
 
 
+def _manifest_end_wal(conn, base: str, *, segment_size: int) -> str:
+    """Return the external WAL segment containing the base manifest End-LSN."""
+    path = f"{BASE_ROOT}/{base}/backup_manifest"
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT (j->'WAL-Ranges'->-1->>'Timeline'),"
+                " (j->'WAL-Ranges'->-1->>'End-LSN')"
+                " FROM (SELECT pg_read_file(%s)::jsonb AS j) AS manifest",
+                (path,))
+            row = cur.fetchone()
+    except Exception as exc:
+        raise BackupRuntimeRefused(
+            f"base backup {base} manifest cannot establish WAL range") from exc
+    if row is None or row[0] is None or row[1] is None:
+        raise BackupRuntimeRefused(
+            f"base backup {base} manifest has no final WAL range")
+    try:
+        timeline = int(str(row[0]))
+    except ValueError as exc:
+        raise BackupRuntimeRefused(
+            f"base backup {base} manifest timeline is invalid") from exc
+    if timeline < 1 or timeline > 0xFFFFFFFF:
+        raise BackupRuntimeRefused(
+            f"base backup {base} manifest timeline is outside WAL bounds")
+    match = _LSN.fullmatch(str(row[1]).upper())
+    if match is None:
+        raise BackupRuntimeRefused(
+            f"base backup {base} manifest End-LSN is invalid")
+    high = int(match.group(1), 16)
+    low = int(match.group(2), 16)
+    if high > 0xFFFFFFFF or low > 0xFFFFFFFF:
+        raise BackupRuntimeRefused(
+            f"base backup {base} manifest End-LSN exceeds PostgreSQL bounds")
+    if segment_size <= 0 or 0x100000000 % segment_size:
+        raise BackupRuntimeRefused(
+            f"unsupported WAL segment size {segment_size}")
+    segment = low // segment_size
+    return f"{timeline:08X}{high:08X}{segment:08X}"
+
+
 def _wal_index(name: str, *, segments_per_log: int) -> tuple[int, int, int]:
     if _WAL_NAME.fullmatch(name) is None:
         raise BackupRuntimeRefused(f"malformed WAL filename {name!r}")
@@ -118,10 +159,7 @@ def _expected_wals(start: str, end: str, *, segment_size: int) -> tuple[str, ...
     last = el * segments_per_log + es
     if last < first:
         raise BackupRuntimeRefused(
-            "archived WAL frontier precedes the base recovery marker")
-    # A pathological stale base could otherwise turn every order into an
-    # unbounded filesystem traversal. More than one million 16MiB segments is
-    # already far beyond the reviewed appliance retention envelope.
+            "archived WAL frontier precedes the base recovery horizon")
     if last - first > 1_000_000:
         raise BackupRuntimeRefused("backup WAL chain exceeds reviewed bound")
     out = []
@@ -138,7 +176,7 @@ def require(conn, *, operation: str) -> dict:
     _require_marker(conn, WAL_ROOT)
     _require_marker(conn, BASE_ROOT)
     base = _latest_complete_base(conn)
-    start = _recovery_wal(conn, base)
+    marker_wal = _recovery_wal(conn, base)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT last_archived_wal,last_archived_time,last_failed_time,"
@@ -155,7 +193,12 @@ def require(conn, *, operation: str) -> dict:
     if last_fail is not None and (last_ok is None or last_fail > last_ok):
         raise BackupRuntimeUnavailable(
             f"{operation}: PostgreSQL WAL archiver has an unresolved failure")
+    start = _manifest_end_wal(conn, base, segment_size=segment_size)
     expected = _expected_wals(start, end, segment_size=segment_size)
+    if marker_wal not in set(expected):
+        raise BackupRuntimeRefused(
+            f"base backup {base} recovery marker WAL {marker_wal} is outside "
+            f"the retained restore chain {start}..{end}")
 
     with conn.cursor() as cur:
         cur.execute(
@@ -178,6 +221,7 @@ def require(conn, *, operation: str) -> dict:
         "enabled": True,
         "base_backup": base,
         "recoverable_from_wal": start,
+        "recovery_marker_wal": marker_wal,
         "recoverable_through_wal": end,
         "wal_segments": len(expected),
     }
