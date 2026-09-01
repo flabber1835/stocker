@@ -42,6 +42,31 @@ x-sentinel-authorized-environment: &sentinel-authorized-environment
   SENTINEL_REVIEWED_DEPLOYMENT_MODE: ${SENTINEL_REVIEWED_DEPLOYMENT_MODE:-}
 
 services:
+  # A narrow, networkless root helper repairs only the access bits required to
+  # present public signed certificates to the fixed uid/gid 10001 runtime. The
+  # deployment attempt directories themselves are intentionally 0700, so file
+  # chmod alone is insufficient. Receipts, command logs and candidates remain
+  # unreadable; directories gain execute-only traversal and signed certificate
+  # JSON gains read permission. No broker/database credentials enter this helper.
+  sentinel-authority-permissions:
+    image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
+    profiles: ["authorized-cli"]
+    restart: "no"
+    network_mode: "none"
+    user: "0:0"
+    cap_drop: ["ALL"]
+    cap_add: ["DAC_OVERRIDE", "FOWNER"]
+    security_opt: ["no-new-privileges:true"]
+    entrypoint: ["sh", "-ceu"]
+    command:
+      - |
+        find /authority -type d -exec chmod 0711 {} +
+        find /authority -type f -name '*-certificate.json' -exec chmod 0644 {} +
+    volumes:
+      - type: bind
+        source: ${SENTINEL_AUTHORITY_ARTIFACTS_DIR:-./artifacts/authority}
+        target: /authority
+
   sentinel-authorized-cli:
     image: ${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel-authorized}@${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable SENTINEL_RUNTIME_IMAGE_DIGEST}
     profiles: ["authorized-cli"]
@@ -63,6 +88,8 @@ services:
     depends_on:
       sentinel-postgres:
         condition: service_healthy
+      sentinel-authority-permissions:
+        condition: service_completed_successfully
 
   sentinel-automation:
     image: ${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel-authorized}@${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable SENTINEL_RUNTIME_IMAGE_DIGEST}
