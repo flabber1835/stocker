@@ -210,7 +210,8 @@ _FEED_TABLES = frozenset({
     "sentinel_active_actions", "sentinel_active_ingest_rejections",
     "sentinel_universe",
     "sentinel_corpus_publications", "sentinel_bar_split_repairs",
-    "sentinel_readiness_snapshots", "sentinel_sep_staging",
+    "sentinel_readiness_snapshots", "sentinel_corpus_quarantine",
+    "sentinel_sep_staging",
 })
 
 # Created by the safety-first physical backup path before behavioral schema.
