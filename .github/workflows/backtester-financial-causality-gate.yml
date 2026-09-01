@@ -27,6 +27,15 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-financial-causality-gate.yml
+            /backtester/**
+            /tests/__init__.py
+            /tests/backtester/**
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /pytest.ini
 
       - name: Check out exact current main production source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
