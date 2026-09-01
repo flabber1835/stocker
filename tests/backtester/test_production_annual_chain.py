@@ -19,7 +19,8 @@ MAIN_SHA = "2" * 40
 SHA64 = "a" * 64
 DATASET_SHA = "b" * 64
 OVERLAY_SHA = "c" * 64
-CURRENT_MAIN_SHA = "89f6218ff116b4dafc4ca8ac6159337d1718e2e1"
+CURRENT_MAIN_SHA = "80e89b3f894f826e64139b1e0fedd5d42ef937f8"
+GENERATION_3_MAIN_SHA = "89f6218ff116b4dafc4ca8ac6159337d1718e2e1"
 GENERATION_2_MAIN_SHA = "c851386fa4dddcf2e2533af3a1d313c38220b7f2"
 
 
@@ -280,7 +281,8 @@ class ProductionAnnualWorkflowTests(unittest.TestCase):
         self.assertNotIn("apply_production_cooldown_age_zero.py", self.worker)
         self.assertIn("Verify pristine current-main production source", self.worker)
         self.assertIn(CURRENT_MAIN_SHA, self.worker)
-        self.assertIn("1809c2a31216b247dd0b727178680d41fce80c48", self.worker)
+        self.assertIn("e4ebfebae2fa1a737c52063af63003a82b6e19cf", self.worker)
+        self.assertIn("1921399aca503ae5e2cbfd6125792c09464ba22b", self.worker)
 
     def test_artifact_is_attempt_aware_excludes_canonical_package_and_stops_chain(self):
         self.assertIn(
@@ -316,21 +318,20 @@ class ProductionAnnualWorkflowTests(unittest.TestCase):
         self.assertLess(preflight, replay)
         self.assertIn("+refs/heads/main:refs/remotes/origin/main", self.worker)
         self.assertIn("RESOLVED_MAIN_SHA", self.worker)
-        self.assertIn('if: ${{ inputs.year == \'2006\' }}', self.worker)
+        self.assertIn("inputs.year == '2006'", self.worker)
 
     def test_generation_descriptor_matches_workflow_limits(self):
         generation = json.loads(
             (ROOT / "backtester/data/production-chain-generation.json").read_text()
         )
-        self.assertEqual(generation["generation"], 3)
-        self.assertEqual(generation["supersedes_generation"], 2)
-        generation_2 = json.loads((ROOT / generation["historical_descriptor"]).read_text())
+        self.assertEqual(generation["generation"], 4)
+        self.assertEqual(generation["supersedes_generation"], 3)
+        generation_3 = json.loads((ROOT / generation["historical_descriptor"]).read_text())
+        self.assertEqual(generation_3["generation"], 3)
+        self.assertEqual(generation_3["production_main_sha"], GENERATION_3_MAIN_SHA)
+        generation_2 = json.loads((ROOT / generation_3["historical_descriptor"]).read_text())
         self.assertEqual(generation_2["generation"], 2)
         self.assertEqual(generation_2["production_main_sha"], GENERATION_2_MAIN_SHA)
-        self.assertEqual(
-            generation_2["historical_descriptor"],
-            "backtester/data/production-chain-generation-1.json",
-        )
         generation_1 = json.loads((ROOT / generation_2["historical_descriptor"]).read_text())
         self.assertEqual(generation_1["generation"], 1)
         self.assertEqual(
@@ -340,7 +341,11 @@ class ProductionAnnualWorkflowTests(unittest.TestCase):
         self.assertEqual(generation["production_main_sha"], CURRENT_MAIN_SHA)
         self.assertEqual(
             generation["production_blob_ids"]["sentinel/core/production.py"],
-            "1809c2a31216b247dd0b727178680d41fce80c48",
+            "e4ebfebae2fa1a737c52063af63003a82b6e19cf",
+        )
+        self.assertEqual(
+            generation["production_blob_ids"]["shared/stock_strategy_shared/wealth_core/state.py"],
+            "1921399aca503ae5e2cbfd6125792c09464ba22b",
         )
         self.assertEqual(
             generation["production_checkpoint_schema"],
@@ -355,13 +360,13 @@ class ProductionAnnualWorkflowTests(unittest.TestCase):
         self.assertFalse(generation["execution"]["canonical_package_uploaded"])
         self.assertTrue(generation["execution"]["experiment_start_origin_main_preflight"])
 
-    def test_active_certificate_entrypoint_is_generation_3(self):
-        wrapper = (ROOT / "backtester/write_production_year_certificate_g3.py").read_text()
-        self.assertIn("GENERATION = 3", wrapper)
+    def test_active_certificate_entrypoint_is_generation_4(self):
+        wrapper = (ROOT / "backtester/write_production_year_certificate_g4.py").read_text()
+        self.assertIn("GENERATION = 4", wrapper)
         self.assertIn("implementation.CHAIN_GENERATION = GENERATION", wrapper)
-        self.assertIn("write_production_year_certificate_g3.py issue", self.worker)
-        self.assertIn("write_production_year_certificate_g3.py validate-handoff", self.worker)
-        self.assertIn("write_production_year_certificate_g3.py compare-resume", self.worker)
+        self.assertIn("write_production_year_certificate_g4.py issue", self.worker)
+        self.assertIn("write_production_year_certificate_g4.py validate-handoff", self.worker)
+        self.assertIn("write_production_year_certificate_g4.py compare-resume", self.worker)
 
 
 if __name__ == "__main__":
