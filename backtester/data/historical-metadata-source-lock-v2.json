@@ -29,6 +29,15 @@
     ],
     "sic_source": "sec_sic_submissions.csv.gz"
   },
+  "identity_policy": {
+    "security_episode_key": "canonical security_id + exact historical ticker",
+    "vendor_suffix_aliases": "disabled_without_independent_historical_alias_proof",
+    "current_sec_company_tickers_role": "discovery-only exact-ticker CIK hint; never historical identity authority"
+  },
+  "coverage_policy": {
+    "planning_gate": "evidence must be usable strictly before the first unresolved canonical observation in the affected domain",
+    "final_admission": "all unresolved security-type and sector observations must have strict-prior admitted evidence; conflicts and ambiguous identity remain fail-closed"
+  },
   "web_fallback": {
     "current_sec_company_tickers_role": "discovery-only; never causal authority",
     "partitioning": "unique validated CIK/source objects, not calendar year",
