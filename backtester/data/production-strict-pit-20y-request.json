@@ -1,23 +1,23 @@
 {
   "schema": "backtester.production-strict-pit-20y-request/1",
   "requested_at": "2026-09-01",
-  "purpose": "Run current Production across the certified 2006-01-03 through 2026-07-31 canonical PIT dataset after rebinding generation 4 to the current PR #300 main revision.",
+  "purpose": "Run current Production across the certified 2006-01-03 through 2026-07-31 canonical PIT dataset after repairing the strict-PIT current-kernel ownership bridge.",
   "production_source_sha": "6d07c2b76066121906e50b4c11876c48849144a0",
   "production_overlay_issue": 294,
   "canonical_dataset_hash": "f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b",
   "warmup_start": "2006-01-03",
   "measurement_start": "2006-07-31",
   "end": "2026-07-31",
-  "retry": 7,
+  "retry": 8,
   "previous_failure": {
-    "run_id": 33547480041,
-    "job_id": 99988505771,
-    "classification": "stale current-main identity preflight after PR #300 merge",
-    "cause": "origin/main advanced from 80e89b3f894f826e64139b1e0fedd5d42ef937f8 to 6d07c2b76066121906e50b4c11876c48849144a0 before the 2006 worker; the fail-closed experiment-start guard stopped the chain before any replay session executed"
+    "run_id": 33548583813,
+    "job_id": 99992117537,
+    "classification": "strict-PIT harness ownership API drift before replay",
+    "cause": "the retained strict-PIT certification layer expected plan_session through sentinel.core.production while current Production owns the economic call in sentinel.core.kernel; the 2006 genesis gate failed before the canonical package was pulled or any historical replay session executed"
   },
   "correction": {
     "terminal_terms_sha256": "cfd65c78317abd1671632b2a730507634cf036e798b0ade89be68194fda430dc",
-    "rule": "rebind the generation-4 descriptor, annual worker, current-main launcher, fast financial gate, and all binding assertions to 6d07c2b76066121906e50b4c11876c48849144a0 while preserving the unchanged audited Production blob IDs and complete annual-worker reporting closure",
-    "verification": "financial-causality run 33548441777 passed the exact current-main source closure, launcher binding, financial source contracts, package identity, and complete backtester regression suite before this retry was requested"
+    "rule": "scope one dynamic compatibility bridge to the supported Production certification entrypoint so the exact current kernel plan_session remains the economic implementation while strict-PIT boundary evidence decorates that call; keep plain backtester package import side-effect free and route reporting tests through the supported Production wrapper",
+    "verification": "financial-causality run 33564472895 passed the exact current-main source closure, compilation, current-main launcher binding, financial source contracts, package identity, ownership-bridge regressions, and the complete backtester regression suite before this retry was requested"
   }
 }
