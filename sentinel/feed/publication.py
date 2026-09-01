@@ -36,6 +36,30 @@ from sentinel.feed.operational_coherence import (  # noqa: F401
 # Explicit static seam retained for provenance/certification tests.
 _run_producer_identity = _core._run_producer_identity
 
+PITR_EVIDENCE_SCHEMA = "sentinel.corpus-publication-pitr/1"
+
+
+def _publication_recovery_target(conn) -> dict[str, str]:
+    """Bind this publication to the exact PostgreSQL transaction that commits it.
+
+    PostgreSQL physical recovery can stop *after* one transaction ID.  Capturing
+    the current xid inside the publication transaction therefore turns the
+    already-required base-backup + continuous-WAL archive into exact historical
+    reconstruction authority for this corpus version.  No full corpus copy is
+    needed per daily publication.
+    """
+    with conn.cursor() as cur:
+        cur.execute("SELECT pg_current_xact_id()::text")
+        row = cur.fetchone()
+    if row is None or not str(row[0] or "").strip():
+        raise _core.CorpusIncoherent(
+            "PostgreSQL did not return a transaction id for publication PITR")
+    return {
+        "schema": PITR_EVIDENCE_SCHEMA,
+        "recovery_target_xid": str(row[0]),
+        "recovery_target_action": "promote-after",
+    }
+
 
 def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
                     evidence=None):
@@ -75,6 +99,10 @@ def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
             retired_action_bars = None
         previous = current(conn)
         publication_evidence = dict(evidence or {})
+        if "pitr" in publication_evidence:
+            raise _core.CorpusIncoherent(
+                "caller may not supply publication PITR authority")
+        publication_evidence["pitr"] = _publication_recovery_target(conn)
         if run_id is not None:
             supplied_producer = publication_evidence.get("producer")
             if supplied_producer is not None and supplied_producer != producer:
@@ -135,7 +163,7 @@ def publish(conn, *, run_id=None, window_start=None, window_end=None,
 
 
 __all__ = [
-    "publish", "coherence", "assert_coherent",
+    "PITR_EVIDENCE_SCHEMA", "publish", "coherence", "assert_coherent",
     "full_historical_coherence", "assert_full_historical_coherent",
     "operational_boundary", "operational_coherence",
     "assert_operationally_coherent", "persist_operational_coherence",
