@@ -6,6 +6,7 @@ module-level sys.path.insert() in child conftest files all accumulate. This root
 conftest uses pytest_pycollect_makemodule — which fires immediately before each
 test module is imported — to move the correct service path to sys.path[0].
 """
+import importlib
 import sys
 import os
 from pathlib import Path
@@ -44,6 +45,37 @@ def _activate_service(test_dir_name: str) -> None:
     for key in list(sys.modules.keys()):
         if key == "app" or key.startswith("app."):
             del sys.modules[key]
+
+    # The backtester suite now tests two distinct things: the retained HTTP
+    # service under services/backtester (imported as ``app``), and the
+    # certification package at repository-root/backtester.  Putting only the
+    # service/test directory first lets tests/backtester/__init__.py become the
+    # top-level ``backtester`` package and silently tests the wrong module.
+    if test_dir_name == "backtester":
+        root_path = str(_ROOT)
+        for path in (root_path, service_path):
+            while path in sys.path:
+                sys.path.remove(path)
+        if Path(service_path).is_dir():
+            sys.path.insert(0, service_path)
+        sys.path.insert(0, root_path)
+        loaded = sys.modules.get("backtester")
+        expected = (_ROOT / "backtester" / "__init__.py").resolve()
+        if loaded is not None:
+            observed_file = getattr(loaded, "__file__", None)
+            observed = Path(observed_file).resolve() if observed_file else None
+            if observed != expected:
+                for key in list(sys.modules):
+                    if key == "backtester" or key.startswith("backtester."):
+                        del sys.modules[key]
+        runtime = importlib.import_module("backtester")
+        observed = Path(runtime.__file__).resolve()
+        if observed != expected:
+            raise RuntimeError(
+                f"backtester package shadowing: expected {expected}, imported {observed}"
+            )
+        return
+
     if service_path in sys.path:
         sys.path.remove(service_path)
     sys.path.insert(0, service_path)
