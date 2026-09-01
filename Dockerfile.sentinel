@@ -25,6 +25,9 @@ FROM python:3.12-slim@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142
 
 ARG SOURCE_GIT_SHA=unknown
 LABEL org.opencontainers.image.revision=${SOURCE_GIT_SHA}
+# The OCI label is host-observable; this baked value gives the process an
+# independent copy to compare with the feed gate's injected clean HEAD.  It is
+# not authorization on its own: an old image truthfully reports its old source.
 ENV SENTINEL_IMAGE_SOURCE_REVISION=${SOURCE_GIT_SHA}
 
 WORKDIR /app
@@ -34,6 +37,19 @@ ENV PYTHONUNBUFFERED=1 \
 RUN sed -i 's/MinProtocol = TLSv1.2/MinProtocol = TLSv1.2\nMaxProtocol = TLSv1.2/' \
     /etc/ssl/openssl.cnf
 
+# ORDER MATTERS, AND IT IS THE REVERSE OF THE OBVIOUS ONE. The pinned closure
+# is installed FIRST, then `shared/` with `--no-deps`, so the package
+# contributes its CODE and not its resolver. Installed the other way round,
+# `shared/pyproject.toml`'s `pydantic>=2.0` and `pyyaml>=6.0` would float
+# freely — and `pin_drift()` only reads `sentinel/requirements.txt`, so the two
+# most load-bearing libraries in the Wealth Core config path could move without
+# appearing anywhere in the identity record that claims to name the
+# environment. They are pinned in requirements.txt for exactly that reason.
+#
+# THE HASH LOCK IS MANDATORY. `requirements.txt` records direct choices and the
+# generated lock records the complete resolved closure plus accepted artifact
+# digests. There is no unlocked fallback: a production image whose dependency
+# bytes cannot be authenticated is not a certifiable image.
 COPY sentinel/requirements.txt sentinel/requirements.lock /tmp/req/
 RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
         -r /tmp/req/requirements.lock
@@ -41,18 +57,54 @@ RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
 COPY shared/ /shared/
 RUN pip install --no-cache-dir --no-build-isolation --no-deps /shared/
 
+# The Postgres driver. NOT a transitive dependency of `shared/`, which declares
+# only pydantic and pyyaml — every Stocker service installed its own driver, so
+# nothing in `shared/` ever pulled one in and Sentinel inherited that gap.
+#
+# `sentinel.feed.store.connect` imports it LAZILY (psycopg3 preferred, psycopg2
+# accepted) so the package stays testable without a driver installed. That is
+# the right design and it is also why the omission was invisible: the image
+# built clean, `status` worked because it deliberately touches no database, and
+# every feed command failed at the first connection instead — including a
+# DETACHED `feed-seed`, which dies silently and looks exactly like a seed that
+# is running.
+#
+# [binary] so there is no libpq/build-essential in the runtime image.
+#
+# httpx is the HTTP client, and it is reachable from TWO places that fail at
+# different times: `sentinel/feed/sharadar.py` (the corpus fetch) and
+# `stock_strategy_shared/broker/base.py` (the broker adapter). Both import it
+# lazily, so the second one would not have failed until `migrate-account`
+# tried to talk to Alpaca — i.e. during a liquidation.
+#
+# BOTH of these were missed by reading top-level imports. Every dependency this
+# image needs is imported lazily, by design, so the import graph does not show
+# them. `tests/sentinel/test_image_layout.py` now walks the graph with AST and
+# fails if the image does not carry what the walk finds.
+#
+# EXACT PINS, in a file rather than on this line — see sentinel/requirements.txt
+# for why the calendar stack in particular is a certification dependency and not
+# ordinary package hygiene. The install itself happens ABOVE, before `shared/`,
+# so that package cannot resolve its own dependency ranges.
+
 # THE FROZEN RULE. `sentinel/controller/frozen_rule.py` loads its thresholds
-# from here and RAISES if absent.
+# from here and RAISES if absent — it will not fall back to transcribed
+# constants, because a Sentinel running on numbers nobody verified is an
+# uncertified strategy wearing a certified name. Only the rule and its digest
+# manifest; the oracle tapes are certification evidence and belong to the test
+# image.
 COPY docs/sentinel-handoff/00_README/ ./docs/sentinel-handoff/00_README/
 COPY config/paper-observation-boundary.json \
      /app/config/paper-observation-boundary.json
 COPY sentinel/ /app/sentinel/
 
-# Runtime privilege boundary. The image build remains root so dependencies can
-# be installed, but broker/data processes never need uid 0. A fixed uid/gid is
-# used so named-volume ownership is deterministic across rebuilds and NAS boots.
-# The state directory is the only image-owned writable location Sentinel needs;
-# PostgreSQL owns its separate container/volume.
+# `ownership.jsonl` lives HERE as retained audit evidence — see
+# docker-compose.sentinel.yml. The canonical ownership authority is the account
+# binding in PostgreSQL, beside the behavioral state it protects. Losing this
+# file cannot re-arm a liquidation: ordinary startup has no legacy-book
+# liquidation path, and only the explicit `migrate-account` operation may enter
+# that administrative state machine. The directory still exists in the image so
+# a configured audit-volume mount has a stable, writable target.
 ENV SENTINEL_STATE_DIR=/var/lib/sentinel
 RUN groupadd --system --gid 10001 sentinel \
     && useradd --system --uid 10001 --gid 10001 \
@@ -60,8 +112,13 @@ RUN groupadd --system --gid 10001 sentinel \
     && mkdir -p /var/lib/sentinel \
     && chown -R 10001:10001 /var/lib/sentinel
 
+# Financial runtime processes do not require host-root authority. The fixed uid
+# is part of the image and therefore part of the immutable deployment artifact.
 USER 10001:10001
 
-# No default command that trades.
+# No default command that TRADES. `migrate-account` liquidates a LEGACY book;
+# it is not something a container restart policy should be able to trigger on its
+# own. The default is the read-only status view, and the real action is an
+# explicit `docker compose run`.
 ENTRYPOINT ["python", "-m", "sentinel"]
 CMD ["status"]
