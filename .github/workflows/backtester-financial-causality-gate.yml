@@ -8,6 +8,7 @@ on:
     paths:
       - 'backtester/**'
       - 'tests/backtester/**'
+      - 'tests/conftest.py'
       - '.github/workflows/backtester-financial-causality-gate.yml'
 
 permissions:
@@ -33,6 +34,7 @@ jobs:
             /.github/workflows/backtester-financial-causality-gate.yml
             /backtester/**
             /tests/__init__.py
+            /tests/conftest.py
             /tests/backtester/**
             /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
             /pytest.ini
@@ -96,19 +98,6 @@ jobs:
           python backtester/run_production_current_main_strict_pit_20y.py \
             --main-root main-src --self-test-source-identity
 
-      - name: Run permanent financial and forward-bias regressions
-        shell: bash
-        env:
-          PYTHONPATH: ${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared:${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          python -m pytest -q \
-            tests/backtester/test_current_main_production_binding.py \
-            tests/backtester/test_forward_bias_regression.py \
-            tests/backtester/test_certification_parallel.py \
-            tests/backtester/test_research_review_basis.py \
-            tests/backtester/test_research_split_dividend_ordering.py
-
       - name: Prove pytest imports the runtime backtester package
         shell: bash
         env:
@@ -123,3 +112,16 @@ jobs:
           assert path == expected, (path, expected)
           print('BACKTESTER PACKAGE IDENTITY PASS', path)
           PY
+
+      - name: Run permanent financial and forward-bias regressions
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python -m pytest -q \
+            tests/backtester/test_current_main_production_binding.py \
+            tests/backtester/test_forward_bias_regression.py \
+            tests/backtester/test_certification_parallel.py \
+            tests/backtester/test_research_review_basis.py \
+            tests/backtester/test_research_split_dividend_ordering.py
