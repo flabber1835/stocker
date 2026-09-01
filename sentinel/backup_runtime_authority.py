@@ -150,7 +150,7 @@ def require(conn, *, operation: str) -> dict:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT name,(pg_stat_file(%s || '/' || name,true)).size"
-            " FROM pg_ls_dir(%s) AS name"
+            " FROM pg_ls_dir(%s) AS entries(name)"
             " WHERE name ~ '^[0-9A-F]{24}$'",
             (WAL_ROOT, WAL_ROOT))
         actual = {
