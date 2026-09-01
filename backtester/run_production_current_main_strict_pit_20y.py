@@ -16,10 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-CURRENT_MAIN_SHA = "c851386fa4dddcf2e2533af3a1d313c38220b7f2"
+CURRENT_MAIN_SHA = "89f6218ff116b4dafc4ca8ac6159337d1718e2e1"
 EXPECTED_PRODUCTION_BLOBS = {
     "sentinel/core/kernel.py": "12617af8eb954d4ae18fef2ae16977048e2e40cd",
-    "sentinel/core/production.py": "99e8f87aa456fc672c84b0b0ceb3d674ca7ccf4c",
+    "sentinel/core/production.py": "1809c2a31216b247dd0b727178680d41fce80c48",
     "shared/stock_strategy_shared/wealth_core/adapter.py": "466a8f8202692e65e08596a7a47d45bd15bb3fd3",
     "shared/stock_strategy_shared/wealth_core/state.py": "8dd316ed28ff9b82c216f852118f8ef83d8510ad",
 }
@@ -47,6 +47,24 @@ def _git(root: Path, *args: str) -> str:
     if completed.returncode:
         raise RuntimeError(completed.stderr.strip() or "git command failed")
     return completed.stdout.strip()
+
+
+def verify_experiment_start_origin_main(root: Path) -> None:
+    """Fail closed when the declared Production SHA is no longer origin/main."""
+    _git(
+        root,
+        "fetch",
+        "--quiet",
+        "--no-tags",
+        "origin",
+        "+refs/heads/main:refs/remotes/origin/main",
+    )
+    resolved = _git(root, "rev-parse", "refs/remotes/origin/main")
+    if resolved != CURRENT_MAIN_SHA:
+        raise RuntimeError(
+            "origin/main moved since this backtester generation was declared: "
+            f"{resolved} != {CURRENT_MAIN_SHA}"
+        )
 
 
 def verify_unmodified_current_main(root: Path) -> None:
@@ -89,6 +107,7 @@ def bind_current_main_identity(retained) -> None:
 
 def main() -> int:
     root = _main_root()
+    verify_experiment_start_origin_main(root)
     verify_unmodified_current_main(root)
     if "--self-test-source-identity" in sys.argv[1:]:
         print(
