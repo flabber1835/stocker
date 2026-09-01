@@ -1,23 +1,23 @@
 {
   "schema": "backtester.production-strict-pit-20y-request/1",
-  "requested_at": "2026-08-31",
-  "purpose": "Run corrected production only across the certified 2006-01-03 through 2026-07-31 canonical PIT dataset while research optimization proceeds independently.",
-  "production_source_sha": "887f479b15ad861313da666ad698034d3847121c",
+  "requested_at": "2026-09-01",
+  "purpose": "Run current Production across the certified 2006-01-03 through 2026-07-31 canonical PIT dataset after retiring the unsupported legacy 1998 replay.",
+  "production_source_sha": "80e89b3f894f826e64139b1e0fedd5d42ef937f8",
   "production_overlay_issue": 294,
   "canonical_dataset_hash": "f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b",
   "warmup_start": "2006-01-03",
   "measurement_start": "2006-07-31",
   "end": "2026-07-31",
-  "retry": 4,
+  "retry": 5,
   "previous_failure": {
-    "run_id": 33362496999,
-    "job_id": 99492463891,
-    "classification": "workflow boundary environment handoff failure before the 2006 production replay",
-    "cause": "the boundary resolver appended YEAR_OUTPUT_ROOT and CERTIFICATION_SEGMENT_END_SESSION to GITHUB_ENV and then consumed them in the same shell step before GitHub exported them"
+    "run_id": 33543858724,
+    "job_id": 99976460958,
+    "classification": "unsupported legacy replay authority window",
+    "cause": "the legacy 1998 LD-RC workflow required SPY total-return warm-up from 1997-01-02, but the retained certified SFP factor authority does not reach that boundary; the replay correctly refused rather than fabricating benchmark history"
   },
   "correction": {
     "terminal_terms_sha256": "cfd65c78317abd1671632b2a730507634cf036e798b0ade89be68194fda430dc",
-    "rule": "materialize annual boundary variables into an attempt-local env file, persist them to GITHUB_ENV for later steps, and source the same file for immediate same-step use",
-    "verification": "the 2006 boundary step can now create its output directory and workflow-attempt evidence using the exact resolved segment boundary"
+    "rule": "retire the unsupported 1998 experiment and execute the generation-4 annual Production chain on the canonical certified 2006-2026 PIT window",
+    "verification": "generation 4 pins current main 80e89b3f894f826e64139b1e0fedd5d42ef937f8, canonical dataset f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b, warm-up 2006-01-03, and measurement start 2006-07-31"
   }
 }
