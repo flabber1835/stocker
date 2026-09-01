@@ -587,11 +587,22 @@ _real_step = runner.OverlayAccount.step
 
 
 def _step_with_certification_checkpoint(self, *args, **kwargs):
+    is_production = str(self.name) == "B"
+    before_progress = (
+        int(getattr(base, "_progress_sessions", -1)) if is_production else None
+    )
+    if is_production and before_progress < 0:
+        raise RuntimeError("Production progress owner is unavailable before account step")
     nav = _real_step(self, *args, **kwargs)
     session = str(base._current_session or "")
-    if str(self.name) == "B":
-        progress_sessions = prod._increment_production_progress(base)
-    if str(self.name) == "B" and session in _quarter_ends and session >= MEASUREMENT_START:
+    if is_production:
+        progress_sessions = int(getattr(base, "_progress_sessions", -1))
+        if progress_sessions != before_progress + 1:
+            raise RuntimeError(
+                "Production progress owner must advance exactly once per canonical session: "
+                f"before={before_progress} after={progress_sessions} session={session}"
+            )
+    if is_production and session in _quarter_ends and session >= MEASUREMENT_START:
         cagr = prod._measurement_cagr(float(self.nav), MEASUREMENT_START, session)
         print(
             f"[PROGRESS] role=Production session={session} "
