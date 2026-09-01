@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      CURRENT_MAIN_SHA: c851386fa4dddcf2e2533af3a1d313c38220b7f2
+      CURRENT_MAIN_SHA: 89f6218ff116b4dafc4ca8ac6159337d1718e2e1
       PYTHONUNBUFFERED: '1'
 
     steps:
@@ -70,10 +70,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git -C main-src fetch --quiet --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          test "$(git -C main-src rev-parse refs/remotes/origin/main)" = "${CURRENT_MAIN_SHA}"
           test "$(git -C main-src rev-parse HEAD)" = "${CURRENT_MAIN_SHA}"
           test -z "$(git -C main-src status --porcelain)"
           test "$(git -C main-src hash-object sentinel/core/kernel.py)" = "12617af8eb954d4ae18fef2ae16977048e2e40cd"
-          test "$(git -C main-src hash-object sentinel/core/production.py)" = "99e8f87aa456fc672c84b0b0ceb3d674ca7ccf4c"
+          test "$(git -C main-src hash-object sentinel/core/production.py)" = "1809c2a31216b247dd0b727178680d41fce80c48"
           test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/adapter.py)" = "466a8f8202692e65e08596a7a47d45bd15bb3fd3"
           test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)" = "8dd316ed28ff9b82c216f852118f8ef83d8510ad"
 
