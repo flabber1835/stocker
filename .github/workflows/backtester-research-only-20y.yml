@@ -36,6 +36,7 @@ jobs:
           sparse-checkout: |
             /.github/workflows/backtester-research-only-20y.yml
             /backtester/run_research_strict_pit_20y.py
+            /backtester/research_terminal_grace_overlay.py
             /backtester/run_research_strict_pit_certification.py
             /backtester/canonical_pit_dataset.py
             /backtester/canonical_pit_package.py
@@ -102,6 +103,7 @@ jobs:
           python -m py_compile \
             backtester/canonical_pit_dataset.py \
             backtester/canonical_pit_package.py \
+            backtester/research_terminal_grace_overlay.py \
             backtester/run_research_strict_pit_certification.py \
             backtester/run_research_strict_pit_20y.py
           python -m unittest tests.backtester.test_canonical_pit_dataset -v
@@ -140,7 +142,7 @@ jobs:
             --output backtester-results/research-only-20y \
             2>&1 | tee research-only-20y.log
 
-      - name: Verify canonical consumption and quarterly reporting
+      - name: Verify canonical consumption and financial-grade reporting
         shell: bash
         run: |
           set -euo pipefail
@@ -153,6 +155,7 @@ jobs:
           pointer = json.loads(Path('backtester/data/canonical-pit-20y.json').read_text())
           canonical = json.loads(Path('backtester-results/canonical-pit-20y/manifest.json').read_text())
           research = json.loads(Path('backtester-results/research-only-20y/summary.json').read_text())
+          audit = json.loads(Path('backtester-results/research-only-20y/metadata_authority_audit.json').read_text())
           if canonical.get('status') != 'PASS':
               raise SystemExit('canonical dataset did not certify')
           if int(canonical['counts']['unresolved_corporate_actions']) != 0:
@@ -161,6 +164,14 @@ jobs:
               raise SystemExit('canonical dataset differs from admitted pointer')
           if research.get('canonical_pit_dataset_hash') != pointer.get('dataset_hash'):
               raise SystemExit('research did not attest the admitted dataset hash')
+          fg = audit.get('financial_grade') or {}
+          if fg != {
+              'dividend_lag_sessions': 15,
+              'missing_leadership_return_policy': 'FAIL_CLOSED',
+              'requires_resolved_nav': True,
+              'terminal_grace_integrated': True,
+          }:
+              raise SystemExit(f'financial-grade audit contract missing: {fg}')
 
           log = Path('research-only-20y.log').read_text()
           rows = re.findall(
@@ -182,6 +193,8 @@ jobs:
               f"Canonical dataset hash: `{pointer['dataset_hash']}`",
               '',
               f"Canonical package: `{pointer['package']}`",
+              '',
+              'Financial-grade guards: terminal grace integrated; resolved NAV required; missing leadership returns fail closed; dividend cash lag 15 sessions.',
               '',
               '| Date | Research cumulative CAGR | SPY cumulative CAGR |',
               '|---|---:|---:|',
