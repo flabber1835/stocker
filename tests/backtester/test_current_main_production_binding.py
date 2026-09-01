@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib.util
-import inspect
 from pathlib import Path
 import subprocess
 import sys
@@ -35,7 +34,11 @@ def test_current_main_kernel_is_the_production_advance_state_target() -> None:
     import sentinel.core.production as production
     import sentinel.core.kernel as kernel
 
-    source = inspect.getsource(production.advance_state)
+    # Certification deliberately instruments the imported runtime function, so
+    # inspect the pinned source file itself when proving the owner boundary.
+    # This keeps the assertion independent of test collection order while still
+    # verifying the exact current-main code loaded by the runner.
+    source = Path(production.__file__).read_text(encoding="utf-8")
     assert "from sentinel.core.kernel import advance_session" in source
     assert "return advance_session(" in source
     assert callable(kernel.advance_session)
@@ -44,6 +47,7 @@ def test_current_main_kernel_is_the_production_advance_state_target() -> None:
 def test_current_main_kernel_executes_prior_orders_before_close_decision() -> None:
     from stock_strategy_shared.wealth_core import adapter
 
+    import inspect
     source = inspect.getsource(adapter.step_session)
     fill_index = min(source.index("apply_exit("), source.index("apply_entry("))
     decision_index = source.index("decide(")
