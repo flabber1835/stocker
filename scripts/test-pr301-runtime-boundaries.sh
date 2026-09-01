@@ -9,7 +9,10 @@ HELPER_IMAGE="postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b6
 
 work="$(mktemp -d)"
 volume="sentinel-pr301-state-${RANDOM}-$$"
+project="sentinel-pr301-authority-${RANDOM}-$$"
 cleanup() {
+  docker compose -p "$project" -f "$work/compose.yml" down -v \
+    >/dev/null 2>&1 || true
   docker volume rm -f "$volume" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
@@ -42,6 +45,59 @@ docker run --rm --network none --user 0:0 \
 test "$(stat -c %a "$authority")" = 711
 test "$(stat -c %a "$attempt")" = 711
 test "$(stat -c %a "$attempt/paper-observation-certificate.json")" = 644
+
+# Prove Compose re-runs a completed permission dependency for every one-shot
+# authorized CLI invocation. The second certificate is created only after the
+# first reader has completed and is deliberately reset to mode 0600.
+cat > "$work/compose.yml" <<EOF
+services:
+  permissions:
+    image: $HELPER_IMAGE
+    network_mode: none
+    user: "0:0"
+    cap_drop: ["ALL"]
+    cap_add: ["DAC_OVERRIDE", "FOWNER"]
+    security_opt: ["no-new-privileges:true"]
+    entrypoint: ["sh", "-ceu"]
+    command:
+      - |
+        find /authority -type d -exec chmod 0711 {} +
+        find /authority -type f -name '*-certificate.json' -exec chmod 0644 {} +
+    volumes:
+      - type: bind
+        source: $authority
+        target: /authority
+  reader:
+    image: $RUNTIME_IMAGE
+    network_mode: none
+    user: "10001:10001"
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    entrypoint: ["sh", "-ceu"]
+    command: ["test -r /authority/deployments/attempt/paper-observation-certificate.json"]
+    volumes:
+      - type: bind
+        source: $authority
+        target: /authority
+        read_only: true
+    depends_on:
+      permissions:
+        condition: service_completed_successfully
+EOF
+
+docker compose -p "$project" -f "$work/compose.yml" run --rm reader
+printf '%s\n' '{"schema":"sentinel.test-public-certificate/2"}' \
+  > "$attempt/next-certificate.json"
+chmod 0600 "$attempt/next-certificate.json"
+test "$(stat -c %a "$attempt/next-certificate.json")" = 600
+
+docker compose -p "$project" -f "$work/compose.yml" run --rm \
+  --entrypoint sh reader -ceu '
+    test -r /authority/deployments/attempt/next-certificate.json
+    grep -q sentinel.test-public-certificate/2 \
+      /authority/deployments/attempt/next-certificate.json
+  '
+test "$(stat -c %a "$attempt/next-certificate.json")" = 644
 
 docker volume create "$volume" >/dev/null
 docker run --rm --network none --user 0:0 \
