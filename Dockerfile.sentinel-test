@@ -39,6 +39,11 @@ FROM ${SENTINEL_IMAGE}
 ARG SOURCE_GIT_SHA=unknown
 LABEL org.opencontainers.image.revision=${SOURCE_GIT_SHA}
 
+# The deployable parent intentionally runs uid 10001. This derivative is a
+# certification/build lens and needs root only to install PostgreSQL/git test
+# tooling. Production images never contain this USER override.
+USER root
+
 # Postgres BINARIES, not a server: `tests/integration/conftest` spins up a
 # throwaway cluster with initdb/pg_ctl per module. Without them every
 # database-backed test SKIPS, and a suite that skipped is not a suite that
@@ -51,15 +56,6 @@ RUN apt-get update \
       postgresql postgresql-client git \
  && rm -rf /var/lib/apt/lists/*
 
-# HASH LOCKED like everything else — a test runner that floats can change a
-# verdict between two runs of the same suite, and a version-only pin can resolve
-# to different artifact bytes. This is a DELTA closure layered on the already
-# hash-locked runtime image. `--no-deps` makes every added distribution come
-# from this reviewed lock rather than asking pip to resolve anything; `pip
-# check` then proves the combined runtime + test closure is complete.
-#
-# SQLAlchemy remains test-only; the production image does not carry the retired
-# platform's ORM.
 COPY tests/requirements.lock /tmp/test-req/requirements.lock
 RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
         --no-deps -r /tmp/test-req/requirements.lock \
@@ -68,11 +64,6 @@ RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
 WORKDIR /work
 COPY tests/ /work/tests/
 COPY tools/ /work/tools/
-# The formal evidence and deployment-provenance suites import these selected
-# invocation producers and host-boundary helpers.
-# Keep the rest of scripts/ inspection-only under /work/repo: copying the whole
-# directory onto PYTHONPATH would make unrelated operator scripts executable in
-# the certification lens and blur the runtime/inspection boundary.
 COPY scripts/sentinel_feed_gate.py /work/scripts/sentinel_feed_gate.py
 COPY scripts/sentinel_forward_run.py /work/scripts/sentinel_forward_run.py
 COPY scripts/sentinel_test_run.py /work/scripts/sentinel_test_run.py
@@ -80,25 +71,10 @@ COPY scripts/sentinel_reconcile_sep.py /work/scripts/sentinel_reconcile_sep.py
 COPY scripts/sentinel-measure.sh /work/scripts/sentinel-measure.sh
 COPY scripts/ /work/repo/scripts/
 COPY tools/ /work/repo/tools/
-
-# INSPECTION ONLY. Never on sys.path — these are the inputs to assertions about
-# the image, and importing them is precisely what this file exists to prevent.
-# THE FROZEN HANDOFF ARTEFACTS. Both the code and the suite read them:
-# `frozen_rule` loads its thresholds from the rule JSON and verifies the digest
-# against SHA256SUMS.txt, and the controller certification replays the 5,032-
-# session oracle tape. Copied to BOTH roots because the two resolve differently
-# — tests are at /work/tests (parents[2] = /work) and the package at
-# /work/repo/sentinel (parents[2] = /work/repo).
 COPY docs/sentinel-handoff/00_README/ /work/docs/sentinel-handoff/00_README/
 COPY docs/sentinel-handoff/02_SENTINEL_1P1_FROZEN_ORACLE/ /work/docs/sentinel-handoff/02_SENTINEL_1P1_FROZEN_ORACLE/
 COPY docs/sentinel-handoff/04_BREADTH_ORACLES/ /work/docs/sentinel-handoff/04_BREADTH_ORACLES/
 COPY docs/sentinel-handoff/00_README/ /work/repo/docs/sentinel-handoff/00_README/
-# THE RECOVERED BREADTH CLASSIFIER, for the differential test only. The
-# production module `sentinel/breadth/` is pure and reads neither of these at
-# runtime; `test_breadth_classifier.py` imports the pandas artefact and compares
-# it against the transcription on randomised books, so a semantic drift fails
-# offline instead of surviving to the NAS run. Test-side root only — nothing
-# under /work/repo/sentinel may reach them.
 COPY docs/sentinel-breadth-reconstruction/ /work/docs/sentinel-breadth-reconstruction/
 COPY docs/sentinel-reference-implementation/ /work/docs/sentinel-reference-implementation/
 COPY sentinel/ /work/repo/sentinel/
@@ -128,16 +104,11 @@ COPY docs/sentinel-stage-4-automation.md /work/repo/docs/sentinel-stage-4-automa
 COPY docs/sentinel-paper-observation.md /work/repo/docs/sentinel-paper-observation.md
 COPY docs/paper-lifecycle-equivalence.json /work/repo/docs/paper-lifecycle-equivalence.json
 COPY config/paper-observation-boundary.json /work/repo/config/paper-observation-boundary.json
-# /work carries tests. `sentinel` resolves from /app and
-# `stock_strategy_shared` from site-packages — the artefact, in both cases.
 ENV PYTHONPATH=/work:/app \
     SENTINEL_REPO_ROOT=/work/repo \
     SENTINEL_IN_IMAGE=1 \
     SENTINEL_STATE_DIR=/tmp/sentinel-test-state
 
-# BEFORE any test runs. If the imports resolve to the wrong place the suite is
-# measuring the wrong thing, and a failure here is far cheaper than a green run
-# that certified a checkout.
 RUN python -c "from pathlib import Path; \
     import sentinel, stock_strategy_shared.wealth_core as wc; \
     from scripts import sentinel_feed_gate as feed_gate; \
@@ -150,7 +121,5 @@ RUN python -c "from pathlib import Path; \
     assert Path('/work/scripts/sentinel-measure.sh').is_file(); \
     print('runtime imports OK:', sentinel.__file__, wc.__file__)"
 
-# Overrides the runtime ENTRYPOINT, whose purpose is to refuse to be started
-# casually. A test image needs a plain interpreter.
 ENTRYPOINT ["python", "-m", "pytest"]
 CMD ["tests/sentinel", "-q"]
