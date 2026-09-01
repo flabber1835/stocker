@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Run the strict-PIT production replay against the exact current-main source.
 
-This compatibility launcher exists only on the backtester branch.  It reuses the
+This compatibility launcher exists only on the backtester branch. It reuses the
 retained historical harness while binding every production-source identity seam
-to the unmodified current-main checkout.  No production source file is patched.
+to the unmodified current-main checkout. No production source file is patched.
 """
 from __future__ import annotations
 
@@ -23,8 +23,6 @@ EXPECTED_PRODUCTION_BLOBS = {
     "shared/stock_strategy_shared/wealth_core/adapter.py": "466a8f8202692e65e08596a7a47d45bd15bb3fd3",
     "shared/stock_strategy_shared/wealth_core/state.py": "8dd316ed28ff9b82c216f852118f8ef83d8510ad",
 }
-
-import backtester.run_production_strict_pit_20y as retained
 
 
 def _main_root() -> Path:
@@ -64,7 +62,14 @@ def verify_unmodified_current_main(root: Path) -> None:
             )
 
 
-def bind_current_main_identity() -> None:
+def _load_retained_harness():
+    # Import only when an actual historical replay is requested. Source-identity
+    # and causality checks must remain independent of SEC evidence construction.
+    import backtester.run_production_strict_pit_20y as retained
+    return retained
+
+
+def bind_current_main_identity(retained) -> None:
     """Override retained-harness identity constants, never production code."""
     modules = {
         retained,
@@ -85,7 +90,6 @@ def bind_current_main_identity() -> None:
 def main() -> int:
     root = _main_root()
     verify_unmodified_current_main(root)
-    bind_current_main_identity()
     if "--self-test-source-identity" in sys.argv[1:]:
         print(
             "[SELFTEST PASS] unmodified current-main production source "
@@ -93,6 +97,8 @@ def main() -> int:
             flush=True,
         )
         return 0
+    retained = _load_retained_harness()
+    bind_current_main_identity(retained)
     print(
         "[SOURCE IDENTITY PASS] production=current-main "
         f"sha={CURRENT_MAIN_SHA} patched=false",
