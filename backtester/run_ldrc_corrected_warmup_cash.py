@@ -164,11 +164,15 @@ def _corrected_raw_sep_rows(root: Path, manifest, end: str, observed_inputs: dic
 
 runner.raw_sep_rows = _corrected_raw_sep_rows
 
-# Bypass the older quarterly progress wrapper. The raw step already routes D to
-# its independent PIT Wealth Core equity path. Preserve allocation state through
-# warm-up, and rebase NAV only after processing the first measured session.
+# Compose with the already-installed full-stack PIT accounting wrapper. It is
+# the owner of Production's independent Wealth Core return stream and of the
+# unresolved-open fail-closed guard. This layer only adds measurement rebasing
+# and year-end reporting; it must never bypass that economic wrapper stack.
+_pre_measurement_account_step = runner.OverlayAccount.step
+
+
 def _measured_account_step(self, *args, **kwargs):
-    nav = base._real_overlay_step(self, *args, **kwargs)
+    nav = _pre_measurement_account_step(self, *args, **kwargs)
     base._account_refs[str(self.name)] = self
     session = str(base._current_session or "")
     if session == MEASUREMENT_START:
