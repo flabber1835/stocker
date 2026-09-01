@@ -80,7 +80,7 @@ jobs:
       CANONICAL_PIT_EXPECTED_END: '2026-07-31'
       CERTIFICATION_WARMUP_START: '2006-01-03'
       CERTIFICATION_MEASUREMENT_START: '2006-07-31'
-      PRODUCTION_MAIN_SHA: 80e89b3f894f826e64139b1e0fedd5d42ef937f8
+      PRODUCTION_MAIN_SHA: 6d07c2b76066121906e50b4c11876c48849144a0
       PYTHONUNBUFFERED: '1'
 
     steps:
@@ -208,7 +208,7 @@ jobs:
       - name: Check out exact production strategy source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: 80e89b3f894f826e64139b1e0fedd5d42ef937f8
+          ref: 6d07c2b76066121906e50b4c11876c48849144a0
           path: main-src
           fetch-depth: 1
           persist-credentials: false
