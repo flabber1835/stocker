@@ -80,7 +80,7 @@ jobs:
       CANONICAL_PIT_EXPECTED_END: '2026-07-31'
       CERTIFICATION_WARMUP_START: '2006-01-03'
       CERTIFICATION_MEASUREMENT_START: '2006-07-31'
-      PRODUCTION_MAIN_SHA: 887f479b15ad861313da666ad698034d3847121c
+      PRODUCTION_MAIN_SHA: c851386fa4dddcf2e2533af3a1d313c38220b7f2
       PYTHONUNBUFFERED: '1'
 
     steps:
@@ -104,8 +104,8 @@ jobs:
           sparse-checkout: |
             /.github/workflows/backtester-production-strict-pit-20y.yml
             /.github/workflows/backtester-production-strict-pit-year-worker.yml
-            /backtester/apply_production_cooldown_age_zero.py
             /backtester/production_year_checkpoint_overlay.py
+            /backtester/run_production_current_main_strict_pit_20y.py
             /backtester/run_production_strict_pit_20y_checkpointed.py
             /backtester/run_production_strict_pit_20y.py
             /backtester/run_production_strict_pit_certification.py
@@ -122,6 +122,7 @@ jobs:
             /backtester/experiments/2026-08-27-sector-abc/run.py
             /backtester/data/canonical-pit-20y.json
             /backtester/data/production-chain-generation.json
+            /backtester/data/production-chain-generation-1.json
             /backtester/data/production-strict-pit-20y-request.json
             /backtester/data/causal-split-overrides-v1.json
             /backtester/data/causal-split-overrides-v1.SHA256
@@ -178,7 +179,12 @@ jobs:
           generation = json.loads(
               Path('backtester/data/production-chain-generation.json').read_text()
           )
-          assert generation['generation'] == 1
+          assert generation['generation'] == 2
+          assert generation['supersedes_generation'] == 1
+          assert generation['historical_descriptor'] == 'backtester/data/production-chain-generation-1.json'
+          historical = json.loads(Path(generation['historical_descriptor']).read_text())
+          assert historical['generation'] == 1
+          assert historical['production_main_sha'] == '887f479b15ad861313da666ad698034d3847121c'
           assert generation['production_checkpoint_schema'] == 'backtester.production-year-checkpoint/3'
           assert generation['production_checkpoint_format_generation'] == 3
           assert generation['annual_certificate_schema'] == 'backtester.production-year-certificate/1'
@@ -191,7 +197,7 @@ jobs:
       - name: Check out exact production strategy source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: 887f479b15ad861313da666ad698034d3847121c
+          ref: c851386fa4dddcf2e2533af3a1d313c38220b7f2
           path: main-src
           fetch-depth: 1
           persist-credentials: false
@@ -201,37 +207,35 @@ jobs:
             shared
             docs/sentinel-handoff/00_README
 
-      - name: Apply and identify the backtester-only production correction
+      - name: Verify pristine current-main production source
         shell: bash
         run: |
           set -euo pipefail
           test "$(git -C main-src rev-parse HEAD)" = "${PRODUCTION_MAIN_SHA}"
-          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)" = "94ba764c79cb7e40d4448195029ecc4c45b8d632"
-          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/adapter.py)" = "a59075507c8031dc0f30f1b989ad7253ad4c1715"
+          test -z "$(git -C main-src status --porcelain)"
+          test "$(git -C main-src hash-object sentinel/core/kernel.py)" = "12617af8eb954d4ae18fef2ae16977048e2e40cd"
+          test "$(git -C main-src hash-object sentinel/core/production.py)" = "99e8f87aa456fc672c84b0b0ceb3d674ca7ccf4c"
+          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/adapter.py)" = "466a8f8202692e65e08596a7a47d45bd15bb3fd3"
+          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)" = "8dd316ed28ff9b82c216f852118f8ef83d8510ad"
           YEAR_ROOT="backtester-results/production-year-${CHAIN_YEAR}"
           mkdir -p "${YEAR_ROOT}"
-          python backtester/apply_production_cooldown_age_zero.py \
-            --root main-src \
-            --evidence "${YEAR_ROOT}/production-overlay.json"
-          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)" = "42d6dc0f5dd71cc1331e76d216660b140a609466"
-          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/adapter.py)" = "d171724c2806522e8c94cd184685d09558b04715"
-          git -C main-src diff -- \
-            shared/stock_strategy_shared/wealth_core/state.py \
-            shared/stock_strategy_shared/wealth_core/adapter.py \
-            > "${YEAR_ROOT}/production-overlay.diff"
-          PRODUCTION_OVERLAY_SHA256=$(python - <<'PY'
+          : > "${YEAR_ROOT}/production-overlay.diff"
+          python - <<'PY'
           import json, os
           from pathlib import Path
           root = Path('backtester-results') / f"production-year-{os.environ['CHAIN_YEAR']}"
-          value = json.loads((root / 'production-overlay.json').read_text())['diff_sha256']
-          if len(value) != 64:
-              raise SystemExit('invalid Production overlay identity')
-          print(value)
+          evidence = {
+              'schema': 'backtester.production-source-overlay/1',
+              'mode': 'pristine-current-main',
+              'production_main_sha': os.environ['PRODUCTION_MAIN_SHA'],
+              'diff_sha256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+              'patched': False,
+          }
+          (root / 'production-overlay.json').write_text(json.dumps(evidence, sort_keys=True, indent=2) + '\n')
           PY
-          )
-          echo "PRODUCTION_OVERLAY_SHA256=${PRODUCTION_OVERLAY_SHA256}" >> "${GITHUB_ENV}"
+          echo "PRODUCTION_OVERLAY_SHA256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" >> "${GITHUB_ENV}"
           echo "BACKTESTER_MAIN_SHA=${PRODUCTION_MAIN_SHA}" >> "${GITHUB_ENV}"
-          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
 
       - name: Set up Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -254,11 +258,11 @@ jobs:
           python -m py_compile \
             backtester/production_year_checkpoint_overlay.py \
             backtester/run_production_strict_pit_20y_checkpointed.py \
+            backtester/run_production_current_main_strict_pit_20y.py \
             backtester/run_production_strict_pit_20y.py \
             backtester/run_production_strict_pit_certification.py \
             backtester/write_production_year_certificate.py
           python -m compileall -q -f main-src/sentinel main-src/shared/stock_strategy_shared
-          python -m unittest tests.backtester.test_production_cooldown_age_zero -v
           python -m unittest tests.backtester.test_production_annual_chain -v
           if python -c 'import pytest' >/dev/null 2>&1; then
             python -m pytest -q tests/backtester/test_production_year_checkpoint.py

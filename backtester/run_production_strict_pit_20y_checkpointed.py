@@ -22,7 +22,17 @@ SEGMENT_END = os.environ.get("CERTIFICATION_SEGMENT_END_SESSION", FULL_DATASET_E
 os.environ.setdefault("CANONICAL_PIT_EXPECTED_END", FULL_DATASET_END)
 os.environ["CERTIFICATION_END_SESSION"] = FULL_DATASET_END
 
+from backtester.run_production_current_main_strict_pit_20y import (  # noqa: E402
+    CURRENT_MAIN_SHA,
+    bind_current_main_identity,
+    verify_unmodified_current_main,
+)
+
+verify_unmodified_current_main(PINNED_MAIN_ROOT)
+os.environ["BACKTESTER_MAIN_SHA"] = CURRENT_MAIN_SHA
+
 import backtester.run_production_strict_pit_20y as base  # noqa: E402
+bind_current_main_identity(base)
 from backtester.production_year_checkpoint_overlay import install  # noqa: E402
 
 base.END_SESSION = SEGMENT_END

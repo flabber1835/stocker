@@ -275,6 +275,9 @@ class ProductionAnnualWorkflowTests(unittest.TestCase):
         self.assertNotIn("run_research_strict_pit", self.worker)
         self.assertNotIn("workflow_dispatch", self.worker)
         self.assertNotIn("actions: write", self.worker)
+        self.assertNotIn("apply_production_cooldown_age_zero.py", self.worker)
+        self.assertIn("Verify pristine current-main production source", self.worker)
+        self.assertIn("c851386fa4dddcf2e2533af3a1d313c38220b7f2", self.worker)
 
     def test_artifact_is_attempt_aware_excludes_canonical_package_and_stops_chain(self):
         self.assertIn(
@@ -308,7 +311,12 @@ class ProductionAnnualWorkflowTests(unittest.TestCase):
         generation = json.loads(
             (ROOT / "backtester/data/production-chain-generation.json").read_text()
         )
-        self.assertEqual(generation["generation"], 1)
+        self.assertEqual(generation["generation"], 2)
+        self.assertEqual(generation["supersedes_generation"], 1)
+        historical = json.loads((ROOT / generation["historical_descriptor"]).read_text())
+        self.assertEqual(historical["generation"], 1)
+        self.assertEqual(historical["production_main_sha"], "887f479b15ad861313da666ad698034d3847121c")
+        self.assertEqual(generation["production_main_sha"], "c851386fa4dddcf2e2533af3a1d313c38220b7f2")
         self.assertEqual(
             generation["production_checkpoint_schema"],
             "backtester.production-year-checkpoint/3",

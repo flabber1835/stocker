@@ -1,0 +1,136 @@
+name: Backtester financial and causality gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - research/backtester
+    paths:
+      - 'backtester/**'
+      - 'tests/backtester/**'
+      - 'tests/conftest.py'
+      - '.github/workflows/backtester-production-strict-pit-20y.yml'
+      - '.github/workflows/backtester-production-strict-pit-year-worker.yml'
+      - '.github/workflows/backtester-research-only-20y.yml'
+      - '.github/workflows/backtester-strict-pit-20y.yml'
+      - '.github/workflows/backtester-financial-causality-gate.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  financial-causality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CURRENT_MAIN_SHA: c851386fa4dddcf2e2533af3a1d313c38220b7f2
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - name: Check out backtester branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-financial-causality-gate.yml
+            /.github/workflows/backtester-production-strict-pit-20y.yml
+            /.github/workflows/backtester-production-strict-pit-year-worker.yml
+            /.github/workflows/backtester-research-only-20y.yml
+            /.github/workflows/backtester-strict-pit-20y.yml
+            /backtester/**
+            /tests/__init__.py
+            /tests/conftest.py
+            /tests/backtester/**
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /pytest.ini
+
+      - name: Check out exact current main production source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.CURRENT_MAIN_SHA }}
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - name: Verify pristine current-main production closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C main-src rev-parse HEAD)" = "${CURRENT_MAIN_SHA}"
+          test -z "$(git -C main-src status --porcelain)"
+          test "$(git -C main-src hash-object sentinel/core/kernel.py)" = "12617af8eb954d4ae18fef2ae16977048e2e40cd"
+          test "$(git -C main-src hash-object sentinel/core/production.py)" = "99e8f87aa456fc672c84b0b0ceb3d674ca7ccf4c"
+          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/adapter.py)" = "466a8f8202692e65e08596a7a47d45bd15bb3fd3"
+          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)" = "8dd316ed28ff9b82c216f852118f8ef83d8510ad"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install production runtime and audit runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          python -m pip install pytest
+
+      - name: Compile audited financial paths
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python -m compileall -q -f backtester
+          python -m py_compile \
+            main-src/sentinel/core/kernel.py \
+            main-src/sentinel/core/production.py \
+            main-src/shared/stock_strategy_shared/wealth_core/adapter.py \
+            main-src/shared/stock_strategy_shared/wealth_core/state.py
+
+      - name: Verify unmodified current-main production binding
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python backtester/run_production_current_main_strict_pit_20y.py \
+            --main-root main-src --self-test-source-identity
+
+      - name: Prove pytest imports the runtime backtester package
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import backtester
+          from pathlib import Path
+          path = Path(backtester.__file__).resolve()
+          expected = (Path.cwd() / 'backtester' / '__init__.py').resolve()
+          assert path == expected, (path, expected)
+          print('BACKTESTER PACKAGE IDENTITY PASS', path)
+          PY
+
+      - name: Run permanent financial and forward-bias regressions
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python -m pytest -q \
+            tests/backtester/test_current_main_production_binding.py \
+            tests/backtester/test_forward_bias_regression.py \
+            tests/backtester/test_certification_parallel.py \
+            tests/backtester/test_research_review_basis.py \
+            tests/backtester/test_research_split_dividend_ordering.py \
+            tests/backtester/test_production_annual_chain.py

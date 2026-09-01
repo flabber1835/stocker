@@ -1,8 +1,8 @@
 {
   "schema": "backtester.production-chain-generation/1",
-  "generation": 2,
-  "supersedes_generation": 1,
-  "historical_descriptor": "backtester/data/production-chain-generation-1.json",
+  "generation": 1,
+  "status": "HISTORICAL_EVIDENCE_ONLY",
+  "superseded_by_generation": 2,
   "years": {
     "first": 2006,
     "last": 2026,
@@ -17,27 +17,17 @@
   "resume_equivalence_schema": "backtester.production-resume-equivalence/1",
   "canonical_dataset_hash": "f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b",
   "terminal_correction_sha256": "cfd65c78317abd1671632b2a730507634cf036e798b0ade89be68194fda430dc",
-  "production_main_sha": "c851386fa4dddcf2e2533af3a1d313c38220b7f2",
-  "production_source_mode": "pristine-current-main",
-  "production_overlay_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "production_blob_ids": {
-    "sentinel/core/kernel.py": "12617af8eb954d4ae18fef2ae16977048e2e40cd",
-    "sentinel/core/production.py": "99e8f87aa456fc672c84b0b0ceb3d674ca7ccf4c",
-    "shared/stock_strategy_shared/wealth_core/adapter.py": "466a8f8202692e65e08596a7a47d45bd15bb3fd3",
-    "shared/stock_strategy_shared/wealth_core/state.py": "8dd316ed28ff9b82c216f852118f8ef83d8510ad"
-  },
+  "production_main_sha": "887f479b15ad861313da666ad698034d3847121c",
   "execution": {
     "orchestration": "one immutable workflow run with 21 explicitly dependency-chained annual jobs",
     "job_timeout_minutes": 350,
     "replay_step_timeout_minutes": 300,
     "canonical_package_uploaded": false,
-    "next_year_requires_pass_artifact": true,
-    "production_checkout_must_be_pristine": true
+    "next_year_requires_pass_artifact": true
   },
   "genesis_gate": {
     "year": 2006,
     "split_after_measurement_start": true,
-    "requires_uninterrupted_resume_equivalence": true,
-    "requires_current_main_identity_gate": true
+    "requires_uninterrupted_resume_equivalence": true
   }
 }

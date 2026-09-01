@@ -32,7 +32,7 @@ from backtester.production_year_checkpoint_overlay import (
 SCHEMA = "backtester.production-year-certificate/1"
 CHAIN_SCHEMA = "backtester.production-year-certificate-chain/1"
 EQUIVALENCE_SCHEMA = "backtester.production-resume-equivalence/1"
-CHAIN_GENERATION = 1
+CHAIN_GENERATION = 2
 FIRST_YEAR = 2006
 FINAL_YEAR = 2026
 MEASUREMENT_START = "2006-07-31"
