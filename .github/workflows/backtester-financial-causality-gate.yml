@@ -153,9 +153,26 @@ jobs:
           PY
 
       - name: Run complete backtester regression suite
+        id: regressions
         shell: bash
+        continue-on-error: true
         env:
           PYTHONPATH: ${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared:${{ github.workspace }}
         run: |
-          set -euo pipefail
-          python -m pytest -q tests/backtester
+          set -o pipefail
+          python -m pytest -q tests/backtester 2>&1 | tee backtester-test.log
+
+      - name: Upload regression diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: backtester-financial-gate-tests-${{ github.run_id }}
+          path: backtester-test.log
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
+
+      - name: Enforce regression result
+        if: steps.regressions.outcome != 'success'
+        shell: bash
+        run: exit 1
