@@ -84,6 +84,17 @@ def test_authorized_services_enable_strict_ownership_and_kernel_hardening():
         assert service["security_opt"] == ["no-new-privileges:true"]
 
 
+def test_standby_broker_service_uses_same_strict_authority_and_hardening():
+    doc = yaml.safe_load(
+        (ROOT / "docker-compose.sentinel-automation-standby.yml").read_text())
+    automation = doc["services"]["sentinel-automation-standby"]
+    assert automation["environment"]["SENTINEL_RECOVERED_ORDER_AUTHORITY"] == "STRICT_V1"
+    for name in ("sentinel-automation-standby", "sentinel-alert-dispatcher-standby"):
+        service = doc["services"][name]
+        assert service["cap_drop"] == ["ALL"]
+        assert service["security_opt"] == ["no-new-privileges:true"]
+
+
 def test_ordinary_python_services_have_same_kernel_hardening():
     doc = yaml.safe_load((ROOT / "docker-compose.sentinel.yml").read_text())
     for name in ("sentinel", "sentinel-panel"):
