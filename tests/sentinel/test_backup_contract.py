@@ -36,6 +36,8 @@ def test_wal_archive_contract_requires_verified_atomic_durable_publication():
 
 
 def _archive_wal(source: Path, archive: Path, name: str, *, env=None):
+    marker = archive / ".sentinel-independent-durable-target-v1"
+    marker.write_text("sentinel-independent-durable-target-v1", encoding="utf-8")
     return subprocess.run(
         ["sh", str(ROOT / "scripts/sentinel-archive-wal.sh"),
          str(source), name, str(archive)],
