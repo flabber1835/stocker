@@ -37,10 +37,8 @@ timeline_hex() {
 }
 
 xid_epoch() {
-  python3 - "$1" <<'PY'
-import sys
-print(int(sys.argv[1]) >> 32)
-PY
+  psql -h "$work" -Atq -v ON_ERROR_STOP=1 -v xid8="$1" -c \
+    "SELECT trunc(:'xid8'::numeric / 4294967296)::bigint"
 }
 
 initdb -D "$primary" -A trust --no-locale >/dev/null
