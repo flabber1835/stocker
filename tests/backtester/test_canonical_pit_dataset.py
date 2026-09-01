@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 import pandas as pd
+import yaml
 
 from backtester.canonical_pit_dataset import (
     METADATA_COLUMNS,
@@ -277,9 +278,6 @@ class CanonicalPITDatasetTests(unittest.TestCase):
         diagnostic_publish = Path(
             ".github/workflows/backtester-publish-canonical-pit-diagnostic.yml"
         ).read_text(encoding="utf-8")
-        diagnostic_replay = Path(
-            ".github/workflows/backtester-strict-pit-20y.yml"
-        ).read_text(encoding="utf-8")
         self.assertIn("canonical_pit_dataset.py build", build)
         self.assertNotIn("canonical_pit_dataset.py build", replay)
         self.assertNotIn("SHARADAR_SEP_", replay)
@@ -292,22 +290,6 @@ class CanonicalPITDatasetTests(unittest.TestCase):
         self.assertIn("canonical-pit-2006-2007.json", diagnostic_publish)
         self.assertIn("docker push", diagnostic_publish)
         self.assertIn("git rebase origin/research/backtester", diagnostic_publish)
-        self.assertNotIn("canonical_pit_dataset.py build", diagnostic_replay)
-        self.assertIn("canonical-pit-2006-2007.json", diagnostic_replay)
-        self.assertIn("docker pull", diagnostic_replay)
-        self.assertIn('docker create "${PACKAGE}" /bin/true', diagnostic_replay)
-        self.assertIn("canonical-pit-2006-2007-equivalence-request.json", diagnostic_replay)
-        self.assertIn("backtester-canonical-pit-2006-2007-equivalence", diagnostic_replay)
-        self.assertIn("PYTHONPATH=${GITHUB_WORKSPACE}/main-src", diagnostic_replay)
-        self.assertIn("ref: ${{ github.sha }}", diagnostic_replay)
-        for workflow_fixture in (
-            "/.github/workflows/backtester-build-canonical-pit-attempt.yml",
-            "/.github/workflows/backtester-build-canonical-pit-20y.yml",
-            "/.github/workflows/backtester-publish-canonical-pit-diagnostic.yml",
-            "/.github/workflows/backtester-research-only-20y.yml",
-            "/.github/workflows/backtester-strict-pit-20y.yml",
-        ):
-            self.assertIn(workflow_fixture, diagnostic_replay)
         self.assertEqual(orchestrator.count("uses: ./.github/workflows/backtester-build-canonical-pit-attempt.yml"), 3)
         for fixture in (
             "/.github/workflows/backtester-build-canonical-pit-attempt.yml",
@@ -323,6 +305,75 @@ class CanonicalPITDatasetTests(unittest.TestCase):
         builder = Path("backtester/canonical_pit_dataset.py").read_text(encoding="utf-8")
         self.assertNotIn('session_parts[session].append("O\\0"', builder)
         self.assertIn("_write_session_hashes(", builder)
+
+    def test_retired_generation_one_is_fail_closed_and_descriptor_bound(self) -> None:
+        retired = yaml.load(
+            Path(
+                ".github/workflows/backtester-strict-pit-20y.yml"
+            ).read_text(encoding="utf-8"),
+            Loader=yaml.BaseLoader,
+        )
+        self.assertEqual(
+            retired["name"],
+            "RETIRED - generation 1 combined causal certification",
+        )
+        self.assertEqual(retired["on"], {"workflow_dispatch": ""})
+        self.assertEqual(retired["permissions"], {"contents": "read"})
+        self.assertEqual(set(retired["jobs"]), {"retired"})
+
+        job = retired["jobs"]["retired"]
+        self.assertEqual(
+            set(job),
+            {"name", "runs-on", "steps"},
+        )
+        self.assertEqual(job["name"], "Generation 1 is historical evidence only")
+        self.assertEqual(job["runs-on"], "ubuntu-24.04")
+        self.assertEqual(len(job["steps"]), 1)
+
+        step = job["steps"][0]
+        self.assertEqual(set(step), {"name", "shell", "run"})
+        self.assertEqual(step["name"], "Refuse legacy certification execution")
+        self.assertEqual(step["shell"], "bash")
+        script = [
+            line.strip()
+            for line in step["run"].splitlines()
+            if line.strip()
+        ]
+        self.assertEqual(len(script), 3)
+        self.assertIn("HISTORICAL_EVIDENCE_ONLY", script[0])
+        self.assertIn("backtester-production-strict-pit-20y.yml", script[1])
+        self.assertEqual(script[2], "exit 1")
+
+        active_path = Path("backtester/data/production-chain-generation.json")
+        active = json.loads(active_path.read_text(encoding="utf-8"))
+        self.assertEqual(active["generation"], 2)
+        self.assertEqual(active["supersedes_generation"], 1)
+        self.assertEqual(
+            active["historical_descriptor"],
+            "backtester/data/production-chain-generation-1.json",
+        )
+
+        historical_path = Path(active["historical_descriptor"])
+        historical = json.loads(historical_path.read_text(encoding="utf-8"))
+        self.assertEqual(historical["generation"], 1)
+        self.assertEqual(historical["status"], "HISTORICAL_EVIDENCE_ONLY")
+        self.assertEqual(
+            historical["superseded_by_generation"],
+            active["generation"],
+        )
+        self.assertEqual(
+            historical["canonical_dataset_hash"],
+            active["canonical_dataset_hash"],
+        )
+        self.assertEqual(historical["years"], active["years"])
+        self.assertEqual(
+            historical["production_main_sha"],
+            "887f479b15ad861313da666ad698034d3847121c",
+        )
+        self.assertEqual(
+            active["production_main_sha"],
+            "c851386fa4dddcf2e2533af3a1d313c38220b7f2",
+        )
 
 
 if __name__ == "__main__":
