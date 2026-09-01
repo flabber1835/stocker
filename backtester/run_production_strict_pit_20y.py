@@ -9,10 +9,8 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from typing import Mapping
 
-# This file is executed as a script by the parallel orchestrator. Python then
-# puts ``.../backtester`` on sys.path, not the repository root, so importing the
-# ``backtester`` package must not depend on an inherited PYTHONPATH.
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -24,26 +22,18 @@ os.environ["CERTIFICATION_STRICT_PIT"] = "1"
 
 import backtester.run_production_strict_pit_certification as strict
 from backtester import causal_split_overrides as split_overrides
-from backtester.financial_grade_guards import (
-    DIVIDEND_SETTLEMENT_LAG_SESSIONS,
-    MAX_TRAILING_VOLUME_PARTICIPATION,
-    install as install_financial_grade_guards,
-)
 
 WARMUP_START = "2006-01-03"
 MEASUREMENT_START = "2006-07-31"
 FULL_END_SESSION = "2026-07-31"
 END_SESSION = os.environ.get("CERTIFICATION_END_SESSION", FULL_END_SESSION)
 EXPECTED_MAIN_SHA = "c851386fa4dddcf2e2533af3a1d313c38220b7f2"
+DIVIDEND_SETTLEMENT_LAG_SESSIONS = 15
+MAX_TRAILING_VOLUME_PARTICIPATION = 0.10
+MIN_TRAILING_VOLUME_SESSIONS = 20
 
-# The retained production harness module is historical and still carries the
-# source identity it was first certified against. This active entrypoint binds
-# every runtime identity check and manifest field to the exact current-main
-# checkout before replay. The compatibility entry point in current main delegates
-# directly to sentinel.core.kernel.advance_session.
 strict.corrected.prod.EXPECTED_MAIN_SHA = EXPECTED_MAIN_SHA
 strict.corrected.prod.base.runner.EXPECTED_MAIN_SHA = EXPECTED_MAIN_SHA
-
 strict.corrected.WARMUP_START = WARMUP_START
 strict.corrected.MEASUREMENT_START = MEASUREMENT_START
 strict.corrected.runner.CHAIN_START = WARMUP_START
@@ -52,6 +42,22 @@ strict.corrected.runner.EXPERIMENT_ID = "2026-08-30-strict-pit-20y-production"
 strict.runner.CHAIN_START = WARMUP_START
 strict.runner.END_SESSION = END_SESSION
 strict.MEASUREMENT_START = MEASUREMENT_START
+
+
+class FinancialGradeGuardError(RuntimeError):
+    """The replay reached an observation that cannot be financially certified."""
+
+
+def _positive(value) -> bool:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(number) and number > 0.0
+
+
+def _mapping(value) -> Mapping:
+    return value if isinstance(value, Mapping) else {}
 
 
 def _corrected_contract_print(*args, **kwargs):
@@ -109,15 +115,12 @@ def _option_path(flag: str, default: Path) -> Path:
 
 
 def _bind_verified_main_identity() -> tuple[Path, str]:
-    """Bind the runner identity variable to the independently verified checkout."""
     main_root = _option_path("--main-root", PINNED_MAIN_ROOT).resolve()
     if not main_root.is_dir():
         raise RuntimeError(f"pinned production checkout is missing: {main_root}")
     completed = subprocess.run(
         ["git", "-C", str(main_root), "rev-parse", "HEAD"],
-        check=False,
-        capture_output=True,
-        text=True,
+        check=False, capture_output=True, text=True,
     )
     actual = completed.stdout.strip()
     if completed.returncode != 0 or not actual:
@@ -198,17 +201,130 @@ def _install_split_adjudications() -> None:
     split_overrides.install_primary_split_adjudication(canonical_split, active)
     print(
         "[SPLIT ADJUDICATION] active=" + str(len(active)) + " keys="
-        + ",".join(f"{t}:{s}" for t, s in sorted(active)),
-        flush=True,
+        + ",".join(f"{t}:{s}" for t, s in sorted(active)), flush=True,
     )
 
 
-def _install_financial_guards() -> None:
-    # runner.production and strict.strategy_production resolve to this exact
-    # module object, so one installation governs the complete replay path.
-    import sentinel.core.production as strategy_production
+def _pending(prior):
+    if hasattr(prior, "pending"):
+        return list(getattr(prior, "pending") or ())
+    return list(_mapping(prior).get("pending") or ())
 
-    install_financial_grade_guards(strategy_production)
+
+def _feed(prior) -> Mapping:
+    if hasattr(prior, "feed"):
+        return _mapping(getattr(prior, "feed"))
+    return _mapping(_mapping(prior).get("feed"))
+
+
+def _order_value(order, key, default=None):
+    if isinstance(order, Mapping):
+        return order.get(key, default)
+    return getattr(order, key, default)
+
+
+def _capacity_guard(prior, published) -> None:
+    bars = {
+        str(getattr(bar, "security_id")): bar
+        for bar in (getattr(published, "bars", None) or ())
+    }
+    series_by_security = _mapping(_feed(prior).get("series"))
+    for order in _pending(prior):
+        sid = str(_order_value(order, "security_id", "") or "")
+        if not sid:
+            continue
+        bar = bars.get(sid)
+        if bar is None:
+            continue
+        if not bool(getattr(bar, "tradeable", False)) or not _positive(
+            getattr(bar, "raw_open", None)
+        ):
+            continue
+        shares = _order_value(order, "shares", 0)
+        if not _positive(shares):
+            continue
+        series = _mapping(series_by_security.get(sid))
+        prior_volumes = [
+            float(value)
+            for value in list(series.get("volumes") or ())[-MIN_TRAILING_VOLUME_SESSIONS:]
+            if _positive(value)
+        ]
+        if len(prior_volumes) < MIN_TRAILING_VOLUME_SESSIONS:
+            raise FinancialGradeGuardError(
+                f"capacity authority incomplete for executable order {sid}: "
+                f"have {len(prior_volumes)} prior volume sessions, require "
+                f"{MIN_TRAILING_VOLUME_SESSIONS}"
+            )
+        average_volume = sum(prior_volumes) / len(prior_volumes)
+        participation = float(shares) / average_volume
+        if participation > MAX_TRAILING_VOLUME_PARTICIPATION + 1e-15:
+            raise FinancialGradeGuardError(
+                f"capacity ceiling exceeded on {getattr(published, 'session', '?')} "
+                f"{sid}: participation={participation:.4%} > "
+                f"{MAX_TRAILING_VOLUME_PARTICIPATION:.2%}"
+            )
+
+
+def _resolved_nav_guard(result, session: str) -> None:
+    evidence = _mapping(getattr(result, "last_evidence", None))
+    wealth = _mapping(evidence.get("wealth_core"))
+    if not wealth:
+        raise FinancialGradeGuardError(
+            f"production session {session} emitted no Wealth Core valuation evidence"
+        )
+    if bool(wealth.get("blocked")) or not _positive(wealth.get("resolved_equity")):
+        raise FinancialGradeGuardError(
+            f"financial-grade NAV unresolved on {session}: "
+            f"blocked={wealth.get('blocked')} resolved_equity={wealth.get('resolved_equity')!r}"
+        )
+
+
+def _install_financial_guards() -> None:
+    import sentinel.controller.concordance as concordance
+    import sentinel.core.production as strategy_production
+    from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
+
+    if getattr(strategy_production, "_financial_grade_guards_installed", False):
+        return
+    original_equal_weight = concordance.equal_weight_next_close_return
+
+    def strict_equal_weight(selected_security_ids, previous_close, current_close):
+        missing = [
+            str(security_id) for security_id in tuple(selected_security_ids)
+            if not (_positive(previous_close.get(security_id))
+                    and _positive(current_close.get(security_id)))
+        ]
+        if missing:
+            raise FinancialGradeGuardError(
+                "recent-leadership next-close return is unresolved for: "
+                + ", ".join(sorted(missing))
+            )
+        return original_equal_weight(selected_security_ids, previous_close, current_close)
+
+    concordance.equal_weight_next_close_return = strict_equal_weight
+    original_advance_state = strategy_production.advance_state
+    financial_config = WealthCoreConfig(
+        dividend_settlement_lag_sessions=DIVIDEND_SETTLEMENT_LAG_SESSIONS
+    )
+
+    def guarded_advance_state(prior, published, *args, **kwargs):
+        _capacity_guard(prior, published)
+        configured = kwargs.get("wealth_config")
+        if configured is None:
+            kwargs["wealth_config"] = financial_config
+        elif getattr(configured, "dividend_settlement_lag_sessions", None) != DIVIDEND_SETTLEMENT_LAG_SESSIONS:
+            raise FinancialGradeGuardError(
+                "production replay requested a dividend cash lag inconsistent "
+                f"with financial certification: "
+                f"{getattr(configured, 'dividend_settlement_lag_sessions', None)} "
+                f"!= {DIVIDEND_SETTLEMENT_LAG_SESSIONS}"
+            )
+        result = original_advance_state(prior, published, *args, **kwargs)
+        _resolved_nav_guard(result, str(getattr(published, "session", "?")))
+        return result
+
+    strategy_production.advance_state = guarded_advance_state
+    strategy_production._financial_grade_guards_installed = True
     print(
         "[FINANCIAL GRADE] resolved_nav=required "
         "missing_leadership_return=fail_closed "
@@ -222,8 +338,7 @@ def main() -> int:
     if "--self-test-imports" in sys.argv[1:]:
         print(
             f"[SELFTEST PASS] production 20y entrypoint root={ROOT} "
-            f"backtester_import={Path(strict.__file__).resolve()}",
-            flush=True,
+            f"backtester_import={Path(strict.__file__).resolve()}", flush=True,
         )
         return 0
     main_root, main_sha = _bind_verified_main_identity()
@@ -235,18 +350,15 @@ def main() -> int:
         print(
             f"[SELFTEST PASS] production source identity root={main_root} sha={main_sha} "
             f"dividend_lag={DIVIDEND_SETTLEMENT_LAG_SESSIONS} "
-            f"capacity={MAX_TRAILING_VOLUME_PARTICIPATION:.2%}",
-            flush=True,
+            f"capacity={MAX_TRAILING_VOLUME_PARTICIPATION:.2%}", flush=True,
         )
         return 0
     print(
-        f"[SOURCE IDENTITY PASS] production_root={main_root} sha={main_sha}",
-        flush=True,
+        f"[SOURCE IDENTITY PASS] production_root={main_root} sha={main_sha}", flush=True,
     )
     print(
         f"[CONTRACT] role=production warmup={WARMUP_START} "
-        f"measurement={MEASUREMENT_START} end={END_SESSION}",
-        flush=True,
+        f"measurement={MEASUREMENT_START} end={END_SESSION}", flush=True,
     )
     _install_split_adjudications()
     _install_financial_guards()
