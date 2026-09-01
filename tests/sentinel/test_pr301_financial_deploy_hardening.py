@@ -48,7 +48,8 @@ def test_publication_binds_exact_pitr_transaction_target():
     assert evidence == {
         "schema": "sentinel.corpus-publication-pitr/1",
         "recovery_target_xid": "4294968296",
-        "recovery_target_action": "promote-after",
+        "recovery_target_inclusive": True,
+        "recovery_target_action": "promote",
     }
 
 
