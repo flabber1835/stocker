@@ -10,7 +10,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER = ROOT / "backtester" / "run_production_current_main_strict_pit_20y.py"
-CURRENT_MAIN_SHA = "89f6218ff116b4dafc4ca8ac6159337d1718e2e1"
+CURRENT_MAIN_SHA = "80e89b3f894f826e64139b1e0fedd5d42ef937f8"
 
 
 def _load_launcher():
@@ -25,7 +25,8 @@ def _load_launcher():
 def test_launcher_pins_current_main_and_forbids_source_patch() -> None:
     text = LAUNCHER.read_text(encoding="utf-8")
     assert CURRENT_MAIN_SHA in text
-    assert '"sentinel/core/production.py": "1809c2a31216b247dd0b727178680d41fce80c48"' in text
+    assert '"sentinel/core/production.py": "e4ebfebae2fa1a737c52063af63003a82b6e19cf"' in text
+    assert '"shared/stock_strategy_shared/wealth_core/state.py": "1921399aca503ae5e2cbfd6125792c09464ba22b"' in text
     assert "status\", \"--porcelain" in text
     assert "patched=false" in text
     assert "apply_production_cooldown_age_zero" not in text
@@ -43,10 +44,6 @@ def test_current_main_kernel_is_the_production_advance_state_target() -> None:
     import sentinel.core.production as production
     import sentinel.core.kernel as kernel
 
-    # Certification deliberately instruments the imported runtime function, so
-    # inspect the pinned source file itself when proving the owner boundary.
-    # This keeps the assertion independent of test collection order while still
-    # verifying the exact current-main code loaded by the runner.
     source = Path(production.__file__).read_text(encoding="utf-8")
     assert "from sentinel.core.kernel import advance_session" in source
     assert "return advance_session(" in source
