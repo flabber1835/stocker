@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 from collections import Counter
 from pathlib import Path
@@ -11,7 +12,8 @@ from typing import Mapping, Sequence
 
 from backtester import historical_metadata_reconstruction_v2 as base
 
-SCHEMA = "backtester.historical-metadata-reconstruction-v2.web-merge/1"
+SCHEMA = "backtester.historical-metadata-reconstruction-v2.web-merge/2"
+ATTEMPT_RE = re.compile(r"attempt-(\d+)")
 
 
 def _dedup(rows: Sequence[Mapping[str, object]], keys: Sequence[str]) -> list[dict[str, object]]:
@@ -21,7 +23,6 @@ def _dedup(rows: Sequence[Mapping[str, object]], keys: Sequence[str]) -> list[di
         candidate = dict(row)
         prior = chosen.get(key)
         if prior is not None and prior != candidate:
-            # Same normalized economic/source key must not carry contradictory payload.
             if json.dumps(prior, sort_keys=True) != json.dumps(candidate, sort_keys=True):
                 raise base.ReconstructionError(f"conflicting duplicate web evidence for {key}")
         else:
@@ -47,17 +48,31 @@ def _copy_sources(shard_dir: Path, output: Path) -> int:
     return copied
 
 
+def _attempt(path: Path) -> int:
+    matches = [int(value) for value in ATTEMPT_RE.findall(path.as_posix())]
+    return max(matches) if matches else 0
+
+
 def merge(root: Path, output: Path, expected_shards: int = 32) -> dict:
     coverage_paths = sorted(root.rglob("shard_runner_coverage.json"))
-    by_shard: dict[str, Path] = {}
+    candidates_by_shard: dict[str, list[tuple[int, Path]]] = {}
     for coverage_path in coverage_paths:
         payload = json.loads(coverage_path.read_text(encoding="utf-8"))
         shard = str(payload.get("shard") or "")
-        if payload.get("status") != "PASS":
-            raise base.ReconstructionError(f"shard {shard} is not PASS")
-        if not shard or shard in by_shard:
-            raise base.ReconstructionError(f"missing/duplicate shard label: {shard!r}")
-        by_shard[shard] = coverage_path.parent
+        if not shard or payload.get("status") != "PASS":
+            continue
+        candidates_by_shard.setdefault(shard, []).append((_attempt(coverage_path), coverage_path.parent))
+
+    by_shard: dict[str, Path] = {}
+    selected_attempts: dict[str, int] = {}
+    for shard, choices in candidates_by_shard.items():
+        choices.sort(key=lambda item: item[0])
+        highest = choices[-1][0]
+        winners = [path for attempt, path in choices if attempt == highest]
+        if len(winners) != 1:
+            raise base.ReconstructionError(f"duplicate latest PASS artifact for shard {shard} attempt {highest}")
+        selected_attempts[shard] = highest
+        by_shard[shard] = winners[0]
 
     expected = {f"{index:02d}" for index in range(expected_shards)}
     actual = set(by_shard)
@@ -106,7 +121,8 @@ def merge(root: Path, output: Path, expected_shards: int = 32) -> dict:
         copied_sources += _copy_sources(shard_dir, output)
         print(
             f"[MERGE PROGRESS] shard={index+1}/{expected_shards} pct={(index+1)*100.0/expected_shards:.1f}% "
-            f"planned_ciks={planned_ciks} completed_ciks={completed_ciks} sources_copied={copied_sources}",
+            f"attempt={selected_attempts[shard]} planned_ciks={planned_ciks} completed_ciks={completed_ciks} "
+            f"sources_copied={copied_sources}",
             flush=True,
         )
 
@@ -123,8 +139,6 @@ def merge(root: Path, output: Path, expected_shards: int = 32) -> dict:
         if not member:
             if terminal:
                 continue
-            # Cache hits and manifest-only rows must still have an authenticated body
-            # when status 200 claims source bytes were retained.
             if str(row.get("status") or "") == "200" and int(row.get("bytes") or 0) > 0:
                 raise base.ReconstructionError(f"source manifest row lacks artifact member: {row.get('url')}")
             continue
@@ -159,6 +173,7 @@ def merge(root: Path, output: Path, expected_shards: int = 32) -> dict:
         "complete": completed_ciks == planned_ciks,
         "expected_shards": expected_shards,
         "merged_shards": len(by_shard),
+        "selected_attempts": selected_attempts,
         "planned_unique_ciks": planned_ciks,
         "completed_unique_ciks": completed_ciks,
         "terminal_source_absences": terminal_absences,
