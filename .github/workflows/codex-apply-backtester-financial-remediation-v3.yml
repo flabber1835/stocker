@@ -1,0 +1,100 @@
+name: Codex apply backtester financial remediation v3
+
+on:
+  push:
+    branches: [codex/fix-backtester-financial-audit-20260831]
+    paths: [.github/workflows/codex-apply-backtester-financial-remediation-v3.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out exact backtester target sparsely
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/backtester
+          fetch-depth: 1
+          persist-credentials: true
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-production-strict-pit-year-worker.yml
+            /.github/workflows/backtester-strict-pit-20y.yml
+            /.github/workflows/backtester-research-only-20y.yml
+            /backtester/run_production_strict_pit_20y.py
+            /backtester/data/production-chain-generation.json
+            /backtester/PRODUCTION_20Y_ANNUAL_CHAIN_DESIGN.md
+            /backtester/production_year_checkpoint_overlay.py
+            /backtester/write_production_year_certificate.py
+            /tests/__init__.py
+            /tests/backtester/__init__.py
+            /tests/backtester/test_production_annual_chain.py
+            /tests/backtester/test_canonical_pit_dataset.py
+
+      - name: Check out reviewed remediation script
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 76ed45f2b651c55ff41f5b056c2354f17b747473
+          path: remediation-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: /tools/codex_backtester_financial_remediation.py
+
+      - name: Prove target and apply
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git branch --show-current)" = "research/backtester"
+          test "$(git rev-parse HEAD)" = "c6a1e253fb3b6b12fa8572d039b8c4894a1b917d"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          python remediation-src/tools/codex_backtester_financial_remediation.py
+
+      - name: Validate exact remediation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile backtester/run_production_strict_pit_20y.py backtester/__init__.py
+          python -m unittest tests.backtester.test_production_annual_chain -v
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import backtester
+          main = 'c851386fa4dddcf2e2533af3a1d313c38220b7f2'
+          d = json.loads(Path('backtester/data/production-chain-generation.json').read_text())
+          assert d['production_main_sha'] == main
+          assert d['production_source_mode'] == 'exact_unmodified_main_kernel'
+          assert d['execution']['production_source_mutation'] is False
+          assert str(Path(backtester.__file__).resolve()).endswith('backtester/__init__.py')
+          canonical_test = Path('tests/backtester/test_canonical_pit_dataset.py').read_text()
+          assert 'canonical-pit-20y-certification-request.json' in canonical_test
+          expected_ref = 'ref: $' + '{{ inputs.source_sha || github.sha }}'
+          assert expected_ref in canonical_test
+          worker = Path('.github/workflows/backtester-production-strict-pit-year-worker.yml').read_text()
+          combined = Path('.github/workflows/backtester-strict-pit-20y.yml').read_text()
+          research = Path('.github/workflows/backtester-research-only-20y.yml').read_text()
+          for text in (worker, combined, research):
+              assert main in text
+          for text in (worker, combined):
+              assert 'Verify exact unmodified production source' in text
+              assert 'python backtester/apply_production_cooldown_age_zero.py' not in text
+              assert 'sentinel/core/kernel.py' in text
+          PY
+
+      - name: Commit and push only research backtester files
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf remediation-src
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- .github/workflows/backtester-production-strict-pit-year-worker.yml .github/workflows/backtester-strict-pit-20y.yml .github/workflows/backtester-research-only-20y.yml backtester/__init__.py backtester/run_production_strict_pit_20y.py backtester/data/production-chain-generation.json backtester/PRODUCTION_20Y_ANNUAL_CHAIN_DESIGN.md tests/backtester/test_production_annual_chain.py tests/backtester/test_canonical_pit_dataset.py
+          test -n "$(git diff --cached --name-only)"
+          if git diff --cached --name-only | grep -E '(^|/)(sec|sec-filings)(/|$)|sec[_-]?backfill'; then exit 1; fi
+          git commit -m "Fix backtester production source equivalence"
+          test "$(git branch --show-current)" = "research/backtester"
+          git push origin HEAD:refs/heads/research/backtester
