@@ -30,7 +30,9 @@ class _XidCursor:
         self.statement = statement
 
     def fetchone(self):
-        assert self.statement == "SELECT pg_current_xact_id()::text"
+        assert self.statement == (
+            "SELECT pg_current_xact_id()::text,"
+            " substring(pg_walfile_name(pg_current_wal_lsn()) from 1 for 8)")
         return self.row
 
 
@@ -42,20 +44,30 @@ class _XidConnection:
         return _XidCursor(self.row)
 
 
-def test_publication_binds_exact_pitr_transaction_target():
+def test_publication_binds_branch_unique_wrap_safe_pitr_target():
     evidence = publication._publication_recovery_target(
-        _XidConnection(("4294968296",)))
+        _XidConnection(("4294968296", "00000011")))
     assert evidence == {
-        "schema": "sentinel.corpus-publication-pitr/1",
-        "recovery_target_xid": "4294968296",
+        "schema": "sentinel.corpus-publication-pitr/2",
+        "source_xid8": "4294968296",
+        "source_xid_epoch": 1,
+        "recovery_target_xid": "1000",
+        "recovery_target_timeline": "0x00000011",
+        "required_base_xid_epoch": 1,
         "recovery_target_inclusive": True,
         "recovery_target_action": "promote",
     }
 
 
-def test_publication_refuses_missing_pitr_transaction_authority():
+@pytest.mark.parametrize("row", [
+    (None, "00000001"),
+    ("1000", None),
+    ("1000", "not-a-timeline"),
+    (str((1 << 32) + 2), "00000001"),
+])
+def test_publication_refuses_missing_or_ambiguous_pitr_authority(row):
     with pytest.raises(publication.CorpusIncoherent):
-        publication._publication_recovery_target(_XidConnection((None,)))
+        publication._publication_recovery_target(_XidConnection(row))
 
 
 def test_strict_recovered_order_policy_refuses_prefix_only_ownership():
