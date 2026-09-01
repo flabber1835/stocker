@@ -50,8 +50,6 @@ def public_production_daily(raw: pd.DataFrame) -> pd.DataFrame:
     allocation = f"{source}_allocation"
     if allocation in raw.columns:
         result["Production_allocation"] = raw[allocation].astype(float)
-    # Strategy-boundary evidence kept the historical D prefix even after the
-    # account itself became B internally. Prefer it when present.
     ranking = next(
         (name for name in (
             "Production_ranking_count", "D_ranking_count", "B_ranking_count"
@@ -119,8 +117,15 @@ def metric_block(frame: pd.DataFrame, column: str, measurement_start: str, end_s
         raise RuntimeError(f"{column} has invalid measurement values")
     normalized = values / values[0]
     returns = normalized[1:] / normalized[:-1] - 1.0
-    std = float(np.std(returns, ddof=1)) if len(returns) > 1 else float("nan")
-    sharpe = float(np.mean(returns) / std * math.sqrt(252.0)) if std > 0 else float("nan")
+    std = float(np.std(returns, ddof=1)) if len(returns) > 1 else 0.0
+    # Public evidence is strict JSON.  A constant-return or single-return window
+    # has no observed return dispersion, so the finite backtester convention is
+    # Sharpe 0.0.  This matches app.metrics and avoids NaN/Infinity certificates.
+    sharpe = (
+        float(np.mean(returns) / std * math.sqrt(252.0))
+        if math.isfinite(std) and std > 0.0
+        else 0.0
+    )
     peak = np.maximum.accumulate(normalized)
     max_drawdown = float(np.min(normalized / peak - 1.0))
     elapsed_years = (
@@ -170,9 +175,6 @@ def write_final_comparison(owner) -> None:
 
     daily = pd.read_csv(daily_path, compression="gzip", low_memory=False)
     source = _source_variant_from_columns(daily.columns)
-    # Capture the independent Production Wealth Core close path before dropping
-    # the internal account columns. An already-public bundle is accepted so the
-    # operation remains byte-idempotent after deterministic gzip serialization.
     if "Production_wealth_core_equity" not in daily.columns:
         history = getattr(owner, "_pit_core_by_session", None)
         if not isinstance(history, dict):
