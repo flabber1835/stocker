@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -27,6 +29,7 @@ def test_chronological_replay_resolves_main_once_and_propagates_identity() -> No
     assert "corrected.prod.EXPECTED_MAIN_SHA = sha" in launcher
     assert "corrected.runner.EXPECTED_MAIN_SHA = sha" in launcher
     assert "Production module escaped exact run-start checkout" in launcher
+    assert "sys.path.insert(0, str(ROOT))" in launcher
 
 
 def test_triggering_backtester_revision_is_immutable() -> None:
@@ -37,14 +40,21 @@ def test_triggering_backtester_revision_is_immutable() -> None:
     assert 'test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"' in workflow
 
 
-def test_launcher_imports_and_binds_exact_current_main_runtime(monkeypatch) -> None:
+def _current_main_fixture() -> tuple[Path, str] | None:
     root = Path("main-src").resolve()
     if not (root / "sentinel" / "core" / "kernel.py").is_file():
-        pytest.skip("exact current-main checkout is supplied by the financial gate")
-
+        return None
     sha = subprocess.check_output(
         ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
     ).strip()
+    return root, sha
+
+
+def test_launcher_imports_and_binds_exact_current_main_runtime(monkeypatch) -> None:
+    fixture = _current_main_fixture()
+    if fixture is None:
+        pytest.skip("exact current-main checkout is supplied by the financial gate")
+    root, sha = fixture
     monkeypatch.setenv("BACKTESTER_MAIN_ROOT", str(root))
     monkeypatch.setenv("BACKTESTER_MAIN_SHA", sha)
 
@@ -58,3 +68,23 @@ def test_launcher_imports_and_binds_exact_current_main_runtime(monkeypatch) -> N
         launcher.corrected.prod.production,
     ):
         assert root in Path(module.__file__).resolve().parents
+
+
+def test_launcher_is_executable_by_file_path(monkeypatch) -> None:
+    fixture = _current_main_fixture()
+    if fixture is None:
+        pytest.skip("exact current-main checkout is supplied by the financial gate")
+    root, sha = fixture
+    env = dict(os.environ)
+    env["BACKTESTER_MAIN_ROOT"] = str(root)
+    env["BACKTESTER_MAIN_SHA"] = sha
+    proc = subprocess.run(
+        [sys.executable, "backtester/run_ldrc_current_main.py", "--help"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env=env,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout
+    assert "chronological Production source bound to run-start main=" in proc.stdout
