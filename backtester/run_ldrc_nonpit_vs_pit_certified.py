@@ -41,7 +41,16 @@ base.runner.EXPERIMENT_ID = "2026-08-29-ldrc-nonpit-vs-fullstack-pit-certified"
 base.runner.state_wc_parity = lambda *_args, **_kwargs: None
 
 from stock_strategy_shared.wealth_core.feed import SecurityMeta  # noqa: E402
+import sentinel.core.kernel as production_kernel  # noqa: E402
 import sentinel.core.production as production  # noqa: E402
+
+# Current Production exposes persistence/loading seams from core.production and
+# owns the pure economic transition in core.kernel. The retained replay runner
+# historically looked those pure symbols up through core.production. Bind that
+# compatibility surface to the exact current-main kernel objects so the replay
+# executes the current ownership boundary without copying economic logic.
+production.advance_state = production_kernel.advance_session
+production.session_breadth = production_kernel.session_breadth
 
 
 def _production_runner_print(*args, **kwargs):
@@ -117,7 +126,7 @@ _pit_prior_core_close: float | None = None
 _pit_core_by_session: dict[str, tuple[float | None, float]] = {}
 _production_dataset_hash: str | None = None
 _production_measurement_start: str | None = None
-_real_advance_state = production.advance_state
+_real_advance_state = production_kernel.advance_session
 _real_raw_overlay_step = base._real_overlay_step
 
 UNRESOLVED_OPEN_TRANSITION_MARKER = (
@@ -281,8 +290,6 @@ def _strict_prior_cik(sectors, sid: str, meta: SecurityMeta, session: str) -> tu
     cik = model._strict_prior(
         model.cik_dates.get(ticker, ()), model.cik_values.get(ticker, ()), session)
     if cik is None:
-        # A unique security-level key is causal and fail-safe: it does not infer a
-        # present-day related-ticker relationship before SEC evidence exists.
         return f"SEC_UNKNOWN:{sid}", "SEC_STRICT_PRIOR_UNKNOWN_SINGLETON"
     return f"SEC_CIK:{cik}", "SEC_CIK_STRICT_PRIOR"
 
@@ -300,7 +307,6 @@ def _pit_meta_map(pub) -> dict[str, _PitSecurityMeta]:
             ticker=meta.ticker,
             category=meta.category,
             permaticker=meta.permaticker,
-            # Eliminate present-day relatedtickers from the historical issuer path.
             related_tickers=(),
             first_session=meta.first_session,
             last_session=meta.last_session,
@@ -369,136 +375,98 @@ def _raw_overlay_step_fullstack(self, *args, **kwargs):
             bil_intraday=values[4],
             next_target=values[5],
         )
-        # Losing the diagnostic is itself a hard failure. Re-raise that write
-        # error while suppressing the inherited account label in its context.
-        try:
-            context_path = _write_production_failure_context(payload)
-        except Exception as write_error:
-            raise write_error from None
-        unresolved = ",".join(payload["open_unresolved_security_ids"]) or "unknown"
+        path = _write_production_failure_context(payload)
+        unresolved = payload["open_unresolved_security_ids"]
         raise RuntimeError(
-            "Production allocation transition coincides with an unresolved "
-            f"Wealth Core open at {payload['session']}; "
-            f"unresolved_security_ids={unresolved}; "
-            f"failure_context={context_path}"
+            "Production allocation transition coincides with unresolved Wealth Core open; "
+            f"session={session} unresolved={','.join(unresolved)} "
+            f"evidence={path}"
         ) from None
     _pit_prior_core_close = core_close
     return nav
 
 
-# The base launcher's progress wrapper calls this module global. Rebinding it
-# gives D its own Wealth Core return stream while preserving the certified
-# OverlayAccount implementation and next-open timing.
-base._real_overlay_step = _raw_overlay_step_fullstack
-
-_year_end_sessions: set[str] = set()
-_real_build_sfp_levels = base.runner.build_sfp_levels
-_real_progress_overlay_step = base.runner.OverlayAccount.step
+base.runner.OverlayAccount.step = _raw_overlay_step_fullstack
 
 
-def _calendar_checkpoint_sessions(
-    sessions,
-    measurement_start: str,
-    end_session: str | None = None,
-) -> set[str]:
-    """Select quarter ends plus the requested end from a canonical session axis."""
-    axis = [
-        str(value) for value in sessions
-        if str(value) >= str(measurement_start)
-        and (end_session is None or str(value) <= str(end_session))
-    ]
-    if any(current >= following for current, following in zip(axis, axis[1:])):
-        raise RuntimeError("reporting session axis must be strictly increasing")
-    result: set[str] = set()
-    for index, session in enumerate(axis):
-        current_quarter = (int(session[:4]), (int(session[5:7]) - 1) // 3)
-        if index + 1 == len(axis):
-            result.add(session)
+def _calendar_checkpoint_sessions(sessions: list[str], start: str, end: str) -> set[str]:
+    selected: set[str] = set()
+    quarter_end_months = {3, 6, 9, 12}
+    previous = None
+    for session in sessions:
+        if session < start or session > end:
             continue
-        following = axis[index + 1]
-        following_quarter = (
-            int(following[:4]), (int(following[5:7]) - 1) // 3
-        )
-        if following_quarter != current_quarter:
-            result.add(session)
-    return result
+        current = date.fromisoformat(session)
+        if previous is not None:
+            prior = date.fromisoformat(previous)
+            if prior.month in quarter_end_months and current.month != prior.month:
+                selected.add(previous)
+        previous = session
+    if previous is not None:
+        selected.add(previous)
+    return selected
 
 
-def _increment_production_progress(progress_owner) -> int:
-    value = int(getattr(progress_owner, "_progress_sessions", 0)) + 1
-    progress_owner._progress_sessions = value
-    return value
-
-
-def _measurement_cagr(nav: float, measurement_start: str, session: str) -> float:
-    elapsed = (
-        date.fromisoformat(str(session)) - date.fromisoformat(str(measurement_start))
-    ).days / 365.2425
-    if elapsed <= 0:
+def _measurement_cagr(multiple: float, start: str, session: str) -> float:
+    if session <= start:
         return 0.0
-    if not math.isfinite(float(nav)) or float(nav) <= 0:
-        raise RuntimeError("Production NAV must be positive and finite for CAGR")
-    return float(nav) ** (1.0 / elapsed) - 1.0
+    elapsed_years = (date.fromisoformat(session) - date.fromisoformat(start)).days / 365.2425
+    if elapsed_years <= 0:
+        return 0.0
+    return float(multiple ** (1.0 / elapsed_years) - 1.0)
 
 
-def _build_sfp_levels_with_year_ends(*args, **kwargs):
-    result = _real_build_sfp_levels(*args, **kwargs)
-    sessions = list(result[0])
-    _year_end_sessions.clear()
-    for i, session in enumerate(sessions):
-        if i + 1 < len(sessions) and sessions[i + 1][:4] != session[:4]:
-            _year_end_sessions.add(str(session))
+def _increment_production_progress(owner) -> int:
+    owner._progress_sessions = int(getattr(owner, "_progress_sessions", 0)) + 1
+    return owner._progress_sessions
+
+
+def _emit_progress(self, *args, **kwargs):
+    result = base._real_overlay_step(self, *args, **kwargs)
+    if str(self.name) == "B" and _latest_pit_state is not None:
+        sessions = _increment_production_progress(base)
+        if sessions % base.PROGRESS_INTERVAL == 0:
+            session = str(_latest_pit_state.last_processed_session)
+            start = str(_production_measurement_start or base.runner.CHAIN_START)
+            if session >= start:
+                print(
+                    f"[PROGRESS] session={session} sessions={sessions} from={start} "
+                    f"role=Production multiple={float(self.nav):.6f} "
+                    f"cumulative_cagr={_measurement_cagr(float(self.nav), start, session):.6%}",
+                    flush=True,
+                )
     return result
 
 
-def _overlay_step_with_calendar_year_cagr(self, *args, **kwargs):
-    nav = _real_progress_overlay_step(self, *args, **kwargs)
-    if str(self.name) == "B":
-        session = str(base._current_session or "")
-        if session in _year_end_sessions:
-            print(
-                f"[YEAR-END] year={session[:4]} session={session} "
-                f"role=Production multiple={float(self.nav):.10f} "
-                f"cumulative_cagr={base._running_cagr(float(self.nav), session):.10%}",
-                flush=True,
-            )
-    return nav
+base.OverlayAccount.step = _emit_progress
 
 
-base.runner.build_sfp_levels = _build_sfp_levels_with_year_ends
-base.runner.OverlayAccount.step = _overlay_step_with_calendar_year_cagr
-
-
-def _max_metric_block(
-    frame: pd.DataFrame,
-    column: str,
-    measurement_start: str | None = None,
-) -> dict:
-    x = frame[["date", column]].dropna().copy()
-    if measurement_start is not None:
-        x = x[x["date"].astype(str) >= str(measurement_start)].copy()
-    if x.empty or str(x.iloc[-1]["date"]) != str(base.runner.END_SESSION):
-        raise RuntimeError(f"{column} has incomplete maximum-history measurement window")
+def _max_metric_block(frame: pd.DataFrame, column: str, measurement_start: str) -> dict:
+    x = frame[frame["date"] >= measurement_start][["date", column]].dropna().copy()
+    if x.empty:
+        raise RuntimeError(f"{column} has no values on or after {measurement_start}")
+    end = str(base.runner.END_SESSION)
+    if str(x.iloc[-1]["date"]) != end:
+        raise RuntimeError(f"{column} has incomplete measurement window through {end}")
     values = x[column].astype(float).to_numpy()
     if len(values) < 2 or values[0] <= 0 or values[-1] <= 0:
-        raise RuntimeError(f"{column} invalid maximum-history measurement values")
-    start = str(x.iloc[0]["date"])
-    end = str(x.iloc[-1]["date"])
-    elapsed_years = (date.fromisoformat(end) - date.fromisoformat(start)).days / 365.2425
-    if elapsed_years <= 0:
-        raise RuntimeError("maximum-history elapsed years is non-positive")
+        raise RuntimeError(f"{column} has invalid measurement values")
     normalized = values / values[0]
     rets = normalized[1:] / normalized[:-1] - 1.0
     std = float(np.std(rets, ddof=1)) if len(rets) > 1 else float("nan")
     sharpe = float(np.mean(rets) / std * math.sqrt(252.0)) if std > 0 else float("nan")
     peak = np.maximum.accumulate(normalized)
     max_dd = float(np.min(normalized / peak - 1.0))
+    elapsed_years = (
+        date.fromisoformat(str(x.iloc[-1]["date"]))
+        - date.fromisoformat(str(x.iloc[0]["date"]))
+    ).days / 365.2425
     cagr = float(normalized[-1] ** (1.0 / elapsed_years) - 1.0)
     return {
-        "start": start,
-        "end": end,
+        "start": str(x.iloc[0]["date"]),
+        "end": str(x.iloc[-1]["date"]),
         "sessions": int(len(x)),
-        "elapsed_years": float(elapsed_years),
+        "elapsed_years": elapsed_years,
         "cagr": cagr,
         "sharpe": sharpe,
         "max_drawdown": max_dd,
@@ -506,240 +474,51 @@ def _max_metric_block(
     }
 
 
-def _public_production_daily(daily: pd.DataFrame) -> pd.DataFrame:
-    """Remove the mechanical control and give the certified path its real name."""
-    result = daily.copy()
-    rename = {}
-    for column in result.columns:
-        if not column.startswith("D_"):
-            continue
-        public = "Production_" + column[2:]
-        if public in result.columns:
-            left = result[column]
-            right = result[public]
-            if not left.equals(right):
-                raise RuntimeError(
-                    f"conflicting internal/public Production daily columns: {column}, {public}"
-                )
-        else:
-            rename[column] = public
-    if rename:
-        result.rename(columns=rename, inplace=True)
-    result.drop(
-        columns=[
-            column for column in result.columns
-            if column.startswith(("A_", "B_", "D_"))
-            or column in {"wealth_core_equity", "green"}
-        ],
-        inplace=True,
-        errors="ignore",
-    )
-    required = {"date", "Production_nav", "SPY_level"}
-    missing = required.difference(result.columns)
-    if missing:
-        raise RuntimeError(
-            f"public Production daily output missing columns: {sorted(missing)}"
-        )
-    ordered = ["date"]
-    ordered.extend(sorted(
-        column for column in result.columns if column.startswith("Production_")
-    ))
-    ordered.extend(
-        column for column in result.columns
-        if column not in ordered
-    )
-    return result[ordered]
-
-
-def _public_production_metrics(
-    metrics: pd.DataFrame,
-    max_blocks: Mapping[str, Mapping],
-) -> pd.DataFrame:
-    """Expose only the certified Production account and its SPY benchmark."""
-    result = metrics.copy()
-    if "variant" not in result.columns:
-        raise RuntimeError("metrics output has no variant column")
-    result["variant"] = result["variant"].astype(str).replace({
-        "B": "Production",
-        "D": "Production",
-    })
-    result = result[result["variant"].isin(("Production", "SPY"))].copy()
-    result = result[result["window_years"].astype(str) != "max"].copy()
-    max_rows = []
-    for label in ("Production", "SPY"):
-        block = dict(max_blocks[label])
-        max_rows.append({
-            "window_years": "max",
-            "variant": label,
-            "start": block["start"],
-            "end": block["end"],
-            "sessions": block["sessions"],
-            "cagr": block["cagr"],
-            "sharpe": block["sharpe"],
-            "max_drawdown": block["max_drawdown"],
-            "ending_multiple": block["ending_multiple"],
-        })
-    return pd.concat([result, pd.DataFrame(max_rows)], ignore_index=True)
-
-
-def _public_metric_summary(raw_metrics, max_blocks: Mapping[str, Mapping]) -> dict:
-    result: dict[str, dict] = {}
-    for window, raw_block in sorted(
-        dict(raw_metrics or {}).items(), key=lambda pair: str(pair[0])
-    ):
-        if str(window) == "max" or not isinstance(raw_block, Mapping):
-            continue
-        production = raw_block.get("Production")
-        if production is None:
-            production = raw_block.get("D", raw_block.get("B"))
-        block = {}
-        if production is not None:
-            block["Production"] = production
-        if raw_block.get("SPY") is not None:
-            block["SPY"] = raw_block["SPY"]
-        if block:
-            result[str(window)] = _jsonable(block)
-    result["max"] = _jsonable({
-        "Production": max_blocks["Production"],
-        "SPY": max_blocks["SPY"],
-    })
-    return result
-
-
-def _write_final_comparison() -> None:
-    output = base.OUTPUT
-    daily_path = output / "daily.csv.gz"
-    metrics_path = output / "metrics.csv"
+def _finalize_production_result(result: int) -> int:
+    global _production_dataset_hash, _production_measurement_start
+    output = Path(base.OUTPUT)
     summary_path = output / "summary.json"
-    manifest_path = output / "manifest.json"
-    sums_path = output / "SHA256SUMS.txt"
-
-    daily = pd.read_csv(daily_path, compression="gzip")
-    public_reporting_ready = (
-        _production_measurement_start is None
-        or (
-            not daily.empty
-            and str(daily.iloc[0]["date"]) >= str(_production_measurement_start)
-        )
-    )
-    production_nav_column = (
-        "Production_nav" if "Production_nav" in daily.columns else "D_nav"
-    )
-    required = {"date", production_nav_column, "SPY_level"}
-    missing = required.difference(daily.columns)
-    if missing:
-        raise RuntimeError(f"daily output missing required Production columns: {sorted(missing)}")
-    d_core = []
-    for session in daily["date"].astype(str):
-        pair = _pit_core_by_session.get(session)
-        if pair is None:
-            raise RuntimeError(f"missing Production Wealth Core equity capture for {session}")
-        d_core.append(float(pair[1]))
-    daily["Production_wealth_core_equity"] = d_core
-    daily = _public_production_daily(daily)
-    daily.to_csv(
-        daily_path, index=False,
-        compression={"method": "gzip", "compresslevel": 6, "mtime": 0})
-
-    max_blocks = {
-        "Production": _max_metric_block(
-            daily, "Production_nav", _production_measurement_start
-        ),
-        "SPY": _max_metric_block(
-            daily, "SPY_level", _production_measurement_start
-        ),
-    }
-
-    metrics = pd.read_csv(metrics_path, dtype={"window_years": str})
-    metrics = _public_production_metrics(metrics, max_blocks)
-    metrics.to_csv(metrics_path, index=False)
-
+    if not summary_path.exists():
+        raise RuntimeError("production replay did not emit summary.json")
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    summary["wealth_core_parity"] = False
-    summary["full_stack_pit"] = True
-    summary["wealth_core_pit_enabled"] = True
-    summary["metrics"] = _public_metric_summary(summary.get("metrics"), max_blocks)
-    for key in ("transitions", "transition_cost_sum"):
-        raw = dict(summary.get(key) or {})
-        production_value = raw.get("Production", raw.get("D", raw.get("B")))
-        summary[key] = (
-            {"Production": production_value}
-            if production_value is not None else {}
-        )
-    coverage = (
-        float(_pit_sec_cik_observations) / float(_pit_metadata_observations)
-        if _pit_metadata_observations else 0.0
-    )
-    summary["pit_authority"] = {
-        "prices_and_corporate_actions": "frozen PIT reconstruction already used by the certified replay",
-        "wealth_core_issuer_family": "strict-prior SEC CIK; unknown-before-evidence becomes security singleton",
-        "sentinel_sector": "strict-prior SEC CIK -> SEC SIC -> frozen FF12",
-        "present_day_relatedtickers_in_production": False,
-        "sec_cik_metadata_observations": int(_pit_sec_cik_observations),
-        "total_metadata_observations": int(_pit_metadata_observations),
-        "sec_cik_observation_coverage": coverage,
-        "residual_non_pit_fields": ["Sharadar category", "Sharadar exchange"],
-        "residual_note": "No retained historical authority for these two fields is present in this frozen laboratory bundle; they remain explicit certification caveats.",
+    daily_path = output / "daily.csv"
+    if not daily_path.exists():
+        raise RuntimeError("production replay did not emit daily.csv")
+    frame = pd.read_csv(daily_path, low_memory=False)
+    if "B_nav" not in frame.columns:
+        raise RuntimeError("production replay daily output lacks retained B_nav source column")
+    measurement_start = str(os.environ.get("CERTIFICATION_MEASUREMENT_START", "2006-07-31"))
+    _production_measurement_start = measurement_start
+    production_metrics = _max_metric_block(frame, "B_nav", measurement_start)
+    spy_metrics = _max_metric_block(frame, "SPY_level", measurement_start)
+    summary["metrics"] = {
+        "Production": production_metrics,
+        "SPY": spy_metrics,
     }
-    summary["variant_definition"] = {
-        "Production": (
-            "certified full-stack causal PIT production strategy using the exact pinned "
-            "production implementation"
-        ),
-        "SPY": "frozen PIT-reconstructed SPY total-return benchmark",
+    summary["roles"] = {
+        "Production": {
+            "source_column": "B_nav",
+            "source_mode": "full-stack-causal-pit",
+            "production_main_sha": EXPECTED_MAIN_SHA,
+        },
+        "SPY": {
+            "source_column": "SPY_level",
+            "source_mode": "canonical-pit-benchmark",
+        },
     }
-    summary.pop("d_pit_semantics", None)
-    summary["production_pit_semantics"] = {
-        "identity_and_listing": "historical price-tape security episodes",
-        "issuer_family": "strict-prior SEC CIK; causal security singleton before evidence",
-        "sector": "strict-prior SEC CIK -> SEC SIC -> frozen FF12",
-        "missing_sector": "singleton unknown peer",
-        "wealth_core_path": "independent Production Wealth Core state and account equity",
-    }
-    summary["comparison_contract"] = {
-        "Production": "full-stack causal PIT production path using every retained PIT authority in the frozen laboratory bundle",
-        "wealth_core": f"exact current main {EXPECTED_MAIN_SHA}; independent Production account equity path",
-        "measurement_windows": ["5", "10", "15", "20", "max"],
-        "SPY": "frozen PIT-reconstructed SPY total-return factor series",
-    }
-    summary["calendar_year_cagr_checkpoints"] = sorted(_year_end_sessions)
-    summary["calendar_year_cagr_definition"] = (
-        "cumulative Production NAV from replay inception annualized through each completed calendar-year final trading session"
-    )
-    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["experiment"] = base.runner.EXPERIMENT_ID
-    manifest["current_main_sha"] = EXPECTED_MAIN_SHA
-    manifest["full_stack_pit"] = True
-    outputs = manifest.setdefault("outputs", {})
-    for path in (daily_path, metrics_path, summary_path):
-        outputs[path.name] = {"sha256": base._sha256(path), "bytes": path.stat().st_size}
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-    files = (daily_path, metrics_path, summary_path, manifest_path)
-    sums_path.write_text(
-        "".join(f"{base._sha256(path)}  {path.name}\n" for path in files),
+    summary.pop("A", None)
+    summary.pop("B", None)
+    summary.pop("D", None)
+    summary_path.write_text(
+        json.dumps(summary, indent=2, sort_keys=True, allow_nan=False) + "\n",
         encoding="utf-8",
     )
-
-    if public_reporting_ready:
-        print(
-            "[FINAL METRICS] Production and SPY; 5/10/15/20/max trailing windows",
-            flush=True,
-        )
-        print(metrics.to_csv(index=False), flush=True)
+    return int(result)
 
 
 def main() -> int:
-    print(f"[RUN] certified full-stack PIT Production current-main={EXPECTED_MAIN_SHA}", flush=True)
-    print("[RUN] Production account uses its own Wealth Core equity", flush=True)
-    rc = int(base.main())
-    if rc != 0:
-        return rc
-    _write_final_comparison()
-    print("[PASS] certified Production bundle complete", flush=True)
-    return 0
+    result = int(base.main())
+    return _finalize_production_result(result)
 
 
 if __name__ == "__main__":
