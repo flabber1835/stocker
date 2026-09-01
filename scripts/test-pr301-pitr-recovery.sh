@@ -36,6 +36,13 @@ timeline_hex() {
     "SELECT substring(pg_walfile_name(pg_current_wal_lsn()) from 1 for 8)"
 }
 
+xid_epoch() {
+  python3 - "$1" <<'PY'
+import sys
+print(int(sys.argv[1]) >> 32)
+PY
+}
+
 initdb -D "$primary" -A trust --no-locale >/dev/null
 cat >> "$primary/postgresql.conf" <<EOF
 listen_addresses = ''
@@ -62,7 +69,7 @@ SQL
 pg_basebackup -h "$work" -D "$base" -Fp -X stream -c fast >/dev/null
 base_xid8="$(psql -h "$work" -Atq -v ON_ERROR_STOP=1 \
   -c 'SELECT pg_snapshot_xmax(pg_current_snapshot())::text')"
-base_epoch="$((base_xid8 >> 32))"
+base_epoch="$(xid_epoch "$base_xid8")"
 
 fingerprint="$(printf publication-P | sha256sum | awk '{print $1}')"
 p_row="$(psql -h "$work" -Atq -F '|' -v ON_ERROR_STOP=1 \
@@ -81,7 +88,7 @@ IFS='|' read -r p_xid8 p_xid p_timeline_hex <<EOF
 $p_row
 EOF
 test -n "$p_xid8" -a -n "$p_xid" -a -n "$p_timeline_hex"
-p_epoch="$((p_xid8 >> 32))"
+p_epoch="$(xid_epoch "$p_xid8")"
 test "$base_epoch" = "$p_epoch"
 
 psql -h "$work" -v ON_ERROR_STOP=1 -q \
@@ -119,7 +126,7 @@ IFS='|' read -r r_xid8 r_xid <<EOF
 $r_row
 EOF
 test "$r_xid" = "$p_xid"
-test "$((r_xid8 >> 32))" = "$p_epoch"
+test "$(xid_epoch "$r_xid8")" = "$p_epoch"
 r_wal="$(psql -h "$work" -Atq -v ON_ERROR_STOP=1 \
   -c 'SELECT pg_walfile_name(pg_current_wal_lsn())')"
 psql -h "$work" -Atq -v ON_ERROR_STOP=1 -c "SELECT pg_switch_wal();" >/dev/null
