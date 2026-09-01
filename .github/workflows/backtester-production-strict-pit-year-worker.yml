@@ -39,15 +39,15 @@ on:
       artifact_name:
         value: ${{ jobs.replay.outputs.artifact_name }}
       run_id:
-        value: ${{ github.run_id }}
+        value: ${{ jobs.replay.outputs.run_id }}
       run_attempt:
-        value: ${{ github.run_attempt }}
+        value: ${{ jobs.replay.outputs.run_attempt }}
       certificate_hash:
-        value: ${{ steps.certificate.outputs.certificate_hash }}
+        value: ${{ jobs.replay.outputs.certificate_hash }}
       chain_hash:
-        value: ${{ steps.certificate.outputs.chain_hash }}
+        value: ${{ jobs.replay.outputs.chain_hash }}
       checkpoint_sha256:
-        value: ${{ steps.certificate.outputs.checkpoint_sha256 }}
+        value: ${{ jobs.replay.outputs.checkpoint_sha256 }}
 
 permissions:
   contents: read
