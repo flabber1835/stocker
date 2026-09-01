@@ -14,10 +14,12 @@ RUNTIME_POINTER="artifacts/sentinel/deployment/validated-runtime.env"
 PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
 EXPLAIN=0
 RUN=0
+INITIALIZE_BACKUP=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --explain) EXPLAIN=1; shift ;;
+    --initialize-backup) INITIALIZE_BACKUP=1; shift ;;
     --run) RUN=1; shift; break ;;
     *) break ;;
   esac
@@ -67,6 +69,20 @@ fi
   echo "Compose invocation includes continuous WAL archiving" >&2
   exit 2
 }
+
+# One explicit provisioning command installs the durable-target marker only
+# while the operator has verified that the intended external filesystem is
+# mounted. Ordinary starts and restarts only verify that retained marker.
+if [ "$INITIALIZE_BACKUP" -eq 1 ]; then
+  [ "$RUN" -eq 0 ] && [ "$#" -eq 0 ] || {
+    echo "REFUSED: --initialize-backup may not be combined with a Compose command" >&2
+    exit 2
+  }
+  . scripts/sentinel-backup-lib.sh
+  INITIALIZED_ROOT="$(sentinel_backup_root --initialize-markers)"
+  printf 'initialized_backup_target:%s\n' "$INITIALIZED_ROOT"
+  exit 0
+fi
 
 if [ "${SENTINEL_FORCE_CPU_LIMITS:-0}" = "1" ] && \
    [ "${SENTINEL_FORCE_NO_CPU_LIMITS:-0}" = "1" ]; then
