@@ -61,6 +61,23 @@ def test_current_main_kernel_executes_prior_orders_before_close_decision() -> No
     assert "execute orders decided BEFORE this session" in source
 
 
+def test_backtester_package_import_does_not_mutate_production_owner() -> None:
+    code = (
+        "import sentinel.core.production as production; "
+        "assert not hasattr(production, 'plan_session'); "
+        "import backtester; "
+        "assert not hasattr(production, 'plan_session')"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout
+
+
 def test_strict_pit_stack_bridges_plan_session_to_current_kernel_owner() -> None:
     code = (
         "import backtester.run_production_strict_pit_20y as replay; "
