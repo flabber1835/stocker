@@ -8,17 +8,22 @@ same durable retry state and capped backoff until the dependency heals.
 Refresh, preparation and read-only reconciliation are restart-convergent around
 existing durable transaction/checkpoint boundaries. Their supervised runtime
 limit is therefore a liveness boundary: crossing it kills the child and retries
-from durable state. New order execution is excluded because an execution-timeout
-can straddle broker transport and must follow the stricter ambiguous-outcome
-reconciliation path.
+from durable state. An execution callback timeout is different because it may
+straddle broker transport. It is never retried directly: the durable cycle is
+moved to RECONCILING so a fresh complete broker observation must resolve the
+journal before recovery may authorize any remaining fresh delta.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Any, Mapping
 
+from sentinel.automation import store
 from sentinel.automation.model import (
     CallbackDeadlineExceeded,
+    CycleState,
+    TickAction,
+    TickResult,
     TransientInfrastructureFailure,
 )
 from sentinel.automation.service import AutomationService
@@ -64,6 +69,46 @@ class RecoveryAutomationService(AutomationService):
             value["availability_retry_unbounded"] = True
         value["terminal_reason"] = None
         return False, value
+
+    def _handle_callback_failure(
+            self, conn, *, now: datetime, cycle, permit,
+            phase: str, exc: BaseException,
+            recovery_transition: bool = False) -> TickResult:
+        if phase == "EXECUTE" and isinstance(exc, CallbackDeadlineExceeded):
+            # The supervisor killed the executor at a point where Alpaca may or
+            # may not have accepted transport.  The command journal was durable
+            # before every POST, so the only safe next action is read-only
+            # reconciliation.  Do not consume another EXECUTE attempt here and
+            # do not depend on the old callback's local outcome.
+            diagnostic = {
+                "callback_failure": "EXECUTE_TIMEOUT_REQUIRES_RECOVERY",
+                "retry_phase": "RECOVER",
+                "latest_failure_at": now.isoformat(),
+                "exception_type": (
+                    f"{type(exc).__module__}.{type(exc).__qualname__}"),
+                "exception_fingerprint": self._exception_fingerprint(exc),
+                "direct_execution_retry_permitted": False,
+            }
+            recovered = store.transition_cycle(
+                conn, permit=permit, cycle_id=cycle.cycle_id,
+                to_state=CycleState.RECONCILING,
+                next_wake_at=now,
+                failure_code=type(exc).__name__,
+                failure_detail=str(exc)[:4000],
+                diagnostic=diagnostic,
+            )
+            return TickResult(
+                action=TickAction.RETRY_SCHEDULED,
+                cycle=recovered,
+                permit=permit,
+                reason=(
+                    "execution callback deadline exceeded; fresh broker "
+                    "reconciliation is required before any further transport"),
+            )
+        return super()._handle_callback_failure(
+            conn, now=now, cycle=cycle, permit=permit,
+            phase=phase, exc=exc,
+            recovery_transition=recovery_transition)
 
 
 __all__ = ["RecoveryAutomationService"]
