@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bound v2 SEC web source selection to the earliest unresolved observation."""
+"""Bound v2 SEC web source selection around the earliest unresolved observation."""
 from __future__ import annotations
 
 import argparse
@@ -28,12 +28,14 @@ def bound_plan(plan_dir: Path) -> dict:
         item = dict(row)
         item["episode_first_session"] = original_first
         item["episode_last_session"] = original_last
-        # base.select_web_filings applies a three-year lookback from first_session.
-        # Pinning both selection endpoints to the earliest unresolved observation
-        # prevents downloading later filings that cannot repair that earlier gap.
+        # base.select_web_filings applies a three-year lookback from first_session
+        # and selects only within the calendar year represented by last_session.
+        # Pinning both inputs to the earliest gap eliminates all later years. Any
+        # same-calendar-year filing retained after the gap remains harmless because
+        # final admission independently enforces usable_after < decision_session.
         item["first_session"] = first_need
         item["last_session"] = first_need
-        item["source_selection_rule"] = "three_year_lookback_ending_at_first_unresolved_observation"
+        item["source_selection_rule"] = "three_year_lookback_anchored_to_first_unresolved_observation_year"
         bounded.append(item)
 
     fields = [
@@ -46,7 +48,7 @@ def bound_plan(plan_dir: Path) -> dict:
     coverage_path = plan_dir / "web_plan_coverage.json"
     coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
     coverage["bounds_schema"] = SCHEMA
-    coverage["source_selection_rule"] = "three-year lookback ending at the first unresolved observation"
+    coverage["source_selection_rule"] = "three-year lookback anchored to the calendar year of the first unresolved observation; strict-prior admission is enforced separately"
     coverage["plan_sha256"] = base.sha256_file(plan_path)
     coverage_path.write_text(json.dumps(coverage, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     base.write_checksums(plan_dir)
