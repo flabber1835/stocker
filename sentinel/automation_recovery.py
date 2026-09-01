@@ -50,6 +50,11 @@ from sentinel.execution.contract import MalformedBrokerEvidence
 from sentinel.execution.guarded import BrokerAuthorityRefused
 
 
+class RetryableBackupUnavailable(
+        TransientInfrastructureFailure, backup_guard.BackupUnavailable):
+    """Temporary durability loss retaining the public backup-fence identity."""
+
+
 # Exact messages are produced only by the first-plan pre-adoption gates.
 # Classification stays here at the orchestration boundary so the pure authority
 # and PAPER modules do not acquire cyclic runtime exception dependencies.
@@ -107,7 +112,7 @@ class ProductionAutomation(base.ProductionAutomation):
                     conn, operation=operation)
             except (backup_guard.BackupUnavailable,
                     backup_runtime_authority.BackupRuntimeUnavailable) as exc:
-                raise TransientInfrastructureFailure(
+                raise RetryableBackupUnavailable(
                     f"backup durability is temporarily unavailable: {exc}") from exc
             except (backup_guard.BackupConfigurationRefused,
                     backup_runtime_authority.BackupRuntimeRefused) as exc:
@@ -282,4 +287,6 @@ class ProductionAutomation(base.ProductionAutomation):
 
 config_from_env = base.config_from_env
 
-__all__ = ["ProductionAutomation", "config_from_env"]
+__all__ = [
+    "ProductionAutomation", "RetryableBackupUnavailable", "config_from_env",
+]
