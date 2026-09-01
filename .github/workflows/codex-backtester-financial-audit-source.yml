@@ -104,7 +104,7 @@ jobs:
                   'sec_backfill' in low
                   or 'sec-backfill' in low
                   or ('backfill' in name and 'sec' in name)
-                  or ('sec' in name and ('coverpage' in name or 'filing' in name)
+                  or ('sec' in name and ('coverpage' in name or 'filing' in name))
                   or (path.startswith('.github/workflows/') and 'sec' in name)
               )
 
