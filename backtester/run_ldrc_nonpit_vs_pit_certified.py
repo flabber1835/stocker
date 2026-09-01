@@ -422,7 +422,7 @@ def _increment_production_progress(owner) -> int:
 
 
 def _emit_progress(self, *args, **kwargs):
-    result = base._real_overlay_step(self, *args, **kwargs)
+    result = _raw_overlay_step_fullstack(self, *args, **kwargs)
     if str(self.name) == "B" and _latest_pit_state is not None:
         sessions = _increment_production_progress(base)
         if sessions % base.PROGRESS_INTERVAL == 0:
@@ -438,7 +438,7 @@ def _emit_progress(self, *args, **kwargs):
     return result
 
 
-base.OverlayAccount.step = _emit_progress
+base.runner.OverlayAccount.step = _emit_progress
 
 
 def _max_metric_block(frame: pd.DataFrame, column: str, measurement_start: str) -> dict:
