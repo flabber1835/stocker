@@ -1,234 +1,181 @@
-# Strict-PIT certification runbook
+# Strict-PIT financial certification runbook
 
-This is the entry point for continuing strict-PIT certification on branch
-`research/backtester`.
+This runbook defines the active certification paths on `research/backtester`.
+Historical diagnostic workflows and earlier source pins are superseded by the
+current paths below.
 
-## Current certification target
+## Active authorities
 
-- Production strategy source: `887f479b15ad861313da666ad698034d3847121c`
-- Diagnostic warmup: `2006-01-03` through `2006-07-28`
-- Diagnostic measurement: `2006-07-31` through `2007-12-31`
-- Final diagnostic canonical dataset hash:
-  `08db292b78f0968b149ec033671b5c5df62ad98a4b2692bcc5dfa575585fa4e6`
-- Dataset status: `PASS`
-- Full 20-year job: deliberately disabled pending the completed diagnostic
-  strategy-boundary audit
-- Full-window PIT construction and the research-only 20-year replay are
-  separate workflows. The replay starts only from a branch-pinned certified
-  package.
+- Backtester branch: `research/backtester`
+- Production source pin: `c851386fa4dddcf2e2533af3a1d313c38220b7f2`
+- Warmup start: `2006-01-03`
+- Measurement start: `2006-07-31`
+- Measurement end: `2026-07-31`
+- Canonical PIT dataset hash:
+  `f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b`
+- Canonical package:
+  `ghcr.io/flabber1835/stocker-canonical-pit@sha256:4f53e51d8171aab8a8ac9df90e116d27b0f9b54f95629154685ea8a2394c1265`
+- Canonical dataset status: `PASS`
+- Unresolved canonical corporate actions: `0`
 
-The canonical dataset contains 3,151,110 observations, 7,301 securities, 502
-sessions, 10,835 metadata-timeline rows, 22,674 action rows, and 952 terminal
-rows. Its unresolved economically relevant corporate-action count is zero.
+The branch pointer `backtester/data/canonical-pit-20y.json` is the admission
+authority for the dataset. Replay jobs must validate that pointer, package
+digest, manifest and member hashes before strategy execution.
 
-Research security-type coverage remains fail-closed and explicit:
+## Financial-grade invariants
 
-- 454,628 candidate observations
-- 338,920 evidence-classified common equity observations
-- 115,708 unknown/ineligible observations
-- 111,689 unknown observations without a strict-prior CIK
-- 114,374 without strict-prior positive security-type evidence
-- 1,334 with strict-prior positive evidence and a CIK mismatch
+Every certified replay is fail-closed on the following boundaries.
 
-## Retained-research review-basis correction
+### Causality
 
-The frozen production implementation records a position's age-119 review
-basis from the split-adjusted execution-session open.  The retained research
-source instead initialized that basis from the execution session's close and
-then overwrote it again while initializing the episode peak.  That was an
-implementation defect, not a strategy rule difference.
+Signals are formed after session close and may affect execution only at a later
+tradeable raw open. Historical identity, security type, issuer grouping, listing
+state, exchange and sector authority come from session-effective PIT evidence.
+Current Sharadar TICKERS metadata has no historical economic authority.
 
-The backtester research wrapper now corrects this retained-source seam before
-execution: the fill records the split-adjusted execution open as the immutable
-review basis, while the entry-session close initializes only the episode peak.
-The raw execution open remains the accounting fill price.  Regression guards
-fail if either source seam moves or if an entry-close overwrite reappears.
+### Terminal actions
 
-## Architecture
+The retained research 20-year entry point includes terminal grace semantics in
+its canonical transform. A terminal event with incomplete consideration remains
+an economic claim during the declared grace period. It is not liquidated at a
+stale prior mark on the event session. Split and dividend entitlement ordering
+is part of this same canonical path.
 
-```text
-hash-pinned raw historical authorities
-                 |
-                 v
-one canonical PIT reconstruction builder
-                 |
-                 v
-immutable GHCR package + branch pointer
-                 |
-       +---------+---------+
-       |                   |
-       v                   v
-retained research    pinned production
-strategy mechanics   strategy mechanics
-```
+Production uses the pinned shared Wealth Core terminal-settlement implementation
+and authenticated terminal corrections.
 
-The complete schema and field-by-field causal authority rules are in
-[`CANONICAL_PIT_DATASET_DESIGN.md`](CANONICAL_PIT_DATASET_DESIGN.md).
+### Valuation
 
-## Repository inventory
+A financially certified measurement session must have resolved Wealth Core NAV.
+A stale or estimated mark may exist as operational evidence but cannot enter the
+certified NAV, controller history, CAGR, drawdown or other financial metrics.
+Any unresolved measurement-session NAV terminates certification.
 
-The branch contains everything required to reproduce the diagnostic:
+### Leadership witness
 
-- builder and validating loader: `backtester/canonical_pit_dataset.py`
-- orchestration and equality gates: `backtester/run_certification_parallel_20y.py`
-- research consumer: `backtester/run_research_strict_pit_certification.py`
-- production consumer: `backtester/run_production_strict_pit_certification.py`
-- workflow: `.github/workflows/backtester-strict-pit-20y.yml`
-- tests: `tests/backtester/test_canonical_pit_dataset.py`
-- raw source manifests and PIT extracts: `PIT input data/`
-- SEC CIK/SIC evidence: `research/sentinel-fastgate/pit-evidence/`
-- frozen split and terminal evidence: `backtester/data/`
-- hash-pinned historical SEP/SFP sources: `sharadar/`
+A selected recent-leadership security must have an economically resolved next
+close observation. Missing next-close observations are not imputed as zero.
+Certification stops until the return can be established from the authenticated
+path.
 
-The 139 MB canonical diagnostic artifact is generated deterministically. The
-full-window dataset is published once as a content-addressed GitHub Container
-Registry package. A branch-owned pointer pins its package digest and canonical
-dataset hash. Replay workflows pull by digest and validate every member before
-strategy execution. An Actions artifact is retained as redundant build
-evidence, not as the durable input authority.
+### Dividend cash timing
 
-No required certification input may exist only in `/tmp`, a local workspace,
-or an uncommitted file.
+Dividend entitlement enters economic NAV on the ex-date. Spendable cash uses a
+fixed conservative settlement lag of **15 market sessions** in financial-grade
+research and production replays. The lag is part of the certified execution
+semantics and must not be changed silently.
 
-The reconstruction builder computes per-session hashes in a bounded-memory
-second pass over the finished canonical observation partitions.  It retains
-only one session of canonical rows at a time.  Dataset validation fully
-decompresses every gzip member in addition to checking byte hashes, sizes, and
-the aggregate dataset hash.  This prevents both all-history memory growth and
-admission of a content-addressed but truncated compressed member.
+### Capacity
 
-## Diagnostic split dispositions
+The production certification path refuses an executable pending order when its
+share quantity exceeds **10% of the prior 20 observed sessions' average share
+volume** for that security. Only prior-session volume is used. Current-session
+completed volume cannot authorize an opening fill because it is not known at the
+open.
 
-The reconciliation gate remains active. The three Run #18 blockers now have
-content-addressed evidence sidecars:
+This is a certification ceiling. A run that crosses it has not demonstrated
+financially supportable execution at the configured capital and must fail.
 
-| Event | Canonical multiplier | Disposition |
-|---|---:|---|
-| AAWW 2006-04-03 | 1.0 | same-session tape is a no-split witness |
-| MBCRQ 2006-06-20 | 3.0 | announced 3-for-1; derived witness used a stale zero-volume price |
-| ETELY 2007-09-04 | 1.0 | underlying reverse split offset by the depositary-ratio change |
-| STB 2013-05-20 | 1.0 | live U.S. tape and SEC share history show no 10% distribution |
-| MHGVY 2014-05-01 | 1.0 | local reverse split preceded the 1:1 U.S. ADS launch; later action is duplicate treatment |
-| PRPO 2017-06-06 | 1/30 | announced legal split; isolated SEP witness is a stale zero-volume domain transition |
-| GHI 2022-12-29 | 1.0105 | documented distribution of 0.0105 additional BUC per BUC |
+### Costs and performance fields
 
-SIM and SCEIQ retain their previously frozen adjudications. A missing,
-conflicting, or hash-invalid adjudication makes the canonical build fail.
+CAGR and maximum drawdown are computed from the authenticated daily NAV path.
+The existing internal field named `sharpe` is a legacy annualized arithmetic
+mean-return-to-volatility statistic unless an evidence bundle explicitly states
+a risk-free subtraction. It must be described in reports as
+`annualized_return_volatility_ratio`. It is not evidence of a conventional
+excess-return Sharpe ratio.
 
-## Reproduce locally
+A future schema migration may replace the legacy field with an excess-return
+Sharpe computed from the authenticated causal Treasury series. Until then,
+financial sign-off must not call the legacy statistic "Sharpe".
 
-The production checkout must be a clean detached checkout of the pinned SHA.
+## Production certification
 
-```bash
-python backtester/canonical_pit_dataset.py build \
-  --output backtester-results/canonical-pit-2006-2007 \
-  --warmup-start 2006-01-03 \
-  --measurement-start 2006-07-31 \
-  --end 2007-12-31
+The active 20-year production chain is:
 
-python backtester/canonical_pit_dataset.py validate \
-  --dataset backtester-results/canonical-pit-2006-2007
+1. `.github/workflows/backtester-production-strict-pit-20y.yml`
+2. `.github/workflows/backtester-production-strict-pit-year-worker.yml`
+3. `backtester/run_production_strict_pit_20y_checkpointed.py`
+4. `backtester/run_production_strict_pit_20y.py`
+5. exact pinned production source at the SHA above
 
-BACKTESTER_MAIN_SHA=887f479b15ad861313da666ad698034d3847121c \
-python backtester/run_certification_parallel_20y.py \
-  --end-session 2007-12-31 \
-  --canonical-dataset backtester-results/canonical-pit-2006-2007 \
-  --output-root backtester-results/strict-pit-2006-2007 \
-  --spy-factors 'PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz' \
-  --lab-root . \
-  --main-root main-src
-```
+The annual chain runs 2006 through 2026 as a strict predecessor-linked sequence.
+Each year authenticates its checkpoint, canonical dataset identity, production
+source, workflow/source identity and predecessor certificate. Genesis also
+requires uninterrupted-versus-resumed equivalence evidence.
 
-Warmup output must say `WARMUP` and `CAGR=N/A`. Measurement output prints date,
-research cumulative CAGR, production cumulative CAGR, and SPY cumulative CAGR
-at calendar-quarter boundaries.
+A failed year stops certification. Restart uses the authenticated predecessor
+checkpoint; it cannot silently rebuild strategy state from a target portfolio.
 
-## Run in GitHub Actions
+## Research certification
 
-Open [Backtester - canonical PIT certification](https://github.com/flabber1835/stocker/actions/workflows/backtester-strict-pit-20y.yml),
-select **Run workflow**, and choose `research/backtester`.
+The active retained-research workflow is:
 
-The workflow currently runs only the bounded diagnostic. It builds and uploads
-the canonical artifact and verifies:
+`.github/workflows/backtester-research-only-20y.yml`
 
-1. dataset status is `PASS`;
-2. unresolved corporate-action count is zero;
-3. both summaries record the same dataset hash;
-4. both roles copy byte-identical per-session input hashes;
-5. the first exact strategy divergence is recorded across universe, ranking,
-   positions, Wealth Core equity, breadth, target, LD-RC state, allocation, and
-   NAV.
+It executes:
 
-### Build and store the 20-year canonical dataset
+`backtester/run_research_strict_pit_20y.py`
 
-Open **Backtester - build and store canonical PIT 20-year dataset**, select
-**Run workflow**, and choose `research/backtester`.
+The workflow pulls the exact admitted canonical package, verifies it, compiles
+the generated canonical research source, confirms terminal grace is integrated,
+and verifies the financial-grade audit contract before accepting output.
 
-An audited automation may also update
-`backtester/data/canonical-pit-20y-build-request.json`; that path is the only
-push trigger for this expensive maintenance workflow.
+Warmup output must be labelled `CAGR=N/A`. Measurement begins on `2006-07-31`.
 
-This dataset-maintenance workflow performs no economic replay. It has a
-six-hour attempt limit and automatically retries on a fresh GitHub runner after
-an interrupted attempt. A successful attempt:
+## Permanent regression gate
 
-1. validates the canonical manifest and every member hash;
-2. uploads redundant Actions evidence;
-3. publishes the finished dataset to GHCR;
-4. resolves the immutable GHCR digest;
-5. commits `backtester/data/canonical-pit-20y.json` to
-   `research/backtester` with the dataset hash, package digest, source run,
-   reconstruction SHA, date window, and manifest hash.
+`.github/workflows/backtester-financial-causality-gate.yml` is the permanent
+backtester correctness gate. It must:
 
-The pointer commit is the admission event. A replay cannot consume an
-unpublished run directory, a package tag, or a partially built dataset.
+- check out the exact pinned current-main production closure;
+- verify the pinned production file hashes;
+- compile the complete active backtester and retained backtester service;
+- prove the runtime `backtester` package identity;
+- compile the canonical retained-research transform;
+- verify the financial-grade source contracts;
+- run the complete `tests/backtester` regression suite.
 
-### Research-only 20-year replay
+A green replay with a red financial/causality gate is not certifiable.
 
-Open [Backtester - research-only canonical PIT 20-year replay](https://github.com/flabber1835/stocker/actions/workflows/backtester-research-only-20y.yml),
-select **Run workflow**, and choose `research/backtester`.
+## Canonical dataset facts
 
-This separate workflow covers warmup `2006-01-03` through `2006-07-28` and the
-20-year measurement window `2006-07-31` through `2026-07-31`. It reads
-`backtester/data/canonical-pit-20y.json`, pulls that exact GHCR digest, validates
-the canonical dataset and declared hash, and then starts retained research. It
-contains no PIT reconstruction step and does not check out the raw historical
-authorities.
+The admitted 20-year package currently records:
 
-During warmup it reports `CAGR=N/A`; after measurement begins it prints paired
-research and SPY cumulative CAGR records at each calendar-quarter boundary.
-The completed replay artifact contains the pointer, canonical manifest,
-research bundle, and replay log. This research-only job does not certify
-production/research equivalence and does not enable the disabled 20-year
-dual-engine certification job.
+- 31,820,893 observation rows;
+- 18,948 securities;
+- 5,176 sessions;
+- 32,167 metadata-timeline rows;
+- 253,076 action rows;
+- 10,652 terminal rows;
+- 0 unresolved corporate actions.
 
-SPY path equivalence is checked after both outputs are rebased to the first
-measurement session. Production retains the canonical warmup-based level while
-research stores the same path rebased to `1.0`; different anchors are not an
-economic divergence. Session axes must match exactly, every level must be
-finite and positive, and the normalized paths must agree within `1e-10`.
+Unknown historical security-type or issuer evidence remains explicit and is
+handled by fail-closed eligibility semantics. Unknown evidence is not promoted
+into positive eligibility by a present-day metadata fallback.
 
-## Promotion gate for the 20-year run
+## Evidence required for financial sign-off
 
-Do not enable the full job until the bounded diagnostic has completed and its
-result is committed to this runbook. Required acceptance evidence:
+A financial-grade result requires all of the following from one immutable source
+identity and one admitted canonical dataset:
 
-- canonical build and integrity validation pass;
-- research and production record the same dataset hash;
-- per-session canonical hashes are identical;
-- quarterly output is complete and warmup is labelled correctly;
-- the first strategy divergence is identified and understood;
-- no unresolved reconstruction blocker remains;
-- every code, evidence, manifest, and raw input needed by Actions is present on
-  `research/backtester` with a clean Git status.
+1. financial/causality gate PASS;
+2. canonical dataset validation PASS;
+3. exact production source identity PASS;
+4. resolved NAV on every measurement session;
+5. no unresolved recent-leadership return used by the controller;
+6. no capacity-ceiling violation;
+7. authenticated annual predecessor/checkpoint chain for production;
+8. complete daily and metric output hashes;
+9. restart-equivalence evidence at genesis;
+10. explicit terminal, split and dividend audit evidence.
 
-After those conditions pass, extend the canonical dataset window first, record
-its new hash, then enable the full workflow job. A 20-year replay must consume
-that single extended artifact; neither engine may regain raw reconstruction
-authority.
+Any failure means the financial performance result is uncertified.
 
-## Files that must never become historical authority
+## Files that cannot become historical authority
 
-Current Sharadar `TICKERS` metadata is excluded from historical identity,
-issuer, security type, listing, exchange, and sector decisions. Unknown facts
-remain explicit and fail closed.
+Do not use current Sharadar TICKERS fields, local temporary files, uncommitted
+workspaces, package tags without a digest, or stale prior marks as historical
+economic authority. Every economic input used for certification must be
+content-addressed or carried in the authenticated canonical package and available
+as of the simulated decision boundary.
