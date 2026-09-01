@@ -141,7 +141,7 @@ jobs:
           trap - EXIT
           python -m backtester.canonical_pit_package verify --pointer "${POINTER}" --dataset "${CANONICAL}"
 
-      - name: Build and sanitize 2006-2026 unresolved candidate episodes
+      - name: Build, sanitize and gap-date 2006-2026 unresolved candidate episodes
         run: |
           set -euo pipefail
           rm -rf "${PREP}" && mkdir -p "${PREP}"
@@ -151,6 +151,9 @@ jobs:
             --from-year 2006 --through-year 2026
           python -m backtester.sanitize_historical_metadata_candidates_v2 \
             --candidate-dir "${PREP}/candidates"
+          python -m backtester.historical_metadata_reconstruction_v2_policy harden-candidates \
+            --canonical-dataset "${CANONICAL}" \
+            --candidates-dir "${PREP}/candidates"
 
       - name: Build full-canonical ticker episode guard
         run: |
@@ -190,7 +193,7 @@ jobs:
       - name: Build bounded stable-CIK web fallback plan
         run: |
           set -euo pipefail
-          python -m backtester.historical_metadata_reconstruction_v2 build-web-plan \
+          python -m backtester.historical_metadata_reconstruction_v2_policy build-plan \
             --candidates "${PREP}/candidates/candidate_episodes.csv.gz" \
             --timeline "${PREP}/preliminary-timeline" \
             --discovery "${PREP}/discovery/sec_company_tickers.json" \

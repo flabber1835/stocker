@@ -18,16 +18,21 @@ CANDIDATE_FIELDS = [
 
 
 class HistoricalMetadataV2DeploymentTests(unittest.TestCase):
-    def test_workflow_uses_import_safe_module_entrypoints(self):
-        workflow = (
+    @staticmethod
+    def _workflow() -> str:
+        return (
             Path(__file__).resolve().parents[2]
             / ".github"
             / "workflows"
             / "backtester-historical-metadata-reconstruction-v2.yml"
         ).read_text(encoding="utf-8")
+
+    def test_workflow_uses_import_safe_module_entrypoints(self):
+        workflow = self._workflow()
         self.assertNotIn("python backtester/", workflow)
         modules = (
             "historical_metadata_reconstruction_v2",
+            "historical_metadata_reconstruction_v2_policy",
             "verify_historical_metadata_archives_v2",
             "canonical_pit_package",
             "sanitize_historical_metadata_candidates_v2",
@@ -42,6 +47,27 @@ class HistoricalMetadataV2DeploymentTests(unittest.TestCase):
         )
         for module in modules:
             self.assertIn(f"python -m backtester.{module}", workflow)
+
+    def test_workflow_wires_strict_gap_policy_before_bounding(self):
+        workflow = self._workflow()
+        harden = (
+            "python -m backtester.historical_metadata_reconstruction_v2_policy "
+            "harden-candidates"
+        )
+        strict_plan = (
+            "python -m backtester.historical_metadata_reconstruction_v2_policy "
+            "build-plan"
+        )
+        bulk_parse = "python -m backtester.parse_historical_metadata_bulk_v2"
+        bound = "python -m backtester.bound_historical_metadata_web_plan_v2"
+        self.assertIn(harden, workflow)
+        self.assertIn(strict_plan, workflow)
+        self.assertNotIn(
+            "python -m backtester.historical_metadata_reconstruction_v2 build-web-plan",
+            workflow,
+        )
+        self.assertLess(workflow.index(harden), workflow.index(bulk_parse))
+        self.assertLess(workflow.index(strict_plan), workflow.index(bound))
 
     def test_candidate_sanitizer_removes_invalid_cik_and_disables_vendor_alias(self):
         with tempfile.TemporaryDirectory() as td:
