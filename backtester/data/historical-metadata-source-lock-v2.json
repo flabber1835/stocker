@@ -18,7 +18,7 @@
       "NONDERIV_TRANS.tsv",
       "NONDERIV_HOLDING.tsv"
     ],
-    "security_type_rule": "Only non-derivative Table I security titles may support listed security type; derivative tables are never positive common-equity authority"
+    "security_type_rule": "Form 3/4/5 non-derivative Table I titles are supplementary instrument evidence only and never listed-class authority; listed security type requires an exact historical ticker/class co-occurrence in a contemporaneous SEC periodic or registration filing cover"
   },
   "retained_sec_evidence": {
     "repository_path": "research/sentinel-fastgate/pit-evidence/generated",
