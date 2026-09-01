@@ -1,23 +1,23 @@
 {
   "schema": "backtester.production-strict-pit-20y-request/1",
   "requested_at": "2026-09-01",
-  "purpose": "Run current Production across the certified 2006-01-03 through 2026-07-31 canonical PIT dataset after repairing the strict-PIT current-kernel ownership bridge.",
-  "production_source_sha": "6d07c2b76066121906e50b4c11876c48849144a0",
+  "purpose": "Run current Production across the certified 2006-01-03 through 2026-07-31 canonical PIT dataset after correcting the AUM scope of the strict-PIT capacity guard.",
+  "production_source_sha": "bb7747fe329a1a89de555e2a44cb2f04a7eaa285",
   "production_overlay_issue": 294,
   "canonical_dataset_hash": "f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b",
   "warmup_start": "2006-01-03",
   "measurement_start": "2006-07-31",
   "end": "2026-07-31",
-  "retry": 8,
+  "retry": 9,
   "previous_failure": {
-    "run_id": 33548583813,
-    "job_id": 99992117537,
-    "classification": "strict-PIT harness ownership API drift before replay",
-    "cause": "the retained strict-PIT certification layer expected plan_session through sentinel.core.production while current Production owns the economic call in sentinel.core.kernel; the 2006 genesis gate failed before the canonical package was pulled or any historical replay session executed"
+    "run_id": 33564625251,
+    "job_id": 100044886913,
+    "classification": "unscoped scale-dependent volume participation guard during Production warm-up",
+    "cause": "the certification harness applied a 10% trailing-20-session volume ceiling to absolute shares produced by an arbitrary $100,000,000 normalization anchor; the 2006 replay failed on 2006-07-06 at 15.48079% participation even though no certification AUM was declared"
   },
   "correction": {
     "terminal_terms_sha256": "cfd65c78317abd1671632b2a730507634cf036e798b0ade89be68194fda430dc",
-    "rule": "scope one dynamic compatibility bridge to the supported Production certification entrypoint so the exact current kernel plan_session remains the economic implementation while strict-PIT boundary evidence decorates that call; keep plain backtester package import side-effect free and route reporting tests through the supported Production wrapper",
-    "verification": "financial-causality run 33564472895 passed the exact current-main source closure, compilation, current-main launcher binding, financial source contracts, package identity, ownership-bridge regressions, and the complete backtester regression suite before this retry was requested"
+    "rule": "preserve exact Production fill/state semantics; treat the 10% trailing-volume rule as scale-neutral capacity evidence unless PRODUCTION_CERTIFICATION_CAPITAL_USD explicitly binds replay AUM, in which case replay at that AUM and fail closed above 10%",
+    "verification": "financial-causality run 33571163504 passed exact current-main source closure, compilation, current-main launcher binding, financial source contracts, package identity, and all 280 backtester regressions on branch head 36455e0145aedf802cdd9014a93ab22a0b29a7e9 before this retry was requested"
   }
 }
