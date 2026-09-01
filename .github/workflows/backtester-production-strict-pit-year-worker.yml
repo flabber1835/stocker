@@ -80,7 +80,7 @@ jobs:
       CANONICAL_PIT_EXPECTED_END: '2026-07-31'
       CERTIFICATION_WARMUP_START: '2006-01-03'
       CERTIFICATION_MEASUREMENT_START: '2006-07-31'
-      PRODUCTION_MAIN_SHA: c851386fa4dddcf2e2533af3a1d313c38220b7f2
+      PRODUCTION_MAIN_SHA: 89f6218ff116b4dafc4ca8ac6159337d1718e2e1
       PYTHONUNBUFFERED: '1'
 
     steps:
@@ -110,6 +110,7 @@ jobs:
             /backtester/run_production_strict_pit_20y.py
             /backtester/run_production_strict_pit_certification.py
             /backtester/write_production_year_certificate.py
+            /backtester/write_production_year_certificate_g3.py
             /backtester/strict_pit_metadata.py
             /backtester/canonical_pit_dataset.py
             /backtester/canonical_pit_package.py
@@ -122,6 +123,7 @@ jobs:
             /backtester/experiments/2026-08-27-sector-abc/run.py
             /backtester/data/canonical-pit-20y.json
             /backtester/data/production-chain-generation.json
+            /backtester/data/production-chain-generation-2.json
             /backtester/data/production-chain-generation-1.json
             /backtester/data/production-strict-pit-20y-request.json
             /backtester/data/causal-split-overrides-v1.json
@@ -179,12 +181,16 @@ jobs:
           generation = json.loads(
               Path('backtester/data/production-chain-generation.json').read_text()
           )
-          assert generation['generation'] == 2
-          assert generation['supersedes_generation'] == 1
-          assert generation['historical_descriptor'] == 'backtester/data/production-chain-generation-1.json'
-          historical = json.loads(Path(generation['historical_descriptor']).read_text())
-          assert historical['generation'] == 1
-          assert historical['production_main_sha'] == '887f479b15ad861313da666ad698034d3847121c'
+          assert generation['generation'] == 3
+          assert generation['supersedes_generation'] == 2
+          assert generation['historical_descriptor'] == 'backtester/data/production-chain-generation-2.json'
+          generation_2 = json.loads(Path(generation['historical_descriptor']).read_text())
+          assert generation_2['generation'] == 2
+          assert generation_2['production_main_sha'] == 'c851386fa4dddcf2e2533af3a1d313c38220b7f2'
+          assert generation_2['historical_descriptor'] == 'backtester/data/production-chain-generation-1.json'
+          generation_1 = json.loads(Path(generation_2['historical_descriptor']).read_text())
+          assert generation_1['generation'] == 1
+          assert generation_1['production_main_sha'] == '887f479b15ad861313da666ad698034d3847121c'
           assert generation['production_checkpoint_schema'] == 'backtester.production-year-checkpoint/3'
           assert generation['production_checkpoint_format_generation'] == 3
           assert generation['annual_certificate_schema'] == 'backtester.production-year-certificate/1'
@@ -197,7 +203,7 @@ jobs:
       - name: Check out exact production strategy source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: c851386fa4dddcf2e2533af3a1d313c38220b7f2
+          ref: 89f6218ff116b4dafc4ca8ac6159337d1718e2e1
           path: main-src
           fetch-depth: 1
           persist-credentials: false
@@ -207,6 +213,19 @@ jobs:
             shared
             docs/sentinel-handoff/00_README
 
+      - name: Resolve experiment-start origin/main
+        if: ${{ inputs.year == '2006' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C main-src fetch --quiet --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          RESOLVED_MAIN_SHA="$(git -C main-src rev-parse refs/remotes/origin/main)"
+          if test "${RESOLVED_MAIN_SHA}" != "${PRODUCTION_MAIN_SHA}"; then
+            echo "origin/main moved: ${RESOLVED_MAIN_SHA} != declared ${PRODUCTION_MAIN_SHA}" >&2
+            exit 1
+          fi
+          echo "EXPERIMENT_START_MAIN_SHA=${RESOLVED_MAIN_SHA}" >> "${GITHUB_ENV}"
+
       - name: Verify pristine current-main production source
         shell: bash
         run: |
@@ -214,7 +233,7 @@ jobs:
           test "$(git -C main-src rev-parse HEAD)" = "${PRODUCTION_MAIN_SHA}"
           test -z "$(git -C main-src status --porcelain)"
           test "$(git -C main-src hash-object sentinel/core/kernel.py)" = "12617af8eb954d4ae18fef2ae16977048e2e40cd"
-          test "$(git -C main-src hash-object sentinel/core/production.py)" = "99e8f87aa456fc672c84b0b0ceb3d674ca7ccf4c"
+          test "$(git -C main-src hash-object sentinel/core/production.py)" = "1809c2a31216b247dd0b727178680d41fce80c48"
           test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/adapter.py)" = "466a8f8202692e65e08596a7a47d45bd15bb3fd3"
           test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)" = "8dd316ed28ff9b82c216f852118f8ef83d8510ad"
           YEAR_ROOT="backtester-results/production-year-${CHAIN_YEAR}"
@@ -261,7 +280,8 @@ jobs:
             backtester/run_production_current_main_strict_pit_20y.py \
             backtester/run_production_strict_pit_20y.py \
             backtester/run_production_strict_pit_certification.py \
-            backtester/write_production_year_certificate.py
+            backtester/write_production_year_certificate.py \
+            backtester/write_production_year_certificate_g3.py
           python -m compileall -q -f main-src/sentinel main-src/shared/stock_strategy_shared
           python -m unittest tests.backtester.test_production_annual_chain -v
           if python -c 'import pytest' >/dev/null 2>&1; then
@@ -413,7 +433,7 @@ jobs:
           test -f "${PREVIOUS_ROOT}/production-checkpoint.json.sha256"
           test -f "${PREVIOUS_ROOT}/production-year-certificate.json"
           test -f "${PREVIOUS_ROOT}/production-certificate-chain.json"
-          python backtester/write_production_year_certificate.py validate-handoff \
+          python backtester/write_production_year_certificate_g3.py validate-handoff \
             --certificate "${PREVIOUS_ROOT}/production-year-certificate.json" \
             --chain "${PREVIOUS_ROOT}/production-certificate-chain.json" \
             --checkpoint "${PREVIOUS_ROOT}/production-checkpoint.json" \
@@ -478,7 +498,7 @@ jobs:
               --main-root main-src \
               --output "${GATE_ROOT}/resumed-output" \
               2>&1 | tee backtester-production-genesis-resumed.log
-          python backtester/write_production_year_certificate.py compare-resume \
+          python backtester/write_production_year_certificate_g3.py compare-resume \
             --uninterrupted-output "${GATE_ROOT}/uninterrupted-output" \
             --resumed-output "${GATE_ROOT}/resumed-output" \
             --uninterrupted-checkpoint "${GATE_ROOT}/uninterrupted-checkpoint.json" \
@@ -509,7 +529,7 @@ jobs:
               --equivalence-audit "${YEAR_OUTPUT_ROOT}/resume-equivalence/resume-equivalence-audit.json"
             )
           fi
-          python backtester/write_production_year_certificate.py issue \
+          python backtester/write_production_year_certificate_g3.py issue \
             --output-root "${PRODUCTION_OUTPUT_ROOT}" \
             --checkpoint "${PRODUCTION_CHECKPOINT_OUTPUT}" \
             --year "${CHAIN_YEAR}" \
@@ -555,6 +575,7 @@ jobs:
             backtester-production-genesis-resumed.log
             backtester/data/canonical-pit-20y.json
             backtester/data/production-chain-generation.json
+            backtester/data/production-chain-generation-2.json
             backtester/data/production-strict-pit-20y-request.json
           if-no-files-found: warn
           retention-days: 90
