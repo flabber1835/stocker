@@ -322,7 +322,7 @@ def install_runtime_seams(monkeypatch, runtime, conn, ctx, broker) -> None:
         lambda _conn, _context, *, operation_scope: (
             ctx.cycle, control(runtime.automation_config)))
     monkeypatch.setattr(
-        automation_runtime.feed_store, "ensure_schema", lambda _conn: None)
+        automation_runtime.feed_store, "require_feed_schema", lambda _conn: None)
     monkeypatch.setattr(
         automation_runtime.schema, "ensure_schema", lambda _conn: None)
 

@@ -15,7 +15,11 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from tests.support.postgres import _EphemeralPostgres
 
 from sentinel import administrative_authority as administrative
-from sentinel import _main_impl, authority, binding, schema
+from sentinel import authority, binding, schema
+from sentinel.cli import _shared as cli_shared
+from sentinel.cli import account as account_cli
+from sentinel.cli import authority as authority_cli
+from sentinel.cli import paper as paper_cli
 from sentinel.feed import store as feed_store
 from sentinel.broker import CloseResult, SentinelBroker
 from sentinel.execution.commands import Command, LEGACY_MIGRATION_PLAN_PREFIX
@@ -39,13 +43,11 @@ from sentinel.ownership import AccountObservation, OpenOrder
 
 @pytest.fixture(autouse=True)
 def _authorized_runtime_surface(monkeypatch, tmp_path):
-    from sentinel import __main__ as cli
-
     marker = tmp_path / "authorized-runtime-v1"
-    marker.write_bytes(cli.AUTHORIZED_RUNTIME_MARKER_BYTES)
-    monkeypatch.setattr(_main_impl, "AUTHORIZED_RUNTIME_MARKER", marker)
+    marker.write_bytes(cli_shared.AUTHORIZED_RUNTIME_MARKER_BYTES)
+    monkeypatch.setattr(cli_shared, "AUTHORIZED_RUNTIME_MARKER", marker)
     monkeypatch.setenv(
-        cli.AUTHORIZED_RUNTIME_ENV, cli.AUTHORIZED_RUNTIME_VALUE)
+        cli_shared.AUTHORIZED_RUNTIME_ENV, cli_shared.AUTHORIZED_RUNTIME_VALUE)
 
 
 class CountingBroker(SentinelBroker):
@@ -452,8 +454,6 @@ def test_known_admin_wrapper_preserves_concrete_adapter_certification():
 
 
 def test_cli_authority_must_pass_before_broker_construction(monkeypatch):
-    from sentinel import __main__ as cli
-
     constructed = False
 
     def build(_config):
@@ -461,13 +461,13 @@ def test_cli_authority_must_pass_before_broker_construction(monkeypatch):
         constructed = True
         return CountingBroker()
 
-    monkeypatch.setattr(_main_impl, "build_broker", build)
+    monkeypatch.setattr(account_cli, "build_broker", build)
     monkeypatch.setattr(
-        _main_impl, "_require_administrative_access",
+        authority_cli, "_require_administrative_access",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             authority.AuthorityRefused("no active signed admin certificate")))
     with pytest.raises(authority.AuthorityRefused, match="no active"):
-        cli._authorized_administrative_access(  # noqa: SLF001
+        authority_cli._authorized_administrative_access(  # noqa: SLF001
             object(), config=SimpleNamespace(base_url=authority.PAPER_BASE_URL),
             operation=administrative.ADMIN_INSPECT,
             deployment_id="nas-01", broker_account_id="paper-123",
@@ -476,7 +476,7 @@ def test_cli_authority_must_pass_before_broker_construction(monkeypatch):
 
 
 def test_every_admin_broker_command_authorizes_before_construction(monkeypatch):
-    from sentinel import __main__ as cli
+    from sentinel.cli import main as cli
     from sentinel.config import DEFAULT_BASE_URL, SentinelConfig
 
     class Connection:
@@ -496,31 +496,31 @@ def test_every_admin_broker_command_authorizes_before_construction(monkeypatch):
         binding, "require", lambda _conn: binding.AccountBinding(
             "nas-01", "alpaca", "paper-123", 1))
     monkeypatch.setattr(
-        _main_impl, "_administrative_epoch", lambda *_a, **_k: 1)
+        authority_cli, "_administrative_epoch", lambda *_a, **_k: 1)
     monkeypatch.setattr(
-        _main_impl, "_authorized_administrative_access",
+        authority_cli, "_authorized_administrative_access",
         lambda *_a, **_k: (_ for _ in ()).throw(
             authority.AuthorityRefused("signed admin authority unavailable")))
     monkeypatch.setattr(
-        _main_impl, "build_broker",
+        account_cli, "build_broker",
         lambda *_a, **_k: constructed.append("legacy"))
     monkeypatch.setattr(
-        _main_impl, "build_execution_broker",
+        paper_cli, "build_execution_broker",
         lambda *_a, **_k: constructed.append("execution"))
 
     calls = (
-        cli._inspect_paper_account(  # noqa: SLF001
+        paper_cli._inspect_paper_account(  # noqa: SLF001
             config, SimpleNamespace(
                 deployment_id="nas-01", expect_account="paper-123")),
-        cli._migration_plan(  # noqa: SLF001
+        account_cli._migration_plan(  # noqa: SLF001
             config, SimpleNamespace(
                 deployment_id="nas-01", expect_account="paper-123",
                 sessions=252)),
-        cli._migrate_account(  # noqa: SLF001
+        account_cli._migrate_account(  # noqa: SLF001
             config, SimpleNamespace(
                 deployment_id="nas-01", expect_account="paper-123",
                 notes=None)),
-        cli._adopt_restored(  # noqa: SLF001
+        account_cli._adopt_restored(  # noqa: SLF001
             config, SimpleNamespace(
                 confirm_old_credentials_revoked=True,
                 confirm_paper_account="paper-123", notes=None)),
@@ -581,8 +581,7 @@ def test_migration_rechecks_authority_before_ownership_binding(conn):
 
 
 def test_cli_parser_keeps_admin_lifecycle_explicit_and_exact(monkeypatch):
-    from sentinel import _main_impl
-    from sentinel import __main__ as cli
+    from sentinel.cli import main as cli
     from sentinel.config import DEFAULT_BASE_URL, SentinelConfig
 
     config = SentinelConfig(
@@ -593,15 +592,12 @@ def test_cli_parser_keeps_admin_lifecycle_explicit_and_exact(monkeypatch):
     seen = {}
     monkeypatch.setattr(
         cli.SentinelConfig, "from_env", classmethod(lambda cls: config))
-    for command, function in (
-            ("install-administrative-certificate",
-             "_install_administrative_certificate"),
-            ("activate-administrative-certificate",
-             "_activate_administrative_certificate"),
-            ("revoke-administrative-certificate",
-             "_revoke_administrative_certificate")):
-        monkeypatch.setattr(
-            _main_impl, function,
+    for command in (
+            "install-administrative-certificate",
+            "activate-administrative-certificate",
+            "revoke-administrative-certificate"):
+        monkeypatch.setitem(
+            cli.ROUTES, command,
             lambda _config, args, name=command: (
                 seen.__setitem__(name, vars(args)), cli.EXIT_OK)[1])
     assert cli.main([

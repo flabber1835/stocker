@@ -182,7 +182,7 @@ def _advance_current_schema_to_controller(conn, *, reason: str) -> None:
 @pytest.mark.parametrize("feed_only", [False, True], ids=["empty", "feed-only"])
 def test_brand_new_behavioral_database_seeds_once(database, feed_only):
     if feed_only:
-        feed_store.ensure_schema(database)
+        feed_store.require_feed_schema(database)
         with database.cursor() as cur:
             cur.execute(
                 "SELECT COUNT(*) FROM pg_tables"

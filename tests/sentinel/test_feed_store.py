@@ -51,7 +51,7 @@ def conn(pg):
                   "feed_ingest_runs"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     c.commit()
-    S.ensure_schema(c)
+    S.require_feed_schema(c)
     yield c
     c.close()
 

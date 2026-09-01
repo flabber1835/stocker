@@ -44,7 +44,6 @@ from sentinel.feed import calendar, publication, readiness
 from sentinel.feed import store as feed_store
 from sentinel.shadow_observation import (
     BEFORE_NEXT_OPEN,
-    PostgresShadowObservationStore,
     PostgresShadowRuntime,
     ShadowObservationRefused,
     ShadowObservationResult,
@@ -53,6 +52,12 @@ from sentinel.shadow_observation import (
     SHADOW_EXECUTION_MODEL,
     SHADOW_WARMUP_SESSIONS,
     WARMUP_INPUT_SCHEMA,
+)
+from sentinel.shadow_segments import (
+    SegmentedPostgresShadowObservationStore,
+    ShadowSegmentRefused,
+    active_segment,
+    predecessor_anchor,
 )
 
 
@@ -473,6 +478,42 @@ def _resume(store, *, observation_id: str, starting_cash: Decimal,
 def _require_reviewed_genesis_publication(
         conn, *, current, first_session: str,
         runtime_identity: Mapping) -> None:
+    reviewed = runtime_identity.get("reviewed_shadow_config")
+    logical = (reviewed or {}).get("observation_id") \
+        if isinstance(reviewed, Mapping) else None
+    # Segment zero predates outage segmentation and remains bound to the
+    # original reviewed publication subject. Existing retained genesis records
+    # may not carry reviewed_shadow_config, so they follow this same contract.
+    if isinstance(logical, str):
+        segment = active_segment(conn, logical)
+        if segment.index > 0:
+            if segment.first_session != first_session:
+                raise ShadowSegmentRefused(
+                    "active segment first session differs from fresh genesis")
+            if (str(runtime_identity.get(
+                    "validated_source_identity_sha256") or "")
+                    != segment.validated_source_identity_sha256):
+                raise ShadowSegmentRefused(
+                    "segment source identity differs from reviewed runtime "
+                    "identity")
+            visible = feed_store.latest_visible_session(conn)
+            if visible != first_session:
+                raise ShadowSegmentRefused(
+                    "segment genesis is not the exact live published frontier")
+            actual = _data_publication_subject_sha256(current, visible)
+            if actual != segment.new_data_publication_sha256:
+                raise ShadowSegmentRefused(
+                    "segment genesis publication differs from append-only "
+                    "marker")
+            session, kind, digest = predecessor_anchor(
+                conn, logical, segment.index - 1)
+            if (session != segment.predecessor_session
+                    or kind != segment.predecessor_anchor_kind
+                    or digest != segment.predecessor_anchor_sha256):
+                raise ShadowSegmentRefused(
+                    "segment predecessor state changed after rollover")
+            return None
+
     visible = feed_store.latest_visible_session(conn)
     if visible != first_session:
         raise ShadowRuntimeRefused(
@@ -540,7 +581,7 @@ def _advance_ready_shadow(
     controller_config, strategy_identity = _strategy()
     runtime_identity = _validated_runtime_identity(
         observation_id=observation_id, starting_cash=amount)
-    store = PostgresShadowObservationStore(
+    store = SegmentedPostgresShadowObservationStore(
         conn, observation_id=observation_id)
     observer = _resume(
         store, observation_id=observation_id, starting_cash=amount,
@@ -612,7 +653,7 @@ def _verified_shadow_status(
     controller_config, strategy_identity = _strategy()
     runtime_identity = _validated_runtime_identity(
         observation_id=observation_id, starting_cash=amount)
-    store = PostgresShadowObservationStore(
+    store = SegmentedPostgresShadowObservationStore(
         conn, observation_id=observation_id)
     observer = _resume(
         store, observation_id=observation_id, starting_cash=amount,
@@ -652,7 +693,7 @@ def _classify_shadow_lineage(
     controller_config, strategy_identity = _strategy()
     runtime_identity = _validated_runtime_identity(
         observation_id=observation_id, starting_cash=amount)
-    store = PostgresShadowObservationStore(
+    store = SegmentedPostgresShadowObservationStore(
         conn, observation_id=observation_id)
     genesis = store.genesis()
     if genesis is None:

@@ -46,7 +46,7 @@ sentinel/feed/readiness.py           the data contract + persisted verdicts
 sentinel/core/catchup.py             convergence after absence, re-projection
 sentinel/core/decision.py            canonical shadow/controller -> stamped plan
 sentinel/paper.py                    read-only preparation + strict execution gate
-sentinel/authority.py                signed certificate gate + rollout mode
+sentinel/authority/                  signed certificate gate + rollout mode
 sentinel/automation/                 disabled-by-default Stage 4 orchestration
 sentinel/core/cashflow.py            external cash as a declared event
 ```

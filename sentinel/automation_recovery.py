@@ -32,7 +32,7 @@ never mint a receipt or enable the pre-adoption exception by reading state.
 """
 from __future__ import annotations
 
-from sentinel import backup_guard, paper, shadow_runtime, shadow_segments
+from sentinel import backup_guard, paper, shadow_segments
 from sentinel import automation_runtime as base
 from sentinel.automation.model import (
     NonRetryableCallbackRefused,
@@ -51,12 +51,6 @@ _RETRYABLE_REGENESIS_BUILD_PREFIXES = (
 _RETRYABLE_BASE_PREPARE_PREFIX = (
     "PAPER preparation refused: initial plan adoption requires no working "
     "broker order;")
-
-
-# The PAPER mirror is a separate process from the shadow publisher. Install the
-# same active append-only segment reader here before dual reconciliation asks
-# shadow_runtime for current verified intent.
-shadow_segments.install_runtime_store(shadow_runtime)
 
 
 def _retryable_regenesis_build_refusal(exc: BaseException) -> bool:

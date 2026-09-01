@@ -67,10 +67,11 @@ def require_standing_observation_authority(
     """Authorize one ordinary operation under standing paper-only authority.
 
     ``allow_expired_observation_safety`` is intentionally reused only as the
-    cryptographic loader primitive: inside ``authority.py`` it bypasses expiry
-    *only* for PAPER_OBSERVATION_ONLY, while preserving signature, trust-root,
-    durable revocation and lifecycle checks.  This function then applies the
-    full ordinary execution bindings before permitting any non-safety action.
+    cryptographic loader primitive: inside ``authority.validation`` it bypasses
+    expiry *only* for PAPER_OBSERVATION_ONLY, while preserving signature,
+    trust-root, durable revocation and lifecycle checks.  This function then
+    applies the full ordinary execution bindings before permitting any
+    non-safety action.
     """
     if not isinstance(required_mode, RolloutMode):
         required_mode = RolloutMode(str(required_mode))

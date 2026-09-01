@@ -32,10 +32,6 @@ from .cash import (
     _broker_cash_state_or_refuse,
 )
 
-# Explicit compatibility aliases for the canonical execution reconciler.
-ReconciliationResult = reconciliation.ReconciliationResult
-expected_book_from_commands = reconciliation.expected_book_from_commands
-reconcile = reconciliation.reconcile
 
 def _clean_or_refuse(result, *, purpose: str) -> BrokerObservation:
     observation = result.observation

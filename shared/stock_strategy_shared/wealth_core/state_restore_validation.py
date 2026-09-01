@@ -1,21 +1,15 @@
 """Strict financial-boundary validation for persisted Wealth Core state.
 
 The canonical state dataclasses deliberately stay simple runtime containers.
-This module hardens only the persistence boundary: values that can change a
-future order, exit, cooldown, valuation, or terminal settlement must be proven
-well-formed before ``PortfolioState.from_dict`` is allowed to return them.
+Values that can change a future order, exit, cooldown, valuation, or terminal
+settlement must be proven well-formed before ``PortfolioState.from_dict`` is
+allowed to return them.  ``PortfolioState.from_dict`` calls this owner directly;
+importing the package never mutates the state class.
 """
 from __future__ import annotations
 
 import math
 from collections.abc import Mapping
-
-from stock_strategy_shared.wealth_core.state import (
-    COOLDOWN_SESSIONS,
-    PortfolioState,
-)
-
-_INSTALLED = False
 
 
 def _fail(where, detail):
@@ -92,7 +86,7 @@ def _mapping(value, where, *, absent_empty=False):
     return value
 
 
-def _validate_slot(slot_id, raw):
+def _validate_slot(slot_id, raw, *, cooldown_sessions):
     raw = _mapping(raw, "slot %d" % slot_id)
     declared = _exact_int(raw.get("slot_id"), "slot %d slot_id" % slot_id)
     if declared != slot_id:
@@ -107,7 +101,7 @@ def _validate_slot(slot_id, raw):
         _exact_int(
             cooldown,
             "slot %d cooldown_sessions_elapsed" % slot_id,
-            maximum_exclusive=COOLDOWN_SESSIONS,
+            maximum_exclusive=cooldown_sessions,
         )
 
     reservation = (
@@ -295,7 +289,7 @@ def _validate_pending_record(sec, raw, held_shares):
             "evaluated against restored shares: %s" % (sec, exc)) from exc
 
 
-def _validate_payload(d):
+def validate_payload(d, *, cooldown_sessions):
     if not isinstance(d, Mapping):
         _fail("state", "is not an object")
 
@@ -307,7 +301,8 @@ def _validate_payload(d):
         slot_id = _index_key(raw_key, "slot key")
         if slot_id in slots:
             _fail("slots", "contains colliding integer identities")
-        slots[slot_id] = _validate_slot(slot_id, raw_slot)
+        slots[slot_id] = _validate_slot(
+            slot_id, raw_slot, cooldown_sessions=cooldown_sessions)
     if sorted(slots) != list(range(len(slots))):
         _fail("slots", "are not a contiguous zero-based domain")
 
@@ -354,7 +349,7 @@ def _validate_payload(d):
 
     _validate_counter_map(
         d.get("security_cooldowns"), "security_cooldowns",
-        maximum_exclusive=COOLDOWN_SESSIONS)
+        maximum_exclusive=cooldown_sessions)
 
     unresolved = _validate_text_map(
         d.get("unresolved_terminals"), "unresolved_terminals")
@@ -410,23 +405,4 @@ def _validate_payload(d):
         _text(session, "last_valid_mark_session[%s]" % sec)
 
 
-def install():
-    """Wrap ``PortfolioState.from_dict`` exactly once."""
-    global _INSTALLED
-    if _INSTALLED or getattr(
-            PortfolioState, "_NESTED_RESTORE_HARDENING_INSTALLED", False):
-        _INSTALLED = True
-        return
-
-    original = PortfolioState.from_dict.__func__
-
-    def hardened_from_dict(cls, d):
-        _validate_payload(d)
-        return original(cls, d)
-
-    PortfolioState.from_dict = classmethod(hardened_from_dict)
-    PortfolioState._NESTED_RESTORE_HARDENING_INSTALLED = True
-    _INSTALLED = True
-
-
-__all__ = ["install"]
+__all__ = ["validate_payload"]

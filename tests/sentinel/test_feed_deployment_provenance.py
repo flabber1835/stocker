@@ -86,7 +86,7 @@ def test_container_feed_binding_requires_baked_revision_and_injected_facts(
 
 
 def test_cli_refuses_unbound_feed_before_database_contact(monkeypatch, capsys):
-    import sentinel.__main__ as cli
+    from sentinel.cli import feed as feed_cli
     from sentinel.feed import store
 
     monkeypatch.setattr(
@@ -96,10 +96,10 @@ def test_cli_refuses_unbound_feed_before_database_contact(monkeypatch, capsys):
         store, "connect",
         lambda *_a, **_k: (_ for _ in ()).throw(
             AssertionError("database was contacted")))
-    rc = cli.cmd_feed(
+    rc = feed_cli.cmd_feed_daily(
         SimpleNamespace(database_url="postgresql://must-not-be-used"),
-        SimpleNamespace(command="feed-daily"))
-    assert rc == cli.EXIT_NOT_ESTABLISHED
+        SimpleNamespace(boundary=SimpleNamespace(through="2026-08-28")))
+    assert rc == feed_cli.EXIT_NOT_ESTABLISHED
     assert "unbound producer" in capsys.readouterr().err
 
 

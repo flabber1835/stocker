@@ -34,14 +34,9 @@ from sentinel.core.session import (
     PublishedSession,
     SessionState,
     _feed_to_dict,
-    _return as _session_return,
     holdings_from_shadow,
 )
 from sentinel.feed.requirements import REQUIRED_SPY_SESSIONS as MIN_CLOSES
-
-# Compatibility for the certified lag-return unit test and any external
-# diagnostic import. The implementation is owned by the lower session module.
-_return = _session_return
 
 
 def warm_session_state(state: SessionState | Mapping, window, *,
@@ -148,7 +143,8 @@ def load_published_session(conn, session: str, *, spy_sessions: int = MIN_CLOSES
     integration-only experiments that cannot make that causality claim must
     override their inputs outside this production API.
     """
-    from sentinel.core.loader import load_meta, load_sectors, load_terminal_events
+    from sentinel.core.loader import load_meta, load_sectors
+    from sentinel.core.terminal import load_terminal_events
     from sentinel.feed.calendar import previous_sessions
     from sentinel.feed.publication import (
         assert_operationally_coherent, current, effective_split_ratio,
@@ -290,22 +286,6 @@ def load_published_session(conn, session: str, *, spy_sessions: int = MIN_CLOSES
         defensive_previous_bar=defensive_previous)
 
 
-def advance_state(prior: SessionState | Mapping, published: PublishedSession,
-                  *, controller_config: ControllerConfig,
-                  strategy_identity: Mapping,
-                  wealth_config: WealthCoreConfig | None = None,
-                  eligibility_config: EligibilityConfig | None = None,
-                  concordance_audit=None) -> SessionState:
-    """Compatibility entry point; new callers import the canonical kernel."""
-    from sentinel.core.kernel import advance_session
-
-    return advance_session(
-        prior, published, controller_config=controller_config,
-        strategy_identity=strategy_identity, wealth_config=wealth_config,
-        eligibility_config=eligibility_config,
-        concordance_audit=concordance_audit)
-
-
 def advance_and_persist(conn, session: str, prior: SessionState | Mapping, *,
                         load_published,
                         controller_config: ControllerConfig,
@@ -333,5 +313,5 @@ def advance_and_persist(conn, session: str, prior: SessionState | Mapping, *,
 __all__ = ["DefensiveBar", "FeedAnchor", "PublishedSession",
            "REQUIRED_IDENTITY_FIELDS", "SessionState",
            "advance_and_persist",
-           "advance_state", "holdings_from_shadow", "load_published_session",
+           "holdings_from_shadow", "load_published_session",
            "warm_session_state"]

@@ -6,10 +6,10 @@
 exactly how this suite first failed to collect.
 
 A small compatibility fixture also keeps older unit-level database doubles at
-the seam they actually exercise. Routine Sentinel paths now use read-only schema
-validation. Older tests that pre-date that split still use ``ensure_schema`` as
-fixture bootstrap, so this file preserves the historical installer only inside
-the test process; production never imports this module.
+the seam they actually exercise. Routine Sentinel paths use read-only schema
+validation. Older tests that pre-date that split still use the runtime validator
+as fixture bootstrap, so this file preserves the historical installer only
+inside the test process; production never imports this module.
 """
 import sys
 from pathlib import Path
@@ -38,9 +38,10 @@ _ISSUE_178_SOURCE_AUTHORITY_PREFIX = "test_issue_178_"
 def _legacy_feed_fixture_install(conn) -> None:
     """Install feed DDL without invoking the production schema validator.
 
-    Legacy fixtures still use ``ensure_schema`` as setup. Keep that test-only
-    compatibility spelling, but include derived feed relations required by the
-    current runtime so those fixtures exercise the same data model as production.
+    Legacy fixtures use the runtime schema-validation boundary as setup. Replace
+    that validator with explicit test-only DDL, including the derived feed
+    relations required by the current runtime, so those fixtures exercise the
+    same data model as production.
     """
     from sentinel.feed.schema import DDL as BASE_DDL
     from sentinel.feed.universe_projection import DDL as UNIVERSE_PROJECTION_DDL
@@ -115,22 +116,20 @@ def _runtime_schema_test_double_compat(request, monkeypatch):
         monkeypatch.setattr(request.module, "load", load_with_recent_authority)
 
     if module_name in _LEGACY_SCHEMA_DOUBLE_MODULES:
-        # Resolve ensure_schema at call time: the legacy tests install their
-        # own no-I/O/refusal stub after this autouse fixture has been created.
+        # Resolve the behavioral installer at call time: the legacy tests install
+        # their own no-I/O/refusal stub after this autouse fixture has been created.
         monkeypatch.setattr(
             schema, "require_runtime_schema",
             lambda conn: schema.ensure_schema(conn))
-        monkeypatch.setattr(
-            feed_store, "require_feed_schema",
-            lambda conn: feed_store.ensure_schema(conn))
 
-    # Before issue #165, feed fixtures used ensure_schema as an installer.
+    # Before issue #165, feed fixtures used the runtime schema entry point as an
+    # installer.
     # Preserve that convenience with DDL-only behavior, rather than weakening
     # or bypassing the new production migration validator. The DDL must still
     # include derived feed relations used by the current runtime.
     if not module_name.startswith(_FEED_RUNTIME_SCHEMA_CONTRACT_PREFIX):
         monkeypatch.setattr(
-            feed_store, "ensure_schema", _legacy_feed_fixture_install)
+            feed_store, "require_feed_schema", _legacy_feed_fixture_install)
 
     if not module_name.startswith(_ISSUE_178_SOURCE_AUTHORITY_PREFIX):
         # Issue #178 makes the production source contract deliberately stricter:

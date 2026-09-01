@@ -61,7 +61,7 @@ def conn(pg):
                   "sentinel_rejection_truncation", "sentinel_corpus_anomalies"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     c.commit()
-    S.ensure_schema(c)
+    S.require_feed_schema(c)
     yield c
     c.close()
 
@@ -562,24 +562,22 @@ class TestTheCertifiedPostgresIsAGateNotAWarning:
     refusal, not a footnote."""
 
     def parse(self, argv, monkeypatch, capsys, rec):
-        import sentinel.__main__ as M
-        from sentinel import _main_impl, identity as ident
+        from sentinel import identity as ident
+        from sentinel.cli import feed as feed_cli
 
         monkeypatch.setattr(ident, "rehearsal_identity",
                             lambda *a, **kw: rec)
-        monkeypatch.setattr(_main_impl, "EXIT_NOT_ESTABLISHED", 2)
 
         class _Cfg:
             database_url = "postgresql://x/y"
         monkeypatch.setattr(
             "sentinel.feed.store.connect", lambda *_a, **_k: _FakeConn())
         monkeypatch.setattr(
-            "sentinel.feed.store.ensure_schema", lambda *_a, **_k: None)
-        p = M.build_parser() if hasattr(M, "build_parser") else None
-        assert p is None or p  # the CLI is exercised via cmd_identity directly
+            "sentinel.feed.store.require_feed_schema", lambda *_a, **_k: None)
         args = type("A", (), dict(zip(
             ("start", "end", "require_certified"), argv)))()
-        return M.cmd_identity(_Cfg(), args)
+        args.require_environment_compatible = False
+        return feed_cli.cmd_identity(_Cfg(), args)
 
     def rec(self, *, certified=True, pg_ok=True):
         return {"environment": {"compatible": certified, "pin_drift": {},

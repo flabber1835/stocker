@@ -33,6 +33,10 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, AbstractSet, Any, Mapping
 
+from stock_strategy_shared.wealth_core.state_restore_validation import (
+    validate_payload as _validate_restore_payload,
+)
+
 if TYPE_CHECKING:  # pragma: no cover
     from stock_strategy_shared.wealth_core.marks import EquityView, Mark
 
@@ -491,29 +495,9 @@ class PortfolioState:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "PortfolioState":
-        if not isinstance(d, Mapping):
-            raise ValueError("persisted Wealth Core state is not an object")
+        _validate_restore_payload(
+            d, cooldown_sessions=COOLDOWN_SESSIONS)
         raw_slots = d.get("slots")
-        if not isinstance(raw_slots, Mapping) or not raw_slots:
-            raise ValueError("persisted Wealth Core state has no slot domain")
-        try:
-            slot_ids = sorted(int(key) for key in raw_slots)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                "persisted Wealth Core slot keys are not integer identities") from exc
-        if slot_ids != list(range(len(slot_ids))):
-            raise ValueError(
-                "persisted Wealth Core slots are not a contiguous zero-based domain")
-        for key, value in raw_slots.items():
-            try:
-                slot_id = value.get("slot_id") if isinstance(value, Mapping) else None
-                valid_slot = (
-                    not isinstance(slot_id, bool) and int(slot_id) == int(key))
-            except (TypeError, ValueError):
-                valid_slot = False
-            if not valid_slot:
-                raise ValueError(
-                    "persisted Wealth Core slot key and slot_id disagree")
         raw_cash = d.get("cash", 0.0)
         if isinstance(raw_cash, bool):
             raise ValueError("persisted Wealth Core cash is not a finite number")

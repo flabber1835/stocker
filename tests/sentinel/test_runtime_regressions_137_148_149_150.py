@@ -10,9 +10,11 @@ import subprocess
 
 import pytest
 
-from sentinel import _main_impl, authority, binding, paper, schema
+from sentinel import authority, binding, schema
+from sentinel.cli import authority as authority_cli
+from sentinel.cli import automation as automation_cli
+from sentinel.cli import feed as feed_cli
 from sentinel.paper import validation as paper_validation
-import sentinel.__main__ as sentinel_cli
 from sentinel.automation import store as automation_store
 import sentinel.automation_runtime as automation_runtime
 from sentinel.execution.guarded import BrokerOperation, PaperPreparationGrant
@@ -126,9 +128,11 @@ def test_149_emergency_cli_does_not_enter_schema_preflight(monkeypatch, capsys):
     monkeypatch.setattr(automation_store, "engage_kill",
                         lambda _conn, **_kw: killed)
     config = SimpleNamespace(database_url="postgresql://fixture")
-    args = SimpleNamespace(actor="operator", reason="emergency")
-    assert sentinel_cli._remove_automation_authority(
-        config, args, kill=True) == sentinel_cli.EXIT_OK
+    args = SimpleNamespace(
+        command="engage-paper-automation-kill-switch",
+        actor="operator", reason="emergency")
+    assert automation_cli._remove_automation_authority(
+        config, args) == automation_cli.EXIT_OK
     assert '"kill_switch_engaged": true' in capsys.readouterr().out
 
 
@@ -244,7 +248,7 @@ def test_150_automation_composition_uses_read_only_runtime_schema_gate():
     source = inspect.getsource(automation_runtime.ProductionAutomation)
     assert "schema.ensure_schema(conn)" not in source
     assert source.count("schema.require_runtime_schema(conn)") >= 4
-    cli_source = inspect.getsource(sentinel_cli._automation_run)
+    cli_source = inspect.getsource(automation_cli._automation_run)
     assert "schema.require_runtime_schema(conn)" in cli_source
     assert "schema.ensure_schema(conn)" not in cli_source
 
@@ -313,13 +317,13 @@ def test_137_candidate_cli_captures_lifecycle_reference_before_warmup(
         def close(self):
             events.append("close")
 
-    monkeypatch.setattr(_main_impl, "datetime", Clock)
+    monkeypatch.setattr(authority_cli, "datetime", Clock)
     monkeypatch.setattr(feed_store, "connect", lambda _dsn: Conn())
     monkeypatch.setattr(schema, "require_runtime_schema",
                         lambda _conn: events.append("schema"))
-    monkeypatch.setattr(_main_impl, "_closed_preview_frontier",
+    monkeypatch.setattr(feed_cli, "_closed_preview_frontier",
                         lambda _conn: (SimpleNamespace(ready=True), "2026-08-14"))
-    monkeypatch.setattr(_main_impl, "_current_system_identities",
+    monkeypatch.setattr(authority_cli, "_current_system_identities",
                         lambda: ({"runtime": 1}, {"strategy": 1}))
     monkeypatch.setattr(
         automation_runtime, "config_from_env",
@@ -344,7 +348,7 @@ def test_137_candidate_cli_captures_lifecycle_reference_before_warmup(
         maximum_exposure="1", cash=100000.0,
         reviewer="reviewer", ticket="ticket")
     config = SimpleNamespace(database_url="postgresql://fixture")
-    assert sentinel_cli.cmd_create_paper_observation_candidate(
-        config, args) == sentinel_cli.EXIT_OK
+    assert authority_cli.cmd_create_paper_observation_candidate(
+        config, args) == authority_cli.EXIT_OK
     assert events.index("clock") < events.index("warmup")
     assert events.index("warmup") < events.index("candidate")

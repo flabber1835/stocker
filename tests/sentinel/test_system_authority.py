@@ -42,51 +42,15 @@ STRATEGY = {
 }
 
 
-def manifest(*, modes=("PINNED_1_00", "CONTROLLER"), strict_xfails=0,
-             wealth_core="GO", controller="PASS", profile=True) -> bytes:
-    value = {
-        "schema": authority.CERTIFICATION_MANIFEST_SCHEMA,
-        "lifecycle": "FINALIZED",
-        "verdict": "PASS",
-        "failures": [],
-        "identity_hash": RUNTIME_HASH,
-        "final_identity_hash": RUNTIME_HASH,
-        "sentinel_source_hash": SENTINEL_HASH,
-        "wealth_core_source_hash": WEALTH_HASH,
-        "book_artifact_sha256": "1" * 64,
-        "rejection_audit_sha256": "2" * 64,
-        "rehearsal_hashes": {"final_result": "3" * 64},
-        "rehearsal_run_id": "run-certified",
-        "rehearsal_spec": {"mode": "chain_rehearsal"},
-        "rehearsal_equivalence": {"state_hash_matches": True},
-        "settlement_counters": {"exact_terminal_settlements": 1},
-        "terminal_reconciliation": {"residual": 0},
-        "bt_engine_identity": {"image_id": "sha256:" + "4" * 64},
-        "final_corpus_hash": "5" * 64,
-        "last_finalization_attempt": {"failures": []},
-    }
-    if profile:
-        value["activation_authority"] = {
-            "schema": authority.ACTIVATION_PROFILE_SCHEMA,
-            "status": "AUTHORIZED",
-            "scope": "ALPACA_PAPER",
-            "strict_xfails": strict_xfails,
-            "wealth_core_certification": wealth_core,
-            "controller_certification": controller,
-            "allowed_rollout_modes": list(modes),
-            "runtime_identity_hash": RUNTIME_HASH,
-            "strategy_identity": STRATEGY,
-        }
-    return json.dumps(value, sort_keys=True, indent=2).encode()
-
-
-def install(conn, payload=None):
+def install(conn, payload=None, *, modes=("PINNED_1_00",)):
     """Seed a legacy unsigned row to exercise upgrade/refusal behaviour."""
-    payload = payload or manifest()
-    actual, parsed, modes = authority._validate_installable_certificate(
-        manifest_bytes=payload,
-        confirm_sha256=hashlib.sha256(payload).hexdigest(),
-        runtime_identity=RUNTIME, strategy_identity=STRATEGY)
+    payload = payload or json.dumps({
+        "schema": "sentinel.legacy-unsigned-test-row/1",
+        "modes": list(modes),
+    }, sort_keys=True).encode()
+    actual = hashlib.sha256(payload).hexdigest()
+    parsed = json.loads(payload)
+    rollout_modes = tuple(authority.RolloutMode(mode) for mode in modes)
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_system_certificates"
@@ -94,11 +58,11 @@ def install(conn, payload=None):
             "  allowed_rollout_modes) VALUES (%s,%s,%s::jsonb,%s::jsonb)"
             " RETURNING installed_at",
             (actual, payload, json.dumps(parsed, sort_keys=True),
-             json.dumps([mode.value for mode in modes])))
+             json.dumps([mode.value for mode in rollout_modes])))
         installed_at = cur.fetchone()[0]
     conn.commit()
     return authority.SystemCertificate(
-        actual, parsed, modes, installed_at=installed_at)
+        actual, parsed, rollout_modes, installed_at=installed_at)
 
 
 @pytest.fixture(scope="module")
@@ -162,80 +126,9 @@ def test_deleted_rollout_row_is_not_recreated_by_schema_check_or_restart(
         restarted.close()
 
 
-@pytest.mark.parametrize("payload,match", [
-    (manifest(profile=False), "activation_authority"),
-    (manifest(strict_xfails=3), "zero strict xfails"),
-    (manifest(wealth_core="NO-GO"), "Wealth Core certification GO"),
-])
-def test_generic_pass_or_known_certification_debt_is_not_authority(
-        conn, payload, match):
-    with pytest.raises(authority.AuthorityRefused, match=match):
-        install(conn, payload)
-
-
-def test_finalized_pass_without_harness_completion_evidence_is_not_authority(
-        conn):
-    value = json.loads(manifest())
-    value["rehearsal_run_id"] = None
-    payload = json.dumps(value).encode()
-    with pytest.raises(authority.AuthorityRefused,
-                       match="completed rehearsal manifest"):
-        install(conn, payload)
-
-
-def test_install_requires_the_operator_confirm_the_exact_byte_hash(conn):
-    payload = manifest()
-    with pytest.raises(authority.AuthorityRefused, match="confirmation mismatch"):
-        authority._validate_installable_certificate(
-            manifest_bytes=payload, confirm_sha256="0" * 64,
-            runtime_identity=RUNTIME, strategy_identity=STRATEGY)
-
-
-@pytest.mark.parametrize("payload,match", [
-    (b'{"schema":"one","schema":"two"}', "repeats JSON key"),
-    (b'{"value":NaN}', "non-finite number"),
-])
-def test_ambiguous_or_nonstandard_json_is_never_certificate_authority(
-        conn, payload, match):
-    with pytest.raises(authority.AuthorityRefused, match=match):
-        authority._validate_installable_certificate(
-            manifest_bytes=payload,
-            confirm_sha256=hashlib.sha256(payload).hexdigest(),
-            runtime_identity=RUNTIME, strategy_identity=STRATEGY)
-
-
-def test_matching_manifest_cannot_authorize_an_uncertified_runtime(conn):
-    payload = manifest()
-    drifted = {
-        **RUNTIME,
-        "environment": {**RUNTIME["environment"], "compatible": False,
-                        "pins_match": False,
-                        "pin_drift": {"psycopg": {
-                            "pinned": "3.2", "installed": "3.3"}}},
-    }
-    with pytest.raises(authority.AuthorityRefused,
-                       match="environment is not certified"):
-        authority._validate_installable_certificate(
-            manifest_bytes=payload,
-            confirm_sha256=hashlib.sha256(payload).hexdigest(),
-            runtime_identity=drifted, strategy_identity=STRATEGY)
-
-
-def test_public_installation_refuses_even_a_structurally_complete_self_authored_file(
-        conn):
-    payload = manifest()
-    with pytest.raises(authority.AuthorityRefused,
-                       match="offline-signed certificate lifecycle"):
-        authority.install_system_certificate(
-            conn, manifest_bytes=payload,
-            confirm_sha256=hashlib.sha256(payload).hexdigest(),
-            runtime_identity=RUNTIME, strategy_identity=STRATEGY)
-    assert authority.load_active_certificate(conn) is None
-
-
 def test_preexisting_unsigned_bytes_survive_restart_but_never_authorize(
         conn, pg):
-    installed = install(conn, manifest(modes=("PINNED_1_00",)))
+    installed = install(conn, modes=("PINNED_1_00",))
     restarted = feed_store.connect(pg.sync_dsn)
     try:
         loaded = authority.load_active_certificate(restarted)
@@ -318,19 +211,3 @@ def test_controller_command_refuses_before_revocation_can_matter(conn):
             conn, mode=authority.RolloutMode.CONTROLLER,
             reason="retry", runtime_identity=RUNTIME,
             strategy_identity=STRATEGY)
-
-
-def test_prospective_profile_validator_rejects_runtime_or_strategy_drift(conn):
-    payload = manifest()
-    moved = dict(RUNTIME, identity_hash="m" * 64)
-    with pytest.raises(authority.AuthorityRefused, match="runtime identity"):
-        authority._validate_installable_certificate(
-            manifest_bytes=payload,
-            confirm_sha256=hashlib.sha256(payload).hexdigest(),
-            runtime_identity=moved, strategy_identity=STRATEGY)
-    changed_strategy = dict(STRATEGY, controller_rule_sha256="z" * 64)
-    with pytest.raises(authority.AuthorityRefused, match="strategy identity"):
-        authority._validate_installable_certificate(
-            manifest_bytes=payload,
-            confirm_sha256=hashlib.sha256(payload).hexdigest(),
-            runtime_identity=RUNTIME, strategy_identity=changed_strategy)

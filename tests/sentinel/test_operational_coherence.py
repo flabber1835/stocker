@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from tests.support.postgres import _EphemeralPostgres, drop_public_tables
 
-from sentinel import _main_impl as main_impl
+from sentinel.cli import feed as feed_cli
 from sentinel import schema as behavioral_schema
 from sentinel.config import SentinelConfig
 from sentinel.core import loader
@@ -353,7 +354,8 @@ def test_feed_status_reports_first_publication_pending(pg, capsys):
         base_url="https://paper-api.alpaca.markets",
         state_dir=Path("/tmp/sentinel-test"), max_cycles=1,
         poll_seconds=1.0, database_url=pg.sync_dsn)
-    assert main_impl.cmd_feed_status(config, 20) == 0
+    assert feed_cli.cmd_feed_status(
+        config, SimpleNamespace(limit=20)) == 0
     output = capsys.readouterr().out
     assert "AWAITING_FIRST_PUBLICATION" in output
     assert "first seed is in progress" in output

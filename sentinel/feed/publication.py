@@ -4,7 +4,27 @@ from __future__ import annotations
 import json
 
 from sentinel.feed import _publication_impl as _core
-from sentinel.feed._publication_impl import *  # noqa: F403
+from sentinel.feed._publication_impl import (  # noqa: F401
+    CORPUS_LOCK_KEY,
+    CoherenceReport,
+    CorpusBusy,
+    CorpusIncoherent,
+    NoPublishedVersion,
+    Publication,
+    assert_coherent,
+    assert_full_historical_coherent,
+    assert_retry_superseded_prior_candidates,
+    chain_gaps,
+    coherence,
+    current,
+    effective_nonunit_split_rows,
+    effective_split_ratio,
+    full_historical_coherence,
+    pinned,
+    require_current,
+    retire_failed_universe_candidates,
+    visible_predicate,
+)
 from sentinel.feed.operational_coherence import (  # noqa: F401
     assert_operationally_coherent,
     operational_boundary,
@@ -114,12 +134,10 @@ def publish(conn, *, run_id=None, window_start=None, window_end=None,
         window_end=window_end, evidence=merged)
 
 
-__all__ = list(getattr(_core, "__all__", ()))
-for _name in (
-        "publish", "coherence", "assert_coherent",
-        "full_historical_coherence", "assert_full_historical_coherent",
-        "operational_boundary", "operational_coherence",
-        "assert_operationally_coherent", "persist_operational_coherence",
-        "quarantine_status"):
-    if _name not in __all__:
-        __all__.append(_name)
+__all__ = [
+    "publish", "coherence", "assert_coherent",
+    "full_historical_coherence", "assert_full_historical_coherent",
+    "operational_boundary", "operational_coherence",
+    "assert_operationally_coherent", "persist_operational_coherence",
+    "quarantine_status",
+]

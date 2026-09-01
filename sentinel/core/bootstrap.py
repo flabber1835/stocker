@@ -38,7 +38,8 @@ from stock_strategy_shared.wealth_core.engine import Operation, WealthCoreConfig
 from stock_strategy_shared.wealth_core.feed import Feed
 from stock_strategy_shared.wealth_core.run import run_sessions
 
-from sentinel.core.loader import CorpusWindow, load_terminal_events, load_window
+from sentinel.core.loader import CorpusWindow, load_window
+from sentinel.core.terminal import load_terminal_events
 
 #: Sentinel's exposure during item E. Not a parameter yet, and deliberately
 #: named rather than inlined so the day it becomes one is a visible change.

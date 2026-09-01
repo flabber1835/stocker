@@ -34,7 +34,7 @@ def conn(pg):
     c = feed_store.connect(pg.sync_dsn)
     drop_public_tables(c)
     schema.ensure_schema(c)
-    feed_store.ensure_schema(c)
+    feed_store.require_feed_schema(c)
     B.bind(c, deployment_id="nas-1", broker="alpaca",
            broker_account_id=ACCOUNT_NUMBER)
     with c.cursor() as cur:

@@ -1,5 +1,11 @@
 # Sentinel paper lifecycle responsibility map
 
+> Historical decomposition record: every path, line number, and consumer below
+> describes the Step 4 base named in the next paragraph. It is retained as the
+> provenance for the resulting package and is not a current ownership/import
+> inventory. Current CLI and authority ownership is recorded in
+> `docs/final-simplification-freeze.md`.
+
 Generated from the exact `sentinel/paper.py` source on the Step 4 base.
 
 - Source lines: **3202**

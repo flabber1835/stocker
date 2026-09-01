@@ -23,15 +23,10 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from sentinel import shadow_runtime, shadow_segments
+from sentinel import shadow_segments
 from sentinel.panel import model
 from sentinel.panel.render import REFRESH_SECONDS, render
 from sentinel.panel.sources import build_panel
-
-# Segment installation changes only which append-only cursor namespace
-# shadow_runtime reads. The panel still has no route or credential capable of
-# invoking rollover, ingest, plan preparation, or broker mutation.
-shadow_segments.install_runtime_store(shadow_runtime)
 
 app = FastAPI(title="Sentinel panel", docs_url=None, redoc_url=None)
 

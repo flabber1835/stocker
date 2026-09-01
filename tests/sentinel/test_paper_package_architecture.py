@@ -19,8 +19,7 @@ MODULES = ['model', 'inspection', 'validation', 'cash', 'targets', 'reconciliati
 PUBLIC_OWNERS = {'DEFENSIVE_SYMBOL': 'inspection', 'ExecutionResult': 'model', 'PaperAccountInspection': 'model', 'PaperActivationRefused': 'model', 'PaperRetryableRefused': 'model', 'PreOpenShareUnitAuthorityUnavailable': 'model', 'PreparationResult': 'model', 'build_security_resolver': 'inspection', 'current_paper_plan': 'preparation', 'execute_automated_paper_plan': 'execution', 'execute_paper_plan': 'execution', 'inspect_paper_account': 'inspection', 'prepare_paper_plan': 'preparation', 'recover_automated_paper_cycle': 'recovery'}
 SUPPORTED_PUBLIC_ROOT_BINDINGS = {
     'DEFENSIVE_SYMBOL', 'ExecutionResult', 'PaperAccountInspection',
-    'PaperActivationRefused', 'PaperPreflightRefused', 'PaperRetryableRefused',
-    'PaperTerminalRefused', 'PaperUncertainExecution',
+    'PaperActivationRefused', 'PaperRetryableRefused',
     'PreOpenShareUnitAuthorityUnavailable', 'PreparationResult',
     'build_security_resolver', 'current_paper_plan',
     'execute_automated_paper_plan', 'execute_paper_plan',
@@ -47,6 +46,22 @@ def test_package_initializer_is_declarative():
     )
 
 
+def test_package_initializer_imports_only_the_explicit_public_api():
+    tree = ast.parse((PACKAGE / "__init__.py").read_text(encoding="utf-8"))
+    imports = [
+        node for node in tree.body
+        if isinstance(node, ast.ImportFrom) and node.module != "__future__"
+    ]
+    assert {node.module for node in imports} == {
+        "execution", "inspection", "model", "preparation", "recovery",
+    }
+    imported_names = {
+        alias.name for node in imports for alias in node.names
+    }
+    assert imported_names == set(paper.__all__)
+    assert not any(name.startswith("_") for name in imported_names)
+
+
 def test_public_operations_have_one_canonical_owner():
     for name, owner in PUBLIC_OWNERS.items():
         module = importlib.import_module(f"sentinel.paper.{owner}")
@@ -54,10 +69,15 @@ def test_public_operations_have_one_canonical_owner():
     assert tuple(paper.__all__) == ('DEFENSIVE_SYMBOL', 'ExecutionResult', 'PaperAccountInspection', 'PaperActivationRefused', 'PaperRetryableRefused', 'PreOpenShareUnitAuthorityUnavailable', 'PreparationResult', 'build_security_resolver', 'current_paper_plan', 'execute_automated_paper_plan', 'execute_paper_plan', 'inspect_paper_account', 'prepare_paper_plan', 'recover_automated_paper_cycle')
 
 
-def test_reconciliation_binding_remains_execution_reconciler():
-    importlib.import_module("sentinel.paper.reconciliation_evidence")
+def test_reconciliation_evidence_uses_the_execution_owner_directly():
+    evidence = importlib.import_module("sentinel.paper.reconciliation_evidence")
     from sentinel.execution import reconcile as execution_reconciliation
-    assert paper.reconciliation is execution_reconciliation
+
+    assert evidence.reconciliation is execution_reconciliation
+    assert not hasattr(paper, "reconciliation")
+    assert not hasattr(evidence, "ReconciliationResult")
+    assert not hasattr(evidence, "expected_book_from_commands")
+    assert not hasattr(evidence, "reconcile")
     assert not (PACKAGE / "reconciliation.py").exists()
 
 

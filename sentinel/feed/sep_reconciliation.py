@@ -4,7 +4,14 @@ from __future__ import annotations
 import datetime as dt
 
 from sentinel.feed import sep_reconciliation_impl as _core
-from sentinel.feed.sep_reconciliation_impl import *  # noqa: F403
+from sentinel.feed.sep_reconciliation_impl import (
+    CURSOR_NAME,
+    ReconciliationResult,
+    SepKeysetDrift,
+    SepReconciliationStateInvalid,
+    SepValueDrift,
+    YEARS_PER_RUN,
+)
 from sentinel.feed.source_authority import CanonicalSourceFetch, SepUpdateEnvelope
 
 # Explicit static compatibility/test seams. These are ordinary references and do
@@ -55,18 +62,11 @@ def _source_fingerprint(
         conn, fetch=guarded, start=start, end=end)
 
 
-def reconcile_year(conn, *, fetch=_core.sharadar.fetch_table,
-                   year: int, start: str, end: str,
-                   observation_ceiling):
-    """Prove one stable source year equals published keys and strategy values."""
-    return _reconcile_year(
-        conn, fetch=fetch, year=year, start=start, end=end,
-        observation_ceiling=observation_ceiling)
-
-
-def _reconcile_year(
-        conn, *, fetch, year: int, start: str, end: str,
+def reconcile_year(
+        conn, *, fetch=_core.sharadar.fetch_table,
+        year: int, start: str, end: str,
         observation_ceiling):
+    """Prove one stable source year equals published keys and strategy values."""
     _core.store._assert_corpus_locked(conn)
     if not (str(start).startswith(f"{int(year):04d}-")
             and str(end).startswith(f"{int(year):04d}-")):
@@ -136,4 +136,8 @@ def reconcile_next(conn, *, fetch=_core.sharadar.fetch_table,
     return results
 
 
-__all__ = list(getattr(_core, "__all__", ()))
+__all__ = [
+    "CURSOR_NAME", "ReconciliationResult", "SepKeysetDrift", "SepValueDrift",
+    "SepReconciliationStateInvalid", "YEARS_PER_RUN", "reconcile_all",
+    "reconcile_next", "reconcile_year",
+]

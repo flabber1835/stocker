@@ -72,7 +72,7 @@ def conn(pg):
         ):
             cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
     c.commit()
-    S.ensure_schema(c)
+    S.require_feed_schema(c)
     yield c
     c.close()
 
@@ -500,8 +500,8 @@ class TestLegacySchemaMigration:
                     " ('BBB','2024-06-03','NO_IDENTITY',25,500000),"
                     " ('AAA','2024-06-04','NO_RAW_CLOSE',NULL,900000)")
             c.commit()
-            S.ensure_schema(c)
-            S.ensure_schema(c)
+            S.require_feed_schema(c)
+            S.require_feed_schema(c)
 
             with c.cursor() as cur:
                 cur.execute(

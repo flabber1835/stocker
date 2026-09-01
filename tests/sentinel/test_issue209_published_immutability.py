@@ -20,7 +20,7 @@ def pg():
 def conn(pg):
     connection = feed_store.connect(pg.sync_dsn)
     drop_public_tables(connection)
-    feed_store.ensure_schema(connection)
+    feed_store.require_feed_schema(connection)
     yield connection
     connection.close()
 

@@ -59,7 +59,7 @@ def conn(pg):
         for (table,) in cur.fetchall():
             cur.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE')
     connection.commit()
-    feed_store.ensure_schema(connection)
+    feed_store.require_feed_schema(connection)
     schema.ensure_schema(connection)
     binding.bind(
         connection, deployment_id="nas-paper-observe", broker="alpaca",
@@ -232,7 +232,7 @@ def test_live_endpoint_and_nonpaper_account_claims_refuse(conn):
 
 
 def test_float_warmup_evidence_and_comparison_are_canonical(tmp_path, capsys):
-    from sentinel.__main__ import cmd_compare_paper_warmup
+    from sentinel.cli.paper import cmd_compare_paper_warmup
 
     assert _evidence_value({"weight": 0.04, "shares": [1.25]}) == {
         "weight": "0.04", "shares": ["1.25"]}
@@ -245,7 +245,7 @@ def test_float_warmup_evidence_and_comparison_are_canonical(tmp_path, capsys):
         "session": "2026-08-14",
         "entries": [{"ticker": "AAA", "weight": 0.04}]}),
         encoding="utf-8")
-    assert cmd_compare_paper_warmup(SimpleNamespace(
+    assert cmd_compare_paper_warmup(None, SimpleNamespace(
         target_book=str(target), migration_plan=str(migration))) == 0
     comparison = json.loads(capsys.readouterr().out)
     assert comparison["membership_and_weights_identical"] is True

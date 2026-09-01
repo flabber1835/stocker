@@ -305,16 +305,6 @@ def require_feed_schema(conn) -> None:
     require_schema(conn)
 
 
-def ensure_schema(conn) -> None:
-    """Runtime-safe compatibility spelling for :func:`require_feed_schema`.
-
-    This name historically executed all feed DDL. Keeping it read-only protects
-    legacy runtime/CLI callers while they move to the explicit validator. Feed
-    DDL now has exactly one entry point: :func:`migrate_schema`.
-    """
-    require_feed_schema(conn)
-
-
 def reclaim_orphans(conn) -> int:
     """Mark runs abandoned by a dead process. Call at startup.
 

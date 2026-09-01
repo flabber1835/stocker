@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 from sentinel import shadow_observation
-from sentinel.core import kernel, production
+from sentinel.core import kernel
 from sentinel.core.decision import data_semantics_source_identity
 from tools import (
     sentinel_concordance_differential,
@@ -26,24 +26,6 @@ def test_production_and_certification_bind_the_exact_kernel_function():
         sentinel_concordance_differential.advance_state
         is kernel.advance_session
     )
-
-
-def test_legacy_production_entry_point_is_only_a_compatibility_delegate():
-    tree = ast.parse(Path(production.__file__).read_text(encoding="utf-8"))
-    function = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name == "advance_state"
-    )
-    calls = [
-        node
-        for node in ast.walk(function)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "advance_session"
-    ]
-    assert len(calls) == 1
-    assert len(function.body) <= 3
 
 
 def test_kernel_has_no_io_clock_execution_or_broker_imports():

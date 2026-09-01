@@ -5,13 +5,22 @@ import datetime as dt
 from typing import Optional
 
 from sentinel.feed import maintenance_impl as _core
-from sentinel.feed.maintenance_impl import *  # noqa: F403
+from sentinel.feed.maintenance_impl import (
+    MutationCursorUnavailable,
+    SharadarMutationRefused,
+    SourceCursor,
+    establish_sep_cursor_after_complete_reconciliation,
+    establish_sep_cursor_after_seed,
+    load_actions_cursor,
+    load_sep_cursor,
+    reconcile_actions_if_due,
+)
 from sentinel.feed.identity_refresh import validate_sep_mutation_rows
 
 # Keep the public maintenance module as the canonical static authority for
-# callers, readiness/certification gates, and deterministic test seams. Star
-# imports intentionally exclude private helpers and may omit non-__all__
-# constants, so bind the retained contract explicitly.
+# callers, readiness/certification gates, and deterministic test seams. Bind
+# every retained helper explicitly so implementation-module namespace changes
+# cannot silently expand this production surface.
 SEP_CURSOR_NAME = _core.SEP_CURSOR_NAME
 ACTIONS_CURSOR_NAME = _core.ACTIONS_CURSOR_NAME
 ACTIONS_CURSOR_KIND = _core.ACTIONS_CURSOR_KIND
@@ -108,7 +117,10 @@ from sentinel.feed.source_authority import (  # noqa: E402
 )
 
 
-__all__ = list(getattr(_core, "__all__", ()))
-for _name in ("LastUpdatedTrackingFetch", "reconcile_sep_mutations"):
-    if _name not in __all__:
-        __all__.append(_name)
+__all__ = [
+    "ACTIONS_RECONCILE_DAYS", "LastUpdatedTrackingFetch",
+    "MutationCursorUnavailable", "SEP_CURSOR_NAME", "SharadarMutationRefused",
+    "SourceCursor", "establish_sep_cursor_after_complete_reconciliation",
+    "establish_sep_cursor_after_seed", "load_actions_cursor", "load_sep_cursor",
+    "reconcile_actions_if_due", "reconcile_sep_mutations",
+]

@@ -36,7 +36,6 @@ SUPPORTED_PUBLIC_ROOT_BINDINGS = {
     "inspect_paper_account",
     "prepare_paper_plan",
     "recover_automated_paper_cycle",
-    "reconciliation",
 }
 
 
@@ -159,8 +158,9 @@ def test_guard_allows_public_root_and_canonical_owner_access(tmp_path):
     path.write_text(
         "from sentinel import paper\n"
         "from sentinel.paper import recovery as paper_recovery\n"
+        "from sentinel.execution import reconcile\n"
         "paper.prepare_paper_plan\n"
-        "paper.reconciliation.reconcile\n"
+        "reconcile.reconcile\n"
         "paper_recovery._private_test_seam\n",
         encoding="utf-8",
     )
