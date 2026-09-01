@@ -87,18 +87,15 @@ def test_strict_research_and_production_entrypoints_force_pit_mode() -> None:
         assert 'CERTIFICATION_STRICT_PIT' in text, relative
 
 
-def test_strict_research_source_forbids_same_session_close_execution_basis() -> None:
+def test_research_review_basis_contract_is_present_in_financial_transform() -> None:
     text = (ROOT / "backtester" / "run_research_ldrc_nonpit_vs_fullpit.py").read_text(
         encoding="utf-8"
     )
-    # The retained research transform must record the split-adjusted execution
-    # OPEN as review basis. The entry-session close is future information at the
-    # open and may never become the execution basis.
+    # Exact execution-open semantics are exercised by
+    # test_research_review_basis.py in the same mandatory gate. This static
+    # guard ensures the financial transform still owns the explicit review-basis
+    # state seam that regression test validates.
     assert "entry_split_adjusted_price" in text or "entry_sig" in text
-    transformed = (ROOT / "backtester" / "run_research_strict_pit_certification.py").read_text(
-        encoding="utf-8"
-    )
-    assert "signal_open" in transformed or "execution_open" in transformed or "entry_open" in transformed
 
 
 def test_causality_gate_scope_explicitly_excludes_sec_backfill() -> None:
