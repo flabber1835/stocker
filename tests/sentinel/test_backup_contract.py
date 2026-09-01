@@ -241,7 +241,10 @@ def test_backup_root_accepts_an_explicit_dedicated_target(tmp_path):
         "SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED": "1",
     }
     result = subprocess.run(
-        ["bash", "-c", ". scripts/sentinel-backup-lib.sh; sentinel_backup_root"],
+        ["bash", "-c",
+         ". scripts/sentinel-backup-lib.sh; "
+         "sentinel_backup_root --initialize-markers >/dev/null; "
+         "sentinel_backup_root"],
         cwd=ROOT, env=env, capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr
@@ -279,7 +282,10 @@ def _backup_root_case(tmp_path, *, docker_root, root_device="10",
     if attested:
         env["SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED"] = "1"
     return subprocess.run(
-        ["bash", "-c", ". scripts/sentinel-backup-lib.sh; sentinel_backup_root"],
+        ["bash", "-c",
+         ". scripts/sentinel-backup-lib.sh; "
+         "sentinel_backup_root --initialize-markers >/dev/null; "
+         "sentinel_backup_root"],
         cwd=ROOT, env=env, capture_output=True, text=True)
 
 
