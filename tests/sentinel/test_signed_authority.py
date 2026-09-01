@@ -160,32 +160,44 @@ def _race_connection(pg, application_name: str):
     return connection
 
 
-def _wait_for_lock_waiters(conn, *application_names: str) -> None:
-    """Wait for observed database lock contention, never elapsed-time guesses."""
-    expected = set(application_names)
+def _backend_pid(connection) -> int:
+    """Return the exact PostgreSQL session id for either supported driver."""
+    info = getattr(connection, "info", None)
+    backend_pid = getattr(info, "backend_pid", None)
+    if backend_pid is not None:
+        return int(backend_pid)
+    return int(connection.get_backend_pid())
+
+
+def _wait_for_blocked_backends(conn, *workers) -> None:
+    """Wait for exact backend lock dependencies, never elapsed-time guesses."""
+    expected = {pid for pid, _future in workers}
     deadline = time.monotonic() + 5
     observed = set()
     while time.monotonic() < deadline:
+        for pid, future in workers:
+            if future.done():
+                outcome = future.result()
+                pytest.fail(
+                    f"backend {pid} finished before reaching the lock: "
+                    f"{outcome!r}")
         with conn.cursor() as cur:
-            placeholders = ",".join(["%s"] * len(expected))
-            cur.execute(
-                "SELECT application_name FROM pg_stat_activity"
-                " WHERE datname=current_database()"
-                f" AND application_name IN ({placeholders})"
-                " AND wait_event_type='Lock'",
-                tuple(sorted(expected)))
-            observed = {str(row[0]) for row in cur.fetchall()}
+            observed = set()
+            for pid in expected:
+                cur.execute(
+                    "SELECT cardinality(pg_blocking_pids(%s))", (pid,))
+                if int(cur.fetchone()[0]) > 0:
+                    observed.add(pid)
         if observed == expected:
             return
         time.sleep(0.01)
     pytest.fail(
-        f"sessions did not reach the expected lock wait: expected={expected!r} "
+        f"backends did not reach the expected lock wait: expected={expected!r} "
         f"observed={observed!r}")
 
 
-def _activate_race_worker(pg, application_name: str, *, digest: str,
+def _activate_race_worker(connection, application_name: str, *, digest: str,
                           document: dict) -> tuple[str, str]:
-    connection = _race_connection(pg, application_name)
     try:
         try:
             activated = authority.activate_signed_certificate(
@@ -200,9 +212,8 @@ def _activate_race_worker(pg, application_name: str, *, digest: str,
         connection.close()
 
 
-def _revoke_race_worker(pg, application_name: str, *, digest: str
+def _revoke_race_worker(connection, application_name: str, *, digest: str
                         ) -> tuple[str, str]:
-    connection = _race_connection(pg, application_name)
     try:
         authority.revoke_signed_certificate(
             connection, certificate_sha256=digest, reason=application_name)
@@ -445,14 +456,19 @@ def test_competing_activation_serializes_to_one_complete_transition(conn, pg):
     second_name = "authority-race-activate-second"
     with ThreadPoolExecutor(max_workers=2) as pool:
         try:
+            first_connection = _race_connection(pg, first_name)
+            first_pid = _backend_pid(first_connection)
             first = pool.submit(
-                _activate_race_worker, pg, first_name,
+                _activate_race_worker, first_connection, first_name,
                 digest=digest, document=document)
-            _wait_for_lock_waiters(conn, first_name)
+            _wait_for_blocked_backends(conn, (first_pid, first))
+            second_connection = _race_connection(pg, second_name)
+            second_pid = _backend_pid(second_connection)
             second = pool.submit(
-                _activate_race_worker, pg, second_name,
+                _activate_race_worker, second_connection, second_name,
                 digest=digest, document=document)
-            _wait_for_lock_waiters(conn, first_name, second_name)
+            _wait_for_blocked_backends(
+                conn, (first_pid, first), (second_pid, second))
             conn.commit()
             released = True
             outcomes = [first.result(timeout=10), second.result(timeout=10)]
@@ -515,15 +531,21 @@ def test_revocation_queued_before_activation_wins_without_partial_rollout(
     activate_name = "authority-race-activate-after-revoke"
     with ThreadPoolExecutor(max_workers=2) as pool:
         try:
+            revoke_connection = _race_connection(pg, revoke_name)
+            revoke_pid = _backend_pid(revoke_connection)
             revoked = pool.submit(
-                _revoke_race_worker, pg, revoke_name, digest=digest)
+                _revoke_race_worker, revoke_connection, revoke_name,
+                digest=digest)
             # At this wait the revoker already owns the lifecycle row and is
             # queued for the authority row, fixing the safe lock order.
-            _wait_for_lock_waiters(conn, revoke_name)
+            _wait_for_blocked_backends(conn, (revoke_pid, revoked))
+            activate_connection = _race_connection(pg, activate_name)
+            activate_pid = _backend_pid(activate_connection)
             activated = pool.submit(
-                _activate_race_worker, pg, activate_name,
+                _activate_race_worker, activate_connection, activate_name,
                 digest=digest, document=document)
-            _wait_for_lock_waiters(conn, revoke_name, activate_name)
+            _wait_for_blocked_backends(
+                conn, (revoke_pid, revoked), (activate_pid, activated))
             conn.commit()
             released = True
             outcomes = [

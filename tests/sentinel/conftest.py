@@ -32,6 +32,9 @@ _SINGLETON_REFUSAL_TESTS = {
     "test_schema_check_never_repairs_a_deleted_control_singleton",
 }
 _FEED_RUNTIME_SCHEMA_CONTRACT_PREFIX = "test_issue_165_feed_schema"
+_FEED_RUNTIME_SCHEMA_VALIDATION_MODULES = {
+    "test_issue_162_predecessor_closes",
+}
 _ISSUE_178_SOURCE_AUTHORITY_PREFIX = "test_issue_178_"
 
 
@@ -127,7 +130,8 @@ def _runtime_schema_test_double_compat(request, monkeypatch):
     # Preserve that convenience with DDL-only behavior, rather than weakening
     # or bypassing the new production migration validator. The DDL must still
     # include derived feed relations used by the current runtime.
-    if not module_name.startswith(_FEED_RUNTIME_SCHEMA_CONTRACT_PREFIX):
+    if (not module_name.startswith(_FEED_RUNTIME_SCHEMA_CONTRACT_PREFIX)
+            and module_name not in _FEED_RUNTIME_SCHEMA_VALIDATION_MODULES):
         monkeypatch.setattr(
             feed_store, "require_feed_schema", _legacy_feed_fixture_install)
 
