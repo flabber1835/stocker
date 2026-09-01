@@ -26,15 +26,19 @@ sessions, which exceeds the engine-owned 127-close minimum.  Controller,
 breadth, and portfolio history older than that boundary is consumed only from
 the content-addressed durable production state.
 
-The closure is economic as well as temporal.  Unpublished price-only evidence
-strictly before the boundary is historical-only when its security is absent
-from all live state and execution dependencies.  By contrast, an unpublished
-split, dividend, terminal, or identity fact for a current-universe security,
-path-dependent state anchor, target, command, or expected holding remains
-production-blocking regardless of its date.  Current universe snapshots,
-current-window price/sensor rows, missed-session inputs, the published frontier,
-and every execution/reconciliation identity are always blocking.  Candidate
-rows remain invisible under the publication predicate in either class.
+The closure is economic as well as temporal. The operational universe consists
+of securities with published price evidence in the operational/catch-up window,
+plus every security named by live state, targets, commands, expected holdings,
+or reconciliation. Historical ticker aliases and related-ticker metadata are
+then added only for those permanent identities. A long-inactive, never-held
+historical identity is not made operational merely because its pairing remains
+in the retained identity projection. Unpublished price-only evidence strictly
+before the boundary is historical-only when its security is absent from this
+closure. An unpublished split, dividend, terminal, or identity fact for a
+security in the closure remains production-blocking regardless of its date.
+Current-window price/sensor rows, missed-session inputs, the published frontier,
+and every execution/reconciliation identity are always blocking. Candidate rows
+remain invisible under the publication predicate in either class.
 
 Certification owns:
 

@@ -96,7 +96,8 @@ def _add_split_agreement_check(conn, result, *, frontier: str) -> None:
     name = "split source agreement"
     try:
         boundary = _publication.operational_boundary(conn, frontier=frontier)
-        _security_ids, active_tickers = _operational.production_dependencies(conn)
+        _security_ids, active_tickers = _operational.production_dependencies(
+            conn, boundary=boundary)
         rows = _anomalies.active_rows(
             conn, start="1900-01-01", end=str(frontier),
             kinds=RUNTIME_BLOCKING_SPLIT_KINDS)

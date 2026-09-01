@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
 from tests.support.postgres import _EphemeralPostgres, drop_public_tables
 
+from sentinel import _main_impl as main_impl
 from sentinel import schema as behavioral_schema
+from sentinel.config import SentinelConfig
 from sentinel.core import loader
 from sentinel.feed import publication as P
 from sentinel.feed import store as S
@@ -19,6 +22,8 @@ from stock_strategy_shared.wealth_core.signals import REQUIRED_CLOSES
 FRONTIER = "2026-08-31"
 OLD = "2018-08-31"
 CURRENT_SID = "P-CURRENT"
+INACTIVE_SID = "P-INACTIVE"
+INACTIVE_TICKER = "INACTIVE"
 
 
 def test_operational_margin_is_source_derived_and_exceeds_strategy_minimum():
@@ -64,17 +69,24 @@ def conn(pg):
     drop_public_tables(connection)
     S.migrate_schema(connection)
     behavioral_schema.ensure_schema(connection)
-    U.write_universe(connection, [{
-        "permaticker": CURRENT_SID, "ticker": "CURRENT", "table": "SEP",
-        "firstpricedate": "2000-01-01", "lastpricedate": FRONTIER,
-    }], FRONTIER)
+    U.write_universe(connection, [
+        {
+            "permaticker": CURRENT_SID, "ticker": "CURRENT", "table": "SEP",
+            "firstpricedate": "2000-01-01", "lastpricedate": FRONTIER,
+        },
+        {
+            "permaticker": INACTIVE_SID, "ticker": INACTIVE_TICKER,
+            "table": "SEP", "firstpricedate": "2000-01-01",
+            "lastpricedate": OLD,
+        },
+    ], FRONTIER)
     with connection.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_bars (security_id,session,ticker,close_signal,"
             "close_unadjusted,open_unadjusted,volume,split_ratio,dividend_per_share)"
             " VALUES (%s,%s,'CURRENT',100,100,99,1000000,1,0),"
-            " ('P-HIST',%s,'HIST',10,10,10,1000,1,0)",
-            (CURRENT_SID, FRONTIER, OLD))
+            " (%s,%s,%s,10,10,10,1000,1,0)",
+            (CURRENT_SID, FRONTIER, INACTIVE_SID, OLD, INACTIVE_TICKER))
     connection.commit()
     P.publish(connection)
     yield connection
@@ -123,7 +135,8 @@ def _action_candidate(conn, *, run_id: str, ticker: str, action: str) -> None:
 def test_eight_year_old_unrelated_price_is_historical_only_and_invisible(conn):
     run_id = _run(conn)
     _restamp_bar(
-        conn, run_id=run_id, sid="P-HIST", session=OLD, ticker="HIST")
+        conn, run_id=run_id, sid=INACTIVE_SID, session=OLD,
+        ticker=INACTIVE_TICKER)
 
     report = P.operational_coherence(conn, persist=True)
     conn.commit()
@@ -134,9 +147,10 @@ def test_eight_year_old_unrelated_price_is_historical_only_and_invisible(conn):
     assert report.historical_only[0].evidence_kinds == ("BAR_PRICE",)
     assert loader.load_window(conn, start=OLD, end=OLD).sessions == []
     status = P.quarantine_status(conn)
-    assert status[0]["run_id"] == run_id
-    assert status[0]["production_blocking"] is False
-    assert status[0]["affected_start"].isoformat() == OLD
+    assert status["state"] == "LIVE"
+    assert status["assessments"][0]["run_id"] == run_id
+    assert status["assessments"][0]["production_blocking"] is False
+    assert status["assessments"][0]["affected_start"] == OLD
 
 
 def test_revision_inside_operational_feature_window_blocks(conn):
@@ -206,6 +220,37 @@ def test_old_terminal_or_identity_event_for_current_security_blocks(conn, action
                for kind in report.blocking[0].evidence_kinds)
 
 
+@pytest.mark.parametrize("evidence", ["split", "terminal", "identity"])
+def test_old_economic_revision_for_long_inactive_security_is_historical_only(
+        conn, evidence):
+    """Retained identity history alone cannot make a dead listing operational."""
+    run_id = _run(conn)
+    if evidence == "split":
+        _restamp_bar(
+            conn, run_id=run_id, sid=INACTIVE_SID, session=OLD,
+            ticker=INACTIVE_TICKER, split=2.0)
+        expected_kind = "BAR_SPLIT"
+    elif evidence == "terminal":
+        _action_candidate(
+            conn, run_id=run_id, ticker=INACTIVE_TICKER, action="delisted")
+        expected_kind = "ACTION_DELISTED"
+    else:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_universe (permaticker,ticker,category,"
+                "first_price_date,last_price_date,is_delisted,snapshot_date,"
+                "last_written_run_id) VALUES (%s,'INACTIVE-OLD','Domestic',"
+                "'2000-01-01',%s,TRUE,%s,%s)",
+                (INACTIVE_SID, OLD, OLD, run_id))
+        conn.commit()
+        expected_kind = "UNIVERSE_IDENTITY"
+
+    report = P.operational_coherence(conn)
+    assert report.coherent
+    assert report.historical_only[0].evidence_kinds == (expected_kind,)
+    assert "no economic propagation" in report.historical_only[0].reasons[-1]
+
+
 def test_historical_only_candidate_does_not_change_published_decision_inputs(conn):
     before_version = P.require_current(conn).version
     before = loader.load_window(conn, start=FRONTIER, end=FRONTIER)
@@ -217,7 +262,8 @@ def test_historical_only_candidate_does_not_change_published_decision_inputs(con
     }, sort_keys=True)
     run_id = _run(conn)
     _restamp_bar(
-        conn, run_id=run_id, sid="P-HIST", session=OLD, ticker="HIST")
+        conn, run_id=run_id, sid=INACTIVE_SID, session=OLD,
+        ticker=INACTIVE_TICKER)
 
     P.assert_operationally_coherent(conn)
     after = loader.load_window(conn, start=FRONTIER, end=FRONTIER)
@@ -233,7 +279,8 @@ def test_historical_only_candidate_does_not_change_published_decision_inputs(con
 def test_full_historical_certification_remains_strict(conn):
     run_id = _run(conn)
     _restamp_bar(
-        conn, run_id=run_id, sid="P-HIST", session=OLD, ticker="HIST")
+        conn, run_id=run_id, sid=INACTIVE_SID, session=OLD,
+        ticker=INACTIVE_TICKER)
 
     assert P.operational_coherence(conn).coherent
     assert not P.full_historical_coherence(conn).coherent
@@ -244,7 +291,8 @@ def test_full_historical_certification_remains_strict(conn):
 def test_restart_preserves_historical_classification(conn, pg):
     run_id = _run(conn)
     _restamp_bar(
-        conn, run_id=run_id, sid="P-HIST", session=OLD, ticker="HIST")
+        conn, run_id=run_id, sid=INACTIVE_SID, session=OLD,
+        ticker=INACTIVE_TICKER)
     first = P.operational_coherence(conn, persist=True)
     conn.commit()
 
@@ -253,28 +301,80 @@ def test_restart_preserves_historical_classification(conn, pg):
         second = P.operational_coherence(restarted, persist=True)
         restarted.commit()
         assert second.to_dict() == first.to_dict()
-        rows = P.quarantine_status(restarted)
-        assert rows[0]["run_id"] == run_id
-        assert rows[0]["production_blocking"] is False
+        status = P.quarantine_status(restarted)
+        assert status["assessments"][0]["run_id"] == run_id
+        assert status["assessments"][0]["production_blocking"] is False
     finally:
         restarted.close()
+
+
+def test_quarantine_status_recomputes_and_appends_changed_live_verdict(conn):
+    run_id = _run(conn)
+    _restamp_bar(
+        conn, run_id=run_id, sid=INACTIVE_SID, session=OLD,
+        ticker=INACTIVE_TICKER, split=2.0)
+
+    first = P.quarantine_status(conn, persist=True)
+    conn.commit()
+    assert first["assessments"][0]["production_blocking"] is False
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_commands (client_key,plan_id,security_id,"
+            "deployment_id,broker,broker_account_id,takeover_epoch,symbol,side,"
+            "quantity,state,filled_quantity) VALUES "
+            "('inactive-command','inactive-plan',%s,'deployment','sim','account',"
+            "1,%s,'BUY',10,'FILLED',10)",
+            (INACTIVE_SID, INACTIVE_TICKER))
+    conn.commit()
+
+    second = P.quarantine_status(conn, persist=True)
+    conn.commit()
+    assert second["assessments"][0]["production_blocking"] is True
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT ARRAY_AGG(production_blocking ORDER BY assessment_id) "
+            "FROM sentinel_corpus_quarantine WHERE run_id=%s", (run_id,))
+        verdicts = cur.fetchone()[0]
+    assert verdicts == [False, True]
+
+
+def test_feed_status_reports_first_publication_pending(pg, capsys):
+    connection = S.connect(pg.sync_dsn)
+    try:
+        drop_public_tables(connection)
+        S.migrate_schema(connection)
+        _run(connection)
+    finally:
+        connection.close()
+
+    config = SentinelConfig(
+        alpaca_key="key", alpaca_secret="secret",
+        base_url="https://paper-api.alpaca.markets",
+        state_dir=Path("/tmp/sentinel-test"), max_cycles=1,
+        poll_seconds=1.0, database_url=pg.sync_dsn)
+    assert main_impl.cmd_feed_status(config, 20) == 0
+    output = capsys.readouterr().out
+    assert "AWAITING_FIRST_PUBLICATION" in output
+    assert "first seed is in progress" in output
 
 
 def test_covering_retry_publishes_and_clears_live_quarantine(conn):
     old_run = _run(conn)
     _restamp_bar(
-        conn, run_id=old_run, sid="P-HIST", session=OLD, ticker="HIST")
+        conn, run_id=old_run, sid=INACTIVE_SID, session=OLD,
+        ticker=INACTIVE_TICKER)
     P.operational_coherence(conn, persist=True)
     conn.commit()
 
     retry = S.IngestRun(conn, "daily")
     _restamp_bar(
-        conn, run_id=retry.progress.run_id, sid="P-HIST", session=OLD,
-        ticker="HIST")
+        conn, run_id=retry.progress.run_id, sid=INACTIVE_SID, session=OLD,
+        ticker=INACTIVE_TICKER)
     retry.finish("success")
     published = P.publish(conn, run_id=retry.progress.run_id)
 
     assert P.full_historical_coherence(conn).coherent
     assert loader.load_window(conn, start=OLD, end=OLD).sessions == [OLD]
-    assert P.quarantine_status(conn) == []
+    assert P.quarantine_status(conn)["assessments"] == []
     assert published.version == 2

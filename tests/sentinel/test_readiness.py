@@ -172,7 +172,7 @@ class TestSplitSourceAgreement:
                 "start": "2024-01-01", "end": TODAY})())
         monkeypatch.setattr(
             R._operational, "production_dependencies",
-            lambda _conn: (set(), {"CURRENT"}))
+            lambda _conn, **_kwargs: (set(), {"CURRENT"}))
         result = R.Readiness()
         R._add_split_agreement_check(object(), result, frontier=TODAY)
 
@@ -226,7 +226,7 @@ class TestSplitSourceAgreement:
                 "start": "2024-01-01", "end": TODAY})())
         monkeypatch.setattr(
             R._operational, "production_dependencies",
-            lambda _conn: (set(), {"UNSAFE"}))
+            lambda _conn, **_kwargs: (set(), {"UNSAFE"}))
         result = R.Readiness()
 
         R._add_split_agreement_check(object(), result, frontier=TODAY)

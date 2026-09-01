@@ -797,7 +797,9 @@ def cmd_feed_status(config: SentinelConfig, limit: int) -> int:
     conn = feed_store.connect(config.database_url)
     try:
         rows = feed_store.run_status(conn, limit)
-        quarantines = publication.quarantine_status(conn, limit=limit)
+        quarantine = publication.quarantine_status(
+            conn, limit=limit, persist=True)
+        conn.commit()
     finally:
         conn.close()
 
@@ -826,10 +828,15 @@ def cmd_feed_status(config: SentinelConfig, limit: int) -> int:
         if r["error_message"]:
             print(f"  ! {r['error_message'][:150]}")
         print("  " + "-" * 68)
-    if quarantines:
+    if quarantine["state"] != "LIVE":
         print("\n  UNPUBLISHED CORPUS CLASSIFICATION")
         print("  " + "-" * 68)
-        for item in quarantines:
+        print(f"  {quarantine['state']}: {quarantine['reason']}")
+        print("  " + "-" * 68)
+    elif quarantine["assessments"]:
+        print("\n  UNPUBLISHED CORPUS CLASSIFICATION")
+        print("  " + "-" * 68)
+        for item in quarantine["assessments"]:
             verdict = ("PRODUCTION-BLOCKING" if item["production_blocking"]
                        else "HISTORICAL-ONLY")
             securities = item["affected_securities"] or {}

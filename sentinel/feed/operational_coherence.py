@@ -226,32 +226,58 @@ def _execution_dependencies(conn) -> tuple[set[str], set[str]]:
     return security_ids, tickers
 
 
-def production_dependencies(conn, *, extra_security_ids: Sequence[str] = ()
-                            ) -> tuple[set[str], set[str]]:
-    security_ids = {str(value) for value in extra_security_ids if str(value)}
+def _window_dependencies(
+        conn, *, boundary: OperationalBoundary) -> tuple[set[str], set[str]]:
+    """Published securities that can contribute to operational transitions."""
+    security_ids: set[str] = set()
     tickers: set[str] = set()
-    state_ids, state_tickers = _state_dependencies(conn)
-    execution_ids, execution_tickers = _execution_dependencies(conn)
-    security_ids.update(state_ids)
-    security_ids.update(execution_ids)
-    tickers.update(state_tickers)
-    tickers.update(execution_tickers)
-    # Current universe/eligibility and every current identity alias are direct
-    # production inputs. Old economic events for them can alter a returning
-    # security's absolute split anchor or terminal interpretation.
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT permaticker,UPPER(ticker),related_tickers "
-            "FROM feed_universe_current")
-        for sid, ticker, related in cur.fetchall():
+            "SELECT DISTINCT security_id,UPPER(ticker) FROM sentinel_bars b "
+            "WHERE session BETWEEN %s AND %s AND "
+            + _full.visible_predicate("b"),
+            (boundary.start, boundary.end))
+        for sid, ticker in cur.fetchall():
             security_ids.add(str(sid))
             if ticker:
                 tickers.add(str(ticker))
-            if related:
-                tickers.update(
-                    item.strip().upper()
-                    for item in re.split(r"[\s,]+", str(related))
-                    if item.strip())
+    return security_ids, tickers
+
+
+def production_dependencies(conn, *, boundary: OperationalBoundary,
+                            extra_security_ids: Sequence[str] = ()
+                            ) -> tuple[set[str], set[str]]:
+    security_ids = {str(value) for value in extra_security_ids if str(value)}
+    tickers: set[str] = set()
+    window_ids, window_tickers = _window_dependencies(
+        conn, boundary=boundary)
+    state_ids, state_tickers = _state_dependencies(conn)
+    execution_ids, execution_tickers = _execution_dependencies(conn)
+    security_ids.update(window_ids)
+    security_ids.update(state_ids)
+    security_ids.update(execution_ids)
+    tickers.update(window_tickers)
+    tickers.update(state_tickers)
+    tickers.update(execution_tickers)
+    # ``feed_universe_current`` contains one row per historical identity
+    # pairing. It supplies aliases for already-operational permanent identities;
+    # mere retention in that table cannot promote a dead listing into current
+    # production causality.
+    if security_ids:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT permaticker,UPPER(ticker),related_tickers "
+                "FROM feed_universe_current WHERE permaticker=ANY(%s::text[])",
+                (sorted(security_ids),))
+            for sid, ticker, related in cur.fetchall():
+                security_ids.add(str(sid))
+                if ticker:
+                    tickers.add(str(ticker))
+                if related:
+                    tickers.update(
+                        item.strip().upper()
+                        for item in re.split(r"[\s,]+", str(related))
+                        if item.strip())
     return security_ids, tickers
 
 
@@ -370,7 +396,8 @@ def _classify(conn, *, boundary: OperationalBoundary,
       SELECT run_id,evidence_kind,MIN(session),MAX(session),COUNT(*),
              BOOL_OR(session >= %s),
              BOOL_OR(propagates AND
-               (security_id=ANY(%s::text[]) OR ticker=ANY(%s::text[])))
+               ((security_id IS NOT NULL AND security_id=ANY(%s::text[]))
+                OR (security_id IS NULL AND ticker=ANY(%s::text[]))))
         FROM candidates
        GROUP BY run_id,evidence_kind
        ORDER BY run_id,evidence_kind
@@ -421,7 +448,7 @@ def _classify(conn, *, boundary: OperationalBoundary,
                 f"{boundary.start}..{boundary.end}")
         if raw["propagated"]:
             reasons.append(
-                "older economic/identity evidence names a current universe, "
+                "older economic/identity evidence names an operational-window, "
                 "path-dependent state, plan, command, or reconciliation identity")
         blocking = bool(reasons)
         if not blocking:
@@ -478,7 +505,7 @@ def operational_coherence(conn, *, frontier: str | None = None,
     publication = _full.current(conn)
     boundary = operational_boundary(conn, frontier=frontier)
     security_ids, tickers = production_dependencies(
-        conn, extra_security_ids=extra_security_ids)
+        conn, boundary=boundary, extra_security_ids=extra_security_ids)
     report = OperationalCoherenceReport(
         version=publication.version if publication else None,
         boundary=boundary,
@@ -508,29 +535,57 @@ def assert_operationally_coherent(
     return report
 
 
-def quarantine_status(conn, *, limit: int = 20) -> list[dict]:
-    """Latest durable assessment for each still-unpublished run."""
-    if not _relation_exists(conn, "sentinel_corpus_quarantine"):
-        return []
-    active_runs = [
-        item.run_id for item in operational_coherence(conn).candidates]
-    if not active_runs:
-        return []
-    with conn.cursor() as cur:
-        cur.execute(
-            "WITH latest AS (SELECT DISTINCT ON (q.run_id) q.* "
-            "FROM sentinel_corpus_quarantine q ORDER BY q.run_id,q.assessed_at DESC,"
-            "q.assessment_id DESC) SELECT run_id,assessed_at,publication_version,"
-            "boundary_start,boundary_end,affected_start,affected_end,"
-            "production_blocking,affected_securities,evidence_kinds,reasons,row_counts "
-            "FROM latest q WHERE q.run_id=ANY(%s::uuid[]) AND NOT EXISTS (SELECT 1 FROM "
-            "sentinel_corpus_publications p WHERE p.run_id=q.run_id) "
-            "ORDER BY assessed_at DESC LIMIT %s", (active_runs, int(limit)))
-        columns = [item[0] for item in cur.description]
-        rows = [dict(zip(columns, row)) for row in cur.fetchall()]
-    for row in rows:
-        row["run_id"] = str(row["run_id"])
-    return rows
+def quarantine_status(conn, *, limit: int = 20, persist: bool = False) -> dict:
+    """Fresh live classification plus the state needed to render it safely.
+
+    Durable assessments remain append-only evidence. The returned rows are
+    always built from this call's dependency closure, so an older stored verdict
+    can never masquerade as the live result.
+    """
+    if _full.current(conn) is None:
+        return {
+            "state": "AWAITING_FIRST_PUBLICATION",
+            "reason": (
+                "no published corpus frontier exists; production planning is "
+                "unavailable while the first seed is in progress"),
+            "boundary": None,
+            "assessments": [],
+        }
+    try:
+        report = operational_coherence(conn)
+    except _full.CorpusIncoherent as exc:
+        return {
+            "state": "UNAVAILABLE",
+            "reason": str(exc),
+            "boundary": None,
+            "assessments": [],
+        }
+    if persist and _relation_exists(conn, "sentinel_corpus_quarantine"):
+        persist_report(conn, report)
+    assessments = []
+    for candidate in report.candidates[:max(0, int(limit))]:
+        assessments.append({
+            "run_id": candidate.run_id,
+            "publication_version": report.version,
+            "boundary_start": report.boundary.start,
+            "boundary_end": report.boundary.end,
+            "affected_start": candidate.affected_start,
+            "affected_end": candidate.affected_end,
+            "production_blocking": candidate.production_blocking,
+            "affected_securities": {
+                "count": candidate.affected_security_count,
+                "sample": list(candidate.affected_securities),
+            },
+            "evidence_kinds": list(candidate.evidence_kinds),
+            "reasons": list(candidate.reasons),
+            "row_counts": dict(candidate.row_counts),
+        })
+    return {
+        "state": "LIVE",
+        "reason": None,
+        "boundary": report.boundary.to_dict(),
+        "assessments": assessments,
+    }
 
 
 __all__ = [

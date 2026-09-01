@@ -1073,9 +1073,12 @@ Coherence has two named scopes. `full_historical_coherence` reports every live
 unpublished candidate in the retained corpus and is the certification/research
 gate. `operational_coherence` is the production-planning gate. It computes a
 bounded XNYS session boundary from the preferred production history margin,
-the persisted catch-up cursor, and the required predecessor, then expands the
-classification with permanent identities and ticker aliases from durable
-portfolio state, the current plan/command journal, and the current universe.
+the persisted catch-up cursor, and the required predecessor. The operational
+universe begins with permanent identities having published bars inside that
+window and expands with durable portfolio state and the current plan/command
+journal. Historical ticker pairings and related-ticker aliases are loaded only
+for those identities. Retention in `feed_universe_current` alone does not make a
+dead historical security operational.
 Rows in the session window block. Older ordinary price rows may be classified
 historical-only; older action-bearing bars, ACTIONS observations, split repair
 or anomaly evidence, and terminal/universe identity evidence block whenever

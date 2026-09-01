@@ -1228,22 +1228,28 @@ contains no event, both loaders retain the same snapped price-domain fallback.
 Certification-only reporting is not enough for an unresolved split. A split
 changes both the cumulative signal basis and absolute share anchors. Published
 active unsafe dispositions in the operational session window always make
-`check-data` fail. Older dispositions also fail whenever their security is in
-the current universe, path-dependent production state, current/recent holding,
-target, command, or reconciliation set, because their economic effect can
-propagate into present units or identity. Only an old disposition outside that
-entire dependency closure can be historical-only for production, and it still
-blocks full retained-history certification. A later published resolved
+`check-data` fail. The operational universe is the set of permanent identities
+with published bars in the operational/catch-up window, expanded by
+path-dependent production state, current/recent holdings, targets, commands,
+and reconciliation. Only the historical aliases of those identities are added;
+the retained identity projection does not turn every dead historical listing
+into a current dependency. Older dispositions fail whenever their security is
+in that closure because their economic effect can propagate into present units
+or identity. An old disposition outside the closure can be historical-only for
+production, and it still blocks full retained-history certification. A later published resolved
 disposition for the same event clears it through the append-only anomaly
 lifecycle; an unpublished retry cannot. The runtime never invents a ratio or
 compensates the book while relevant evidence is unresolved.
 
 `check-data` records the operational classification in the append-only corpus
-quarantine report. `feed-status` shows each unresolved run's affected date
-range, affected securities, evidence/anomaly kinds, production-blocking versus
-historical-only verdict, and reasons. A restart recomputes against the same
-durable cursor/state and also retains earlier assessments, so an old revision
-cannot disappear merely because the process that discovered it exited.
+quarantine report. `feed-status` recomputes the classification from the current
+published frontier and durable state, appends that assessment, and renders the
+fresh result with each unresolved run's affected date range, affected
+securities, evidence/anomaly kinds, verdict, and reasons. Before the first
+publication it reports that operational classification is awaiting a published
+frontier while continuing to show ingest progress. A restart recomputes against
+the same durable cursor/state and also retains earlier assessments, so an old
+revision cannot disappear merely because the process that discovered it exited.
 
 The broker boundary consumes the same decision rather than reopening ACTIONS
 as a second authority.  It snaps the raw ex-date forward to the first XNYS
