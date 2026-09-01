@@ -85,6 +85,24 @@ def test_authorized_services_enable_strict_ownership_and_kernel_hardening():
         assert service["security_opt"] == ["no-new-privileges:true"]
 
 
+def test_authorized_cli_repairs_only_certificate_readability_before_start():
+    doc = yaml.safe_load(
+        (ROOT / "docker-compose.sentinel-automation.yml").read_text())
+    helper = doc["services"]["sentinel-authority-permissions"]
+    assert helper["network_mode"] == "none"
+    assert helper["user"] == "0:0"
+    assert helper["cap_drop"] == ["ALL"]
+    assert set(helper["cap_add"]) == {"DAC_OVERRIDE", "FOWNER"}
+    assert helper["security_opt"] == ["no-new-privileges:true"]
+    command = "\n".join(str(item) for item in helper["command"])
+    assert "find /authority -type d -exec chmod 0711" in command
+    assert "-name '*-certificate.json' -exec chmod 0644" in command
+    cli = doc["services"]["sentinel-authorized-cli"]
+    assert cli["depends_on"]["sentinel-authority-permissions"] == {
+        "condition": "service_completed_successfully",
+    }
+
+
 def test_standby_broker_service_uses_same_strict_authority_and_hardening():
     doc = yaml.safe_load(
         (ROOT / "docker-compose.sentinel-automation-standby.yml").read_text())
