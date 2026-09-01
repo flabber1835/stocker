@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -50,13 +51,19 @@ def test_research_exact_terminal_cash_and_conversion_economics() -> None:
 def test_corrected_production_wrapper_composes_with_fullstack_pit_step() -> None:
     import backtester.run_ldrc_corrected_warmup_cash as corrected
 
-    # The captured step must be the full-stack/progress wrapper that was already
-    # installed by the Production module. Calling the raw OverlayAccount method
-    # here would reintroduce scaffold Wealth Core returns into Production NAV.
+    # The corrected layer must capture the full-stack/progress wrapper. A later
+    # strict-certification wrapper is allowed to sit above the corrected layer.
     assert corrected._pre_measurement_account_step is corrected.prod._emit_progress
-    assert corrected.runner.OverlayAccount.step is corrected._measured_account_step
+    current = corrected.runner.OverlayAccount.step
+    if current is not corrected._measured_account_step:
+        strict = sys.modules.get("backtester.run_production_strict_pit_certification")
+        assert strict is not None
+        assert strict._real_step is corrected._measured_account_step
     source = Path(corrected.__file__).read_text(encoding="utf-8")
-    measured = source[source.index("def _measured_account_step"):source.index("runner.OverlayAccount.step = _measured_account_step")]
+    measured = source[
+        source.index("def _measured_account_step"):
+        source.index("runner.OverlayAccount.step = _measured_account_step")
+    ]
     assert "_pre_measurement_account_step" in measured
     assert "base._real_overlay_step" not in measured
 
