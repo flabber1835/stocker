@@ -8,6 +8,7 @@ on:
     paths:
       - 'backtester/**'
       - 'services/backtester/**'
+      - 'tools/**'
       - 'tests/backtester/**'
       - 'tests/support/**'
       - 'tests/conftest.py'
@@ -40,6 +41,7 @@ jobs:
             /.github/workflows/**
             /backtester/**
             /services/backtester/**
+            /tools/**
             /tests/__init__.py
             /tests/conftest.py
             /tests/backtester/**
@@ -94,7 +96,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared:${{ github.workspace }}
         run: |
           set -euo pipefail
-          python -m compileall -q -f backtester services/backtester tests/backtester tests/support
+          python -m compileall -q -f backtester services/backtester tools tests/backtester tests/support
           python -m py_compile \
             main-src/sentinel/core/kernel.py \
             main-src/sentinel/core/production.py \
