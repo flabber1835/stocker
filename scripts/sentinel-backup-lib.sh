@@ -5,6 +5,16 @@ SENTINEL_BACKUP_TARGET_MARKER=".sentinel-independent-durable-target-v1"
 SENTINEL_BACKUP_TARGET_MARKER_CONTENT="sentinel-independent-durable-target-v1"
 
 sentinel_backup_root() {
+  local initialize_markers=0
+  if [ "${1:-}" = "--initialize-markers" ]; then
+    initialize_markers=1
+    shift
+  fi
+  [ "$#" -eq 0 ] || {
+    echo "REFUSED: sentinel_backup_root received unexpected arguments" >&2
+    return 2
+  }
+
   local root raw_root repo parent docker_root docker_canonical root_dev docker_dev uid marker content
   raw_root="${SENTINEL_BACKUP_DIR:-}"
   root="$raw_root"
@@ -109,10 +119,10 @@ sentinel_backup_root() {
       return 2
     }
 
-  # Install one durable-target sentinel only AFTER the host/device and write
-  # authority checks above have passed.  On a cold boot where the intended
-  # external filesystem is absent, the underlying local mountpoint does not
-  # contain this marker, so PostgreSQL and unattended services remain fenced.
+  # Marker creation is a one-time explicit provisioning act. Routine validation
+  # never recreates a missing marker. If an external filesystem is absent after
+  # a reboot, the empty underlying mountpoint therefore remains fenced even when
+  # the operator previously supplied a durable-target attestation.
   for parent in "$root/wal" "$root/base"; do
     marker="$parent/$SENTINEL_BACKUP_TARGET_MARKER"
     if [ -e "$marker" ] || [ -L "$marker" ]; then
@@ -128,7 +138,7 @@ sentinel_backup_root() {
         echo "REFUSED: backup durable-target marker content is invalid: $marker" >&2
         return 2
       }
-    else
+    elif [ "$initialize_markers" -eq 1 ]; then
       printf '%s\n' "$SENTINEL_BACKUP_TARGET_MARKER_CONTENT" > "$marker" || {
         echo "REFUSED: could not create backup durable-target marker: $marker" >&2
         return 2
@@ -141,6 +151,10 @@ sentinel_backup_root() {
         echo "REFUSED: could not fsync backup durable-target directory: $parent" >&2
         return 2
       }
+    else
+      echo "REFUSED: backup durable-target marker is missing: $marker" >&2
+      echo "run scripts/sentinel-backup-initialize.sh only while the verified external target is mounted" >&2
+      return 2
     fi
   done
 
