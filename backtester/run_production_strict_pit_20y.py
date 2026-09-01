@@ -20,8 +20,40 @@ if PINNED_MAIN_ROOT.is_dir() and str(PINNED_MAIN_ROOT) not in sys.path:
 
 os.environ["CERTIFICATION_STRICT_PIT"] = "1"
 
+# Current Production owns the pure Wealth Core plan call in core.kernel.  The
+# retained strict-PIT wrapper predates that ownership split and instruments the
+# historical core.production.plan_session seam to collect audit-only boundary
+# evidence.  Bridge the old seam to the exact current kernel function without
+# copying or changing economics: the kernel calls this dynamic proxy, whose
+# target is replaced by the strict wrapper with an evidence-only decorator that
+# delegates to the original exact function.
+import sentinel.core.kernel as _strategy_kernel
+import sentinel.core.production as _strategy_production
+
+_exact_plan_session = _strategy_kernel.plan_session
+_existing_plan_session = getattr(_strategy_production, "plan_session", None)
+if _existing_plan_session is not None and _existing_plan_session is not _exact_plan_session:
+    raise RuntimeError(
+        "current Production unexpectedly exposes a different plan_session seam"
+    )
+_strategy_production.plan_session = _exact_plan_session
+
+
+def _current_plan_session_proxy(*args, **kwargs):
+    return _strategy_production.plan_session(*args, **kwargs)
+
+
+_strategy_kernel.plan_session = _current_plan_session_proxy
+
 import backtester.run_production_strict_pit_certification as strict
 from backtester import causal_split_overrides as split_overrides
+
+if _strategy_kernel.plan_session is not _current_plan_session_proxy:
+    raise RuntimeError("strict-PIT kernel plan-session compatibility proxy was displaced")
+if _strategy_production.plan_session is _exact_plan_session:
+    raise RuntimeError("strict-PIT plan-session boundary evidence wrapper did not install")
+if strict._real_plan_session is not _exact_plan_session:
+    raise RuntimeError("strict-PIT plan-session wrapper did not bind the exact kernel function")
 
 WARMUP_START = "2006-01-03"
 MEASUREMENT_START = "2006-07-31"
