@@ -10,7 +10,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-# This file is executed as a script by the parallel orchestrator.  Python then
+# This file is executed as a script by the parallel orchestrator. Python then
 # puts ``.../backtester`` on sys.path, not the repository root, so importing the
 # ``backtester`` package must not depend on an inherited PYTHONPATH.
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +24,11 @@ os.environ["CERTIFICATION_STRICT_PIT"] = "1"
 
 import backtester.run_production_strict_pit_certification as strict
 from backtester import causal_split_overrides as split_overrides
+from backtester.financial_grade_guards import (
+    DIVIDEND_SETTLEMENT_LAG_SESSIONS,
+    MAX_TRAILING_VOLUME_PARTICIPATION,
+    install as install_financial_grade_guards,
+)
 
 WARMUP_START = "2006-01-03"
 MEASUREMENT_START = "2006-07-31"
@@ -104,13 +109,7 @@ def _option_path(flag: str, default: Path) -> Path:
 
 
 def _bind_verified_main_identity() -> tuple[Path, str]:
-    """Bind the runner identity variable to the independently verified checkout.
-
-    The underlying historical runner deliberately refuses to execute unless
-    ``BACKTESTER_MAIN_SHA`` names the exact production source.  Derive that value
-    from the checkout used by this invocation, reject any conflicting inherited
-    value, then expose the verified SHA to the runner in this same process.
-    """
+    """Bind the runner identity variable to the independently verified checkout."""
     main_root = _option_path("--main-root", PINNED_MAIN_ROOT).resolve()
     if not main_root.is_dir():
         raise RuntimeError(f"pinned production checkout is missing: {main_root}")
@@ -204,6 +203,21 @@ def _install_split_adjudications() -> None:
     )
 
 
+def _install_financial_guards() -> None:
+    # runner.production and strict.strategy_production resolve to this exact
+    # module object, so one installation governs the complete replay path.
+    import sentinel.core.production as strategy_production
+
+    install_financial_grade_guards(strategy_production)
+    print(
+        "[FINANCIAL GRADE] resolved_nav=required "
+        "missing_leadership_return=fail_closed "
+        f"dividend_lag_sessions={DIVIDEND_SETTLEMENT_LAG_SESSIONS} "
+        f"max_prior20_volume_participation={MAX_TRAILING_VOLUME_PARTICIPATION:.2%}",
+        flush=True,
+    )
+
+
 def main() -> int:
     if "--self-test-imports" in sys.argv[1:]:
         print(
@@ -214,8 +228,14 @@ def main() -> int:
         return 0
     main_root, main_sha = _bind_verified_main_identity()
     if "--self-test-source-identity" in sys.argv[1:]:
+        _install_financial_guards()
+        import sentinel.core.production as strategy_production
+        if not getattr(strategy_production, "_financial_grade_guards_installed", False):
+            raise RuntimeError("financial-grade production guards did not install")
         print(
-            f"[SELFTEST PASS] production source identity root={main_root} sha={main_sha}",
+            f"[SELFTEST PASS] production source identity root={main_root} sha={main_sha} "
+            f"dividend_lag={DIVIDEND_SETTLEMENT_LAG_SESSIONS} "
+            f"capacity={MAX_TRAILING_VOLUME_PARTICIPATION:.2%}",
             flush=True,
         )
         return 0
@@ -229,6 +249,7 @@ def main() -> int:
         flush=True,
     )
     _install_split_adjudications()
+    _install_financial_guards()
     return int(strict.main())
 
 
