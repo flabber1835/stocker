@@ -32,7 +32,12 @@ never mint a receipt or enable the pre-adoption exception by reading state.
 """
 from __future__ import annotations
 
-from sentinel import backup_guard, paper, shadow_segments
+from sentinel import (
+    backup_guard,
+    backup_runtime_authority,
+    paper,
+    shadow_segments,
+)
 from sentinel import automation_runtime as base
 from sentinel.automation.model import (
     NonRetryableCallbackRefused,
@@ -93,12 +98,15 @@ class ProductionAutomation(base.ProductionAutomation):
         conn = self.connect()
         try:
             try:
+                backup_runtime_authority.require(conn, operation=operation)
                 return backup_guard.require_writes_permitted(
                     conn, operation=operation)
-            except backup_guard.BackupUnavailable as exc:
+            except (backup_guard.BackupUnavailable,
+                    backup_runtime_authority.BackupRuntimeUnavailable) as exc:
                 raise TransientInfrastructureFailure(
                     f"backup durability is temporarily unavailable: {exc}") from exc
-            except backup_guard.BackupConfigurationRefused as exc:
+            except (backup_guard.BackupConfigurationRefused,
+                    backup_runtime_authority.BackupRuntimeRefused) as exc:
                 raise NonRetryableCallbackRefused(
                     "backup durability configuration/integrity refused: "
                     f"{exc}") from exc
