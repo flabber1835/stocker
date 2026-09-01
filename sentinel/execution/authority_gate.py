@@ -194,7 +194,7 @@ def require_current_authority(
     """
     assert_paper_url(paper_base_url)
     # This loader flag bypasses expiry only for PAPER_OBSERVATION_ONLY; ordinary
-    # historical certificates remain time-bounded inside authority.py.
+    # historical certificates remain time-bounded inside authority.validation.
     preliminary = load_active_signed_certificate(
         conn, now=now, allow_expired_observation_safety=True)
     policy = preliminary.claims["bindings"]["publication_policy"]

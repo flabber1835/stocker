@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 
 from sentinel.feed import staging_impl as _core
-from sentinel.feed.staging_impl import *  # noqa: F403
+from sentinel.feed.staging_impl import CARRIED, STAGE_BATCH, clear, stage
 
 
 class StagingCanonicalKeyConflict(RuntimeError):
@@ -39,4 +39,7 @@ def staged(conn, *, run_id: str, chunk: str,
     return _core.staged(conn, run_id=run_id, chunk=chunk, batch=batch)
 
 
-__all__ = list(getattr(_core, "__all__", ())) + ["StagingCanonicalKeyConflict"]
+__all__ = [
+    "CARRIED", "STAGE_BATCH", "clear", "stage", "staged",
+    "StagingCanonicalKeyConflict",
+]

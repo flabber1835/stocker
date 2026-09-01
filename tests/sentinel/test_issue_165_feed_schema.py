@@ -8,8 +8,10 @@ import re
 
 import pytest
 
-from sentinel import __main__ as cli
 from sentinel import automation_runtime, schema as behavioral_schema
+from sentinel.cli import account as account_cli
+from sentinel.cli import feed as feed_cli
+from sentinel.cli import paper as paper_cli
 from sentinel.feed import runtime_schema
 from sentinel.feed import store as feed_store
 
@@ -72,18 +74,17 @@ def _sql(conn):
 
 
 def test_store_api_separates_runtime_validation_from_explicit_migration():
-    runtime_source = inspect.getsource(feed_store.ensure_schema)
     required_source = inspect.getsource(feed_store.require_feed_schema)
     migration_source = inspect.getsource(feed_store.migrate_schema)
     implementation = inspect.getsource(runtime_schema.migrate_feed_schema)
 
-    assert "require_feed_schema(conn)" in runtime_source
-    assert "conn.commit()" not in runtime_source
+    assert not hasattr(feed_store, "ensure_schema")
+    assert "conn.commit()" not in required_source
     assert "runtime_schema" in required_source
     assert "migrate_feed_schema" in migration_source
     assert "for statement in DDL" in implementation
     assert "conn.commit()" in implementation
-    assert feed_store.ensure_schema is not feed_store.migrate_schema
+    assert feed_store.require_feed_schema is not feed_store.migrate_schema
 
 
 def test_runtime_validator_function_is_select_only():
@@ -125,7 +126,7 @@ def test_production_binding_uses_the_existing_controlled_schema_refusal():
     conn = RecordingConnection()
 
     with pytest.raises(behavioral_schema.SchemaMigrationRefused, match="feed-schema"):
-        feed_store.ensure_schema(conn)
+        feed_store.require_feed_schema(conn)
 
     assert all(WRITE_WORD.search(statement) is None for statement in _sql(conn))
     assert conn.commits == 0
@@ -178,14 +179,14 @@ def test_all_production_automation_callbacks_use_runtime_validation_not_migratio
 
 def test_normal_cli_operations_never_name_the_feed_migration():
     runtime_functions = (
-        cli.cmd_target_book,
-        cli.cmd_check_data,
-        cli.cmd_feed_repair,
-        cli.cmd_rejection_audit,
-        cli.cmd_feed,
-        cli._prepare_paper_plan,
-        cli._current_paper_plan,
-        cli._execute_paper_plan,
+        account_cli.cmd_target_book,
+        feed_cli.cmd_check_data,
+        feed_cli.cmd_feed_repair,
+        feed_cli.cmd_rejection_audit,
+        feed_cli.cmd_feed_seed,
+        paper_cli._prepare_paper_plan,
+        paper_cli._current_paper_plan,
+        paper_cli._execute_paper_plan,
     )
     for function in runtime_functions:
         assert "migrate_schema" not in inspect.getsource(function)

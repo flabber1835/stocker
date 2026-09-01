@@ -55,11 +55,6 @@ _HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 _REGENESIS_PREPARATION_SCOPE = ContextVar(
     "sentinel_dual_regenesis_preparation_scope", default=False)
 
-# Dual reconciliation can run in automation, an authorized CLI, or tests. Every
-# process must resolve the same active append-only segment as the shadow worker.
-shadow_segments.install_runtime_store(shadow_runtime)
-
-
 class DualReconciliationPending(RuntimeError):
     """The shadow service or explicit transport approval is not yet current."""
 

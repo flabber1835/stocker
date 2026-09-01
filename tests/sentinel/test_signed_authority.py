@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import base64
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import hashlib
 import json
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -19,7 +21,9 @@ sys.path.insert(0, str(ROOT / "shared"))
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 from tests.support import formal_baseline, formal_forward  # noqa: E402
 
+from sentinel import administrative_authority as administrative  # noqa: E402
 from sentinel import authority, binding, schema  # noqa: E402
+from sentinel.authority import repository as authority_repository  # noqa: E402
 from sentinel.feed import store as feed_store  # noqa: E402
 from tools import sentinel_certificate_issuer as issuer  # noqa: E402
 from tools import sentinel_authority_evidence as evidence  # noqa: E402
@@ -146,6 +150,150 @@ def context(value: dict, *, mode=authority.RolloutMode.PINNED_1_00,
         bindings=value["bindings"])
 
 
+def administrative_claims() -> dict:
+    value = claims()
+    value["unattended_automation"] = False
+    value["allowed_rollout_modes"] = ["PINNED_1_00"]
+    value["permitted_operations"] = [administrative.ADMIN_INSPECT]
+    value["rollout"].update({
+        "from_mode": "PINNED_1_00",
+        "from_version": 1,
+        "from_certificate_sha256": None,
+        "to_mode": "PINNED_1_00",
+        "to_version": 2,
+    })
+    return value
+
+
+def administrative_context(
+        value: dict) -> administrative.AdministrativeAuthorityContext:
+    return administrative.AdministrativeAuthorityContext(
+        **value["subject"], bindings=value["bindings"])
+
+
+def _race_connection(pg, application_name: str):
+    connection = feed_store.connect(pg.sync_dsn)
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT set_config('application_name',%s,false),"
+            " set_config('lock_timeout','10s',false),"
+            " set_config('statement_timeout','15s',false)",
+            (application_name,))
+    connection.commit()
+    return connection
+
+
+def _backend_pid(connection) -> int:
+    """Return the exact PostgreSQL session id for either supported driver."""
+    info = getattr(connection, "info", None)
+    backend_pid = getattr(info, "backend_pid", None)
+    if backend_pid is not None:
+        return int(backend_pid)
+    return int(connection.get_backend_pid())
+
+
+def _wait_for_blocked_backends(conn, *workers) -> None:
+    """Wait for exact backend lock dependencies, never elapsed-time guesses."""
+    expected = {pid for pid, _future in workers}
+    deadline = time.monotonic() + 5
+    observed = set()
+    while time.monotonic() < deadline:
+        for pid, future in workers:
+            if future.done():
+                outcome = future.result()
+                pytest.fail(
+                    f"backend {pid} finished before reaching the lock: "
+                    f"{outcome!r}")
+        with conn.cursor() as cur:
+            observed = set()
+            for pid in expected:
+                cur.execute(
+                    "SELECT cardinality(pg_blocking_pids(%s))", (pid,))
+                if int(cur.fetchone()[0]) > 0:
+                    observed.add(pid)
+        if observed == expected:
+            return
+        time.sleep(0.01)
+    pytest.fail(
+        f"backends did not reach the expected lock wait: expected={expected!r} "
+        f"observed={observed!r}")
+
+
+def _activate_race_worker(connection, application_name: str, *, digest: str,
+                          document: dict) -> tuple[str, str]:
+    try:
+        try:
+            activated = authority.activate_signed_certificate(
+                connection, certificate_sha256=digest,
+                context=context(document), reason=application_name,
+                now=NOW, trust_roots=ROOTS,
+                confirm_controller_rollout=True)
+        except authority.AuthorityRefused as exc:
+            return "REFUSED", str(exc)
+        return "ACTIVATED", activated.certificate_sha256
+    finally:
+        connection.close()
+
+
+def _revoke_race_worker(connection, application_name: str, *, digest: str
+                        ) -> tuple[str, str]:
+    try:
+        authority.revoke_signed_certificate(
+            connection, certificate_sha256=digest, reason=application_name)
+        return "REVOKED", digest
+    finally:
+        connection.close()
+
+
+def _revoke_key_race_worker(
+        connection, application_name: str, *, key_id: str
+        ) -> tuple[str, str]:
+    try:
+        authority.revoke_signed_key(
+            connection, key_id=key_id, reason=application_name)
+        return "KEY_REVOKED", key_id
+    finally:
+        connection.close()
+
+
+def _activate_administrative_race_worker(
+        connection, application_name: str, *, digest: str,
+        document: dict) -> tuple[str, str]:
+    try:
+        try:
+            activated = administrative.activate_administrative_certificate(
+                connection, certificate_sha256=digest,
+                context=administrative_context(document),
+                reason=application_name, now=NOW, trust_roots=ROOTS)
+        except authority.AuthorityRefused as exc:
+            return "REFUSED", str(exc)
+        return "ACTIVATED", activated.certificate_sha256
+    finally:
+        connection.close()
+
+
+def _run_authority_transition_queue(conn, pg, *operations):
+    """Queue exact backends behind the common transaction-scoped lock."""
+    authority_repository.lock_authority_transition(conn)
+    released = False
+    with ThreadPoolExecutor(max_workers=len(operations)) as pool:
+        workers = []
+        try:
+            for application_name, operation, kwargs in operations:
+                connection = _race_connection(pg, application_name)
+                pid = _backend_pid(connection)
+                future = pool.submit(
+                    operation, connection, application_name, **kwargs)
+                workers.append((pid, future))
+                _wait_for_blocked_backends(conn, *workers)
+            conn.commit()
+            released = True
+            return [future.result(timeout=10) for _pid, future in workers]
+        finally:
+            if not released:
+                conn.rollback()
+
+
 @pytest.fixture(scope="module")
 def pg():
     try:
@@ -176,7 +324,25 @@ def conn(pg):
 
 
 def test_valid_test_vector_signature_and_disabled_production_root_refuses():
-    payload = signed(claims())
+    document = claims()
+    unsigned = authority.unsigned_envelope_bytes(
+        key_id=KEY_ID, claims=document)
+    payload = signed(document)
+    assert authority.canonical_sha256(document) == (
+        "11cf1fcc1fef99d9f6f2fe5f42810af054beddedbfa2ab3785582757f539eb3d")
+    assert (len(unsigned), hashlib.sha256(unsigned).hexdigest()) == (
+        3929,
+        "37d4bae987fea91de2aa58650d0c82803d36ba4bafdb1eed6117bb03bafb68f5",
+    )
+    assert (len(payload), hashlib.sha256(payload).hexdigest()) == (
+        4030,
+        "c323b8bfdb73f4c5c3ba7f73bf8be8ab6c4ac2631f8e9cb14a523d8a8933b641",
+    )
+    roots_payload = authority.DEFAULT_TRUST_ROOTS_PATH.read_bytes()
+    assert (len(roots_payload), hashlib.sha256(roots_payload).hexdigest()) == (
+        582,
+        "43e9c56f3d7f6283a2eca6c6aba14b525b7ae8d3da83bb514b0b3fdf031214e1",
+    )
     verified = authority.verify_signed_certificate(
         payload, now=NOW, trust_roots=ROOTS)
     assert verified.key_id == KEY_ID
@@ -339,6 +505,370 @@ def test_atomic_stage_activate_restart_and_revocation(conn, pg):
                 restarted, now=NOW, trust_roots=ROOTS)
     finally:
         restarted.close()
+
+
+def test_competing_activation_serializes_to_one_complete_transition(conn, pg):
+    document = claims()
+    payload = signed(document)
+    digest = hashlib.sha256(payload).hexdigest()
+    authority.install_signed_certificate(
+        conn, certificate_bytes=payload, confirm_sha256=digest,
+        context=context(document), now=NOW, trust_roots=ROOTS)
+
+    # Hold the first lifecycle lock so both workers reach the same observed
+    # database wait.  Queueing the first worker before the second makes the
+    # serialized winner deterministic without relying on scheduler timing.
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT generation FROM sentinel_execution_authority_state"
+            " WHERE id=1 FOR UPDATE")
+        assert cur.fetchone() == (0,)
+    released = False
+    first_name = "authority-race-activate-first"
+    second_name = "authority-race-activate-second"
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        try:
+            first_connection = _race_connection(pg, first_name)
+            first_pid = _backend_pid(first_connection)
+            first = pool.submit(
+                _activate_race_worker, first_connection, first_name,
+                digest=digest, document=document)
+            _wait_for_blocked_backends(conn, (first_pid, first))
+            second_connection = _race_connection(pg, second_name)
+            second_pid = _backend_pid(second_connection)
+            second = pool.submit(
+                _activate_race_worker, second_connection, second_name,
+                digest=digest, document=document)
+            _wait_for_blocked_backends(
+                conn, (first_pid, first), (second_pid, second))
+            conn.commit()
+            released = True
+            outcomes = [first.result(timeout=10), second.result(timeout=10)]
+        finally:
+            if not released:
+                conn.rollback()
+
+    assert outcomes == [
+        ("ACTIVATED", digest),
+        ("REFUSED", "staged certificate no longer supersedes active authority"),
+    ]
+    assert authority.load_rollout_state(conn) == authority.RolloutState(
+        authority.RolloutMode.CONTROLLER, 2, digest)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT generation,highest_issuer_generation,"
+            " active_certificate_sha256"
+            " FROM sentinel_execution_authority_state WHERE id=1")
+        assert cur.fetchone() == (1, 1, digest)
+        cur.execute(
+            "SELECT status,activated_at IS NOT NULL,retired_at IS NOT NULL,"
+            " revoked_at IS NOT NULL,revocation_reason"
+            " FROM sentinel_execution_certificate_lifecycle"
+            " WHERE certificate_sha256=%s", (digest,))
+        assert cur.fetchone() == ("ACTIVE", True, False, False, None)
+        cur.execute(
+            "SELECT authority_generation,action,detail"
+            " FROM sentinel_execution_certificate_events ORDER BY seq")
+        assert cur.fetchall() == [
+            (0, "STAGED", "reviewed offline certificate installation"),
+            (1, "ACTIVATED", first_name),
+        ]
+        cur.execute(
+            "SELECT version,from_mode,to_mode,certificate_sha256,reason"
+            " FROM sentinel_rollout_events ORDER BY seq")
+        assert cur.fetchall() == [
+            (2, "PINNED_1_00", "CONTROLLER", digest, first_name),
+        ]
+        cur.execute(
+            "SELECT COUNT(*) FROM sentinel_execution_certificate_revocations")
+        assert cur.fetchone() == (0,)
+
+
+def test_activation_queued_before_revocation_finishes_durably_revoked(
+        conn, pg):
+    document = claims()
+    payload = signed(document)
+    digest = hashlib.sha256(payload).hexdigest()
+    authority.install_signed_certificate(
+        conn, certificate_bytes=payload, confirm_sha256=digest,
+        context=context(document), now=NOW, trust_roots=ROOTS)
+
+    # Activation owns the common transition lock while waiting for the
+    # authority singleton.  Revocation starts during that wait and must queue
+    # without taking the lifecycle row, so the historical lock cycle cannot
+    # form.  Once activation commits, revocation must still complete.
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT generation FROM sentinel_execution_authority_state"
+            " WHERE id=1 FOR UPDATE")
+        assert cur.fetchone() == (0,)
+    released = False
+    activate_name = "authority-race-activate-before-revoke"
+    revoke_name = "authority-race-revoke-after-activate"
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        try:
+            activate_connection = _race_connection(pg, activate_name)
+            activate_pid = _backend_pid(activate_connection)
+            activated = pool.submit(
+                _activate_race_worker, activate_connection, activate_name,
+                digest=digest, document=document)
+            _wait_for_blocked_backends(conn, (activate_pid, activated))
+
+            revoke_connection = _race_connection(pg, revoke_name)
+            revoke_pid = _backend_pid(revoke_connection)
+            revoked = pool.submit(
+                _revoke_race_worker, revoke_connection, revoke_name,
+                digest=digest)
+            _wait_for_blocked_backends(
+                conn, (activate_pid, activated), (revoke_pid, revoked))
+            conn.commit()
+            released = True
+            outcomes = [
+                activated.result(timeout=10), revoked.result(timeout=10)]
+        finally:
+            if not released:
+                conn.rollback()
+
+    assert outcomes == [("ACTIVATED", digest), ("REVOKED", digest)]
+    with pytest.raises(authority.AuthorityRefused, match="revoked"):
+        authority.load_active_signed_certificate(
+            conn, now=NOW, trust_roots=ROOTS)
+    assert authority.load_rollout_state(conn) == authority.RolloutState(
+        authority.RolloutMode.CONTROLLER, 2, digest)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT generation,highest_issuer_generation,"
+            " active_certificate_sha256"
+            " FROM sentinel_execution_authority_state WHERE id=1")
+        assert cur.fetchone() == (2, 1, digest)
+        cur.execute(
+            "SELECT status,activated_at IS NOT NULL,revoked_at IS NOT NULL,"
+            " revocation_reason"
+            " FROM sentinel_execution_certificate_lifecycle"
+            " WHERE certificate_sha256=%s", (digest,))
+        assert cur.fetchone() == ("REVOKED", True, True, revoke_name)
+        cur.execute(
+            "SELECT authority_generation,action,detail"
+            " FROM sentinel_execution_certificate_events ORDER BY seq")
+        assert cur.fetchall() == [
+            (0, "STAGED", "reviewed offline certificate installation"),
+            (1, "ACTIVATED", activate_name),
+            (2, "REVOKED", revoke_name),
+        ]
+        cur.execute(
+            "SELECT certificate_sha256,reason"
+            " FROM sentinel_execution_certificate_revocations")
+        assert cur.fetchall() == [(digest, revoke_name)]
+
+
+def test_revocation_queued_before_activation_wins_without_partial_rollout(
+        conn, pg):
+    document = claims()
+    payload = signed(document)
+    digest = hashlib.sha256(payload).hexdigest()
+    authority.install_signed_certificate(
+        conn, certificate_bytes=payload, confirm_sha256=digest,
+        context=context(document), now=NOW, trust_roots=ROOTS)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT generation FROM sentinel_execution_authority_state"
+            " WHERE id=1 FOR UPDATE")
+        assert cur.fetchone() == (0,)
+    released = False
+    revoke_name = "authority-race-revoke-first"
+    activate_name = "authority-race-activate-after-revoke"
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        try:
+            revoke_connection = _race_connection(pg, revoke_name)
+            revoke_pid = _backend_pid(revoke_connection)
+            revoked = pool.submit(
+                _revoke_race_worker, revoke_connection, revoke_name,
+                digest=digest)
+            # The revoker owns the common transition lock and the lifecycle
+            # row while queued for the authority singleton.  Activation must
+            # wait on the common lock rather than taking a conflicting row.
+            _wait_for_blocked_backends(conn, (revoke_pid, revoked))
+            activate_connection = _race_connection(pg, activate_name)
+            activate_pid = _backend_pid(activate_connection)
+            activated = pool.submit(
+                _activate_race_worker, activate_connection, activate_name,
+                digest=digest, document=document)
+            _wait_for_blocked_backends(
+                conn, (revoke_pid, revoked), (activate_pid, activated))
+            conn.commit()
+            released = True
+            outcomes = [
+                revoked.result(timeout=10), activated.result(timeout=10)]
+        finally:
+            if not released:
+                conn.rollback()
+
+    assert outcomes == [
+        ("REVOKED", digest),
+        ("REFUSED", "signed certificate is revoked"),
+    ]
+    assert authority.load_rollout_state(conn) == authority.RolloutState(
+        authority.RolloutMode.PINNED_1_00, 1, None)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT generation,highest_issuer_generation,"
+            " active_certificate_sha256"
+            " FROM sentinel_execution_authority_state WHERE id=1")
+        assert cur.fetchone() == (0, 0, None)
+        cur.execute(
+            "SELECT status,activated_at IS NOT NULL,retired_at IS NOT NULL,"
+            " revoked_at IS NOT NULL,revocation_reason"
+            " FROM sentinel_execution_certificate_lifecycle"
+            " WHERE certificate_sha256=%s", (digest,))
+        assert cur.fetchone() == (
+            "REVOKED", False, False, True, revoke_name)
+        cur.execute(
+            "SELECT authority_generation,action,detail"
+            " FROM sentinel_execution_certificate_events ORDER BY seq")
+        assert cur.fetchall() == [
+            (0, "STAGED", "reviewed offline certificate installation"),
+            (0, "REVOKED", revoke_name),
+        ]
+        cur.execute(
+            "SELECT version,from_mode,to_mode,certificate_sha256,reason"
+            " FROM sentinel_rollout_events ORDER BY seq")
+        assert cur.fetchall() == []
+        cur.execute(
+            "SELECT certificate_sha256,reason"
+            " FROM sentinel_execution_certificate_revocations")
+        assert cur.fetchall() == [(digest, revoke_name)]
+
+
+@pytest.mark.parametrize(
+    "first_operation", ("activation", "key-revocation"),
+    ids=("activation-first", "key-revocation-first"))
+def test_execution_activation_and_key_revocation_follow_transition_queue(
+        conn, pg, first_operation):
+    document = claims()
+    payload = signed(document)
+    digest = hashlib.sha256(payload).hexdigest()
+    authority.install_signed_certificate(
+        conn, certificate_bytes=payload, confirm_sha256=digest,
+        context=context(document), now=NOW, trust_roots=ROOTS)
+
+    activate_name = "authority-key-race-activation"
+    revoke_name = "authority-key-race-revocation"
+    activation = (
+        activate_name, _activate_race_worker,
+        {"digest": digest, "document": document})
+    revocation = (
+        revoke_name, _revoke_key_race_worker, {"key_id": KEY_ID})
+    ordered = ((activation, revocation) if first_operation == "activation"
+               else (revocation, activation))
+    outcomes = _run_authority_transition_queue(conn, pg, *ordered)
+
+    if first_operation == "activation":
+        assert outcomes == [
+            ("ACTIVATED", digest), ("KEY_REVOKED", KEY_ID)]
+        expected_state = (2, 1, digest)
+        expected_lifecycle = ("ACTIVE", True)
+        expected_rollout = authority.RolloutState(
+            authority.RolloutMode.CONTROLLER, 2, digest)
+        expected_actions = ["STAGED", "ACTIVATED", "KEY_REVOKED"]
+    else:
+        assert outcomes == [
+            ("KEY_REVOKED", KEY_ID),
+            ("REFUSED", "signed certificate key is durably revoked"),
+        ]
+        expected_state = (1, 0, None)
+        expected_lifecycle = ("STAGED", False)
+        expected_rollout = authority.RolloutState(
+            authority.RolloutMode.PINNED_1_00, 1, None)
+        expected_actions = ["STAGED", "KEY_REVOKED"]
+
+    with pytest.raises(
+            authority.AuthorityRefused,
+            match="signed certificate key is durably revoked"):
+        authority.load_installed_signed_certificate(
+            conn, digest, now=NOW, trust_roots=ROOTS)
+    assert authority.load_rollout_state(conn) == expected_rollout
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT generation,highest_issuer_generation,"
+            " active_certificate_sha256"
+            " FROM sentinel_execution_authority_state WHERE id=1")
+        assert cur.fetchone() == expected_state
+        cur.execute(
+            "SELECT status,activated_at IS NOT NULL"
+            " FROM sentinel_execution_certificate_lifecycle"
+            " WHERE certificate_sha256=%s", (digest,))
+        assert cur.fetchone() == expected_lifecycle
+        cur.execute(
+            "SELECT action FROM sentinel_execution_certificate_events"
+            " ORDER BY seq")
+        assert [row[0] for row in cur.fetchall()] == expected_actions
+        cur.execute(
+            "SELECT key_id,reason FROM sentinel_execution_key_revocations")
+        assert cur.fetchall() == [(KEY_ID, revoke_name)]
+
+
+@pytest.mark.parametrize(
+    "first_operation", ("activation", "key-revocation"),
+    ids=("activation-first", "key-revocation-first"))
+def test_administrative_activation_and_key_revocation_follow_transition_queue(
+        conn, pg, first_operation):
+    document = administrative_claims()
+    payload = signed(document)
+    digest = hashlib.sha256(payload).hexdigest()
+    administrative.install_administrative_certificate(
+        conn, certificate_bytes=payload, confirm_sha256=digest,
+        context=administrative_context(document), reason="reviewed inspection",
+        now=NOW, trust_roots=ROOTS)
+
+    activate_name = "administrative-key-race-activation"
+    revoke_name = "administrative-key-race-revocation"
+    activation = (
+        activate_name, _activate_administrative_race_worker,
+        {"digest": digest, "document": document})
+    revocation = (
+        revoke_name, _revoke_key_race_worker, {"key_id": KEY_ID})
+    ordered = ((activation, revocation) if first_operation == "activation"
+               else (revocation, activation))
+    outcomes = _run_authority_transition_queue(conn, pg, *ordered)
+
+    if first_operation == "activation":
+        assert outcomes == [
+            ("ACTIVATED", digest), ("KEY_REVOKED", KEY_ID)]
+        expected_state = (2, 1, digest)
+        expected_status = "ACTIVE"
+        expected_actions = ["STAGED", "ACTIVATED", "KEY_REVOKED"]
+    else:
+        assert outcomes == [
+            ("KEY_REVOKED", KEY_ID),
+            ("REFUSED", "administrative certificate key is durably revoked"),
+        ]
+        expected_state = (1, 0, None)
+        expected_status = "STAGED"
+        expected_actions = ["STAGED", "KEY_REVOKED"]
+
+    with pytest.raises(
+            authority.AuthorityRefused,
+            match="administrative certificate key is durably revoked"):
+        administrative.load_administrative_certificate(
+            conn, digest, now=NOW, trust_roots=ROOTS)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT generation,highest_issuer_generation,"
+            " active_certificate_sha256"
+            " FROM sentinel_administrative_authority_state WHERE id=1")
+        assert cur.fetchone() == expected_state
+        cur.execute(
+            "SELECT status FROM sentinel_signed_administrative_certificates"
+            " WHERE certificate_sha256=%s", (digest,))
+        assert cur.fetchone() == (expected_status,)
+        cur.execute(
+            "SELECT action FROM sentinel_administrative_certificate_events"
+            " ORDER BY seq")
+        assert [row[0] for row in cur.fetchall()] == expected_actions
+        cur.execute(
+            "SELECT key_id,reason FROM sentinel_execution_key_revocations")
+        assert cur.fetchall() == [(KEY_ID, revoke_name)]
 
 
 def test_controller_certificate_activation_requires_target_confirmation(conn):

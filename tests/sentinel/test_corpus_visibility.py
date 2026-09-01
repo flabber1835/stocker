@@ -70,7 +70,7 @@ def conn(pg):
                   "sentinel_corpus_anomalies", "sentinel_ingest_rejections"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     c.commit()
-    S.ensure_schema(c)
+    S.require_feed_schema(c)
     yield c
     c.close()
 

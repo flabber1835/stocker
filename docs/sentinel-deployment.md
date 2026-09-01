@@ -1161,8 +1161,8 @@ every ticker with a terminal event the run carried or resolved. `--book` then
 consumes it. A person retyping a ticker list sits in the evidentiary chain, and
 a typo there does not error — it produces a CLEAN certification.
 
-The canonical module is `stock_strategy_shared.book_artifact`, with
-`sentinel.core.book_artifact` a module-identity shim. It has to be shared:
+The canonical module is `stock_strategy_shared.book_artifact`, imported directly
+by both producers and consumers. It has to be shared:
 bt-engine PRODUCES it and Sentinel CONSUMES it, and neither may import the
 other. It is deliberately **not** under `wealth_core/` — that tree is hashed as
 `wealth_core_source` in every certification record and has been byte-identical

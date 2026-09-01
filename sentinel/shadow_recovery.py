@@ -29,9 +29,6 @@ from sentinel.feed import calendar, outage_recovery, publication, readiness
 from sentinel.feed import store as feed_store
 
 
-shadow_segments.install_runtime_store(shadow_runtime)
-
-
 def _utc(now: Optional[datetime]) -> datetime:
     value = now or datetime.now(timezone.utc)
     if value.tzinfo is None or value.utcoffset() is None:

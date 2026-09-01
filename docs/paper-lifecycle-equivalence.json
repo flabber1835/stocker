@@ -1,4 +1,5 @@
 {
+  "_historical_snapshot": "Step 4 decomposition provenance; paths and references are not a current ownership/import inventory. See docs/final-simplification-freeze.md.",
   "compatibility_references": {
     "ExecutionResult": [
       "docs/paper-lifecycle-responsibility-map.md",

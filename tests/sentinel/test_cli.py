@@ -27,8 +27,11 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
 from fakes import FakeBroker  # noqa: E402
-from sentinel import __main__ as cli  # noqa: E402
-from sentinel import _main_impl  # noqa: E402
+from sentinel.cli import main as cli  # noqa: E402
+from sentinel.cli import _shared as cli_shared  # noqa: E402
+from sentinel.cli import account as account_cli  # noqa: E402
+from sentinel.cli import authority as authority_cli  # noqa: E402
+from sentinel.cli import feed as feed_cli  # noqa: E402
 from sentinel import (  # noqa: E402
     binding, broker as broker_mod, guarded_administration, handover, schema)
 from sentinel.config import (  # noqa: E402
@@ -47,10 +50,10 @@ from stock_strategy_shared.broker.alpaca import (  # noqa: E402
 @pytest.fixture(autouse=True)
 def _authorized_runtime_surface(monkeypatch, tmp_path):
     marker = tmp_path / "authorized-runtime-v1"
-    marker.write_bytes(cli.AUTHORIZED_RUNTIME_MARKER_BYTES)
-    monkeypatch.setattr(_main_impl, "AUTHORIZED_RUNTIME_MARKER", marker)
+    marker.write_bytes(cli_shared.AUTHORIZED_RUNTIME_MARKER_BYTES)
+    monkeypatch.setattr(cli_shared, "AUTHORIZED_RUNTIME_MARKER", marker)
     monkeypatch.setenv(
-        cli.AUTHORIZED_RUNTIME_ENV, cli.AUTHORIZED_RUNTIME_VALUE)
+        cli_shared.AUTHORIZED_RUNTIME_ENV, cli_shared.AUTHORIZED_RUNTIME_VALUE)
 
 
 def env(**over):
@@ -175,7 +178,7 @@ class TestPreviewCloseGate:
             calendar, "latest_closed_session",
             lambda actual: "2026-08-11")
 
-        actual, frontier = cli._closed_preview_frontier(  # noqa: SLF001
+        actual, frontier = feed_cli._closed_preview_frontier(  # noqa: SLF001
             object(), now_et=moment)
 
         assert captured["today"] == moment.isoformat()
@@ -196,7 +199,7 @@ class TestPreviewCloseGate:
             calendar, "latest_closed_session",
             lambda actual: "2026-08-12")
 
-        actual, frontier = cli._closed_preview_frontier(  # noqa: SLF001
+        actual, frontier = feed_cli._closed_preview_frontier(  # noqa: SLF001
             object(), now_et=moment)
 
         assert actual.ready is True
@@ -209,7 +212,7 @@ class TestLegacyPlanIsRetired:
         for key, value in env(SENTINEL_STATE_DIR=str(tmp_path)).items():
             monkeypatch.setenv(key, value)
         monkeypatch.setattr(
-            _main_impl, "build_broker",
+            account_cli, "build_broker",
             lambda _cfg: (_ for _ in ()).throw(
                 AssertionError("retired plan contacted a broker")))
 
@@ -244,7 +247,7 @@ class TestEstablishOwnershipIsRetired:
         broker = FakeBroker({"AAPL": 10})
         for k, v in env(SENTINEL_STATE_DIR=str(tmp_path)).items():
             monkeypatch.setenv(k, v)
-        monkeypatch.setattr(_main_impl, "build_broker", lambda cfg: broker)
+        monkeypatch.setattr(account_cli, "build_broker", lambda cfg: broker)
 
         cli.main(["establish-ownership", "--poll-seconds", "0"])
         assert broker.closes == []
@@ -288,7 +291,7 @@ class TestEstablishOwnershipIsRetired:
                 schema.SchemaMigrationRefused(
                     "behavioral migration authority is corrupt")))
         monkeypatch.setattr(
-            _main_impl, "build_broker",
+            account_cli, "build_broker",
             lambda _config: (_ for _ in ()).throw(
                 AssertionError(
                     f"{command} built a broker after schema refusal")))
@@ -297,12 +300,12 @@ class TestEstablishOwnershipIsRetired:
             args = SimpleNamespace(
                 deployment_id="nas-1", expect_account="ACC-123",
                 notes="ticket")
-            result = asyncio.run(cli._migrate_account(config, args))
+            result = asyncio.run(account_cli._migrate_account(config, args))
         else:
             args = SimpleNamespace(
                 confirm_old_credentials_revoked=True,
                 confirm_paper_account="ACC-123", notes="ticket")
-            result = asyncio.run(cli._adopt_restored(config, args))
+            result = asyncio.run(account_cli._adopt_restored(config, args))
 
         assert result == cli.EXIT_NOT_ESTABLISHED
         assert capsys.readouterr().err == (
@@ -336,13 +339,13 @@ class TestEstablishOwnershipIsRetired:
         monkeypatch.setattr(schema, "ensure_schema", lambda _conn: None)
         monkeypatch.setattr(binding, "load", lambda _conn: None)
         monkeypatch.setattr(
-            _main_impl, "_authorized_administrative_access",
+            authority_cli, "_authorized_administrative_access",
             lambda *_args, **_kwargs: (object(), object()))
         monkeypatch.setattr(
             guarded_administration, "GuardedAdministrativeBroker",
             lambda *, inner, grant, guard: inner)
         monkeypatch.setattr(
-            _main_impl, "build_broker", lambda _config: object())
+            account_cli, "build_broker", lambda _config: object())
 
         async def refuse(**_kwargs):
             raise error
@@ -351,7 +354,7 @@ class TestEstablishOwnershipIsRetired:
         args = SimpleNamespace(
             deployment_id="nas-1", expect_account="ACC-123", notes="ticket")
 
-        assert asyncio.run(cli._migrate_account(config, args)) \
+        assert asyncio.run(account_cli._migrate_account(config, args)) \
             == cli.EXIT_NOT_ESTABLISHED
         stderr = capsys.readouterr().err
         assert stderr == f"REFUSED: {error}\n"

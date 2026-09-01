@@ -276,30 +276,6 @@ def load_sectors(conn, *, as_of: Optional[str] = None) -> dict[str, str | None]:
     return {str(sid): sector for sid, sector in rows}
 
 
-def load_terminal_events(conn, *, start: str, end: str, resolve_identity=None,
-                         resolve_with_reason=None):
-    """WIRED as of 2026-08-09 — delegates to `sentinel.core.terminal`.
-
-    It used to RAISE, because an empty list is indistinguishable from "no
-    corporate actions in the window" and the engine would run cleanly while
-    holding securities that no longer exist. The mapping has now been carried
-    across intact and pinned against the backtester's, so the honest answer is
-    available and the refusal is retired.
-    """
-    from sentinel.core.terminal import load_terminal_events as _load
-
-    return _load(conn, start=start, end=end, resolve_identity=resolve_identity,
-                 resolve_with_reason=resolve_with_reason)
-
-
-def load_terminal_result(conn, *, start: str, end: str, resolve_with_reason=None):
-    """The accounted form — see `sentinel.core.terminal.TerminalLoadResult`."""
-    from sentinel.core.terminal import load_terminal_events as _load
-
-    return _load(conn, start=start, end=end,
-                 resolve_with_reason=resolve_with_reason)
-
-
 def _f(v) -> Optional[float]:
     if v is None:
         return None

@@ -61,6 +61,7 @@ from sentinel.execution import (  # noqa: E402
     certification,
     journal,
     preopen_authority,
+    reconcile as execution_reconciliation,
     target_reprojection,
 )
 from sentinel.execution.commands import Command  # noqa: E402
@@ -155,7 +156,7 @@ def pg():
 def conn(pg):
     connection = feed_store.connect(pg.sync_dsn)
     drop_public_tables(connection)
-    feed_store.ensure_schema(connection)
+    feed_store.require_feed_schema(connection)
     schema.ensure_schema(connection)
     with connection.cursor() as cur:
         cur.execute(
@@ -1271,7 +1272,7 @@ def test_missing_canonical_state_never_bootstraps_over_a_surviving_book(
     async def reconcile(**_kwargs):
         return preflight
 
-    monkeypatch.setattr(paper.reconciliation, "reconcile", reconcile)
+    monkeypatch.setattr(execution_reconciliation, "reconcile", reconcile)
 
     with pytest.raises(
             paper.PaperActivationRefused,
@@ -1524,12 +1525,12 @@ def test_account_change_inside_settled_book_bracket_is_retryable(
     observation = BrokerObservation(
         observed_at=now, orders=(), positions=(),
         account_identity=BrokerAccountIdentity("sim", ACCOUNT))
-    result = paper.reconciliation.ReconciliationResult(
+    result = execution_reconciliation.ReconciliationResult(
         runtime_state=RuntimeState.RUNNING, observation=observation,
         observation_id=1)
 
     async def confirmation(**_kwargs):
-        return paper.reconciliation.ReconciliationResult(
+        return execution_reconciliation.ReconciliationResult(
             runtime_state=RuntimeState.RUNNING, observation=observation,
             observation_id=2)
 
@@ -1548,7 +1549,7 @@ def test_account_change_inside_settled_book_bracket_is_retryable(
         async def account_snapshot(self):
             return next(snapshots)
 
-    monkeypatch.setattr(paper.reconciliation, "reconcile", confirmation)
+    monkeypatch.setattr(execution_reconciliation, "reconcile", confirmation)
     monkeypatch.setattr(journal, "in_flight_commands", lambda *_a, **_k: [])
 
     with pytest.raises(
@@ -1569,12 +1570,12 @@ def test_mark_to_market_ticks_do_not_destabilize_cash_bracket(
     observation = BrokerObservation(
         observed_at=now, orders=(), positions=(),
         account_identity=BrokerAccountIdentity("sim", ACCOUNT))
-    result = paper.reconciliation.ReconciliationResult(
+    result = execution_reconciliation.ReconciliationResult(
         runtime_state=RuntimeState.RUNNING, observation=observation,
         observation_id=1)
 
     async def confirmation(**_kwargs):
-        return paper.reconciliation.ReconciliationResult(
+        return execution_reconciliation.ReconciliationResult(
             runtime_state=RuntimeState.RUNNING, observation=observation,
             observation_id=2)
 
@@ -1598,7 +1599,7 @@ def test_mark_to_market_ticks_do_not_destabilize_cash_bracket(
     async def cash_state(*_args, **_kwargs):
         return activity
 
-    monkeypatch.setattr(paper.reconciliation, "reconcile", confirmation)
+    monkeypatch.setattr(execution_reconciliation, "reconcile", confirmation)
     monkeypatch.setattr(journal, "in_flight_commands", lambda *_a, **_k: [])
     monkeypatch.setattr(
         paper_reconciliation_evidence, "_broker_cash_state_or_refuse", cash_state)
@@ -1669,7 +1670,7 @@ class TestStrictExecutionGate:
             journal.adopt_recovered_order(
                 kwargs["conn"], recovered, deployment=bound.identity)
             observation = await kwargs["broker"].observe()
-            return paper.reconciliation.ReconciliationResult(
+            return execution_reconciliation.ReconciliationResult(
                 runtime_state=RuntimeState.RUNNING,
                 observation=observation,
                 expected=observation.positions_by_security(),
@@ -1678,7 +1679,7 @@ class TestStrictExecutionGate:
                 detail="adopted terminal recovered order")
 
         monkeypatch.setattr(
-            paper.reconciliation, "reconcile", adopt_during_reconcile)
+            execution_reconciliation, "reconcile", adopt_during_reconcile)
 
         with pytest.raises(
                 paper.PreOpenShareUnitAuthorityUnavailable,
@@ -2118,7 +2119,7 @@ class TestStrictExecutionGate:
                 f"resolve_instrument:{security_id}:{symbol}")
             raise alpaca.MalformedBrokerPayload(detail)
 
-        monkeypatch.setattr(paper.reconciliation, "reconcile", reconcile)
+        monkeypatch.setattr(execution_reconciliation, "reconcile", reconcile)
         monkeypatch.setattr(broker, "resolve_instrument", refuse_resolution)
 
         with pytest.raises(

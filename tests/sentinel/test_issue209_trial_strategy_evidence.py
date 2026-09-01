@@ -27,7 +27,7 @@ def pg():
 def conn(pg):
     c = feed_store.connect(pg.sync_dsn)
     drop_public_tables(c)
-    feed_store.ensure_schema(c)
+    feed_store.require_feed_schema(c)
     from sentinel import schema
     schema.ensure_schema(c)
     yield c

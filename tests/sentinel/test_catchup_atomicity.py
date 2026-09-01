@@ -90,7 +90,7 @@ def conn(pg):
             age         INTEGER NOT NULL,
             last_session DATE NOT NULL)""")
     c.commit()
-    S.ensure_schema(c)
+    S.require_feed_schema(c)
     from sentinel import schema as sentinel_schema
     sentinel_schema.ensure_schema(c)
     yield c

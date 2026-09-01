@@ -351,7 +351,7 @@ class TestMigrationRequiresStableFlatness:
 
 class TestTheRetiredCommand:
     def test_establish_ownership_refuses_and_says_what_to_run(self, capsys):
-        from sentinel.__main__ import main
+        from sentinel.cli.main import main
         import os
         os.environ.setdefault("ALPACA_API_KEY", "k")
         os.environ.setdefault("ALPACA_SECRET_KEY", "s")

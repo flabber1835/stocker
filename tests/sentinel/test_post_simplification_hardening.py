@@ -40,11 +40,7 @@ def test_market_clock_is_authorized_for_prepare_and_execute_reads():
 def test_publication_cannot_be_redirected_through_hidden_implementation(monkeypatch):
     sentinel = object()
     monkeypatch.setattr(publication, "_publish_atomic", lambda *a, **k: sentinel)
-    monkeypatch.setattr(
-        publication._core, "publish",
-        lambda *a, **k: (_ for _ in ()).throw(
-            AssertionError("hidden implementation must not own public publication")),
-    )
+    assert not hasattr(publication._core, "publish")
     assert publication.publish(object()) is sentinel
 
 

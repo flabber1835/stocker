@@ -13,6 +13,7 @@ from sentinel.observation_authority import (
     current_corpus_root_identity,
     current_metadata_snapshot_identity,
 )
+from sentinel.authority.validation import validate_observation_bindings
 
 
 def _utc_second(value: datetime, *, label: str) -> datetime:
@@ -80,7 +81,7 @@ def current_bindings(
         administrative_execution_config_identity(
             paper_base_url=paper_base_url,
             trust_roots_path=trust_roots_path))
-    authority._validate_observation_bindings(bound)
+    validate_observation_bindings(bound)
     return bound
 
 

@@ -275,37 +275,6 @@ def _local_fingerprint(conn, *, start: str, end: str) -> _PartitionProof:
         value_digest=value_fp.digest())
 
 
-def reconcile_year(conn, *, fetch=sharadar.fetch_table,
-                   year: int, start: str, end: str) -> ReconciliationResult:
-    """Prove one stable complete vendor year equals published keys AND values."""
-    store._assert_corpus_locked(conn)
-    if not (str(start).startswith(f"{int(year):04d}-")
-            and str(end).startswith(f"{int(year):04d}-")):
-        raise ValueError("SEP reconciliation window must stay within one year")
-    source = _source_fingerprint(conn, fetch=fetch, start=start, end=end)
-    local = _local_fingerprint(conn, start=start, end=end)
-    if source.rows != local.rows or source.key_digest != local.key_digest:
-        raise SepKeysetDrift(
-            f"stable Sharadar SEP {year} normalized key set disagrees with "
-            f"published corpus: source {source.rows:,}/{source.key_digest[:16]}, "
-            f"local {local.rows:,}/{local.key_digest[:16]}. This can be a vendor "
-            "deletion, insertion, identity restatement, or lost local row. "
-            "Refusing to guess which side to repair.")
-    if source.value_digest != local.value_digest:
-        raise SepValueDrift(
-            f"stable Sharadar SEP {year} strategy values disagree with published "
-            f"corpus despite an identical {source.rows:,}-row key set: source "
-            f"{source.value_digest[:16]}, local {local.value_digest[:16]}. "
-            "At least one signal/raw/open/volume value is stale or corrupted; "
-            "refusing to earn/advance reconciliation authority over it.")
-    current = publication.require_current(conn)
-    return ReconciliationResult(
-        year=int(year), start=str(start), end=str(end), rows=source.rows,
-        digest=source.key_digest, value_digest=source.value_digest,
-        max_lastupdated=source.max_lastupdated,
-        publication_version=current.version)
-
-
 def _save_result(conn, result: ReconciliationResult, *, checked_on: dt.date) -> None:
     state = json.dumps({
         "kind": "sharadar-sep-keyset-reconcile/v1",
@@ -340,45 +309,7 @@ def _bounded_years(lo: dt.date, hi: dt.date, checked_on: dt.date):
             yield year, start, end
 
 
-def reconcile_all(conn, *, fetch=sharadar.fetch_table,
-                  through: str) -> list[ReconciliationResult]:
-    """Prove every published SEP year against stable current source keys/values."""
-    store._assert_corpus_locked(conn)
-    checked_on = dt.date.fromisoformat(str(through))
-    lo, hi = _visible_bounds(conn)
-    results: list[ReconciliationResult] = []
-    for year, start, end in _bounded_years(lo, hi, checked_on):
-        result = reconcile_year(
-            conn, fetch=fetch, year=year,
-            start=start.isoformat(), end=end.isoformat())
-        _save_result(conn, result, checked_on=checked_on)
-        results.append(result)
-    return results
-
-
-def reconcile_next(conn, *, fetch=sharadar.fetch_table,
-                   through: str) -> list[ReconciliationResult]:
-    """Advance the rotating complete value+key proof by configured partitions."""
-    store._assert_corpus_locked(conn)
-    if YEARS_PER_RUN < 1:
-        raise ValueError("SHARADAR_SEP_RECONCILE_YEARS_PER_RUN must be >= 1")
-    checked_on = dt.date.fromisoformat(str(through))
-    results: list[ReconciliationResult] = []
-    for _ in range(YEARS_PER_RUN):
-        year, start, end = _next_year(conn)
-        if start > checked_on:
-            break
-        end = min(end, checked_on)
-        result = reconcile_year(
-            conn, fetch=fetch, year=year,
-            start=start.isoformat(), end=end.isoformat())
-        _save_result(conn, result, checked_on=checked_on)
-        results.append(result)
-    return results
-
-
 __all__ = [
     "CURSOR_NAME", "ReconciliationResult", "SepKeysetDrift", "SepValueDrift",
-    "SepReconciliationStateInvalid", "YEARS_PER_RUN", "reconcile_all",
-    "reconcile_next", "reconcile_year",
+    "SepReconciliationStateInvalid", "YEARS_PER_RUN",
 ]

@@ -46,7 +46,7 @@ sentinel/feed/readiness.py           the data contract + persisted verdicts
 sentinel/core/catchup.py             convergence after absence, re-projection
 sentinel/core/decision.py            canonical shadow/controller -> stamped plan
 sentinel/paper.py                    read-only preparation + strict execution gate
-sentinel/authority.py                signed certificate gate + rollout mode
+sentinel/authority/                  signed certificate gate + rollout mode
 sentinel/automation/                 disabled-by-default Stage 4 orchestration
 sentinel/core/cashflow.py            external cash as a declared event
 ```
@@ -415,6 +415,15 @@ This is the only locally enforceable ordering that preserves both a non-blocking
 emergency control and recoverable network effects. A database lock cannot make
 an external HTTP request atomic, and serializing the control behind a broker
 operation would weaken the emergency-control contract.
+
+Authority lifecycle mutations serialize only against one another through the
+transaction-scoped authority-transition advisory lock. Activation and
+revocation take that lock before their first authority row lock; activation
+then re-reads certificate and key revocation immediately before its durable
+mutation. Thus a revocation queued behind activation completes afterward and
+leaves authority revoked, while a revocation queued first makes activation
+refuse. This lock is disjoint from the execution writer lock and never extends
+across broker I/O.
 
 ---
 

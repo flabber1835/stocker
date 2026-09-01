@@ -76,7 +76,7 @@ def conn(pg):
         for (t,) in cur.fetchall():
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     c.commit()
-    S.ensure_schema(c)
+    S.require_feed_schema(c)
     yield c
     c.close()
 
@@ -209,9 +209,9 @@ class TestItIsWrittenWhereTheCheckAlreadyRUNS:
         """The verdict already exists — `check-data` computes a full one and
         prints it to a terminal that scrolls. Persisting it costs one insert
         and is the entire supply side of this feature."""
-        from sentinel import __main__ as cli
+        from sentinel.cli import feed as feed_cli
 
-        src = code_of(cli.cmd_check_data)
+        src = code_of(feed_cli.cmd_check_data)
         assert "save_snapshot" in src
 
     def test_the_ROW_dates_the_verdict_it_shows(self, conn):

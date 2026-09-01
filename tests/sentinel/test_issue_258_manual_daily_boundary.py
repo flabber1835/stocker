@@ -7,10 +7,10 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from sentinel import __main__ as cli
-from sentinel import _main_impl
+from sentinel import identity
 from sentinel.cli import feed as feed_cli
-from sentinel.feed import ingest, manual_daily
+from sentinel.cli import main as cli
+from sentinel.feed import ingest, manual_daily, store as feed_store
 
 ET = ZoneInfo("America/New_York")
 
@@ -114,16 +114,17 @@ def test_ingest_daily_passes_explicit_session_verbatim(monkeypatch):
     assert observed["today"] == "2026-08-24"
 
 
-def test_cli_missing_boundary_refuses_before_retained_cli(monkeypatch, capsys):
+def test_cli_missing_boundary_refuses_before_configuration(monkeypatch, capsys):
     called = False
 
-    def forbidden(_argv):
+    def forbidden(_cls):
         nonlocal called
         called = True
-        raise AssertionError("retained CLI must not construct DB/vendor state")
+        raise AssertionError("CLI must not construct DB/vendor state")
 
-    monkeypatch.setattr(_main_impl, "main", forbidden)
-    assert cli.main(["feed-daily"]) == _main_impl.EXIT_CONFIG
+    monkeypatch.setattr(
+        cli.SentinelConfig, "from_env", classmethod(forbidden))
+    assert cli.main(["feed-daily"]) == cli.EXIT_CONFIG
     assert called is False
     assert "requires" in capsys.readouterr().err
 
@@ -141,7 +142,7 @@ def test_cli_prints_and_passes_resolved_session(monkeypatch, capsys):
         classmethod(lambda cls: SimpleNamespace(database_url="postgresql://test/db")),
     )
     monkeypatch.setattr(
-        feed_cli.runtime_identity,
+        identity,
         "require_feed_producer_identity",
         lambda: {
             "git_commit": "a" * 40,
@@ -153,9 +154,9 @@ def test_cli_prints_and_passes_resolved_session(monkeypatch, capsys):
         def close(self):
             pass
 
-    monkeypatch.setattr(feed_cli.feed_store, "connect", lambda _url: Connection())
-    monkeypatch.setattr(feed_cli.feed_store, "ensure_schema", lambda _conn: None)
-    monkeypatch.setattr(feed_cli.feed_store, "reclaim_orphans", lambda _conn: 0)
+    monkeypatch.setattr(feed_store, "connect", lambda _url: Connection())
+    monkeypatch.setattr(feed_store, "require_feed_schema", lambda _conn: None)
+    monkeypatch.setattr(feed_store, "reclaim_orphans", lambda _conn: 0)
 
     def original_daily(_conn, **kwargs):
         observed.update(kwargs)

@@ -9,8 +9,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from sentinel import _main_impl, binding, schema
-import sentinel.__main__ as sentinel_cli
+from sentinel import schema
+from sentinel.cli import authority as authority_cli
+from sentinel.cli import feed as feed_cli
 from sentinel.automation import store as automation_store
 from sentinel.automation.model import AutomationConfig, ControlBinding
 import sentinel.automation_runtime as automation_runtime
@@ -56,14 +57,14 @@ def test_137_candidate_survives_more_than_five_minutes_of_build_time(
         def close(self):
             return None
 
-    monkeypatch.setattr(_main_impl, "datetime", Clock)
+    monkeypatch.setattr(authority_cli, "datetime", Clock)
     monkeypatch.setattr(feed_store, "connect", lambda _dsn: Conn())
     monkeypatch.setattr(schema, "require_runtime_schema", lambda _conn: None)
     monkeypatch.setattr(
-        _main_impl, "_closed_preview_frontier",
+        feed_cli, "_closed_preview_frontier",
         lambda _conn: (SimpleNamespace(ready=True), "2026-08-14"))
     monkeypatch.setattr(
-        _main_impl, "_current_system_identities",
+        authority_cli, "_current_system_identities",
         lambda: ({"runtime": 1}, {"strategy": 1}))
     monkeypatch.setattr(
         automation_runtime, "config_from_env",
@@ -94,8 +95,8 @@ def test_137_candidate_survives_more_than_five_minutes_of_build_time(
         reviewer="reviewer", ticket="ticket")
     config = SimpleNamespace(database_url="postgresql://fixture")
 
-    assert sentinel_cli.cmd_create_paper_observation_candidate(
-        config, args) == sentinel_cli.EXIT_OK
+    assert authority_cli.cmd_create_paper_observation_candidate(
+        config, args) == authority_cli.EXIT_OK
     assert clock_reads == [reference]
 
 

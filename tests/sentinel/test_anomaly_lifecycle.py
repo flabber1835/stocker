@@ -48,7 +48,7 @@ def conn(pg):
                       "sentinel_corpus_anomalies"):
             cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
     c.commit()
-    S.ensure_schema(c)
+    S.require_feed_schema(c)
     yield c
     c.close()
 
@@ -390,7 +390,7 @@ def test_legacy_schema_upgrade_retains_ambiguous_evidence_fail_closed(conn):
                     (EVENT, EVENT))
     conn.commit()
 
-    S.ensure_schema(conn)
+    S.require_feed_schema(conn)
     rows = active(conn)
     assert {row["kind"] for row in rows} == {
         "SPLIT_DISAGREEMENT", "SPLIT_CORROBORATED_DERIVED"}
@@ -427,7 +427,7 @@ def test_schema_upgrade_classifies_stamped_legacy_rows_deterministically(conn):
             "sentinel_refuse_append_only_mutation")
     conn.commit()
 
-    S.ensure_schema(conn)
+    S.require_feed_schema(conn)
 
     assert lifecycle(conn, published) == [anomalies.PUBLISHED]
     assert lifecycle(conn, failed.progress.run_id) == [anomalies.ABORTED]

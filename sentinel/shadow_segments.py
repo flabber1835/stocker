@@ -310,67 +310,10 @@ class SegmentedPostgresShadowObservationStore(_LegacyStore):
         self.prefix = self.segment.prefix
 
 
-def install_runtime_store(shadow_runtime_module) -> None:
-    """Install segment-aware storage and fresh-genesis publication binding."""
-    if getattr(shadow_runtime_module, "_segment_runtime_installed", False):
-        return
-    original_require = shadow_runtime_module._require_reviewed_genesis_publication
-    shadow_runtime_module.PostgresShadowObservationStore = (
-        SegmentedPostgresShadowObservationStore)
-
-    def require_segmented_genesis(
-            conn, *, current, first_session: str, runtime_identity: Mapping):
-        reviewed = runtime_identity.get("reviewed_shadow_config")
-        logical = (reviewed or {}).get("observation_id") \
-            if isinstance(reviewed, Mapping) else None
-        # Segment zero predates outage segmentation and is intentionally
-        # backward-compatible with the original runtime-identity contract.
-        # Focused tests and already-retained legacy genesis records may not carry
-        # reviewed_shadow_config; in that case no later segment can be selected,
-        # so defer to the original exact publication-subject check unchanged.
-        if not isinstance(logical, str):
-            return original_require(
-                conn, current=current, first_session=first_session,
-                runtime_identity=runtime_identity)
-        segment = active_segment(conn, logical)
-        if segment.index == 0:
-            return original_require(
-                conn, current=current, first_session=first_session,
-                runtime_identity=runtime_identity)
-        if segment.first_session != first_session:
-            raise ShadowSegmentRefused(
-                "active segment first session differs from fresh genesis")
-        if (str(runtime_identity.get("validated_source_identity_sha256") or "")
-                != segment.validated_source_identity_sha256):
-            raise ShadowSegmentRefused(
-                "segment source identity differs from reviewed runtime identity")
-        visible = shadow_runtime_module.feed_store.latest_visible_session(conn)
-        if visible != first_session:
-            raise ShadowSegmentRefused(
-                "segment genesis is not the exact live published frontier")
-        actual = shadow_runtime_module._data_publication_subject_sha256(
-            current, visible)
-        if actual != segment.new_data_publication_sha256:
-            raise ShadowSegmentRefused(
-                "segment genesis publication differs from append-only marker")
-        session, kind, digest = predecessor_anchor(
-            conn, logical, segment.index - 1)
-        if (session != segment.predecessor_session
-                or kind != segment.predecessor_anchor_kind
-                or digest != segment.predecessor_anchor_sha256):
-            raise ShadowSegmentRefused(
-                "segment predecessor state changed after rollover")
-        return None
-
-    shadow_runtime_module._require_reviewed_genesis_publication = (
-        require_segmented_genesis)
-    shadow_runtime_module._segment_runtime_installed = True
-
-
 __all__ = [
     "SEGMENT_REASON_MISSED_FOLLOWING_OPEN",
     "SEGMENT_REASON_MULTI_SESSION_GAP", "SEGMENT_SCHEMA",
     "SegmentedPostgresShadowObservationStore", "ShadowSegment",
-    "ShadowSegmentRefused", "active_segment", "install_runtime_store",
+    "ShadowSegmentRefused", "active_segment",
     "predecessor_anchor", "rollover", "segments",
 ]

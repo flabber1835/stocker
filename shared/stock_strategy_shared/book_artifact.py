@@ -55,8 +55,8 @@ The producer is bt-engine's `rehearse_chain`, on the retired Stocker side. The
 consumer is `sentinel rejection-audit`. Neither may import the other — a
 Sentinel that needs a retired service is not a retirement, and bt-engine has no
 `sentinel/` in its image — so one implementation has to sit where both can
-reach it. `sentinel/core/book_artifact.py` is a re-export shim preserving module
-IDENTITY, the same pattern `strategy_engine` and `core/terminal` already use.
+reach it. Sentinel imports this canonical module directly; there is no local
+compatibility copy.
 
 It is deliberately NOT inside `stock_strategy_shared/wealth_core/`, even though
 it reads a `RunResult`. That package's source tree is hashed as

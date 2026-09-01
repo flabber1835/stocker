@@ -45,7 +45,7 @@ REPO = Path(os.environ.get("SENTINEL_REPO_ROOT") or ROOT)
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "shared"))
 
-from sentinel.core import book_artifact as B  # noqa: E402
+from stock_strategy_shared import book_artifact as B  # noqa: E402
 
 W = {"start": "2021-01-04", "end": "2023-12-29"}
 
@@ -322,7 +322,8 @@ class TestTheSharedBookArtifactBoundary:
         """bt-engine produces it and Sentinel consumes it, and neither may
         import the other. One implementation, reachable from both."""
         from stock_strategy_shared import book_artifact as shared
-        assert B is shared, "the sentinel shim is a COPY, so the two can drift"
+        assert B is shared
+        assert not (REPO / "sentinel" / "core" / "book_artifact.py").exists()
 
     def test_wealth_core_source_tree_is_UNTOUCHED_by_this(self):
         """It reads a RunResult, so `wealth_core/` looks like the tidy home. It

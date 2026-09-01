@@ -62,7 +62,7 @@ def conn(pg):
                 "sentinel_corpus_anomalies"):
             cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
     c.commit()
-    S.ensure_schema(c)
+    S.require_feed_schema(c)
     universe.write_universe(
         c,
         [{"permaticker": "SEC-AAA", "ticker": "AAA",
@@ -547,7 +547,7 @@ def test_legacy_action_upgrade_retains_evidence_as_active_baseline(conn):
                     " ('AAA',%s,'split',2)", (EVENT,))
     conn.commit()
 
-    S.ensure_schema(conn)
+    S.require_feed_schema(conn)
     active = actions.active_rows(conn, start=PRIOR, end=END)
     assert [(r["ticker"], r["action"], r["value"]) for r in active] == [
         ("AAA", "split", 2.0)]
@@ -754,8 +754,8 @@ def test_pr86_observation_schema_upgrade_is_idempotent_and_preserves_history(con
                     "0::BIGINT AS publication_version "
                     "FROM sentinel_action_observations WHERE disposition='PRESENT'")
     conn.commit()
-    S.ensure_schema(conn)
-    S.ensure_schema(conn)
+    S.require_feed_schema(conn)
+    S.require_feed_schema(conn)
     with conn.cursor() as cur:
         cur.execute("SELECT source_row_id,source_payload->>'action'"
                     " FROM sentinel_action_observations WHERE last_written_run_id=%s",

@@ -29,13 +29,3 @@ from stock_strategy_shared.wealth_core.signals import (  # noqa: F401
 STRATEGY_ID = "stocker_wealth_core_v1"
 RESEARCH_ALIAS = "stocker_durable_compounder_v1"
 STRATEGY_VERSION = 1
-
-# Persistence is a financial boundary. Importing any Wealth Core submodule first
-# executes this package initializer, so install the strict nested-state decoder
-# here once and make direct ``wealth_core.state`` imports equally protected.
-from stock_strategy_shared.wealth_core.state_restore_hardening import (  # noqa: E402
-    install as _install_state_restore_hardening,
-)
-
-_install_state_restore_hardening()
-del _install_state_restore_hardening

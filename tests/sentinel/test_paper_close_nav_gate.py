@@ -15,7 +15,11 @@ from sentinel.paper import (
     finalization as paper_finalization,
     preparation as paper_preparation,
 )
-from sentinel.execution import broker_cash, journal
+from sentinel.execution import (
+    broker_cash,
+    journal,
+    reconcile as execution_reconciliation,
+)
 from sentinel.execution.contract import MalformedBrokerEvidence
 from sentinel.execution.contract import (
     BrokerAccountIdentity, BrokerAccountSnapshot, BrokerFillIntervalEvidence,
@@ -591,7 +595,7 @@ def test_manual_delayed_preparation_cannot_bypass_due_cycle_gate(monkeypatch):
     monkeypatch.setattr(
         paper_preparation, "_revalidate_preopen_authority_or_refuse",
         lambda **_kwargs: None)
-    monkeypatch.setattr(paper.reconciliation, "reconcile", reconcile)
+    monkeypatch.setattr(execution_reconciliation, "reconcile", reconcile)
     monkeypatch.setattr(
         paper_preparation, "_clean_or_refuse", lambda _result, **_kwargs: observation)
     monkeypatch.setattr(
