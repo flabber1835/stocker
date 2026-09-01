@@ -39,15 +39,15 @@ on:
       artifact_name:
         value: ${{ jobs.replay.outputs.artifact_name }}
       run_id:
-        value: ${{ jobs.replay.outputs.run_id }}
+        value: ${{ github.run_id }}
       run_attempt:
-        value: ${{ jobs.replay.outputs.run_attempt }}
+        value: ${{ github.run_attempt }}
       certificate_hash:
-        value: ${{ jobs.replay.outputs.certificate_hash }}
+        value: ${{ steps.certificate.outputs.certificate_hash }}
       chain_hash:
-        value: ${{ jobs.replay.outputs.chain_hash }}
+        value: ${{ steps.certificate.outputs.chain_hash }}
       checkpoint_sha256:
-        value: ${{ jobs.replay.outputs.checkpoint_sha256 }}
+        value: ${{ steps.certificate.outputs.checkpoint_sha256 }}
 
 permissions:
   contents: read
@@ -80,7 +80,7 @@ jobs:
       CANONICAL_PIT_EXPECTED_END: '2026-07-31'
       CERTIFICATION_WARMUP_START: '2006-01-03'
       CERTIFICATION_MEASUREMENT_START: '2006-07-31'
-      PRODUCTION_MAIN_SHA: 89f6218ff116b4dafc4ca8ac6159337d1718e2e1
+      PRODUCTION_MAIN_SHA: 80e89b3f894f826e64139b1e0fedd5d42ef937f8
       PYTHONUNBUFFERED: '1'
 
     steps:
@@ -110,7 +110,7 @@ jobs:
             /backtester/run_production_strict_pit_20y.py
             /backtester/run_production_strict_pit_certification.py
             /backtester/write_production_year_certificate.py
-            /backtester/write_production_year_certificate_g3.py
+            /backtester/write_production_year_certificate_g4.py
             /backtester/strict_pit_metadata.py
             /backtester/canonical_pit_dataset.py
             /backtester/canonical_pit_package.py
@@ -123,6 +123,7 @@ jobs:
             /backtester/experiments/2026-08-27-sector-abc/run.py
             /backtester/data/canonical-pit-20y.json
             /backtester/data/production-chain-generation.json
+            /backtester/data/production-chain-generation-3.json
             /backtester/data/production-chain-generation-2.json
             /backtester/data/production-chain-generation-1.json
             /backtester/data/production-strict-pit-20y-request.json
@@ -181,13 +182,15 @@ jobs:
           generation = json.loads(
               Path('backtester/data/production-chain-generation.json').read_text()
           )
-          assert generation['generation'] == 3
-          assert generation['supersedes_generation'] == 2
-          assert generation['historical_descriptor'] == 'backtester/data/production-chain-generation-2.json'
-          generation_2 = json.loads(Path(generation['historical_descriptor']).read_text())
+          assert generation['generation'] == 4
+          assert generation['supersedes_generation'] == 3
+          assert generation['historical_descriptor'] == 'backtester/data/production-chain-generation-3.json'
+          generation_3 = json.loads(Path(generation['historical_descriptor']).read_text())
+          assert generation_3['generation'] == 3
+          assert generation_3['production_main_sha'] == '89f6218ff116b4dafc4ca8ac6159337d1718e2e1'
+          generation_2 = json.loads(Path(generation_3['historical_descriptor']).read_text())
           assert generation_2['generation'] == 2
           assert generation_2['production_main_sha'] == 'c851386fa4dddcf2e2533af3a1d313c38220b7f2'
-          assert generation_2['historical_descriptor'] == 'backtester/data/production-chain-generation-1.json'
           generation_1 = json.loads(Path(generation_2['historical_descriptor']).read_text())
           assert generation_1['generation'] == 1
           assert generation_1['production_main_sha'] == '887f479b15ad861313da666ad698034d3847121c'
@@ -203,7 +206,7 @@ jobs:
       - name: Check out exact production strategy source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: 89f6218ff116b4dafc4ca8ac6159337d1718e2e1
+          ref: 80e89b3f894f826e64139b1e0fedd5d42ef937f8
           path: main-src
           fetch-depth: 1
           persist-credentials: false
@@ -233,9 +236,9 @@ jobs:
           test "$(git -C main-src rev-parse HEAD)" = "${PRODUCTION_MAIN_SHA}"
           test -z "$(git -C main-src status --porcelain)"
           test "$(git -C main-src hash-object sentinel/core/kernel.py)" = "12617af8eb954d4ae18fef2ae16977048e2e40cd"
-          test "$(git -C main-src hash-object sentinel/core/production.py)" = "1809c2a31216b247dd0b727178680d41fce80c48"
+          test "$(git -C main-src hash-object sentinel/core/production.py)" = "e4ebfebae2fa1a737c52063af63003a82b6e19cf"
           test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/adapter.py)" = "466a8f8202692e65e08596a7a47d45bd15bb3fd3"
-          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)" = "8dd316ed28ff9b82c216f852118f8ef83d8510ad"
+          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)" = "1921399aca503ae5e2cbfd6125792c09464ba22b"
           YEAR_ROOT="backtester-results/production-year-${CHAIN_YEAR}"
           mkdir -p "${YEAR_ROOT}"
           : > "${YEAR_ROOT}/production-overlay.diff"
@@ -281,7 +284,7 @@ jobs:
             backtester/run_production_strict_pit_20y.py \
             backtester/run_production_strict_pit_certification.py \
             backtester/write_production_year_certificate.py \
-            backtester/write_production_year_certificate_g3.py
+            backtester/write_production_year_certificate_g4.py
           python -m compileall -q -f main-src/sentinel main-src/shared/stock_strategy_shared
           python -m unittest tests.backtester.test_production_annual_chain -v
           if python -c 'import pytest' >/dev/null 2>&1; then
@@ -433,7 +436,7 @@ jobs:
           test -f "${PREVIOUS_ROOT}/production-checkpoint.json.sha256"
           test -f "${PREVIOUS_ROOT}/production-year-certificate.json"
           test -f "${PREVIOUS_ROOT}/production-certificate-chain.json"
-          python backtester/write_production_year_certificate_g3.py validate-handoff \
+          python backtester/write_production_year_certificate_g4.py validate-handoff \
             --certificate "${PREVIOUS_ROOT}/production-year-certificate.json" \
             --chain "${PREVIOUS_ROOT}/production-certificate-chain.json" \
             --checkpoint "${PREVIOUS_ROOT}/production-checkpoint.json" \
@@ -498,7 +501,7 @@ jobs:
               --main-root main-src \
               --output "${GATE_ROOT}/resumed-output" \
               2>&1 | tee backtester-production-genesis-resumed.log
-          python backtester/write_production_year_certificate_g3.py compare-resume \
+          python backtester/write_production_year_certificate_g4.py compare-resume \
             --uninterrupted-output "${GATE_ROOT}/uninterrupted-output" \
             --resumed-output "${GATE_ROOT}/resumed-output" \
             --uninterrupted-checkpoint "${GATE_ROOT}/uninterrupted-checkpoint.json" \
@@ -529,7 +532,7 @@ jobs:
               --equivalence-audit "${YEAR_OUTPUT_ROOT}/resume-equivalence/resume-equivalence-audit.json"
             )
           fi
-          python backtester/write_production_year_certificate_g3.py issue \
+          python backtester/write_production_year_certificate_g4.py issue \
             --output-root "${PRODUCTION_OUTPUT_ROOT}" \
             --checkpoint "${PRODUCTION_CHECKPOINT_OUTPUT}" \
             --year "${CHAIN_YEAR}" \
@@ -575,7 +578,7 @@ jobs:
             backtester-production-genesis-resumed.log
             backtester/data/canonical-pit-20y.json
             backtester/data/production-chain-generation.json
-            backtester/data/production-chain-generation-2.json
+            backtester/data/production-chain-generation-3.json
             backtester/data/production-strict-pit-20y-request.json
           if-no-files-found: warn
           retention-days: 90
